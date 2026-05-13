@@ -35,7 +35,7 @@
 
   /* Header dropdown triggers: stable min-width so changing labels (e.g. time
      range "Live" → "Last 30 Days") don't shift siblings. Sized to fit common
-     labels without being oversized — custom date ranges may still expand
+     labels without being oversized - custom date ranges may still expand
      slightly. Mobile uses iconOnly + a separate container, so it's unaffected. */
   .header-controls .ed-trigger {
     min-width: 5.5rem;
@@ -272,7 +272,7 @@
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  /* Hover spin removed — button gradient/glow provides hover feedback.
+  /* Hover spin removed - button gradient/glow provides hover feedback.
      The click spin (githubIconFireworkSpin) is the only icon animation. */
 
   /* Dropdown Container */

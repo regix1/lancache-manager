@@ -126,7 +126,7 @@ fn run_purge(args: &Args, reporter: &ProgressReporter) -> Result<PurgeReport> {
     let depot_count = request.depot_ids.len();
 
     if url_count == 0 && depot_count == 0 {
-        eprintln!("No URLs or depot IDs supplied — nothing to purge");
+        eprintln!("No URLs or depot IDs supplied - nothing to purge");
         return Ok(PurgeReport {
             success: true,
             lines_removed: 0,
@@ -164,7 +164,7 @@ fn run_purge(args: &Args, reporter: &ProgressReporter) -> Result<PurgeReport> {
     let progress_cb = |files_done: usize, total_files: usize| {
         if total_files > 0 {
             let fraction = files_done as f64 / total_files as f64;
-            // Map into [15, 95) — the gap between the "purging" and "rewrote" ticks
+            // Map into [15, 95) - the gap between the "purging" and "rewrote" ticks
             let mapped = 15.0 + fraction * 80.0;
             reporter.emit_progress(
                 mapped,

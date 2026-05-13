@@ -124,7 +124,7 @@
     will-change: box-shadow;
   }
 
-  /* "Subtle" variant — used for bulk confirmations like Reset to Defaults where
+  /* "Subtle" variant - used for bulk confirmations like Reset to Defaults where
      every card flashes at once. A single, shorter, smaller-radius pulse feels
      like an acknowledgement rather than an attention-grab. */
   .highlight-glow-wrapper.highlight-glow-subtle.highlight-glow-active .themed-card,

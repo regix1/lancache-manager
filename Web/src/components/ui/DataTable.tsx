@@ -422,7 +422,7 @@ function DataTableInner<T>(
     );
   };
 
-  // When maxHeight is specified, only the body scrolls — header stays fixed above
+  // When maxHeight is specified, only the body scrolls - header stays fixed above
   if (maxHeight) {
     return (
       <div ref={containerRef} className={containerClasses} role="table">

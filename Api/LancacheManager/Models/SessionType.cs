@@ -12,7 +12,7 @@ namespace LancacheManager.Models;
 /// </summary>
 /// <remarks>
 /// We must use the generic <see cref="JsonStringEnumConverter{TEnum}"/> with an
-/// explicit <see cref="JsonNamingPolicy.CamelCase"/> — the non-generic
+/// explicit <see cref="JsonNamingPolicy.CamelCase"/> - the non-generic
 /// <c>JsonStringEnumConverter</c> ignores the globally-configured naming policy
 /// and would emit PascalCase ("Admin"/"Guest"), breaking the frontend.
 /// </remarks>

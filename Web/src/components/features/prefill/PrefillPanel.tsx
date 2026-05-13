@@ -168,7 +168,7 @@ function ServicePrefillPanel({
 
   // Listen for PrefillDefaultsChanged (admin changes OS/concurrency),
   // GuestPrefillConfigChanged (admin changes system-wide guest thread limit),
-  // and UserPreferencesUpdated (admin changes per-session thread limit) — re-fetch
+  // and UserPreferencesUpdated (admin changes per-session thread limit) - re-fetch
   // to get session-resolved effective maxThreadLimit
   useEffect(() => {
     onSignalR('PrefillDefaultsChanged', loadPrefillDefaults);
@@ -249,7 +249,7 @@ function ServicePrefillPanel({
           break;
         case 'UsernameRequired':
         case 'PasswordRequired':
-          // Daemon needs the user to enter credentials — show the auth modal.
+          // Daemon needs the user to enter credentials - show the auth modal.
           // Both map to the same UI because the modal collects username + password together.
           authActions.resetAuthForm();
           setShowAuthModal(true);
@@ -261,7 +261,7 @@ function ServicePrefillPanel({
           addLog('auth', t('prefill.log.twoFactorRequired'));
           break;
         case 'SteamGuardRequired':
-          // Steam Guard email code — daemon sent an email, user enters the code.
+          // Steam Guard email code - daemon sent an email, user enters the code.
           triggerEmailPrompt();
           setShowAuthModal(true);
           addLog('auth', t('prefill.log.steamGuardRequired'));
@@ -280,7 +280,7 @@ function ServicePrefillPanel({
           signalR.setIsLoggedIn(false);
           break;
         case 'LoggingIn':
-          // Transient state — daemon is performing the login handshake.
+          // Transient state - daemon is performing the login handshake.
           // No UI action needed; the *Required states will follow if anything more is needed.
           break;
       }
@@ -344,7 +344,7 @@ function ServicePrefillPanel({
         signalR.setIsLoggedIn(false);
         // Expiry is already signalled downstream by `timeRemaining <= 0`
         // (every consumer guards with `status === 'Active' && timeRemaining > 0`).
-        // Previously we also mutated session.status to a synthetic 'Expired' — nothing
+        // Previously we also mutated session.status to a synthetic 'Expired' - nothing
         // read that value, so it was dead state. Dropped to keep the DTO status aligned
         // with the backend's `DaemonSessionStatus` union.
       }

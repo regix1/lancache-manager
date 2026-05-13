@@ -448,7 +448,7 @@ export function useInitializationFlow({
   }, [goToStep]);
 
   const handleEpicAuthSkip = useCallback((): void => {
-    // User skipped Epic auth — return to hub without marking complete
+    // User skipped Epic auth - return to hub without marking complete
     setDataSourceChoice(null);
     goToStep('platform-setup');
   }, [goToStep]);
@@ -473,7 +473,7 @@ export function useInitializationFlow({
       setDataSourceChoice(null);
       goToStep('platform-setup');
     } else {
-      // Steam PICS path — depot init done, go to log processing
+      // Steam PICS path - depot init done, go to log processing
       setCompletedPlatforms((prev) => ({ ...prev, steam: 'steam' }));
       goToStep('log-processing');
     }
@@ -500,7 +500,7 @@ export function useInitializationFlow({
 
   const handleLogProcessingComplete = useCallback(async (): Promise<void> => {
     // Depot mappings are already applied during step 4 (GitHub/Steam download)
-    // and inline by the Rust processor during log processing — no separate step needed
+    // and inline by the Rust processor during log processing - no separate step needed
     const completed = await markSetupCompleted();
     if (!completed) return;
     await handleInitializationComplete();

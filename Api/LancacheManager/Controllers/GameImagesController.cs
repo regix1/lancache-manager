@@ -12,7 +12,7 @@ namespace LancacheManager.Controllers;
 
 /// <summary>
 /// RESTful controller for game image serving.
-/// Serves images from the local DB/cache only — no CDN fallback.
+/// Serves images from the local DB/cache only - no CDN fallback.
 /// Images are pre-fetched by the background image download service.
 /// </summary>
 [ApiController]

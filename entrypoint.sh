@@ -51,7 +51,7 @@ if [ -S /var/run/docker.sock ]; then
     echo "Docker socket detected (GID: $DOCKER_GID). User '$USER_NAME' added to group '$DOCKER_GROUP'."
 fi
 
-# Detect if running as root — ownership fixes require root
+# Detect if running as root - ownership fixes require root
 IS_ROOT=0
 if [ "$(id -u)" -eq 0 ]; then
     IS_ROOT=1
@@ -60,7 +60,7 @@ fi
 # Change ownership of application directories
 # /data needs write access for database and progress files
 # /app needs read access for the application
-# Exclude /data/postgresql — it must stay owned by the postgres OS user
+# Exclude /data/postgresql - it must stay owned by the postgres OS user
 if [ "$IS_ROOT" -eq 1 ]; then
     chown -R "$PUID:$PGID" /app/rust-processor 2>/dev/null || true
     find /data -mindepth 1 -maxdepth 1 ! -name postgresql -exec chown -R "$PUID:$PGID" {} + 2>/dev/null || true
@@ -91,7 +91,7 @@ if command -v setfacl &>/dev/null; then
     done
 fi
 
-# Write access diagnostics — warn if the app user cannot write to critical dirs
+# Write access diagnostics - warn if the app user cannot write to critical dirs
 for dir in /logs /cache; do
     if [ -d "$dir" ]; then
         if ! gosu "$USER_NAME" touch "$dir/.write_test" 2>/dev/null; then
@@ -111,8 +111,8 @@ chmod +x /app/rust-processor/* 2>/dev/null || true
 # PostgreSQL startup
 # ---------------------------------------------------------------------------
 # Determine PostgreSQL data directory
-# Primary: /data/postgresql (inside the user's /data volume — backed up alongside app data)
-# Fallback: /var/lib/postgresql/data (Docker-managed volume — survives container removal)
+# Primary: /data/postgresql (inside the user's /data volume - backed up alongside app data)
+# Fallback: /var/lib/postgresql/data (Docker-managed volume - survives container removal)
 PGDATA_PRIMARY="/data/postgresql"
 PGDATA_FALLBACK="/var/lib/postgresql/data"
 
@@ -120,15 +120,15 @@ if [ -f "$PGDATA_PRIMARY/PG_VERSION" ]; then
     # Already initialized at primary location
     PGDATA="$PGDATA_PRIMARY"
 elif [ -f "$PGDATA_FALLBACK/PG_VERSION" ]; then
-    # Existing install with data at fallback location — don't break it
+    # Existing install with data at fallback location - don't break it
     PGDATA="$PGDATA_FALLBACK"
     echo "[postgres] Using existing data at $PGDATA (mount postgres_data volume to persist)"
 elif [ -d "/data" ] && touch "/data/.pgcheck" 2>/dev/null; then
-    # Fresh install — /data is writable, use primary location
+    # Fresh install - /data is writable, use primary location
     rm -f "/data/.pgcheck"
     PGDATA="$PGDATA_PRIMARY"
 else
-    # /data not writable — use fallback
+    # /data not writable - use fallback
     PGDATA="$PGDATA_FALLBACK"
     echo "[postgres] /data not writable, using fallback: $PGDATA"
 fi
@@ -199,13 +199,13 @@ echo "[postgres] PostgreSQL is ready."
 
 # Create/update PostgreSQL role with credentials
 if [ -n "$PGPASSWORD" ]; then
-    # Credentials available — create user with password
+    # Credentials available - create user with password
     su - postgres -c "psql -qtc \"SELECT 1 FROM pg_roles WHERE rolname='$PGUSER'\" | grep -q 1 \
         || psql -qc \"CREATE USER $PGUSER WITH SUPERUSER PASSWORD '$PGPASSWORD';\""
     # Update password if user already exists (in case password changed)
     su - postgres -c "psql -qc \"ALTER USER $PGUSER WITH PASSWORD '$PGPASSWORD';\""
 else
-    # No password yet — create user without password (local trust auth)
+    # No password yet - create user without password (local trust auth)
     # App will show first-run setup page to collect credentials
     su - postgres -c "psql -qtc \"SELECT 1 FROM pg_roles WHERE rolname='$PGUSER'\" | grep -q 1 \
         || psql -qc \"CREATE USER $PGUSER WITH SUPERUSER;\""

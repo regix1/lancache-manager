@@ -29,7 +29,7 @@ public abstract class ScheduledBackgroundService : BackgroundService
     public DateTime? NextRunUtc { get; private set; }
     public bool IsCurrentlyExecuting { get; private set; }
 
-    // Schedule metadata — override in subclasses to register as user-configurable
+    // Schedule metadata - override in subclasses to register as user-configurable
     public virtual string ServiceKey => GetType().Name;
 
     /// <summary>
@@ -59,7 +59,7 @@ public abstract class ScheduledBackgroundService : BackgroundService
 
     /// <summary>
     /// Default time between work executions. Return TimeSpan.Zero to run continuously.
-    /// Use EffectiveInterval in the loop — this is the hardcoded default only.
+    /// Use EffectiveInterval in the loop - this is the hardcoded default only.
     /// </summary>
     protected abstract TimeSpan Interval { get; }
 
@@ -102,7 +102,7 @@ public abstract class ScheduledBackgroundService : BackgroundService
             }
             catch (ObjectDisposedException)
             {
-                // Already disposed — will be recreated on next loop iteration
+                // Already disposed - will be recreated on next loop iteration
             }
         }
 
@@ -130,7 +130,7 @@ public abstract class ScheduledBackgroundService : BackgroundService
     }
 
     /// <summary>
-    /// Wake the service immediately — cancels the current sleep so work runs on the next loop.
+    /// Wake the service immediately - cancels the current sleep so work runs on the next loop.
     /// </summary>
     public void TriggerImmediateRun()
     {
@@ -142,7 +142,7 @@ public abstract class ScheduledBackgroundService : BackgroundService
             }
             catch (ObjectDisposedException)
             {
-                // Already disposed — will be recreated on next loop iteration
+                // Already disposed - will be recreated on next loop iteration
             }
         }
 
@@ -189,14 +189,14 @@ public abstract class ScheduledBackgroundService : BackgroundService
         }
 
         // Discard any "_intervalJustChanged" flag that was set during construction or
-        // InitializeAsync — e.g. LoadStateOverrides → SetInterval sets that flag to wake
+        // InitializeAsync - e.g. LoadStateOverrides → SetInterval sets that flag to wake
         // a sleeping loop, but there's no loop yet, so the flag is meaningless here and
         // must not leak into the first iteration (it would cause the first real work run
         // to be delayed by an extra full interval).
         _intervalJustChanged = false;
 
         // Main execution loop.
-        // Always sleep one interval before the first ExecuteWorkAsync — this honors both:
+        // Always sleep one interval before the first ExecuteWorkAsync - this honors both:
         //   1. RunOnStartup=true: OnStartupAsync already ran above, so we skip back-to-back work
         //   2. RunOnStartup=false: user explicitly opted out of startup runs, so ExecuteWorkAsync
         //      must NOT fire on the first iteration either (otherwise "disabling startup" is a lie)
@@ -217,7 +217,7 @@ public abstract class ScheduledBackgroundService : BackgroundService
                 continue;
             }
 
-            // Skip work if woken by an interval change — just re-sleep with the new interval
+            // Skip work if woken by an interval change - just re-sleep with the new interval
             if (_intervalJustChanged)
             {
                 _intervalJustChanged = false;
@@ -250,7 +250,7 @@ public abstract class ScheduledBackgroundService : BackgroundService
             var interval = EffectiveInterval;
             if (interval.TotalHours < 0 || interval == TimeSpan.Zero)
             {
-                // Zero = disabled, negative = startup only — sleep until interval is changed or service stops
+                // Zero = disabled, negative = startup only - sleep until interval is changed or service stops
                 NextRunUtc = null;
                 await InterruptibleDelayAsync(Timeout.InfiniteTimeSpan, stoppingToken);
             }
@@ -286,12 +286,12 @@ public abstract class ScheduledBackgroundService : BackgroundService
         }
         catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
         {
-            // Interval changed or immediate run triggered — loop back to pick up the change
+            // Interval changed or immediate run triggered - loop back to pick up the change
             _logger.LogDebug("{ServiceName} sleep interrupted by interval change or trigger", ServiceName);
         }
         catch (OperationCanceledException)
         {
-            // Service is shutting down — let the loop exit
+            // Service is shutting down - let the loop exit
         }
         finally
         {
@@ -308,7 +308,7 @@ public abstract class ScheduledBackgroundService : BackgroundService
     /// <summary>
     /// Hardcoded default for whether OnStartupAsync runs before the main loop.
     /// Subclasses override this to express their *intended* default. The user can override
-    /// this at runtime via SetRunOnStartup() — typically loaded from IStateService in
+    /// this at runtime via SetRunOnStartup() - typically loaded from IStateService in
     /// each service's constructor and updated via the Schedules UI.
     /// </summary>
     public virtual bool DefaultRunOnStartup => false;
@@ -325,7 +325,7 @@ public abstract class ScheduledBackgroundService : BackgroundService
 
     /// <summary>
     /// Set the user-controlled RunOnStartup override. Pass null to clear and revert
-    /// to DefaultRunOnStartup. Note: this only affects future startups — once a service
+    /// to DefaultRunOnStartup. Note: this only affects future startups - once a service
     /// has already started its loop, toggling this won't retroactively run or skip
     /// the startup pass.
     /// </summary>

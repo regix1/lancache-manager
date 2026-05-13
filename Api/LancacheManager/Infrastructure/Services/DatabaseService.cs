@@ -32,7 +32,7 @@ public class DatabaseService : IDatabaseService
         public string Message { get; set; } = "";
         /// <summary>
         /// Lifecycle status of the current reset. `null` replaces the previous `"idle"`
-        /// sentinel — no in-flight reset. Otherwise uses the canonical <see cref="OperationStatus"/>
+        /// sentinel - no in-flight reset. Otherwise uses the canonical <see cref="OperationStatus"/>
         /// values (lowercased on the wire via <see cref="OperationStatusJsonConverter"/>).
         /// </summary>
         public OperationStatus? Status { get; set; }

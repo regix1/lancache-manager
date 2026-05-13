@@ -93,7 +93,7 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
     /// Checks all authenticated Epic sessions against the ban list.
     /// If a banned user is found, their session is terminated immediately.
     /// Epic uses OAuth (authorization-url), so bans cannot be checked at credential time
-    /// like Steam — they must be enforced after authentication when the display name is known.
+    /// like Steam - they must be enforced after authentication when the display name is known.
     /// </summary>
     private async Task EnforceBansOnAuthenticatedSessionsAsync()
     {

@@ -8,7 +8,7 @@ namespace LancacheManager.Core.Services;
 /// <summary>
 /// Server-side fallback for resolving the caller's public IP address when the
 /// browser cannot reach api.ipify.org (pi-hole, Lan-level DNS filters, corporate
-/// proxies — all common in lancache deployments). In a typical lancache setup
+/// proxies - all common in lancache deployments). In a typical lancache setup
 /// the server and the client share a LAN, so the server's outbound public IP
 /// equals the client's public IP.
 ///
@@ -63,7 +63,7 @@ public sealed class PublicIpLookupService
             {
                 _logger.LogDebug("Public-IP resolved via {Provider}: {Ip}", url, ip);
                 // Global IMemoryCache has SizeLimit configured (Program.cs), so
-                // every Set must declare Size — otherwise Microsoft.Extensions.Caching
+                // every Set must declare Size - otherwise Microsoft.Extensions.Caching
                 // throws "Cache entry must specify a value for Size when SizeLimit is set".
                 // An IP string is tiny; 64 bytes covers IPv4 + IPv6 with headroom.
                 var entryOptions = new MemoryCacheEntryOptions()

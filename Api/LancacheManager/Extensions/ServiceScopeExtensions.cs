@@ -31,7 +31,7 @@ public static class ServiceScopeExtensions
 {
     /// <summary>
     /// Creates a new service scope and resolves an AppDbContext from it.
-    /// The returned ScopedDbContext is disposable — disposing it disposes the scope.
+    /// The returned ScopedDbContext is disposable - disposing it disposes the scope.
     /// Usage: using var scopedDb = _scopeFactory.CreateScopedDbContext();
     /// </summary>
     public static ScopedDbContext CreateScopedDbContext(this IServiceScopeFactory scopeFactory)
@@ -39,7 +39,7 @@ public static class ServiceScopeExtensions
 
     /// <summary>
     /// Creates a new service scope and resolves an AppDbContext from it.
-    /// The returned ScopedDbContext is disposable — disposing it disposes the scope.
+    /// The returned ScopedDbContext is disposable - disposing it disposes the scope.
     /// Usage: using var scopedDb = serviceProvider.CreateScopedDbContext();
     /// </summary>
     public static ScopedDbContext CreateScopedDbContext(this IServiceProvider serviceProvider)

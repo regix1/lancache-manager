@@ -379,7 +379,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     {t('downloads.tab.compact.labels.hit')}
                   </span>
                   <span className="font-semibold text-[var(--theme-success-text)]">
-                    {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : '—'}
+                    {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : '-'}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -418,7 +418,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
 
                 return (
                   <div>
-                    {/* Filter bar — only for groups with many sessions */}
+                    {/* Filter bar - only for groups with many sessions */}
                     {group.downloads.length > 10 && (
                       <div className="mb-2">
                         <SessionFilterBar
@@ -472,7 +472,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
 
                         return (
                           <div key={ip}>
-                            {/* IP header — clickable to toggle */}
+                            {/* IP header - clickable to toggle */}
                             <button
                               type="button"
                               onClick={() => toggleIp(ip)}
@@ -503,7 +503,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                               </div>
                             </button>
 
-                            {/* Session rows — only when expanded */}
+                            {/* Session rows - only when expanded */}
                             {expanded && (
                               <IpSessionList
                                 ip={ip}
@@ -540,7 +540,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                               </span>
                                             ) : (
                                               <span className="font-medium font-mono text-[var(--theme-text-muted)]">
-                                                —
+                                                -
                                               </span>
                                             )}
                                           </div>
@@ -591,7 +591,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                             </span>
                                           ) : (
                                             <span className="font-medium font-mono text-right min-w-[36px] text-[var(--theme-text-muted)]">
-                                              —
+                                              -
                                             </span>
                                           )}
                                         </div>

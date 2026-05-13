@@ -20,7 +20,7 @@ public class UserSession
     public string IpAddress { get; set; } = string.Empty;
     public string UserAgent { get; set; } = string.Empty;
 
-    // Client-reported + GeoIP-enriched metadata. All optional — populated by
+    // Client-reported + GeoIP-enriched metadata. All optional - populated by
     // the /api/sessions/me/client-info endpoint when the browser POSTs the
     // public IP it learned from ipify.org together with browser-reported
     // locale/screen fields.

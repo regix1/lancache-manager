@@ -266,7 +266,7 @@ public class SessionsController : ControllerBase
         // Fallback: the browser's fetch to api.ipify.org is often blocked by pi-hole
         // or LAN-level DNS filters (net::ERR_ADDRESS_INVALID). In a typical lancache
         // deployment the server shares the LAN with the client, so the server's
-        // outbound public IP is the same as the client's — resolve it server-side.
+        // outbound public IP is the same as the client's - resolve it server-side.
         if (publicIp == null)
         {
             publicIp = await publicIpLookupService.ResolveAsync(ct);
@@ -279,7 +279,7 @@ public class SessionsController : ControllerBase
         }
 
         // Browser-reported timezone wins over GeoIP timezone when both are
-        // present — the browser value is authoritative for the user's device.
+        // present - the browser value is authoritative for the user's device.
         var timezone = !string.IsNullOrWhiteSpace(request.Timezone)
             ? request.Timezone.Trim()
             : geo?.Timezone;

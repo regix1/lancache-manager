@@ -1177,8 +1177,8 @@ fn calculate_cache_size_network(
     };
     write_progress(progress_path, &progress)?;
 
-    // Count files using find (more reliable on NFS). Invoke `find` directly —
-    // never via `sh -c` — so a crafted `cache_dir` cannot inject shell
+    // Count files using find (more reliable on NFS). Invoke `find` directly -
+    // never via `sh -c` - so a crafted `cache_dir` cannot inject shell
     // metacharacters. Each matching path is on its own line, so counting
     // newlines in stdout is equivalent to piping through `wc -l`.
     eprintln!("Counting files using find command...");

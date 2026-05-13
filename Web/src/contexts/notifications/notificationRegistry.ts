@@ -181,7 +181,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       defaultMessage: 'Starting game removal...',
       // Post-Phase-2 contract: GameRemovalStartedEvent carries a required i18n stageKey
       // (replaced free-text `message`) and scope-aware identity (`gameAppId` for Steam,
-      // `epicAppId` for Epic — exactly one is non-null). Mirrors the eviction_removal
+      // `epicAppId` for Epic - exactly one is non-null). Mirrors the eviction_removal
       // scope-aware pattern below.
       getMessage: (event: GameRemovalStartedEvent) =>
         i18n.t(event.stageKey, event.context ?? { gameName: event.gameName }),
@@ -204,7 +204,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     progress: {
       getMessage: (event: GameRemovalProgressEvent) => formatGameRemovalProgressMessage(event),
       getProgress: (event: GameRemovalProgressEvent) => event.percentComplete,
-      // GameRemovalProgress has no `status` field (dropped with the phase-label cleanup —
+      // GameRemovalProgress has no `status` field (dropped with the phase-label cleanup -
       // it never carried OperationStatus values anyway). Lifecycle transitions arrive via
       // the separate GameRemovalComplete event, so progress stays in `running` until then.
       getStatus: () => undefined,
@@ -252,7 +252,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getMessage: (event: ServiceRemovalProgressEvent) =>
         formatServiceRemovalProgressMessage(event),
       getProgress: (event: ServiceRemovalProgressEvent) => event.percentComplete,
-      // See GameRemovalProgress — no `status` on this event either.
+      // See GameRemovalProgress - no `status` on this event either.
       getStatus: () => undefined,
       getCompletedMessage: (event: ServiceRemovalProgressEvent) =>
         i18n.t(event.stageKey, {
@@ -553,7 +553,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       //
       // eviction_removal has a 4-way identifier union depending on scope:
       //   steam   → details.gameAppId: number (Number(event.gameAppId)), details.steamAppId: string (raw)
-      //             IMPORTANT: SignalR event's gameAppId arrives as STRING — must Number() before storing
+      //             IMPORTANT: SignalR event's gameAppId arrives as STRING - must Number() before storing
       //             as details.gameAppId (typed as number). Also set steamAppId for parity with game_removal.
       //   epic    → details.epicAppId: string (= event.epicAppId, with event.gameAppId as legacy fallback)
       //             event.epicAppId is the dedicated field; event.gameAppId fallback handles pre-fix payloads.

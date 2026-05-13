@@ -46,7 +46,7 @@ const handleCancel = async (
   removeNotification: (id: string) => void
 ) => {
   // Client-driven bulk notifications (bulk_removal) are not tied to a single
-  // server operation — the initiating component orchestrates a loop of per-
+  // server operation - the initiating component orchestrates a loop of per-
   // item operations. Signal the loop by flipping cancelling=true and let it
   // transition the notification to the proper cancelled end-state (status
   // completed + details.cancelled = true) with a meaningful message.
@@ -62,7 +62,7 @@ const handleCancel = async (
   // Race case: user clicked X before the Started SignalR event arrived with the opId.
   // Flip cancelling=true for visual feedback and return. The component's watchdog
   // effect will fire cancelOperation() as soon as opId appears on this notification.
-  // Do NOT silently remove the notification — that leaves the server op running
+  // Do NOT silently remove the notification - that leaves the server op running
   // while the UI disappears (the "lying X" bug).
   if (!operationId) {
     console.warn(

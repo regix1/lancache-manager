@@ -32,7 +32,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
   // Fetch aggregated 24h history for "today" total bytes stat.
   // This intentionally calls ApiService directly rather than using SpeedContext because
   // SpeedContext provides real-time snapshot data (current speed, active games/clients),
-  // while this needs aggregated historical data (totalBytes over 24 hours) — a fundamentally
+  // while this needs aggregated historical data (totalBytes over 24 hours) - a fundamentally
   // different concern that doesn't belong in the real-time speed context.
   const fetchHistory = useCallback(async () => {
     try {
@@ -131,7 +131,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
                 <button className={`tab-button disabled`} onClick={(e) => e.preventDefault()}>
                   <Zap />
                   {t('downloads.header.activeTab')}
-                  <span className="tab-badge">—</span>
+                  <span className="tab-badge">-</span>
                 </button>
               </Tooltip>
             ) : (

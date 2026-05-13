@@ -44,7 +44,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
 
   const [isOpen, setIsOpen] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  // Local state for date picker — only committed to context on close/apply
+  // Local state for date picker - only committed to context on close/apply
   const [pendingStartDate, setPendingStartDate] = useState<Date | null>(customStartDate);
   const [pendingEndDate, setPendingEndDate] = useState<Date | null>(customEndDate);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
@@ -544,7 +544,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
           onClose={() => {
             setShowDatePicker(false);
             if (pendingStartDate && pendingEndDate) {
-              // Commit to context only on close — triggers the fetch
+              // Commit to context only on close - triggers the fetch
               setCustomStartDate(pendingStartDate);
               setCustomEndDate(pendingEndDate);
             } else {

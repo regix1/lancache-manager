@@ -25,7 +25,7 @@ public sealed class TolerantGuidJsonConverter : JsonConverter<Guid>
             return Guid.TryParse(value, out var parsed) ? parsed : Guid.NewGuid();
         }
 
-        // Unexpected token — skip to a safe default rather than throw
+        // Unexpected token - skip to a safe default rather than throw
         return Guid.NewGuid();
     }
 

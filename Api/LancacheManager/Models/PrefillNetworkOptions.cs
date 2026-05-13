@@ -9,7 +9,7 @@ namespace LancacheManager.Models;
 /// daemon container as the <c>LANCACHE_IP</c> env var so the daemon bypasses container DNS for
 /// CDN traffic.</para>
 /// <para><see cref="LancacheDnsIp"/> is the legacy DNS-server IP applied to <c>HostConfig.DNS</c>
-/// in bridge mode only. It is independent of <see cref="LancacheIp"/> — they may be used together
+/// in bridge mode only. It is independent of <see cref="LancacheIp"/> - they may be used together
 /// or independently.</para>
 /// </remarks>
 public sealed class PrefillNetworkOptions

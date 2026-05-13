@@ -2,7 +2,7 @@ namespace LancacheManager.Security;
 
 /// <summary>
 /// Centralized authentication helper for consistent auth checks across middleware.
-/// Simplified — only API key validation remains (used by Metrics/Swagger middleware).
+/// Simplified - only API key validation remains (used by Metrics/Swagger middleware).
 /// </summary>
 public class AuthenticationHelper
 {

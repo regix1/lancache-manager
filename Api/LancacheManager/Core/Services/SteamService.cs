@@ -19,7 +19,7 @@ public class SteamService : ScopedScheduledBackgroundService
     private readonly SemaphoreSlim _apiSemaphore = new(5);
 
     // Fires once SteamKit2Service finishes its startup PICS/GitHub import. Subscribed in the
-    // ctor so it is live before any hosted service's ExecuteAsync runs — the DI container
+    // ctor so it is live before any hosted service's ExecuteAsync runs - the DI container
     // constructs SteamService while resolving SteamKit2Service, so we're always subscribed
     // before SteamKit2Service can fire the event.
     private readonly TaskCompletionSource<bool> _steamKit2StartupCompleted =

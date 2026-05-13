@@ -42,7 +42,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
   const popupRef = useRef<HTMLDivElement>(null);
   const colorBeforeEdit = useRef<string | null>(null);
 
-  // Parse color value (hex or rgba) — skip while picker is open (local state is authoritative during drag)
+  // Parse color value (hex or rgba) - skip while picker is open (local state is authoritative during drag)
   useEffect(() => {
     if (showPicker) return;
     const rgbaMatch = value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);

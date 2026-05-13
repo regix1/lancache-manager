@@ -329,10 +329,10 @@ const DownloadsTab: React.FC = () => {
 
   // Fetch server-side eviction display mode.
   // Seeding strategy:
-  //   1. Read the last-known-good value from localStorage — this survives REST failures so a
+  //   1. Read the last-known-good value from localStorage - this survives REST failures so a
   //      user who previously opted into 'show'/'showClean' keeps seeing evicted rows even if
   //      /api/state/get-evicted-data-mode starts returning 500.
-  //   2. Fall back to 'hide' when nothing is cached (safe default — see worker-u1-results.md:
+  //   2. Fall back to 'hide' when nothing is cached (safe default - see worker-u1-results.md:
   //      first paint hides evicted rows to prevent the "badge flashes then disappears" flicker
   //      in unlimited-pagination mode).
   //   3. On REST success, persist the response to localStorage for the next mount.
@@ -354,7 +354,7 @@ const DownloadsTab: React.FC = () => {
       })
       .catch((err: unknown) => {
         // Abort errors are expected on unmount; log other failures so the cached value is
-        // visible as the in-session fallback. Do NOT overwrite storage — last-known-good stays.
+        // visible as the in-session fallback. Do NOT overwrite storage - last-known-good stays.
         if (!controller.signal.aborted) {
           console.warn('[DownloadsTab] Failed to load evictedDataMode; using cached/default:', err);
         }
@@ -615,7 +615,7 @@ const DownloadsTab: React.FC = () => {
 
         const retroSaved = storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE_RETRO);
         if (retroSaved === 'unlimited') {
-          // Retro saved as unlimited — cap to 100 instead
+          // Retro saved as unlimited - cap to 100 instead
           newItemsPerPage = 100;
         } else if (retroSaved) {
           const parsed = parseInt(retroSaved);
@@ -758,7 +758,7 @@ const DownloadsTab: React.FC = () => {
     return options;
   }, [t, settings.viewMode]);
 
-  // Handler for items-per-page changes — writes both settings (localStorage) and URL.
+  // Handler for items-per-page changes - writes both settings (localStorage) and URL.
   const handleItemsPerPageChange = (value: string) => {
     const newValue: number | 'unlimited' = value === 'unlimited' ? 'unlimited' : parseInt(value);
     setSettings((prev) => ({ ...prev, itemsPerPage: newValue }));
@@ -1913,7 +1913,7 @@ const DownloadsTab: React.FC = () => {
             </Alert>
           )}
 
-          {/* Sticky Pagination Controls (above content) — retro view manages its own pagination */}
+          {/* Sticky Pagination Controls (above content) - retro view manages its own pagination */}
           {settings.viewMode !== 'retro' &&
             settings.itemsPerPage !== 'unlimited' &&
             totalPages > 1 && (

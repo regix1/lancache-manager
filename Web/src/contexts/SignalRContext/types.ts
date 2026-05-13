@@ -191,7 +191,7 @@ export const SIGNALR_REFRESH_EVENTS = [
   'GameDetectionComplete',
   'GameRemovalComplete',
   'CacheClearingComplete',
-  // Eviction events — refresh evicted items list after scan or removal completes
+  // Eviction events - refresh evicted items list after scan or removal completes
   'EvictionScanComplete',
   'EvictionRemovalComplete',
   // Client group changes (affects displayName in client stats)

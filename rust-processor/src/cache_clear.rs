@@ -198,7 +198,7 @@ fn delete_directory_full(
 
     // Count files before deletion using find (efficient even on NFS)
     // This gives us accurate file counts for the progress display.
-    // IMPORTANT: Avoid `sh -c` here — pass arguments directly to `find` so a
+    // IMPORTANT: Avoid `sh -c` here - pass arguments directly to `find` so a
     // crafted `dir_path` cannot inject shell metacharacters.
     #[cfg(unix)]
     let file_count = {
@@ -211,7 +211,7 @@ fn delete_directory_full(
             .ok()
             .and_then(|output| {
                 if output.status.success() {
-                    // Each file path is on its own line — count newlines.
+                    // Each file path is on its own line - count newlines.
                     Some(output.stdout.iter().filter(|&&b| b == b'\n').count() as u64)
                 } else {
                     None

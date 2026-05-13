@@ -8,7 +8,7 @@ import ApiService from '@services/api.service';
  *
  * Runs once per session (per cookie), and is a no-op when:
  *  - the caller is not authenticated
- *  - ipify is unreachable (corp firewall etc.) — the backend still accepts a
+ *  - ipify is unreachable (corp firewall etc.) - the backend still accepts a
  *    payload without publicIp so timezone/language/screen get recorded anyway.
  *
  * Country-level GeoIP accuracy via ip-api.com (used server-side) is ~86%
@@ -90,7 +90,7 @@ export const useClientInfoReporter = (enabled: boolean, sessionId: string | null
           screenResolution: info.screenResolution
         });
       } catch {
-        // Best-effort — never block the UI on this.
+        // Best-effort - never block the UI on this.
       }
     };
     void run();

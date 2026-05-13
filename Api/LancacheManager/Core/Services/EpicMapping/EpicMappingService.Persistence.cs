@@ -138,11 +138,11 @@ public partial class EpicMappingService
 
         _logger.LogDebug("Refreshing images for {Count} Epic games", games.Count);
 
-        // Only process games that have an image URL — filter before bulk-querying downloads
+        // Only process games that have an image URL - filter before bulk-querying downloads
         var epicGamesNeedingImages = games.Where(g => !string.IsNullOrEmpty(g.ImageUrl)).ToList();
         if (epicGamesNeedingImages.Count == 0) return 0;
 
-        // Bulk-query ALL downloads for ALL relevant AppIds at once — eliminates N+1 pattern
+        // Bulk-query ALL downloads for ALL relevant AppIds at once - eliminates N+1 pattern
         var allAppIds = epicGamesNeedingImages.Select(g => g.AppId).ToList();
         var allDownloads = await db.Downloads
             .Where(d => d.EpicAppId != null && allAppIds.Contains(d.EpicAppId))

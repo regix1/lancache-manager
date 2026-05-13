@@ -23,7 +23,7 @@ public class SelectedTablesResetResponse
 
 /// <summary>
 /// Response for database reset status.
-/// <see cref="Status"/> is the canonical <see cref="OperationStatus"/> — <c>null</c>
+/// <see cref="Status"/> is the canonical <see cref="OperationStatus"/> - <c>null</c>
 /// means no reset is in flight (the previous <c>"idle"</c> sentinel). Granular per-phase
 /// detail is carried by <see cref="Message"/> rather than bespoke status strings.
 /// </summary>

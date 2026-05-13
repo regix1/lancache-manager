@@ -54,7 +54,7 @@ public abstract class ConfigurableScheduledService : BackgroundService
     /// <summary>
     /// Hardcoded default for whether the loop runs work on its very first iteration
     /// (i.e., at app startup). Subclasses override this to express their *intended* default.
-    /// The user can override this at runtime via SetRunOnStartup() — typically loaded from
+    /// The user can override this at runtime via SetRunOnStartup() - typically loaded from
     /// IStateService and updated via the Schedules UI.
     /// </summary>
     public virtual bool DefaultRunOnStartup => true;
@@ -71,7 +71,7 @@ public abstract class ConfigurableScheduledService : BackgroundService
 
     /// <summary>
     /// Set the user-controlled RunOnStartup override. Pass null to clear and revert
-    /// to DefaultRunOnStartup. Note: this only affects future startups — once a service
+    /// to DefaultRunOnStartup. Note: this only affects future startups - once a service
     /// has already started its loop, toggling this won't retroactively run or skip
     /// the startup pass.
     /// </summary>
@@ -119,7 +119,7 @@ public abstract class ConfigurableScheduledService : BackgroundService
             _interval = newInterval;
             _intervalJustChanged = true;
 
-            // Cancel the current sleep to wake the loop — it will skip work and re-sleep with new interval
+            // Cancel the current sleep to wake the loop - it will skip work and re-sleep with new interval
             try
             {
                 _intervalChangedCts?.Cancel();
@@ -146,7 +146,7 @@ public abstract class ConfigurableScheduledService : BackgroundService
     }
 
     /// <summary>
-    /// Wake the service immediately — cancels the current sleep so work runs on the next loop.
+    /// Wake the service immediately - cancels the current sleep so work runs on the next loop.
     /// Unlike UpdateInterval, this does NOT set _intervalJustChanged, so the loop will
     /// execute work rather than just re-sleeping.
     /// </summary>
@@ -160,7 +160,7 @@ public abstract class ConfigurableScheduledService : BackgroundService
             }
             catch (ObjectDisposedException)
             {
-                // Already disposed — will be recreated on next loop iteration
+                // Already disposed - will be recreated on next loop iteration
             }
         }
 
@@ -178,14 +178,14 @@ public abstract class ConfigurableScheduledService : BackgroundService
         _logger.LogInformation("{ServiceName} scheduling loop started", ServiceName);
 
         // Discard any "_intervalJustChanged" flag that was set during construction or
-        // InitializeAsync — e.g. LoadStateOverrides → UpdateInterval sets that flag to
+        // InitializeAsync - e.g. LoadStateOverrides → UpdateInterval sets that flag to
         // wake a sleeping loop, but there's no loop yet, so the flag is meaningless here
         // and must not leak into the first iteration (it would eat the skip-first-execution
         // check and delay the first real work run by an extra full interval).
         _intervalJustChanged = false;
 
         // If RunOnStartup is false, skip the very first work execution and go straight
-        // to the sleep — work will only run after the first interval has elapsed (or
+        // to the sleep - work will only run after the first interval has elapsed (or
         // when TriggerImmediateRun() is called manually).
         bool skipFirstExecution = !RunOnStartup;
 
@@ -193,7 +193,7 @@ public abstract class ConfigurableScheduledService : BackgroundService
         {
             var interval = ConfiguredInterval;
 
-            // Skip work if woken by an interval change — just re-sleep with the new interval
+            // Skip work if woken by an interval change - just re-sleep with the new interval
             if (_intervalJustChanged)
             {
                 _intervalJustChanged = false;
@@ -249,7 +249,7 @@ public abstract class ConfigurableScheduledService : BackgroundService
             }
             catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
             {
-                // Interval was changed — loop back to check the new interval
+                // Interval was changed - loop back to check the new interval
                 _logger.LogDebug("{ServiceName} sleep interrupted by interval change", ServiceName);
             }
             catch (OperationCanceledException)

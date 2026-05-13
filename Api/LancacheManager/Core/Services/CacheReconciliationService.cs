@@ -196,7 +196,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         {
             EndRun();
             // Signal GameDetectionService that the first startup scan (and any removal cleanup) is done.
-            // TrySetResult is safe to call multiple times — only the first call has effect.
+            // TrySetResult is safe to call multiple times - only the first call has effect.
             _firstStartupScanComplete.TrySetResult(true);
         }
     }
@@ -342,7 +342,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     catch (Exception selfHealEx) when (selfHealEx is not OperationCanceledException)
                     {
                         _logger.LogWarning(selfHealEx,
-                            "[GameDetection] Reverse-reconcile of CachedGameDetections failed — will retry next scan");
+                            "[GameDetection] Reverse-reconcile of CachedGameDetections failed - will retry next scan");
                     }
                 }
 
@@ -363,7 +363,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     // flags Downloads as evicted, run recovery so any game/service WITHOUT a
                     // matching CachedGameDetection / CachedServiceDetection row gets one
                     // inserted with IsEvicted=true. LoadDetectionFromDatabaseAsync only
-                    // returns entities that have detection rows — missing rows = invisible
+                    // returns entities that have detection rows - missing rows = invisible
                     // in the Evicted Items UI. Recovery on startup wasn't enough; the user
                     // needs it on every eviction scan because cache files can be evicted
                     // (via manual clear, nginx cache miss, etc.) at any time.
@@ -372,18 +372,18 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         var gamesRecovered = await _gameCacheDetectionService.RecoverEvictedGamesAsync();
                         var servicesRecovered = await _gameCacheDetectionService.RecoverEvictedServicesAsync();
                         _logger.LogInformation(
-                            "[EvictionScan] Post-scan recovery: inserted {Games} game + {Services} service detection rows from Downloads history (zero counts mean every evicted entity already had a row — their evicted_downloads_count will update in-place)",
+                            "[EvictionScan] Post-scan recovery: inserted {Games} game + {Services} service detection rows from Downloads history (zero counts mean every evicted entity already had a row - their evicted_downloads_count will update in-place)",
                             gamesRecovered, servicesRecovered);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "[EvictionScan] Post-scan recovery failed — newly-evicted entities may remain hidden until next full scan");
+                        _logger.LogError(ex, "[EvictionScan] Post-scan recovery failed - newly-evicted entities may remain hidden until next full scan");
                     }
 
                     _gameCacheDetectionService.InvalidateDetectionCache();
                 }
 
-                // Handle evicted data "remove" mode — only run if there are evicted records.
+                // Handle evicted data "remove" mode - only run if there are evicted records.
                 // The removal inherits the scan's silent flag: in Remove mode the scan is
                 // already silent, so the removal must also stay silent (no notification).
                 var evictedDataMode = _stateService.GetEvictedDataMode();
@@ -698,7 +698,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         if (!File.Exists(rustBinaryPath))
         {
             _logger.LogWarning(
-                "[EvictedLogPurge] cache_purge_log_entries binary not found at {Path} — skipping log rewrite. DB deletes will still proceed.",
+                "[EvictedLogPurge] cache_purge_log_entries binary not found at {Path} - skipping log rewrite. DB deletes will still proceed.",
                 rustBinaryPath);
             return new EvictedLogPurgeSummary(0, 0, 0);
         }
@@ -850,7 +850,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     datasourcesFailed++;
                     _logger.LogWarning(
                         innerEx,
-                        "[EvictedLogPurge] Failed to run cache_purge_log_entries for datasource '{Datasource}' — DB deletes will still proceed",
+                        "[EvictedLogPurge] Failed to run cache_purge_log_entries for datasource '{Datasource}' - DB deletes will still proceed",
                         datasource.Name);
                 }
 
@@ -878,7 +878,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// from the scan flow (no operationId, mode == Remove) or from the controller's
     /// "Remove All Evicted" button (pre-registered operationId).
     /// When <paramref name="silent"/> is true, no EvictionRemoval SignalR notifications are
-    /// emitted — the operationId is added to _silentRemovalOperationIds so downstream
+    /// emitted - the operationId is added to _silentRemovalOperationIds so downstream
     /// Progress/Complete helpers also skip their sends. Silent is only used by the
     /// scan-driven Remove-mode auto-cleanup; the controller-driven bulk button always notifies.
     /// </summary>
@@ -894,7 +894,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 OperationType.EvictionRemoval,
                 "Eviction Removal",
                 cts,
-                new EvictionRemovalMetadata()); // bulk removal — no specific scope/key
+                new EvictionRemovalMetadata()); // bulk removal - no specific scope/key
 
             // Silent mode (Remove-mode auto-cleanup): skip the EvictionRemovalStarted SignalR
             // event so the frontend never creates a removal notification. The operationId is
@@ -926,7 +926,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // BEFORE deleting LogEntries/Downloads from the database. If we skipped this, a future
             // `ResetLogPosition` + full log re-parse would resurrect the evicted games because their
             // URLs still exist in the on-disk access.log. The rewrite is a best-effort optimization:
-            // if the Rust binary fails we log a WARNING and continue — correctness of the DB delete
+            // if the Rust binary fails we log a WARNING and continue - correctness of the DB delete
             // is preserved either way.
             await PurgeEvictedLogEntriesAsync(context, opId, stoppingToken);
 
@@ -934,7 +934,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // driven "Remove All Evicted" button) is an explicit user request to delete evicted
             // entities. Like the per-item path (RemoveEvictedRecordsForEntityAsync), we DELETE
             // the matching CachedGameDetections / CachedServiceDetections rows so the Evicted
-            // Items list clears on the frontend's next refetch — no ghost rows with 0 files /
+            // Items list clears on the frontend's next refetch - no ghost rows with 0 files /
             // 0 B left behind. Order: detection rows → log entries → downloads, all in one
             // transaction.
             int detectionGamesDeleted = 0;
@@ -1053,7 +1053,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// so a future `ResetLogPosition` + full log re-parse cannot resurrect the evicted games.
     ///
     /// Best-effort: if the Rust binary fails we log a warning but still allow the DB deletes to
-    /// proceed — the only loss is that a later full re-parse could re-create the rows.
+    /// proceed - the only loss is that a later full re-parse could re-create the rows.
     /// </summary>
     private async Task PurgeEvictedLogEntriesAsync(AppDbContext context, Guid operationId, CancellationToken stoppingToken)
     {
@@ -1068,7 +1068,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
             if (evictedDownloadIds.Count == 0)
             {
-                _logger.LogDebug("[EvictedLogPurge] No evicted downloads — skipping log rewrite");
+                _logger.LogDebug("[EvictedLogPurge] No evicted downloads - skipping log rewrite");
                 return;
             }
 
@@ -1090,7 +1090,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             if (urls.Count == 0 && depotIds.Count == 0)
             {
                 _logger.LogInformation(
-                    "[EvictedLogPurge] {Count} evicted downloads have no URL/depot history — nothing to purge from logs",
+                    "[EvictedLogPurge] {Count} evicted downloads have no URL/depot history - nothing to purge from logs",
                     evictedDownloadIds.Count);
                 return;
             }
@@ -1115,7 +1115,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         {
             // Best-effort: log and continue so DB deletes still run.
             _logger.LogWarning(ex,
-                "[EvictedLogPurge] Unexpected error during bulk log purge — DB deletes will still proceed");
+                "[EvictedLogPurge] Unexpected error during bulk log purge - DB deletes will still proceed");
         }
     }
 
@@ -1154,14 +1154,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         if (unpreserveResult.SteamGamesUpdated > 0)
         {
             logger.LogInformation(
-                "[GameDetection] Self-healed {Count} Steam games — Downloads no longer all evicted",
+                "[GameDetection] Self-healed {Count} Steam games - Downloads no longer all evicted",
                 unpreserveResult.SteamGamesUpdated);
         }
 
         if (unpreserveResult.EpicGamesUpdated > 0)
         {
             logger.LogInformation(
-                "[GameDetection] Self-healed {Count} Epic games — Downloads no longer all evicted",
+                "[GameDetection] Self-healed {Count} Epic games - Downloads no longer all evicted",
                 unpreserveResult.EpicGamesUpdated);
         }
 
@@ -1199,7 +1199,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                 totalEvicted += steamUpdated;
                 logger.LogInformation(
-                    "[GameDetection] Marked {Count} Steam games as evicted — all Downloads now evicted",
+                    "[GameDetection] Marked {Count} Steam games as evicted - all Downloads now evicted",
                     steamUpdated);
             }
         }
@@ -1228,7 +1228,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                 totalEvicted += epicUpdated;
                 logger.LogInformation(
-                    "[GameDetection] Marked {Count} Epic games as evicted — all Downloads now evicted",
+                    "[GameDetection] Marked {Count} Epic games as evicted - all Downloads now evicted",
                     epicUpdated);
             }
         }
@@ -1239,7 +1239,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// <summary>
     /// Self-heal: clears IsEvicted on CachedServiceDetection rows that have reappeared on disk
     /// (CacheFilesFound > 0). Services do not have a Downloads FK relationship so the check is
-    /// simpler — if the Rust scan found cache files again, the service is no longer evicted.
+    /// simpler - if the Rust scan found cache files again, the service is no longer evicted.
     /// </summary>
     public static async Task<int> UnevictCachedServiceDetectionsAsync(
         AppDbContext context,
@@ -1253,7 +1253,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         if (updated > 0)
         {
             logger.LogInformation(
-                "[ServiceDetection] Self-healed {Count} evicted services — cache files found on disk again",
+                "[ServiceDetection] Self-healed {Count} evicted services - cache files found on disk again",
                 updated);
         }
 
@@ -1265,7 +1265,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// or non-game service). Unlike <see cref="RemoveEvictedRecordsAsync"/>, this method:
     /// - Scopes ALL database operations to the specified entity.
     /// - DELETES the CachedGameDetection / CachedServiceDetection row for the entity outright
-    ///   so the removal is durable — the next scan cannot resurrect it. A fresh row is
+    ///   so the removal is durable - the next scan cannot resurrect it. A fresh row is
     ///   re-inserted only if the entity ever caches again.
     /// - Calls <see cref="UnevictCachedGameDetectionsAsync"/> / <see cref="UnevictCachedServiceDetectionsAsync"/>
     ///   at the end for defensive self-healing of unrelated rows.
@@ -1304,7 +1304,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         try
         {
             // Step -1: Rewrite nginx access.log files to drop entries for this entity's evicted
-            // downloads BEFORE deleting LogEntries/Downloads from the database. Best-effort —
+            // downloads BEFORE deleting LogEntries/Downloads from the database. Best-effort -
             // failures are logged as warnings and do not block the DB delete.
             await PurgeEvictedLogEntriesForEntityAsync(context, scope, key, opId, stoppingToken);
 
@@ -1403,7 +1403,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     scope, key, downloadsDeleted, logEntriesDeleted);
             }
 
-            // Step 3: Defensive self-heal — if all evicted rows for this entity are now gone, clear
+            // Step 3: Defensive self-heal - if all evicted rows for this entity are now gone, clear
             // the aggregate IsEvicted flag so Dashboard stats update on the next GetCachedDetectionAsync.
             await ReportEvictionRemovalProgressAsync(
                 opId,
@@ -1413,7 +1413,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 downloadsRemoved: downloadsDeleted,
                 logEntriesRemoved: logEntriesDeleted);
 
-            // Step 3a: Targeted un-evict — clear IsEvicted on the specific entity we just removed
+            // Step 3a: Targeted un-evict - clear IsEvicted on the specific entity we just removed
             // downloads for. This is the equivalent of Game Cache Removal's row-delete for the
             // partial-eviction case: after the user removes the evicted portion, the entity is no
             // longer considered evicted regardless of CacheFilesFound (per CachedGameDetection.IsEvicted
@@ -1421,10 +1421,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // non-evicted downloads keep their row with IsEvicted=false. The next detection scan will
             // refresh CacheFilesFound / TotalSizeBytes if they drifted.
             // Removal-driven cleanup. Two cases:
-            //   • Full removal — no Downloads remain for this entity after the delete above.
+            //   • Full removal - no Downloads remain for this entity after the delete above.
             //     DELETE the detection row so the next scan's flip-to-evicted logic cannot
             //     resurrect it. This is the WSUS case that used to come back after restart.
-            //   • Partial eviction — some Downloads for this entity still exist and are NOT
+            //   • Partial eviction - some Downloads for this entity still exist and are NOT
             //     evicted (the entity has real cache files). Leave the detection row in
             //     place and just clear IsEvicted = false so the UI shows the entity as
             //     cached again. Deleting here would wipe a legitimately-cached entity.
@@ -1601,7 +1601,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
             if (evictedDownloadIds.Count == 0)
             {
-                _logger.LogDebug("[EvictedLogPurge] No evicted downloads for {Scope} '{Key}' — skipping log rewrite", scope, key);
+                _logger.LogDebug("[EvictedLogPurge] No evicted downloads for {Scope} '{Key}' - skipping log rewrite", scope, key);
                 return;
             }
 
@@ -1651,7 +1651,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // OR depot_id. If a depot appears in BOTH evicted and non-evicted Downloads for
             // the same entity (e.g. a game was downloaded twice, only the older copy was
             // evicted), sending that depot_id would cause the purger to also remove log
-            // lines belonging to the still-cached copy — data loss.
+            // lines belonging to the still-cached copy - data loss.
             //
             // Filter depot_ids down to those that ONLY appear in evicted Downloads for this
             // entity. This preserves the benefit of depot matching (catching orphan log
@@ -1710,7 +1710,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             if (urls.Count == 0 && depotIds.Count == 0)
             {
                 _logger.LogInformation(
-                    "[EvictedLogPurge] {Count} evicted downloads for {Scope} '{Key}' have no URL/depot history — nothing to purge from logs",
+                    "[EvictedLogPurge] {Count} evicted downloads for {Scope} '{Key}' have no URL/depot history - nothing to purge from logs",
                     evictedDownloadIds.Count, scope, key);
                 return;
             }
@@ -1735,7 +1735,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         {
             // Best-effort: log and continue so DB deletes still run.
             _logger.LogWarning(ex,
-                "[EvictedLogPurge] Unexpected error during entity log purge ({Scope} '{Key}') — DB deletes will still proceed",
+                "[EvictedLogPurge] Unexpected error during entity log purge ({Scope} '{Key}') - DB deletes will still proceed",
                 scope, key);
         }
     }

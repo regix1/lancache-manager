@@ -362,7 +362,7 @@ public class AppDbContext : DbContext
             .HasDatabaseName("IX_GameImages_AppId_Service")
             .IsUnique();
 
-        // Enum → string conversions (no schema change — column type stays varchar)
+        // Enum → string conversions (no schema change - column type stays varchar)
         modelBuilder.Entity<PrefillSession>()
             .Property(s => s.Status)
             .HasConversion<string>();

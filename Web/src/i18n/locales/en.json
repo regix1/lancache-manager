@@ -462,7 +462,7 @@
       },
       "gamesOnDisk": {
         "term": "Games on Disk",
-        "description": "Total size of cache files that belong to identified games. This is a subset of Used Space — it only counts files matched to a known game during a Game Cache Detection scan. Unidentified cache files (updates, non-game content) are not included."
+        "description": "Total size of cache files that belong to identified games. This is a subset of Used Space - it only counts files matched to a known game during a Game Cache Detection scan. Unidentified cache files (updates, non-game content) are not included."
       }
     },
     "downloadsPanel": {
@@ -1155,7 +1155,7 @@
         },
         "hitRate": {
           "title": "Cache Hit Rate",
-          "description": "Cache hit ratio — percentage of data served from cache vs. downloaded from the internet."
+          "description": "Cache hit ratio - percentage of data served from cache vs. downloaded from the internet."
         }
       }
     },
@@ -1324,7 +1324,7 @@
           "firstSeen": "First Seen",
           "lastActivity": "Last Activity",
           "notAvailable": "N/A",
-          "none": "—"
+          "none": "-"
         },
         "store": {
           "title": "View in Steam Store",
@@ -1460,15 +1460,15 @@
         "evictionRemoveConfirmCancel": "Cancel",
         "evictionRemoveAll": "Remove All",
         "evictionRemoveAllStarting": "Removing 0 of {{total}} evicted items...",
-        "evictionRemoveAllProgress": "Removing {{current}} of {{total}} — {{label}}",
+        "evictionRemoveAllProgress": "Removing {{current}} of {{total}} - {{label}}",
         "evictionRemoveAllComplete": "Removed {{count}} evicted items",
         "evictionRemoveAllCancelled": "Bulk removal cancelled after {{count}} items",
         "evictionRemoveAllConfirmTitle": "Remove all evicted items?",
         "evictionRemoveAllConfirmMessage": "This will remove all {{count}} evicted items one at a time. Each item runs through its own removal flow (log rewrite + database cleanup) and the operation cannot be undone.",
-        "evictionRemoveAllConfirmWarning": "Only the evicted depots are removed — partially-cached games keep their on-disk files.",
+        "evictionRemoveAllConfirmWarning": "Only the evicted depots are removed - partially-cached games keep their on-disk files.",
         "gameCacheRemoveAll": "Remove All",
         "gameCacheRemoveAllStarting": "Removing 0 of {{total}} cached items...",
-        "gameCacheRemoveAllProgress": "Removing {{current}} of {{total}} — {{label}}",
+        "gameCacheRemoveAllProgress": "Removing {{current}} of {{total}} - {{label}}",
         "gameCacheRemoveAllComplete": "Removed {{count}} cached items",
         "gameCacheRemoveAllCancelled": "Bulk removal cancelled after {{count}} items",
         "gameCacheRemoveAllConfirmTitle": "Remove all cached games & services?",
@@ -1653,7 +1653,7 @@
         "mockDataDesc": "Simulates realistic cache data and download activity",
         "enabled": "Enabled",
         "disabled": "Disabled",
-        "mockModeActive": "Mock mode active — API actions are disabled",
+        "mockModeActive": "Mock mode active - API actions are disabled",
         "displayPreferences": "Display Preferences",
         "displayPreferencesDesc": "Customize your experience",
         "performanceOptimizations": "Performance Optimizations",
@@ -1751,7 +1751,7 @@
             "mapping-login": "Discovered when a user logs in and their Epic Games library is scanned",
             "prefill-login": "Discovered by the prefill daemon during authenticated login",
             "free-games": "Discovered from the Epic Games Store free games catalog",
-            "library": "Discovered from user's Epic Games library — games they own or have claimed",
+            "library": "Discovered from user's Epic Games library - games they own or have claimed",
             "wishlist": "Found on a user's Epic Games wishlist",
             "store": "Discovered from the Epic Games Store catalog",
             "manual": "Manually added mapping entry",
@@ -1904,7 +1904,7 @@
       "detectionModeLogsOnlyDesc": "Detects all URLs with {{threshold}}+ MISS entries regardless of whether the cache file still exists on disk. Casts a wider net but may include false positives.",
       "detectionModeRedownload": "Re-download Detection",
       "detectionModeRedownloadShort": "Re-download",
-      "detectionModeRedownloadDesc": "Detects URLs where the same client re-downloaded cached content {{threshold}}+ times within 60 seconds. Finds corruption invisible to MISS-based detection — cached files that pass HTTP checks but fail content validation.",
+      "detectionModeRedownloadDesc": "Detects URLs where the same client re-downloaded cached content {{threshold}}+ times within 60 seconds. Finds corruption invisible to MISS-based detection - cached files that pass HTTP checks but fail content validation.",
       "redownloadCount": "Re-downloads:",
       "redownloadRemovalUnavailable": "Automatic removal is not available for re-download detection. Use Game Cache Detection to remove specific game caches, or switch to Cache + Logs mode.",
       "sensitivityTitle": "Detection Sensitivity",
@@ -1935,7 +1935,7 @@
         "warningLogsOnly": "Needs write access to log directories only.",
         "perGameRemoval": {
           "title": "Per-Game Removal",
-          "description": "To remove corrupted chunks for a specific game only, use the Game Cache Detection tab. It lets you scan for detected games and remove cache files game-by-game — including unknown or delisted titles."
+          "description": "To remove corrupted chunks for a specific game only, use the Game Cache Detection tab. It lets you scan for detected games and remove cache files game-by-game - including unknown or delisted titles."
         }
       },
       "alerts": {
@@ -2073,7 +2073,7 @@
         "note": "Make sure you've processed your access logs first, otherwise there won't be anything to show.",
         "unknownGames": {
           "title": "Unknown & Delisted Games",
-          "description": "Games that no longer appear in Steam's app list (delisted titles) still show up as \"Unknown Game (Depot XXXXXX)\". You can remove them the same way as any other game — run a scan and click Remove.",
+          "description": "Games that no longer appear in Steam's app list (delisted titles) still show up as \"Unknown Game (Depot XXXXXX)\". You can remove them the same way as any other game - run a scan and click Remove.",
           "tip": "Removing an unknown game is the recommended way to fix corrupted or broken game downloads."
         }
       },
@@ -2831,7 +2831,7 @@
       "runGcNow": "Run GC Now",
       "running": "Running...",
       "runGcTooltip": "Manually run garbage collection once (5s cooldown)",
-      "noRestartRequired": "Changes take effect immediately — no restart required.",
+      "noRestartRequired": "Changes take effect immediately - no restart required.",
       "saveSuccess": "GC settings saved successfully",
       "saveFailed": "Failed to save GC settings",
       "triggerFailed": "Failed to trigger garbage collection",
@@ -2912,7 +2912,7 @@
       "services": {
         "depotMapping": {
           "displayName": "Steam Depot Mapping",
-          "description": "Downloads Steam depot-to-game mappings from PICS or GitHub, then immediately applies them to match all cached files on disk with their correct Steam game names and IDs in the UI.",
+          "description": "Pulls the latest Steam depot-to-game lookup table from Steam PICS or a GitHub mirror. Game Detection uses this table to label your cached files with the right game names.",
           "gain": "New game downloads are identified faster, reducing the time items appear as 'Unknown Game'",
           "loss": "Delisted or newly released games may show as 'Unknown Game' until the next mapping refresh detects them",
           "scanModeLabel": "Scheduled Scan Mode",
@@ -2921,61 +2921,61 @@
         },
         "epicMapping": {
           "displayName": "Epic Game Mapping",
-          "description": "Connects to the Epic Games Store catalog to refresh game titles, CDN URL patterns, and depot mappings used to identify Epic downloads in the cache.",
+          "description": "Refreshes the Epic Games Store catalog used to identify Epic downloads in your cache: game titles, CDN URL patterns, and depot mappings.",
           "gain": "Newly released or updated Epic games are mapped to their cached downloads sooner, allowing them to appear in the game list without waiting for the next detection cycle",
           "loss": "New or renamed Epic games may not appear in the game list until the next scheduled refresh"
         },
         "logRotation": {
           "displayName": "Log Rotation",
-          "description": "Sends a USR1 signal to the nginx master process (kill -USR1), forcing it to reopen its log file. This fixes cases where nginx loses access to the log file and stops writing to it.",
+          "description": "Tells nginx to reopen its access log. Fixes the case where log rotation leaves nginx writing to a deleted file and your stats stop updating.",
           "gain": "Nginx reliably reattaches to the log file, ensuring download activity is captured correctly",
           "loss": "If nginx has lost log access, new download activity will not be recorded until the next rotation run"
         },
         "cacheReconciliation": {
           "displayName": "Cache Reconciliation",
-          "description": "Walks the cache directory on disk and cross-references it with the database to determine which downloads are still physically cached versus evicted by nginx.",
+          "description": "Compares your cache directory against the database to see what is still on disk vs. what nginx has evicted. Keeps the 'evicted' badges in the UI accurate.",
           "gain": "Eviction badges and cache status in the UI are more accurate and up to date",
-          "loss": "The UI may show stale eviction status — items marked as cached might actually be evicted, or vice versa"
+          "loss": "The UI may show stale eviction status - items marked as cached might actually be evicted, or vice versa"
         },
         "gameDetection": {
           "displayName": "Game Detection",
-          "description": "Runs a Rust binary to scan cached files and map detected depots to games using Steam and Epic mappings. Supports incremental scans that skip already-detected games, and resolves previously unknown depot IDs when new mappings become available.",
+          "description": "Scans your cache directory and labels each chunk of cached data with the game it belongs to, using the Steam and Epic depot mappings. Incremental scans skip games already detected; previously 'Unknown' depots are resolved as new mappings arrive.",
           "gain": "Newly downloaded games appear in the game list sooner, and previously unknown depots are resolved as new mappings arrive",
           "loss": "Games downloaded between scans won't show up in the game list until the next detection run"
         },
         "gameImageFetch": {
           "displayName": "Game Image Fetch",
-          "description": "Fetches header images from Steam and Epic for detected games that are missing artwork, and refreshes stale images older than 7 days. Uses a multi-CDN fallback strategy with parent app lookup for Steam.",
+          "description": "Downloads the cover art shown next to each detected game. Fills in missing artwork and refreshes any image older than 7 days, trying multiple Steam and Epic CDNs.",
           "gain": "Game cards get their artwork faster and stale images are kept up to date",
           "loss": "Some game cards may display without artwork for longer until the next image fetch cycle"
         },
         "steamService": {
           "displayName": "Steam App Metadata",
-          "description": "Loads Steam depot-to-app mappings from the database into an in-memory cache for fast lookup, and caches game metadata from the Steam Store API on demand. Depot data is sourced from PICS mapping scans.",
+          "description": "Loads the depot-to-app lookup into memory so name lookups stay instant, and caches Steam Store game metadata on demand. Reloads after Steam Depot Mapping finishes.",
           "gain": "Depot-to-app lookups stay fast and newly discovered PICS mappings are picked up sooner",
           "loss": "Newly discovered PICS mappings may take longer to appear in depot lookups until the next reload"
         },
         "cacheSnapshot": {
           "displayName": "Cache Snapshots",
-          "description": "Records periodic snapshots of used cache size and total capacity, enabling the dashboard to show cache growth trends and historical utilization. Snapshots older than 90 days are automatically cleaned up.",
+          "description": "Saves a periodic snapshot of used cache size and total capacity so the dashboard can chart growth over time. Snapshots older than 90 days are deleted automatically.",
           "gain": "The cache growth chart has finer granularity, making it easier to spot trends and spikes",
           "loss": "The growth chart will have wider gaps between data points, making short-term trends harder to see"
         },
         "operationHistoryCleanup": {
           "displayName": "Operation History Cleanup",
-          "description": "Removes completed cache clearing operation records older than 24 hours. Actual cache clearing is triggered manually from the Cache Management page.",
+          "description": "Removes cache-clear operation records older than 24 hours from the history page. Doesn't touch your actual cache files - those are only cleared from the Cache Management page.",
           "gain": "Completed operation records are automatically cleaned up after 24 hours, keeping the history tidy",
           "loss": "Operation records older than 24 hours are permanently removed and cannot be reviewed later"
         },
         "performanceOptimization": {
           "displayName": "Performance Optimizations",
-          "description": "Monitors memory usage on a schedule and triggers garbage collection only when the process working set exceeds a configurable threshold. Also clears database connection pools. Enable it on the Performance Optimizations page in Settings to activate.",
+          "description": "Watches memory use and triggers garbage collection only when it crosses your configured threshold. Also clears stale database connections. Off by default - enable on the Performance Optimizations page if you're memory-constrained.",
           "gain": "Memory usage stays lower and the UI feels snappier on memory-constrained hosts",
           "loss": "Brief CPU spikes during each collection pass can cause small pauses in background work"
         },
         "dashboardCacheWarmer": {
           "displayName": "Dashboard Cache Warmer",
-          "description": "Pre-populates the dashboard batch cache (active downloads, stats, metrics) on a schedule so the dashboard serves instantly from memory instead of triggering cold database queries on first load.",
+          "description": "Pre-loads dashboard data (active downloads, stats, metrics) in the background so the page opens instantly instead of waiting on a cold database query.",
           "gain": "Dashboard opens immediately even after the server has been idle; users never see a cold-fetch spinner",
           "loss": "A small amount of background CPU is used each cycle, and cached values may briefly lag real-time changes until the next warm"
         }
@@ -3361,7 +3361,7 @@
       "steamTriggerDomainNotConfigured": "This is Steam's official trigger domain. Configure lancache-dns to point this to your cache server IP for optimal performance (32 connections vs 4).",
       "primaryDomainNotConfigured": "This is the primary CDN domain for this service. Configure lancache-dns to point this to your cache server IP for downloads to be cached.",
       "optionalDomainNotConfigured": "This domain is optional. As long as the primary domain is configured, prefill will work correctly.",
-      "hostNetworkingHint": "If Steam login hangs or times out, set Prefill__LancacheIp to your lancache server's IP — this fixes most DNS-related issues without changing network mode. As a fallback, try Prefill__NetworkMode=bridge in your docker-compose.yml.",
+      "hostNetworkingHint": "If Steam login hangs or times out, set Prefill__LancacheIp to your lancache server's IP - this fixes most DNS-related issues without changing network mode. As a fallback, try Prefill__NetworkMode=bridge in your docker-compose.yml.",
       "lancacheIpInjected": "Lancache server: {{ip}} (direct, DNS-independent)",
       "lancacheIpResolutionFailed": "Prefill__LancacheIp is not set. The daemon will fall back to container DNS, which may not resolve CDN domains correctly. Set Prefill__LancacheIp=<your-lancache-server-ip> in your docker-compose.",
       "ipv6UnsupportedHint": "IPv6 failures are expected: lancache-dns only supports IPv4. If clients prefer IPv6, disable IPv6 or force IPv4 to avoid bypassing your cache.",
@@ -5166,7 +5166,7 @@
       "selectPlaceholder": "Choose an option...",
       "github": {
         "label": "Download from GitHub (Recommended)",
-        "description": "Quick setup — downloads pre-created Steam depot-to-game mappings from GitHub. No API key or authentication required.",
+        "description": "Quick setup - downloads pre-created Steam depot-to-game mappings from GitHub. No API key or authentication required.",
         "note": "Best for most users. Data is updated regularly."
       },
       "steam": {
@@ -5204,7 +5204,7 @@
       "title": "Epic Games Authentication",
       "subtitle": "Connect your Epic Games account to enable game identification for cached downloads",
       "connectButton": "Connect Epic Account",
-      "securityNote": "Your Epic credentials are handled securely through Epic's official OAuth flow. No passwords are stored — only a temporary authorization token is used.",
+      "securityNote": "Your Epic credentials are handled securely through Epic's official OAuth flow. No passwords are stored - only a temporary authorization token is used.",
       "enterCodeTitle": "Enter Authorization Code",
       "enterCodeSubtitle": "Complete the login in your browser, then paste the authorization code below",
       "openEpicLogin": "Open Epic Login Page",
@@ -5363,7 +5363,7 @@
     "cacheClear": {
       "initializing": "Initializing cache clear...",
       "starting": "Starting cache deletion...",
-      "progress": "Clearing cache ({{processed}}/{{totalDirs}}) — {{activeCount}} active",
+      "progress": "Clearing cache ({{processed}}/{{totalDirs}}) - {{activeCount}} active",
       "error": {
         "dirNotFound": "Cache directory does not exist: {{cachePath}}",
         "fatal": "Cache clear failed: {{errorDetail}}"
@@ -5425,7 +5425,7 @@
       "clearedUserPreferences": "Cleared user preferences ({{count}} rows)",
       "clearedUserSessions": "Cleared user sessions ({{count}} rows) and Steam auth data",
       "sessionsCleared": {
-        "logout": "All user sessions have been cleared — logging out immediately"
+        "logout": "All user sessions have been cleared - logging out immediately"
       }
     },
     "dataImport": {
@@ -5436,14 +5436,14 @@
       "batchProgressWithMappings": "{{processedBatches}} / {{totalBatches}} batches • {{depotMappingsFound}} mappings found",
       "github": {
         "downloading": "Downloading depot mappings from GitHub...",
-        "complete": "GitHub depot data imported — {{totalMappings}} mappings",
+        "complete": "GitHub depot data imported - {{totalMappings}} mappings",
         "failed": "[GitHub Mode] {{errorDetail}}"
       },
       "cancelled": "Depot mapping scan cancelled",
       "applyingToDownloads": "Applying depot mappings to downloads... {{processed}}/{{totalDownloads}}",
-      "finalized": "Depot mapping complete — {{updated}} downloads updated",
+      "finalized": "Depot mapping complete - {{updated}} downloads updated",
       "scan": {
-        "skippedFullRequired": "Scheduled scan skipped — full scan required"
+        "skippedFullRequired": "Scheduled scan skipped - full scan required"
       }
     },
     "epicMapping": {
@@ -5586,7 +5586,7 @@
     "logPurge": {
       "reading": "Reading purge request JSON...",
       "purging": "Purging logs for {{urlCount}} URLs / {{depotCount}} depot IDs",
-      "rewrote": "Rewrote logs — {{linesRemoved}} lines removed",
+      "rewrote": "Rewrote logs - {{linesRemoved}} lines removed",
       "complete": "Purged {{linesRemoved}} log lines across access.log files ({{permissionErrors}} permission errors)",
       "error": {
         "fatal": "Log purge failed: {{errorDetail}}"

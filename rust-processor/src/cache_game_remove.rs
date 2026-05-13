@@ -121,7 +121,7 @@ async fn get_game_name_from_db(pool: &PgPool, game_app_id: u32) -> Result<String
 async fn get_game_urls_from_db(pool: &PgPool, game_app_id: u32) -> Result<HashMap<String, (String, i64, HashSet<u32>)>> {
     eprintln!("Querying database for game URLs and depot IDs...");
 
-    // Query 1: Mapped games — join LogEntries to SteamDepotMappings via DepotId.
+    // Query 1: Mapped games - join LogEntries to SteamDepotMappings via DepotId.
     // Works for games where PicsDataService has populated SteamDepotMappings.
     let rows = sqlx::query(
         "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"DepotId\", le.\"BytesServed\"
@@ -162,10 +162,10 @@ async fn get_game_urls_from_db(pool: &PgPool, game_app_id: u32) -> Result<HashMa
         }
     }
 
-    // Query 3: Downloads-FK join — catches delisted apps (e.g., Aion AppID 373680 / depot 373681)
+    // Query 3: Downloads-FK join - catches delisted apps (e.g., Aion AppID 373680 / depot 373681)
     // where SteamDepotMappings has no row but Downloads.GameAppId is set correctly.
     // Mirrors GameCacheDetectionService.ResolveUnknownGamesInCacheAsync (C# line 1033/1086).
-    // Uses Option A (DownloadId FK) — no .sqlx offline cache present, DownloadId FK is populated
+    // Uses Option A (DownloadId FK) - no .sqlx offline cache present, DownloadId FK is populated
     // by the log processor for all ingest paths; runtime sqlx::query() used throughout this crate.
     let downloads_fk_rows = sqlx::query(
         "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"DepotId\", le.\"BytesServed\"

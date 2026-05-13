@@ -477,7 +477,7 @@ public class LogsController : ControllerBase
             });
         }
 
-        // Otherwise reset to end of file — count lines across ALL log files
+        // Otherwise reset to end of file - count lines across ALL log files
         // This matches the Rust processor behavior which processes all rotated logs
         IEnumerable<ResolvedDatasource> datasources = isSingleDatasource
             ? new[] { _datasourceService.GetDatasource(datasourceName!)! }

@@ -7,7 +7,7 @@
  * `signalR.off(...)` lines in NotificationsContext.tsx into a single
  * iterator-driven `useEffect`.
  *
- * The actual handler bodies still live in {@link createSpecialCaseHandlers} —
+ * The actual handler bodies still live in {@link createSpecialCaseHandlers} -
  * this registry only describes the `{event, handler}` binding for each
  * special-case lifecycle. That keeps the refactor a minimum-delta move
  * (collapse wiring, don't rewrite handlers).
@@ -20,9 +20,9 @@
  *   (`prev.details` spread into new details). Do not replace the handler with
  *   anything that uses set-semantics instead of merge-semantics.
  * - `EpicGameMappingsUpdated` is a one-shot completion with its own payload
- *   shape (`totalGames`, `newGames`, `updatedGames`) — NOT folded into the
+ *   shape (`totalGames`, `newGames`, `updatedGames`) - NOT folded into the
  *   standard completion flow.
- * - `SteamSessionError` is an error toast (not a lifecycle) — it shares this
+ * - `SteamSessionError` is an error toast (not a lifecycle) - it shares this
  *   registry for wiring uniformity but produces a notification with
  *   `details.notificationType: 'error'` instead of operation details.
  */

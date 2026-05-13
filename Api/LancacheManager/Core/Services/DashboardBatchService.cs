@@ -14,7 +14,7 @@ namespace LancacheManager.Core.Services;
 /// <summary>
 /// Shared compute logic for <c>GET /api/dashboard/batch</c>. Extracted from DashboardController
 /// so a startup warmer (DashboardCacheWarmerService) can pre-populate the IMemoryCache before the
-/// first user request arrives — otherwise the first request after a server restart would run
+/// first user request arrives - otherwise the first request after a server restart would run
 /// 9 parallel DB queries on a cold connection pool.
 /// </summary>
 public class DashboardBatchService : IDashboardBatchService
@@ -319,7 +319,7 @@ public class DashboardBatchService : IDashboardBatchService
         var totalServed = totalHitBytes + totalMissBytes;
         var cacheHitRatio = totalServed > 0 ? (totalHitBytes * 100.0) / totalServed : 0;
 
-        // Service breakdown (also provides top service — no separate query needed)
+        // Service breakdown (also provides top service - no separate query needed)
         var serviceBreakdown = await downloadsQuery
             .GroupBy(d => d.Service)
             .Select(g => new ServiceBreakdownItem
@@ -380,7 +380,7 @@ public class DashboardBatchService : IDashboardBatchService
 
         if (!startTime.HasValue && !endTime.HasValue && eventIdList.Count == 0)
         {
-            // StatsDataService is registered Scoped — resolve via a scoped container so its
+            // StatsDataService is registered Scoped - resolve via a scoped container so its
             // AppDbContext has a proper lifetime tied to this query.
             using var scope = _scopeFactory.CreateScope();
             var statsService = scope.ServiceProvider.GetRequiredService<IStatsDataService>();
@@ -451,7 +451,7 @@ public class DashboardBatchService : IDashboardBatchService
         var games = cachedResults.Games ?? [];
         var activeGamesCount = games.Count(g => !g.IsEvicted);
 
-        // Project into slim DTOs — the dashboard does NOT read cache_file_paths,
+        // Project into slim DTOs - the dashboard does NOT read cache_file_paths,
         // sample_urls, datasources, depot_ids, evicted_sample_urls, evicted_depot_ids,
         // or evicted_bytes. These unbounded list fields inflate the /api/dashboard/batch
         // payload by ~70-90% on large caches. The full GameCacheInfo / ServiceCacheInfo
@@ -530,7 +530,7 @@ public class DashboardBatchService : IDashboardBatchService
             ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
             : query;
 
-        // Group in SQL — mirrors the HourlyActivity / CacheGrowth SQL-side GroupBy pattern.
+        // Group in SQL - mirrors the HourlyActivity / CacheGrowth SQL-side GroupBy pattern.
         // Returns 10-60 aggregated rows instead of tens of thousands of raw rows.
         List<BucketAggregate> bucketedData;
         if (bucketMinutes >= 1440)

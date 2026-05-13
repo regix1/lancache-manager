@@ -148,7 +148,7 @@ public class EpicGameMappingController : ControllerBase
 
     /// <summary>
     /// Starts a full Epic catalog refresh (scan + apply mappings).
-    /// Mirrors Steam's POST /api/depots/rebuild — runs scan then resolves downloads.
+    /// Mirrors Steam's POST /api/depots/rebuild - runs scan then resolves downloads.
     /// </summary>
     [HttpPost("refresh")]
     public async Task<ActionResult> StartRefreshAsync(CancellationToken ct = default)

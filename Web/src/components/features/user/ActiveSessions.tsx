@@ -799,7 +799,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             </div>
           </td>
 
-          {/* Network — LAN IP (primary) + public IP (secondary, when resolved) */}
+          {/* Network - LAN IP (primary) + public IP (secondary, when resolved) */}
           <td>
             {session.ipAddress && (
               <ClientIpDisplay

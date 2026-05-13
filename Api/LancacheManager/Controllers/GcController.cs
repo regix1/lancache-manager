@@ -64,7 +64,7 @@ public class GcController : ControllerBase
         }
         else if (!string.IsNullOrEmpty(request.Aggressiveness))
         {
-#pragma warning disable CS0618 // Type or member is obsolete — legacy DTO compat path
+#pragma warning disable CS0618 // Type or member is obsolete - legacy DTO compat path
             if (!Enum.TryParse<GcAggressiveness>(request.Aggressiveness, true, out var aggressiveness))
             {
                 return BadRequest(new ErrorResponse { Error = "Invalid aggressiveness level" });

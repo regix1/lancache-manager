@@ -76,7 +76,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             return true;
         }
 
-        _logger.LogWarning("Failed to restore operation: {Name} (ID: {Id}) — ID already registered", name, operationId);
+        _logger.LogWarning("Failed to restore operation: {Name} (ID: {Id}) - ID already registered", name, operationId);
         return false;
     }
 
@@ -282,7 +282,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     /// <summary>
     /// Build the kind-prefixed secondary index key for an operation's metadata.
     /// Returns <c>null</c> if the op has no indexable entity (bulk, global, unknown metadata).
-    /// Handles both <see cref="RemovalMetrics"/> and <see cref="EvictionRemovalMetadata"/> —
+    /// Handles both <see cref="RemovalMetrics"/> and <see cref="EvictionRemovalMetadata"/> -
     /// this is the Phase 3 change that lets per-entity <c>EvictionRemoval</c> populate the index.
     /// </summary>
     private static string? BuildIndexKey(OperationType type, object? metadata)

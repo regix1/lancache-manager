@@ -487,7 +487,7 @@ public class DownloadsController : ControllerBase
                         }
                         else
                         {
-                            // Stable per-row key — never merges with other rows
+                            // Stable per-row key - never merges with other rows
                             var depotPart = row.DepotId.HasValue ? row.DepotId.Value.ToString() : "0";
                             mergeKey = $"{row.Service}-unknown-{depotPart}-{row.ClientIp}";
                         }

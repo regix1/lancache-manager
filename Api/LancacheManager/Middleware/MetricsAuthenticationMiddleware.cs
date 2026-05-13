@@ -11,11 +11,11 @@ namespace LancacheManager.Middleware;
 /// is what enforces the API-key requirement when it is enabled.
 ///
 /// Configuration priority:
-/// 1. UI toggle (StateService) — if set via UI, takes precedence
-/// 2. Environment variable / appsettings.json (Security:RequireAuthForMetrics) — default fallback
+/// 1. UI toggle (StateService) - if set via UI, takes precedence
+/// 2. Environment variable / appsettings.json (Security:RequireAuthForMetrics) - default fallback
 ///
 /// Values:
-/// - false (default): metrics are PUBLIC — no authentication required
+/// - false (default): metrics are PUBLIC - no authentication required
 /// - true: metrics require an API key via X-Api-Key header or Authorization: Bearer &lt;key&gt;
 /// </summary>
 public class MetricsAuthenticationMiddleware

@@ -5,7 +5,7 @@ namespace LancacheManager.Core.Services;
 
 /// <summary>
 /// Periodically removes completed and expired cache clearing operation records
-/// that are older than 24 hours. This is a housekeeping service — actual cache
+/// that are older than 24 hours. This is a housekeeping service - actual cache
 /// clearing is triggered manually from the Cache Management page.
 /// </summary>
 public class OperationHistoryCleanupService : ScheduledBackgroundService

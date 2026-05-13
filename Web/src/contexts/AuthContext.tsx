@@ -179,7 +179,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           setEpicPrefillEnabled(isEnabled);
           setEpicPrefillExpiresAt(expiresAt);
         } else {
-          // 'steam' or legacy (no service field) — default to steam
+          // 'steam' or legacy (no service field) - default to steam
           setSteamPrefillEnabled(isEnabled);
           setSteamPrefillExpiresAt(expiresAt);
         }
@@ -212,10 +212,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signalR.isConnected, signalR.invoke, hasSession]);
 
-  // Derive combined prefillEnabled as OR of both services (for backward compat — nav tab visibility)
+  // Derive combined prefillEnabled as OR of both services (for backward compat - nav tab visibility)
   const prefillEnabled = steamPrefillEnabled || epicPrefillEnabled;
 
-  // Calculate time remaining — use the earliest expiring active service
+  // Calculate time remaining - use the earliest expiring active service
   const calcTimeRemaining = (expiresAt: string | null): number | null => {
     if (!expiresAt) return null;
     const normalized =

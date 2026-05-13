@@ -59,7 +59,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         }
         catch
         {
-            // Non-fatal — SignalR broadcast failure should not affect service execution
+            // Non-fatal - SignalR broadcast failure should not affect service execution
         }
     }
 
@@ -67,7 +67,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     {
         // Re-use the same fire-and-forget SignalR broadcast path as work-completed ticks
         // so conditional-visibility changes (e.g. GC Aggressiveness flip) propagate to the
-        // Schedules UI without a page reload. Any error is swallowed — matches existing pattern.
+        // Schedules UI without a page reload. Any error is swallowed - matches existing pattern.
         _ = BroadcastSchedulesUpdatedAsync();
     }
 
@@ -79,7 +79,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         }
         catch
         {
-            // Non-fatal — SignalR broadcast failure should not affect service execution
+            // Non-fatal - SignalR broadcast failure should not affect service execution
         }
     }
 

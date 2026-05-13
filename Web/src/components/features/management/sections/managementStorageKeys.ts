@@ -20,7 +20,7 @@ export const EVICTION_SETTINGS_CHANGED_EVENT = 'eviction-settings-changed' as co
 
 /**
  * Strongly-typed payload for `EVICTION_SETTINGS_CHANGED_EVENT`. Mirrors the
- * response shape of `ApiService.updateEvictionSettings` — keep in sync with
+ * response shape of `ApiService.updateEvictionSettings` - keep in sync with
  * the server contract (`/stats/eviction` PUT response).
  */
 export interface EvictionSettingsChangedDetail {

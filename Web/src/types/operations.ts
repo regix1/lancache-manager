@@ -32,7 +32,7 @@ export type DaemonSessionStatus = 'Active' | 'Terminated' | 'Error';
 
 /**
  * Auth state of the daemon's Steam connection. Mirrors backend `DaemonAuthState` enum
- * verbatim — PascalCase wire format via the default `JsonStringEnumConverter`.
+ * verbatim - PascalCase wire format via the default `JsonStringEnumConverter`.
  * (See `Api/LancacheManager/Core/Services/SteamPrefill/Models/DaemonSessionTypes.cs`.)
  */
 export type DaemonAuthState =

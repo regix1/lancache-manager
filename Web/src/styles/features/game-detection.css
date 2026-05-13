@@ -38,7 +38,7 @@
   opacity: 0.8;
 }
 
-/* Evicted game card dimming — dims the card content without affecting the remove button.
+/* Evicted game card dimming - dims the card content without affecting the remove button.
    We apply opacity directly to the inner card's flex row children EXCEPT the remove button,
    because CSS opacity on a parent cannot be overridden by a child (stacking context). */
 .game-card-evicted > div .game-card-content {

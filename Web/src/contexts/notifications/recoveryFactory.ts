@@ -25,7 +25,7 @@ export type FetchWithAuth = (url: string) => Promise<Response>;
 
 type StageContext = Record<string, string | number | boolean>;
 
-/** GET /api/logs/process/status — RustLogProcessorService.GetStatus() */
+/** GET /api/logs/process/status - RustLogProcessorService.GetStatus() */
 interface LogProcessingStatusResponse {
   isProcessing: boolean;
   silentMode: boolean;
@@ -38,7 +38,7 @@ interface LogProcessingStatusResponse {
   context?: StageContext;
 }
 
-/** GET /api/cache/operations — ActiveOperationsResponse */
+/** GET /api/cache/operations - ActiveOperationsResponse */
 interface CacheOperationProgressItem {
   operationId?: string;
   id?: string;
@@ -56,19 +56,19 @@ interface CacheOperationsResponse {
   operations?: CacheOperationProgressItem[];
 }
 
-/** GET /api/database/reset-status — DatabaseResetStatusResponse */
+/** GET /api/database/reset-status - DatabaseResetStatusResponse */
 interface DatabaseResetStatusResponse {
   isProcessing: boolean;
   /** Canonical OperationStatus or null (null replaces the legacy `"idle"` sentinel). */
   status?: OperationStatus | null;
   message?: string | null;
-  /** C# `int?` — genuinely nullable */
+  /** C# `int?` - genuinely nullable */
   percentComplete?: number | null;
   stageKey?: string;
   context?: StageContext;
 }
 
-/** GET /api/depots/rebuild/progress — SteamPicsProgress */
+/** GET /api/depots/rebuild/progress - SteamPicsProgress */
 interface DepotRebuildProgressResponse {
   isProcessing: boolean;
   statusMessage: string;
@@ -82,7 +82,7 @@ interface DepotRebuildProgressResponse {
   operationId?: string;
 }
 
-/** GET /api/logs/remove/status — RustServiceRemovalService.GetLogRemovalStatus() */
+/** GET /api/logs/remove/status - RustServiceRemovalService.GetLogRemovalStatus() */
 interface LogRemovalStatusResponse {
   isProcessing: boolean;
   service: string;
@@ -93,7 +93,7 @@ interface LogRemovalStatusResponse {
   context?: StageContext;
 }
 
-/** GET /api/games/detect/active — ActiveDetectionResponse */
+/** GET /api/games/detect/active - ActiveDetectionResponse */
 interface GameDetectionOperationInfo {
   operationId?: string;
   statusMessage: string;
@@ -107,9 +107,9 @@ interface GameDetectionStatusResponse {
 }
 
 /**
- * GET /api/cache/corruption/detect/status — CacheController.GetCorruptionDetectionStatus()
+ * GET /api/cache/corruption/detect/status - CacheController.GetCorruptionDetectionStatus()
  * Returns anonymous `{ isRunning: false }` when idle, or the full object below when active.
- * NOTE: backend does NOT emit `percentComplete` — the field is absent from the anonymous
+ * NOTE: backend does NOT emit `percentComplete` - the field is absent from the anonymous
  * response object. The recovery handler uses `?? 0` as a gap-filler. To fix properly,
  * add `percentComplete = activeOp.PercentComplete` to the anonymous object in CacheController.cs.
  */
@@ -121,16 +121,16 @@ interface CorruptionDetectionStatusResponse {
   startTime?: string;
   stageKey?: string;
   context?: StageContext;
-  /** Not emitted by backend — always undefined on the wire. `?? 0` fallback applies. */
+  /** Not emitted by backend - always undefined on the wire. `?? 0` fallback applies. */
   percentComplete?: number;
 }
 
-/** GET /api/migration/import/status — DataImportStatusResponse */
+/** GET /api/migration/import/status - DataImportStatusResponse */
 interface DataImportStatusResponse {
   isProcessing: boolean;
   status?: string | null;
   message?: string | null;
-  /** C# `double?` — genuinely nullable */
+  /** C# `double?` - genuinely nullable */
   percentComplete?: number | null;
   operationId?: string | null;
   stageKey?: string;
@@ -138,18 +138,18 @@ interface DataImportStatusResponse {
 }
 
 /**
- * GET /api/epic/game-mappings/schedule — EpicGameMappingController.GetScheduleStatus()
+ * GET /api/epic/game-mappings/schedule - EpicGameMappingController.GetScheduleStatus()
  * Returns EpicScheduleStatus from EpicMappingService. All fields verified against
  * Api/LancacheManager/Core/Services/EpicMapping/EpicMappingService.cs (class EpicScheduleStatus).
  */
 interface EpicGameMappingScheduleResponse {
   /** Always present */
   isProcessing: boolean;
-  /** C# `string?` — only set when IsProcessing is true; null/absent when idle */
+  /** C# `string?` - only set when IsProcessing is true; null/absent when idle */
   statusMessage?: string | null;
-  /** C# `double` (non-null) — always emitted; 0 when not processing */
+  /** C# `double` (non-null) - always emitted; 0 when not processing */
   progressPercent: number;
-  /** C# `string?` — nullable */
+  /** C# `string?` - nullable */
   operationId?: string | null;
   /** Additional fields from EpicScheduleStatus (not used by recovery handler) */
   refreshIntervalHours?: number;
@@ -159,7 +159,7 @@ interface EpicGameMappingScheduleResponse {
   status?: string;
 }
 
-/** GET /api/stats/eviction/scan/status — anonymous object from StatsController */
+/** GET /api/stats/eviction/scan/status - anonymous object from StatsController */
 interface EvictionScanStatusResponse {
   isProcessing: boolean;
   silentMode: boolean;
@@ -237,7 +237,7 @@ function createSimpleRecoveryFunction<TData>(
         // This handles both:
         // 1. Notifications restored from localStorage (stale from previous session)
         // 2. Notifications created by a previous recovery poll (when isProcessing was true)
-        //    — these don't use localStorage, so the old `if (saved)` guard missed them
+        //    - these don't use localStorage, so the old `if (saved)` guard missed them
         setNotifications((prev: UnifiedNotification[]) => {
           const existing = prev.find((n) => n.type === config.type && n.status === 'running');
           if (!existing) return prev;
@@ -329,7 +329,7 @@ const RECOVERY_CONFIGS = {
       message: data.stageKey
         ? i18n.t(data.stageKey, data.context ?? {})
         : i18n.t('signalr.dbReset.starting'),
-      // `??` (not `||`): backend field is `int?` — nullable. `??` preserves 0.
+      // `??` (not `||`): backend field is `int?` - nullable. `??` preserves 0.
       progress: data.percentComplete ?? 0
     }),
     staleMessage: 'Database reset completed'
@@ -416,7 +416,7 @@ const RECOVERY_CONFIGS = {
       message: data.stageKey
         ? i18n.t(data.stageKey, data.context ?? {})
         : i18n.t('signalr.corruptionDetect.scanningLogs'),
-      // `percentComplete` is not emitted by backend — always undefined on the wire.
+      // `percentComplete` is not emitted by backend - always undefined on the wire.
       // `?? 0` is a legitimate gap-filler until CacheController.GetCorruptionDetectionStatus
       // is updated to include `percentComplete = activeOp.PercentComplete`.
       progress: data.percentComplete ?? 0,
@@ -437,7 +437,7 @@ const RECOVERY_CONFIGS = {
       message: data.stageKey
         ? i18n.t(data.stageKey, data.context ?? {})
         : i18n.t('signalr.generic.unknown'),
-      // `??` (not `||`): backend field is `double?` — nullable. `??` preserves 0.
+      // `??` (not `||`): backend field is `double?` - nullable. `??` preserves 0.
       progress: data.percentComplete ?? 0,
       details: {
         operationId: data.operationId ?? undefined
@@ -453,10 +453,10 @@ const RECOVERY_CONFIGS = {
     notificationId: NOTIFICATION_IDS.EPIC_GAME_MAPPING,
     isProcessing: (data: EpicGameMappingScheduleResponse) => data.isProcessing,
     createNotification: (data: EpicGameMappingScheduleResponse) => ({
-      // `statusMessage` is C# `string?` — only populated when processing.
+      // `statusMessage` is C# `string?` - only populated when processing.
       // Fall back to i18n key when null/undefined (e.g. during idle recovery poll).
       message: data.statusMessage ?? i18n.t('signalr.epicMapping.starting'),
-      // `progressPercent` is C# `double` (non-null) — no fallback needed.
+      // `progressPercent` is C# `double` (non-null) - no fallback needed.
       progress: data.progressPercent,
       details: {
         operationId: data.operationId ?? undefined
@@ -547,7 +547,7 @@ function createCacheRemovalsRecoveryFunction(
       // Recover game removals.
       // Post-Phase-2 contract: game_removal rehydrates scope-aware identity. Steam entries
       // emit details.gameAppId (number); Epic entries emit details.epicAppId (string). The
-      // `?? 0` fallback is gone per acceptance criterion 3.7 — ops missing both identity
+      // `?? 0` fallback is gone per acceptance criterion 3.7 - ops missing both identity
       // fields are logged and skipped (legacy/pre-Phase-2 data only).
       const recoverableGameRemovals = (data.gameRemovals ?? []).filter((op) => {
         if ((op.entityKind === 'epic' || op.epicAppId) && op.epicAppId) return true;
@@ -641,7 +641,7 @@ function createCacheRemovalsRecoveryFunction(
       //   service → service: key
       //   null    → bulk removal, no identifier fields needed beyond operationId
       // REST payload uses camelCase (global JsonNamingPolicy.CamelCase on AllActiveRemovalsResponse).
-      // SignalR events use camelCase too — but the field semantics differ slightly (see registry comment).
+      // SignalR events use camelCase too - but the field semantics differ slightly (see registry comment).
       recoverEvictionRemovals(data.evictionRemovals, setNotifications, scheduleAutoDismiss);
     } catch {
       // Silently fail
@@ -709,7 +709,7 @@ function recoverEvictionRemovals(
       });
     }
   } else {
-    // Clear stale state — always clean up any running eviction_removal notification with no
+    // Clear stale state - always clean up any running eviction_removal notification with no
     // matching active op on the server. The operation completed before the page loaded.
     const saved = localStorage.getItem(NOTIFICATION_STORAGE_KEYS.EVICTION_REMOVAL);
     if (saved) {
@@ -773,7 +773,7 @@ function recoverOperations(
       });
     }
   } else {
-    // Clear stale state — always clean up any running notification of this type,
+    // Clear stale state - always clean up any running notification of this type,
     // regardless of whether localStorage still has the key. This prevents a stuck
     // "running" notification when the completion event cleared localStorage before
     // the app restarted (e.g. SignalR fired completion → removeItem, then page

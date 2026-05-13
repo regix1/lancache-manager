@@ -57,7 +57,7 @@ export const useSteamWebApiStatus = () => {
       setError(errorMessage);
       console.error('[SteamWebApiStatus] Error:', err);
     } finally {
-      // Always clear loading — skipLoading only controls whether loading is
+      // Always clear loading - skipLoading only controls whether loading is
       // SET to true, not whether it's cleared. Prevents stuck loading state
       // when concurrent calls race with different skipLoading values.
       setLoading(false);

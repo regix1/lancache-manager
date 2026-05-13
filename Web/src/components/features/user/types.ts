@@ -90,7 +90,7 @@ export const parseUserAgent = (ua: string | null): ParsedUserAgent => {
   let browserVersion = '';
   let os = 'Unknown';
 
-  // Detect browser (order matters — check specific before generic)
+  // Detect browser (order matters - check specific before generic)
   if (ua.includes('Edg/')) {
     browser = 'Edge';
     browserVersion = ua.match(/Edg\/([\d.]+)/)?.[1] ?? '';

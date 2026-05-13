@@ -292,8 +292,8 @@ interface DepotGroupedData {
 }
 
 // Build the grouping key for a single download row.
-// - depot mode: one row per (depot, client) — matches historical retro behavior.
-// - game mode: one row per (service, gameAppId|epicAppId|gameName) — collapses
+// - depot mode: one row per (depot, client) - matches historical retro behavior.
+// - game mode: one row per (service, gameAppId|epicAppId|gameName) - collapses
 //   every depot and every client for the same game into a single row.
 const buildGroupKey = (download: DownloadType, groupByGame: boolean): string => {
   if (groupByGame) {
@@ -725,7 +725,7 @@ const RetroView = memo(
 
       // Server-mode page rows: one DepotGroupedData per server DTO.
       // The server already merges by game when groupByGame is true, so we
-      // return the mapped rows directly — no client-side mergeByGame needed.
+      // return the mapped rows directly - no client-side mergeByGame needed.
       const serverGroupedItems = useMemo(() => {
         if (!serverMode) return [] as DepotGroupedData[];
         return serverRetro.items.map(mapDtoToDepotGroupedData);
@@ -736,7 +736,7 @@ const RetroView = memo(
       // current page slice only.
       const allGroupedItems = serverMode ? serverGroupedItems : clientGroupedItems;
 
-      // Calculate total pages — server response wins when available.
+      // Calculate total pages - server response wins when available.
       const totalPages = useMemo(() => {
         if (serverMode) {
           return Math.max(1, serverRetro.totalPages);
@@ -1688,7 +1688,7 @@ const RetroView = memo(
                                     <DownloadBadges events={events} maxVisible={2} size="sm" />
                                   ) : (
                                     <span className="text-xs text-[var(--theme-text-muted)]">
-                                      —
+                                      -
                                     </span>
                                   )}
                                 </div>

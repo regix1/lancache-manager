@@ -2,11 +2,11 @@
  * Generic helper for awaiting a SignalR completion event that matches a per-item
  * predicate. Supports two API shapes used by the per-item cache/eviction endpoints:
  *
- * 1. "opId-in-body" — the POST response includes the operationId directly.
+ * 1. "opId-in-body" - the POST response includes the operationId directly.
  *    The caller passes `match` as a payload-to-boolean predicate that checks the
  *    returned operationId against its already-known opId.
  *
- * 2. "202-Accepted + Started event" — the POST returns only a lightweight
+ * 2. "202-Accepted + Started event" - the POST returns only a lightweight
  *    acknowledgement (e.g. `{ message, gameAppId }`) without an opId. The
  *    operationId is published later on a `*Started` SignalR event. In this
  *    case the caller provides `startedEvent` + `onStartedCapture` so the
@@ -14,7 +14,7 @@
  *
  * The helper registers its SignalR listeners synchronously (before the caller
  * performs the HTTP POST) so the Started event is never missed in a race.
- * Listeners are always removed on resolution — success, cancel, or timeout.
+ * Listeners are always removed on resolution - success, cancel, or timeout.
  */
 import type { EventHandler } from '../SignalRContext/types';
 

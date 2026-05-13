@@ -131,7 +131,7 @@ public class CacheController : ControllerBase
             return BadRequest(new ErrorResponse { Error = errorMessage });
         }
 
-        // Central concurrency check — CacheClearing is global, blocks everything.
+        // Central concurrency check - CacheClearing is global, blocks everything.
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.CacheClearing,
             ConflictScope.Bulk(),
@@ -206,7 +206,7 @@ public class CacheController : ControllerBase
             return BadRequest(new ErrorResponse { Error = errorMessage });
         }
 
-        // Central concurrency check — CacheClearing is global, blocks everything.
+        // Central concurrency check - CacheClearing is global, blocks everything.
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.CacheClearing,
             ConflictScope.Bulk(),
@@ -400,7 +400,7 @@ public class CacheController : ControllerBase
     [HttpDelete("services/{service}/corruption")]
     public async Task<IActionResult> RemoveCorruptedChunksAsync(string service, CancellationToken cancellationToken, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
     {
-        // Central concurrency check — service-scoped corruption removal.
+        // Central concurrency check - service-scoped corruption removal.
         // Replaces the over-broad lock that blocked unrelated services.
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.CorruptionRemoval,
@@ -1328,7 +1328,7 @@ public class CacheController : ControllerBase
             key = key.ToLowerInvariant();
         }
 
-        // Permission check — mirror ClearServiceCacheAsync.
+        // Permission check - mirror ClearServiceCacheAsync.
         var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
         var logsWritable = _pathResolver.IsLogsDirectoryWritable();
 
@@ -1346,7 +1346,7 @@ public class CacheController : ControllerBase
             return BadRequest(new ErrorResponse { Error = errorMessage });
         }
 
-        // Central concurrency check — scope-aware (replaces the global eviction lock bug).
+        // Central concurrency check - scope-aware (replaces the global eviction lock bug).
         // Different entities can now run concurrently; bulk/service-wide still blocks entity-level.
         var conflictScope = scopeLower switch
         {

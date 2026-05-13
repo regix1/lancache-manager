@@ -89,7 +89,7 @@
   }
 }
 
-/* Wrapper around each ScheduleCard — carries the data-schedule-key attribute so
+/* Wrapper around each ScheduleCard - carries the data-schedule-key attribute so
    external callers (e.g. View Schedule buttons in DataSection) can scrollIntoView
    the target card. Layout chain (.schedules-grid-item -> .highlight-glow-wrapper
    -> .themed-card) is forced to height:100% so every card in the row stretches
@@ -112,14 +112,14 @@
   width: 100%;
 }
 
-/* Individual Schedule Card — Card component provides bg, border, radius, padding */
+/* Individual Schedule Card - Card component provides bg, border, radius, padding */
 .schedule-card {
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
 
-/* Disabled state — service interval is 0 or startup-only */
+/* Disabled state - service interval is 0 or startup-only */
 .schedule-card-disabled {
   opacity: 0.55;
 }
@@ -263,7 +263,7 @@
     width: 100%;
   }
 
-  /* Same here for the timing row — last/next run side-by-side runs out of room
+  /* Same here for the timing row - last/next run side-by-side runs out of room
      once the date strings ("Apr 30, 02:08:11 AM") have to wrap. */
   .schedule-timing-row {
     grid-template-columns: 1fr;

@@ -81,7 +81,7 @@ class AuthService {
       if (data.token) {
         this.sessionToken = data.token;
       } else if (!data.isAuthenticated) {
-        // Session is no longer valid — clear stale token so SignalR stops
+        // Session is no longer valid - clear stale token so SignalR stops
         // reconnecting with invalid credentials after session expiry/server restart
         this.sessionToken = null;
       }

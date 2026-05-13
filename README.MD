@@ -163,7 +163,7 @@ services:
       - LanCache__CachePath=/cache
 ```
 
-Drop `:ro` from the `/cache` mount if you want to clear cache or remove individual games from the UI. The Docker socket is optional — you only need it for nginx log rotation and prefill (Steam or Epic).
+Drop `:ro` from the `/cache` mount if you want to clear cache or remove individual games from the UI. The Docker socket is optional - you only need it for nginx log rotation and prefill (Steam or Epic).
 
 A complete compose file showing every available environment variable, all commented out:
 
@@ -198,7 +198,7 @@ services:
       # - Security__AllowedOrigins=
       # - Security__AllowedBrowsePaths=
 
-      # Prefill (Steam & Epic) — see Configuration > Prefill for the full reference
+      # Prefill (Steam & Epic) - see Configuration > Prefill for the full reference
       # Most installs need none of these; auto-detection covers the common cases.
       # - Prefill__LancacheIp=192.168.1.10        # Cache server IP. The single most reliable override.
       # - Prefill__LancacheDnsIp=192.168.1.20     # DNS server IP. Bridge mode only.
@@ -249,8 +249,8 @@ services:
 | `PUID` | `33` | User ID the app runs as. Match the owner of your cache and log files. |
 | `PGID` | `33` | Group ID the app runs as. |
 | `TZ` | `UTC` | Timezone for log timestamps (e.g., `America/Chicago`). `TimeZone` is also accepted as a fallback. |
-| `LanCache__LogPath` | — | Path inside the container to the LANCache access log. |
-| `LanCache__CachePath` | — | Path inside the container to the LANCache cache directory. |
+| `LanCache__LogPath` | - | Path inside the container to the LANCache access log. |
+| `LanCache__CachePath` | - | Path inside the container to the LANCache cache directory. |
 
 <a id="postgresql"></a>
 ### PostgreSQL
@@ -262,10 +262,10 @@ LANCache Manager stores everything in PostgreSQL. There are two ways to set the 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `POSTGRES_PASSWORD` | — | PostgreSQL password. |
+| `POSTGRES_PASSWORD` | - | PostgreSQL password. |
 | `POSTGRES_USER` | `lancache` | PostgreSQL username. |
 
-If you're upgrading from an older SQLite build, the migration runs automatically on first start — your downloads, settings, and cached data carry over without any manual steps.
+If you're upgrading from an older SQLite build, the migration runs automatically on first start - your downloads, settings, and cached data carry over without any manual steps.
 
 Compose example with the password set inline:
 
@@ -306,7 +306,7 @@ services:
 | `Security__AllowedBrowsePaths` | (empty) | Comma-separated allow-list of file-browser roots. Empty disables the file browser entirely (every request returns `403`). Example: `/data,/mnt`. |
 | `Security__ApiKeyPath` | `/data/security/api_key.txt` | Override the file path the admin API key is read from and written to. Useful if you bind-mount secrets from outside `/data`. |
 | `Security__KnownProxyNetworks` | (empty) | Comma-separated CIDR list of trusted proxy networks for `X-Forwarded-For` (e.g. `172.16.0.0/12,10.0.0.0/8`). Set this when nginx, Traefik, or another reverse proxy fronts the manager so client IPs are reported correctly. Loopback is always trusted. |
-| `Security__TrustAllProxies` | `false` | Trust every upstream proxy unconditionally. Convenient for local dev. **Never enable on an internet-exposed host** — anyone can spoof a client IP. |
+| `Security__TrustAllProxies` | `false` | Trust every upstream proxy unconditionally. Convenient for local dev. **Never enable on an internet-exposed host** - anyone can spoof a client IP. |
 
 #### Access Levels
 
@@ -315,11 +315,11 @@ services:
 | **Admin** | Everything. Requires the API key. | Clear cache, process logs, change settings |
 | **Guest** | Read-only views. Requires admin auth or a guest session. | Browse downloads, stats, events, client data |
 
-To hand out a guest link without sharing your API key, open the **Users** tab and click **Create Guest Link**. Guests can browse the dashboard but can't change anything. Nothing is public — every endpoint requires either admin auth or a valid guest session.
+To hand out a guest link without sharing your API key, open the **Users** tab and click **Create Guest Link**. Guests can browse the dashboard but can't change anything. Nothing is public - every endpoint requires either admin auth or a valid guest session.
 
 #### File Browser (DeveLanCacheUI Import)
 
-The DeveLanCacheUI import flow uses an admin-only file browser endpoint (`/api/filebrowser/list`) to find a `.db` file on the server. For safety, the browser is **disabled by default** — without an explicit allow-list, every request returns `403` and you'll see this in the log:
+The DeveLanCacheUI import flow uses an admin-only file browser endpoint (`/api/filebrowser/list`) to find a `.db` file on the server. For safety, the browser is **disabled by default** - without an explicit allow-list, every request returns `403` and you'll see this in the log:
 
 ```
 warn: LancacheManager.Controllers.FileBrowserController[0]
@@ -333,19 +333,19 @@ environment:
   - Security__AllowedBrowsePaths=/data,/mnt
 ```
 
-If you don't use the DeveLanCacheUI importer, leave it empty. The warning is informational — nothing else in the app cares.
+If you don't use the DeveLanCacheUI importer, leave it empty. The warning is informational - nothing else in the app cares.
 
 <a id="prefill-config"></a>
 ### Prefill
 
-Prefill auto-detects the right values for almost everything in this table. The one variable worth knowing about is **`Prefill__LancacheIp`** — set it to your cache server's IP and prefill stops depending on DNS at all. Reach for the others only when auto-detection gets it wrong.
+Prefill auto-detects the right values for almost everything in this table. The one variable worth knowing about is **`Prefill__LancacheIp`** - set it to your cache server's IP and prefill stops depending on DNS at all. Reach for the others only when auto-detection gets it wrong.
 
 For setup decisions (when do I need which override?), see [Prefill (Steam & Epic) → Network setup](#prefill-network).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `Prefill__LancacheIp` | (unset) | IP or hostname of your **cache server** (the HTTP server holding cached files, port 80). Forwarded to the daemon as `LANCACHE_IP`; the daemon then connects directly with a spoofed `Host:` header and skips DNS for CDN traffic. The single most reliable override — set this whenever your DNS isn't a stock `lancache-dns`. |
-| `Prefill__LancacheDnsIp` | `auto` | IP of your **DNS server** (lancache-dns, AdGuard, Pi-hole — port 53). Written into the prefill container's `/etc/resolv.conf` so the daemon resolves CDN hostnames against it. Used in `bridge` mode only — Docker silently drops DNS overrides on `host`-network containers. `auto` reuses the IP of your detected `lancache-dns` container. |
+| `Prefill__LancacheIp` | (unset) | IP or hostname of your **cache server** (the HTTP server holding cached files, port 80). Forwarded to the daemon as `LANCACHE_IP`; the daemon then connects directly with a spoofed `Host:` header and skips DNS for CDN traffic. The single most reliable override - set this whenever your DNS isn't a stock `lancache-dns`. |
+| `Prefill__LancacheDnsIp` | `auto` | IP of your **DNS server** (lancache-dns, AdGuard, Pi-hole - port 53). Written into the prefill container's `/etc/resolv.conf` so the daemon resolves CDN hostnames against it. Used in `bridge` mode only - Docker silently drops DNS overrides on `host`-network containers. `auto` reuses the IP of your detected `lancache-dns` container. |
 | `Prefill__NetworkMode` | `auto` | Docker network mode for prefill containers. Accepts `host`, `bridge`, or a Docker network name. `auto` infers the mode from your `lancache-dns` container. |
 | `Prefill__SteamDockerImage` | `ghcr.io/regix1/steam-prefill-daemon:latest` | Docker image used for Steam prefill containers. |
 | `Prefill__EpicDockerImage` | `ghcr.io/regix1/epic-prefill-daemon:latest` | Docker image used for Epic prefill containers. |
@@ -353,12 +353,12 @@ For setup decisions (when do I need which override?), see [Prefill (Steam & Epic
 | `Prefill__DaemonBasePath` | `/data/prefill` | Container path where prefill session state is stored. |
 | `Prefill__HostDataPath` | `auto` | Host path that maps to the manager's `/data` volume. Detected from the manager's mount config; set explicitly only when detection fails (unusual platforms, custom volume drivers). |
 | `Prefill__UseTcp` | `auto` | Communicate with the daemon over TCP instead of a Unix domain socket. `auto` resolves to `true` on Windows, `false` on Linux. *Linux users only need to set this if they want to force TCP mode.* |
-| `Prefill__TcpPort` | `45555` | TCP port the daemon listens on inside its container. *Used in TCP mode only — Windows by default, Linux only when `Prefill__UseTcp=true`.* |
+| `Prefill__TcpPort` | `45555` | TCP port the daemon listens on inside its container. *Used in TCP mode only - Windows by default, Linux only when `Prefill__UseTcp=true`.* |
 | `Prefill__HostTcpPort` | (random free port) | TCP port the daemon's container publishes on the host. *TCP mode only.* |
 | `Prefill__TcpHost` | `127.0.0.1` | Host the daemon binds to and the manager connects to over TCP. *TCP mode only.* |
 
 > [!NOTE]
-> **TCP mode is the platform divide.** On Windows, prefill containers communicate over TCP because Windows doesn't expose Unix domain sockets to Docker. On Linux, prefill uses a Unix domain socket by default — the four TCP variables above are ignored unless you set `Prefill__UseTcp=true`. Stock Linux installs can skip the TCP rows entirely.
+> **TCP mode is the platform divide.** On Windows, prefill containers communicate over TCP because Windows doesn't expose Unix domain sockets to Docker. On Linux, prefill uses a Unix domain socket by default - the four TCP variables above are ignored unless you set `Prefill__UseTcp=true`. Stock Linux installs can skip the TCP rows entirely.
 
 <a id="paths-and-datasources"></a>
 ### Paths and Datasources
@@ -394,7 +394,7 @@ If you run more than one cache instance or split services across drives, see [Mu
 <a id="prefill-steam--epic"></a>
 ## Prefill (Steam & Epic)
 
-Prefill downloads games into your cache *before* people connect. When guests show up, every install reads from your cache instead of the public internet — full LAN speed, no bandwidth bottleneck.
+Prefill downloads games into your cache *before* people connect. When guests show up, every install reads from your cache instead of the public internet - full LAN speed, no bandwidth bottleneck.
 
 Steam and Epic each run in their own container, so you can prefill both at the same time without them interfering. Progress streams live to the UI.
 
@@ -407,7 +407,7 @@ The flow is the same for both services:
 3. Pick games from your library
 4. Hit **Start**
 
-That's it. Leave it running — when guests arrive, everything's cached.
+That's it. Leave it running - when guests arrive, everything's cached.
 
 > [!NOTE]
 > Steam prefill is built on [steam-prefill-daemon](https://github.com/regix1/steam-prefill-daemon), a fork of [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) by [@tpill90](https://github.com/tpill90). Epic prefill uses [epic-prefill-daemon](https://github.com/regix1/epic-prefill-daemon).
@@ -427,7 +427,7 @@ Have a list of App IDs from `steam-lancache-prefill` or somewhere else? Skip the
 The dialog tells you how many games were added, how many were already selected, and how many IDs aren't in your Steam library (those are skipped at prefill time).
 
 > [!TIP]
-> **Coming from `steam-lancache-prefill`?** Open `selectedAppsToPrefill.json` and paste the contents straight into the import field — the JSON array is parsed as-is.
+> **Coming from `steam-lancache-prefill`?** Open `selectedAppsToPrefill.json` and paste the contents straight into the import field - the JSON array is parsed as-is.
 
 ### Requirements
 
@@ -466,16 +466,16 @@ Full descriptions and defaults for `Prefill__LancacheIp`, `Prefill__LancacheDnsI
 > | `LancacheIp` | The **cache server** (`lancachenet/monolithic`, or any HTTP cache) | HTTP / 80 | Holds the actual cached game files |
 > | `LancacheDnsIp` | The **DNS server** (`lancachenet/lancache-dns`, AdGuard Home, Pi-hole, etc.) | DNS / 53 | Translates `lancache.steamcontent.com` into the cache's IP |
 >
-> Think of a small town. The **cache** is the library (where the books live). The **DNS server** is the information booth (where you ask "which way to the library?"). Both can sit in the same building — same IP, different ports — but they do completely different jobs. You can't borrow a book from the information booth, and the librarian doesn't give directions.
+> Think of a small town. The **cache** is the library (where the books live). The **DNS server** is the information booth (where you ask "which way to the library?"). Both can sit in the same building - same IP, different ports - but they do completely different jobs. You can't borrow a book from the information booth, and the librarian doesn't give directions.
 >
 > When you set `LancacheIp`, the daemon skips the information booth entirely and walks straight to the library. That's why it's the universal override: DNS becomes irrelevant for cache traffic.
 
 > [!IMPORTANT]
-> Steam (`api.steampowered.com`) and Epic (`*.epicgames.com`) auth and manifest endpoints still use normal DNS. `LANCACHE_IP` only redirects CDN chunk traffic — the only domains lancache caches. Your login and metadata traffic is unaffected.
+> Steam (`api.steampowered.com`) and Epic (`*.epicgames.com`) auth and manifest endpoints still use normal DNS. `LANCACHE_IP` only redirects CDN chunk traffic - the only domains lancache caches. Your login and metadata traffic is unaffected.
 
 #### Examples
 
-**Most reliable** — `LancacheIp` makes CDN routing DNS-independent:
+**Most reliable** - `LancacheIp` makes CDN routing DNS-independent:
 
 ```yaml
 environment:
@@ -537,7 +537,7 @@ flowchart TD
     LIP -->|NO| DNS[Daemon asks DNS:<br/>where does lancache.steamcontent.com<br/>actually live?]
     DNS --> Mode{Which NetworkMode<br/>is the container in?}
 
-    Mode -->|host| HostDNS[Container uses whatever DNS<br/>the host machine uses.<br/>Prefill__LancacheDnsIp can't help —<br/>Docker silently drops it in host mode.]
+    Mode -->|host| HostDNS[Container uses whatever DNS<br/>the host machine uses.<br/>Prefill__LancacheDnsIp can't help -<br/>Docker silently drops it in host mode.]
     Mode -->|bridge| BridgeDNS{Did you set<br/>Prefill__LancacheDnsIp?}
 
     BridgeDNS -->|YES| ForcedDNS[Container queries<br/>that DNS server]
@@ -548,7 +548,7 @@ flowchart TD
     AutoDetect --> Outcome
 
     Outcome -->|YES| OK
-    Outcome -->|NO| Public([Got the real CDN's public IP —<br/>traffic skips your cache])
+    Outcome -->|NO| Public([Got the real CDN's public IP -<br/>traffic skips your cache])
 
     style OK fill:#1f883d,color:#fff
     style Public fill:#cf222e,color:#fff
@@ -606,9 +606,9 @@ A "datasource" is a paired log + cache directory. Each one is processed and trac
 
 Common reasons to use it:
 
-- **Outsourced services** — Steam lives on a separate drive from everything else.
-- **Multiple LANCache instances** — separate cache servers for different rooms or purposes.
-- **Segmented storage** — different services on different partitions.
+- **Outsourced services** - Steam lives on a separate drive from everything else.
+- **Multiple LANCache instances** - separate cache servers for different rooms or purposes.
+- **Segmented storage** - different services on different partitions.
 
 ### Auto-discovery (recommended)
 
@@ -623,8 +623,8 @@ environment:
 
 Two things get detected:
 
-1. **Root-level datasource** — if `/logs/access.log` exists and `/cache` contains LANCache hash directories (`00/`, `01/`, etc.), it creates a "Default" datasource.
-2. **Subdirectory datasources** — for each folder that exists in *both* `/cache` and `/logs`, it creates a named datasource (e.g., `/cache/steam` + `/logs/steam` becomes "Steam").
+1. **Root-level datasource** - if `/logs/access.log` exists and `/cache` contains LANCache hash directories (`00/`, `01/`, etc.), it creates a "Default" datasource.
+2. **Subdirectory datasources** - for each folder that exists in *both* `/cache` and `/logs`, it creates a named datasource (e.g., `/cache/steam` + `/logs/steam` becomes "Steam").
 
 Folder matching is case-insensitive: `Steam`, `steam`, and `STEAM` all match.
 
@@ -758,7 +758,7 @@ server {
 <a id="grafana--prometheus"></a>
 ## Monitoring (Grafana & Prometheus)
 
-The app exposes Prometheus metrics on `/metrics`. Scrape them, build dashboards, alert on cache hit ratio — whatever you need.
+The app exposes Prometheus metrics on `/metrics`. Scrape them, build dashboards, alert on cache hit ratio - whatever you need.
 
 ### Available metrics
 
@@ -894,11 +894,11 @@ environment:
 ```
 
 ```yaml
-# Lancache IP injection — works in host or bridge mode
+# Lancache IP injection - works in host or bridge mode
 environment:
   - Prefill__NetworkMode=host
-  - Prefill__LancacheIp=192.168.1.10        # your cache server IP — bypasses DNS for CDN traffic
-  - Prefill__LancacheDnsIp=192.168.1.20     # optional — only used in bridge mode
+  - Prefill__LancacheIp=192.168.1.10        # your cache server IP - bypasses DNS for CDN traffic
+  - Prefill__LancacheDnsIp=192.168.1.20     # optional - only used in bridge mode
 ```
 
 ### Debug logging
@@ -918,7 +918,7 @@ You'll get extra detail on:
 - Volume mount detection
 - Linux/Windows platform differences
 
-To use it: add the variable, restart with `docker compose up -d`, reproduce the issue, then check `docker logs lancache-manager`. Remove the variable when you're done — it's noisy.
+To use it: add the variable, restart with `docker compose up -d`, reproduce the issue, then check `docker logs lancache-manager`. Remove the variable when you're done - it's noisy.
 
 This is most useful when path auto-detection fails, prefill containers won't spawn, volume mounts look wrong, or you're on an unusual platform.
 
@@ -957,7 +957,7 @@ docker buildx build \
 <a id="contributing-translations"></a>
 ## Contributing Translations
 
-LANCache Manager supports internationalization (i18n) and welcomes community translations. Every UI string is already externalized — there's nothing to refactor before you can translate.
+LANCache Manager supports internationalization (i18n) and welcomes community translations. Every UI string is already externalized - there's nothing to refactor before you can translate.
 
 ### How to contribute
 
@@ -979,10 +979,10 @@ Web/src/i18n/locales/
 
 ### Guidelines
 
-- **Don't change JSON keys** — only translate the string values.
-- **Preserve placeholders** — keep `{{variable}}` intact (e.g., `{{name}}`).
-- **Preserve formatting** — leave HTML tags like `<strong>` alone.
-- **Test locally** — run the app and verify your translations render correctly.
+- **Don't change JSON keys** - only translate the string values.
+- **Preserve placeholders** - keep `{{variable}}` intact (e.g., `{{name}}`).
+- **Preserve formatting** - leave HTML tags like `<strong>` alone.
+- **Test locally** - run the app and verify your translations render correctly.
 
 ### Example
 

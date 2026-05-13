@@ -12,7 +12,7 @@ namespace LancacheManager.Infrastructure.Services;
 /// and calls <see cref="IMemoryManager.PerformAggressiveGarbageCollection"/> when the process
 /// working set exceeds <see cref="GcSettings.MemoryThresholdMB"/>. Surfaces on the Schedules
 /// page as the <c>performanceOptimization</c> card, but only when
-/// <see cref="IsScheduleVisible"/> returns <c>true</c> — which tracks the user-controlled
+/// <see cref="IsScheduleVisible"/> returns <c>true</c> - which tracks the user-controlled
 /// <see cref="GcSettings.Enabled"/> toggle on the Performance Optimizations page.
 /// </summary>
 public class GcScheduledService : ConfigurableScheduledService, IConditionallyVisibleSchedule

@@ -31,7 +31,7 @@ interface UseGroupPaginationReturn {
   totalPages: number;
   /**
    * IP groups for the current page: { [ip]: Download[] }. Each IP's download
-   * list is returned in FULL — consumers are expected to paginate items within
+   * list is returned in FULL - consumers are expected to paginate items within
    * each IP via `<IpSessionList>` (which uses `usePaginatedList`).
    */
   ipGroups: Record<string, Download[]>;
@@ -100,7 +100,7 @@ export function useGroupPagination({
     return allIpEntries.slice(startIndex, endIndex);
   }, [allIpEntries, currentPage, sessionsPerPage]);
 
-  // Return ALL items for each visible IP — per-IP pagination is handled by
+  // Return ALL items for each visible IP - per-IP pagination is handled by
   // `<IpSessionList>` (which uses `usePaginatedList`) so that the "Items/IP"
   // dropdown acts as a page size rather than a hard cap.
   const ipGroups = useMemo<Record<string, Download[]>>(

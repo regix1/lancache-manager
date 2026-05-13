@@ -47,7 +47,7 @@ import type { ServiceScheduleInfo } from '../components/features/management/sche
 
 // Structured body returned by the backend for HTTP 409 Conflict responses.
 // Matches C# OperationConflictResponse (camelCase via SignalR naming policy).
-// NOT exported — no consumer exists yet; export only when needed to avoid knip CI failure.
+// NOT exported - no consumer exists yet; export only when needed to avoid knip CI failure.
 interface OperationConflictBody {
   code: string;
   stageKey: string;
@@ -83,7 +83,7 @@ interface OperationResponse {
    * Canonical operation lifecycle status from the backend `OperationStatus` enum
    * (serialized lowercase via `OperationStatusJsonConverter`). Typing this as the
    * union instead of `string` gives TypeScript the power to reject typos like
-   * `'started'` — which were historically possible and caused at least one "Unexpected response" bug.
+   * `'started'` - which were historically possible and caused at least one "Unexpected response" bug.
    */
   status?: OperationStatus;
   // Log processing specific
@@ -197,7 +197,7 @@ class ApiService {
       throw error;
     }
 
-    // Handle 409 Conflict — may carry a structured OperationConflictBody
+    // Handle 409 Conflict - may carry a structured OperationConflictBody
     if (response.status === 409) {
       const conflictText = await response.text().catch(() => '');
       let conflictData: OperationConflictBody | null = null;
@@ -207,7 +207,7 @@ class ApiService {
         // Not JSON
       }
       if (conflictData && (conflictData.code === 'OPERATION_CONFLICT' || conflictData.stageKey)) {
-        // Structured conflict response — attach full body as .cause for i18n lookup
+        // Structured conflict response - attach full body as .cause for i18n lookup
         const conflictError = new Error(conflictData.error);
         (conflictError as Error & { cause?: OperationConflictBody }).cause = conflictData;
         throw conflictError;
@@ -282,7 +282,7 @@ class ApiService {
     };
   }
 
-  // Dashboard batch endpoint — fetches all 6 dashboard data sources in a single request
+  // Dashboard batch endpoint - fetches all 6 dashboard data sources in a single request
   static async getDashboardBatch(
     signal?: AbortSignal,
     startTime?: number,
@@ -2581,7 +2581,7 @@ class ApiService {
       `${API_BASE}/themes/${themeId}`,
       this.getFetchOptions({ method: 'DELETE' })
     );
-    // 404 is acceptable — theme might already be deleted
+    // 404 is acceptable - theme might already be deleted
     if (!response.ok && response.status !== 404) {
       await ApiService.handleResponse(response);
     }

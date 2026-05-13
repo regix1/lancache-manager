@@ -65,7 +65,7 @@ builder.Services.AddControllers(options =>
 .AddJsonOptions(options =>
 {
     // Omit null fields from REST JSON payloads to reduce response size on the dashboard hot path.
-    // Does NOT affect SignalR serialization — that is configured separately via AddJsonProtocol below.
+    // Does NOT affect SignalR serialization - that is configured separately via AddJsonProtocol below.
     options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
 
     // Emit camelCase property names for MVC REST payloads to match frontend expectations.
@@ -116,7 +116,7 @@ builder.Services.AddCors(options =>
         }
         else if (allowedOrigins == "*")
         {
-            // Wildcard origins — NOT combined with AllowCredentials (browsers reject that pair).
+            // Wildcard origins - NOT combined with AllowCredentials (browsers reject that pair).
             policy.AllowAnyOrigin()
                 .AllowAnyMethod()
                 .AllowAnyHeader();
@@ -138,7 +138,7 @@ builder.Services.AddCors(options =>
 // Configure forwarded headers for reverse proxy support (nginx, Cloudflare, Traefik, etc.)
 // This ensures we get the real client IP and scheme (X-Forwarded-Proto) instead of the proxy's.
 // Three deployment modes:
-//   1. Direct HTTP (LAN, no proxy): defaults are fine — no X-Forwarded-* expected.
+//   1. Direct HTTP (LAN, no proxy): defaults are fine - no X-Forwarded-* expected.
 //   2. nginx/Traefik in front (typical Docker setup): set Security:KnownProxyNetworks
 //      to the proxy's network (e.g. "172.16.0.0/12,10.0.0.0/8" for Docker bridges) so
 //      X-Forwarded-Proto is honored and Secure cookies activate on HTTPS.
@@ -170,7 +170,7 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
             }
         }
     }
-    // else: keep ASP.NET Core defaults (loopback only) — works for direct HTTP and proxies on 127.0.0.1.
+    // else: keep ASP.NET Core defaults (loopback only) - works for direct HTTP and proxies on 127.0.0.1.
 });
 
 // Configure API options
@@ -292,7 +292,7 @@ builder.Services.AddScoped(sp => (StatsDataService)sp.GetRequiredService<IStatsD
 builder.Services.AddScoped(sp => (EventsService)sp.GetRequiredService<IEventsService>());
 builder.Services.AddSingleton(sp => (SettingsService)sp.GetRequiredService<ISettingsService>());
 
-// Database configuration — build connection string dynamically from env vars or config file
+// Database configuration - build connection string dynamically from env vars or config file
 var baseConnStr = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection is not configured.");
 
@@ -320,13 +320,13 @@ if (string.IsNullOrEmpty(pgPassword))
         }
         catch
         {
-            // Config file corrupt or unreadable — will show setup page
+            // Config file corrupt or unreadable - will show setup page
         }
     }
 }
 
 // Build connection string with credentials
-// Start from base connection string (appsettings) — only override if env vars or config file provided values
+// Start from base connection string (appsettings) - only override if env vars or config file provided values
 var connBuilder = new Npgsql.NpgsqlConnectionStringBuilder(baseConnStr);
 if (!string.IsNullOrEmpty(pgUser))
     connBuilder.Username = pgUser;
@@ -336,7 +336,7 @@ if (!string.IsNullOrEmpty(pgPassword))
 var dbConnectionString = connBuilder.ConnectionString
     + ";Minimum Pool Size=3;Maximum Pool Size=30;Max Auto Prepare=20";
 
-// Register pooled DbContext factory — provides IDbContextFactory<AppDbContext> for singleton services
+// Register pooled DbContext factory - provides IDbContextFactory<AppDbContext> for singleton services
 // and pools context instances to reduce allocation overhead on the dashboard hot path
 builder.Services.AddPooledDbContextFactory<AppDbContext>((serviceProvider, options) =>
 {
@@ -491,7 +491,7 @@ builder.Services.AddSingleton<EpicAuthStorageService>();
 // Register unified EpicMappingService for game discovery, mapping, and scheduling
 builder.Services.AddSingletonHostedService<EpicMappingService>();
 
-// Register GcScheduledService — runs on a user-configurable interval (managed through the
+// Register GcScheduledService - runs on a user-configurable interval (managed through the
 // unified Schedules page) and performs aggressive GC when the working set exceeds the
 // configured threshold. Surfaces on the unified Schedules page as "performanceOptimization"
 // only when IsScheduleVisible() returns true.
@@ -510,21 +510,21 @@ builder.Services.AddHostedService<DirectoryPermissionMonitorService>();
 // Register RustSpeedTrackerService for real-time per-game download speed monitoring (uses Rust for faster parsing)
 builder.Services.AddSingletonHostedService<RustSpeedTrackerService>();
 
-// Register GameDetectionService — runs scheduled game cache detection. Whether it
+// Register GameDetectionService - runs scheduled game cache detection. Whether it
 // also runs at startup is user-controlled via the Schedules UI (DefaultRunOnStartup = true).
 builder.Services.AddSingletonHostedService<GameDetectionService>();
 
-// Register dashboard batch service — shared compute behind /api/dashboard/batch. Lives as a
+// Register dashboard batch service - shared compute behind /api/dashboard/batch. Lives as a
 // singleton so the controller is a thin pass-through AND the warmer below can pre-populate
 // the IMemoryCache on startup (first user request after restart hits a warm cache).
 builder.Services.AddSingleton<IDashboardBatchService, DashboardBatchService>();
 
-// Register dashboard cache warmer — calls GetBatchAsync(null,null,null) once at startup and
+// Register dashboard cache warmer - calls GetBatchAsync(null,null,null) once at startup and
 // once per interval (RunOnStartup=true) so the first /api/dashboard/batch user request does
 // NOT pay the cold DB connection pool + 9 parallel queries penalty.
 builder.Services.AddSingletonHostedService<DashboardCacheWarmerService>();
 
-// Register service schedule registry — collects all ScheduledBackgroundService / ConfigurableScheduledService instances
+// Register service schedule registry - collects all ScheduledBackgroundService / ConfigurableScheduledService instances
 builder.Services.AddSingleton<IServiceScheduleRegistry, ServiceScheduleRegistry>();
 
 // Configure OpenTelemetry Metrics for Prometheus + Grafana
@@ -600,7 +600,7 @@ var app = builder.Build();
 if (string.IsNullOrWhiteSpace(allowedOrigins))
 {
     app.Logger.LogWarning(
-        "CORS: Security:AllowedOrigins is empty — defaulting to same-origin-only. " +
+        "CORS: Security:AllowedOrigins is empty - defaulting to same-origin-only. " +
         "Set Security:AllowedOrigins to a comma-separated origin list (e.g. \"https://lancache.local\") " +
         "or \"*\" (no credentials) if cross-origin browser access is required.");
 }
@@ -619,7 +619,7 @@ else
 if (trustAllProxies)
 {
     app.Logger.LogWarning(
-        "ForwardedHeaders: Security:TrustAllProxies=true — KnownProxies/KnownIPNetworks cleared. " +
+        "ForwardedHeaders: Security:TrustAllProxies=true - KnownProxies/KnownIPNetworks cleared. " +
         "Any upstream can spoof X-Forwarded-For. Only enable this on trusted networks.");
 }
 else if (!string.IsNullOrWhiteSpace(knownProxyNetworks))
@@ -722,7 +722,7 @@ if (apiKeyService.WasNewKeyGenerated)
 // This ensures HttpContext.Connection.RemoteIpAddress returns the real client IP
 app.UseForwardedHeaders();
 
-// Security headers — applied to every HTTP response (API, SignalR negotiate, static files,
+// Security headers - applied to every HTTP response (API, SignalR negotiate, static files,
 // SPA fallback). Placed before UseStaticFiles so OnPrepareResponse overrides do not drop these.
 // CSP is intentionally NOT set here: the SPA bundle would need an inline-script audit first.
 app.Use(async (context, next) =>
@@ -749,7 +749,7 @@ app.UseWhen(
 app.UseGlobalExceptionHandler();
 
 // GC management now runs as a scheduled BackgroundService (GcScheduledService) rather than
-// a request-pipeline middleware — see Infrastructure/Services/GcScheduledService.cs.
+// a request-pipeline middleware - see Infrastructure/Services/GcScheduledService.cs.
 
 // Serve static files (UseDefaultFiles rewrites / to /index.html for faster static serving)
 app.UseDefaultFiles();

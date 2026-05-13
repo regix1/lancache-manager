@@ -60,7 +60,7 @@ const BULK_BATCH_SIZE: usize = 5_000;
 const SESSION_GAP_MINUTES: i64 = 5;
 const LINE_BUFFER_CAPACITY: usize = 1024;
 
-/// Buffered log entry ready for bulk INSERT — owns its data to avoid lifetime issues across session groups
+/// Buffered log entry ready for bulk INSERT - owns its data to avoid lifetime issues across session groups
 struct PendingLogEntry {
     timestamp: chrono::DateTime<Utc>,
     client_ip: String,
@@ -106,7 +106,7 @@ struct Processor {
     logged_depots: HashSet<u32>, // Track depots that have already been logged
     datasource_name: String,
     depot_map: HashMap<u32, (u32, Option<String>)>,
-    skip_dedup: bool, // True when table is empty — skip duplicate checks for max speed
+    skip_dedup: bool, // True when table is empty - skip duplicate checks for max speed
 }
 
 impl Processor {
@@ -251,7 +251,7 @@ impl Processor {
 
         self.write_progress("counting", &format!("Counted {} lines across {} file(s)", total_lines, log_files.len()))?;
 
-        // Check if this is a fresh database — skip dedup for maximum speed
+        // Check if this is a fresh database - skip dedup for maximum speed
         if self.start_position == 0 {
             let is_empty: bool = sqlx::query_scalar(
                 r#"SELECT NOT EXISTS(SELECT 1 FROM "LogEntries" LIMIT 1)"#
@@ -263,7 +263,7 @@ impl Processor {
                 false
             });
             if is_empty {
-                println!("Fresh database detected — skipping duplicate checks for maximum speed");
+                println!("Fresh database detected - skipping duplicate checks for maximum speed");
                 self.skip_dedup = true;
             }
         }
@@ -510,12 +510,12 @@ impl Processor {
             return Ok(());
         }
 
-        // Duplicate detection — skip on fresh database for maximum speed
+        // Duplicate detection - skip on fresh database for maximum speed
         let (new_entries, skipped): (Vec<&LogEntry>, usize) = if self.skip_dedup {
-            // Fresh database — all entries are new, no dedup needed
+            // Fresh database - all entries are new, no dedup needed
             (entries.iter().map(|e| *e).collect(), 0)
         } else {
-            // Bulk duplicate detection — single query for the whole group
+            // Bulk duplicate detection - single query for the whole group
             let mut check_client_ips: Vec<&str> = Vec::with_capacity(entries.len());
             let mut check_services: Vec<&str> = Vec::with_capacity(entries.len());
             let mut check_timestamps: Vec<chrono::DateTime<Utc>> = Vec::with_capacity(entries.len());
@@ -691,7 +691,7 @@ impl Processor {
 
             let download_id: i64 = row.get("Id");
 
-            // Upsert client stats — no pre-check SELECT needed
+            // Upsert client stats - no pre-check SELECT needed
             sqlx::query(
                 r#"INSERT INTO "ClientStats" ("ClientIp", "TotalCacheHitBytes", "TotalCacheMissBytes", "LastActivityUtc", "LastActivityLocal", "TotalDownloads", "TotalDurationSeconds")
                    VALUES ($1, $2, $3, $4, $5, 1, 0.0)
@@ -710,7 +710,7 @@ impl Processor {
             .execute(&mut **tx)
             .await?;
 
-            // Upsert service stats — no pre-check SELECT needed
+            // Upsert service stats - no pre-check SELECT needed
             sqlx::query(
                 r#"INSERT INTO "ServiceStats" ("Service", "TotalCacheHitBytes", "TotalCacheMissBytes", "LastActivityUtc", "LastActivityLocal", "TotalDownloads")
                    VALUES ($1, $2, $3, $4, $5, 1)
@@ -862,7 +862,7 @@ impl Processor {
         self.session_tracker
             .update_session(session_key, last_timestamp);
 
-        // Push entries to pending buffer — will be bulk-inserted by process_batch
+        // Push entries to pending buffer - will be bulk-inserted by process_batch
         let now = Utc::now();
         for entry in &new_entries {
             pending_inserts.push(PendingLogEntry {
@@ -982,7 +982,7 @@ async fn main() -> Result<()> {
     let pool = db::create_pool().await?;
 
     // Pre-load all SteamDepotMappings into a HashMap so no per-session DB lookups are needed.
-    // Only owner apps (IsOwner = true) — matches prior C# behavior.
+    // Only owner apps (IsOwner = true) - matches prior C# behavior.
     let depot_map: HashMap<u32, (u32, Option<String>)> = if auto_map_depots {
         println!("Pre-loading Steam depot mappings...");
         let rows = sqlx::query(

@@ -14,7 +14,7 @@ public enum DaemonMessageType
     Progress,
     AuthState,
     StatusUpdate,
-    /// <summary>Fallback for any unrecognized wire value — never treat as an error.</summary>
+    /// <summary>Fallback for any unrecognized wire value - never treat as an error.</summary>
     Unknown
 }
 

@@ -96,7 +96,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
 
   const { notifications, addNotification, updateNotification } = useNotifications();
 
-  // Local state for evicted items — same pattern as GameCacheDetector's games/services.
+  // Local state for evicted items - same pattern as GameCacheDetector's games/services.
   // Items only disappear when explicitly filtered by notification completion.
   // StorageSection needs the FULL GameCacheInfo shape (depot_ids, sample_urls,
   // cache_file_paths) to render cards correctly, so we fetch directly from
@@ -129,7 +129,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     }
   }, []);
 
-  // Sync from API when refresh key changes — but NOT during active removal
+  // Sync from API when refresh key changes - but NOT during active removal
   useEffect(() => {
     if (isAnyEvictedRemovalRunning) return;
     void fetchEvictedItems();
@@ -140,7 +140,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   // refresh this list. Without a listener here, an eviction scan that flips
   // Downloads.IsEvicted would update the DB (and evicted_downloads_count on
   // the detection response), but the Evicted Items card would keep showing
-  // whatever it loaded at mount — hence "14 newly evicted" in the logs with
+  // whatever it loaded at mount - hence "14 newly evicted" in the logs with
   // no visible UI change. Refetch on scan / detection completion.
   const { on, off } = useSignalR();
   useEffect(() => {
@@ -487,7 +487,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     );
   }, [evictedItemsExpanded]);
 
-  // "Remove All" state — sequential per-item eviction removal. One at a time
+  // "Remove All" state - sequential per-item eviction removal. One at a time
   // mirrors the per-item Remove flow (each item gets its own SignalR operation,
   // its own log-purge, its own progress bar) so the user sees exactly what's
   // happening and a single failure doesn't abort the rest.
@@ -758,7 +758,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
               badge={undefined}
             >
               <div className="space-y-4">
-                {/* Header actions toolbar — visible even when inner accordions are collapsed */}
+                {/* Header actions toolbar - visible even when inner accordions are collapsed */}
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <Button variant="default" size="sm" onClick={handleEvictionExpandCollapseAll}>
                     {evictionAllExpanded
@@ -881,7 +881,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                             current: removeAllProgress.current,
                             total: removeAllProgress.total,
                             label: removeAllProgress.label,
-                            defaultValue: 'Removing {{current}} of {{total}} — {{label}}'
+                            defaultValue: 'Removing {{current}} of {{total}} - {{label}}'
                           })}
                         </span>
                       )}
@@ -971,7 +971,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
             <p className="text-sm">
               {t('management.sections.data.evictionRemoveAllConfirmWarning', {
                 defaultValue:
-                  'Only the evicted depots are removed — partially-cached games keep their on-disk files.'
+                  'Only the evicted depots are removed - partially-cached games keep their on-disk files.'
               })}
             </p>
           </Alert>

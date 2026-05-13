@@ -12,7 +12,7 @@ public interface IServiceScheduleRegistry
 
     /// <summary>
     /// Triggers an immediate run of every registered service (both scheduled and configurable),
-    /// regardless of their interval or current running state. Fire-and-forget per service —
+    /// regardless of their interval or current running state. Fire-and-forget per service -
     /// individual services own their concurrency. Returns the count of services triggered.
     /// </summary>
     Task<int> TriggerAllAsync();
@@ -23,7 +23,7 @@ public interface IServiceScheduleRegistry
     /// Broadcasts the current schedule list to all SignalR clients via <c>SchedulesUpdated</c>.
     /// Call this when a service's visibility changes (e.g. after GC Aggressiveness is flipped)
     /// so the Schedules UI can show/hide conditionally visible cards without a page reload.
-    /// Fire-and-forget — matches the existing <c>OnServiceWorkCompletedAsync</c> pattern.
+    /// Fire-and-forget - matches the existing <c>OnServiceWorkCompletedAsync</c> pattern.
     /// </summary>
     void NotifySchedulesChanged();
 }

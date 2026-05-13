@@ -241,7 +241,7 @@
   opacity: 1;
 }
 
-/* Arrow / pointer — scoped to this tooltip only, not the global Tooltip component */
+/* Arrow / pointer - scoped to this tooltip only, not the global Tooltip component */
 .compare-chart-tooltip--arrow-left::before,
 .compare-chart-tooltip--arrow-left::after,
 .compare-chart-tooltip--arrow-right::before,
@@ -257,7 +257,7 @@
   pointer-events: none;
 }
 
-/* Tooltip extends to the right of the bar — arrow on the LEFT edge points at the bar */
+/* Tooltip extends to the right of the bar - arrow on the LEFT edge points at the bar */
 .compare-chart-tooltip--arrow-left::before {
   left: -7px;
   border-width: 7px 7px 7px 0;
@@ -270,7 +270,7 @@
   border-right-color: var(--theme-card-bg);
 }
 
-/* Tooltip extends to the left of the bar — arrow on the RIGHT edge points at the bar */
+/* Tooltip extends to the left of the bar - arrow on the RIGHT edge points at the bar */
 .compare-chart-tooltip--arrow-right::before {
   right: -7px;
   border-width: 7px 0 7px 7px;
@@ -744,7 +744,7 @@
   color: var(--theme-primary);
 }
 
-/* ===== Mobile + Tablet (≤1023px) — phone overrides only, desktop unchanged ===== */
+/* ===== Mobile + Tablet (≤1023px) - phone overrides only, desktop unchanged ===== */
 @media (max-width: 1023px) {
   .service-chart-panel {
     max-height: none;

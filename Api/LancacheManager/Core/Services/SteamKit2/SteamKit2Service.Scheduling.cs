@@ -15,11 +15,11 @@ public partial class SteamKit2Service
         // If initialization failed (e.g. DB was unavailable), retry it before doing any work
         if (!_initialized)
         {
-            _logger.LogInformation("SteamKit2Service was not initialized — retrying initialization");
+            _logger.LogInformation("SteamKit2Service was not initialized - retrying initialization");
             await InitializeAsync(stoppingToken);
             if (!_initialized)
             {
-                _logger.LogWarning("SteamKit2Service initialization retry failed — will try again on next tick");
+                _logger.LogWarning("SteamKit2Service initialization retry failed - will try again on next tick");
                 return;
             }
             _logger.LogInformation("SteamKit2Service initialization succeeded on retry");
@@ -109,7 +109,7 @@ public partial class SteamKit2Service
             if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: IsIncrementalMode(_crawlIncrementalMode)))
             {
                 // Await the background task so the base class sets LastRunUtc and fires
-                // ServiceWorkCompleted only after the actual PICS crawl finishes — not
+                // ServiceWorkCompleted only after the actual PICS crawl finishes - not
                 // immediately after TryStartRebuild returns.
                 if (_currentBuildTask is not null)
                 {

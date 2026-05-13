@@ -56,7 +56,7 @@ const sendHeartbeat = (): void => {
       cache: 'no-store',
       keepalive: true
     }).catch(() => {
-      /* swallow — heartbeat is best-effort */
+      /* swallow - heartbeat is best-effort */
     });
   } catch {
     /* best-effort */

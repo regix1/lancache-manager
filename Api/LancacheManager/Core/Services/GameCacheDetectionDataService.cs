@@ -417,7 +417,7 @@ public sealed class GameCacheDetectionDataService
                 {
                     existing.IsEvicted = false;
                     _logger.LogInformation(
-                        "[GameDetection] Self-healed: game {GameAppId} ({GameName}) un-evicted — Rust found {Files} cache files",
+                        "[GameDetection] Self-healed: game {GameAppId} ({GameName}) un-evicted - Rust found {Files} cache files",
                         existing.GameAppId,
                         existing.GameName,
                         cachedGame.CacheFilesFound);
@@ -611,7 +611,7 @@ public sealed class GameCacheDetectionDataService
                 {
                     existing.IsEvicted = false;
                     _logger.LogInformation(
-                        "[ServiceDetection] Self-healed: service {Name} un-evicted — Rust found {Files} cache files",
+                        "[ServiceDetection] Self-healed: service {Name} un-evicted - Rust found {Files} cache files",
                         existing.ServiceName,
                         service.CacheFilesFound);
                 }
@@ -642,7 +642,7 @@ public sealed class GameCacheDetectionDataService
                 existing.TotalSizeBytes = 0;
                 existing.LastDetectedUtc = now;
                 _logger.LogInformation(
-                    "[ServiceDetection] Marked {Name} as evicted — no cache files found on latest scan",
+                    "[ServiceDetection] Marked {Name} as evicted - no cache files found on latest scan",
                     existing.ServiceName);
             }
         }

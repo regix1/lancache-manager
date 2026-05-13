@@ -7,7 +7,7 @@ import ApiService, {
 } from '@services/api.service';
 
 interface RetroDownloadsHookOptions {
-  /** Active gating — if false, the hook does not fetch. */
+  /** Active gating - if false, the hook does not fetch. */
   enabled: boolean;
   /** 1-based page. */
   page: number;
@@ -15,9 +15,9 @@ interface RetroDownloadsHookOptions {
   pageSize: number;
   /** Sort token (matches backend switch). */
   sort: string;
-  /** Service filter — 'all' or service name. */
+  /** Service filter - 'all' or service name. */
   service: string;
-  /** Client filter — 'all' or client IP. */
+  /** Client filter - 'all' or client IP. */
   client: string;
   /** Free-text search. */
   search: string;

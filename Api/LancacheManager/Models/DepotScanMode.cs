@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace LancacheManager.Models;
 
 /// <summary>
-/// Depot mapping scan mode — identifies the strategy used for a depot mapping scan.
+/// Depot mapping scan mode - identifies the strategy used for a depot mapping scan.
 /// Emitted as the <c>scanMode</c> field on SignalR <c>DepotMappingProgress</c> / related events.
 /// Serialized as lowercase strings on the wire ("incremental", "full", "github") to preserve
 /// the pre-existing JSON contract with the frontend.
@@ -12,13 +12,13 @@ namespace LancacheManager.Models;
 [JsonConverter(typeof(DepotScanModeJsonConverter))]
 public enum DepotScanMode
 {
-    /// <summary>Incremental PICS scan — only processes changed apps since last change number.</summary>
+    /// <summary>Incremental PICS scan - only processes changed apps since last change number.</summary>
     Incremental,
 
-    /// <summary>Full PICS scan — processes every known app.</summary>
+    /// <summary>Full PICS scan - processes every known app.</summary>
     Full,
 
-    /// <summary>GitHub-sourced depot data — downloads pre-built depot mappings from GitHub releases.</summary>
+    /// <summary>GitHub-sourced depot data - downloads pre-built depot mappings from GitHub releases.</summary>
     Github
 }
 

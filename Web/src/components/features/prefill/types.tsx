@@ -23,7 +23,7 @@ export interface PrefillSessionDto {
   containerName: string;
   /**
    * Lifecycle status of the underlying daemon container (NOT the persisted PrefillSession
-   * from the admin API — that one uses `PrefillSessionStatus` with different values).
+   * from the admin API - that one uses `PrefillSessionStatus` with different values).
    * Wire values: `'Active' | 'Terminated' | 'Error'` per backend `DaemonSessionStatus`.
    */
   status: DaemonSessionStatus;

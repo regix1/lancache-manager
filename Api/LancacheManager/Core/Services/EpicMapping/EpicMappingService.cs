@@ -88,11 +88,11 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
 
         if (hasSavedCredentials)
         {
-            _logger.LogInformation("Epic auth is configured — saved credentials found. Auto-reconnect will be attempted");
+            _logger.LogInformation("Epic auth is configured - saved credentials found. Auto-reconnect will be attempted");
         }
         else
         {
-            _logger.LogInformation("Epic auth is not configured — no saved credentials found. Epic game mapping will be unavailable until authentication is completed");
+            _logger.LogInformation("Epic auth is not configured - no saved credentials found. Epic game mapping will be unavailable until authentication is completed");
         }
 
         if (savedAuth.LastAuthenticated.HasValue)

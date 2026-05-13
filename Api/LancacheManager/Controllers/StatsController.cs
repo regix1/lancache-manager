@@ -368,7 +368,7 @@ public class StatsController : ControllerBase
 
         if (request.EvictedDataMode == EvictedDataMode.Remove.ToWireString())
         {
-            // Central concurrency check — bulk eviction removal.
+            // Central concurrency check - bulk eviction removal.
             var conflict = await _conflictChecker.CheckAsync(
                 OperationType.EvictionRemoval,
                 ConflictScope.Bulk(),
@@ -390,7 +390,7 @@ public class StatsController : ControllerBase
     [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> RunReconciliationAsync(CancellationToken cancellationToken)
     {
-        // Central concurrency check — EvictionScan is global.
+        // Central concurrency check - EvictionScan is global.
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.EvictionScan,
             ConflictScope.Bulk(),

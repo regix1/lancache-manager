@@ -360,7 +360,7 @@ public class EpicApiDirectClient
 
     /// <summary>
     /// Selects the best landscape image URL from keyImages array.
-    /// Only selects wide/landscape images — never portrait/tall.
+    /// Only selects wide/landscape images - never portrait/tall.
     /// Appends CDN resize parameters so we fetch a compact 640x360 image.
     /// </summary>
     private static string? GetBestImageUrl(List<EpicKeyImage>? keyImages, string appName = "")
@@ -387,7 +387,7 @@ public class EpicApiDirectClient
             }
         }
 
-        // 2. DieselGameBox — very common but can be portrait, so require landscape dimensions
+        // 2. DieselGameBox - very common but can be portrait, so require landscape dimensions
         var dieselGameBox = keyImages.FirstOrDefault(img =>
             string.Equals(img.Type, "DieselGameBox", StringComparison.OrdinalIgnoreCase)
             && !string.IsNullOrEmpty(img.Url)
@@ -398,7 +398,7 @@ public class EpicApiDirectClient
             return result;
         }
 
-        // 3. Featured — always landscape (894x488)
+        // 3. Featured - always landscape (894x488)
         var featured = keyImages.FirstOrDefault(img =>
             string.Equals(img.Type, "Featured", StringComparison.OrdinalIgnoreCase)
             && !string.IsNullOrEmpty(img.Url));

@@ -14,7 +14,7 @@ import type { IRetryPolicy, RetryContext } from '@microsoft/signalr';
  *      attempt 3 -> 10s
  *      attempt 4 -> 30s
  *      attempt 5+ -> 60s +/- 25% jitter (min 5s)
- *  - Never returns `null` to give up — reconnection attempts continue forever
+ *  - Never returns `null` to give up - reconnection attempts continue forever
  *    while the page is visible.
  */
 export class InfiniteBackoffRetryPolicy implements IRetryPolicy {
@@ -35,7 +35,7 @@ export class InfiniteBackoffRetryPolicy implements IRetryPolicy {
     if (attempt === 3) return 10000;
     if (attempt === 4) return 30000;
 
-    // Attempt 5+ — 60s base with +/- 25% jitter, never below 5s.
+    // Attempt 5+ - 60s base with +/- 25% jitter, never below 5s.
     const base = 60000;
     const jitter = Math.round((Math.random() * 2 - 1) * 0.25 * base);
     return Math.max(5000, base + jitter);

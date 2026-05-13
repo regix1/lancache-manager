@@ -49,7 +49,7 @@ public partial class SteamKit2Service
 
     /// <summary>
     /// Determines which login mode to use and fires the appropriate SteamUser logon call.
-    /// Synchronous (void) by design — the SteamKit2 reconnect callback (OnConnected) fires this
+    /// Synchronous (void) by design - the SteamKit2 reconnect callback (OnConnected) fires this
     /// synchronously, and ConnectAndLoginAsync awaits the logon result separately via _loggedOnTcs.
     /// Never use .Result or .Wait() here; SteamKit2 callbacks must not block the event loop thread.
     /// </summary>

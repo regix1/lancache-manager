@@ -217,7 +217,7 @@ public class SystemController : ControllerBase
         var hasDataSourceChoice = request.DataSourceChoice.HasValue;
         var hasCompletedPlatforms = request.CompletedPlatforms != null;
 
-        // Reject any SetupStep value that deserialized to Unknown — the converter maps
+        // Reject any SetupStep value that deserialized to Unknown - the converter maps
         // unrecognised wire strings to SetupStep.Unknown rather than throwing, so we have
         // to guard here to match the pre-existing "invalid step" error shape.
         if (hasCurrentSetupStep && request.CurrentSetupStep == SetupStep.Unknown)
@@ -288,7 +288,7 @@ public class SystemController : ControllerBase
             });
         }
 
-        // No fields produced an update — the request is well-formed but every nullable
+        // No fields produced an update - the request is well-formed but every nullable
         // field is null/absent. Treat this as a valid clear-all-wizard-state no-op,
         // matching the frontend's clearServerWizardState() semantic. This branch fires
         // on wizard completion and on mount when setup is already complete (e.g. after
@@ -390,7 +390,7 @@ public class SystemController : ControllerBase
     [HttpPatch("depots/scan-mode")]
     public IActionResult SetDepotScanMode([FromBody] SetScanModeRequest request)
     {
-        // DepotScanMode.Github is not accepted here — it requires different downstream wiring
+        // DepotScanMode.Github is not accepted here - it requires different downstream wiring
         // (see DepotsController.SetCrawlMode). This endpoint only supports the boolean-backed
         // incremental/full toggle.
         if (request.Mode != DepotScanMode.Incremental && request.Mode != DepotScanMode.Full)

@@ -9,22 +9,22 @@ namespace LancacheManager.Infrastructure.Data;
 /// <b>Writers</b> that populate <c>Download.GameImageUrl</c> (source of truth for <see cref="Services.GameImageFetchService"/>):
 /// <list type="bullet">
 ///   <item>
-///     <c>SteamKit2Service.Mapping.cs</c> — 4 sites in <c>UpdateDownloadsWithDepotMappingsAsync</c>:
+///     <c>SteamKit2Service.Mapping.cs</c> - 4 sites in <c>UpdateDownloadsWithDepotMappingsAsync</c>:
 ///     sets <c>gameInfo.HeaderImage</c> for mapped depots, or <c>null</c> for unmapped/fallback cases.
 ///   </item>
 ///   <item>
-///     <c>EpicMappingService.Persistence.cs</c> — <c>RefreshEpicImageUrlsAsync</c>:
+///     <c>EpicMappingService.Persistence.cs</c> - <c>RefreshEpicImageUrlsAsync</c>:
 ///     propagates <c>EpicGameMapping.ImageUrl</c> to downloads whose <c>GameImageUrl</c> differs.
 ///   </item>
 ///   <item>
-///     <c>RustLogProcessorService.cs</c> — <c>FetchMissingEpicGameImagesAsync</c>:
+///     <c>RustLogProcessorService.cs</c> - <c>FetchMissingEpicGameImagesAsync</c>:
 ///     back-fills <c>GameImageUrl</c> on Epic downloads that have <c>EpicAppId</c> but no image yet.
 ///   </item>
 ///   <item>
-///     <c>DatabaseService.cs</c> — bulk clears <c>GameImageUrl</c> to <c>null</c> when purging depot mappings.
+///     <c>DatabaseService.cs</c> - bulk clears <c>GameImageUrl</c> to <c>null</c> when purging depot mappings.
 ///   </item>
 ///   <item>
-///     <c>SteamKit2Service.Mapping.cs</c> — <c>ClearDownloadGameDataAsync</c>:
+///     <c>SteamKit2Service.Mapping.cs</c> - <c>ClearDownloadGameDataAsync</c>:
 ///     bulk clears <c>GameImageUrl</c> to <c>null</c> before a fresh full PICS scan.
 ///   </item>
 /// </list>
@@ -32,7 +32,7 @@ namespace LancacheManager.Infrastructure.Data;
 /// <b>Readers</b>:
 /// <list type="bullet">
 ///   <item>
-///     <see cref="Services.GameImageFetchService"/> — calls <see cref="GetLatestUrlsForSteamAppsAsync"/>
+///     <see cref="Services.GameImageFetchService"/> - calls <see cref="GetLatestUrlsForSteamAppsAsync"/>
 ///     to discover which CDN URLs to fetch image bytes from for apps that are missing cached images.
 ///   </item>
 /// </list>

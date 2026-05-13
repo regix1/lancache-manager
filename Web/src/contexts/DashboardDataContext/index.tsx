@@ -191,9 +191,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         }
 
         // requestId check above already ensures we're the latest request.
-        // No additional filter validation needed — if requestId matches, this data is current.
+        // No additional filter validation needed - if requestId matches, this data is current.
 
-        // Apply state updates directly — React 18+ auto-batches setState in
+        // Apply state updates directly - React 18+ auto-batches setState in
         // async handlers/microtasks, so no explicit transition wrapper is needed.
         // Cache info is not time-range dependent, always apply (skip if server returned null)
         if (batchResponse.cache !== null && batchResponse.cache !== undefined) {
@@ -235,7 +235,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           }
         }
 
-        // Time-range dependent data — apply unconditionally. A null from a failed
+        // Time-range dependent data - apply unconditionally. A null from a failed
         // sub-query should NOT freeze stale Live values; let it overwrite so the
         // bug surfaces instead of silently preserving old data.
         setClientStats(batchResponse.clients ?? []);
@@ -248,7 +248,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         setSparklines(batchResponse.sparklines);
         setHourlyActivity(batchResponse.hourlyActivity);
         setCacheGrowth(batchResponse.cacheGrowth);
-        // cacheSnapshot is null in live mode — only update when backend returns data
+        // cacheSnapshot is null in live mode - only update when backend returns data
         if (batchResponse.cacheSnapshot !== null && batchResponse.cacheSnapshot !== undefined) {
           setCacheSnapshot(batchResponse.cacheSnapshot);
         }
@@ -269,12 +269,12 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         }
         setLoading(false);
       } finally {
-        // Always clear fetch flags — even for superseded requests.
+        // Always clear fetch flags - even for superseded requests.
         // Only the requestId guard on STATE UPDATES (above) prevents stale data.
         // Flags must always reset or subsequent fetches get permanently blocked.
         const wasSuperseded = currentRequestIdRef.current !== thisRequestId;
         // Clear initial-load flag unconditionally for any initial request. If this
-        // request was superseded, the superseding request has taken over — we're
+        // request was superseded, the superseding request has taken over - we're
         // no longer in "initial loading" state either way. Leaving this flag stuck
         // at true would break the time-range change effect (which gates fetches on
         // `!isInitialLoad.current`), forcing the user to manually refresh.
@@ -287,7 +287,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         // without clearing loading (e.g., the requestId check at line 276 returned
         // AFTER a rapid re-entry where currentRequestIdRef already bumped past us),
         // ensure loading doesn't get stuck. Idempotent with the urgent setLoading(false)
-        // above — no flicker.
+        // above - no flicker.
         if (!wasSuperseded) {
           setLoading(false);
         }
@@ -407,7 +407,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const prevHasAccessRef = useRef(hasAccess);
   useEffect(() => {
     if (prevHasAccessRef.current && !hasAccess) {
-      // Access lost — reset to initial state so the next login starts clean
+      // Access lost - reset to initial state so the next login starts clean
       isInitialLoad.current = true;
       hasData.current = false;
     }
@@ -419,7 +419,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     if (!mockMode && !authLoading && hasAccess) {
       fetchAllData({ showLoading: true, isInitial: true, trigger: 'initial' });
     } else if (!mockMode && !authLoading && !hasAccess) {
-      // Auth completed but user has no access — stop loading to prevent infinite skeleton
+      // Auth completed but user has no access - stop loading to prevent infinite skeleton
       setLoading(false);
     }
 
@@ -500,7 +500,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customStartDate, customEndDate, timeRange, mockMode, hasAccess, fetchAllData]);
 
-  // Background prefetch was REMOVED — caching 6 batch responses simultaneously
+  // Background prefetch was REMOVED - caching 6 batch responses simultaneously
   // OOM-crashed the browser tab. The backend IMemoryCache (60s for non-live,
   // 15s for live) handles range-switch caching at the server level.
 

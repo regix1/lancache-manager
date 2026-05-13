@@ -28,7 +28,7 @@ public static class WindowsPostgresManager
         var host = connBuilder.Host ?? "localhost";
         var port = connBuilder.Port;
 
-        // Already running — nothing to do
+        // Already running - nothing to do
         if (await IsPostgresReachableAsync(host, port))
         {
             logger.LogInformation("PostgreSQL is already running on {Host}:{Port}", host, port);
@@ -50,7 +50,7 @@ public static class WindowsPostgresManager
             return;
         }
 
-        // No existing container found — create one
+        // No existing container found - create one
         logger.LogInformation("No existing PostgreSQL container found for port {Port}. Creating '{Container}' ...",
             port, ContainerName);
 
@@ -178,7 +178,7 @@ public static class WindowsPostgresManager
             await Task.Delay(500);
         }
 
-        logger.LogWarning("PostgreSQL did not become reachable within {Seconds}s — migration may fail", MaxWaitSeconds);
+        logger.LogWarning("PostgreSQL did not become reachable within {Seconds}s - migration may fail", MaxWaitSeconds);
     }
 
     private static async Task<DockerResult> RunDockerCommandAsync(string arguments)

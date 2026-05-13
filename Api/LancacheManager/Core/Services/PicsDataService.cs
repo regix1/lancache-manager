@@ -556,7 +556,7 @@ public class PicsDataService
                 {
                     await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-                    // Reduce WAL write overhead — depot mappings are idempotent so this is safe
+                    // Reduce WAL write overhead - depot mappings are idempotent so this is safe
                     await db.Database.ExecuteSqlRawAsync("SET LOCAL synchronous_commit = 'off'", cancellationToken);
 
                     foreach (var batch in allMappings.Chunk(batchSize))
@@ -581,7 +581,7 @@ public class PicsDataService
 
                         if (tableIsEmpty)
                         {
-                            // First-run: plain INSERT — no conflict resolution overhead
+                            // First-run: plain INSERT - no conflict resolution overhead
                             await db.Database.ExecuteSqlRawAsync(@"
                             INSERT INTO ""SteamDepotMappings"" (""DepotId"", ""DepotName"", ""AppId"", ""AppName"", ""IsOwner"", ""DiscoveredAt"", ""Source"")
                             SELECT * FROM UNNEST(@p0::bigint[], @p1::text[], @p2::bigint[], @p3::text[], @p4::boolean[], @p5::timestamptz[], @p6::text[])",
@@ -589,7 +589,7 @@ public class PicsDataService
                         }
                         else
                         {
-                            // Upsert: ON CONFLICT on unique (DepotId, AppId) index — dedup server-side
+                            // Upsert: ON CONFLICT on unique (DepotId, AppId) index - dedup server-side
                             await db.Database.ExecuteSqlRawAsync(@"
                             INSERT INTO ""SteamDepotMappings"" (""DepotId"", ""DepotName"", ""AppId"", ""AppName"", ""IsOwner"", ""DiscoveredAt"", ""Source"")
                             SELECT * FROM UNNEST(@p0::bigint[], @p1::text[], @p2::bigint[], @p3::text[], @p4::boolean[], @p5::timestamptz[], @p6::text[])

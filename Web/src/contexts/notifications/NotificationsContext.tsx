@@ -248,7 +248,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   // - Epic Game Mapping: progress only + custom EpicGameMappingsUpdated one-shot handler
   // - Steam Session Error: custom one-shot error display
   //
-  // Wiring is driven by SPECIAL_NOTIFICATION_CONTRACTS — see
+  // Wiring is driven by SPECIAL_NOTIFICATION_CONTRACTS - see
   // ./specialNotificationContracts.ts. Each contract entry maps a logical
   // lifecycle to a set of SignalR event subscriptions. The iterator below
   // collapses what used to be 16 imperative on/off calls into a single loop.
@@ -337,7 +337,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     });
   }, []);
 
-  // Recovery on page load (admin-only — all recovery endpoints require admin access)
+  // Recovery on page load (admin-only - all recovery endpoints require admin access)
   React.useEffect(() => {
     if (authLoading || !isAdmin) return;
 
@@ -353,7 +353,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   // Monitor SignalR connection state - re-run recovery on reconnection
   // This ensures we recover from missed completion events during connection loss (especially on mobile)
   React.useEffect(() => {
-    // Skip if not admin — all recovery endpoints require admin access
+    // Skip if not admin - all recovery endpoints require admin access
     if (authLoading || !isAdmin) return;
 
     const currentState = signalR.connectionState;
@@ -378,7 +378,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
   // Recovery on tab becoming visible after being backgrounded.
   // The SignalR connection stays open while backgrounded, so the reconnection effect
-  // never fires — but the browser may have throttled/dropped message processing.
+  // never fires - but the browser may have throttled/dropped message processing.
   // This effect detects the tab returning to the foreground and re-runs recovery
   // if the tab was hidden for more than 2 seconds.
   React.useEffect(() => {

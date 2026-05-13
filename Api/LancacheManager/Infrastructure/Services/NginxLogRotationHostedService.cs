@@ -6,7 +6,7 @@ namespace LancacheManager.Infrastructure.Services;
 
 /// <summary>
 /// Hosted service that runs nginx log rotation at startup and on a configurable schedule.
-/// Uses the base class ScheduledBackgroundService loop — ExecuteWorkAsync performs one rotation
+/// Uses the base class ScheduledBackgroundService loop - ExecuteWorkAsync performs one rotation
 /// and returns; the base class handles the sleep/interval between runs.
 /// </summary>
 public class NginxLogRotationHostedService : ScheduledBackgroundService
@@ -59,7 +59,7 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
             var stateInterval = stateService.GetServiceInterval(ServiceKey);
             if (stateInterval.HasValue)
             {
-                // state.json already holds the canonical value — the legacy file is stale
+                // state.json already holds the canonical value - the legacy file is stale
                 File.Delete(legacyPath);
                 _logger.LogInformation(
                     "Removed stale legacy log-rotation-settings.json (state.json already has interval={Hours}h)",
@@ -130,7 +130,7 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
 
 /// <summary>
 /// Schema for the legacy log-rotation-settings.json file. Used only for one-time
-/// migration into state.json — after migration this file is deleted and never
+/// migration into state.json - after migration this file is deleted and never
 /// re-created. Do not reference outside the migration code path.
 /// </summary>
 internal class LegacyLogRotationSettings

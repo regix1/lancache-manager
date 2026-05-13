@@ -24,7 +24,7 @@ public class GcSettings
 
     /// <summary>
     /// Legacy Aggressiveness field. Kept only so pre-existing <c>gc-settings.json</c>
-    /// files on disk still deserialize cleanly. New code MUST NOT branch on this value —
+    /// files on disk still deserialize cleanly. New code MUST NOT branch on this value -
     /// use <see cref="Enabled"/> plus the interval from <c>ServiceScheduleRegistry</c>.
     /// <c>SettingsService</c> performs a one-time migration that converts non-Disabled
     /// legacy files into <see cref="Enabled"/>=true.

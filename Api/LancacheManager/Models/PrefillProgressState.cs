@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace LancacheManager.Models;
 
 /// <summary>
-/// Prefill operation lifecycle state — emitted by the prefill daemons (Steam / Epic) over
+/// Prefill operation lifecycle state - emitted by the prefill daemons (Steam / Epic) over
 /// their socket protocol and rebroadcast to the frontend via SignalR.
 ///
 /// The daemon is a separate binary process that we do not control, so an <see cref="Unknown"/>
@@ -24,7 +24,7 @@ public enum PrefillProgressState
     /// </summary>
     Unknown,
 
-    /// <summary>Default / idle state — no prefill is active.</summary>
+    /// <summary>Default / idle state - no prefill is active.</summary>
     Idle,
 
     /// <summary>Daemon is actively downloading content.</summary>

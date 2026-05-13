@@ -262,7 +262,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Status — Enable toggle */}
+        {/* Status - Enable toggle */}
         <SettingSection
           icon={Power}
           title={t('management.gc.statusSection')}

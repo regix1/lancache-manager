@@ -1328,7 +1328,7 @@
     letter-spacing: 0.01em;
   }
 
-  /* Session filter bar — mobile overrides */
+  /* Session filter bar - mobile overrides */
   @media (max-width: 767px) {
     .session-filter-bar {
       flex-direction: column;

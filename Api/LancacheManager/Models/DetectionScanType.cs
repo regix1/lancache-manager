@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace LancacheManager.Models;
 
 /// <summary>
-/// Game cache detection scan type — controls how the detection service scans cached content.
+/// Game cache detection scan type - controls how the detection service scans cached content.
 /// Serialized as lowercase strings on the wire ("incremental", "full") to preserve the
 /// pre-existing JSON contract with the frontend.
 /// </summary>

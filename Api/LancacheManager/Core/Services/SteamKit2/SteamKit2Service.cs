@@ -131,7 +131,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         _logger.LogInformation("Generated unique Steam LoginID: {LoginID} (0x{LoginIDHex:X8})", _steamLoginId, _steamLoginId);
 
         // Apply user-saved schedule overrides (interval is also loaded later from
-        // GetCrawlIntervalHours during InitializeAsync — that path uses a separate state key
+        // GetCrawlIntervalHours during InitializeAsync - that path uses a separate state key
         // for backward compat; this call only matters for the run-on-startup override).
         LoadStateOverrides(stateService, ScheduleServiceKey);
     }
@@ -160,7 +160,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     {
         _logger.LogInformation("Starting SteamKit2Service with PICS depot mapping");
 
-        // Load DB-dependent state — failures here must not crash the app
+        // Load DB-dependent state - failures here must not crash the app
         try
         {
             // Load existing depot mappings from database first
@@ -199,12 +199,12 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "SteamKit2Service failed to load state from database — will retry on next scheduled tick");
+            _logger.LogError(ex, "SteamKit2Service failed to load state from database - will retry on next scheduled tick");
             _initialized = false;
             return;
         }
 
-        // Initialize SteamKit2 — these are in-memory only and should not fail due to DB
+        // Initialize SteamKit2 - these are in-memory only and should not fail due to DB
         _steamClient = new SteamClient();
         _manager = new CallbackManager(_steamClient);
         _steamUser = _steamClient.GetHandler<SteamUser>();

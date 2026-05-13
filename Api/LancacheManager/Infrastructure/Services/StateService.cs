@@ -1420,7 +1420,7 @@ public class StateService : IStateService
             return;
         }
 
-        // Invalid value — fall back to auto
+        // Invalid value - fall back to auto
         UpdateState(state => state.DefaultPrefillMaxConcurrency = "auto");
     }
 
@@ -1509,7 +1509,7 @@ public class StateService : IStateService
             return;
         }
 
-        // Invalid value — fall back to auto
+        // Invalid value - fall back to auto
         UpdateState(state => state.EpicDefaultPrefillMaxConcurrency = "auto");
     }
 }

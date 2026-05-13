@@ -915,7 +915,7 @@ public class RustLogProcessorService
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var steamService = scope.ServiceProvider.GetRequiredService<SteamService>();
 
-            // Find downloads that have GameAppId but missing game name — image bytes are now
+            // Find downloads that have GameAppId but missing game name - image bytes are now
             // fetched exclusively by GameImageFetchService (3-tier pipeline). We only update
             // GameName here, since GameImageFetchService does not enrich Download.GameName.
             var downloadsNeedingName = await context.Downloads
@@ -953,9 +953,9 @@ public class RustLogProcessorService
                 await context.SaveChangesAsync();
                 _logger.LogInformation("Updated {Count} downloads with game names", updated);
 
-                // NOTE: We do not trigger GameImageFetchService here — it runs on its own schedule
+                // NOTE: We do not trigger GameImageFetchService here - it runs on its own schedule
                 // and will fetch image bytes after game detection has completed.
-                // NOTE: We do not send DownloadsRefresh here — the main completion handler
+                // NOTE: We do not send DownloadsRefresh here - the main completion handler
                 // already sends DownloadsRefresh (silent mode) or LogProcessingComplete (non-silent).
             }
         }

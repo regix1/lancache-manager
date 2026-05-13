@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace LancacheManager.Controllers;
 
 /// <summary>
-/// Batch endpoint for the dashboard — returns all dashboard data sets in a single HTTP round trip.
+/// Batch endpoint for the dashboard - returns all dashboard data sets in a single HTTP round trip.
 /// All compute lives in <see cref="IDashboardBatchService"/> so that a startup warmer can
 /// pre-populate the underlying IMemoryCache before the first user request arrives.
 /// </summary>
@@ -22,7 +22,7 @@ public class DashboardController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/dashboard/batch — returns cache, clients, services, dashboard stats, downloads,
+    /// GET /api/dashboard/batch - returns cache, clients, services, dashboard stats, downloads,
     /// detection, sparklines, hourly activity, cache snapshot, and cache growth in a single
     /// response. Sub-queries execute in parallel inside the service.
     /// </summary>

@@ -33,7 +33,7 @@ public partial class EpicMappingService
         if (TryStartRefresh())
         {
             // Await the background task so the base class sets LastRunUtc and fires
-            // ServiceWorkCompleted only after the actual catalog refresh finishes — not
+            // ServiceWorkCompleted only after the actual catalog refresh finishes - not
             // immediately after TryStartRefresh returns.
             if (_currentRefreshTask is not null)
             {
@@ -44,7 +44,7 @@ public partial class EpicMappingService
 
     /// <summary>
     /// Starts a catalog refresh in the background. Returns true if started, false if already running.
-    /// Mirrors SteamKit2Service.TryStartRebuild() — used by both periodic timer and manual "Apply Now".
+    /// Mirrors SteamKit2Service.TryStartRebuild() - used by both periodic timer and manual "Apply Now".
     /// </summary>
     public bool TryStartRefresh(CancellationToken cancellationToken = default)
     {
@@ -383,7 +383,7 @@ public partial class EpicMappingService
             status = OperationStatus.Completed,
             percentComplete = 100.0,
             gamesDiscovered = _gamesDiscovered,
-            message = $"Epic catalog refresh completed — {_gamesDiscovered} games"
+            message = $"Epic catalog refresh completed - {_gamesDiscovered} games"
         });
 
         // Notify frontend of data updates

@@ -9,9 +9,9 @@ namespace LancacheManager.Models;
 /// Canonicalization rules (applied at both register-time and lookup-time):
 /// <list type="bullet">
 ///   <item><description><c>Kind="steam"</c>, <c>Key=appId.ToString(InvariantCulture)</c></description></item>
-///   <item><description><c>Kind="epic"</c>,  <c>Key=epicAppId ?? gameName</c> (case-sensitive — Epic slugs are lowercase)</description></item>
+///   <item><description><c>Kind="epic"</c>,  <c>Key=epicAppId ?? gameName</c> (case-sensitive - Epic slugs are lowercase)</description></item>
 ///   <item><description><c>Kind="service"</c>, <c>Key=serviceName.ToLowerInvariant()</c></description></item>
-///   <item><description><c>Kind="bulk"</c>,  <c>Key=""</c> (sentinel — bulk never <see cref="Matches"/> any entity)</description></item>
+///   <item><description><c>Kind="bulk"</c>,  <c>Key=""</c> (sentinel - bulk never <see cref="Matches"/> any entity)</description></item>
 /// </list>
 /// </summary>
 public readonly record struct ConflictScope(string Kind, string Key)

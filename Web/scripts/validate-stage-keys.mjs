@@ -143,7 +143,7 @@ for (const [key, files] of referencedKeys) {
     const resolved = resolveJsonPath(enJson, key);
     if (resolved !== null && typeof resolved === 'object') {
       console.warn(
-        `COLLISION: ${key}  is an object in en.json, not a leaf (referenced in ${files.join(', ')}) — inter-worker key conflict, needs coordination`
+        `COLLISION: ${key}  is an object in en.json, not a leaf (referenced in ${files.join(', ')}) - inter-worker key conflict, needs coordination`
       );
       collisionCount++;
     } else {

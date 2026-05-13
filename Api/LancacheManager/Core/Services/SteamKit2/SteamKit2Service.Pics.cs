@@ -370,7 +370,7 @@ public partial class SteamKit2Service
                                 }
                             }
 
-                            // No delay between DLC batches — PostgreSQL MVCC handles concurrency without file locking
+                            // No delay between DLC batches - PostgreSQL MVCC handles concurrency without file locking
                         }
                         catch (OperationCanceledException)
                         {
@@ -411,7 +411,7 @@ public partial class SteamKit2Service
                         _depotToAppMappings.Count);
                 }
 
-                // No adaptive delay — PostgreSQL MVCC handles concurrency; Steam API rate-limits via error responses
+                // No adaptive delay - PostgreSQL MVCC handles concurrency; Steam API rate-limits via error responses
             }
             catch (OperationCanceledException)
             {
@@ -465,7 +465,7 @@ public partial class SteamKit2Service
         _currentStatus = DepotScanPhase.Importing;
         await SendPostProcessingProgressAsync("Importing to database...", 100, _depotToAppMappings.Count);
 
-        // Single DB import — includes both main scan results and any orphan-resolved mappings
+        // Single DB import - includes both main scan results and any orphan-resolved mappings
         try
         {
             await ImportJsonToDatabaseAsync();
@@ -508,7 +508,7 @@ public partial class SteamKit2Service
         await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
         {
             success = true,
-            message = $"Depot mapping completed — {totalMappings} mappings, {downloadsUpdated} downloads updated",
+            message = $"Depot mapping completed - {totalMappings} mappings, {downloadsUpdated} downloads updated",
             totalMappings,
             downloadsUpdated,
             scanMode = incrementalOnly ? DepotScanMode.Incremental : DepotScanMode.Full,

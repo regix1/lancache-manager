@@ -589,7 +589,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                       <span
                         className={`text-xl font-bold ${hitPercent > 0 ? 'cache-hit' : 'text-[var(--theme-text-secondary)]'}`}
                       >
-                        {hitPercent > 0 ? formatPercent(hitPercent) : '—'}
+                        {hitPercent > 0 ? formatPercent(hitPercent) : '-'}
                       </span>
                     </div>
                     <div className="w-full bg-[var(--theme-bg-primary)] rounded-full h-1.5 overflow-hidden">
@@ -603,7 +603,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                         {t('downloads.tab.normal.stats.cacheSaved')}
                       </span>
                       <span className="text-sm font-bold text-[var(--theme-success-text)]">
-                        {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : '—'}
+                        {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : '-'}
                       </span>
                     </div>
                   </div>
@@ -631,7 +631,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                         <span className="text-sm font-bold text-[var(--theme-text-secondary)]">
                           {detection?.cache_files_found != null
                             ? formatCount(detection.cache_files_found)
-                            : '—'}
+                            : '-'}
                         </span>
                       </div>
                     </div>
@@ -741,7 +741,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                       </div>
                     </div>
 
-                    {/* Filter bar — only shown for groups with more than 10 downloads */}
+                    {/* Filter bar - only shown for groups with more than 10 downloads */}
                     {group.downloads.length > 10 && (
                       <div className="mb-4">
                         <SessionFilterBar
@@ -756,7 +756,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                       </div>
                     )}
 
-                    {/* Group sessions by client IP — collapsible */}
+                    {/* Group sessions by client IP - collapsible */}
                     <div className="space-y-4">
                       {Object.entries(ipGroups).map(([clientIp, clientDownloads]) => {
                         const clientTotal = clientDownloads.reduce(
@@ -774,7 +774,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                             key={clientIp}
                             className="rounded-lg border border-[var(--theme-border-secondary)] overflow-hidden"
                           >
-                            {/* Client Header — clickable to collapse/expand */}
+                            {/* Client Header - clickable to collapse/expand */}
                             <button
                               type="button"
                               onClick={() => toggleIp(clientIp)}
@@ -809,7 +809,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                               </div>
                             </button>
 
-                            {/* Sessions Table-like list — shown only when expanded */}
+                            {/* Sessions Table-like list - shown only when expanded */}
                             {expanded && (
                               <IpSessionList
                                 ip={clientIp}
@@ -887,7 +887,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                               </div>
                                             ) : (
                                               <span className="text-[var(--theme-text-muted)]">
-                                                —
+                                                -
                                               </span>
                                             )}
                                           </div>
@@ -1376,7 +1376,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                   <span className="text-sm font-bold text-[var(--theme-text-secondary)]">
                     {detection?.cache_files_found != null
                       ? formatCount(detection.cache_files_found)
-                      : '—'}
+                      : '-'}
                   </span>
                 </div>
               </div>

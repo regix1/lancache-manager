@@ -524,7 +524,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         // Inject LANCACHE_IP unconditionally for both host and bridge mode.
         // The daemon honors this env var to bypass container DNS for CDN traffic
-        // (URL-rewrite + Host-header spoof). It is NOT a fallback for HostConfig.DNS —
+        // (URL-rewrite + Host-header spoof). It is NOT a fallback for HostConfig.DNS -
         // they serve different purposes and may be used together or independently.
         var lancacheIp = await ResolveLancacheServerIpAsync(cancellationToken);
         _lastInjectedLancacheIp = string.IsNullOrWhiteSpace(lancacheIp) ? null : lancacheIp;
@@ -532,7 +532,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         {
             env.Add($"LANCACHE_IP={lancacheIp}");
             _logger.LogInformation(
-                "Injecting LANCACHE_IP={Ip} into prefill daemon — DNS-independent CDN routing",
+                "Injecting LANCACHE_IP={Ip} into prefill daemon - DNS-independent CDN routing",
                 lancacheIp);
         }
         else

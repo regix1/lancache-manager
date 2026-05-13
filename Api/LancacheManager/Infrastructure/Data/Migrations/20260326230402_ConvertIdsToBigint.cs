@@ -12,7 +12,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             // Large tables (Downloads, LogEntries) require full rewrite for integer→bigint
-            // Disable timeouts — rewrite can take minutes on large tables
+            // Disable timeouts - rewrite can take minutes on large tables
             migrationBuilder.Sql("SET statement_timeout = 0;");
 
             migrationBuilder.AlterColumn<long>(

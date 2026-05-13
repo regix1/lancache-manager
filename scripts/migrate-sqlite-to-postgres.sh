@@ -3,10 +3,10 @@
 # SQLite → PostgreSQL data migration
 # ---------------------------------------------------------------------------
 # Migrates data table-by-table using: sqlite3 CSV export → psql COPY FROM STDIN
-# No pgloader/SBCL dependency — just sqlite3 + psql.
+# No pgloader/SBCL dependency - just sqlite3 + psql.
 #
 # PostgreSQL boolean input natively accepts 0/1 from SQLite.
-# sqlite3 CSV outputs NULL as unquoted empty, "" as empty string —
+# sqlite3 CSV outputs NULL as unquoted empty, "" as empty string -
 # COPY WITH (NULL '') maps these correctly.
 #
 # Usage: migrate-sqlite-to-postgres.sh <sqlite_db_path> <pg_database> <pg_data_dir>
@@ -38,7 +38,7 @@ echo "[migration] Found $TABLE_COUNT tables to migrate in SQLite database."
 # ---------------------------------------------------------------------------
 # Phase 1: Tune PostgreSQL for bulk loading
 # ---------------------------------------------------------------------------
-# Safe because the SQLite source file is preserved — if migration fails we redo it.
+# Safe because the SQLite source file is preserved - if migration fails we redo it.
 echo "[migration] Tuning PostgreSQL for bulk import..."
 su - postgres -c "psql -d $PGDATABASE" <<'TUNEEOF'
 -- WAL / fsync: skip durability guarantees during one-shot import
@@ -96,7 +96,7 @@ IDXEOF
 echo "[migration] Starting table-by-table data migration..."
 
 # Get tables that exist in BOTH SQLite and PostgreSQL (skip internal tables,
-# EF migration history — EF Core already wrote the correct entry during schema creation)
+# EF migration history - EF Core already wrote the correct entry during schema creation)
 SQLITE_TABLES=$(sqlite3 "$SQLITE_DB" \
     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != '__EFMigrationsHistory' ORDER BY name;")
 
@@ -165,7 +165,7 @@ END $$;
 DROP TABLE IF EXISTS _migration_saved_indexes;
 IDXREOF
 
-    # Repair auto-increment sequences — COPY does not advance them
+    # Repair auto-increment sequences - COPY does not advance them
     echo "[migration] Resetting PostgreSQL sequences..."
     su - postgres -c "psql -d $PGDATABASE -v ON_ERROR_STOP=1" <<'SEQEOF'
 DO $$

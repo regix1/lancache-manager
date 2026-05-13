@@ -5,11 +5,11 @@ import { Pagination } from '@components/ui/Pagination';
 import type { Download } from '../../../types';
 
 interface IpSessionListProps {
-  /** The IP this list is associated with — used as part of the reset key. */
+  /** The IP this list is associated with - used as part of the reset key. */
   ip: string;
   /** All downloads belonging to the IP (NOT pre-paginated). */
   items: Download[];
-  /** Page size — driven by the "Items/IP" dropdown in `SessionFilterBar`. */
+  /** Page size - driven by the "Items/IP" dropdown in `SessionFilterBar`. */
   itemsPerPage: number;
   /** Renders a single session row. Called once per paginated item. */
   renderItem: (item: Download, index: number) => React.ReactNode;

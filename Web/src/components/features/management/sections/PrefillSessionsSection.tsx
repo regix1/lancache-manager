@@ -1079,7 +1079,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               value={statusFilter}
               onChange={(value: string) => {
                 // Dropdown values are fixed to '' | 'Active' | 'Terminated' | 'Orphaned' | 'Cleaned'
-                // (see options above) — narrow to PrefillSessionStatus for the typed state setter.
+                // (see options above) - narrow to PrefillSessionStatus for the typed state setter.
                 setStatusFilter(value as PrefillSessionStatus | '');
                 setPage(1);
               }}

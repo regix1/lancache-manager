@@ -4,12 +4,12 @@ namespace LancacheManager.Models.ApiRequests;
 
 /// <summary>
 /// Request body for <c>PATCH /api/system/setup</c>.
-/// Every property is optional and <c>null</c> means "not provided" — the controller only
+/// Every property is optional and <c>null</c> means "not provided" - the controller only
 /// writes a given state field when the corresponding property is non-null.
 /// <see cref="CompletedPlatforms"/> is intentionally typed <c>string?</c> (not a list)
 /// because the frontend persists a serialized JSON object
 /// (<c>{"steam":"github"|"steam"|null,"epic":bool}</c>) and <c>AppState.CompletedPlatforms</c>
-/// stores it verbatim — see <c>Web/src/hooks/useInitializationFlow.ts</c>
+/// stores it verbatim - see <c>Web/src/hooks/useInitializationFlow.ts</c>
 /// (<c>JSON.stringify(completedPlatforms)</c>) and <c>StateModels.cs</c>.
 /// </summary>
 public class UpdateSetupStatusRequest
@@ -40,7 +40,7 @@ public class UpdateSetupStatusRequest
     /// <summary>
     /// Opaque JSON string describing per-platform completion state. The frontend
     /// serializes a <c>{ steam, epic }</c> object and this server persists it
-    /// verbatim — no server-side interpretation beyond pass-through.
+    /// verbatim - no server-side interpretation beyond pass-through.
     /// </summary>
     [JsonPropertyName("completedPlatforms")]
     public string? CompletedPlatforms { get; set; }

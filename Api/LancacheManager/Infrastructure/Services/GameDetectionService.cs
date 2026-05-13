@@ -9,7 +9,7 @@ namespace LancacheManager.Infrastructure.Services;
 /// <summary>
 /// Scheduled service that runs game cache detection on a user-configurable interval.
 /// Whether it also runs at startup is controlled by the user via the Schedules UI
-/// (persisted in IStateService.GetServiceRunOnStartup) — defaults to true so that
+/// (persisted in IStateService.GetServiceRunOnStartup) - defaults to true so that
 /// existing installs continue to seed the detection cache on first boot.
 /// </summary>
 public class GameDetectionService : ScheduledBackgroundService
@@ -45,7 +45,7 @@ public class GameDetectionService : ScheduledBackgroundService
 
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
 
-    protected override TimeSpan Interval => TimeSpan.FromDays(30);
+    protected override TimeSpan Interval => TimeSpan.FromHours(6);
 
     public override string ServiceKey => "gameDetection";
 
@@ -62,7 +62,7 @@ public class GameDetectionService : ScheduledBackgroundService
             }
 
             // Wait for setup/initialization to complete before running detection.
-            // Uses async signaling — resumes instantly when setup completes, no polling.
+            // Uses async signaling - resumes instantly when setup completes, no polling.
             _logger.LogInformation("[GameDetection] Waiting for setup to complete...");
             await _stateService.WaitForSetupCompletedAsync(stoppingToken);
             _logger.LogInformation("[GameDetection] Setup completed");
@@ -97,7 +97,7 @@ public class GameDetectionService : ScheduledBackgroundService
                 return;
             }
 
-            // Run recovery, self-healing, and cleanup ONCE on startup — not on every dashboard load.
+            // Run recovery, self-healing, and cleanup ONCE on startup - not on every dashboard load.
             _logger.LogInformation("[GameDetection] Running detection data reconciliation...");
             await _detectionService.ReconcileCachedDetectionDataAsync();
 

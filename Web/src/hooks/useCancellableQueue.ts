@@ -22,13 +22,13 @@ interface CancellableQueueFinalizeArgs {
 
 /**
  * Per-item context threaded through `processItem`. Exposes:
- *   - `signal` — AbortSignal that fires on user cancel or unmount.
- *   - `setOperationId` — tells the hook the current in-flight opId so the
+ *   - `signal` - AbortSignal that fires on user cancel or unmount.
+ *   - `setOperationId` - tells the hook the current in-flight opId so the
  *     cascade effect can cancel it server-side when the user clicks the X
  *     on the bulk notification. Call this as soon as the opId is known
  *     (directly after `await ApiService.removeX(...)` for opId-in-body
  *     APIs; from within the `onStartedCapture` callback for 202+Started).
- *   - `requestId` — fresh id per iteration; pass to `waitForSignalRCompletion`.
+ *   - `requestId` - fresh id per iteration; pass to `waitForSignalRCompletion`.
  */
 interface CancellableQueueItemContext {
   signal: AbortSignal;
@@ -42,7 +42,7 @@ interface CancellableQueueRunArgs<TItem> {
   /**
    * Opens the bulk notification. Must be called synchronously and return the
    * generated id. The hook never reads `notifications.find(...)` to rediscover
-   * this id — it uses the returned value directly to avoid stale-closure bugs
+   * this id - it uses the returned value directly to avoid stale-closure bugs
    * during the same synchronous tick as `addNotification`.
    */
   openNotification: () => string;
@@ -131,7 +131,7 @@ export function useCancellableQueue<TItem>(
 
   const [state, setState] = useState<CancellableQueueState>({ status: 'idle' });
 
-  // Unmount guard — abort any in-flight iteration when the caller unmounts.
+  // Unmount guard - abort any in-flight iteration when the caller unmounts.
   useEffect(() => {
     const controller = new AbortController();
     unmountControllerRef.current = controller;
@@ -147,7 +147,7 @@ export function useCancellableQueue<TItem>(
   // item so it aborts immediately rather than running to natural completion.
   //
   // Only the `cancelling === true` flag is treated as a cancel signal. We do
-  // NOT trip cancel when the notification is missing from the list — that
+  // NOT trip cancel when the notification is missing from the list - that
   // misread caused "Bulk removal cancelled after 0 items" on the very first
   // iteration whenever React rendered an unrelated notifications update before
   // the freshly-added bulk notification was batched into the array (the
@@ -170,7 +170,7 @@ export function useCancellableQueue<TItem>(
     if (currentOp) {
       currentItemOperationIdRef.current = null;
       ApiService.cancelOperation(currentOp).catch(() => {
-        /* best-effort — current item may already be past the point of cancel */
+        /* best-effort - current item may already be past the point of cancel */
       });
     }
   }, [notifications]);
@@ -252,7 +252,7 @@ export function useCancellableQueue<TItem>(
             }
             failed += 1;
             lastError = err instanceof Error ? err : new Error(String(err));
-            // Intentionally continue the queue — a single failure must not
+            // Intentionally continue the queue - a single failure must not
             // abort the rest (mirrors the pre-refactor behaviour).
           } finally {
             currentItemOperationIdRef.current = null;
@@ -271,14 +271,14 @@ export function useCancellableQueue<TItem>(
         }
       }
 
-      // Finalize hook — callers transition the notification to its terminal
+      // Finalize hook - callers transition the notification to its terminal
       // state here (see CancellableQueueFinalizeArgs docs).
       finalize({ id: notifId, succeeded, failed, cancelled, total });
 
       // Registry-driven notifications get auto-dismiss scheduled by their
       // handler factory when they transition to a terminal state. The
       // bulk_removal notification this hook manages is NOT registry-driven,
-      // so we must schedule auto-dismiss ourselves — otherwise the "Bulk
+      // so we must schedule auto-dismiss ourselves - otherwise the "Bulk
       // removal cancelled/completed" toast lingers indefinitely.
       scheduleAutoDismiss(notifId);
 

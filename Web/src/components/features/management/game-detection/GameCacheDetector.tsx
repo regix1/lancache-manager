@@ -77,7 +77,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [isStartingDetection, setIsStartingDetection] = useState(false);
   // Track explicit "Load" button presses (handleLoadData). Init false so the initial
   // mount fetch (loadCachedGames) does NOT trigger the "Scanning database and cache files…"
-  // banner — EvictedItemsList renders straight from props with no banner, and we mirror
+  // banner - EvictedItemsList renders straight from props with no banner, and we mirror
   // that here for a simultaneous-paint UX. The Load button still flips this true on click.
   const [isLoadingData, setIsLoadingData] = useState(false);
   // Ref to prevent duplicate API calls (handles rapid button clicks before state updates)
@@ -114,7 +114,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [servicesExpanded, setServicesExpanded] = useState(true);
   const [gamesExpanded, setGamesExpanded] = useState(true);
 
-  // "Remove All" state — sequential full-removal of every cached game and
+  // "Remove All" state - sequential full-removal of every cached game and
   // service. Mirrors the per-item Remove button flow so each entity gets its
   // own log rewrite + cache-file delete + DB cleanup; a single failure does
   // not abort the remaining queue.
@@ -135,7 +135,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
   // Filter games and services by selected datasource.
   // The main list shows every entity that still has cache files on disk. Fully-
-  // evicted entities (is_evicted=true OR zero cache files) are hidden here —
+  // evicted entities (is_evicted=true OR zero cache files) are hidden here -
   // the Evicted Items card owns those. Partially-evicted entities (some
   // downloads evicted but cache files still present) MUST appear in BOTH
   // lists: the main card shows what's still on disk; Evicted Items shows the
@@ -322,7 +322,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     }
   }, [notifications, isStartingDetection, refreshSetupStatus, syncCachedDetection]);
 
-  // Direct SignalR listener for GameDetectionComplete — reloads results regardless of who started the scan.
+  // Direct SignalR listener for GameDetectionComplete - reloads results regardless of who started the scan.
   // This handles the case where an external process (e.g., a scheduled scan or another browser tab)
   // triggers a scan while isStartingDetection is false, so the notification-based flow above would not reload.
   useEffect(() => {
@@ -350,7 +350,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     };
   }, [on, off, scheduleCachedDetectionSync]);
 
-  // Listen for EvictionScanComplete — reloads detection results so evicted games surface immediately
+  // Listen for EvictionScanComplete - reloads detection results so evicted games surface immediately
   // without requiring a full Game Cache Detection scan or service restart.
   useEffect(() => {
     const handleEvictionScanComplete = () => {
@@ -995,7 +995,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     </AccordionSection>
                   )}
 
-                  {/* Empty State — shown only when no scan results (games/services) exist */}
+                  {/* Empty State - shown only when no scan results (games/services) exist */}
                   {filteredGames.length === 0 && filteredServices.length === 0 && !loading && (
                     <EmptyState
                       title={
@@ -1087,7 +1087,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         </div>
       </Modal>
 
-      {/* Remove-all progress indicator — rendered at the bottom so it is visible
+      {/* Remove-all progress indicator - rendered at the bottom so it is visible
           no matter which accordion the user is viewing. */}
       {removeAllRunning && removeAllProgress && (
         <div className="fixed bottom-4 right-4 z-50 max-w-sm bg-themed-secondary border border-themed-secondary rounded-lg p-3 shadow-lg">
@@ -1096,7 +1096,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               current: removeAllProgress.current,
               total: removeAllProgress.total,
               label: removeAllProgress.label,
-              defaultValue: 'Removing {{current}} of {{total}} — {{label}}'
+              defaultValue: 'Removing {{current}} of {{total}} - {{label}}'
             })}
           </p>
         </div>

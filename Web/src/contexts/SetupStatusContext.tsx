@@ -157,7 +157,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
   // Fetch setup status whenever auth settles or auth mode changes.
   // When auth is lost (e.g. data-folder deletion + restart), immediately
   // clear the cached setupStatus so the wizard gate in App.tsx activates
-  // synchronously — don't wait for the async re-fetch.
+  // synchronously - don't wait for the async re-fetch.
   useEffect(() => {
     if (authLoading) {
       return;

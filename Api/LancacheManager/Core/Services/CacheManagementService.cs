@@ -825,7 +825,7 @@ public class CacheManagementService
         [System.Text.Json.Serialization.JsonPropertyName("message")]
         public string Message { get; set; } = string.Empty;
 
-        // See GameRemovalProgressData — same stageKey/context passthrough for service removals.
+        // See GameRemovalProgressData - same stageKey/context passthrough for service removals.
         [System.Text.Json.Serialization.JsonPropertyName("stageKey")]
         public string StageKey { get; set; } = string.Empty;
 
@@ -1135,7 +1135,7 @@ public class CacheManagementService
                     {
                         skipFileProbe = true;
                         _logger.LogInformation(
-                            "[GameRemoval] Fully evicted game {AppId} — using --skip-file-probe optimization ({Evicted}/{Total} rows evicted)",
+                            "[GameRemoval] Fully evicted game {AppId} - using --skip-file-probe optimization ({Evicted}/{Total} rows evicted)",
                             gameAppId, evictedRows, totalRows);
                     }
                 }
@@ -1536,7 +1536,7 @@ public class CacheManagementService
 
     /// <summary>
     /// Loads the persisted cache scan from the JSON file into _cachedCacheScan.
-    /// Safe to call multiple times — subsequent calls are no-ops if already loaded.
+    /// Safe to call multiple times - subsequent calls are no-ops if already loaded.
     /// </summary>
     private async Task LoadCachedScanAsync()
     {
@@ -1562,7 +1562,7 @@ public class CacheManagementService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to load cached cache scan from {FilePath} — will rescan", _cachedScanFilePath);
+            _logger.LogWarning(ex, "Failed to load cached cache scan from {FilePath} - will rescan", _cachedScanFilePath);
             _cachedCacheScan = null;
         }
     }
@@ -1741,7 +1741,7 @@ public class CacheManagementService
     /// </summary>
     public async Task<CacheSizeResponse?> GetCachedCacheSizeAsync(bool force = false, string? datasource = null)
     {
-        // Per-datasource scans are always live — no caching
+        // Per-datasource scans are always live - no caching
         if (!string.IsNullOrEmpty(datasource))
         {
             var ds = _datasourceService.GetDatasources()
@@ -1756,10 +1756,10 @@ public class CacheManagementService
         await _scanCacheLock.WaitAsync();
         try
         {
-            // Force rescan — bypass cache entirely
+            // Force rescan - bypass cache entirely
             if (force)
             {
-                _logger.LogInformation("Force rescan requested — running fresh cache size scan");
+                _logger.LogInformation("Force rescan requested - running fresh cache size scan");
                 var freshResult = await RunCacheSizeScanAsync(allCachePath);
                 if (freshResult != null)
                 {
@@ -1773,10 +1773,10 @@ public class CacheManagementService
             // Load cached scan from disk if not in memory
             await LoadCachedScanAsync();
 
-            // No cached scan — run fresh
+            // No cached scan - run fresh
             if (_cachedCacheScan == null)
             {
-                _logger.LogInformation("No cached cache scan found — running fresh scan");
+                _logger.LogInformation("No cached cache scan found - running fresh scan");
                 var freshResult = await RunCacheSizeScanAsync(allCachePath);
                 if (freshResult != null)
                 {
@@ -1787,14 +1787,14 @@ public class CacheManagementService
                 return freshResult;
             }
 
-            // Cached scan exists — check if drive usage has shifted by >= 50 GB
+            // Cached scan exists - check if drive usage has shifted by >= 50 GB
             var currentInfo = await GetCacheInfoAsync();
             var delta = Math.Abs(currentInfo.UsedCacheSize - _cachedCacheScan.UsedCacheSizeAtScan);
 
             if (delta >= CacheScanThresholdBytes)
             {
                 _logger.LogInformation(
-                    "Cache usage changed by {DeltaGb:F1} GB since last scan — running fresh scan",
+                    "Cache usage changed by {DeltaGb:F1} GB since last scan - running fresh scan",
                     delta / (1024.0 * 1024.0 * 1024.0));
                 var freshResult = await RunCacheSizeScanAsync(allCachePath);
                 if (freshResult != null)

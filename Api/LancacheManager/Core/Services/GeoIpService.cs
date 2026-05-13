@@ -11,7 +11,7 @@ namespace LancacheManager.Core.Services;
 /// Looks up country/city/ISP for a public IP via ip-api.com's free tier.
 ///
 /// Research (ipapi.is 2024 accuracy comparison study): ip-api.com reaches
-/// 86.33% accuracy on country-level identification of residential IPs — well
+/// 86.33% accuracy on country-level identification of residential IPs - well
 /// within the tolerance needed for a "where is this session connecting from"
 /// badge. ipinfo.io scores higher (96.57%) but requires account signup; for a
 /// LAN tool with a handful of sessions per day, the free no-key endpoint is
@@ -58,7 +58,7 @@ public sealed class GeoIpService
             return null;
         }
 
-        // Skip private / loopback / link-local — they won't resolve and will
+        // Skip private / loopback / link-local - they won't resolve and will
         // just burn a rate-limit slot.
         if (IsNonPublic(parsed))
         {

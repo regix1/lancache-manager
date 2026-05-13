@@ -23,7 +23,7 @@ public interface IOperationConflictChecker
 }
 
 /// <summary>
-/// Concrete checker — implements the Phase 3 overlap matrix from
+/// Concrete checker - implements the Phase 3 overlap matrix from
 /// <c>.cursor/plans/game_cache_eviction_cleanup_a228ef88.plan.md</c>.
 /// Policy-only: no disk / DB side effects. Uses the tracker as its sole source of state.
 /// </summary>
@@ -42,7 +42,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
 
     public Task<OperationConflictResponse?> CheckAsync(OperationType newType, ConflictScope newScope, CancellationToken ct)
     {
-        // Snapshot active ops once. Iterate ALL types (pass null) — the matrix spans multiple types per new op.
+        // Snapshot active ops once. Iterate ALL types (pass null) - the matrix spans multiple types per new op.
         var active = _tracker.GetActiveOperations(null);
 
         foreach (var op in active)
@@ -179,7 +179,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
                 });
         }
 
-        // Bulk EvictionRemoval is global — covers everything.
+        // Bulk EvictionRemoval is global - covers everything.
         if (activeOp.Type == OperationType.EvictionRemoval && activeScope.Kind == "bulk")
         {
             return BuildResponse(activeOp, activeScope,
@@ -255,7 +255,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         // block above; Covers() is only for service ↔ entity relationships.
 
         // GameRemoval steam:X ↔ EvictionRemoval scope=steam key=X (same entity) is already caught
-        // by the same-type-same-scope check IF we compare scopes. But here the TYPES differ — we
+        // by the same-type-same-scope check IF we compare scopes. But here the TYPES differ - we
         // need to match scopes across GameRemoval and EvictionRemoval when both are entity-scoped.
         if (IsEntityScoped(newScope) && IsEntityScoped(activeScope) && newScope.Matches(activeScope))
         {
@@ -336,7 +336,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
             }
 
             default:
-                // No metadata (global scans / detections / cache-clear / db-reset) — treat as bulk.
+                // No metadata (global scans / detections / cache-clear / db-reset) - treat as bulk.
                 return ConflictScope.Bulk();
         }
     }

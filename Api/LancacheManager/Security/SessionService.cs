@@ -17,7 +17,7 @@ public class SessionService
     private readonly ISignalRNotificationService _signalR;
 
     private const string CookieName = "LancacheManager.Session";
-    // Admin sessions effectively never expire — a far-future ExpiresAtUtc keeps the
+    // Admin sessions effectively never expire - a far-future ExpiresAtUtc keeps the
     // session valid for the life of the installation and lets the UI render "Never"
     // for any timestamp >= AdminNeverExpiresYear.
     private static readonly DateTime _adminNeverExpiresUtc = new(2099, 12, 31, 0, 0, 0, DateTimeKind.Utc);

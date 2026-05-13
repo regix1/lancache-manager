@@ -75,7 +75,7 @@ public class SettingsService : ISettingsService
                     // a non-Disabled legacy Aggressiveness), flip Enabled=true and persist.
                     // Idempotent on re-read because after save the legacy field is serialized
                     // alongside Enabled=true and the branch condition is false next time.
-#pragma warning disable CS0618 // Type or member is obsolete — migration path only
+#pragma warning disable CS0618 // Type or member is obsolete - migration path only
                     if (!settings.Enabled && settings.Aggressiveness != GcAggressiveness.Disabled)
                     {
                         _logger.LogInformation(

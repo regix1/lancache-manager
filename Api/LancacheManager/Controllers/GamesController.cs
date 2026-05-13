@@ -130,7 +130,7 @@ public class GamesController : ControllerBase
             return permissionError;
         }
 
-        // Central concurrency check — replaces ad-hoc conflict logic.
+        // Central concurrency check - replaces ad-hoc conflict logic.
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.GameRemoval,
             ConflictScope.SteamGame(appId),
@@ -460,7 +460,7 @@ public class GamesController : ControllerBase
                 epicAppId = metrics.EpicAppId ?? metrics.EntityKey;
                 break;
             default:
-                // Legacy rows persisted before EntityKind existed — preserve numeric compat.
+                // Legacy rows persisted before EntityKind existed - preserve numeric compat.
                 if (long.TryParse(metrics?.EntityKey, out var legacySteamId))
                 {
                     gameAppId = legacySteamId;
@@ -490,7 +490,7 @@ public class GamesController : ControllerBase
     [HttpPost("detect")]
     public async Task<IActionResult> DetectGamesAsync([FromQuery] bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
-        // Central concurrency check — canonical 409 shape for GameDetection duplicates.
+        // Central concurrency check - canonical 409 shape for GameDetection duplicates.
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.GameDetection,
             ConflictScope.Bulk(),
@@ -615,7 +615,7 @@ public class GamesController : ControllerBase
 
         // Always include evicted games in the response so the frontend can display them
         // in the Evicted Games section. The EvictedDataMode controls frontend display
-        // behavior, not API data availability — stripping here would make evicted games
+        // behavior, not API data availability - stripping here would make evicted games
         // invisible to the frontend even when the user wants to see them.
         // TotalGamesDetected excludes evicted games so the "N games detected" count
         // reflects only active (non-evicted) games on disk.

@@ -5,12 +5,12 @@ namespace LancacheManager.Models;
 /// </summary>
 public enum EvictionScope
 {
-    /// <summary>Steam game — keyed by GameAppId (long).</summary>
+    /// <summary>Steam game - keyed by GameAppId (long).</summary>
     Steam,
 
-    /// <summary>Epic Games game — keyed by EpicAppId (string).</summary>
+    /// <summary>Epic Games game - keyed by EpicAppId (string).</summary>
     Epic,
 
-    /// <summary>Non-game service — keyed by service name (lowercased).</summary>
+    /// <summary>Non-game service - keyed by service name (lowercased).</summary>
     Service
 }

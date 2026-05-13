@@ -247,18 +247,18 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
   // The backend may include sessionType ('guest' | 'authenticated') to scope the reset.
   // If sessionType is 'guest' and this client is admin, ignore it (admin cache is unaffected).
   // If sessionType is 'authenticated' and this client is not admin, ignore it.
-  // If sessionType is absent it is a global reset — always apply.
+  // If sessionType is absent it is a global reset - always apply.
   const handleUserPreferencesReset = useCallback(
     (data?: { sessionType?: string }) => {
       const sessionType = data?.sessionType;
 
       if (sessionType === 'guest' && isAdmin) {
-        // Guest-scoped reset — admin cache is unaffected, skip
+        // Guest-scoped reset - admin cache is unaffected, skip
         return;
       }
 
       if (sessionType === 'authenticated' && !isAdmin) {
-        // Admin-scoped reset — guest cache is unaffected, skip
+        // Admin-scoped reset - guest cache is unaffected, skip
         return;
       }
 

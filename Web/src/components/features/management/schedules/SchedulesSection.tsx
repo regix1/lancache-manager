@@ -23,7 +23,7 @@ interface SchedulesSectionProps {
   highlightScheduleKey?: string | null;
 }
 
-// Isolated countdown component — ticks every second without re-rendering the parent card
+// Isolated countdown component - ticks every second without re-rendering the parent card
 const CountdownDisplay = memo(function CountdownDisplay({
   nextRunUtc,
   intervalHours,
@@ -229,7 +229,7 @@ const ScheduleCard = memo(function ScheduleCard({
 
   // NOTE: do NOT include a "saving" flag here. Toggling isDisabled on and off for the
   // ~50ms an API save is in flight causes every control on the card to briefly flash to
-  // disabled styling and back — that's the source of the flicker the user reported on the
+  // disabled styling and back - that's the source of the flicker the user reported on the
   // interval dropdown and Run Now button. Optimistic updates already make the UI feel
   // instant; there's no UX benefit to disabling siblings mid-save.
   const isDisabled = !isAdmin || isRunningThis;
@@ -322,7 +322,7 @@ const ScheduleCard = memo(function ScheduleCard({
           </div>
         )}
 
-        {/* Run-on-startup toggle — hidden when interval is "Startup only" (-1) since the
+        {/* Run-on-startup toggle - hidden when interval is "Startup only" (-1) since the
           entire point of that schedule IS to run at startup, making the toggle redundant. */}
         {service.intervalHours !== -1 && (
           <div className="schedule-startup-row">
@@ -401,7 +401,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightS
     webApiStatus?.hasApiKey === true;
 
   // Keep a ref in sync with schedules so callbacks can read the latest value without
-  // needing `schedules` in their useCallback deps — that would cause every callback to
+  // needing `schedules` in their useCallback deps - that would cause every callback to
   // re-create on every optimistic update and propagate new references through memoized
   // children, defeating memo and causing visible dropdown flicker on unrelated toggles.
   const schedulesRef = useRef(schedules);
@@ -452,7 +452,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightS
   //
   // Why the retry loop: when the user clicks View Schedule, both `activeSection` and
   // `highlightScheduleKey` flip in the same tick. The SchedulesSection mounts fresh and
-  // `schedules` starts empty while the initial fetch is in flight — so the target card
+  // `schedules` starts empty while the initial fetch is in flight - so the target card
   // does not exist in the DOM yet when this effect first runs. We retry the querySelector
   // for up to ~2s so the scroll fires as soon as the card renders.
   useEffect(() => {
@@ -499,7 +499,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightS
         // If the user selects "Startup only" (-1), force runOnStartup=true on the backend.
         // Otherwise the service would never run at all: interval=-1 means "no scheduled
         // runs" in the base class loop, so the ONLY way work can happen is via the
-        // startup pass — which requires runOnStartup=true.
+        // startup pass - which requires runOnStartup=true.
         if (intervalHours === -1) {
           const current = schedulesRef.current.find((s) => s.key === key);
           if (current && !current.runOnStartup) {
@@ -509,7 +509,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightS
 
         await fetchSchedules();
       } catch {
-        // Revert silently — polling will correct state
+        // Revert silently - polling will correct state
       }
     },
     [fetchSchedules]
@@ -589,7 +589,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightS
         details: { notificationType: 'success' }
       });
 
-      // Flash all cards to confirm reset — subtle variant since every card glows at
+      // Flash all cards to confirm reset - subtle variant since every card glows at
       // once. Duration matches HighlightGlow's SUBTLE_DEFAULT_DURATION so the
       // enabled/class flip and the animation end happen on the same timeline.
       const flashed = Object.fromEntries(schedules.map((s) => [s.key, 'subtle' as const]));
@@ -620,7 +620,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightS
         details: { notificationType: 'success' }
       });
 
-      // Flash all cards to acknowledge — same subtle variant as reset since the
+      // Flash all cards to acknowledge - same subtle variant as reset since the
       // entire grid lights up at once.
       const flashed = Object.fromEntries(schedules.map((s) => [s.key, 'subtle' as const]));
       setCompletedKeys(flashed);

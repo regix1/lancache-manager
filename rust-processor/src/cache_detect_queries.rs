@@ -215,7 +215,7 @@ pub(crate) async fn query_service_downloads(
     // Anti-join against both mapping paths so URLs already handled per-game in
     // Phase 3 (mapped Steam depots) or Phase 3b (Epic downloads) are not
     // re-probed here. Without this, the "steam" bucket re-scans every URL
-    // already matched per-game — typically millions of redundant probes.
+    // already matched per-game - typically millions of redundant probes.
     let query = "
         SELECT DISTINCT le.\"Service\", le.\"Url\"
         FROM \"LogEntries\" le

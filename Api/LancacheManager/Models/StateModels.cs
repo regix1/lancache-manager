@@ -169,7 +169,7 @@ public class CacheClearOperation
 }
 
 /// <summary>
-/// General operation state tracking — persisted row in <c>data/operations/operation_history.json</c>.
+/// General operation state tracking - persisted row in <c>data/operations/operation_history.json</c>.
 /// Reads tolerate legacy snake_case ("log_processing") and camelCase ("logProcessing") values on
 /// the <see cref="Type"/> field via <see cref="OperationTypeJsonConverter"/>; writes emit the
 /// canonical camelCase wire string.

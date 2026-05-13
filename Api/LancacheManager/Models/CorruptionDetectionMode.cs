@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace LancacheManager.Models;
 
 /// <summary>
-/// Corruption detection mode — controls which detection strategy the corruption service uses.
+/// Corruption detection mode - controls which detection strategy the corruption service uses.
 /// Serialized as snake_case strings on the wire ("miss_count", "redownload") to preserve the
 /// pre-existing JSON / query-string contract with the frontend and CacheController.
 /// </summary>

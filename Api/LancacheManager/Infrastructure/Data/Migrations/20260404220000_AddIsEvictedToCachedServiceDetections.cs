@@ -16,7 +16,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                 type: "boolean",
                 nullable: false,
                 defaultValue: false);
-            // No backfill SQL needed — all existing rows are not evicted
+            // No backfill SQL needed - all existing rows are not evicted
         }
 
         /// <inheritdoc />

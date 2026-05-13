@@ -148,7 +148,7 @@ const Dashboard: React.FC = () => {
   const { speedSnapshot, activeDownloadCount } = useSpeed();
   const statTooltips = useMemo(() => getStatTooltips(t), [t]);
 
-  // Eviction mode — determines whether evicted games are included in "Games on Disk"
+  // Eviction mode - determines whether evicted games are included in "Games on Disk"
   const [evictedDataMode, setEvictedDataMode] = useState<string>('show');
   useEffect(() => {
     const controller = new AbortController();
@@ -258,7 +258,7 @@ const Dashboard: React.FC = () => {
   }, [latestDownloads, evictedDataMode]);
 
   // Precompute the set of services that have at least one large (>1MB) download.
-  // Single O(n) pass over latestDownloads — replaces a nested filter that was O(services × downloads).
+  // Single O(n) pass over latestDownloads - replaces a nested filter that was O(services × downloads).
   const servicesWithLargeFiles = useMemo<Set<string>>(() => {
     const set = new Set<string>();
     for (const download of latestDownloads) {
@@ -617,7 +617,7 @@ const Dashboard: React.FC = () => {
       gamesOnDisk: {
         key: 'gamesOnDisk',
         title: t('dashboard.cards.gamesOnDisk'),
-        value: gamesOnDiskStats ? formatBytes(gamesOnDiskStats.totalSize) : '—',
+        value: gamesOnDiskStats ? formatBytes(gamesOnDiskStats.totalSize) : '-',
         subtitle: gamesOnDiskStats
           ? t('dashboard.cards.gamesDetected', { count: gamesOnDiskStats.gameCount })
           : t('dashboard.cards.noScanData'),

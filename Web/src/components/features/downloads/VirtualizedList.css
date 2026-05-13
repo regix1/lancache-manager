@@ -1,6 +1,6 @@
 /* Shared styles for virtualized lists in downloads views.
  * The translateY transform on `.virtual-row` is set inline by
- * @tanstack/react-virtual — this is a library API requirement.
+ * @tanstack/react-virtual - this is a library API requirement.
  * All other styling (parent/inner containers, relative positioning)
  * lives in this file per project convention (no inline styles).
  */
@@ -15,12 +15,12 @@
   contain: strict;
   width: 100%;
   /* Touch-scroll behaviour:
-   *  - touch-action: pan-y       — explicitly opt the inner scroller into
+   *  - touch-action: pan-y       - explicitly opt the inner scroller into
    *    vertical pan. Without it some mobile browsers route the gesture to
    *    window scroll because `contain: strict` confuses gesture hit-testing.
-   *  - overscroll-behavior: contain — stops scroll chaining bouncing the
+   *  - overscroll-behavior: contain - stops scroll chaining bouncing the
    *    whole page when the user keeps swiping past the list edges.
-   *  - -webkit-overflow-scrolling: touch — legacy iOS momentum scroll;
+   *  - -webkit-overflow-scrolling: touch - legacy iOS momentum scroll;
    *    no-op on modern WebKit but harmless and keeps parity with other
    *    touch-scroll containers in the app (RecentDownloads, ChartLegend).
    */
@@ -59,12 +59,12 @@
 
 .virtual-row-normal {
   /* NormalView rows need the same vertical rhythm the non-virtual
-   * `space-y-4` container provides — replicate via padding. */
+   * `space-y-4` container provides - replicate via padding. */
   padding-bottom: 1rem;
 }
 
 .virtual-list-parent-cardgrid {
-  /* CardGridLayout viewport — mirrors virtual-list-parent-normal cap. */
+  /* CardGridLayout viewport - mirrors virtual-list-parent-normal cap. */
   max-height: calc(100vh - 200px);
 }
 

@@ -87,7 +87,7 @@ Api/LancacheManager/wwwroot/*.css
 # Node.js dependencies
 node_modules/
 **/node_modules/
-# Root package files (husky only — not needed in repo)
+# Root package files (husky only - not needed in repo)
 /package.json
 /package-lock.json
 .husky/

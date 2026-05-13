@@ -33,7 +33,7 @@ services:
       # PostgreSQL username (default: lancache)
       - POSTGRES_USER=${POSTGRES_USER:-lancache}
 
-      # PostgreSQL password — if not set, the app shows a first-run setup page
+      # PostgreSQL password - if not set, the app shows a first-run setup page
       # to collect credentials. Once set via the UI, they persist in /data.
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-}
 

@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace LancacheManager.Models;
 
 /// <summary>
-/// Cache clearing delete mode — controls how files are removed during a cache clear.
+/// Cache clearing delete mode - controls how files are removed during a cache clear.
 /// Serialized as lowercase strings on the wire ("preserve", "full", "rsync")
 /// to preserve the pre-existing JSON contract with the frontend and the Rust
 /// cache_clear binary CLI argument.

@@ -23,7 +23,7 @@ public class GameDetectionController : ControllerBase
     }
 
     /// <summary>
-    /// Returns evicted games — games whose cache files have been removed from disk
+    /// Returns evicted games - games whose cache files have been removed from disk
     /// by nginx eviction, but still exist in the Downloads database with IsEvicted=true.
     /// </summary>
     [HttpGet("evicted-games")]

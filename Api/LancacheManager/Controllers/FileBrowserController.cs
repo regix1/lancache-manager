@@ -29,7 +29,7 @@ public class FileBrowserController : ControllerBase
         var allowedPathsConfig = _configuration["Security:AllowedBrowsePaths"];
         if (string.IsNullOrWhiteSpace(allowedPathsConfig))
         {
-            // No default paths — administrator must configure Security:AllowedBrowsePaths explicitly.
+            // No default paths - administrator must configure Security:AllowedBrowsePaths explicitly.
             // Leaving _allowedPaths empty causes all browse requests to return 403.
             _allowedPaths = new List<string>();
             _logger.LogWarning("FileBrowser: Security:AllowedBrowsePaths is not configured. All file-browse requests will be rejected (403) until paths are configured.");

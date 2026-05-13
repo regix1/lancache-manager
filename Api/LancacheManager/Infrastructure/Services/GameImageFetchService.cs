@@ -73,10 +73,10 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         IServiceProvider scopedServices,
         CancellationToken stoppingToken)
     {
-        // Prevent concurrent execution — FetchImagesNowAsync and scheduled runs can overlap
+        // Prevent concurrent execution - FetchImagesNowAsync and scheduled runs can overlap
         if (!await _executionLock.WaitAsync(0, stoppingToken))
         {
-            _logger.LogDebug("[GameImageFetch] Skipping — another fetch is already running");
+            _logger.LogDebug("[GameImageFetch] Skipping - another fetch is already running");
             return;
         }
 
@@ -102,7 +102,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         var totalDownloads = await db.Downloads.CountAsync(stoppingToken);
         if (totalDownloads == 0)
         {
-            _logger.LogInformation("[GameImageFetch] Downloads table is empty — log processing hasn't completed yet, will retry next cycle");
+            _logger.LogInformation("[GameImageFetch] Downloads table is empty - log processing hasn't completed yet, will retry next cycle");
             return;
         }
 
@@ -245,7 +245,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         }
     }
 
-    // Minimum image size — Steam returns tiny ~1-2KB placeholder images for some apps
+    // Minimum image size - Steam returns tiny ~1-2KB placeholder images for some apps
     private const int MinImageBytes = 5000;
 
     /// <summary>
@@ -447,7 +447,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             }
         }
 
-        // Tier 3: Steam Store API fallback — newer games use hash-based paths that aren't predictable from the app ID alone
+        // Tier 3: Steam Store API fallback - newer games use hash-based paths that aren't predictable from the app ID alone
         var storeUrl = await GetStoreApiHeaderImageAsync(client, appId, ct);
         if (storeUrl != null)
         {
@@ -533,7 +533,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
     /// <summary>
     /// Tries to find a parent app ID for a DLC/sub-app using pre-loaded depot mapping dictionaries.
-    /// No DB queries — uses dictionary lookups only.
+    /// No DB queries - uses dictionary lookups only.
     /// </summary>
     private string? FindParentAppId(
         string appId,
@@ -670,7 +670,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                     }
                 }
 
-                // Tier 3: Steam Store API — newer games use hash-based paths that aren't predictable from the app ID alone
+                // Tier 3: Steam Store API - newer games use hash-based paths that aren't predictable from the app ID alone
                 var storeUrl = await GetStoreApiHeaderImageAsync(client, image.AppId, ct);
                 if (storeUrl != null)
                 {

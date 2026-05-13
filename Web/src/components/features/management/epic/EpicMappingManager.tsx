@@ -103,7 +103,7 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
       if (!result.started) {
         onError?.(result.message || 'A refresh is already in progress');
       }
-      // Progress is tracked via SignalR notification bar — no inline success message needed
+      // Progress is tracked via SignalR notification bar - no inline success message needed
     } catch (err) {
       onError?.(err instanceof Error ? err.message : 'Failed to start Epic catalog refresh');
     }

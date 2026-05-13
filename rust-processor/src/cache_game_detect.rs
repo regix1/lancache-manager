@@ -452,7 +452,7 @@ async fn main() -> Result<()> {
             // progress can slide smoothly from base → base+span while this
             // service runs. Without this sub-progress, the final service
             // bucket (often "steam" with millions of URLs) would look frozen
-            // for hours — see services_map iteration below.
+            // for hours - see services_map iteration below.
             let service_span = 10.0 / total_services.max(1) as f64;
             let service_base_percent =
                 80.0 + (services_processed as f64 - 1.0) * service_span;

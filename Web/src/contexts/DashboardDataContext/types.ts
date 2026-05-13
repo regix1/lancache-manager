@@ -28,7 +28,7 @@ export interface DashboardBatchResponse {
 
 /**
  * Detection payload shipped by /api/dashboard/batch. Uses slim summary DTOs
- * to minimize payload size — the full GameCacheInfo / ServiceCacheInfo shapes
+ * to minimize payload size - the full GameCacheInfo / ServiceCacheInfo shapes
  * (with cache_file_paths, sample_urls, depot_ids, datasources) are only
  * served by /api/games/cached-detection for the Management tab.
  */

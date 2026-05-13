@@ -108,7 +108,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
         showingLabelKey="management.gameDetection.showingUrls"
       />
 
-      {/* Cache File Paths — only available for active (on-disk) items */}
+      {/* Cache File Paths - only available for active (on-disk) items */}
       {!isEvictedVariant && service.cache_file_paths && (
         <ExpandableList
           items={service.cache_file_paths}

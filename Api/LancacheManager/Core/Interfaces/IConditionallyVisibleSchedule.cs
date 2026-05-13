@@ -10,7 +10,7 @@ public interface IConditionallyVisibleSchedule
 {
     /// <summary>
     /// Returns <c>true</c> when the schedule card should be surfaced in the Schedules UI,
-    /// <c>false</c> when it should be hidden. Implementations MUST be thread-safe and fast —
+    /// <c>false</c> when it should be hidden. Implementations MUST be thread-safe and fast -
     /// this is called on every registry <c>GetAll()</c> / <c>Get()</c> and every SignalR
     /// <c>SchedulesUpdated</c> broadcast.
     /// </summary>

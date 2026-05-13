@@ -820,7 +820,7 @@ async fn main() -> Result<()> {
             let candidate_count = candidates.len();
             eprintln!("Found {} URLs with {}+ MISS/UNKNOWN entries for {}", candidate_count, miss_threshold, service);
 
-            // Save all candidate URLs before filtering — needed for log/DB cleanup even when cache files are gone
+            // Save all candidate URLs before filtering - needed for log/DB cleanup even when cache files are gone
             let all_candidate_urls: std::collections::HashSet<String> = candidates.keys().cloned().collect();
 
             let corrupted_urls_with_sizes: HashMap<String, i64> = if no_cache_check {
@@ -857,7 +857,7 @@ async fn main() -> Result<()> {
             }
 
             if corrupted_urls_with_sizes.is_empty() {
-                eprintln!("No cache files found on disk, but {} stale log entries detected — cleaning up logs and database", all_candidate_urls.len());
+                eprintln!("No cache files found on disk, but {} stale log entries detected - cleaning up logs and database", all_candidate_urls.len());
             }
 
             // Use all candidates for log/DB cleanup (includes stale entries where cache files are gone)

@@ -39,7 +39,7 @@ public class DatabaseController : ControllerBase
     [HttpDelete]
     public async Task<IActionResult> ResetDatabaseAsync(CancellationToken cancellationToken)
     {
-        // Central concurrency check — DatabaseReset is globally catastrophic.
+        // Central concurrency check - DatabaseReset is globally catastrophic.
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.DatabaseReset,
             ConflictScope.Bulk(),

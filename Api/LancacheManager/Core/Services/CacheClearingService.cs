@@ -439,7 +439,7 @@ public class CacheClearingService : ScheduledBackgroundService
                                 var currentFilesDeleted = totalFilesDeleted + (long)progressData.FilesDeleted;
                                 var percentComplete = (double)currentDirsProcessed / totalDirectoriesAllDatasources * 100;
 
-                                // Update metrics — forward StageKey/Context from Rust progress
+                                // Update metrics - forward StageKey/Context from Rust progress
                                 _operationTracker.UpdateMetadata(operationId, (object meta) =>
                                 {
                                     var metricsToUpdate = (CacheClearingMetrics)meta;

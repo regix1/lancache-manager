@@ -177,7 +177,7 @@ const GameCard: React.FC<GameCardProps> = ({
           showingLabelKey="management.gameDetection.showingUrls"
         />
 
-        {/* Cache File Paths — only available for active (on-disk) items */}
+        {/* Cache File Paths - only available for active (on-disk) items */}
         {!isEvictedVariant && game.cache_file_paths && (
           <ExpandableList
             items={game.cache_file_paths}

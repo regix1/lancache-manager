@@ -6,7 +6,7 @@ namespace LancacheManager.Infrastructure.Services;
 /// <summary>
 /// Warms the IMemoryCache entry behind <c>/api/dashboard/batch</c> on startup and at a periodic
 /// interval thereafter. Without this, the FIRST user request after a server restart would run
-/// nine parallel DB queries against a cold connection pool — often 10s+ or a gateway timeout on
+/// nine parallel DB queries against a cold connection pool - often 10s+ or a gateway timeout on
 /// resource-constrained hosts. Running the compute in the background decouples user latency
 /// from the pool warm-up.
 /// </summary>
@@ -51,13 +51,13 @@ public class DashboardCacheWarmerService : ScheduledBackgroundService
         }
         catch (OperationCanceledException)
         {
-            // Shutdown — let the loop exit normally
+            // Shutdown - let the loop exit normally
             throw;
         }
         catch (Exception ex)
         {
             // Warming failure must never crash startup or the background loop.
-            _logger.LogWarning(ex, "Dashboard batch cache warm failed — will retry on next interval");
+            _logger.LogWarning(ex, "Dashboard batch cache warm failed - will retry on next interval");
         }
     }
 }

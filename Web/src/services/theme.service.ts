@@ -526,13 +526,13 @@ class ThemeService {
 
   /**
    * Generate computed color tier CSS variables from base theme colors.
-   * Uses hexToRgba for opacity tiers — simple "base color + transparency".
-   * Blend variables use explicit defaults — theme creators override directly.
+   * Uses hexToRgba for opacity tiers - simple "base color + transparency".
+   * Blend variables use explicit defaults - theme creators override directly.
    */
   private generateComputedColorVars(colors: Record<string, string | undefined>): string {
     const rgba = (hex: string, opacity: number): string => schemaHexToRgba(hex, opacity);
 
-    // Resolve base colors — guaranteed present by schema
+    // Resolve base colors - guaranteed present by schema
     const primary = colors.primaryColor!;
     const accent = colors.accentColor!;
     const success = colors.success!;
@@ -565,7 +565,7 @@ class ThemeService {
     const iconGray = colors.textMuted!;
     const chartColor1 = colors.chartColor1!;
     const chartCacheHit = colors.chartCacheHitColor!;
-    // Event colors — guaranteed present by schema
+    // Event colors - guaranteed present by schema
     const ev = [
       colors.eventColor1!,
       colors.eventColor2!,
@@ -692,7 +692,7 @@ class ThemeService {
       --theme-badge-white-subtle: ${v('badgeWhiteSubtle', 'rgba(255, 255, 255, 0.20)')};
       --theme-glint-white: ${v('glintWhite', 'rgba(255, 255, 255, 0.05)')};
 
-      /* Blend Variables — use rgba opacity (adapts to any theme's colors) */
+      /* Blend Variables - use rgba opacity (adapts to any theme's colors) */
       --theme-primary-on-bg: ${v('primaryOnBg', rgba(primary, 0.12))};
       --theme-primary-on-bg-hover: ${v('primaryOnBgHover', rgba(primary, 0.18))};
       --theme-primary-on-border: ${v('primaryOnBorder', rgba(primary, 0.25))};

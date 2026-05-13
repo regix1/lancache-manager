@@ -28,7 +28,7 @@ public class GameCacheDetectionService : IDisposable
     private CancellationTokenSource? _cancellationTokenSource;
     private Guid? _currentTrackerOperationId;
 
-    // In-memory cache for detection response — avoids 10+ DB queries on every dashboard load.
+    // In-memory cache for detection response - avoids 10+ DB queries on every dashboard load.
     // Invalidated when detection scans, eviction scans, or game removals change the data.
     private DetectionOperationResponse? _cachedDetectionResponse;
     private readonly SemaphoreSlim _detectionCacheLock = new(1, 1);
@@ -665,7 +665,7 @@ public class GameCacheDetectionService : IDisposable
             }
 
             // Save services to database (only for full scan, incremental preserves existing)
-            // Always run on full scan even with zero services — zero incoming means everything should be evicted
+            // Always run on full scan even with zero services - zero incoming means everything should be evicted
             if (!incremental)
             {
                 await SaveServicesToDatabaseAsync(aggregatedServices, cancellationToken);
@@ -695,7 +695,7 @@ public class GameCacheDetectionService : IDisposable
                     try
                     {
                         // Use incremental=true so existing DB rows are preserved/updated rather than deleted.
-                        // CancellationToken.None is critical — the original token is already cancelled.
+                        // CancellationToken.None is critical - the original token is already cancelled.
                         await SaveGamesToDatabaseAsync(
                             aggregatedGames,
                             incremental: true,
@@ -861,7 +861,7 @@ public class GameCacheDetectionService : IDisposable
 
     /// <summary>
     /// Runs recovery, self-healing, and cleanup operations on cached detection data.
-    /// Called once on startup by GameDetectionService — NOT on every dashboard load.
+    /// Called once on startup by GameDetectionService - NOT on every dashboard load.
     /// </summary>
     public async Task ReconcileCachedDetectionDataAsync()
     {
@@ -897,7 +897,7 @@ public class GameCacheDetectionService : IDisposable
         catch (Exception selfHealEx)
         {
             _logger.LogWarning(selfHealEx,
-                "[GameDetection] Trigger #2 reverse-reconcile failed on startup — proceeding with stale data");
+                "[GameDetection] Trigger #2 reverse-reconcile failed on startup - proceeding with stale data");
         }
 
         try
@@ -913,7 +913,7 @@ public class GameCacheDetectionService : IDisposable
         catch (Exception selfHealEx)
         {
             _logger.LogWarning(selfHealEx,
-                "[ServiceDetection] Service self-heal failed on startup — proceeding with stale data");
+                "[ServiceDetection] Service self-heal failed on startup - proceeding with stale data");
         }
 
         var legacyZeroEntries = await dbContext.CachedGameDetections
@@ -1026,7 +1026,7 @@ public class GameCacheDetectionService : IDisposable
 
                 if (!Guid.TryParse(operationIdString, out var persistedGuid))
                 {
-                    _logger.LogWarning("[GameDetection] Persisted operationId '{OperationId}' is not a valid Guid — skipping", operationIdString);
+                    _logger.LogWarning("[GameDetection] Persisted operationId '{OperationId}' is not a valid Guid - skipping", operationIdString);
                     continue;
                 }
 
@@ -1040,7 +1040,7 @@ public class GameCacheDetectionService : IDisposable
                         _cancellationTokenSource,
                         metadata))
                 {
-                    _logger.LogWarning("[GameDetection] Persisted operation {Id} already registered — skipping", persistedGuid);
+                    _logger.LogWarning("[GameDetection] Persisted operation {Id} already registered - skipping", persistedGuid);
                     continue;
                 }
 
@@ -1093,7 +1093,7 @@ public class GameCacheDetectionService : IDisposable
     /// Surfaces entities whose underlying Downloads are already marked <c>IsEvicted = true</c>
     /// but which do not yet have a matching cached detection row. Public so
     /// <see cref="CacheReconciliationService.ReconcileCacheFilesAsync"/> can call it after
-    /// every eviction scan — without this, a game whose downloads were evicted but which was
+    /// every eviction scan - without this, a game whose downloads were evicted but which was
     /// never in <see cref="CachedGameDetection"/> (for example after a cache clear or before
     /// the first full detection) will not appear in the Evicted Items UI until the next app
     /// restart or full detection pass.
