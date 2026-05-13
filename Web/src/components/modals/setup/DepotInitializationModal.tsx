@@ -175,23 +175,23 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
             {currentStep !== 'database-setup' &&
               currentStep !== 'external-db-form' &&
               currentStep !== 'external-db-confirm' && (
-              <button
-                onClick={backButtonDisabled ? undefined : handleGoBack}
-                disabled={backButtonDisabled}
-                className={`p-1.5 rounded-lg transition-colors bg-transparent ${
-                  backButtonDisabled
-                    ? 'text-themed-muted cursor-not-allowed opacity-50'
-                    : 'text-themed-secondary cursor-pointer'
-                }`}
-                title={
-                  backButtonDisabled
-                    ? t('initialization.modal.cannotGoBack')
-                    : t('initialization.modal.goBack')
-                }
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-            )}
+                <button
+                  onClick={backButtonDisabled ? undefined : handleGoBack}
+                  disabled={backButtonDisabled}
+                  className={`p-1.5 rounded-lg transition-colors bg-transparent ${
+                    backButtonDisabled
+                      ? 'text-themed-muted cursor-not-allowed opacity-50'
+                      : 'text-themed-secondary cursor-pointer'
+                  }`}
+                  title={
+                    backButtonDisabled
+                      ? t('initialization.modal.cannotGoBack')
+                      : t('initialization.modal.goBack')
+                  }
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+              )}
             <div className="flex items-center gap-2">
               <Rocket className="w-5 h-5 text-primary" />
               <span className="font-semibold text-themed-primary">

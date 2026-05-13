@@ -99,7 +99,8 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
         setSubmitError(result.error || result.message || 'Failed to save credentials.');
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Network error. Please check your connection.';
+      const message =
+        err instanceof Error ? err.message : 'Network error. Please check your connection.';
       setSubmitError(message);
     } finally {
       setIsSubmitting(false);
@@ -241,15 +242,12 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
       </div>
 
       {submitError && (
-        <div className="rounded-md p-3 text-sm bg-themed-error text-themed-error">{submitError}</div>
+        <div className="rounded-md p-3 text-sm bg-themed-error text-themed-error">
+          {submitError}
+        </div>
       )}
 
-      <Button
-        variant="default"
-        onClick={handleSubmit}
-        disabled={isSubmitting}
-        className="w-full"
-      >
+      <Button variant="default" onClick={handleSubmit} disabled={isSubmitting} className="w-full">
         {isSubmitting
           ? t('initialization.externalDb.testingConnection', 'Testing connection...')
           : t('initialization.externalDb.submit', 'Test and Save Connection')}
