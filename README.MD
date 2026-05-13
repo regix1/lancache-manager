@@ -9,10 +9,32 @@ A web UI for [LANCache](https://lancache.net/). Watch downloads as they happen, 
 > docker pull ghcr.io/regix1/lancache-manager:latest
 > ```
 
+## Image Variants
+
+Two images, same code, different size:
+
+| Tag | Embedded PostgreSQL | When to use |
+|---|---|---|
+| `:latest` | ✓ Bundled inside the container | One-container setup. Works out of the box - no external DB needed. |
+| `:latest-slim` | ✗ Not installed (~150 MB smaller) | You're running PostgreSQL separately (sidecar, remote host, or managed service). Requires `POSTGRES_MODE=external`. |
+
+Same applies to dev builds: `:dev` (full) and `:dev-slim` (slim).
+
+```bash
+# Full - default, supports both embedded and external Postgres
+docker pull ghcr.io/regix1/lancache-manager:latest
+
+# Slim - external Postgres only
+docker pull ghcr.io/regix1/lancache-manager:latest-slim
+```
+
+See [Configuration → PostgreSQL](#postgresql) for the two compose examples (embedded vs external).
+
 -----
 
 ## Table of Contents
 
+- [Image Variants](#image-variants)
 - [Screenshots](#screenshots)
 - [Quick Start](#quick-start)
 - [Docker Compose](#docker-compose)
@@ -262,14 +284,10 @@ LANCache Manager stores everything in PostgreSQL. Pick one of two modes:
 | **Embedded** (default) | Single-container deployment, simplest setup. PostgreSQL 17 runs inside the lancache-manager container over a Unix socket. Nothing extra to configure. |
 | **External** | Standard Docker pattern, easier upgrades, lets you point at a managed Postgres (RDS, Azure DB, Cloud SQL). Requires a separate Postgres service or a remote host. |
 
-#### Image variants
+Image-tag pairing — see [Image Variants](#image-variants) at the top of this README:
 
-| Tag | Embedded Postgres? | Size | Use when |
-|-----|--------------------|------|----------|
-| `:latest` / `:dev` (default) | ✓ Bundled | larger (~150 MB more) | You want a single-container deployment. Supports both embedded and external modes. |
-| `:latest-slim` / `:dev-slim` | ✗ Not installed | smaller | You only want external mode and don't need the embedded server. Forces `POSTGRES_MODE=external`. |
-
-The slim image leaves out the `postgresql-17` binary so the image is smaller and has no idle DB process. If you try to run it without `POSTGRES_MODE=external`, the entrypoint will log a warning and force external mode automatically.
+- **Embedded mode** → use `:latest` (or `:dev`)
+- **External mode** → either `:latest` works, or use `:latest-slim` to drop the unused embedded Postgres binary
 
 Switching from embedded to external on an existing install? See [docs/external-postgres-migration.md](docs/external-postgres-migration.md) for the `pg_dump`/`pg_restore` commands.
 
