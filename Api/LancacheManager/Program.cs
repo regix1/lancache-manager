@@ -780,13 +780,12 @@ app.UseRateLimiter();
 // ASP.NET Core authentication & authorization pipeline
 // SessionAuthenticationHandler populates HttpContext.Items["Session"] for backward compatibility.
 app.UseAuthentication();
-
-// MetricsAuthenticationMiddleware MUST run before UseAuthorization so it can set context.User
-// before the FallbackPolicy (RequireAuthenticatedUser) is evaluated. When RequireAuthForMetrics
-// is false it sets a synthetic principal; when true it validates the API key first.
-app.UseMiddleware<MetricsAuthenticationMiddleware>();
-
 app.UseAuthorization();
+
+// MetricsAuthenticationMiddleware applies the optional API-key gate to /metrics.
+// The endpoint itself is marked .AllowAnonymous() so UseAuthorization's FallbackPolicy
+// does not reject it; this middleware then enforces RequireAuthForMetrics when enabled.
+app.UseMiddleware<MetricsAuthenticationMiddleware>();
 
 // Swagger authentication middleware (requires API key when Security:ProtectSwagger=true)
 app.UseMiddleware<SwaggerAuthenticationMiddleware>();
@@ -809,8 +808,10 @@ app.MapHub<DownloadHub>("/hubs/downloads");
 app.MapHub<SteamDaemonHub>("/hubs/steam-daemon");
 app.MapHub<EpicPrefillDaemonHub>("/hubs/epic-prefill-daemon");
 
-// Map Prometheus metrics endpoint for Grafana
-app.MapPrometheusScrapingEndpoint();
+// Map Prometheus metrics endpoint for Grafana.
+// AllowAnonymous bypasses the FallbackPolicy; MetricsAuthenticationMiddleware enforces
+// the optional API-key check when Security:RequireAuthForMetrics is true.
+app.MapPrometheusScrapingEndpoint().AllowAnonymous();
 
 // Explicit route mapping for OperationState controller to fix 404 issues
 app.MapControllerRoute(
@@ -833,7 +834,7 @@ app.MapGet("/api/version", () =>
 {
     var version = Environment.GetEnvironmentVariable("LANCACHE_MANAGER_VERSION") ?? "dev";
     return Results.Ok(new LancacheManager.Models.VersionResponse { Version = version });
-});
+}).AllowAnonymous();
 
 // Fallback to index.html for client-side routing
 app.MapFallback(async context =>
@@ -858,7 +859,7 @@ app.MapFallback(async context =>
         context.Response.StatusCode = 404;
         await context.Response.WriteAsync("index.html not found");
     }
-});
+}).AllowAnonymous();
 
 // Log depot count for diagnostics (non-blocking background task after scope is disposed)
 _ = Task.Run(async () =>

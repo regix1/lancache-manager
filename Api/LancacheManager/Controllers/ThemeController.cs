@@ -14,7 +14,6 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/themes")]
-[AllowAnonymous]
 public class ThemeController : ControllerBase
 {
     private readonly string _themesPath;
@@ -91,6 +90,7 @@ public class ThemeController : ControllerBase
     }
 
     [HttpGet]
+    [AllowAnonymous]
     public async Task<IActionResult> GetThemesAsync()
     {
         var themes = new List<ThemeInfo>();
@@ -168,6 +168,7 @@ public class ThemeController : ControllerBase
     }
 
     [HttpGet("{id}")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetThemeAsync(string id)
     {
         // Sanitize ID to prevent path traversal
@@ -197,6 +198,7 @@ public class ThemeController : ControllerBase
     }
 
     [HttpPost("upload")]
+    [Authorize(Policy = "AdminOnly")]
     [RequestSizeLimit(1_048_576)]
     public async Task<IActionResult> UploadThemeAsync(IFormFile file)
     {
@@ -293,6 +295,7 @@ public class ThemeController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [Authorize(Policy = "AdminOnly")]
     public IActionResult DeleteTheme(string id)
     {
         // Log the incoming request
@@ -430,6 +433,7 @@ public class ThemeController : ControllerBase
     }
 
     [HttpPost("cleanup")]
+    [Authorize(Policy = "AdminOnly")]
     public IActionResult CleanupThemes()
     {
         var deletedThemes = new List<string>();
@@ -480,38 +484,9 @@ public class ThemeController : ControllerBase
         });
     }
 
-    // Theme Preference Endpoints
-    [HttpGet("preference")]
-    public IActionResult GetThemePreference()
-    {
-        var themeId = _stateRepository.GetSelectedTheme() ?? "dark-default";
-        _logger.LogInformation($"Retrieved theme preference: {themeId}");
-
-        return Ok(new ThemePreferenceResponse
-        {
-            ThemeId = themeId
-        });
-    }
-
-    [HttpPut("preference")]
-    public IActionResult SetThemePreference([FromBody] ThemePreferenceRequest request)
-    {
-        var (themeId, error) = ValidateAndSanitizeThemeId(request);
-        if (error != null) return error;
-
-        _stateRepository.SetSelectedTheme(themeId!);
-        _logger.LogInformation($"Updated theme preference to: {themeId}");
-
-        return Ok(new ThemePreferenceResponse
-        {
-            Success = true,
-            ThemeId = themeId!,
-            Message = "Theme preference saved successfully"
-        });
-    }
-
     // Default Guest Theme Endpoints
     [HttpGet("preferences/guest")]
+    [AllowAnonymous]
     public IActionResult GetDefaultGuestTheme()
     {
         var themeId = _stateRepository.GetDefaultGuestTheme() ?? "dark-default";
@@ -524,6 +499,7 @@ public class ThemeController : ControllerBase
     }
 
     [HttpPut("preferences/guest")]
+    [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> SetDefaultGuestThemeAsync([FromBody] ThemePreferenceRequest request)
     {
         var (themeId, error) = ValidateAndSanitizeThemeId(request);

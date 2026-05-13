@@ -87,10 +87,6 @@ public interface IStateService
     bool GetGuestModeLocked();
     void SetGuestModeLocked(bool locked);
 
-    // Theme Preference Methods
-    string? GetSelectedTheme();
-    void SetSelectedTheme(string? themeId);
-
     // Default Guest Theme Methods
     string? GetDefaultGuestTheme();
     void SetDefaultGuestTheme(string? themeId);

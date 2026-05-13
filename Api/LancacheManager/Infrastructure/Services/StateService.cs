@@ -72,7 +72,6 @@ public class StateService : IStateService
         public bool HasProcessedLogs { get; set; } = false;
         public int GuestSessionDurationHours { get; set; } = 6;
         public bool GuestModeLocked { get; set; } = false;
-        public string? SelectedTheme { get; set; } = "dark-default";
         public string? DefaultGuestTheme { get; set; } = "dark-default";
         public string RefreshRate { get; set; } = "STANDARD";
         public string DefaultGuestRefreshRate { get; set; } = "STANDARD";
@@ -887,7 +886,6 @@ public class StateService : IStateService
             HasDataLoaded = persisted.HasDataLoaded,
             HasProcessedLogs = persisted.HasProcessedLogs,
             GuestSessionDurationHours = persisted.GuestSessionDurationHours,
-            SelectedTheme = persisted.SelectedTheme ?? "dark-default",
             DefaultGuestTheme = persisted.DefaultGuestTheme ?? "dark-default",
             RefreshRate = RefreshRateExtensions.TryParseWire(persisted.RefreshRate) ?? RefreshRate.Standard,
             DefaultGuestRefreshRate = RefreshRateExtensions.TryParseWire(persisted.DefaultGuestRefreshRate) ?? RefreshRate.Standard,
@@ -967,7 +965,6 @@ public class StateService : IStateService
             HasDataLoaded = state.HasDataLoaded,
             HasProcessedLogs = state.HasProcessedLogs,
             GuestSessionDurationHours = state.GuestSessionDurationHours,
-            SelectedTheme = state.SelectedTheme,
             DefaultGuestTheme = state.DefaultGuestTheme,
             RefreshRate = state.RefreshRate.ToWireString(),
             DefaultGuestRefreshRate = state.DefaultGuestRefreshRate.ToWireString(),
@@ -1120,17 +1117,6 @@ public class StateService : IStateService
     public void SetGuestModeLocked(bool locked)
     {
         UpdateState(state => state.GuestModeLocked = locked);
-    }
-
-    // Theme Preference Methods
-    public string? GetSelectedTheme()
-    {
-        return GetState().SelectedTheme ?? "dark-default";
-    }
-
-    public void SetSelectedTheme(string? themeId)
-    {
-        UpdateState(state => state.SelectedTheme = themeId ?? "dark-default");
     }
 
     // Default Guest Theme Methods

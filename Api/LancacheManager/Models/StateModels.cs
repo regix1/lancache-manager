@@ -24,7 +24,6 @@ public class AppState
     public bool HasProcessedLogs { get; set; } = false; // Track if logs have been processed at least once
     public int GuestSessionDurationHours { get; set; } = 6; // Default to 6 hours
     public bool GuestModeLocked { get; set; } = false; // When true, guest mode login is disabled
-    public string? SelectedTheme { get; set; } = "dark-default"; // Default theme for authenticated users
     public string? DefaultGuestTheme { get; set; } = "dark-default"; // Default theme for guest users
     public RefreshRate RefreshRate { get; set; } = RefreshRate.Standard; // Default to 10 seconds (LIVE, ULTRA, REALTIME, STANDARD, RELAXED, SLOW)
     public RefreshRate DefaultGuestRefreshRate { get; set; } = RefreshRate.Standard; // Default refresh rate for guest users
