@@ -296,13 +296,19 @@ builder.Services.AddSingleton(sp => (SettingsService)sp.GetRequiredService<ISett
 var baseConnStr = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection is not configured.");
 
+var postgresMode = Environment.GetEnvironmentVariable("POSTGRES_MODE") ?? "embedded";
 var pgUser = Environment.GetEnvironmentVariable("POSTGRES_USER");
 var pgPassword = Environment.GetEnvironmentVariable("POSTGRES_PASSWORD");
+var pgHost = Environment.GetEnvironmentVariable("POSTGRES_HOST");
+var pgPortStr = Environment.GetEnvironmentVariable("POSTGRES_PORT");
+var pgDatabase = Environment.GetEnvironmentVariable("POSTGRES_DB");
 
-// Check persistent config file if no env var credentials (production Docker setup page flow)
+// Check persistent config file if env vars are missing (production Docker setup page flow)
 // Runs pre-DI; cannot use IPathResolver. Uses dataRoot computed above.
+// File schema: { username, password, host?, port?, database? }. host/port/database are
+// only populated when the user submitted external-mode credentials via the setup UI.
 const string PostgresCredentialsFileName = "postgres-credentials.json";
-if (string.IsNullOrEmpty(pgPassword))
+if (string.IsNullOrEmpty(pgPassword) || (postgresMode == "external" && string.IsNullOrEmpty(pgHost)))
 {
     var configPath = Path.Combine(dataRoot, "config", PostgresCredentialsFileName);
     if (File.Exists(configPath))
@@ -310,12 +316,22 @@ if (string.IsNullOrEmpty(pgPassword))
         try
         {
             var json = File.ReadAllText(configPath);
-            var config = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
-            if (config != null)
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (string.IsNullOrEmpty(pgPassword) && root.TryGetProperty("password", out var passElement))
+                pgPassword = passElement.GetString();
+            if (string.IsNullOrEmpty(pgUser) && root.TryGetProperty("username", out var userElement))
+                pgUser = userElement.GetString();
+            if (postgresMode == "external")
             {
-                pgPassword = config.GetValueOrDefault("password");
-                if (string.IsNullOrEmpty(pgUser))
-                    pgUser = config.GetValueOrDefault("username");
+                if (string.IsNullOrEmpty(pgHost) && root.TryGetProperty("host", out var hostElement))
+                    pgHost = hostElement.GetString();
+                if (string.IsNullOrEmpty(pgPortStr) && root.TryGetProperty("port", out var portElement))
+                    pgPortStr = portElement.ValueKind == System.Text.Json.JsonValueKind.Number
+                        ? portElement.GetInt32().ToString()
+                        : portElement.GetString();
+                if (string.IsNullOrEmpty(pgDatabase) && root.TryGetProperty("database", out var dbElement))
+                    pgDatabase = dbElement.GetString();
             }
         }
         catch
@@ -332,6 +348,27 @@ if (!string.IsNullOrEmpty(pgUser))
     connBuilder.Username = pgUser;
 if (!string.IsNullOrEmpty(pgPassword))
     connBuilder.Password = pgPassword;
+
+// POSTGRES_DB applies in both modes - entrypoint.sh honors it when creating the embedded
+// database too, so the connection string has to match. Host/Port stay external-only (the
+// embedded path uses a Unix socket and has no TCP port).
+if (!string.IsNullOrEmpty(pgDatabase))
+    connBuilder.Database = pgDatabase;
+
+if (postgresMode == "external")
+{
+    if (!string.IsNullOrEmpty(pgHost))
+        connBuilder.Host = pgHost;
+    if (int.TryParse(pgPortStr, out var pgPort))
+        connBuilder.Port = pgPort;
+}
+
+// In external mode without credentials, we boot in "setup-only" so the user can submit
+// connection details via the UI. Track this so we can skip DB migration on startup.
+var externalCredsMissing = postgresMode == "external"
+    && (string.IsNullOrEmpty(connBuilder.Host)
+        || connBuilder.Host == "/var/run/postgresql"
+        || string.IsNullOrEmpty(pgPassword));
 
 var dbConnectionString = connBuilder.ConnectionString
     + ";Minimum Pool Size=3;Maximum Pool Size=30;Max Auto Prepare=20";
@@ -649,45 +686,65 @@ using (var scope = app.Services.CreateScope())
             migrationResult.FilesMoved, migrationResult.DirectoriesMoved);
     }
 
-    // On Windows dev, ensure PostgreSQL Docker container is running before attempting migration
-    await WindowsPostgresManager.EnsurePostgresRunningAsync(dbConnectionString, logger);
-
-    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-    try
+    // On Windows dev, ensure PostgreSQL Docker container is running before attempting migration.
+    // Skip in external mode: the user runs their own DB, we shouldn't auto-create one.
+    if (postgresMode != "external")
     {
-        logger.LogInformation("Checking database migrations...");
+        await WindowsPostgresManager.EnsurePostgresRunningAsync(dbConnectionString, logger);
+    }
 
-        // Allow long-running migrations (e.g., column type changes that rewrite large tables)
-        dbContext.Database.SetCommandTimeout(TimeSpan.FromMinutes(30));
-
-        // This will create the database if it doesn't exist and apply all pending migrations
-        await dbContext.Database.MigrateAsync();
-        await DatabaseSchemaFixer.ApplyPostMigrationFixesAsync(dbContext, logger);
-
-        logger.LogInformation("Database migrations applied successfully");
-
-        // Verify connection
-        var canConnect = await dbContext.Database.CanConnectAsync();
-        if (!canConnect)
-        {
-            throw new Exception("Cannot connect to database after migration");
-        }
-
-        // Note: LancacheMetricsService will start automatically as IHostedService
-
-        logger.LogInformation("Database initialization complete");
-
+    // In external mode without credentials, the DB is unreachable on purpose. Boot the
+    // web host so the user can submit connection details via the setup wizard, then
+    // ask them to restart. Skip migration entirely - there is no DB to migrate yet.
+    if (externalCredsMissing)
+    {
         if (migrateOnly)
         {
-            logger.LogInformation("Migration-only mode completed successfully. Exiting without starting the web host.");
+            logger.LogError("External mode without credentials - cannot run migrate-only without a target database.");
             return;
         }
+        logger.LogWarning(
+            "POSTGRES_MODE=external but no host/password configured. Starting in setup-only mode; submit DB credentials via the UI and restart the container.");
     }
-    catch (Exception ex)
+    else
     {
-        logger.LogError(ex, "Database initialization failed");
-        throw; // Fail fast if database init fails
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        try
+        {
+            logger.LogInformation("Checking database migrations...");
+
+            // Allow long-running migrations (e.g., column type changes that rewrite large tables)
+            dbContext.Database.SetCommandTimeout(TimeSpan.FromMinutes(30));
+
+            // This will create the database if it doesn't exist and apply all pending migrations
+            await dbContext.Database.MigrateAsync();
+            await DatabaseSchemaFixer.ApplyPostMigrationFixesAsync(dbContext, logger);
+
+            logger.LogInformation("Database migrations applied successfully");
+
+            // Verify connection
+            var canConnect = await dbContext.Database.CanConnectAsync();
+            if (!canConnect)
+            {
+                throw new Exception("Cannot connect to database after migration");
+            }
+
+            // Note: LancacheMetricsService will start automatically as IHostedService
+
+            logger.LogInformation("Database initialization complete");
+
+            if (migrateOnly)
+            {
+                logger.LogInformation("Migration-only mode completed successfully. Exiting without starting the web host.");
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Database initialization failed");
+            throw; // Fail fast if database init fails
+        }
     }
 
     // Migrate operation files from old data directory to new operations subdirectory

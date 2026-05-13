@@ -1048,6 +1048,10 @@ class ApiService {
     currentSetupStep: string | null;
     dataSourceChoice: string | null;
     completedPlatforms: string | null;
+    mode: 'embedded' | 'external';
+    postgresHost: string | null;
+    postgresPort: number | null;
+    postgresDatabase: string | null;
   }> {
     const response = await fetch(
       `${API_BASE}/system/setup`,
@@ -1061,6 +1065,10 @@ class ApiService {
       currentSetupStep: string | null;
       dataSourceChoice: string | null;
       completedPlatforms: string | null;
+      mode: 'embedded' | 'external';
+      postgresHost: string | null;
+      postgresPort: number | null;
+      postgresDatabase: string | null;
     }>(response);
   }
 
@@ -2435,6 +2443,24 @@ class ApiService {
       })
     );
     await ApiService.handleResponse(response);
+  }
+
+  static async setExternalDbCredentials(payload: {
+    host: string;
+    port: number;
+    database: string;
+    username: string;
+    password: string;
+  }): Promise<{ success: boolean; message: string; restartRequired: boolean; error?: string }> {
+    const response = await fetch(
+      `${API_BASE}/setup/external`,
+      ApiService.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+    );
+    return response.json();
   }
 
   static async getGuestThemePreference<T>(): Promise<T> {

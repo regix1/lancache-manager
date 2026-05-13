@@ -29,6 +29,17 @@ public class SetupController : ControllerBase
     [HttpPost("credentials")]
     public async Task<IActionResult> SetCredentialsAsync([FromBody] SetupCredentialsRequest request)
     {
+        // In external mode the user-managed Postgres isn't ours to ALTER. Route them
+        // to the external endpoint, which validates and persists a connection-only config.
+        var mode = Environment.GetEnvironmentVariable("POSTGRES_MODE") ?? "embedded";
+        if (mode == "external")
+        {
+            return BadRequest(new SetupErrorResponse
+            {
+                Error = "POSTGRES_MODE=external is set. Use POST /api/setup/external to configure the external database connection."
+            });
+        }
+
         if (string.IsNullOrWhiteSpace(request.Password))
             return BadRequest(new SetupErrorResponse { Error = "Password is required" });
 
@@ -141,6 +152,130 @@ public class SetupController : ControllerBase
         {
             Success = true,
             Message = "Credentials saved. Restart the container to apply fully."
+        });
+    }
+
+    /// <summary>
+    /// POST /api/setup/external - Configure an external PostgreSQL connection.
+    /// Validates the supplied connection details by opening a real connection, then
+    /// persists them to postgres-credentials.json. Used in the cold-start UI fallback
+    /// where POSTGRES_MODE=external is set but no env-var connection details were
+    /// provided - the user supplies them via the wizard and then restarts the container.
+    ///
+    /// Anonymous because in this scenario the DB is unreachable, so no admin session can
+    /// exist yet. Same trust model as the first-run setup wizard.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpPost("external")]
+    public async Task<IActionResult> SetExternalCredentialsAsync([FromBody] SetExternalDbCredentialsRequest request)
+    {
+        var mode = Environment.GetEnvironmentVariable("POSTGRES_MODE") ?? "embedded";
+        if (mode != "external")
+        {
+            return BadRequest(new SetupErrorResponse
+            {
+                Error = "External-mode endpoint called while POSTGRES_MODE is not 'external'. Set POSTGRES_MODE=external in your environment first."
+            });
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Host))
+            return BadRequest(new SetupErrorResponse { Error = "Host is required" });
+
+        if (request.Port <= 0 || request.Port > 65535)
+            return BadRequest(new SetupErrorResponse { Error = "Port must be between 1 and 65535" });
+
+        if (string.IsNullOrWhiteSpace(request.Database))
+            return BadRequest(new SetupErrorResponse { Error = "Database name is required" });
+
+        if (string.IsNullOrWhiteSpace(request.Username))
+            return BadRequest(new SetupErrorResponse { Error = "Username is required" });
+
+        if (string.IsNullOrWhiteSpace(request.Password))
+            return BadRequest(new SetupErrorResponse { Error = "Password is required" });
+
+        // Validate the supplied credentials by attempting a real connection with a short timeout.
+        // We intentionally don't run ALTER USER - the external Postgres isn't ours to manage.
+        var validationBuilder = new Npgsql.NpgsqlConnectionStringBuilder
+        {
+            Host = request.Host.Trim(),
+            Port = request.Port,
+            Database = request.Database.Trim(),
+            Username = request.Username.Trim(),
+            Password = request.Password,
+            Timeout = 10,
+            CommandTimeout = 10
+        };
+
+        try
+        {
+            await using var conn = new Npgsql.NpgsqlConnection(validationBuilder.ConnectionString);
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT 1";
+            await cmd.ExecuteScalarAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "External DB credential validation failed for {Host}:{Port}", request.Host, request.Port);
+            return BadRequest(new SetupErrorResponse
+            {
+                Error = $"Could not connect to {request.Host}:{request.Port}/{request.Database}: {ex.Message}"
+            });
+        }
+
+        // Persist to postgres-credentials.json with extended schema (host/port/database).
+        // Same atomic rename pattern as SetCredentialsAsync.
+        var configPath = _pathResolver.GetPostgresCredentialsPath();
+        var config = new Dictionary<string, object>
+        {
+            ["username"] = request.Username.Trim(),
+            ["password"] = request.Password,
+            ["host"] = request.Host.Trim(),
+            ["port"] = request.Port,
+            ["database"] = request.Database.Trim()
+        };
+
+        var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+
+        try
+        {
+            var directory = Path.GetDirectoryName(configPath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            var tempPath = configPath + ".tmp";
+            await System.IO.File.WriteAllTextAsync(tempPath, json);
+            System.IO.File.Move(tempPath, configPath, true);
+
+            if (!OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    System.IO.File.SetUnixFileMode(configPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                }
+                catch (Exception modeEx)
+                {
+                    _logger.LogWarning(modeEx, "Failed to set 0600 permissions on {ConfigPath}", configPath);
+                }
+            }
+
+            _logger.LogInformation(
+                "External PostgreSQL credentials saved to {ConfigPath} (target {Host}:{Port}/{Database} as {Username})",
+                configPath, request.Host, request.Port, request.Database, request.Username);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to write external credentials config file");
+            return StatusCode(500, new SetupErrorResponse { Error = "Failed to save credentials file" });
+        }
+
+        return Ok(new SetExternalDbCredentialsResponse
+        {
+            Success = true,
+            Message = "External database credentials saved. Restart the container to apply.",
+            RestartRequired = true
         });
     }
 }

@@ -1,21 +1,29 @@
 #!/bin/bash
 # ---------------------------------------------------------------------------
-# SQLite → PostgreSQL data migration
+# SQLite -> PostgreSQL data migration
 # ---------------------------------------------------------------------------
-# Migrates data table-by-table using: sqlite3 CSV export → psql COPY FROM STDIN
+# Migrates data table-by-table using: sqlite3 CSV export -> psql COPY FROM STDIN
 # No pgloader/SBCL dependency - just sqlite3 + psql.
+#
+# Works against either embedded (Unix socket, peer auth) or external Postgres
+# (TCP with password). Mode is selected by POSTGRES_MODE env var.
 #
 # PostgreSQL boolean input natively accepts 0/1 from SQLite.
 # sqlite3 CSV outputs NULL as unquoted empty, "" as empty string -
 # COPY WITH (NULL '') maps these correctly.
 #
-# Usage: migrate-sqlite-to-postgres.sh <sqlite_db_path> <pg_database> <pg_data_dir>
+# Usage: migrate-sqlite-to-postgres.sh <sqlite_db_path> <pg_database>
+# Env:   POSTGRES_MODE        embedded (default) | external
+#        POSTGRES_HOST        external mode only
+#        POSTGRES_PORT        external mode only (default 5432)
+#        POSTGRES_USER        external mode only
+#        POSTGRES_PASSWORD    external mode only
 # ---------------------------------------------------------------------------
 set -eo pipefail
 
 SQLITE_DB="$1"
 PGDATABASE="$2"
-PGDATA="$3"
+MIGRATION_MARKER="/data/postgres-migration.complete"
 
 # Validate prerequisites
 if ! command -v sqlite3 &>/dev/null; then
@@ -36,11 +44,47 @@ TABLE_COUNT=$(sqlite3 "$SQLITE_DB" "SELECT COUNT(*) FROM sqlite_master WHERE typ
 echo "[migration] Found $TABLE_COUNT tables to migrate in SQLite database."
 
 # ---------------------------------------------------------------------------
-# Phase 1: Tune PostgreSQL for bulk loading
+# Mode-aware psql wrapper
+# ---------------------------------------------------------------------------
+# Embedded: connect as postgres OS user via Unix socket (peer auth).
+# External: connect over TCP using credentials from environment.
+#
+# We use runuser (util-linux) for the embedded path because it preserves argv
+# verbatim - unlike `su -c "..."` which flattens everything into one shell
+# string and silently mangles quoted SQL passed as `-c "SELECT ..."`.
+POSTGRES_MODE="${POSTGRES_MODE:-embedded}"
+
+run_psql() {
+    if [ "$POSTGRES_MODE" = "external" ]; then
+        PGPASSWORD="$POSTGRES_PASSWORD" psql \
+            -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" \
+            -U "$POSTGRES_USER" -d "$PGDATABASE" "$@"
+    else
+        runuser -u postgres -- psql -d "$PGDATABASE" "$@"
+    fi
+}
+
+# Variant that pipes the COPY-with-CSV stream through psql as a single session.
+# Needed because the COPY data follows the SQL command on stdin.
+copy_stream_psql() {
+    if [ "$POSTGRES_MODE" = "external" ]; then
+        PGPASSWORD="$POSTGRES_PASSWORD" psql \
+            -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" \
+            -U "$POSTGRES_USER" -d "$PGDATABASE"
+    else
+        runuser -u postgres -- psql -d "$PGDATABASE"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Phase 1: Tune PostgreSQL for bulk loading (best effort)
 # ---------------------------------------------------------------------------
 # Safe because the SQLite source file is preserved - if migration fails we redo it.
-echo "[migration] Tuning PostgreSQL for bulk import..."
-su - postgres -c "psql -d $PGDATABASE" <<'TUNEEOF'
+# ALTER SYSTEM requires superuser and is forbidden on most managed services
+# (RDS, Azure Database for PostgreSQL, Cloud SQL). Treat failures as warnings:
+# the migration still works, just slower.
+echo "[migration] Tuning PostgreSQL for bulk import (best-effort)..."
+if ! run_psql <<'TUNEEOF' 2>&1; then
 -- WAL / fsync: skip durability guarantees during one-shot import
 ALTER SYSTEM SET synchronous_commit = 'off';
 ALTER SYSTEM SET fsync = 'off';
@@ -56,12 +100,14 @@ ALTER SYSTEM SET maintenance_work_mem = '512MB';
 ALTER SYSTEM SET autovacuum = 'off';
 SELECT pg_reload_conf();
 TUNEEOF
+    echo "[migration] WARNING: Could not apply ALTER SYSTEM tuning (likely a managed DB). Continuing without it."
+fi
 
 # ---------------------------------------------------------------------------
 # Phase 2: Drop non-PK/unique indexes for faster inserts
 # ---------------------------------------------------------------------------
 echo "[migration] Dropping non-PK indexes for faster import..."
-su - postgres -c "psql -d $PGDATABASE" <<'IDXEOF'
+run_psql <<'IDXEOF'
 CREATE TABLE IF NOT EXISTS _migration_saved_indexes (
     indexname text PRIMARY KEY,
     indexdef  text NOT NULL
@@ -100,7 +146,7 @@ echo "[migration] Starting table-by-table data migration..."
 SQLITE_TABLES=$(sqlite3 "$SQLITE_DB" \
     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != '__EFMigrationsHistory' ORDER BY name;")
 
-PG_TABLES=$(su - postgres -c "psql -tA -d $PGDATABASE -c \"SELECT tablename FROM pg_tables WHERE schemaname='public';\"")
+PG_TABLES=$(run_psql -tA -c "SELECT tablename FROM pg_tables WHERE schemaname='public';")
 
 # Only migrate tables that exist on both sides
 TABLES_TO_MIGRATE=""
@@ -114,7 +160,7 @@ done
 
 # Disable triggers (including FK enforcement) so tables can load in any order
 for TABLE in $TABLES_TO_MIGRATE; do
-    su - postgres -c "psql -q -d $PGDATABASE -c 'ALTER TABLE \"$TABLE\" DISABLE TRIGGER ALL;'" || true
+    run_psql -q -c "ALTER TABLE \"$TABLE\" DISABLE TRIGGER ALL;" || true
 done
 
 MIGRATION_FAILED=0
@@ -131,10 +177,10 @@ for TABLE in $TABLES_TO_MIGRATE; do
 
     echo "[migration]   $TABLE: $ROW_COUNT rows..."
 
-    # Stream: COPY command → CSV data → end-of-data marker, all into one psql session
+    # Stream: COPY command -> CSV data -> end-of-data marker, all into one psql session
     if ! { echo "COPY \"$TABLE\" ($QUOTED_COLUMNS) FROM STDIN WITH (FORMAT csv, NULL '');"; \
            sqlite3 -csv "$SQLITE_DB" "SELECT * FROM \"$TABLE\";"; \
-           echo '\.' ; } | su - postgres -c "psql -d $PGDATABASE" 2>&1; then
+           echo '\.' ; } | copy_stream_psql 2>&1; then
         echo "[migration] ERROR: Failed to migrate table $TABLE"
         MIGRATION_FAILED=1
         break
@@ -143,7 +189,7 @@ done
 
 # Re-enable triggers
 for TABLE in $TABLES_TO_MIGRATE; do
-    su - postgres -c "psql -q -d $PGDATABASE -c 'ALTER TABLE \"$TABLE\" ENABLE TRIGGER ALL;'" || true
+    run_psql -q -c "ALTER TABLE \"$TABLE\" ENABLE TRIGGER ALL;" || true
 done
 
 # ---------------------------------------------------------------------------
@@ -152,7 +198,7 @@ done
 if [ "$MIGRATION_FAILED" -eq 0 ]; then
     # Recreate indexes that were dropped before the bulk load
     echo "[migration] Recreating indexes..."
-    su - postgres -c "psql -d $PGDATABASE" <<'IDXREOF'
+    run_psql <<'IDXREOF'
 DO $$
 DECLARE r record;
 BEGIN
@@ -167,7 +213,7 @@ IDXREOF
 
     # Repair auto-increment sequences - COPY does not advance them
     echo "[migration] Resetting PostgreSQL sequences..."
-    su - postgres -c "psql -d $PGDATABASE -v ON_ERROR_STOP=1" <<'SEQEOF'
+    run_psql -v ON_ERROR_STOP=1 <<'SEQEOF'
 DO $$
 DECLARE
     seq_record record;
@@ -205,9 +251,9 @@ BEGIN
 END $$;
 SEQEOF
 
-    # Restore safe PostgreSQL settings after bulk load
-    echo "[migration] Restoring safe PostgreSQL settings..."
-    su - postgres -c "psql" <<'RESTOREEOF'
+    # Restore safe PostgreSQL settings after bulk load (best-effort, same caveat as tuning)
+    echo "[migration] Restoring safe PostgreSQL settings (best-effort)..."
+    run_psql <<'RESTOREEOF' 2>&1 || echo "[migration] WARNING: Could not restore ALTER SYSTEM defaults (likely a managed DB)."
 ALTER SYSTEM RESET synchronous_commit;
 ALTER SYSTEM RESET fsync;
 ALTER SYSTEM RESET full_page_writes;
@@ -222,9 +268,11 @@ RESTOREEOF
 
     # Run ANALYZE so the planner has accurate stats after bulk import
     echo "[migration] Running ANALYZE..."
-    su - postgres -c "psql -d $PGDATABASE -c 'ANALYZE;'"
+    run_psql -c "ANALYZE;"
 
-    touch "$PGDATA/.migration_complete"
+    # Write marker file at a mode-agnostic location
+    mkdir -p "$(dirname "$MIGRATION_MARKER")"
+    touch "$MIGRATION_MARKER"
     echo "[migration] Data migration complete. SQLite database preserved at $SQLITE_DB"
 else
     echo "[migration] ERROR: Data migration failed. Check output above."

@@ -255,19 +255,23 @@ services:
 <a id="postgresql"></a>
 ### PostgreSQL
 
-LANCache Manager stores everything in PostgreSQL. There are two ways to set the password:
+LANCache Manager stores everything in PostgreSQL. You can run it two ways:
 
-- **Set `POSTGRES_PASSWORD` in compose.** The app picks it up automatically and skips the setup screen. Best for automation.
-- **Leave it unset.** On first launch the UI shows a setup page where you enter the password in the browser.
+- **Embedded (default):** PostgreSQL 17 runs inside the lancache-manager container over a Unix socket. Best for single-container deployments and newcomers - nothing extra to configure.
+- **External:** Run PostgreSQL yourself as a sidecar container (or on another host / managed service). Set `POSTGRES_MODE=external` plus the connection env vars.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `POSTGRES_PASSWORD` | - | PostgreSQL password. |
+| `POSTGRES_MODE` | `embedded` | `embedded` (in-container Unix-socket Postgres) or `external` (connect to a Postgres you run yourself). |
 | `POSTGRES_USER` | `lancache` | PostgreSQL username. |
+| `POSTGRES_PASSWORD` | - | PostgreSQL password. In embedded mode the app shows a UI setup page if this is unset; in external mode it must be set (or entered via the UI fallback before the container can connect). |
+| `POSTGRES_HOST` | - | External mode only. Hostname or IP of the PostgreSQL server. |
+| `POSTGRES_PORT` | `5432` | External mode only. |
+| `POSTGRES_DB` | `lancache` | Database name. |
 
-If you're upgrading from an older SQLite build, the migration runs automatically on first start - your downloads, settings, and cached data carry over without any manual steps.
+If you're upgrading from an older SQLite build, the migration runs automatically on first start in either mode - your downloads, settings, and cached data carry over without any manual steps. On managed Postgres services (RDS, Azure Database, Cloud SQL) some `ALTER SYSTEM` tuning is forbidden; the migration treats it as best-effort and continues without it.
 
-Compose example with the password set inline:
+**Embedded mode — compose example:**
 
 ```yaml
 services:
@@ -291,6 +295,52 @@ services:
       - POSTGRES_PASSWORD=your-secure-password
       # - POSTGRES_USER=lancache  # Optional, defaults to "lancache"
 ```
+
+**External mode — compose example with sidecar Postgres:**
+
+```yaml
+services:
+  lancache-manager:
+    image: ghcr.io/regix1/lancache-manager:latest
+    container_name: lancache-manager
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./data:/data
+      - /mnt/lancache/logs:/logs:ro
+      - /mnt/lancache/cache:/cache:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PUID=33
+      - PGID=33
+      - TZ=America/Chicago
+      - LanCache__LogPath=/logs/access.log
+      - LanCache__CachePath=/cache
+      - POSTGRES_MODE=external
+      - POSTGRES_HOST=lancache-db
+      - POSTGRES_USER=lancache
+      - POSTGRES_PASSWORD=change-this-password
+      - POSTGRES_DB=lancache
+    depends_on:
+      - lancache-db
+
+  lancache-db:
+    image: postgres:17-alpine
+    container_name: lancache-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=lancache
+      - POSTGRES_PASSWORD=change-this-password
+      - POSTGRES_DB=lancache
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+```
+
+In external mode, if you start the container with `POSTGRES_MODE=external` but no connection env vars, the app boots into a setup-only state and shows a wizard form for entering the host/port/user/pass/database. The credentials are saved to `/data/config/postgres-credentials.json`, and you'll be asked to restart the container so the app picks up the new connection on cold start.
 
 <a id="security"></a>
 ### Security

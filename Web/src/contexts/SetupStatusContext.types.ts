@@ -6,6 +6,8 @@ interface WizardStateUpdate {
   completedPlatforms?: string | null;
 }
 
+export type PostgresMode = 'embedded' | 'external';
+
 export interface SetupStatus {
   isCompleted: boolean;
   hasProcessedLogs: boolean;
@@ -13,6 +15,10 @@ export interface SetupStatus {
   currentSetupStep: string | null;
   dataSourceChoice: string | null;
   completedPlatforms: string | null;
+  mode: PostgresMode;
+  postgresHost: string | null;
+  postgresPort: number | null;
+  postgresDatabase: string | null;
 }
 
 interface SetupStatusContextType {

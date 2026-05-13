@@ -27,6 +27,16 @@ services:
 
     environment:
       #=========================================================================
+      # POSTGRESQL MODE
+      #=========================================================================
+      # "embedded" (default): PostgreSQL 17 runs inside this container over a
+      #   Unix socket. Best for single-container deployments and beginners.
+      # "external": Connect to a PostgreSQL you run yourself (sidecar container,
+      #   remote host, or managed service). See the external-mode example at
+      #   the bottom of this file.
+      # - POSTGRES_MODE=embedded
+
+      #=========================================================================
       # POSTGRESQL CREDENTIALS
       #=========================================================================
 
@@ -36,6 +46,12 @@ services:
       # PostgreSQL password - if not set, the app shows a first-run setup page
       # to collect credentials. Once set via the UI, they persist in /data.
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-}
+
+      # External-mode only - the address of your PostgreSQL server.
+      # Ignored when POSTGRES_MODE=embedded (the default).
+      # - POSTGRES_HOST=
+      # - POSTGRES_PORT=5432
+      # - POSTGRES_DB=lancache
 
       #=========================================================================
       # REQUIRED - You must configure these for your environment
@@ -229,3 +245,41 @@ services:
 # volumes:
 #   postgres_data:
 # Then add to service volumes: - postgres_data:/var/lib/postgresql/data
+
+# =============================================================================
+# OPTIONAL: External PostgreSQL (sidecar) example
+# =============================================================================
+# Run PostgreSQL as a separate service instead of inside the lancache-manager
+# container. This is the classic Compose pattern - cleaner separation, easier
+# upgrades, and lets you point at a managed Postgres (RDS, Azure DB, etc.).
+#
+# Replace the lancache-manager environment block above with these env vars,
+# and add the lancache-db service shown below.
+#
+# services:
+#   lancache-manager:
+#     # ... volumes / ports / PUID / PGID stay the same ...
+#     environment:
+#       - POSTGRES_MODE=external
+#       - POSTGRES_HOST=lancache-db
+#       - POSTGRES_PORT=5432
+#       - POSTGRES_DB=lancache
+#       - POSTGRES_USER=lancache
+#       - POSTGRES_PASSWORD=change-this-password
+#       # ... other LanCache/Security/Prefill env vars stay the same ...
+#     depends_on:
+#       - lancache-db
+#
+#   lancache-db:
+#     image: postgres:17-alpine
+#     container_name: lancache-db
+#     restart: unless-stopped
+#     environment:
+#       - POSTGRES_USER=lancache
+#       - POSTGRES_PASSWORD=change-this-password
+#       - POSTGRES_DB=lancache
+#     volumes:
+#       - postgres_data:/var/lib/postgresql/data
+#
+# volumes:
+#   postgres_data:

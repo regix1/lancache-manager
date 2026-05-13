@@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next';
 import { useInitializationFlow, type InitStep } from '@hooks/useInitializationFlow';
 import {
   DatabaseSetupStep,
+  ExternalDatabaseSetupStep,
+  ExternalDbInfoStep,
   PermissionsCheckStep,
   ImportHistoricalDataStep,
   PlatformSetupStep,
@@ -36,6 +38,8 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
     completedPlatforms,
     handleGoBack,
     handleDatabaseSetupComplete,
+    handleExternalDbFormComplete,
+    handleExternalDbConfirmContinue,
     handlePermissionsCheckComplete,
     handleImportComplete,
     handleSelectPlatform,
@@ -57,7 +61,12 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
 
   const renderStep = (step: InitStep): React.ReactNode => {
     // Show loading state while hydrating wizard state from the server.
-    if (isCheckingAuth && step !== 'database-setup') {
+    if (
+      isCheckingAuth &&
+      step !== 'database-setup' &&
+      step !== 'external-db-form' &&
+      step !== 'external-db-confirm'
+    ) {
       return (
         <div className="flex flex-col items-center justify-center py-12">
           <LoadingSpinner size="lg" className="icon-primary mb-4" />
@@ -69,6 +78,12 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
     switch (step) {
       case 'database-setup':
         return <DatabaseSetupStep onSetupComplete={handleDatabaseSetupComplete} />;
+
+      case 'external-db-form':
+        return <ExternalDatabaseSetupStep onSetupComplete={handleExternalDbFormComplete} />;
+
+      case 'external-db-confirm':
+        return <ExternalDbInfoStep onContinue={handleExternalDbConfirmContinue} />;
 
       case 'permissions-check':
         return <PermissionsCheckStep onComplete={handlePermissionsCheckComplete} />;
@@ -157,7 +172,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
         {/* Header */}
         <div className="px-8 py-5 border-b flex items-center justify-between border-themed-secondary">
           <div className="flex items-center gap-3">
-            {currentStep !== 'database-setup' && (
+            {currentStep !== 'database-setup' &&
+              currentStep !== 'external-db-form' &&
+              currentStep !== 'external-db-confirm' && (
               <button
                 onClick={backButtonDisabled ? undefined : handleGoBack}
                 disabled={backButtonDisabled}

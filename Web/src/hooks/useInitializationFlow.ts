@@ -6,6 +6,8 @@ import type { PicsStatus } from '@/types';
 
 export type InitStep =
   | 'database-setup'
+  | 'external-db-form'
+  | 'external-db-confirm'
   | 'permissions-check'
   | 'import-historical-data'
   | 'platform-setup'
@@ -48,6 +50,8 @@ interface UseInitializationFlowResult {
   // Navigation handlers
   handleGoBack: () => void;
   handleDatabaseSetupComplete: () => void;
+  handleExternalDbFormComplete: () => void;
+  handleExternalDbConfirmContinue: () => void;
   handlePermissionsCheckComplete: () => void;
   handleImportComplete: () => void;
   handleSelectPlatform: (platform: 'github' | 'steam' | 'epic') => void;
@@ -100,6 +104,8 @@ const buildStepInfoMap = (
   const getStepInfo = (step: InitStep): { number: number; total: number } => {
     const commonSteps: Record<string, number> = {
       'database-setup': 1,
+      'external-db-form': 1,
+      'external-db-confirm': 1,
       'permissions-check': 2,
       'import-historical-data': 3,
       'platform-setup': 4,
@@ -119,6 +125,8 @@ const buildStepInfoMap = (
 
   const steps: InitStep[] = [
     'database-setup',
+    'external-db-form',
+    'external-db-confirm',
     'permissions-check',
     'import-historical-data',
     'platform-setup',
@@ -132,6 +140,8 @@ const buildStepInfoMap = (
 
   const titles: Record<InitStep, string> = {
     'database-setup': t('initialization.modal.stepTitles.databaseSetup'),
+    'external-db-form': t('initialization.modal.stepTitles.databaseSetup'),
+    'external-db-confirm': t('initialization.modal.stepTitles.databaseSetup'),
     'permissions-check': t('initialization.modal.stepTitles.permissionsCheck'),
     'import-historical-data': t('initialization.modal.stepTitles.importHistoricalData'),
     'platform-setup': t('initialization.modal.stepTitles.platformSetup'),
@@ -165,6 +175,8 @@ function parseCompletedPlatforms(raw: string | null): CompletedPlatforms {
 function normalizeServerStep(raw: string | null): InitStep | null {
   switch (raw) {
     case 'database-setup':
+    case 'external-db-form':
+    case 'external-db-confirm':
     case 'permissions-check':
     case 'import-historical-data':
     case 'platform-setup':
@@ -230,14 +242,31 @@ export function useInitializationFlow({
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const transitionTo = useCallback(
     (step: InitStep): InitStep => {
-      if (
-        step === 'database-setup' &&
-        !setupStatusLoading &&
-        setupStatus &&
-        !setupStatus.needsPostgresCredentials
-      ) {
-        return 'permissions-check';
+      if (setupStatusLoading || !setupStatus) {
+        return step;
       }
+
+      // Route between the embedded/external DB steps based on mode so the
+      // wizard never lands on the wrong-mode form.
+      if (setupStatus.mode === 'external') {
+        if (step === 'database-setup') {
+          return setupStatus.needsPostgresCredentials ? 'external-db-form' : 'external-db-confirm';
+        }
+        // External mode with creds already configured: skip the form, show info screen instead.
+        if (step === 'external-db-form' && !setupStatus.needsPostgresCredentials) {
+          return 'external-db-confirm';
+        }
+      } else {
+        // Embedded mode: any external-mode step should map back to the embedded one
+        // (or skip past it entirely if creds are already there).
+        if (step === 'external-db-form' || step === 'external-db-confirm') {
+          return setupStatus.needsPostgresCredentials ? 'database-setup' : 'permissions-check';
+        }
+        if (step === 'database-setup' && !setupStatus.needsPostgresCredentials) {
+          return 'permissions-check';
+        }
+      }
+
       return step;
     },
     [setupStatusLoading, setupStatus]
@@ -403,6 +432,26 @@ export function useInitializationFlow({
     }
     goToStep('permissions-check');
   }, [refreshSetupStatus, goToStep, setupStatus, handleInitializationComplete]);
+
+  // External-mode: user submitted DB connection creds via the wizard form.
+  // The backend saved them to postgres-credentials.json, but the running app's
+  // DbContext was registered with the (still-broken) startup connection string.
+  // Container restart is required to pick up the new creds. We just refresh
+  // setup status here; the form component renders the "Restart required" UI.
+  const handleExternalDbFormComplete = useCallback((): void => {
+    void refreshSetupStatus();
+  }, [refreshSetupStatus]);
+
+  // External-mode: user acknowledged the info screen on a container that's
+  // already pointed at a working external Postgres. Continue into the rest
+  // of the wizard.
+  const handleExternalDbConfirmContinue = useCallback((): void => {
+    if (setupStatus?.isCompleted) {
+      void handleInitializationComplete();
+      return;
+    }
+    goToStep('permissions-check');
+  }, [setupStatus, handleInitializationComplete, goToStep]);
 
   const handlePermissionsCheckComplete = useCallback((): void => {
     goToStep('import-historical-data');
@@ -579,6 +628,8 @@ export function useInitializationFlow({
 
     handleGoBack,
     handleDatabaseSetupComplete,
+    handleExternalDbFormComplete,
+    handleExternalDbConfirmContinue,
     handlePermissionsCheckComplete,
     handleImportComplete,
     handleSelectPlatform,

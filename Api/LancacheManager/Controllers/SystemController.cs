@@ -166,11 +166,58 @@ public class SystemController : ControllerBase
         var state = _stateService.GetState();
         var isCompleted = state.SetupCompleted;
         var hasProcessedLogs = state.HasProcessedLogs;
-        // Check if actual PostgreSQL credentials exist (env var or config file).
-        // Migrated users have SetupCompleted=true from the SQLite era but no credentials file yet.
+
+        var mode = Environment.GetEnvironmentVariable("POSTGRES_MODE") ?? "embedded";
         var hasEnvPassword = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("POSTGRES_PASSWORD"));
-        var hasCredentialsFile = System.IO.File.Exists(_pathResolver.GetPostgresCredentialsPath());
-        var needsPostgresCredentials = !hasEnvPassword && !hasCredentialsFile;
+        var hasEnvHost = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("POSTGRES_HOST"));
+        var credentialsFilePath = _pathResolver.GetPostgresCredentialsPath();
+        var hasCredentialsFile = System.IO.File.Exists(credentialsFilePath);
+
+        // External mode needs both a host and a password; embedded only needs the password
+        // (the host is the fixed Unix socket).
+        var needsPostgresCredentials = mode == "external"
+            ? !(hasEnvPassword && hasEnvHost) && !hasCredentialsFile
+            : !hasEnvPassword && !hasCredentialsFile;
+
+        // Surface the configured external-mode target for the info screen, without
+        // ever exposing the password. Pulls from env first; falls back to the
+        // credentials file when the UI was used to enter creds.
+        string? postgresHost = null;
+        int? postgresPort = null;
+        string? postgresDatabase = null;
+        if (mode == "external")
+        {
+            postgresHost = Environment.GetEnvironmentVariable("POSTGRES_HOST");
+            postgresDatabase = Environment.GetEnvironmentVariable("POSTGRES_DB");
+            var envPort = Environment.GetEnvironmentVariable("POSTGRES_PORT");
+            if (int.TryParse(envPort, out var parsedPort))
+                postgresPort = parsedPort;
+
+            if ((string.IsNullOrEmpty(postgresHost) || postgresPort is null || string.IsNullOrEmpty(postgresDatabase))
+                && hasCredentialsFile)
+            {
+                try
+                {
+                    var json = System.IO.File.ReadAllText(credentialsFilePath);
+                    using var doc = System.Text.Json.JsonDocument.Parse(json);
+                    var root = doc.RootElement;
+                    if (string.IsNullOrEmpty(postgresHost) && root.TryGetProperty("host", out var hostElement))
+                        postgresHost = hostElement.GetString();
+                    if (postgresPort is null && root.TryGetProperty("port", out var portElement))
+                    {
+                        postgresPort = portElement.ValueKind == System.Text.Json.JsonValueKind.Number
+                            ? portElement.GetInt32()
+                            : (int.TryParse(portElement.GetString(), out var p) ? p : null);
+                    }
+                    if (string.IsNullOrEmpty(postgresDatabase) && root.TryGetProperty("database", out var dbElement))
+                        postgresDatabase = dbElement.GetString();
+                }
+                catch
+                {
+                    // Best-effort; missing info just means the info screen shows less detail.
+                }
+            }
+        }
 
         return Ok(new SetupStatusResponse
         {
@@ -180,7 +227,11 @@ public class SystemController : ControllerBase
             NeedsPostgresCredentials = needsPostgresCredentials,
             CurrentSetupStep = state.CurrentSetupStep?.ToWireString(),
             DataSourceChoice = state.DataSourceChoice?.ToWireString(),
-            CompletedPlatforms = state.CompletedPlatforms
+            CompletedPlatforms = state.CompletedPlatforms,
+            Mode = mode,
+            PostgresHost = postgresHost,
+            PostgresPort = postgresPort,
+            PostgresDatabase = postgresDatabase
         });
     }
 

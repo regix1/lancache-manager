@@ -1,4 +1,6 @@
 export { DatabaseSetupStep } from './DatabaseSetupStep';
+export { ExternalDatabaseSetupStep } from './ExternalDatabaseSetupStep';
+export { ExternalDbInfoStep } from './ExternalDbInfoStep';
 export { PermissionsCheckStep } from './PermissionsCheckStep';
 export { ImportHistoricalDataStep } from './ImportHistoricalDataStep';
 export { PlatformSetupStep } from './PlatformSetupStep';

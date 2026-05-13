@@ -36,7 +36,11 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
           needsPostgresCredentials: data.needsPostgresCredentials === true,
           currentSetupStep: data.currentSetupStep ?? null,
           dataSourceChoice: data.dataSourceChoice ?? null,
-          completedPlatforms: data.completedPlatforms ?? null
+          completedPlatforms: data.completedPlatforms ?? null,
+          mode: data.mode === 'external' ? 'external' : 'embedded',
+          postgresHost: data.postgresHost ?? null,
+          postgresPort: typeof data.postgresPort === 'number' ? data.postgresPort : null,
+          postgresDatabase: data.postgresDatabase ?? null
         });
       } else {
         // Non-OK response: default to showing the database-setup step so the
@@ -47,7 +51,11 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
           needsPostgresCredentials: true,
           currentSetupStep: null,
           dataSourceChoice: null,
-          completedPlatforms: null
+          completedPlatforms: null,
+          mode: 'embedded',
+          postgresHost: null,
+          postgresPort: null,
+          postgresDatabase: null
         });
       }
     } catch (error) {
@@ -64,7 +72,11 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
         needsPostgresCredentials: true,
         currentSetupStep: null,
         dataSourceChoice: null,
-        completedPlatforms: null
+        completedPlatforms: null,
+        mode: 'embedded',
+        postgresHost: null,
+        postgresPort: null,
+        postgresDatabase: null
       });
     } finally {
       clearTimeout(timeoutId);
