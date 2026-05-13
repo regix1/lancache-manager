@@ -13,6 +13,10 @@ public partial class EpicMappingService
     /// </summary>
     public async Task<int> ResolveEpicDownloadsAsync(CancellationToken ct = default)
     {
+        // Seed well-known non-game patterns (Epic Games Launcher etc.) so launcher chunks
+        // get labeled instead of falling through as Unknown. Idempotent.
+        await EnsureWellKnownPatternsAsync(ct);
+
         using var db = _dbContextFactory.CreateDbContext();
         const string epicServicePattern = "%epic%";
 

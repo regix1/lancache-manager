@@ -8,6 +8,71 @@ namespace LancacheManager.Core.Services.EpicMapping;
 public partial class EpicMappingService
 {
     /// <summary>
+    /// Well-known Epic content that lives on the CDN but is not in the games catalog
+    /// (e.g., the Epic Games Launcher itself updates via a separate URL prefix).
+    /// Seeded into the CDN pattern table so the resolver labels them correctly instead
+    /// of leaving thousands of launcher chunks as Unknown.
+    /// </summary>
+    private static readonly (string AppId, string Name, string ChunkBaseUrl)[] _wellKnownNonGamePatterns =
+    {
+        ("UnrealEngineLauncher", "Epic Games Launcher", "/Builds/UnrealEngineLauncher/")
+    };
+
+    /// <summary>
+    /// Ensure well-known non-game Epic CDN patterns exist in the DB. The Epic catalog API
+    /// never publishes these (the launcher isn't a game), so we seed them locally.
+    /// Idempotent - safe to call on every resolve.
+    /// </summary>
+    public async Task EnsureWellKnownPatternsAsync(CancellationToken ct = default)
+    {
+        using var db = _dbContextFactory.CreateDbContext();
+        var now = DateTime.UtcNow;
+        var addedPatterns = 0;
+        var addedMappings = 0;
+
+        foreach (var (appId, name, chunkBaseUrl) in _wellKnownNonGamePatterns)
+        {
+            var hasPattern = await db.EpicCdnPatterns.AnyAsync(p => p.ChunkBaseUrl == chunkBaseUrl, ct);
+            if (!hasPattern)
+            {
+                db.EpicCdnPatterns.Add(new EpicCdnPattern
+                {
+                    AppId = appId,
+                    Name = name,
+                    CdnHost = string.Empty,
+                    ChunkBaseUrl = chunkBaseUrl,
+                    DiscoveredAtUtc = now,
+                    LastSeenAtUtc = now
+                });
+                addedPatterns++;
+            }
+
+            var hasMapping = await db.EpicGameMappings.AnyAsync(m => m.AppId == appId, ct);
+            if (!hasMapping)
+            {
+                db.EpicGameMappings.Add(new EpicGameMapping
+                {
+                    AppId = appId,
+                    Name = name,
+                    DiscoveredAtUtc = now,
+                    LastSeenAtUtc = now,
+                    DiscoveredByHash = string.Empty,
+                    Source = "system"
+                });
+                addedMappings++;
+            }
+        }
+
+        if (addedPatterns + addedMappings > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            _logger.LogInformation(
+                "Seeded Epic non-game catalog: {Patterns} pattern(s), {Mappings} mapping(s)",
+                addedPatterns, addedMappings);
+        }
+    }
+
+    /// <summary>
     /// Merge a list of owned games into the persistent mapping.
     /// Called after successful Epic login when get-owned-games returns.
     /// </summary>
