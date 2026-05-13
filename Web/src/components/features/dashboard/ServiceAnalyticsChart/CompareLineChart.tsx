@@ -222,11 +222,39 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
             const anchorY = canvasRect.top + tooltip.caretY;
             const isPositive = (tooltip.dataPoints?.[0]?.parsed?.x ?? 0) >= 0;
 
-            el.style.transform = isPositive
-              ? `translate3d(${anchorX + TOOLTIP_GAP}px, ${anchorY}px, 0) translateY(-50%)`
-              : `translate3d(${anchorX - TOOLTIP_GAP}px, ${anchorY}px, 0) translate(-100%, -50%)`;
-            el.classList.toggle('compare-chart-tooltip--arrow-left', isPositive);
-            el.classList.toggle('compare-chart-tooltip--arrow-right', !isPositive);
+            // Measure the tooltip so we can keep it inside the viewport on every edge.
+            // Bars near the right edge would otherwise push the tooltip off-screen on
+            // the right; the same applies on the left for cache-miss bars.
+            const tooltipWidth = el.offsetWidth || 0;
+            const tooltipHeight = el.offsetHeight || 0;
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            const SAFE_MARGIN = 12;
+
+            // Prefer the side that matches the bar direction, but flip if it would
+            // overflow the viewport. If both sides overflow (very narrow viewport),
+            // keep whichever leaves more room.
+            const spaceRight = viewportWidth - anchorX - TOOLTIP_GAP - SAFE_MARGIN;
+            const spaceLeft = anchorX - TOOLTIP_GAP - SAFE_MARGIN;
+            let placeOnRight = isPositive;
+            if (placeOnRight && spaceRight < tooltipWidth) {
+              placeOnRight = spaceLeft >= tooltipWidth || spaceLeft > spaceRight;
+            } else if (!placeOnRight && spaceLeft < tooltipWidth) {
+              placeOnRight = spaceRight > spaceLeft;
+            }
+
+            // Vertical clamp so the tooltip never spills above or below the viewport.
+            const halfHeight = tooltipHeight / 2;
+            const clampedY = Math.max(
+              SAFE_MARGIN + halfHeight,
+              Math.min(anchorY, viewportHeight - SAFE_MARGIN - halfHeight)
+            );
+
+            el.style.transform = placeOnRight
+              ? `translate3d(${anchorX + TOOLTIP_GAP}px, ${clampedY}px, 0) translateY(-50%)`
+              : `translate3d(${anchorX - TOOLTIP_GAP}px, ${clampedY}px, 0) translate(-100%, -50%)`;
+            el.classList.toggle('compare-chart-tooltip--arrow-left', placeOnRight);
+            el.classList.toggle('compare-chart-tooltip--arrow-right', !placeOnRight);
             el.classList.add('is-visible');
 
             const dp = tooltip.dataPoints?.[0];
