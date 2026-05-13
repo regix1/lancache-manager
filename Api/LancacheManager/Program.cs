@@ -780,10 +780,13 @@ app.UseRateLimiter();
 // ASP.NET Core authentication & authorization pipeline
 // SessionAuthenticationHandler populates HttpContext.Items["Session"] for backward compatibility.
 app.UseAuthentication();
-app.UseAuthorization();
 
-// Add Metrics Authentication Middleware (optional API key for /metrics)
+// MetricsAuthenticationMiddleware MUST run before UseAuthorization so it can set context.User
+// before the FallbackPolicy (RequireAuthenticatedUser) is evaluated. When RequireAuthForMetrics
+// is false it sets a synthetic principal; when true it validates the API key first.
 app.UseMiddleware<MetricsAuthenticationMiddleware>();
+
+app.UseAuthorization();
 
 // Swagger authentication middleware (requires API key when Security:ProtectSwagger=true)
 app.UseMiddleware<SwaggerAuthenticationMiddleware>();
