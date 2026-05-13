@@ -78,7 +78,19 @@ docker logs lancache-manager | grep "External target"
 docker exec lancache-db psql -U lancache -d lancache -c 'SELECT COUNT(*) FROM "Downloads";'
 ```
 
-## 5. (Optional) Reclaim space
+## 5. (Optional) Switch to the slim image
+
+The default image bundles PostgreSQL 17 inside lancache-manager (~150 MB extra). Once you're on external mode, swap to `:dev-slim` / `:latest-slim` to drop it:
+
+```yaml
+    image: ghcr.io/regix1/lancache-manager:dev-slim
+```
+
+Then `docker compose up -d lancache-manager`.
+
+## 6. (Optional) Reclaim disk space
+
+After migration is verified, the embedded Postgres data directory inside `./data` is unused:
 
 ```bash
 docker compose stop lancache-manager
@@ -88,4 +100,4 @@ docker compose start lancache-manager
 
 ## Rollback
 
-Remove the six `POSTGRES_*` env vars, the `depends_on`, the `lancache-db` service, and the `postgres_data` volume. Restart. The embedded data in `./data/postgresql/` is still there (unless you ran step 5).
+If you switched to `:dev-slim` in step 5, switch back to `:dev` first - the slim image can't run embedded mode. Then remove the six `POSTGRES_*` env vars, the `depends_on`, the `lancache-db` service, and the `postgres_data` volume. Restart. The embedded data in `./data/postgresql/` is still there (unless you ran step 6).

@@ -28,8 +28,20 @@ jobs:
         include:
           - platform: linux/amd64
             runner: ubuntu-latest
+            variant: full
+            install_postgres: "true"
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            variant: slim
+            install_postgres: "false"
           - platform: linux/arm64
             runner: ubuntu-24.04-arm
+            variant: full
+            install_postgres: "true"
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            variant: slim
+            install_postgres: "false"
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -54,7 +66,7 @@ jobs:
           SAFE_BRANCH=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
           echo "name=${BRANCH}" >> $GITHUB_OUTPUT
           echo "safe_name=${SAFE_BRANCH}" >> $GITHUB_OUTPUT
-          echo "Building branch: ${BRANCH} (tag: dev-${SAFE_BRANCH})"
+          echo "Building branch: ${BRANCH} (variant: ${{ matrix.variant }})"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -83,13 +95,22 @@ jobs:
           IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           echo "name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
 
+      - name: Compute variant tag suffix
+        id: variant
+        run: |
+          if [ "${{ matrix.variant }}" = "slim" ]; then
+            echo "tag_suffix=-slim" >> $GITHUB_OUTPUT
+          else
+            echo "tag_suffix=" >> $GITHUB_OUTPUT
+          fi
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
           tags: |
-            type=raw,value=dev-${{ steps.branch.outputs.safe_name }}
+            type=raw,value=dev-${{ steps.branch.outputs.safe_name }}${{ steps.variant.outputs.tag_suffix }}
           flavor: |
             suffix=-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
 
@@ -104,14 +125,19 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ steps.version.outputs.VERSION }}-${{ steps.branch.outputs.safe_name }}
+            INSTALL_POSTGRES=${{ matrix.install_postgres }}
+            IMAGE_VARIANT=${{ matrix.variant }}
           cache-from: |
-            type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
+            type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-${{ matrix.variant }}-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
           cache-to: |
-            type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }},mode=max
+            type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-${{ matrix.variant }}-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }},mode=max
           provenance: false
 
   create-manifest:
     needs: build-and-push
+    strategy:
+      matrix:
+        variant: [full, slim]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -147,10 +173,19 @@ jobs:
           IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           echo "name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
 
+      - name: Compute variant tag suffix
+        id: variant
+        run: |
+          if [ "${{ matrix.variant }}" = "slim" ]; then
+            echo "tag_suffix=-slim" >> $GITHUB_OUTPUT
+          else
+            echo "tag_suffix=" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create and push multi-arch manifest
         run: |
           IMAGE=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
-          TAG="dev-${{ steps.branch.outputs.safe_name }}"
+          TAG="dev-${{ steps.branch.outputs.safe_name }}${{ steps.variant.outputs.tag_suffix }}"
           echo "Creating manifest for: ${IMAGE}:${TAG}"
           docker buildx imagetools create -t ${IMAGE}:${TAG} \
             ${IMAGE}:${TAG}-amd64 \

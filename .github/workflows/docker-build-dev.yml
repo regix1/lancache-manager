@@ -21,8 +21,24 @@ jobs:
         include:
           - platform: linux/amd64
             runner: ubuntu-latest
+            variant: full
+            install_postgres: "true"
+            tag_prefix: "dev"
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            variant: slim
+            install_postgres: "false"
+            tag_prefix: "dev-slim"
           - platform: linux/arm64
             runner: ubuntu-24.04-arm
+            variant: full
+            install_postgres: "true"
+            tag_prefix: "dev"
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            variant: slim
+            install_postgres: "false"
+            tag_prefix: "dev-slim"
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -65,7 +81,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
           tags: |
-            type=raw,value=dev
+            type=raw,value=${{ matrix.tag_prefix }}
           flavor: |
             suffix=-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
 
@@ -80,10 +96,12 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ steps.version.outputs.VERSION }}
+            INSTALL_POSTGRES=${{ matrix.install_postgres }}
+            IMAGE_VARIANT=${{ matrix.variant }}
           cache-from: |
-            type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
+            type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-${{ matrix.variant }}-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
           cache-to: |
-            type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }},mode=max
+            type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-${{ matrix.variant }}-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }},mode=max
           provenance: false
 
   create-manifest:
@@ -111,10 +129,16 @@ jobs:
           IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           echo "name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
 
-      - name: Create and push multi-arch manifest
+      - name: Create and push multi-arch manifests (full + slim)
         run: |
           IMAGE=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
+
           echo "Creating manifest for: ${IMAGE}:dev"
           docker buildx imagetools create -t ${IMAGE}:dev \
             ${IMAGE}:dev-amd64 \
             ${IMAGE}:dev-arm64
+
+          echo "Creating manifest for: ${IMAGE}:dev-slim"
+          docker buildx imagetools create -t ${IMAGE}:dev-slim \
+            ${IMAGE}:dev-slim-amd64 \
+            ${IMAGE}:dev-slim-arm64

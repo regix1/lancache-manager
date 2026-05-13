@@ -262,6 +262,15 @@ LANCache Manager stores everything in PostgreSQL. Pick one of two modes:
 | **Embedded** (default) | Single-container deployment, simplest setup. PostgreSQL 17 runs inside the lancache-manager container over a Unix socket. Nothing extra to configure. |
 | **External** | Standard Docker pattern, easier upgrades, lets you point at a managed Postgres (RDS, Azure DB, Cloud SQL). Requires a separate Postgres service or a remote host. |
 
+#### Image variants
+
+| Tag | Embedded Postgres? | Size | Use when |
+|-----|--------------------|------|----------|
+| `:latest` / `:dev` (default) | ✓ Bundled | larger (~150 MB more) | You want a single-container deployment. Supports both embedded and external modes. |
+| `:latest-slim` / `:dev-slim` | ✗ Not installed | smaller | You only want external mode and don't need the embedded server. Forces `POSTGRES_MODE=external`. |
+
+The slim image leaves out the `postgresql-17` binary so the image is smaller and has no idle DB process. If you try to run it without `POSTGRES_MODE=external`, the entrypoint will log a warning and force external mode automatically.
+
 Switching from embedded to external on an existing install? See [docs/external-postgres-migration.md](docs/external-postgres-migration.md) for the `pg_dump`/`pg_restore` commands.
 
 #### Environment variables
@@ -313,12 +322,12 @@ That's it. Leave `POSTGRES_PASSWORD` unset and the first-run UI will prompt for 
 
 #### Example 2: External (sidecar Postgres)
 
-Two services: `lancache-manager` connects over TCP to `lancache-db`. Same image, different env vars.
+Two services: `lancache-manager` connects over TCP to `lancache-db`. The `:latest-slim` image drops the unused embedded Postgres for a smaller footprint.
 
 ```yaml
 services:
   lancache-manager:
-    image: ghcr.io/regix1/lancache-manager:latest
+    image: ghcr.io/regix1/lancache-manager:latest-slim
     container_name: lancache-manager
     restart: unless-stopped
     ports:

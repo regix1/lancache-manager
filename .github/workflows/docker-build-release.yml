@@ -44,8 +44,20 @@ jobs:
         include:
           - platform: linux/amd64
             runner: ubuntu-latest
+            variant: full
+            install_postgres: "true"
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            variant: slim
+            install_postgres: "false"
           - platform: linux/arm64
             runner: ubuntu-24.04-arm
+            variant: full
+            install_postgres: "true"
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            variant: slim
+            install_postgres: "false"
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -58,6 +70,7 @@ jobs:
           echo "Workflow run conclusion: ${{ github.event.workflow_run.conclusion }}"
           echo "Workflow run event: ${{ github.event.workflow_run.event }}"
           echo "Workflow run name: ${{ github.event.workflow_run.name }}"
+          echo "Variant: ${{ matrix.variant }}"
 
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -92,15 +105,24 @@ jobs:
           IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           echo "name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
 
+      - name: Compute variant tag suffix
+        id: variant
+        run: |
+          if [ "${{ matrix.variant }}" = "slim" ]; then
+            echo "tag_suffix=-slim" >> $GITHUB_OUTPUT
+          else
+            echo "tag_suffix=" >> $GITHUB_OUTPUT
+          fi
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
           tags: |
-            type=raw,value=latest
-            type=raw,value=release
-            type=raw,value=${{ steps.version.outputs.VERSION }}
+            type=raw,value=latest${{ steps.variant.outputs.tag_suffix }}
+            type=raw,value=release${{ steps.variant.outputs.tag_suffix }}
+            type=raw,value=${{ steps.version.outputs.VERSION }}${{ steps.variant.outputs.tag_suffix }}
           flavor: |
             suffix=-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
 
@@ -115,16 +137,21 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ steps.version.outputs.VERSION }}
+            INSTALL_POSTGRES=${{ matrix.install_postgres }}
+            IMAGE_VARIANT=${{ matrix.variant }}
           cache-from: |
-            type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
+            type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-${{ matrix.variant }}-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
           cache-to: |
-            type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }},mode=max
+            type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-${{ matrix.variant }}-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }},mode=max
           provenance: false
 
   create-manifest:
     needs: [check-trigger, build-and-push]
     # Only run if check passed and build succeeded
     if: ${{ needs.check-trigger.outputs.should-run == 'true' && success() }}
+    strategy:
+      matrix:
+        variant: [full, slim]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -155,15 +182,24 @@ jobs:
           IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           echo "name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
 
+      - name: Compute variant tag suffix
+        id: variant
+        run: |
+          if [ "${{ matrix.variant }}" = "slim" ]; then
+            echo "tag_suffix=-slim" >> $GITHUB_OUTPUT
+          else
+            echo "tag_suffix=" >> $GITHUB_OUTPUT
+          fi
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
           tags: |
-            type=raw,value=latest
-            type=raw,value=release
-            type=raw,value=${{ steps.version.outputs.VERSION }}
+            type=raw,value=latest${{ steps.variant.outputs.tag_suffix }}
+            type=raw,value=release${{ steps.variant.outputs.tag_suffix }}
+            type=raw,value=${{ steps.version.outputs.VERSION }}${{ steps.variant.outputs.tag_suffix }}
 
       - name: Create and push multi-arch manifest
         env:

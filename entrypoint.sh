@@ -155,8 +155,19 @@ export POSTGRES_DB="$PGDATABASE"
 # ---------------------------------------------------------------------------
 # Mode dispatch: embedded (default) starts the in-container Postgres;
 # external skips it and connects to a user-managed Postgres.
+#
+# Slim image variant has no embedded PostgreSQL - detect that and force external
+# mode so we fail loudly instead of trying to exec a missing pg_ctl binary.
 # ---------------------------------------------------------------------------
 POSTGRES_MODE="${POSTGRES_MODE:-embedded}"
+
+if [ "$POSTGRES_MODE" = "embedded" ] && ! command -v pg_ctl &>/dev/null; then
+    echo "[postgres] Slim image detected: no embedded PostgreSQL binary in this image."
+    echo "[postgres] Forcing POSTGRES_MODE=external. For embedded mode, use the full image tag"
+    echo "[postgres] (e.g. :latest or :dev) instead of the :slim variant."
+    POSTGRES_MODE="external"
+fi
+
 export POSTGRES_MODE
 
 if [ "$POSTGRES_MODE" = "external" ]; then

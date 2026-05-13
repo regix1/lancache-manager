@@ -101,6 +101,15 @@ COPY --from=rust-builder /build/output/* /app/publish/rust-processor/
 # Stage 4: Runtime
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 ARG VERSION
+
+# Image variant control.
+#   INSTALL_POSTGRES=true / IMAGE_VARIANT=full  (default) -> ships embedded PostgreSQL 17.
+#                                                           Supports POSTGRES_MODE=embedded or external.
+#   INSTALL_POSTGRES=false / IMAGE_VARIANT=slim           -> no embedded server (~150 MB smaller).
+#                                                           Requires POSTGRES_MODE=external.
+ARG INSTALL_POSTGRES=true
+ARG IMAGE_VARIANT=full
+
 WORKDIR /app
 
 # Metadata labels
@@ -110,6 +119,7 @@ LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.vendor="LanCache Manager"
 LABEL org.opencontainers.image.source="https://github.com/regix1/lancache-manager"
 LABEL org.opencontainers.image.licenses="MIT"
+LABEL io.lancache-manager.variant="${IMAGE_VARIANT}"
 
 # Set version as environment variable for runtime access
 ENV LANCACHE_MANAGER_VERSION=${VERSION}
@@ -142,19 +152,30 @@ RUN apt-get update && \
     && apt-get install -y docker-ce-cli \
     && rm -rf /var/lib/apt/lists/*
 
-# Install PostgreSQL 17
-# Uses PGDG apt repository for the latest PostgreSQL release
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    postgresql-common \
-    && /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
-    && apt-get update && apt-get install -y --no-install-recommends \
-    postgresql-17 \
-    sqlite3 \
+# sqlite3 is always installed - used by the SQLite -> PostgreSQL migration script
+# in both full and slim variants.
+RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Prepare PostgreSQL runtime directories and copy config
-RUN mkdir -p /var/run/postgresql && chown postgres:postgres /var/run/postgresql
-COPY postgresql.conf /etc/postgresql/17/main/postgresql.conf
+# Install embedded PostgreSQL 17 only for the "full" variant.
+# Slim builds skip this and require POSTGRES_MODE=external at runtime.
+RUN if [ "$INSTALL_POSTGRES" = "true" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends postgresql-common \
+        && /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
+        && apt-get update && apt-get install -y --no-install-recommends postgresql-17 \
+        && rm -rf /var/lib/apt/lists/* \
+        && mkdir -p /var/run/postgresql \
+        && chown postgres:postgres /var/run/postgresql; \
+    fi
+
+# Copy embedded-postgres tuning config only when embedded is installed.
+COPY postgresql.conf /tmp/postgresql.conf
+RUN if [ "$INSTALL_POSTGRES" = "true" ]; then \
+        mkdir -p /etc/postgresql/17/main \
+        && mv /tmp/postgresql.conf /etc/postgresql/17/main/postgresql.conf; \
+    else \
+        rm -f /tmp/postgresql.conf; \
+    fi
 
 # Copy published application
 COPY --from=backend-builder /app/publish ./
