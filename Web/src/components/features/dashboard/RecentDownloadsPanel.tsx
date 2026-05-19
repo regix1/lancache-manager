@@ -1,6 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { Activity, Clock, HardDrive, TrendingUp, RefreshCw } from 'lucide-react';
-import LoadingSpinner from '@components/common/LoadingSpinner';
 import { type TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
@@ -72,10 +71,7 @@ const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number; t: TFun
         </div>
       </div>
       <div className="item-right">
-        <div className="speed-display">
-          <span className="speed-value">{formatSpeed(game.bytesPerSecond)}</span>
-          <LoadingSpinner inline size="sm" className="speed-spinner" />
-        </div>
+        <span className="speed-value">{formatSpeed(game.bytesPerSecond)}</span>
         <div
           className={`hit-badge ${game.cacheHitPercent >= 80 ? 'high' : game.cacheHitPercent >= 50 ? 'medium' : 'low'}`}
         >
@@ -730,7 +726,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           }
         }
 
-        .download-item:hover {
+        .download-item.clickable-row:hover {
           border-color: var(--theme-border-primary);
           background: var(--theme-bg-secondary-on-tertiary);
         }
@@ -741,10 +737,11 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
         .download-item.active-item {
           background: linear-gradient(
-            135deg,
+            90deg,
             var(--theme-success-on-bg) 0%,
-            var(--theme-bg-secondary) 100%
+            var(--theme-bg-secondary) 65%
           );
+          background-clip: padding-box;
           border-color: var(--theme-success-on-border);
         }
 
@@ -866,24 +863,12 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           flex-shrink: 0;
         }
 
-        .speed-display {
-          display: flex;
-          align-items: center;
-          gap: 0.35rem;
-        }
-
         .speed-value {
           font-size: 0.8rem;
           font-weight: 700;
           color: var(--theme-success);
           font-variant-numeric: tabular-nums;
-        }
-
-        .speed-spinner {
-          width: 0.75rem;
-          height: 0.75rem;
-          color: var(--theme-primary);
-          animation: spin 1s linear infinite;
+          white-space: nowrap;
         }
 
         @keyframes spin {
