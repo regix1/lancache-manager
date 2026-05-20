@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Activity, HardDrive, Users, RefreshCw } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
-import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
+import { formatBytes, formatSpeed } from '@utils/formatters';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import BadgesRow from './BadgesRow';
 import type { GameSpeedInfo, ClientSpeedInfo } from '../../../types';
@@ -109,7 +109,7 @@ const ActiveDownloadsView: React.FC = () => {
                       }`}
                     >
                       {t('downloads.active.hitRate', {
-                        percent: formatPercent(game.cacheHitPercent, 0)
+                        percent: Math.round(game.cacheHitPercent)
                       })}
                     </span>
                     <span className="meta-divider">•</span>
