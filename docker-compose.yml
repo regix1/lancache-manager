@@ -97,8 +97,6 @@ services:
       # - Security__EnableAuthentication=true
 
       # Number of devices that can share the same API key simultaneously
-      # - Security__MaxAdminDevices=3
-
       # Default guest session duration in hours (configurable in UI after first run)
       # - Security__GuestSessionDurationHours=6
 
@@ -180,11 +178,11 @@ services:
       # Options: true, false, or auto (auto = true on Windows, false on Linux)
       # - Prefill__UseTcp=auto
 
-      # TCP port inside the prefill container
-      # - Prefill__TcpPort=4379
+      # TCP port inside the prefill container (default: 45555)
+      # - Prefill__TcpPort=45555
 
-      # TCP port exposed on the host for prefill containers
-      # - Prefill__HostTcpPort=4379
+      # TCP port exposed on the host for prefill containers (default: random free port when unset)
+      # - Prefill__HostTcpPort=
 
       # TCP host used by the prefill daemon
       # - Prefill__TcpHost=127.0.0.1
