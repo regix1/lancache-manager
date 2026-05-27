@@ -78,6 +78,14 @@ public class GuestConfigResponse
     public bool IsLocked { get; set; }
 }
 
+public class GuestDurationResponse
+{
+    public int DurationHours { get; set; }
+    public string Source { get; set; } = "config";
+    public bool CanEdit { get; set; } = true;
+    public int EnvVarValue { get; set; }
+}
+
 public class GuestPrefillConfigResponse
 {
     public bool EnabledByDefault { get; set; }

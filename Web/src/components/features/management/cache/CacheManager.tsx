@@ -425,11 +425,15 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                           <p className="text-2xl font-bold text-themed-primary truncate">
                             {formatBytes(cacheSize.totalBytes)}
                           </p>
-                          <p className="text-xs text-themed-muted">
-                            {t('management.cache.files')} · {formatCount(cacheSize.totalFiles)} ·{' '}
-                            {t('management.cache.directories')} ·{' '}
-                            {formatCount(cacheSize.hexDirectories)}
-                          </p>
+                          <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-themed-muted">
+                            <span>{t('management.cache.files')}</span>
+                            <span>·</span>
+                            <span>{formatCount(cacheSize.totalFiles)}</span>
+                            <span>·</span>
+                            <span>{t('management.cache.directories')}</span>
+                            <span>·</span>
+                            <span>{formatCount(cacheSize.hexDirectories)}</span>
+                          </div>
                         </div>
                       </div>
                       {/* Secondary info bar */}
@@ -479,9 +483,10 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                             : t('management.cache.deletionMethods.preserveDesc')}
                       </p>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button
                         size="sm"
+                        className="flex-1 basis-0"
                         variant={deleteMode === 'preserve' ? 'filled' : 'default'}
                         color={deleteMode === 'preserve' ? 'blue' : undefined}
                         onClick={() => handleDeleteModeChange('preserve')}
@@ -500,6 +505,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                       </Button>
                       <Button
                         size="sm"
+                        className="flex-1 basis-0"
                         variant={deleteMode === 'full' ? 'filled' : 'default'}
                         color={deleteMode === 'full' ? 'green' : undefined}
                         onClick={() => handleDeleteModeChange('full')}
@@ -519,6 +525,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                       {rsyncAvailable && (
                         <Button
                           size="sm"
+                          className="flex-1 basis-0"
                           variant={deleteMode === 'rsync' ? 'filled' : 'default'}
                           color={deleteMode === 'rsync' ? 'purple' : undefined}
                           onClick={() => handleDeleteModeChange('rsync')}
@@ -580,7 +587,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 <div key={ds.name} className="flex items-center gap-2 text-xs">
                   <FolderOpen className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
                   <span className="font-medium text-themed-primary">{ds.name}:</span>
-                  <code className="text-themed-secondary truncate">{ds.cachePath}</code>
+                  <code className="text-themed-secondary truncate" title={ds.cachePath}>
+                    {ds.cachePath}
+                  </code>
                 </div>
               ))}
             </div>

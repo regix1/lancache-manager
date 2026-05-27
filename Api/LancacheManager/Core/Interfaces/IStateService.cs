@@ -80,8 +80,8 @@ public interface IStateService
     bool HasSteamRefreshToken();
 
     // Guest Session Duration Methods
-    int GetGuestSessionDurationHours();
-    void SetGuestSessionDurationHours(int hours);
+    int? GetGuestSessionDurationHours();
+    void SetGuestSessionDurationHours(int? hours);
 
     // Guest Mode Lock Methods
     bool GetGuestModeLocked();

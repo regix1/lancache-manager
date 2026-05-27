@@ -44,6 +44,8 @@ import type {
 } from '../types';
 import type { DashboardBatchResponse } from '../contexts/DashboardDataContext/types';
 import type { ServiceScheduleInfo } from '../components/features/management/schedules/types';
+import type { MetricsSecurityResponse } from '../components/features/management/grafana/GrafanaEndpoints.types';
+import type { GuestDurationResponse } from '../components/features/user/AccessSecurityCard.types';
 
 // Structured body returned by the backend for HTTP 409 Conflict responses.
 // Matches C# OperationConflictResponse (camelCase via SignalR naming policy).
@@ -1561,10 +1563,29 @@ class ApiService {
   // Get all active removal operations (games, services, corruption)
   // Used for universal recovery on page refresh
 
-  // Set guest session duration configuration
+  // Get guest session duration configuration with source labelling (admin-only).
+  static async getGuestSessionDuration(signal?: AbortSignal): Promise<GuestDurationResponse> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/auth/guest/config/duration`,
+        this.getFetchOptions({ signal })
+      );
+      return await this.handleResponse<GuestDurationResponse>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else {
+        console.error('getGuestSessionDuration error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // Set or clear the guest session duration UI override.
+  // Pass `null` to clear the override and revert to env/appsettings default.
   static async setGuestSessionDuration(
-    durationHours: number
-  ): Promise<{ success: boolean; durationHours: number; message: string }> {
+    durationHours: number | null
+  ): Promise<GuestDurationResponse> {
     try {
       const res = await fetch(
         `${API_BASE}/auth/guest/config/duration`,
@@ -1574,11 +1595,7 @@ class ApiService {
           body: JSON.stringify({ durationHours })
         })
       );
-      return await this.handleResponse<{
-        success: boolean;
-        durationHours: number;
-        message: string;
-      }>(res);
+      return await this.handleResponse<GuestDurationResponse>(res);
     } catch (error) {
       console.error('setGuestSessionDuration error:', error);
       throw error;
@@ -2743,6 +2760,37 @@ class ApiService {
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
       console.error('resetSchedules error:', error);
+      throw error;
+    }
+  }
+
+  static async getMetricsSecurity(signal?: AbortSignal): Promise<MetricsSecurityResponse> {
+    try {
+      const res = await fetch(`${API_BASE}/metrics/security`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<MetricsSecurityResponse>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else {
+        console.error('getMetricsSecurity error:', error);
+      }
+      throw error;
+    }
+  }
+
+  static async setMetricsSecurity(enabled: boolean | null): Promise<MetricsSecurityResponse> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/metrics/security`,
+        this.getFetchOptions({
+          method: 'POST',
+          body: JSON.stringify({ enabled }),
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      return await this.handleResponse<MetricsSecurityResponse>(res);
+    } catch (error: unknown) {
+      console.error('setMetricsSecurity error:', error);
       throw error;
     }
   }

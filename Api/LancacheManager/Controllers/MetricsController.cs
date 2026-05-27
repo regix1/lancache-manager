@@ -1,8 +1,10 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
 
@@ -18,15 +20,18 @@ public class MetricsController : ControllerBase
     private readonly IConfiguration _configuration;
     private readonly LancacheMetricsService _metricsService;
     private readonly IStateService _stateRepository;
+    private readonly IHubContext<DownloadHub> _hubContext;
 
     public MetricsController(
         IConfiguration configuration,
         LancacheMetricsService metricsService,
-        IStateService stateRepository)
+        IStateService stateRepository,
+        IHubContext<DownloadHub> hubContext)
     {
         _configuration = configuration;
         _metricsService = metricsService;
         _stateRepository = stateRepository;
+        _hubContext = hubContext;
     }
 
     /// <summary>
@@ -58,6 +63,7 @@ public class MetricsController : ControllerBase
     /// Returns current state, source (ui toggle or config), and env var default
     /// </summary>
     [HttpGet("security")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public IActionResult GetSecurity()
     {
         // Get env var / appsettings.json value (the default)
@@ -80,12 +86,34 @@ public class MetricsController : ControllerBase
     }
 
     /// <summary>
-    /// Set metrics authentication requirement via UI toggle
+    /// Set metrics authentication requirement via UI toggle.
+    /// Pass null to clear the UI override and fall back to the env-var / appsettings default.
     /// </summary>
     [HttpPost("security")]
-    public IActionResult SetSecurity([FromBody] SetSecurityRequest request)
+    public async Task<IActionResult> SetSecurityAsync([FromBody] SetSecurityRequest request)
     {
-        _stateRepository.SetRequireAuthForMetrics(request.Enabled);
+        try
+        {
+            _stateRepository.SetRequireAuthForMetrics(request.Enabled);
+        }
+        catch (Exception)
+        {
+            return StatusCode(503, new { error = "state_persistence_disabled", message = "Failed to persist the metrics security setting. Your change was not saved." });
+        }
+
+        // Broadcast updated state to all connected clients
+        var configValue = _configuration.GetValue<bool>("Security:RequireAuthForMetrics", false);
+        var stateValue = _stateRepository.GetRequireAuthForMetrics();
+        var effectiveValue = stateValue ?? configValue;
+        var source = stateValue.HasValue ? "ui" : "config";
+
+        await _hubContext.Clients.All.SendAsync(SignalREvents.MetricsSecurityUpdated, new
+        {
+            requiresAuthentication = effectiveValue,
+            source,
+            canToggle = true,
+            envVarValue = configValue
+        });
 
         // Return updated state
         return GetSecurity();

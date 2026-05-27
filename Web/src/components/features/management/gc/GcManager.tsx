@@ -56,23 +56,22 @@ const fetchGcSettings = async (): Promise<GcSettings> => {
 interface SettingSectionProps {
   icon: React.ElementType;
   title: string;
-  iconColorVar: string;
+  iconBgClass: string;
+  iconColorClass: string;
   children: React.ReactNode;
 }
 
 const SettingSection: React.FC<SettingSectionProps> = ({
   icon: Icon,
   title,
-  iconColorVar,
+  iconBgClass,
+  iconColorClass,
   children
 }) => (
   <div className="p-4 rounded-lg bg-themed-tertiary">
     <div className="flex items-center gap-2 mb-3 pb-2 border-b border-themed-secondary">
-      <div
-        className="w-6 h-6 rounded flex items-center justify-center"
-        style={{ backgroundColor: `var(${iconColorVar}-subtle)` }}
-      >
-        <Icon className="w-3.5 h-3.5" style={{ color: `var(${iconColorVar})` }} />
+      <div className={`w-6 h-6 rounded flex items-center justify-center ${iconBgClass}`}>
+        <Icon className={`w-3.5 h-3.5 ${iconColorClass}`} />
       </div>
       <h4 className="text-sm font-semibold text-themed-secondary">{title}</h4>
     </div>
@@ -266,7 +265,8 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
         <SettingSection
           icon={Power}
           title={t('management.gc.statusSection')}
-          iconColorVar="--theme-icon-green"
+          iconBgClass="icon-bg-green"
+          iconColorClass="icon-green"
         >
           <label
             htmlFor="gc-enabled"
@@ -294,7 +294,8 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
         <SettingSection
           icon={HardDrive}
           title={t('management.gc.memorySettings')}
-          iconColorVar="--theme-icon-blue"
+          iconBgClass="icon-bg-blue"
+          iconColorClass="icon-blue"
         >
           <SettingRow
             label={t('management.gc.thresholdLabel')}

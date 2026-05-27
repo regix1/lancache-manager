@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Link,
   Copy,
@@ -17,10 +17,19 @@ import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
+import { useAuth } from '@contexts/useAuth';
+import { useNotifications } from '@contexts/notifications';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import type { MetricsSecurityResponse } from './GrafanaEndpoints.types';
+import './GrafanaEndpoints.css';
 
 const GrafanaEndpoints: React.FC = () => {
   const { t } = useTranslation();
+  const { isAdmin } = useAuth();
+  const { addNotification } = useNotifications();
+  const { on, off, connectionState } = useSignalR();
 
   const dataRefreshOptions = [
     {
@@ -108,34 +117,59 @@ const GrafanaEndpoints: React.FC = () => {
     }
   ];
   const [copiedEndpoint, setCopiedEndpoint] = useState<string | null>(null);
-  const [metricsSecured, setMetricsSecured] = useState<boolean>(false);
+  const [metricsSecurity, setMetricsSecurity] = useState<MetricsSecurityResponse | null>(null);
   const [dataRefreshRate, setDataRefreshRate] = useState<string>('15');
   const [scrapeInterval, setScrapeInterval] = useState<string>('15');
   const [isToggling, setIsToggling] = useState(false);
   const [isConfigExpanded, setIsConfigExpanded] = useState(false);
 
+  const fetchMetricsSecurity = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const data = await ApiService.getMetricsSecurity(signal);
+      setMetricsSecurity(data);
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'AbortError') return;
+      console.error('Failed to load metrics security status:', error);
+    }
+  }, []);
+
   // Load initial state on mount
   useEffect(() => {
+    const controller = new AbortController();
     const loadStatus = async () => {
       try {
-        const [securityRes, intervalRes] = await Promise.all([
-          fetch('/api/metrics/security', ApiService.getFetchOptions()),
-          fetch('/api/metrics/interval', ApiService.getFetchOptions())
+        const [, intervalRes] = await Promise.all([
+          fetchMetricsSecurity(controller.signal),
+          fetch('/api/metrics/interval', ApiService.getFetchOptions({ signal: controller.signal }))
         ]);
-        if (securityRes.ok) {
-          const securityData = await securityRes.json();
-          setMetricsSecured(securityData.requiresAuthentication);
-        }
         if (intervalRes.ok) {
           const intervalData = await intervalRes.json();
           setDataRefreshRate(String(intervalData.interval));
         }
-      } catch (error) {
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name === 'AbortError') return;
         console.error('Failed to load metrics status:', error);
       }
     };
-    loadStatus();
-  }, []);
+    void loadStatus();
+    return () => controller.abort();
+  }, [fetchMetricsSecurity]);
+
+  // Subscribe to real-time MetricsSecurityUpdated events via SignalR
+  useEffect(() => {
+    const handleMetricsSecurityUpdated = (data: MetricsSecurityResponse) => {
+      setMetricsSecurity(data);
+    };
+    on('MetricsSecurityUpdated', handleMetricsSecurityUpdated);
+    return () => off('MetricsSecurityUpdated', handleMetricsSecurityUpdated);
+  }, [on, off]);
+
+  // Refetch when SignalR reconnects to recover any missed updates
+  useEffect(() => {
+    if (connectionState === 'connected') {
+      void fetchMetricsSecurity();
+    }
+  }, [connectionState, fetchMetricsSecurity]);
 
   const handleDataRefreshChange = async (value: string) => {
     setDataRefreshRate(value);
@@ -158,31 +192,59 @@ const GrafanaEndpoints: React.FC = () => {
   };
 
   const handleToggleAuth = async (value?: string) => {
-    if (isToggling) return;
+    if (isToggling || !metricsSecurity) return;
     setIsToggling(true);
-    const newValue = value ? value === 'secured' : !metricsSecured;
-    setMetricsSecured(newValue); // Optimistic update
+    const newValue = value ? value === 'secured' : !metricsSecurity.requiresAuthentication;
+    // Optimistic update
+    setMetricsSecurity((prev) => (prev ? { ...prev, requiresAuthentication: newValue } : prev));
     try {
-      const response = await fetch(
-        '/api/metrics/security',
-        ApiService.getFetchOptions({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled: newValue })
-        })
-      );
-      if (response.ok) {
-        const data = await response.json();
-        setMetricsSecured(data.requiresAuthentication);
-      } else {
-        setMetricsSecured(!newValue); // Revert on failure
-      }
-    } catch (error) {
-      console.error('Failed to toggle metrics auth:', error);
-      setMetricsSecured(!newValue); // Revert on error
+      const data = await ApiService.setMetricsSecurity(newValue);
+      setMetricsSecurity(data);
+    } catch (error: unknown) {
+      // Revert optimistic update
+      setMetricsSecurity((prev) => (prev ? { ...prev, requiresAuthentication: !newValue } : prev));
+      const message = error instanceof Error ? error.message : 'network';
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: t('management.grafana.metricsToggle.error', { status: message }),
+        details: { notificationType: 'error' }
+      });
     } finally {
       setIsToggling(false);
     }
+  };
+
+  const handleResetToDefault = async () => {
+    if (isToggling) return;
+    setIsToggling(true);
+    try {
+      const data = await ApiService.setMetricsSecurity(null);
+      setMetricsSecurity(data);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'network';
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: t('management.grafana.metricsToggle.error', { status: message }),
+        details: { notificationType: 'error' }
+      });
+    } finally {
+      setIsToggling(false);
+    }
+  };
+
+  const getSourceLabel = (security: MetricsSecurityResponse): string => {
+    if (security.source === 'ui') {
+      return t('management.grafana.metricsToggle.source.ui');
+    }
+    if (security.source === 'config') {
+      if (security.envVarValue !== security.requiresAuthentication) {
+        return t('management.grafana.metricsToggle.source.config');
+      }
+      return t('management.grafana.metricsToggle.source.default');
+    }
+    return t('management.grafana.metricsToggle.source.default');
   };
 
   const copyToClipboard = async (text: string, endpoint: string) => {
@@ -248,36 +310,56 @@ const GrafanaEndpoints: React.FC = () => {
             <HelpNote type="info">{t('management.grafana.help.note')}</HelpNote>
           </HelpPopover>
         </div>
-        {/* Connected toggle switch */}
-        <ToggleSwitch
-          options={[
-            {
-              value: 'public',
-              label: t('management.grafana.publicOption'),
-              icon: <Unlock />,
-              activeColor: 'default'
-            },
-            {
-              value: 'secured',
-              label: t('management.grafana.securedOption'),
-              icon: <Lock />,
-              activeColor: 'success'
-            }
-          ]}
-          value={metricsSecured ? 'secured' : 'public'}
-          onChange={handleToggleAuth}
-          disabled={isToggling}
-          loading={isToggling}
-          title={
-            metricsSecured
-              ? t('management.grafana.securedTooltip')
-              : t('management.grafana.publicTooltip')
-          }
-        />
+        {/* Metrics security toggle */}
+        {metricsSecurity === null ? (
+          <LoadingSpinner inline size="sm" />
+        ) : (
+          <div className="metrics-toggle-row">
+            <ToggleSwitch
+              options={[
+                {
+                  value: 'public',
+                  label: t('management.grafana.publicOption'),
+                  icon: <Unlock />,
+                  activeColor: 'default'
+                },
+                {
+                  value: 'secured',
+                  label: t('management.grafana.securedOption'),
+                  icon: <Lock />,
+                  activeColor: 'success'
+                }
+              ]}
+              value={metricsSecurity.requiresAuthentication ? 'secured' : 'public'}
+              onChange={handleToggleAuth}
+              disabled={isToggling || !isAdmin}
+              loading={isToggling}
+              title={
+                !isAdmin
+                  ? t('management.grafana.metricsToggle.adminRequired')
+                  : metricsSecurity.requiresAuthentication
+                    ? t('management.grafana.securedTooltip')
+                    : t('management.grafana.publicTooltip')
+              }
+            />
+            <span className="metrics-source-label">{getSourceLabel(metricsSecurity)}</span>
+            {isAdmin && (
+              <Button
+                variant="subtle"
+                size="xs"
+                disabled={metricsSecurity.source !== 'ui' || isToggling}
+                onClick={handleResetToDefault}
+                className="metrics-reset-button"
+              >
+                {t('management.grafana.metricsToggle.resetToDefault')}
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       <p className="text-themed-muted text-sm mb-4">
-        {metricsSecured
+        {metricsSecurity?.requiresAuthentication
           ? t('management.grafana.securedDescription')
           : t('management.grafana.publicDescription')}
       </p>
@@ -388,7 +470,7 @@ const GrafanaEndpoints: React.FC = () => {
           {/* Prometheus Configuration - shows config based on current auth state */}
           <div className="p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
             <p className="text-xs text-themed-muted mb-3">
-              {metricsSecured
+              {metricsSecurity?.requiresAuthentication
                 ? t('management.grafana.prometheusConfigSecured')
                 : t('management.grafana.prometheusConfigPublic')}
             </p>
@@ -404,7 +486,7 @@ const GrafanaEndpoints: React.FC = () => {
                   <div className="ml-6">- targets: [&apos;lancache-manager:80&apos;]</div>
                   <div className="ml-4">scrape_interval: {scrapeInterval}s</div>
                   <div className="ml-4">metrics_path: &apos;/metrics&apos;</div>
-                  {metricsSecured && (
+                  {metricsSecurity?.requiresAuthentication && (
                     <>
                       <div className="ml-4 text-themed-success">authorization:</div>
                       <div className="ml-6 text-themed-success">type: Bearer</div>
@@ -415,7 +497,7 @@ const GrafanaEndpoints: React.FC = () => {
                   )}
                 </div>
               </div>
-              {metricsSecured && (
+              {metricsSecurity?.requiresAuthentication && (
                 <p className="text-xs text-themed-muted flex items-center gap-1.5">
                   <Lightbulb className="w-3 h-3 icon-warning" />
                   {t('management.grafana.replaceApiKey')}

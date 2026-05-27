@@ -83,6 +83,9 @@ public static class SignalREvents
     public const string DataImportProgress = "DataImportProgress";
     public const string DataImportComplete = "DataImportComplete";
 
+    // Metrics Security
+    public const string MetricsSecurityUpdated = "MetricsSecurityUpdated";
+
     // System / Config
     public const string DefaultGuestRefreshRateChanged = "DefaultGuestRefreshRateChanged";
     public const string AllowedTimeFormatsChanged = "AllowedTimeFormatsChanged";

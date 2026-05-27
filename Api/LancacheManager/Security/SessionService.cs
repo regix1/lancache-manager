@@ -5,6 +5,7 @@ using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace LancacheManager.Security;
 
@@ -15,6 +16,7 @@ public class SessionService
     private readonly ILogger<SessionService> _logger;
     private readonly StateService _stateService;
     private readonly ISignalRNotificationService _signalR;
+    private readonly IConfiguration _configuration;
 
     private const string CookieName = "LancacheManager.Session";
     // Admin sessions effectively never expire - a far-future ExpiresAtUtc keeps the
@@ -27,13 +29,15 @@ public class SessionService
         ApiKeyService apiKeyService,
         ILogger<SessionService> logger,
         StateService stateService,
-        ISignalRNotificationService signalR)
+        ISignalRNotificationService signalR,
+        IConfiguration configuration)
     {
         _dbContextFactory = dbContextFactory;
         _apiKeyService = apiKeyService;
         _logger = logger;
         _stateService = stateService;
         _signalR = signalR;
+        _configuration = configuration;
     }
 
     public async Task<(string RawToken, UserSession Session)?> CreateAdminSessionAsync(string apiKey, HttpContext httpContext)
@@ -414,9 +418,18 @@ public class SessionService
     }
 
     public int GetGuestDurationHours()
-    {
-        return _stateService.GetGuestSessionDurationHours();
-    }
+        => _stateService.GetGuestSessionDurationHours()
+           ?? _configuration.GetValue<int?>("Security:GuestSessionDurationHours")
+           ?? 6;
+
+    // True when the runtime value comes from a UI override (state.json), not env/appsettings.
+    public bool HasGuestDurationOverride()
+        => _stateService.GetGuestSessionDurationHours().HasValue;
+
+    // The env/appsettings-resolved value (ignores any UI override). Used to render
+    // "Source: config" labels and the "Reset to default" preview.
+    public int GetGuestDurationConfigValue()
+        => _configuration.GetValue<int?>("Security:GuestSessionDurationHours") ?? 6;
 
     public bool IsGuestModeLocked()
     {
@@ -427,6 +440,12 @@ public class SessionService
     {
         _stateService.SetGuestSessionDurationHours(hours);
         _logger.LogInformation("Guest duration updated to {Hours} hours", hours);
+    }
+
+    public void ClearGuestDurationOverride()
+    {
+        _stateService.SetGuestSessionDurationHours(null);
+        _logger.LogInformation("Guest duration UI override cleared; reverting to env/appsettings default");
     }
 
     public void SetGuestModeLocked(bool locked)

@@ -754,9 +754,14 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Help content
   // Header actions - scan buttons + expand/collapse all
   const headerActions = (
-    <div className="flex items-center gap-2 flex-wrap">
+    <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
       {hasResults && (
-        <Button variant="default" size="sm" onClick={handleExpandCollapseAll}>
+        <Button
+          variant="default"
+          size="sm"
+          onClick={handleExpandCollapseAll}
+          className="inline-flex flex-1 basis-[120px] sm:flex-none sm:basis-auto"
+        >
           {allExpanded
             ? t('management.gameDetection.collapseAll')
             : t('management.gameDetection.expandAll')}
@@ -764,7 +769,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       )}
 
       {hasResults && isAdmin && (
-        <Tooltip content={t('management.sections.data.gameCacheRemoveAll', 'Remove All')}>
+        <Tooltip
+          content={t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
+          className="inline-flex flex-1 basis-[120px] sm:flex-none sm:basis-auto"
+        >
           <Button
             onClick={() => setShowRemoveAllConfirm(true)}
             disabled={
@@ -774,18 +782,23 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             variant="filled"
             color="red"
             size="sm"
+            className="w-full sm:w-auto"
           >
             {t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
           </Button>
         </Tooltip>
       )}
 
-      <Tooltip content={t('management.gameDetection.loadPreviousResults')}>
+      <Tooltip
+        content={t('management.gameDetection.loadPreviousResults')}
+        className="inline-flex flex-1 basis-[120px] sm:flex-none sm:basis-auto"
+      >
         <Button
           onClick={handleLoadData}
           disabled={loading || mockMode || checkingPermissions}
           variant="default"
           size="sm"
+          className="w-full sm:w-auto"
         >
           {loading && scanType === 'load' ? <LoadingSpinner inline size="sm" /> : t('common.load')}
         </Button>
@@ -797,12 +810,14 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             ? t('management.gameDetection.processLogsFirst')
             : t('management.gameDetection.quickScan')
         }
+        className="inline-flex flex-1 basis-[120px] sm:flex-none sm:basis-auto"
       >
         <Button
           onClick={handleIncrementalScan}
           disabled={loading || mockMode || checkingPermissions || !hasProcessedLogs}
           variant="default"
           size="sm"
+          className="w-full sm:w-auto"
         >
           {loading && scanType === 'incremental' ? (
             <LoadingSpinner inline size="sm" />
@@ -818,6 +833,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             ? t('management.gameDetection.processLogsFirst')
             : t('management.gameDetection.fullScan')
         }
+        className="inline-flex flex-1 basis-[120px] sm:flex-none sm:basis-auto"
       >
         <Button
           onClick={handleFullScan}
@@ -825,6 +841,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           variant="filled"
           color="blue"
           size="sm"
+          className="w-full sm:w-auto"
         >
           {loading && scanType === 'full' ? (
             <LoadingSpinner inline size="sm" />

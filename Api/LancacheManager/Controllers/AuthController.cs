@@ -277,24 +277,62 @@ public class AuthController : ControllerBase
     }
 
     [Authorize(Policy = "AdminOnly")]
+    [HttpGet("guest/config/duration")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public IActionResult GetGuestDurationConfig()
+    {
+        return Ok(new GuestDurationResponse
+        {
+            DurationHours = _sessionService.GetGuestDurationHours(),
+            Source = _sessionService.HasGuestDurationOverride() ? "ui" : "config",
+            CanEdit = true,
+            EnvVarValue = _sessionService.GetGuestDurationConfigValue()
+        });
+    }
+
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/config/duration")]
     public async Task<IActionResult> SetGuestDurationAsync([FromBody] GuestDurationRequest request)
     {
-        if (request.DurationHours < 1 || request.DurationHours > 720)
+        if (request.DurationHours.HasValue && (request.DurationHours.Value < 1 || request.DurationHours.Value > 720))
         {
             return BadRequest(new { error = "Duration must be between 1 and 720 hours" });
         }
 
-        _sessionService.SetGuestDurationHours(request.DurationHours);
+        try
+        {
+            if (request.DurationHours is null)
+            {
+                _sessionService.ClearGuestDurationOverride();
+                _logger.LogInformation("Guest duration UI override cleared (will revert to env/appsettings default)");
+            }
+            else
+            {
+                _sessionService.SetGuestDurationHours(request.DurationHours.Value);
+                _logger.LogInformation("Default guest duration updated to {Hours}h (existing sessions unchanged)", request.DurationHours.Value);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to persist guest duration setting");
+            return StatusCode(503, new { error = "state_persistence_disabled" });
+        }
 
-        _logger.LogInformation("Default guest duration updated to {Hours}h (existing sessions unchanged)", request.DurationHours);
-
+        // Broadcast the effective (post-merge) value, not the raw request value, so clients
+        // see the env/appsettings fallback when the override is cleared.
+        var effectiveHours = _sessionService.GetGuestDurationHours();
         await _signalR.NotifyAllAsync(SignalREvents.GuestDurationUpdated, new
         {
-            durationHours = request.DurationHours
+            durationHours = effectiveHours
         });
 
-        return Ok(new { success = true, durationHours = request.DurationHours, message = "Guest duration updated" });
+        return Ok(new GuestDurationResponse
+        {
+            DurationHours = effectiveHours,
+            Source = _sessionService.HasGuestDurationOverride() ? "ui" : "config",
+            CanEdit = true,
+            EnvVarValue = _sessionService.GetGuestDurationConfigValue()
+        });
     }
 
     [Authorize(Policy = "AdminOnly")]
@@ -459,7 +497,8 @@ public class AuthController : ControllerBase
 // Request models
 public class GuestDurationRequest
 {
-    public int DurationHours { get; set; }
+    // null = clear UI override (revert to env/appsettings default).
+    public int? DurationHours { get; set; }
 }
 
 public class GuestLockRequest

@@ -128,7 +128,7 @@ public class SetIntervalRequest
 
 public class SetSecurityRequest
 {
-    public bool Enabled { get; set; }
+    public bool? Enabled { get; set; }
 }
 
 #endregion

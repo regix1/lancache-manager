@@ -1,0 +1,20 @@
+.access-security-card__toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.access-security-card__source-label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-left: 0.25rem;
+}
+
+.access-security-card__reset-button {
+  margin-left: auto;
+}
+
+.access-security-card__dropdown-wrapper {
+  position: relative;
+}

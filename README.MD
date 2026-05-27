@@ -213,7 +213,6 @@ services:
 
       # Security
       # - Security__EnableAuthentication=true
-      # - Security__MaxAdminDevices=3
       # - Security__GuestSessionDurationHours=6
       # - Security__RequireAuthForMetrics=false
       # - Security__ProtectSwagger=true
@@ -271,6 +270,8 @@ services:
 | `PUID` | `33` | User ID the app runs as. Match the owner of your cache and log files. |
 | `PGID` | `33` | Group ID the app runs as. |
 | `TZ` | `UTC` | Timezone for log timestamps (e.g., `America/Chicago`). `TimeZone` is also accepted as a fallback. |
+
+**PUID/PGID convention:** The three common conventions are `33` (www-data, standard Linux web-app), `99` (Unraid's default `nobody`), and `1000` (code fallback when unset). Choose based on the file ownership of your host bind-mounts. The `entrypoint.sh` script always sets them if not provided, so the code fallback is rarely used.
 | `LanCache__LogPath` | - | Path inside the container to the LANCache access log. |
 | `LanCache__CachePath` | - | Path inside the container to the LANCache cache directory. |
 
@@ -288,8 +289,6 @@ Image-tag pairing — see [Image Variants](#image-variants) at the top of this R
 
 - **Embedded mode** → use `:latest` (or `:dev`)
 - **External mode** → either `:latest` works, or use `:latest-slim` to drop the unused embedded Postgres binary
-
-Switching from embedded to external on an existing install? See [docs/external-postgres-migration.md](docs/external-postgres-migration.md) for the `pg_dump`/`pg_restore` commands.
 
 #### Environment variables
 
@@ -401,7 +400,6 @@ If you set `POSTGRES_MODE=external` but leave the other connection env vars unse
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `Security__EnableAuthentication` | `true` | Require an API key for admin actions. Only turn off for local dev. |
-| `Security__MaxAdminDevices` | `3` | How many devices can share the same API key. |
 | `Security__GuestSessionDurationHours` | `6` | Default guest session length (also configurable in the UI). |
 | `Security__RequireAuthForMetrics` | `false` | Require an API key on `/metrics`. The UI toggle in Management → Security overrides this when set. |
 | `Security__ProtectSwagger` | `true` | Require auth on Swagger docs in production. |
@@ -491,6 +489,8 @@ If you run more than one cache instance or split services across drives, see [Mu
 | `ApiOptions__DefaultClientsLimit` | `100` | Default client limit when none is provided. |
 | `Optimizations__EnableGarbageCollectionManagement` | `false` | Show memory management controls in Management. Helpful on low-memory hosts. |
 | `ASPNETCORE_URLS` | `http://+:80` | Internal port binding. Don't change unless you know exactly why. |
+| `ConnectionStrings__DefaultConnection` | (auto) | Full PostgreSQL connection string override. For power users with complex setups not covered by individual `POSTGRES_*` variables. |
+| `CacheSnapshots__RetentionDays` | `90` | How long to keep cache snapshots. Older snapshots are automatically deleted. |
 
 -----
 

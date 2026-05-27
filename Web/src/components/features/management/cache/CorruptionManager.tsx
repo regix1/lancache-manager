@@ -453,7 +453,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   // Action buttons for header
   // Cancel is handled by UniversalNotificationBar via CANCEL_CONFIGS
   const headerActions = (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       <EnhancedDropdown
         variant="button"
         options={detectionModeOptions}
@@ -463,6 +463,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         dropdownWidth="w-72"
         alignRight={true}
         dropdownTitle={t('management.corruption.detectionModeTitle')}
+        compactMode={true}
       />
       <EnhancedDropdown
         variant="button"
@@ -473,6 +474,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         dropdownWidth="w-72"
         alignRight={true}
         dropdownTitle={t('management.corruption.sensitivityTitle')}
+        compactMode={true}
       />
       {corruptionList.length > 0 && (
         <Button

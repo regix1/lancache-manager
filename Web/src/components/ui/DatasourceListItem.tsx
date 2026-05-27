@@ -44,7 +44,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
       >
         {/* Top Row: Name, Status Badge, Chevron */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
             {/* Folder Icon */}
             <div
               className={`w-7 h-7 flex items-center justify-center transition-all duration-300 ${
@@ -63,7 +63,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
 
             {/* Name */}
             <span
-              className={`font-semibold transition-colors duration-200 ${
+              className={`font-semibold transition-colors duration-200 truncate min-w-0 ${
                 isExpanded ? 'text-themed-primary' : 'text-themed-secondary'
               }`}
             >
@@ -82,7 +82,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
             {/* Status Badge */}
             {statusBadge && (
               <span
-                className={`text-xs hidden sm:inline px-2.5 py-1 rounded-full transition-all duration-300 tabular-nums ${
+                className={`text-xs inline-flex items-center px-2.5 py-1 rounded-full transition-all duration-300 tabular-nums ${
                   isExpanded
                     ? 'bg-[var(--theme-accent-subtle)] text-themed-accent'
                     : 'bg-themed-tertiary text-themed-muted'

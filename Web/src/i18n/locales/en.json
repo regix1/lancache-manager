@@ -820,6 +820,16 @@
         "display": "Display",
         "appearance": "Appearance"
       },
+      "guestDurationToggle": {
+        "adminRequired": "Sign in as admin to change this setting",
+        "error": "Failed to update guest session duration: {{status}}",
+        "resetToDefault": "Reset to default",
+        "source": {
+          "ui": "Source: UI override",
+          "config": "Source: environment variable",
+          "default": "Source: default"
+        }
+      },
       "durationOptions": {
         "1": "1 hour",
         "2": "2 hours",
@@ -2816,6 +2826,16 @@
       "placeholders": {
         "selectRate": "Select rate",
         "selectInterval": "Select interval"
+      },
+      "metricsToggle": {
+        "adminRequired": "Sign in as admin to change this setting",
+        "error": "Failed to update metrics security: {{status}}",
+        "resetToDefault": "Reset to default",
+        "source": {
+          "ui": "Source: UI override",
+          "config": "Source: environment variable",
+          "default": "Source: default"
+        }
       }
     },
     "gc": {

@@ -70,7 +70,8 @@ public class StateService : IStateService
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
         public bool HasDataLoaded { get; set; } = false;
         public bool HasProcessedLogs { get; set; } = false;
-        public int GuestSessionDurationHours { get; set; } = 6;
+        // null = no UI override; SessionService.GetGuestDurationHours() falls back to env/appsettings.
+        public int? GuestSessionDurationHours { get; set; }
         public bool GuestModeLocked { get; set; } = false;
         public string? DefaultGuestTheme { get; set; } = "dark-default";
         public string RefreshRate { get; set; } = "STANDARD";
@@ -1098,12 +1099,12 @@ public class StateService : IStateService
     // GetSteamGuardData() and SetSteamGuardData() are no longer needed
 
     // Guest Session Duration Methods
-    public int GetGuestSessionDurationHours()
+    public int? GetGuestSessionDurationHours()
     {
         return GetState().GuestSessionDurationHours;
     }
 
-    public void SetGuestSessionDurationHours(int hours)
+    public void SetGuestSessionDurationHours(int? hours)
     {
         UpdateState(state => state.GuestSessionDurationHours = hours);
     }

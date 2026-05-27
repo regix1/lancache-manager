@@ -274,8 +274,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const logsMissing = !logsExist;
   const hasPermissionIssue = logsReadOnly || logsMissing;
 
-  // Header actions
-  const headerActions = (
+  // Header badge - Refresh button in AccordionSection header
+  const headerBadge = (
     <Tooltip content={t('management.logRemoval.refreshServiceCounts')} position="top">
       <Button
         onClick={() => loadData(true)}
@@ -297,11 +297,9 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
           iconColor="var(--theme-icon-red)"
           isExpanded={sectionExpanded}
           onToggle={() => setSectionExpanded((prev) => !prev)}
+          badge={headerBadge}
         >
           <div className="space-y-4">
-            {/* Action toolbar */}
-            <div className="flex flex-wrap items-center justify-end gap-2">{headerActions}</div>
-
             {/* Logs Directory Missing Warning */}
             {logsMissing && (
               <Alert color="red" className="mb-6">

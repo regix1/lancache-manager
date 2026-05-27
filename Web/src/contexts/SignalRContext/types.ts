@@ -172,7 +172,10 @@ export const SIGNALR_EVENTS = [
   'GameImagesUpdated',
 
   // Schedules
-  'SchedulesUpdated'
+  'SchedulesUpdated',
+
+  // Metrics Security
+  'MetricsSecurityUpdated'
 ] as const;
 
 /**

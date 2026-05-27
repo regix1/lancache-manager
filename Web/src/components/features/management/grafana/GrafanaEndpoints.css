@@ -1,0 +1,16 @@
+.metrics-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.metrics-source-label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-left: 0.25rem;
+}
+
+.metrics-reset-button {
+  margin-left: auto;
+}

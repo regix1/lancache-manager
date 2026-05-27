@@ -102,7 +102,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
               gameAppId={gameAppId}
               epicAppId={isEpic ? epicAppId : undefined}
               alt={title}
-              className="game-card-image"
+              className="game-card-image hidden sm:block"
               loading="lazy"
               onError={handleImageFinalError}
             />
@@ -161,6 +161,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
             color="red"
             size="sm"
             loading={isRemoving}
+            className="flex-shrink-0 min-h-[44px] sm:min-h-0"
             title={
               cacheReadOnly
                 ? t('management.gameDetection.cacheReadOnlyShort')

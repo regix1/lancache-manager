@@ -45,8 +45,8 @@ const UserTab: React.FC = () => {
   const handleUpdateDuration = async (newDuration: number) => {
     try {
       setUpdatingDuration(true);
-      await ApiService.setGuestSessionDuration(newDuration);
-      setGuestDurationHours(newDuration);
+      const response = await ApiService.setGuestSessionDuration(newDuration);
+      setGuestDurationHours(response.durationHours);
     } catch (err: unknown) {
       showToast('error', getErrorMessage(err) || t('user.errors.updateGuestDuration'));
     } finally {

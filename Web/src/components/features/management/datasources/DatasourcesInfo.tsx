@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Logs, PlayCircle } from 'lucide-react';
+import { FileText, Logs, PlayCircle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -251,30 +251,6 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     </HelpPopover>
   );
 
-  // Header actions - main action buttons
-  const headerActions = (
-    <div className="flex items-center gap-2">
-      <Button
-        variant="subtle"
-        size="sm"
-        onClick={() => setResetModal({ datasource: null, all: true })}
-        disabled={actionLoading !== null || isProcessing || mockMode || !isAdmin}
-      >
-        {t('management.datasources.reposition')}
-      </Button>
-      <Button
-        variant="filled"
-        color="green"
-        size="sm"
-        onClick={handleProcessAll}
-        disabled={actionLoading !== null || isProcessing || mockMode || !isAdmin}
-        loading={actionLoading === 'all'}
-      >
-        {t('common.processAll')}
-      </Button>
-    </div>
-  );
-
   if (loading) {
     return (
       <Card>
@@ -301,11 +277,30 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
           iconColor="var(--theme-icon-purple)"
           isExpanded={isExpanded}
           onToggle={() => setIsExpanded((prev) => !prev)}
-          badge={helpContent}
+          badge={
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="subtle"
+                size="sm"
+                onClick={() => setResetModal({ datasource: null, all: true })}
+                disabled={actionLoading !== null || isProcessing || mockMode || !isAdmin}
+              >
+                {t('management.datasources.reposition')}
+              </Button>
+              <Button
+                variant="filled"
+                color="green"
+                size="sm"
+                onClick={handleProcessAll}
+                disabled={actionLoading !== null || isProcessing || mockMode || !isAdmin}
+                loading={actionLoading === 'all'}
+              >
+                {t('common.processAll')}
+              </Button>
+              {helpContent}
+            </div>
+          }
         >
-          {/* Toolbar row */}
-          <div className="flex flex-wrap items-center justify-end gap-2 mb-4">{headerActions}</div>
-
           {/* Datasource list */}
           <div className="space-y-3">
             {datasources.map((ds) => {
@@ -326,7 +321,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                     {/* Access Log Section */}
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 rounded-lg bg-themed-tertiary">
                       <div className="flex items-center gap-3">
-                        <Logs className="w-4 h-4 text-themed-muted flex-shrink-0" />
+                        <FileText className="w-4 h-4 text-themed-muted flex-shrink-0" />
                         <div className="min-w-0">
                           <div className="text-sm font-medium text-themed-primary">access.log</div>
                           <div className="text-xs text-themed-muted truncate">

@@ -760,7 +760,12 @@ const StorageSection: React.FC<StorageSectionProps> = ({
               <div className="space-y-4">
                 {/* Header actions toolbar - visible even when inner accordions are collapsed */}
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  <Button variant="default" size="sm" onClick={handleEvictionExpandCollapseAll}>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={handleEvictionExpandCollapseAll}
+                    className="w-full sm:w-auto"
+                  >
                     {evictionAllExpanded
                       ? t('management.gameDetection.collapseAll')
                       : t('management.gameDetection.expandAll')}
@@ -769,8 +774,10 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                     onClick={handleResetEvictions}
                     disabled={resettingEvictions || isEvictionScanRunning}
                     loading={resettingEvictions}
-                    variant="default"
+                    variant="filled"
+                    color="red"
                     size="sm"
+                    className="w-full sm:w-auto"
                   >
                     {t('management.sections.data.resetEvictions')}
                   </Button>
@@ -780,6 +787,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                     variant="filled"
                     color="blue"
                     size="sm"
+                    className="w-full sm:w-auto"
                   >
                     {isEvictionScanRunning ? (
                       <LoadingSpinner inline size="sm" />
@@ -828,17 +836,19 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                       </div>
 
                       <div className="pt-4 border-t border-themed-primary">
-                        <div className="flex items-center justify-between">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
                           <Checkbox
                             label={t('management.sections.data.evictionScanNotifications')}
                             checked={evictionScanNotifications}
-                            onChange={(e) => setEvictionScanNotifications(e.target.checked)}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                              setEvictionScanNotifications(e.target.checked)
+                            }
                           />
                           <Button
                             onClick={handleSaveEviction}
                             disabled={!isEvictionDirty || evictionSaving}
                             loading={evictionSaving}
-                            className="sm:w-40"
+                            className="w-full sm:w-40"
                           >
                             {t('management.sections.clients.saveChanges')}
                           </Button>
