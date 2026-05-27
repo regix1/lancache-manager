@@ -864,15 +864,15 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             isExpanded={sectionExpanded}
             onToggle={() => setSectionExpanded((prev) => !prev)}
             badge={
-              hasResults ? (
-                <Badge variant="info">{filteredGames.length + filteredServices.length}</Badge>
-              ) : undefined
+              <>
+                {hasResults && (
+                  <Badge variant="info">{filteredGames.length + filteredServices.length}</Badge>
+                )}
+                {headerActions}
+              </>
             }
           >
             <div className="space-y-4">
-              {/* Action toolbar */}
-              <div className="flex flex-wrap items-center justify-end gap-2">{headerActions}</div>
-
               {/* Read-Only Warning */}
               {cacheReadOnly && (
                 <>

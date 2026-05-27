@@ -535,17 +535,17 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             isExpanded={sectionExpanded}
             onToggle={() => setSectionExpanded((prev) => !prev)}
             badge={
-              corruptionList.length > 0 ? (
-                <Badge variant="warning">
-                  {corruptionList.reduce((sum, [, count]) => sum + count, 0)}
-                </Badge>
-              ) : undefined
+              <>
+                {corruptionList.length > 0 && (
+                  <Badge variant="warning">
+                    {corruptionList.reduce((sum, [, count]) => sum + count, 0)}
+                  </Badge>
+                )}
+                {headerActions}
+              </>
             }
           >
             <div className="space-y-4">
-              {/* Action toolbar */}
-              <div className="flex flex-wrap items-center justify-end gap-2">{headerActions}</div>
-
               {/* Previous Results Badge */}
               {hasCachedResults && lastDetectionTime && !isScanning && !isLoading && (
                 <Alert color="blue">

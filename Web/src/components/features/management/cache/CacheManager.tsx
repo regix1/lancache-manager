@@ -306,11 +306,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           iconColor="var(--theme-icon-green)"
           isExpanded={sectionExpanded}
           onToggle={() => setSectionExpanded((prev) => !prev)}
+          badge={headerActions}
         >
           <div className="space-y-4">
-            {/* Action toolbar */}
-            <div className="flex flex-wrap items-center justify-end gap-2">{headerActions}</div>
-
             {/* Read-Only Warning */}
             {cacheReadOnly && (
               <Alert color="orange" className="mb-6">

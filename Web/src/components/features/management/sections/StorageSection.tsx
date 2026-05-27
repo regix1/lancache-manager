@@ -755,10 +755,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
               iconColor="var(--theme-icon-orange)"
               isExpanded={evictedDataExpanded}
               onToggle={() => setEvictedDataExpanded((prev) => !prev)}
-              badge={undefined}
-            >
-              <div className="space-y-4">
-                {/* Header actions toolbar - visible even when inner accordions are collapsed */}
+              badge={
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <Button
                     variant="default"
@@ -796,7 +793,9 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                     )}
                   </Button>
                 </div>
-
+              }
+            >
+              <div className="space-y-4">
                 {/* Sub-accordion 1: Eviction Scan & Settings */}
                 <AccordionSection
                   title={t('management.sections.data.evictionSettingsHeading')}
