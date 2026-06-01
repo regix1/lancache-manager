@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Defense-in-depth (GitHub issue #25): ensure PostgreSQL server binaries are reachable even if the
+# image PATH was not configured. Harmless on the slim image — the directory simply won't exist.
+export PATH="${PATH}:/usr/lib/postgresql/17/bin"
+
 # PUID/PGID support for lancache-manager
 # Similar to linuxserver.io images
 
@@ -161,7 +165,7 @@ export POSTGRES_DB="$PGDATABASE"
 # ---------------------------------------------------------------------------
 POSTGRES_MODE="${POSTGRES_MODE:-embedded}"
 
-if [ "$POSTGRES_MODE" = "embedded" ] && ! command -v pg_ctl &>/dev/null; then
+if [ "$POSTGRES_MODE" = "embedded" ] && ! ls /usr/lib/postgresql/*/bin/pg_ctl >/dev/null 2>&1; then
     echo "[postgres] Slim image detected: no embedded PostgreSQL binary in this image."
     echo "[postgres] Forcing POSTGRES_MODE=external. For embedded mode, use the full image tag"
     echo "[postgres] (e.g. :latest or :dev) instead of the :slim variant."

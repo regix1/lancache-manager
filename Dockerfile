@@ -195,6 +195,12 @@ ENV TZ=UTC
 ENV DOTNET_RUNNING_IN_CONTAINER=true
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 
+# PostgreSQL 17 binaries install to /usr/lib/postgresql/17/bin, but Debian/PGDG do not add that
+# directory to PATH. Without it, entrypoint.sh's slim-detection (command -v pg_ctl) false-negatives
+# on the full image and forces external mode (GitHub issue #25); it also breaks the bare-name
+# pg_isready/psql calls later in the script. Mirrors the official postgres image.
+ENV PATH="${PATH}:/usr/lib/postgresql/17/bin"
+
 # Enable server GC for better throughput (auto-detects CPU count)
 ENV DOTNET_gcServer=1
 
