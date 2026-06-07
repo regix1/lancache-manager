@@ -300,7 +300,8 @@ const DownloadsTab: React.FC = () => {
   const { t } = useTranslation();
   const { latestDownloads = [], loading } = useDownloads();
   const { detectionLookup, detectionByName, detectionByService } = useGameDetection();
-  const { timeRange, selectedEventIds } = useTimeFilter();
+  const { timeRange, selectedEventIds, getTimeRangeParams, customStartDate, customEndDate } =
+    useTimeFilter();
   const { getGroupForIp } = useClientGroups();
   const { authMode } = useAuth();
   const isGuest = authMode === 'guest';
@@ -319,6 +320,9 @@ const DownloadsTab: React.FC = () => {
       setActiveTab('recent');
     }
   }, [isHistoricalView, activeTab]);
+
+  const retroTimeParams = useMemo(() => getTimeRangeParams(), [getTimeRangeParams]);
+  const retroEventId = selectedEventIds.length > 0 ? selectedEventIds[0] : undefined;
 
   // Config from context (guaranteed non-null)
   const { config } = useConfig();
@@ -1147,7 +1151,11 @@ const DownloadsTab: React.FC = () => {
     settings.hideUnknownGames,
     settings.viewMode,
     settings.itemsPerPage,
-    settings.groupByGameRetro
+    settings.groupByGameRetro,
+    timeRange,
+    customStartDate,
+    customEndDate,
+    selectedEventIds
   ]);
 
   // Click outside handler to close settings dropdown
@@ -1971,6 +1979,9 @@ const DownloadsTab: React.FC = () => {
                     filterHideLocalhost={settings.hideLocalhost}
                     filterShowZeroBytes={settings.showZeroBytes}
                     filterHideUnknown={settings.hideUnknownGames}
+                    filterStartTime={retroTimeParams.startTime}
+                    filterEndTime={retroTimeParams.endTime}
+                    filterEventId={retroEventId}
                   />
                 )}
               </Suspense>

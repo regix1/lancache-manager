@@ -29,6 +29,12 @@ interface RetroDownloadsHookOptions {
   hideUnknown: boolean;
   /** When true, server merges depot rows by game before paginating. */
   groupByGame?: boolean;
+  /** Unix start time (seconds) from header time filter. */
+  startTime?: number;
+  /** Unix end time (seconds) from header time filter. */
+  endTime?: number;
+  /** Optional event filter - only downloads tagged to this event. */
+  eventId?: number;
 }
 
 interface RetroDownloadsHookResult {
@@ -69,7 +75,10 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
     hideLocalhost,
     showZeroBytes,
     hideUnknown,
-    groupByGame
+    groupByGame,
+    startTime,
+    endTime,
+    eventId
   } = options;
 
   const [data, setData] = useState<RetroDownloadResponse>(EMPTY_RESPONSE);
@@ -96,7 +105,10 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
       hideLocalhost,
       showZeroBytes,
       hideUnknown,
-      groupByGame
+      groupByGame,
+      startTime,
+      endTime,
+      eventId
     };
 
     setIsFetching(true);
@@ -142,7 +154,10 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
     hideLocalhost,
     showZeroBytes,
     hideUnknown,
-    groupByGame
+    groupByGame,
+    startTime,
+    endTime,
+    eventId
   ]);
 
   return {

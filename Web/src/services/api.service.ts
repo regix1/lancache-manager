@@ -161,6 +161,9 @@ export interface RetroDownloadQueryParams {
   showZeroBytes?: boolean;
   hideUnknown?: boolean;
   groupByGame?: boolean;
+  startTime?: number;
+  endTime?: number;
+  eventId?: number;
 }
 
 class ApiService {
@@ -376,6 +379,9 @@ class ApiService {
         qs.append('showZeroBytes', String(params.showZeroBytes));
       if (params.hideUnknown !== undefined) qs.append('hideUnknown', String(params.hideUnknown));
       if (params.groupByGame !== undefined) qs.append('groupByGame', String(params.groupByGame));
+      if (params.startTime !== undefined) qs.append('startTime', String(params.startTime));
+      if (params.endTime !== undefined) qs.append('endTime', String(params.endTime));
+      if (params.eventId !== undefined) qs.append('eventId', String(params.eventId));
 
       const url = `${API_BASE}/downloads/retro?${qs.toString()}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));

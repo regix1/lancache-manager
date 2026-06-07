@@ -342,6 +342,28 @@ public class DownloadsController : ControllerBase
                 var evictedMode = _stateRepository.GetEvictedDataMode();
                 baseQuery = baseQuery.ApplyEvictedFilter(evictedMode);
 
+                // Filter: time range (matches GetLatestAsync behavior)
+                if (query.StartTime.HasValue || query.EndTime.HasValue)
+                {
+                    var startDate = query.StartTime.HasValue
+                        ? query.StartTime.Value.FromUnixSeconds()
+                        : DateTime.MinValue;
+                    var endDate = query.EndTime.HasValue
+                        ? query.EndTime.Value.FromUnixSeconds()
+                        : DateTime.UtcNow;
+                    baseQuery = baseQuery.Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate);
+                }
+
+                // Filter: event tag (only downloads associated with the event)
+                if (query.EventId.HasValue)
+                {
+                    var eventId = query.EventId.Value;
+                    baseQuery = baseQuery.Where(d => _context.EventDownloads
+                        .Where(ed => ed.EventId == eventId)
+                        .Select(ed => ed.DownloadId)
+                        .Contains(d.Id));
+                }
+
                 // Filter: hide localhost
                 if (query.HideLocalhost)
                 {

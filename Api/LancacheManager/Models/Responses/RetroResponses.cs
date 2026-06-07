@@ -92,4 +92,10 @@ public class RetroDownloadQuery
     public bool ShowZeroBytes { get; set; } = false;
     public bool HideUnknown { get; set; } = false;
     public bool GroupByGame { get; set; } = false;
+    /// <summary>Unix timestamp (seconds) - filter downloads with StartTimeUtc &gt;= this value</summary>
+    public long? StartTime { get; set; }
+    /// <summary>Unix timestamp (seconds) - filter downloads with StartTimeUtc &lt;= this value</summary>
+    public long? EndTime { get; set; }
+    /// <summary>When set, only include downloads tagged to this event</summary>
+    public long? EventId { get; set; }
 }

@@ -123,6 +123,12 @@ interface RetroViewProps {
   filterShowZeroBytes?: boolean;
   /** Server-side filter: hide rows whose game name is unknown. Only used when serverMode is true. */
   filterHideUnknown?: boolean;
+  /** Server-side filter: Unix start time (seconds). Only used when serverMode is true. */
+  filterStartTime?: number;
+  /** Server-side filter: Unix end time (seconds). Only used when serverMode is true. */
+  filterEndTime?: number;
+  /** Server-side filter: event ID. Only used when serverMode is true. */
+  filterEventId?: number;
 }
 
 const STORAGE_KEY = 'retro-view-column-widths';
@@ -685,7 +691,10 @@ const RetroView = memo(
         filterSearch = '',
         filterHideLocalhost = false,
         filterShowZeroBytes = false,
-        filterHideUnknown = false
+        filterHideUnknown = false,
+        filterStartTime,
+        filterEndTime,
+        filterEventId
       },
       ref
     ) => {
@@ -714,7 +723,10 @@ const RetroView = memo(
         hideLocalhost: filterHideLocalhost,
         showZeroBytes: filterShowZeroBytes,
         hideUnknown: filterHideUnknown,
-        groupByGame
+        groupByGame,
+        startTime: filterStartTime,
+        endTime: filterEndTime,
+        eventId: filterEventId
       });
 
       // Client-side grouping path: only runs in non-server mode.
