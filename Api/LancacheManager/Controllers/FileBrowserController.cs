@@ -55,6 +55,19 @@ public class FileBrowserController : ControllerBase
     }
 
     /// <summary>
+    /// GET /api/filebrowser/status - Whether AllowedBrowsePaths is configured
+    /// </summary>
+    [HttpGet("status")]
+    public IActionResult GetStatus()
+    {
+        return Ok(new
+        {
+            configured = _allowedPaths.Count > 0,
+            allowedPaths = _allowedPaths
+        });
+    }
+
+    /// <summary>
     /// GET /api/filebrowser/list - List contents of a directory
     /// Query params: path (optional, defaults to common locations)
     /// </summary>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Database,
   CheckCircle,
@@ -65,6 +65,8 @@ export function DatabaseImportForm({
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [autoSearching, setAutoSearching] = useState(false);
   const [foundDatabases, setFoundDatabases] = useState<FileSystemItem[]>([]);
+  const [fileBrowserConfigured, setFileBrowserConfigured] = useState<boolean | null>(null);
+  const fileBrowserStatusChecked = useRef(false);
 
   const importTypeOptions = [
     { value: 'develancache', label: t('initialization.importHistorical.deveLanCache') },
@@ -94,10 +96,38 @@ export function DatabaseImportForm({
   }, []);
 
   useEffect(() => {
-    if (importType === 'develancache' && inputMode === 'auto' && foundDatabases.length === 0) {
+    if (fileBrowserStatusChecked.current) {
+      return;
+    }
+    fileBrowserStatusChecked.current = true;
+
+    const loadFileBrowserStatus = async (): Promise<void> => {
+      try {
+        const status = await ApiService.getFileBrowserStatus();
+        setFileBrowserConfigured(status.configured);
+        if (!status.configured) {
+          setInputMode('manual');
+        }
+      } catch (error) {
+        console.error('Failed to load file browser status:', error);
+        setFileBrowserConfigured(false);
+        setInputMode('manual');
+      }
+    };
+
+    void loadFileBrowserStatus();
+  }, []);
+
+  useEffect(() => {
+    if (
+      importType === 'develancache' &&
+      inputMode === 'auto' &&
+      foundDatabases.length === 0 &&
+      fileBrowserConfigured
+    ) {
       searchForDatabases();
     }
-  }, [importType, inputMode, foundDatabases.length, searchForDatabases]);
+  }, [importType, inputMode, foundDatabases.length, fileBrowserConfigured, searchForDatabases]);
 
   const handleImportTypeChange = (value: string) => {
     setImportType(value as ImportType);
@@ -106,6 +136,9 @@ export function DatabaseImportForm({
   };
 
   const handleInputModeChange = (value: string) => {
+    if (!fileBrowserConfigured && (value === 'auto' || value === 'browse')) {
+      return;
+    }
     setInputMode(value as InputMode);
     setValidationResult(null);
   };
@@ -195,20 +228,45 @@ export function DatabaseImportForm({
       {/* DeveLanCacheUI form */}
       {importType === 'develancache' && (
         <>
+          {fileBrowserConfigured === false && (
+            <Alert color="yellow">
+              <div className="min-w-0">
+                <p className="font-medium">
+                  {t('initialization.importHistorical.fileBrowserDisabled.title')}
+                </p>
+                <p className="text-sm mt-1">
+                  {t('initialization.importHistorical.fileBrowserDisabled.description')}
+                </p>
+                <p className="text-sm mt-1">
+                  {t('initialization.importHistorical.fileBrowserDisabled.manualHint')}
+                </p>
+                <p className="text-sm mt-2 mb-2">
+                  {t('initialization.importHistorical.fileBrowserDisabled.envVarInstructions')}
+                </p>
+                <pre className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap bg-themed-tertiary">
+                  {t('initialization.importHistorical.fileBrowserDisabled.envVarExample')}
+                </pre>
+                <p className="text-xs mt-2 text-themed-muted">
+                  {t('initialization.importHistorical.fileBrowserDisabled.envVarNote')}
+                </p>
+              </div>
+            </Alert>
+          )}
+
           {/* Input Mode Tabs */}
           <div className="database-import-form__mode-tabs bg-themed-tertiary">
             <button
               onClick={() => handleInputModeChange('auto')}
-              disabled={isDisabled}
-              className={`database-import-form__mode-tab ${inputMode === 'auto' ? 'bg-themed-secondary text-themed-primary' : 'text-themed-secondary hover:text-themed-primary'}`}
+              disabled={isDisabled || fileBrowserConfigured === false}
+              className={`database-import-form__mode-tab ${inputMode === 'auto' ? 'bg-themed-secondary text-themed-primary' : 'text-themed-secondary hover:text-themed-primary'} ${fileBrowserConfigured === false ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <Search className="w-4 h-4" />
               {t('initialization.importHistorical.auto')}
             </button>
             <button
               onClick={() => handleInputModeChange('browse')}
-              disabled={isDisabled}
-              className={`database-import-form__mode-tab ${inputMode === 'browse' ? 'bg-themed-secondary text-themed-primary' : 'text-themed-secondary hover:text-themed-primary'}`}
+              disabled={isDisabled || fileBrowserConfigured === false}
+              className={`database-import-form__mode-tab ${inputMode === 'browse' ? 'bg-themed-secondary text-themed-primary' : 'text-themed-secondary hover:text-themed-primary'} ${fileBrowserConfigured === false ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <FolderOpen className="w-4 h-4" />
               {t('initialization.importHistorical.browse')}

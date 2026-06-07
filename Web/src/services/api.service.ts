@@ -2300,6 +2300,11 @@ class ApiService {
 
   // ── File Browser ──────────────────────────────────────────────────────────
 
+  static async getFileBrowserStatus(): Promise<{ configured: boolean; allowedPaths: string[] }> {
+    const response = await fetch(`${API_BASE}/filebrowser/status`, this.getFetchOptions());
+    return ApiService.handleResponse<{ configured: boolean; allowedPaths: string[] }>(response);
+  }
+
   static async fileBrowserList<T>(path: string | null): Promise<T> {
     const queryParam = path ? `?path=${encodeURIComponent(path)}` : '';
     const response = await fetch(

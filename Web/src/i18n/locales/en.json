@@ -5191,7 +5191,15 @@
       "imported": "Imported: {{formattedCount}}",
       "skipped": "Skipped: {{formattedCount}}",
       "errors": "Errors: {{formattedCount}}",
-      "importFailed": "Import failed: {{error}}"
+      "importFailed": "Import failed: {{error}}",
+      "fileBrowserDisabled": {
+        "title": "File browser is disabled",
+        "description": "Auto-detect and Browse use the server file browser to locate an old DeveLanCacheUI SQLite database on disk. For security it is off by default, so those modes cannot search until you allow specific directories.",
+        "manualHint": "You can still import by typing the full path in Manual mode, or skip this step and continue without importing.",
+        "envVarInstructions": "Add the following environment variable to your docker-compose.yml, then restart the container. Include every directory that may contain your old .db file:",
+        "envVarExample": "- Security__AllowedBrowsePaths=/data,/mnt",
+        "envVarNote": "Only paths in this list (and their subdirectories) are readable. Everything else returns 403. If your database lives on a host mount, include that mount point (for example /mnt/old-lancache)."
+      }
     },
     "platformSetup": {
       "title": "Platform Setup",
