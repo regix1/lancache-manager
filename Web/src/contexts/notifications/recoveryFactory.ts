@@ -89,6 +89,7 @@ interface DepotRebuildProgressResponse {
 interface LogRemovalStatusResponse {
   isProcessing: boolean;
   service: string;
+  operationId?: string;
   percentComplete: number;
   linesProcessed: number;
   linesRemoved: number;
@@ -383,6 +384,7 @@ const RECOVERY_CONFIGS = {
       progress: data.percentComplete,
       details: {
         service: data.service,
+        operationId: data.operationId,
         linesProcessed: data.linesProcessed,
         linesRemoved: data.linesRemoved
       }

@@ -159,7 +159,7 @@ export function useCancellableQueue<TItem>(
     if (!activeId) return;
     const notif = notifications.find((n) => n.id === activeId);
     if (!notif) return;
-    if (notif.details?.cancelling !== true) return;
+    if (notif.details?.cancelRequested !== true && notif.details?.cancelling !== true) return;
     if (cancelRequestedRef.current) return;
     cancelRequestedRef.current = true;
 
@@ -181,7 +181,7 @@ export function useCancellableQueue<TItem>(
     // Flip cancelling=true on the bulk notification so the cascade effect
     // picks it up on the next render tick (same path as the user clicking X).
     updateNotification(activeId, {
-      details: { cancelling: true }
+      details: { cancelRequested: true, cancelling: true }
     });
   }, [updateNotification]);
 

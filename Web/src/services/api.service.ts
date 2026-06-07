@@ -88,6 +88,7 @@ interface OperationResponse {
    * `'started'` - which were historically possible and caused at least one "Unexpected response" bug.
    */
   status?: OperationStatus;
+  operationId?: string;
   // Log processing specific
   logSizeMB?: number;
   remainingMB?: number;
@@ -1326,7 +1327,7 @@ class ApiService {
     threshold = 3,
     compareToCacheLogs = true,
     detectionMode = 'miss_count'
-  ): Promise<{ message: string; service: string }> {
+  ): Promise<{ message: string; service: string; operationId?: string; status?: OperationStatus }> {
     try {
       const res = await fetch(
         `${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}&detectionMode=${detectionMode}`,
@@ -1499,7 +1500,7 @@ class ApiService {
   // Remove all cache files for a specific service (fire-and-forget, requires auth)
   static async removeServiceFromCache(
     serviceName: string
-  ): Promise<{ message: string; serviceName: string; status: string }> {
+  ): Promise<{ message: string; serviceName: string; status: string; operationId?: string }> {
     try {
       const res = await fetch(
         `${API_BASE}/cache/services/${encodeURIComponent(serviceName)}`,

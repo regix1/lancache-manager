@@ -8,6 +8,7 @@ import { useConfig } from '@contexts/useConfig';
 import { useCacheSize } from '@contexts/useCacheSize';
 import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { useNotifications } from '@contexts/notifications';
+import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
@@ -233,12 +234,18 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     // (CacheClearingProgress and CacheClearingComplete). No need to manually manage isCacheClearing.
 
     try {
-      if (clearingDatasource) {
-        await ApiService.clearDatasourceCache(clearingDatasource);
-      } else {
-        await ApiService.clearAllCache();
+      const result = clearingDatasource
+        ? await ApiService.clearDatasourceCache(clearingDatasource)
+        : await ApiService.clearAllCache();
+      if (result.operationId) {
+        addNotification(
+          buildSeededRunningNotification(
+            'cache_clearing',
+            result.operationId,
+            t('signalr.cacheClear.starting')
+          )
+        );
       }
-      // NotificationsContext handles success/error messages via SignalR
     } catch (err: unknown) {
       onError?.(
         t('management.cache.errors.startCacheClearing', {

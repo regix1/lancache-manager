@@ -7,6 +7,7 @@ import { type AuthMode } from '@services/auth.service';
 import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useNotifications } from '@contexts/notifications';
+import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { CorruptionRemovalCompleteEvent } from '@contexts/SignalRContext/types';
 import { Card } from '@components/ui/Card';
@@ -228,13 +229,25 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
     try {
       // Start background detection - SignalR will send CorruptionDetectionStarted event
-      await ApiService.startCorruptionDetection(missThreshold, compareToCacheLogs, detectionMode);
-      // Note: NotificationsContext will create a notification via SignalR (CorruptionDetectionStarted event)
+      const result = await ApiService.startCorruptionDetection(
+        missThreshold,
+        compareToCacheLogs,
+        detectionMode
+      );
+      if (result.operationId) {
+        addNotification(
+          buildSeededRunningNotification(
+            'corruption_detection',
+            result.operationId,
+            t('signalr.corruptionDetect.starting')
+          )
+        );
+      }
     } catch (err: unknown) {
       console.error('Failed to start corruption scan:', err);
       setIsStartingScan(false);
     }
-  }, [isScanning, mockMode, missThreshold, compareToCacheLogs, detectionMode]);
+  }, [isScanning, mockMode, missThreshold, compareToCacheLogs, detectionMode, addNotification, t]);
 
   // Listen for corruption detection completion via notifications
   useEffect(() => {
@@ -369,13 +382,22 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     markCorruptionRemovalStarting(service);
 
     try {
-      await ApiService.removeCorruptedChunks(
+      const result = await ApiService.removeCorruptedChunks(
         service,
         missThreshold,
         compareToCacheLogs,
         detectionMode
       );
-      // SignalR will handle progress; clearOnNotification (in notifications useEffect) will clear pending
+      if (result.operationId) {
+        addNotification(
+          buildSeededRunningNotification(
+            'corruption_removal',
+            result.operationId,
+            t('signalr.corruptionRemove.starting', { service }),
+            { service }
+          )
+        );
+      }
     } catch (err: unknown) {
       console.error('Removal failed:', err);
       onError?.(

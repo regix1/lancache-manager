@@ -10,6 +10,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { useNotifications } from '@contexts/notifications';
+import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { waitForSignalRCompletion } from '@contexts/notifications/waitForSignalRCompletion';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useCancellableQueue } from '@/hooks/useCancellableQueue';
@@ -403,9 +404,16 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
       try {
         // Start background detection - SignalR will send GameDetectionStarted event
-        await ApiService.startGameCacheDetection(forceRefresh);
-        // Note: NotificationsContext will create a notification via SignalR (GameDetectionStarted event)
-        // and recovery is handled by recoverGameDetection
+        const result = await ApiService.startGameCacheDetection(forceRefresh);
+        if (result.operationId) {
+          addNotification(
+            buildSeededRunningNotification(
+              'game_detection',
+              result.operationId,
+              t('signalr.gameDetect.starting.default')
+            )
+          );
+        }
       } catch (err: unknown) {
         const errorMsg =
           (err instanceof Error ? err.message : String(err)) ||

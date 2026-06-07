@@ -570,9 +570,9 @@ public class LogsController : ControllerBase
             return Conflict(conflict);
         }
 
-        var started = await _rustLogRemovalService.StartServiceRemovalAsync(service);
+        var operationId = await _rustLogRemovalService.StartServiceRemovalInBackgroundAsync(service);
 
-        if (!started)
+        if (!operationId.HasValue)
         {
             var raceConflict = await _conflictChecker.CheckAsync(
                 OperationType.LogRemoval,
@@ -586,12 +586,13 @@ public class LogsController : ControllerBase
             return StatusCode(500, new ErrorResponse { Error = $"Failed to remove logs for service '{service}'" });
         }
 
-        _logger.LogInformation("Started log removal for service: {Service}", service);
+        _logger.LogInformation("Started log removal for service: {Service} (Operation: {OperationId})", service, operationId.Value);
 
         return Accepted(new LogRemovalStartResponse
         {
             Message = $"Started log removal for service: {service}",
             Service = service,
+            OperationId = operationId.Value,
             Status = OperationStatus.Running
         });
     }
@@ -627,9 +628,9 @@ public class LogsController : ControllerBase
             return Conflict(conflict);
         }
 
-        var started = await _rustLogRemovalService.StartServiceRemovalForDatasourceAsync(service, datasourceName);
+        var operationId = await _rustLogRemovalService.StartServiceRemovalForDatasourceInBackgroundAsync(service, datasourceName);
 
-        if (!started)
+        if (!operationId.HasValue)
         {
             var raceConflict = await _conflictChecker.CheckAsync(
                 OperationType.LogRemoval,
@@ -643,12 +644,15 @@ public class LogsController : ControllerBase
             return StatusCode(500, new ErrorResponse { Error = $"Failed to remove logs for service '{service}' from datasource '{datasourceName}'" });
         }
 
-        _logger.LogInformation("Started log removal for service: {Service} in datasource: {Datasource}", service, datasourceName);
+        _logger.LogInformation(
+            "Started log removal for service: {Service} in datasource: {Datasource} (Operation: {OperationId})",
+            service, datasourceName, operationId.Value);
 
         return Accepted(new LogRemovalStartResponse
         {
             Message = $"Started log removal for service: {service} from datasource: {datasourceName}",
             Service = service,
+            OperationId = operationId.Value,
             Status = OperationStatus.Running
         });
     }

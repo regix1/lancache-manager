@@ -87,9 +87,19 @@ export function createStartedHandler<T>(
       // Check if already exists in running state (skip if running and not replacing)
       if (!config.replaceExisting) {
         const existing = prev.find((n) => n.id === notificationId);
-        // Only skip if existing notification is still running
-        // Allow replacing completed/failed notifications with new started ones
-        if (existing && existing.status === 'running') return prev;
+        if (existing && existing.status === 'running') {
+          const eventDetails = config.getDetails?.(event);
+          if (eventDetails && Object.keys(eventDetails).length > 0) {
+            const merged: UnifiedNotification = {
+              ...existing,
+              message: config.getMessage?.(event) ?? existing.message,
+              details: { ...existing.details, ...eventDetails }
+            };
+            localStorage.setItem(config.storageKey, JSON.stringify(merged));
+            return prev.map((n) => (n.id === notificationId ? merged : n));
+          }
+          return prev;
+        }
       }
 
       const newNotification: UnifiedNotification = {

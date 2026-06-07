@@ -5,6 +5,7 @@ import { FileText, AlertTriangle, Trash2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useNotifications } from '@contexts/notifications';
+import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
@@ -90,7 +91,7 @@ interface LogRemovalManagerProps {
 
 const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMode, onError }) => {
   const { t } = useTranslation();
-  const { notifications, isAnyRemovalRunning } = useNotifications();
+  const { notifications, isAnyRemovalRunning, addNotification } = useNotifications();
   const { isDockerAvailable } = useDockerSocket();
   const { logsReadOnly, logsExist, checkingPermissions } = useDirectoryPermissionsContext();
 
@@ -191,10 +192,19 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
 
     try {
       const result = await ApiService.removeServiceFromDatasourceLogs(datasourceName, serviceName);
-      // Backend returns `OperationStatus.Running` (serialized as `"running"`) on 202 Accepted.
-      // The prior `'started'` check was stale - OperationStatus never had a `Started` variant.
-      if (result && result.status === 'running') {
-        // SignalR will handle progress; clearOnNotification (in notifications useEffect) will clear pending
+      if (result?.status === 'running' && result.operationId) {
+        addNotification(
+          buildSeededRunningNotification(
+            'log_removal',
+            result.operationId,
+            t('signalr.logRemoval.starting.default', { service: serviceName }),
+            {
+              service: serviceName
+            }
+          )
+        );
+      } else if (result && result.status === 'running') {
+        // SignalR will attach operationId; seeded notification may already exist from Started event
       } else {
         onError?.(t('management.logRemoval.errors.unexpectedResponse', { service: serviceName }));
         clearServiceRemovalPending(key);

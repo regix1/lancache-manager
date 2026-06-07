@@ -11,6 +11,7 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { LogProcessingCompleteEvent } from '@contexts/SignalRContext/types';
 import { useConfig } from '@contexts/useConfig';
 import { useNotifications } from '@contexts/notifications';
+import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { formatCount } from '@utils/formatters';
@@ -50,7 +51,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     return saved !== null ? saved === 'true' : false;
   });
 
-  const { notifications } = useNotifications();
+  const { notifications, addNotification } = useNotifications();
   const signalR = useSignalR();
 
   // Check if processing is running
@@ -117,8 +118,16 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
     setActionLoading('all');
     try {
-      await ApiService.processAllLogs();
-      // Note: Progress/completion notifications are handled via SignalR in NotificationsContext
+      const result = await ApiService.processAllLogs();
+      if (result.operationId) {
+        addNotification(
+          buildSeededRunningNotification(
+            'log_processing',
+            result.operationId,
+            t('signalr.logProcessing.starting')
+          )
+        );
+      }
       onDataRefresh?.();
     } catch (err: unknown) {
       onError?.(
@@ -135,8 +144,16 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
     setActionLoading(`access-${datasourceName}`);
     try {
-      await ApiService.processDatasourceLogs(datasourceName);
-      // Note: Progress/completion notifications are handled via SignalR in NotificationsContext
+      const result = await ApiService.processDatasourceLogs(datasourceName);
+      if (result.operationId) {
+        addNotification(
+          buildSeededRunningNotification(
+            'log_processing',
+            result.operationId,
+            t('signalr.logProcessing.starting')
+          )
+        );
+      }
       onDataRefresh?.();
     } catch (err: unknown) {
       onError?.(

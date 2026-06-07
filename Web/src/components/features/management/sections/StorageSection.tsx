@@ -18,6 +18,7 @@ import { ImageCacheContext, ImageInvalidateContext } from '@components/common/Im
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
+import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { waitForSignalRCompletion } from '@contexts/notifications/waitForSignalRCompletion';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useCancellableQueue } from '@/hooks/useCancellableQueue';
@@ -593,7 +594,16 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
 
     const attemptScan = async (): Promise<boolean> => {
       try {
-        await ApiService.startEvictionScan();
+        const result = await ApiService.startEvictionScan();
+        if (result.operationId) {
+          addNotification(
+            buildSeededRunningNotification(
+              'eviction_scan',
+              result.operationId,
+              t('signalr.evictionScan.scanning')
+            )
+          );
+        }
         return true;
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);

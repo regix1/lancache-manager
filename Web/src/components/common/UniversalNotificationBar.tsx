@@ -40,6 +40,8 @@ const CANCEL_TOOLTIP_KEYS: Record<string, string> = {
 // Cancel Handler
 // ============================================================================
 
+const FORCE_KILL_TOOLTIP_KEY = 'common.notifications.forceKillOperation';
+
 const handleCancel = async (
   notification: UnifiedNotification,
   updateNotification: (id: string, updates: Partial<UnifiedNotification>) => void,
@@ -47,64 +49,53 @@ const handleCancel = async (
 ) => {
   // Client-driven bulk notifications (bulk_removal) are not tied to a single
   // server operation - the initiating component orchestrates a loop of per-
-  // item operations. Signal the loop by flipping cancelling=true and let it
-  // transition the notification to the proper cancelled end-state (status
-  // completed + details.cancelled = true) with a meaningful message.
+  // item operations. Signal the loop by flipping cancelRequested=true.
   if (notification.type === 'bulk_removal') {
     updateNotification(notification.id, {
-      details: { ...notification.details, cancelling: true }
+      details: { ...notification.details, cancelRequested: true, cancelling: true }
     });
     return;
   }
 
   const operationId = notification.details?.operationId;
+  const cancelRequested = notification.details?.cancelRequested === true;
 
-  // Race case: user clicked X before the Started SignalR event arrived with the opId.
-  // Flip cancelling=true for visual feedback and return. The component's watchdog
-  // effect will fire cancelOperation() as soon as opId appears on this notification.
-  // Do NOT silently remove the notification - that leaves the server op running
-  // while the UI disappears (the "lying X" bug).
+  // Race case: user clicked X before operationId arrived. Remember intent; watchdog fires cancel when opId lands.
   if (!operationId) {
-    console.warn(
-      '[UniversalNotificationBar] Cancel requested before operationId arrived; will retry when Started event lands.'
-    );
     updateNotification(notification.id, {
-      details: { ...notification.details, cancelling: true }
+      details: { ...notification.details, cancelRequested: true }
     });
     return;
   }
 
-  const alreadyCancelling = notification.details?.cancelling === true;
-
-  if (!alreadyCancelling) {
+  if (!cancelRequested) {
     updateNotification(notification.id, {
-      details: { ...notification.details, cancelling: true }
+      details: { ...notification.details, cancelRequested: true }
     });
+
+    try {
+      await ApiService.cancelOperation(operationId);
+    } catch (err) {
+      console.error('Cancel failed:', err);
+      const errorMessage = err instanceof Error ? err.message : '';
+      if (errorMessage.includes('not found') || errorMessage.includes('Not Found')) {
+        removeNotification(notification.id);
+      } else {
+        updateNotification(notification.id, {
+          details: { ...notification.details, cancelRequested: false }
+        });
+      }
+    }
+    return;
   }
 
   try {
-    if (alreadyCancelling) {
-      await ApiService.forceKillOperation(operationId);
-      return;
-    }
-
-    await ApiService.cancelOperation(operationId);
-    // Do NOT remove the notification here!
-    // The SignalR completion event (with cancelled: true) will:
-    // 1. Update the notification status to 'completed' with cancellation message
-    // 2. Schedule auto-dismiss after CANCELLED_NOTIFICATION_DELAY_MS (3000ms)
+    await ApiService.forceKillOperation(operationId);
   } catch (err) {
-    console.error('Cancel failed:', err);
+    console.error('Force kill failed:', err);
     const errorMessage = err instanceof Error ? err.message : '';
     if (errorMessage.includes('not found') || errorMessage.includes('Not Found')) {
-      // Operation already completed/removed from tracker - dismiss the notification
       removeNotification(notification.id);
-    } else {
-      // Other error - remove the cancelling state but don't remove the notification
-      // The operation may still complete and send a SignalR event
-      updateNotification(notification.id, {
-        details: { ...notification.details, cancelling: false }
-      });
     }
   }
 };
@@ -421,23 +412,28 @@ const UnifiedNotificationItem = ({
         {/* Cancel button for operations that support cancellation */}
         {notification.type in CANCEL_TOOLTIP_KEYS &&
           notification.status === 'running' &&
-          onCancel &&
-          (notification.details?.cancelling ? (
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded text-xs bg-[var(--theme-error-bg)] text-[var(--theme-error)]">
-              <LoadingSpinner inline size="xs" />
-              <span>{t('common.notifications.cancelling')}</span>
-            </div>
-          ) : (
-            <Tooltip content={t(CANCEL_TOOLTIP_KEYS[notification.type])} position="left">
+          onCancel && (
+            <Tooltip
+              content={t(
+                notification.details?.cancelRequested
+                  ? FORCE_KILL_TOOLTIP_KEY
+                  : CANCEL_TOOLTIP_KEYS[notification.type]
+              )}
+              position="left"
+            >
               <button
                 onClick={onCancel}
                 className="p-1 rounded hover:bg-themed-hover transition-colors"
-                aria-label={t('common.notifications.cancelOperationAria')}
+                aria-label={
+                  notification.details?.cancelRequested
+                    ? t(FORCE_KILL_TOOLTIP_KEY)
+                    : t('common.notifications.cancelOperationAria')
+                }
               >
                 <X className="w-4 h-4 text-themed-secondary" />
               </button>
             </Tooltip>
-          ))}
+          )}
         {(notification.status === 'completed' || notification.status === 'failed') && (
           <button
             onClick={onDismiss}
@@ -466,18 +462,15 @@ const UniversalNotificationBar: React.FC = () => {
   // re-render. Pruned as notifications disappear.
   const deferredCancelFiredRef = useRef<Set<string>>(new Set());
 
-  // Deferred-cancel watchdog: if a notification has cancelling=true but had no
-  // operationId at click-time (race with the Started SignalR event), fire
-  // cancelOperation() as soon as the opId materialises. This makes the X
-  // button work even when clicked in the ~second between POST-Accepted and
-  // the Started event arriving over SignalR.
+  // Deferred-cancel watchdog: if cancel was requested before operationId existed,
+  // fire cancelOperation() as soon as the opId materialises.
   useEffect(() => {
     notifications.forEach((n) => {
       const opId = n.details?.operationId;
       if (
         n.status === 'running' &&
         n.type !== 'bulk_removal' &&
-        n.details?.cancelling &&
+        n.details?.cancelRequested &&
         opId &&
         !deferredCancelFiredRef.current.has(n.id)
       ) {

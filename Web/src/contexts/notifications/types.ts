@@ -77,6 +77,8 @@ export interface UnifiedNotification {
     directoriesProcessed?: number;
     bytesDeleted?: number;
     operationId?: string;
+    /** First cancel click sent; second click force-kills. */
+    cancelRequested?: boolean;
     cancelling?: boolean;
 
     // For service_removal

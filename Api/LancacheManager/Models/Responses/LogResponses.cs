@@ -25,6 +25,7 @@ public class LogRemovalStartResponse
 {
     public string Message { get; set; } = string.Empty;
     public string Service { get; set; } = string.Empty;
+    public Guid OperationId { get; set; }
     public OperationStatus Status { get; set; }
 }
 

@@ -123,19 +123,15 @@ export async function runTrackedGameRemoval({
   const isEpic = game.service === 'epicgames';
   const epicAppId = game.epic_app_id;
 
-  addNotification({
-    type: 'game_removal',
-    status: 'running',
-    message: t('management.gameDetection.removingGame', { name: gameName }),
-    details: isEpic ? { epicAppId, gameName } : { gameAppId, gameName }
-  });
-
   try {
     const response = isEpic
       ? await ApiService.removeEpicGameFromCache(gameName)
       : await ApiService.removeGameFromCache(gameAppId);
 
-    updateNotification(NOTIFICATION_IDS.GAME_REMOVAL, {
+    addNotification({
+      type: 'game_removal',
+      status: 'running',
+      message: t('management.gameDetection.removingGame', { name: gameName }),
       details: {
         operationId: response.operationId,
         gameName,
@@ -168,15 +164,19 @@ export async function runTrackedServiceRemoval({
 }: RunTrackedServiceRemovalArgs): Promise<void> {
   const serviceName = service.service_name;
 
-  addNotification({
-    type: 'service_removal',
-    status: 'running',
-    message: t('management.gameDetection.removingService', { name: serviceName }),
-    details: { service: serviceName }
-  });
-
   try {
-    await ApiService.removeServiceFromCache(serviceName);
+    const response = await ApiService.removeServiceFromCache(serviceName);
+
+    addNotification({
+      type: 'service_removal',
+      status: 'running',
+      message: t('management.gameDetection.removingService', { name: serviceName }),
+      details: {
+        operationId: response.operationId,
+        service: serviceName
+      }
+    });
+
     scheduleRemovalRefresh(onDataRefresh);
   } catch (err: unknown) {
     const errorMsg =

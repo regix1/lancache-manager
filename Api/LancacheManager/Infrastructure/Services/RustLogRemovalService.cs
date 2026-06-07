@@ -27,6 +27,7 @@ public class RustLogRemovalService
     private CancellationTokenSource? _cancellationTokenSource;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private Guid? _currentTrackerOperationId;
+    private TaskCompletionSource<Guid>? _operationRegisteredTcs;
 
     private readonly DatasourceService _datasourceService;
 
@@ -41,6 +42,57 @@ public class RustLogRemovalService
     public Task<bool> StartServiceRemovalAsync(string service)
     {
         return StartRemovalAsync(service);
+    }
+
+    /// <summary>
+    /// Starts service removal in the background and returns the operation id as soon as it is registered.
+    /// </summary>
+    public Task<Guid?> StartServiceRemovalInBackgroundAsync(string service)
+    {
+        return StartRemovalInBackgroundAsync(() => StartRemovalAsync(service));
+    }
+
+    /// <summary>
+    /// Starts per-datasource service removal in the background and returns the operation id as soon as it is registered.
+    /// </summary>
+    public Task<Guid?> StartServiceRemovalForDatasourceInBackgroundAsync(string service, string datasourceName)
+    {
+        return StartRemovalInBackgroundAsync(() => StartRemovalForDatasourceAsync(service, datasourceName));
+    }
+
+    private async Task<Guid?> StartRemovalInBackgroundAsync(Func<Task<bool>> processor)
+    {
+        var registered = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _operationRegisteredTcs = registered;
+
+        var backgroundTask = Task.Run(async () =>
+        {
+            try
+            {
+                return await processor();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unhandled error during log removal");
+                return false;
+            }
+            finally
+            {
+                registered.TrySetCanceled();
+            }
+        });
+
+        await Task.WhenAny(registered.Task, backgroundTask);
+        return registered.Task.IsCompletedSuccessfully ? registered.Task.Result : (Guid?)null;
+    }
+
+    private void NotifyOperationRegistered()
+    {
+        if (_currentTrackerOperationId.HasValue)
+        {
+            CurrentOperationId = _currentTrackerOperationId;
+            _operationRegisteredTcs?.TrySetResult(_currentTrackerOperationId.Value);
+        }
     }
 
     /// <summary>
@@ -77,6 +129,7 @@ public class RustLogRemovalService
         {
             isProcessing = IsProcessing,
             service = CurrentService,
+            operationId = _currentTrackerOperationId,
             filesProcessed = progress?.FilesProcessed ?? 0,
             linesProcessed = progress?.LinesProcessed ?? 0,
             linesRemoved = progress?.LinesRemoved ?? 0,
@@ -165,6 +218,7 @@ public class RustLogRemovalService
                 _cancellationTokenSource,
                 new { service }
             );
+            NotifyOperationRegistered();
 
             var datasources = _datasourceService.GetDatasources();
 
@@ -528,6 +582,7 @@ public class RustLogRemovalService
                 _cancellationTokenSource,
                 new { service, datasourceName }
             );
+            NotifyOperationRegistered();
 
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var progressPath = Path.Combine(operationsDir, $"log_remove_progress_{datasourceName}.json");

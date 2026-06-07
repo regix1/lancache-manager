@@ -169,6 +169,7 @@
       "cancelEvictionRemoval": "Cancel eviction removal",
       "cancelBulkRemoval": "Cancel bulk removal",
       "cancelOperationAria": "Cancel operation",
+      "forceKillOperation": "Click again to force kill",
       "cancelling": "Cancelling...",
       "corruptedChunksRemoved": "Corrupted chunks successfully removed",
       "filesDeleted": "{{formattedCount}} file deleted",
