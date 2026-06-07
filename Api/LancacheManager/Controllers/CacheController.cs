@@ -88,6 +88,12 @@ public class CacheController : ControllerBase
         {
             return StatusCode(500, new ErrorResponse { Error = "Failed to calculate cache size" });
         }
+
+        if (force && string.IsNullOrEmpty(datasource))
+        {
+            await _notifications.NotifyAllAsync(SignalREvents.CacheScanComplete, new { success = true });
+        }
+
         return Ok(result);
     }
 

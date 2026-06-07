@@ -1,5 +1,6 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Base;
 
 namespace LancacheManager.Infrastructure.Services;
@@ -12,6 +13,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
 {
     private readonly CacheManagementService _cacheService;
     private readonly IPathResolver _pathResolver;
+    private readonly ISignalRNotificationService _notifications;
     private readonly TimeSpan _defaultInterval;
 
     protected override string ServiceName => "CacheSizeScan";
@@ -24,6 +26,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
     public CacheSizeScanScheduledService(
         CacheManagementService cacheService,
         IPathResolver pathResolver,
+        ISignalRNotificationService notifications,
         IStateService stateService,
         ILogger<CacheSizeScanScheduledService> logger,
         IConfiguration configuration)
@@ -31,6 +34,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
     {
         _cacheService = cacheService;
         _pathResolver = pathResolver;
+        _notifications = notifications;
         _defaultInterval = TimeSpan.FromHours(configuration.GetValue("CacheSizeScan:IntervalHours", 24));
         LoadStateOverrides(stateService);
     }
@@ -73,6 +77,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
                 result.TotalFiles,
                 result.TotalBytes / 1_073_741_824.0,
                 trigger);
+            await _notifications.NotifyAllAsync(SignalREvents.CacheScanComplete, new { success = true });
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {

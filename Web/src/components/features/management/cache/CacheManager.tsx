@@ -6,6 +6,7 @@ import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useConfig } from '@contexts/useConfig';
 import { useCacheSize } from '@contexts/useCacheSize';
+import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { useNotifications } from '@contexts/notifications';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { Alert } from '@components/ui/Alert';
@@ -75,6 +76,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     fetchCacheSize,
     clearCacheSize
   } = useCacheSize();
+  const { refreshStats } = useStats();
   const { notifications, addNotification, isAnyRemovalRunning } = useNotifications();
 
   // Derive cache clearing state from notifications (standardized pattern)
@@ -101,6 +103,11 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   }, [sectionExpanded]);
   const cacheOperationInProgressRef = useRef(false);
   const deleteModeChangeInProgressRef = useRef(false);
+
+  const handleRefreshCacheSize = useCallback(async () => {
+    await fetchCacheSize(true);
+    await refreshStats(true);
+  }, [fetchCacheSize, refreshStats]);
 
   // Fetch cache size on mount if not already loaded
   useEffect(() => {
@@ -267,7 +274,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     <div className="flex items-center gap-2">
       <Tooltip content={t('management.cache.refreshCacheSize')} position="top">
         <Button
-          onClick={() => fetchCacheSize(true)}
+          onClick={handleRefreshCacheSize}
           disabled={cacheSizeLoading || isAnyRemovalRunning}
           variant="default"
           size="sm"
@@ -393,7 +400,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                       <Button
                         variant="subtle"
                         size="sm"
-                        onClick={() => fetchCacheSize(true)}
+                        onClick={handleRefreshCacheSize}
                         disabled={cacheSizeLoading || isAnyRemovalRunning}
                       >
                         {cacheSizeLoading ? (

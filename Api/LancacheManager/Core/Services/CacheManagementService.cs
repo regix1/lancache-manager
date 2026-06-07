@@ -1585,13 +1585,21 @@ public class CacheManagementService
     /// <summary>
     /// Persists the scan result to the JSON file and updates the in-memory cache.
     /// </summary>
+    private static void SyncScanTimestamp(CacheSizeResponse scanResult, DateTime scannedAtUtc)
+    {
+        scanResult.Timestamp = scannedAtUtc;
+    }
+
     private async Task SaveCachedScanAsync(CacheSizeResponse scanResult, long usedCacheSizeAtScan)
     {
+        var scannedAtUtc = DateTime.UtcNow;
+        SyncScanTimestamp(scanResult, scannedAtUtc);
+
         var entry = new CachedCacheScan
         {
             ScanResult = scanResult,
             UsedCacheSizeAtScan = usedCacheSizeAtScan,
-            ScannedAtUtc = DateTime.UtcNow
+            ScannedAtUtc = scannedAtUtc
         };
 
         try
@@ -1826,6 +1834,7 @@ public class CacheManagementService
             _logger.LogDebug("Returning cached cache scan (scanned {ScannedAt:u}, delta={DeltaGb:F2} GB)",
                 _cachedCacheScan.ScannedAtUtc, delta / (1024.0 * 1024.0 * 1024.0));
             var cachedResult = _cachedCacheScan.ScanResult;
+            SyncScanTimestamp(cachedResult, _cachedCacheScan.ScannedAtUtc);
             cachedResult.IsCached = true;
             return cachedResult;
         }

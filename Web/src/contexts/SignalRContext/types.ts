@@ -62,6 +62,7 @@ export const SIGNALR_EVENTS = [
   'CacheClearingStarted',
   'CacheClearingProgress',
   'CacheClearingComplete',
+  'CacheScanComplete',
   'ServiceRemovalStarted',
   'ServiceRemovalProgress',
   'ServiceRemovalComplete',
@@ -194,6 +195,7 @@ export const SIGNALR_REFRESH_EVENTS = [
   'GameDetectionComplete',
   'GameRemovalComplete',
   'CacheClearingComplete',
+  'CacheScanComplete',
   // Eviction events - refresh evicted items list after scan or removal completes
   'EvictionScanComplete',
   'EvictionRemovalComplete',

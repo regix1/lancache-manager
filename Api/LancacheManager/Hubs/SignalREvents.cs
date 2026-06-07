@@ -47,6 +47,7 @@ public static class SignalREvents
     public const string CacheClearingStarted = "CacheClearingStarted";
     public const string CacheClearingProgress = "CacheClearingProgress";
     public const string CacheClearingComplete = "CacheClearingComplete";
+    public const string CacheScanComplete = "CacheScanComplete";
     public const string ServiceRemovalStarted = "ServiceRemovalStarted";
     public const string ServiceRemovalProgress = "ServiceRemovalProgress";
     public const string ServiceRemovalComplete = "ServiceRemovalComplete";

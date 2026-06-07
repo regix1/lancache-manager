@@ -67,6 +67,9 @@ public class DashboardBatchService : IDashboardBatchService
         var cacheKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}";
         if (_memoryCache.TryGetValue(cacheKey, out DashboardBatchResponse? cachedResponse) && cachedResponse != null)
         {
+            // Cache file scan stats (totalFiles, cacheScanTimestampUtc) change independently of
+            // traffic aggregates — always re-read mount + persisted scan on batch cache hits.
+            cachedResponse.Cache = await SafeExecuteAsync("cache", () => GetCacheInfoAsync());
             return cachedResponse;
         }
 
