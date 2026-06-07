@@ -5,9 +5,10 @@ namespace LancacheManager.Models;
 
 /// <summary>
 /// Step identifier in the first-run / setup wizard.
-/// Serialized as kebab-case strings on the wire ("database-setup", "permissions-check",
-/// "import-historical-data", "platform-setup", "steam-api-key", "steam-auth",
-/// "depot-init", "pics-progress", "epic-auth", "log-processing", "depot-mapping")
+/// Serialized as kebab-case strings on the wire ("database-setup", "external-db-form",
+/// "external-db-confirm", "permissions-check", "import-historical-data", "platform-setup",
+/// "steam-api-key", "steam-auth", "depot-init", "pics-progress", "epic-auth",
+/// "log-processing", "depot-mapping")
 /// to preserve the pre-existing JSON contract with the frontend and persisted state.
 /// </summary>
 [JsonConverter(typeof(SetupStepJsonConverter))]
@@ -17,6 +18,8 @@ public enum SetupStep
     Unknown,
 
     DatabaseSetup,
+    ExternalDbForm,
+    ExternalDbConfirm,
     PermissionsCheck,
     ImportHistoricalData,
     PlatformSetup,
@@ -70,6 +73,8 @@ public static class SetupStepExtensions
     public static string ToWireString(this SetupStep step) => step switch
     {
         SetupStep.DatabaseSetup => "database-setup",
+        SetupStep.ExternalDbForm => "external-db-form",
+        SetupStep.ExternalDbConfirm => "external-db-confirm",
         SetupStep.PermissionsCheck => "permissions-check",
         SetupStep.ImportHistoricalData => "import-historical-data",
         SetupStep.PlatformSetup => "platform-setup",
@@ -98,6 +103,8 @@ public static class SetupStepExtensions
         return value.Trim().ToLowerInvariant() switch
         {
             "database-setup" => SetupStep.DatabaseSetup,
+            "external-db-form" => SetupStep.ExternalDbForm,
+            "external-db-confirm" => SetupStep.ExternalDbConfirm,
             "permissions-check" => SetupStep.PermissionsCheck,
             "import-historical-data" => SetupStep.ImportHistoricalData,
             "platform-setup" => SetupStep.PlatformSetup,
