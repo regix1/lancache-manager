@@ -101,7 +101,7 @@ public static class GamesOnDiskCalculator
             activeServiceCount);
     }
 
-    private static ulong AddUniquePathBytes(HashSet<string> seenPaths, IReadOnlyList<string>? paths)
+    private static ulong AddUniquePathBytes(HashSet<string> seenPaths, List<string>? paths)
     {
         if (paths == null || paths.Count == 0)
         {
