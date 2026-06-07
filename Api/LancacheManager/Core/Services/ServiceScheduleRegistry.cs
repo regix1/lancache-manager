@@ -11,6 +11,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     private static readonly HashSet<string> _allowedServiceKeys = new(StringComparer.OrdinalIgnoreCase)
     {
         "cacheReconciliation",
+        "cacheSizeScan",
         "gameDetection",
         "gameImageFetch",
         "steamService",

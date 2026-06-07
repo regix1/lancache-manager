@@ -464,7 +464,7 @@
       },
       "cacheFiles": {
         "term": "Cache Files",
-        "description": "Total number of files from the last cache-size scan. Re-run the scan in Management → Cache if the count looks wrong after large evictions or removals."
+        "description": "Total files from the last whole-cache scan. Schedule automatic scans under Management → Schedules → Cache File Scan, or refresh manually in Management → Cache."
       },
       "gamesOnDisk": {
         "term": "Games on Disk",
@@ -2964,6 +2964,12 @@
           "description": "Compares your cache directory against the database to see what is still on disk vs. what nginx has evicted. Keeps the 'evicted' badges in the UI accurate.",
           "gain": "Eviction badges and cache status in the UI are more accurate and up to date",
           "loss": "The UI may show stale eviction status - items marked as cached might actually be evicted, or vice versa"
+        },
+        "cacheSizeScan": {
+          "displayName": "Cache File Scan",
+          "description": "Walks the entire cache directory and totals every file on disk (mapped and unmapped). Updates the Cache Files dashboard stat, scan timestamp, and unmapped-cache hint.",
+          "gain": "File counts and unmapped-cache totals stay current without clicking Refresh in Management → Cache",
+          "loss": "The Cache Files stat and unmapped-cache subtitle may stay outdated until the next scan runs"
         },
         "gameDetection": {
           "displayName": "Game Detection",

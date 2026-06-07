@@ -541,6 +541,7 @@ builder.Services.AddSingletonHostedService<OperationStateService>();
 builder.Services.AddHostedService<LiveLogMonitorService>();
 builder.Services.AddHostedService<DownloadCleanupService>();
 builder.Services.AddSingletonHostedService<CacheReconciliationService>();
+builder.Services.AddSingletonHostedService<CacheSizeScanScheduledService>();
 builder.Services.AddSingletonHostedService<GameImageFetchService>();
 builder.Services.AddHostedService<DirectoryPermissionMonitorService>();
 
