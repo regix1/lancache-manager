@@ -82,7 +82,7 @@ See [Configuration → PostgreSQL](#postgresql) for the two compose examples (em
 **Retro View**
 <img alt="Downloads - Retro View" src="docs/images/downloads-retro.png" />
 
-*Three view modes to browse your cached games*
+*Three view modes to browse your cached games. Display settings include grouping, timestamps, and banner scaling (Smooth / Crisp).*
 
 ### Clients
 <img alt="Clients" src="docs/images/clients.png" />

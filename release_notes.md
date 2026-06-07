@@ -1,97 +1,79 @@
 ## What's New
 
-<details>
-<summary><strong>External PostgreSQL and slim image</strong></summary>
+### External PostgreSQL & slim image
 
-Deployments can now point at a Postgres instance you manage yourself. Set `POSTGRES_MODE=external` with `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD`, and the manager connects over TCP instead of starting an embedded server. The setup wizard adds dedicated steps for entering and validating external credentials on first launch, and the SQLite-to-Postgres migration script works in either mode.
+You can now run LANCache Manager against a Postgres instance you manage yourself — sidecar, remote host, or managed service (RDS, Azure, etc.).
 
-A new `:latest-slim` image variant (and matching `:dev-slim` builds) drops the bundled Postgres binary for a roughly 150 MB smaller footprint. Slim images auto-detect the missing server and force external mode, so a sidecar or managed Postgres is required. The README now documents both image tags, embedded vs external compose examples, and when to pick each.
+- Set `POSTGRES_MODE=external` with `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD`.
+- The setup wizard includes steps to enter and validate external credentials on first launch.
+- SQLite → Postgres migration still runs automatically when upgrading from older builds.
+- New **`:latest-slim`** image drops the bundled Postgres binary (~150 MB smaller). Slim images require external Postgres — they auto-detect the missing server and force external mode.
+- README updated with both image tags (`:latest` vs `:latest-slim`), embedded vs external compose examples, and guidance on when to pick each.
 
-</details>
+### Dashboard & cache stats
 
-<details>
-<summary><strong>Dashboard size accuracy</strong></summary>
+Dashboard numbers were sometimes inconsistent because the same cache file could be counted more than once, and heavy scans ran on every page load.
 
-Games-on-disk totals are now computed server-side with path deduplication so a shared cache file is counted once across games and services. Results are persisted in a new `CachedDetectionSummary` table after each detection scan, keeping the Used Space stat, Games on Disk count, and Service Analytics chart aligned without recomputing on every page load.
+- Games-on-disk totals are computed server-side with path deduplication — a shared cache file counts once across games and services.
+- Scan results persist in **`CachedDetectionSummary`** after each detection run, so Used Space, Games on Disk, and Service Analytics stay aligned without recomputing every visit.
+- Stat card labels and tooltips now distinguish live vs historical values; stale scan results are flagged when on-disk data may be out of date.
+- Recent Downloads and Service Analytics pull full-period data so chart bars match the header stats.
+- New **Cache File Scan** scheduled service walks the cache directory on a configurable interval (default 24 hours) and refreshes Rust cache-size totals used by the Cache Files stat. It appears on the Schedules page with Run on Startup / Run Now, and pushes a SignalR event when finished.
 
-Stat card labels and tooltips now distinguish live vs historical values, and stale scan results are flagged when on-disk data may be out of date. The Recent Downloads panel and Service Analytics chart pull full-period data so chart bars and row sizes stay consistent with the dashboard header stats.
+### Schedules
 
-</details>
+- The interval picker now supports **custom sub-hour intervals**. Choose **Custom** and enter any value from 1–59 minutes, or keep using the hour-based presets. The dropdown shows your active interval in plain language either way.
 
-<details>
-<summary><strong>Cache file scanning</strong></summary>
+### Eviction & removal
 
-A new Cache File Scan scheduled service walks the cache directory on a configurable interval (default 24 hours) and refreshes the persisted Rust cache-size totals used by the dashboard Cache Files stat and unmapped-cache figures. The job appears on the Schedules page like any other background service, supports Run on Startup and Run Now, and pushes a SignalR event when a scan completes so the UI updates without a refresh.
+- Automatic eviction scans in **Remove** mode run silently end to end, including the follow-up data purge — no flood of progress notifications for cleanup you already opted into. Manual scans still notify as before.
+- Post-scan recovery inserts missing detection rows for newly evicted games and services so they appear in **Evicted Items** without waiting for a full detection rescan. The detection cache refreshes in place after each reconciliation pass.
 
-</details>
+### Monitoring (Prometheus & Grafana)
 
-<details>
-<summary><strong>Schedule improvements</strong></summary>
+- Prometheus scraping was restored after a security policy change started rejecting unauthenticated scrape requests before the metrics middleware could run. Scrapes now accept **`X-Api-Key`** and standard **`Authorization: Bearer`** headers, matching the README scrape config.
+- The **Grafana Endpoints** card in Management loads metrics security state from the API, shows whether auth is driven by environment or a UI override, and broadcasts live updates over SignalR when an admin toggles the setting.
 
-The Schedules page interval picker now supports custom sub-hour intervals. Pick "Custom" and enter any value from 1 to 59 minutes, or stay with the existing hour-based presets. The dropdown shows the active interval in plain language whether you chose a preset or typed a custom value.
+### Settings that stick
 
-</details>
+- Guest session duration and metrics authentication UI overrides no longer reset unexpectedly after a restart or page reload.
+- Each setting reports its source (environment variable vs UI override), shows the configured env value when one exists, and offers a **Reset** button to drop the override and fall back to compose/appsettings defaults. Changes broadcast over SignalR so every connected admin sees the effective value immediately.
 
-<details>
-<summary><strong>Eviction and removal polish</strong></summary>
+### Downloads page
 
-Automatic eviction scans in Remove mode now run silently end to end, including the follow-up data purge, so you are not flooded with progress notifications for cleanup you already opted into. Manual scans still notify as before. Post-scan recovery inserts missing detection rows for newly evicted games and services so they stay visible in the Evicted Items list, and the detection cache refreshes in place after each reconciliation pass.
+- New **Smooth / Crisp** banner scaling toggle in Display settings for Normal, Card, Retro, and Compact views. Smooth uses standard browser scaling; Crisp applies a subtle sharpness boost — handy on small thumbnails in Retro view.
+- **Retro view** pagination and filtering are fully server-side. Page count, visible rows, and active filters stay in sync when **Group by Game** is enabled, and filter state survives URL refreshes and shared links.
 
-</details>
+### Setup & import
 
-<details>
-<summary><strong>Prometheus and Grafana integration</strong></summary>
+- The setup wizard no longer briefly flashes the wrong step (e.g. embedded DB form) while auth and setup status are still loading.
+- **DeveLanCacheUI import** shows a clear warning when `Security__AllowedBrowsePaths` is not configured, and switches to Manual mode so you know why browse isn't available.
 
-Prometheus scraping was restored after a security policy change had started rejecting all unauthenticated scrape requests before the metrics middleware could run. The metrics auth middleware now runs ahead of authorization and accepts both `X-Api-Key` and standard `Authorization: Bearer` headers, matching the scrape config documented in the README.
+### Storage & permissions
 
-The Grafana Endpoints card in Management loads metrics security state from the API, shows whether authentication is driven by environment or UI override, and broadcasts live updates over SignalR when an admin toggles the setting.
+The Logs & Cache page used to hide action buttons until permission checks finished, which made the UI feel slow or broken.
 
-</details>
+- Buttons now **appear immediately** with spinners while directory permissions resolve — no more pop-in after several seconds.
+- Permission fetching is centralized for the Storage section instead of each manager calling the API separately.
+- **Game Cache Detection**: **Expand All** and **Remove All** are visible on page load and stay disabled until the initial cache list is ready.
 
-<details>
-<summary><strong>Settings that stick</strong></summary>
+### Other improvements
 
-Guest session duration and metrics authentication settings no longer reset unexpectedly after a restart or page reload. Each setting now reports its source (environment variable vs UI override), shows the configured env value when one exists, and offers a reset button to drop the UI override and fall back to the compose or appsettings default. Changes broadcast over SignalR so every connected admin sees the effective value immediately.
+- **Epic Games Launcher** is seeded as a well-known CDN pattern — launcher update chunks under `/Builds/UnrealEngineLauncher/` label correctly instead of piling up as thousands of Unknown entries.
+- Documentation cleanup: dead env references removed, prefill vars renamed to `Prefill__SteamDockerImage` / `Prefill__EpicDockerImage`, Windows dev script moved to `scripts/dev-setup.ps1`, PUID/PGID guidance expanded.
 
-</details>
+### Bug fixes
 
-<details>
-<summary><strong>Epic launcher mapping</strong></summary>
-
-The Epic Games Launcher is now seeded as a well-known non-game CDN pattern. Launcher update chunks that live under `/Builds/UnrealEngineLauncher/` are labeled correctly instead of piling up as thousands of Unknown entries in detection results.
-
-</details>
-
-<details>
-<summary><strong>Downloads page fixes</strong></summary>
-
-Retro view pagination and filtering are now fully server-side. Page count, visible rows, and active filters stay in sync when Group by Game is enabled, and filter state survives URL refreshes and shared links.
-
-</details>
-
-<details>
-<summary><strong>Documentation and configuration cleanup</strong></summary>
-
-The README was reorganized with an Image Variants section at the top, expanded PostgreSQL documentation, and trimmed compose comments that referenced removed or renamed variables. Dead `Security__MaxAdminDevices` references were removed from docs and templates. Prefill env vars were renamed to `Prefill__SteamDockerImage` / `Prefill__EpicDockerImage` to match the code, and TCP port defaults in comments were corrected. The Windows dev-setup script moved to `scripts/dev-setup.ps1`, and PUID/PGID guidance now explains when to use 33, 99, or 1000.
-
-</details>
-
-<details>
-<summary><strong>Bug Fixes</strong></summary>
-
-- Prometheus metrics endpoint returning 401 for all scrape requests regardless of `RequireAuthForMetrics` setting
-- Dashboard Used Space and Games on Disk totals disagreeing with per-game rows and the Service Analytics chart
-- Evicted-data Remove mode spamming progress and completion notifications for automatic background purges
-- Newly evicted games and services missing from the Evicted Items list until a full detection rescan
-- Guest session duration and metrics security UI overrides not persisting across restarts
+- Prometheus `/metrics` returning 401 for all scrape requests regardless of `RequireAuthForMetrics`
+- Dashboard Used Space and Games on Disk disagreeing with per-game rows and Service Analytics
+- Evicted-data Remove mode spamming progress and completion notifications
+- Newly evicted games/services missing from Evicted Items until a full rescan
+- Guest session and metrics security UI overrides not persisting across restarts
 - Retro view page count and row list diverging when filters or Group by Game were active
-- Epic Games Launcher chunks appearing as Unknown in detection results
-- Cache Files stat not refreshing after a background directory scan completed
+- Cache Files stat not updating after a background directory scan completed
 - PostgreSQL entrypoint edge cases on slim images and external-mode credential handoff
-- Rust processor database connection handling under external Postgres configurations
+- Rust processor database connection handling under external Postgres
 - Various button, mobile layout, and theme styling regressions across Management and the dashboard
-
-</details>
 
 ---
 
