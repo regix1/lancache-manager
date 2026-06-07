@@ -22,4 +22,14 @@ public class CacheInfo
     public double UsagePercent => TotalCacheSize > 0 ? (UsedCacheSize * 100.0) / TotalCacheSize : 0;
     public long TotalFiles { get; set; }
     public Dictionary<string, long> ServiceSizes { get; set; } = new();
+
+    /// <summary>
+    /// UTC timestamp of the last Rust cache-size scan used for <see cref="TotalFiles"/>.
+    /// </summary>
+    public DateTime? CacheScanTimestampUtc { get; set; }
+
+    /// <summary>
+    /// True when mount used space has changed significantly since the last cache scan.
+    /// </summary>
+    public bool CacheScanMayBeStale { get; set; }
 }

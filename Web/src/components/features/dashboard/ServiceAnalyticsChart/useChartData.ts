@@ -70,7 +70,8 @@ const MAX_GAME_SLICES = 20;
 export function useChartData(
   serviceStats: ServiceStat[],
   activeTab: TabId,
-  games?: GameDetectionSummary[]
+  games?: GameDetectionSummary[],
+  gamesOnDiskBytes?: number
 ): ChartData {
   const { getColor, getCacheHitColor, getCacheMissColor, getBorderColor } = useServiceColors();
   const { getGameColors, getOtherColor } = useGameColors();
@@ -81,7 +82,7 @@ export function useChartData(
     if (activeTab === 'games') {
       const activeGames = (games ?? []).filter(isActiveGame);
 
-      if (activeGames.length === 0) {
+      if (activeGames.length === 0 || gamesOnDiskBytes === undefined) {
         return { labels: [], datasets: [], total: 0, isEmpty: true };
       }
 
@@ -99,7 +100,7 @@ export function useChartData(
       const otherGames = hasOther ? sorted.slice(MAX_GAME_SLICES) : [];
 
       const labels = topGames.map((g) => g.name);
-      const originalData = topGames.map((g) => g.value);
+      const rawSliceValues = topGames.map((g) => g.value);
       const sliceExtras: GameSliceExtra[] = topGames.map((g) => ({
         cacheFiles: g.cacheFiles,
         service: g.service
@@ -109,11 +110,14 @@ export function useChartData(
         const otherTotal = otherGames.reduce((sum, g) => sum + g.value, 0);
         const otherFiles = otherGames.reduce((sum, g) => sum + g.cacheFiles, 0);
         labels.push(`Other (${otherGames.length} games)`);
-        originalData.push(otherTotal);
+        rawSliceValues.push(otherTotal);
         sliceExtras.push({ cacheFiles: otherFiles, service: 'mixed' });
       }
 
-      const total = sorted.reduce((sum, g) => sum + g.value, 0);
+      const rawTotal = sorted.reduce((sum, g) => sum + g.value, 0);
+      const total = gamesOnDiskBytes;
+      const scale = rawTotal > 0 ? gamesOnDiskBytes / rawTotal : 1;
+      const originalData = rawSliceValues.map((value) => value * scale);
       const gameColors = getGameColors(topGames.length);
       const bgColors = hasOther ? [...gameColors, getOtherColor()] : gameColors;
       const data = applyMinimumSlice(originalData, MIN_SLICE_DEGREES / 360);
@@ -287,6 +291,7 @@ export function useChartData(
     serviceStats,
     activeTab,
     games,
+    gamesOnDiskBytes,
     getColor,
     getCacheHitColor,
     getCacheMissColor,

@@ -33,7 +33,6 @@ export interface LegendItem {
 
 export interface ServiceAnalyticsChartProps {
   serviceStats: ServiceStat[];
-  timeRange?: string;
   glassmorphism?: boolean;
   loading?: boolean;
   onExpandedChange?: (expanded: boolean) => void;

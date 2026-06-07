@@ -1,4 +1,5 @@
 using LancacheManager.Models;
+using LancacheManager.Core;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
@@ -602,34 +603,19 @@ public class GamesController : ControllerBase
 
         if (cachedResults == null)
         {
-            // Return success with hasCachedResults: false instead of 404
-            return Ok(new CachedDetectionResponse { HasCachedResults = false });
+            return Ok(CachedDetectionResponseBuilder.BuildEmpty());
         }
 
-        // Return in the format expected by frontend
-        // GameDetectionMetrics.StartTime carries the last detection timestamp from DB
-        // Ensure StartTime is treated as UTC for proper timezone conversion on frontend
-        var lastDetectionTimeUtc = cachedResults.StartTime.AsUtc();
-
         var games = cachedResults.Games ?? [];
+        var cacheInfo = await _cacheManagementService.GetCacheInfoAsync();
 
-        // Always include evicted games in the response so the frontend can display them
-        // in the Evicted Games section. The EvictedDataMode controls frontend display
-        // behavior, not API data availability - stripping here would make evicted games
-        // invisible to the frontend even when the user wants to see them.
-        // TotalGamesDetected excludes evicted games so the "N games detected" count
-        // reflects only active (non-evicted) games on disk.
-        var activeGamesCount = games.Count(g => !g.IsEvicted);
-
-        return Ok(new CachedDetectionResponse
-        {
-            HasCachedResults = true,
-            Games = games,
-            Services = cachedResults.Services,
-            TotalGamesDetected = activeGamesCount,
-            TotalServicesDetected = cachedResults.TotalServicesDetected,
-            LastDetectionTime = lastDetectionTimeUtc.ToString("o") // ISO 8601 format with UTC indicator
-        });
+        return Ok(CachedDetectionResponseBuilder.Build(
+            games,
+            cachedResults.Services,
+            cachedResults.TotalServicesDetected,
+            cachedResults.StartTime.AsUtc(),
+            cacheInfo.UsedCacheSize,
+            slimForDashboard: false));
     }
 
 

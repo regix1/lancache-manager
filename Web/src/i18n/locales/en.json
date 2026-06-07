@@ -417,9 +417,15 @@
       "snapshots_plural": "{{count}} snapshots",
       "noSnapshotsYet": "No snapshots yet",
       "filesOnDisk": "files on disk",
+      "fullDiskLimit": "Using full disk",
+      "overConfiguredLimit": "{{percent}} of configured limit",
+      "downloadsInRange": "{{count}} downloads · {{period}}",
+      "uniqueClientsInRange": "{{count}} unique · {{period}}",
       "gamesOnDisk": "Games on Disk",
       "gamesDetected": "{{count}} games detected",
       "noScanData": "No scan data yet",
+      "scannedAt": "scanned {{time}}",
+      "staleScanData": "Scan outdated",
       "evictedIncluded": "{{count}} evicted",
       "onDisk": "{{size}} on disk"
     },
@@ -430,7 +436,7 @@
       },
       "usedSpace": {
         "term": "Used Space",
-        "description": "In Live mode, this is the current size on disk. In historical views, it's the size at the end of the selected period."
+        "description": "In Live mode, this is the current space used on the cache volume (entire mount point, not just matched game files). In historical views, it's the size at the end of the selected period."
       },
       "bandwidthSaved": {
         "term": "Bandwidth Saved",
@@ -458,11 +464,11 @@
       },
       "cacheFiles": {
         "term": "Cache Files",
-        "description": "Total number of files currently found in the cache directory. A very high file count can make cache scans, removals, and filesystem operations take longer even when total size looks reasonable."
+        "description": "Total number of files from the last cache-size scan. Re-run the scan in Management → Cache if the count looks wrong after large evictions or removals."
       },
       "gamesOnDisk": {
         "term": "Games on Disk",
-        "description": "Total size of cache files that belong to identified games. This is a subset of Used Space - it only counts files matched to a known game during a Game Cache Detection scan. Unidentified cache files (updates, non-game content) are not included."
+        "description": "Total size of cache files matched to known games during the last Game Cache Detection scan. Shared files are counted once. This is usually less than Used Space because it excludes unidentified cache content. If the value exceeds Used Space, re-run detection — the scan is likely outdated after cache evictions or removals."
       }
     },
     "downloadsPanel": {
@@ -573,7 +579,8 @@
         "hitRatio": "Compare cache hits against origin traffic by service.",
         "bandwidth": "Bandwidth your cache saved per service. Larger slices = services most often served from cache instead of the internet.",
         "misses": "Data each service downloaded fresh from the internet. Larger slices = services with more new content. First-time downloads are normal.",
-        "games": "Review detected game installs and their on-disk footprint."
+        "games": "Review detected game installs and their on-disk footprint.",
+        "gamesStale": "Scan data may be outdated — re-run Game Cache Detection for accurate sizes."
       },
       "footer": {
         "totalData": "Total Data",

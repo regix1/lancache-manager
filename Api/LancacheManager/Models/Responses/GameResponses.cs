@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace LancacheManager.Models;
 
 /// <summary>
@@ -42,6 +44,25 @@ public class CachedDetectionResponse
     public int TotalGamesDetected { get; set; }
     public int TotalServicesDetected { get; set; }
     public string? LastDetectionTime { get; set; }
+
+    /// <summary>
+    /// Deduplicated total size of active (non-evicted) game cache files on disk.
+    /// </summary>
+    [JsonPropertyName("games_on_disk_bytes")]
+    public ulong GamesOnDiskBytes { get; set; }
+
+    /// <summary>
+    /// Number of non-evicted games with cache files on disk.
+    /// </summary>
+    [JsonPropertyName("games_on_disk_count")]
+    public int GamesOnDiskCount { get; set; }
+
+    /// <summary>
+    /// True when games_on_disk_bytes exceeds current mount-point used space,
+    /// indicating the detection scan is likely outdated.
+    /// </summary>
+    [JsonPropertyName("games_on_disk_may_be_stale")]
+    public bool GamesOnDiskMayBeStale { get; set; }
 }
 
 /// <summary>

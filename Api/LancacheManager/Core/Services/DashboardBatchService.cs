@@ -1,4 +1,5 @@
 using LancacheManager.Configuration;
+using LancacheManager.Core;
 using LancacheManager.Core.Constants;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
@@ -85,7 +86,7 @@ public class DashboardBatchService : IDashboardBatchService
         var servicesTask = SafeExecuteAsync("services", () => GetServiceStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
         var dashboardTask = SafeExecuteAsync("dashboard", () => GetDashboardStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
         var downloadsTask = SafeExecuteAsync("downloads", () => GetLatestDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, excludedClientIps, evictedMode));
-        var detectionTask = SafeExecuteAsync("detection", () => GetCachedDetectionAsync());
+        var detectionTask = SafeExecuteAsync("detection", () => GetCachedDetectionAsync(actualCacheSize));
         var sparklinesTask = SafeExecuteAsync("sparklines", () => GetSparklineDataAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
         var hourlyTask = SafeExecuteAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
         var cacheSnapshotTask = SafeExecuteAsync("cacheSnapshot", () => GetCacheSnapshotAsync(startTime, endTime));
@@ -438,59 +439,24 @@ public class DashboardBatchService : IDashboardBatchService
         return downloads;
     }
 
-    private async Task<object> GetCachedDetectionAsync()
+    private async Task<object> GetCachedDetectionAsync(long usedCacheSizeBytes)
     {
         var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
 
         if (cachedResults == null)
         {
-            return new CachedDetectionResponse { HasCachedResults = false };
+            return CachedDetectionResponseBuilder.BuildEmpty();
         }
 
-        var lastDetectionTimeUtc = cachedResults.StartTime.AsUtc();
         var games = cachedResults.Games ?? [];
-        var activeGamesCount = games.Count(g => !g.IsEvicted);
 
-        // Project into slim DTOs - the dashboard does NOT read cache_file_paths,
-        // sample_urls, datasources, depot_ids, evicted_sample_urls, evicted_depot_ids,
-        // or evicted_bytes. These unbounded list fields inflate the /api/dashboard/batch
-        // payload by ~70-90% on large caches. The full GameCacheInfo / ServiceCacheInfo
-        // shape remains on /api/games/cached-detection for the Management tab.
-        var slimGames = games
-            .Select(g => new DashboardGameSummary
-            {
-                GameAppId = g.GameAppId,
-                GameName = g.GameName,
-                CacheFilesFound = g.CacheFilesFound,
-                TotalSizeBytes = g.TotalSizeBytes,
-                Service = g.Service,
-                ImageUrl = g.ImageUrl,
-                EpicAppId = g.EpicAppId,
-                IsEvicted = g.IsEvicted,
-                EvictedDownloadsCount = g.EvictedDownloadsCount
-            })
-            .ToList();
-
-        var slimServices = (cachedResults.Services ?? new List<ServiceCacheInfo>())
-            .Select(s => new DashboardServiceSummary
-            {
-                ServiceName = s.ServiceName,
-                CacheFilesFound = s.CacheFilesFound,
-                TotalSizeBytes = s.TotalSizeBytes,
-                IsEvicted = s.IsEvicted,
-                EvictedDownloadsCount = s.EvictedDownloadsCount
-            })
-            .ToList();
-
-        return new CachedDetectionResponse
-        {
-            HasCachedResults = true,
-            Games = slimGames,
-            Services = slimServices,
-            TotalGamesDetected = activeGamesCount,
-            TotalServicesDetected = cachedResults.TotalServicesDetected,
-            LastDetectionTime = lastDetectionTimeUtc.ToString("o")
-        };
+        return CachedDetectionResponseBuilder.Build(
+            games,
+            cachedResults.Services,
+            cachedResults.TotalServicesDetected,
+            cachedResults.StartTime.AsUtc(),
+            usedCacheSizeBytes,
+            slimForDashboard: true);
     }
 
     // ───────────────────── New batch sub-queries (sparklines, hourly, cacheGrowth, cacheSnapshot) ─────────────────────

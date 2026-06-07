@@ -1,4 +1,5 @@
 using System.Text.Json;
+using LancacheManager.Core;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
@@ -484,24 +485,9 @@ public class GameCacheDetectionService : IDisposable
                     }
                     else
                     {
-                        // Game already found in another datasource - merge cache file info
+                        // Game already found in another datasource - merge without double-counting files
                         var existingGame = aggregatedGames.First(g => g.GameAppId == game.GameAppId);
-                        existingGame.CacheFilesFound += game.CacheFilesFound;
-                        existingGame.TotalSizeBytes += game.TotalSizeBytes;
-                        existingGame.CacheFilePaths.AddRange(game.CacheFilePaths);
-                        existingGame.SampleUrls.AddRange(game.SampleUrls.Take(5 - existingGame.SampleUrls.Count));
-                        foreach (var depotId in game.DepotIds)
-                        {
-                            if (!existingGame.DepotIds.Contains(depotId))
-                            {
-                                existingGame.DepotIds.Add(depotId);
-                            }
-                        }
-                        // Track that this game was also found in this datasource
-                        if (!existingGame.Datasources.Contains(datasource.Name))
-                        {
-                            existingGame.Datasources.Add(datasource.Name);
-                        }
+                        GameCacheInfoMergeHelper.MergeGameInto(existingGame, game, datasource.Name);
                     }
 
                     gameIndex++;
@@ -533,18 +519,10 @@ public class GameCacheDetectionService : IDisposable
                     }
                     else
                     {
-                        // Service already found in another datasource - merge cache file info
+                        // Service already found in another datasource - merge without double-counting files
                         var existingService = aggregatedServices.First(s =>
                             s.ServiceName.Equals(service.ServiceName, StringComparison.OrdinalIgnoreCase));
-                        existingService.CacheFilesFound += service.CacheFilesFound;
-                        existingService.TotalSizeBytes += service.TotalSizeBytes;
-                        existingService.CacheFilePaths.AddRange(service.CacheFilePaths);
-                        existingService.SampleUrls.AddRange(service.SampleUrls.Take(5 - existingService.SampleUrls.Count));
-                        // Track that this service was also found in this datasource
-                        if (!existingService.Datasources.Contains(datasource.Name))
-                        {
-                            existingService.Datasources.Add(datasource.Name);
-                        }
+                        GameCacheInfoMergeHelper.MergeServiceInto(existingService, service, datasource.Name);
                     }
                 }
 

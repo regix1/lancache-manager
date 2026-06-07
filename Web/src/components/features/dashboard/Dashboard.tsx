@@ -32,9 +32,10 @@ import { useEvents } from '@contexts/useEvents';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { useDraggableCards } from '@hooks/useDraggableCards';
 import { formatBytes, formatCount, formatPercent } from '@utils/formatters';
-import { isNonEvictedGame } from '@utils/gameDetection';
+import { buildGamesOnDiskDisplayStats } from '@utils/gameDetection';
+import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { STORAGE_KEYS } from '@utils/constants';
-import { type StatCardData, type ServiceStat } from '../../../types';
+import { type StatCardData } from '../../../types';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import {
@@ -238,42 +239,13 @@ const Dashboard: React.FC = () => {
   const { sparklines: sparklineData } = useSparklines();
   const { cacheSnapshot } = useCacheSnapshot();
 
-  // Filter out services with only small files (< 1MB) and 0-byte files from dashboard data
+  // Filter out evicted downloads when eviction mode is 'hide' (server may still return them until refetch)
   const filteredLatestDownloads = useMemo(() => {
-    return latestDownloads.filter((download) => {
-      // Filter out 0-byte files
-      if (download.totalBytes === 0) {
-        return false;
-      }
-      // Filter out small files (< 1MB)
-      if (download.totalBytes < 1024 * 1024) {
-        return false;
-      }
-      // Hide evicted downloads when eviction mode is 'hide'
-      if (evictedDataMode === 'hide' && download.isEvicted) {
-        return false;
-      }
-      return true;
-    });
-  }, [latestDownloads, evictedDataMode]);
-
-  // Precompute the set of services that have at least one large (>1MB) download.
-  // Single O(n) pass over latestDownloads - replaces a nested filter that was O(services × downloads).
-  const servicesWithLargeFiles = useMemo<Set<string>>(() => {
-    const set = new Set<string>();
-    for (const download of latestDownloads) {
-      if (download.totalBytes > 1024 * 1024) {
-        set.add(download.service.toLowerCase());
-      }
+    if (evictedDataMode !== 'hide') {
+      return latestDownloads;
     }
-    return set;
-  }, [latestDownloads]);
-
-  const filteredServiceStats = useMemo(
-    () =>
-      serviceStats.filter((service) => servicesWithLargeFiles.has(service.service.toLowerCase())),
-    [serviceStats, servicesWithLargeFiles]
-  );
+    return latestDownloads.filter((download) => !download.isEvicted);
+  }, [latestDownloads, evictedDataMode]);
 
   // Filter client stats based on date range
   const filteredClientStats = useMemo(() => {
@@ -408,13 +380,10 @@ const Dashboard: React.FC = () => {
     }));
   }, []);
 
-  const stats = useMemo(() => {
-    // Use speed data from SpeedContext for real-time accurate active data (from Rust speed tracker)
-    const totalDownloads = filteredServiceStats.reduce(
-      (sum: number, service: ServiceStat) => sum + service.totalDownloads,
-      0
-    );
+  const formattedCacheScanTime = useFormattedDateTime(cacheInfo?.cacheScanTimestampUtc);
+  const periodLabel = getTimeRangeLabel().toLowerCase();
 
+  const stats = useMemo(() => {
     // Use dashboardStats when available, otherwise keep previous values to prevent flashing to 0
     const hasPeriodData = dashboardStats?.period !== undefined && dashboardStats?.period !== null;
 
@@ -426,7 +395,6 @@ const Dashboard: React.FC = () => {
     const newStats = {
       activeClients,
       totalActiveDownloads,
-      totalDownloads,
       bandwidthSaved: hasPeriodData
         ? (dashboardStats.period.bandwidthSaved ?? previousStatsRef.current.bandwidthSaved)
         : previousStatsRef.current.bandwidthSaved,
@@ -439,10 +407,10 @@ const Dashboard: React.FC = () => {
       cacheHitRatio: hasPeriodData
         ? (dashboardStats.period.hitRatio ?? previousStatsRef.current.cacheHitRatio)
         : previousStatsRef.current.cacheHitRatio,
-      uniqueClients:
-        dashboardStats?.uniqueClients ??
-        filteredClientStats.length ??
-        previousStatsRef.current.uniqueClients
+      uniqueClients: hasPeriodData
+        ? (dashboardStats.uniqueClients ?? previousStatsRef.current.uniqueClients)
+        : previousStatsRef.current.uniqueClients,
+      periodDownloads: hasPeriodData ? (dashboardStats.period.downloads ?? 0) : 0
     };
 
     // Update ref with valid data for next render
@@ -459,13 +427,7 @@ const Dashboard: React.FC = () => {
     }
 
     return newStats;
-  }, [
-    filteredServiceStats,
-    dashboardStats,
-    filteredClientStats,
-    speedSnapshot,
-    activeDownloadCount
-  ]);
+  }, [dashboardStats, speedSnapshot, activeDownloadCount]);
 
   // Compute "Games on Disk" aggregate from detection data.
   // Hold the previous stable value in a ref so the card doesn't jump
@@ -475,23 +437,21 @@ const Dashboard: React.FC = () => {
     gameCount: number;
     includesEvicted: boolean;
     evictedCount: number;
+    mayBeStale: boolean;
   } | null>(null);
+  const formattedLastDetectionTime = useFormattedDateTime(gameDetectionData?.lastDetectionTime);
   const gamesOnDiskStats = useMemo(() => {
-    if (!gameDetectionData?.hasCachedResults || !gameDetectionData.games) {
+    if (!gameDetectionData?.hasCachedResults) {
       return prevGamesOnDiskRef.current;
     }
     const includeEvicted = evictedDataMode === 'show' || evictedDataMode === 'showClean';
-    const evictedCount = evictedGamesCount;
-    const allGames = gameDetectionData.games;
-    const games = includeEvicted ? allGames : allGames.filter(isNonEvictedGame);
-    const gameCount = includeEvicted ? games.length + evictedCount : games.length;
-    const totalSize = games.reduce((sum, game) => sum + game.total_size_bytes, 0);
-    const result = {
-      totalSize,
-      gameCount,
-      includesEvicted: includeEvicted && evictedCount > 0,
-      evictedCount
-    };
+    const result = buildGamesOnDiskDisplayStats(gameDetectionData, {
+      showEvictedBadge: includeEvicted,
+      evictedCount: evictedGamesCount
+    });
+    if (!result) {
+      return prevGamesOnDiskRef.current;
+    }
     prevGamesOnDiskRef.current = result;
     return result;
   }, [gameDetectionData, evictedDataMode, evictedGamesCount]);
@@ -507,7 +467,7 @@ const Dashboard: React.FC = () => {
             ? t('dashboard.cards.driveCapacityValue', {
                 size: formatBytes(cacheInfo.driveCapacity)
               })
-            : t('dashboard.cards.driveCapacity'),
+            : t('dashboard.cards.fullDiskLimit'),
         icon: Database,
         color: 'blue' as const,
         visible: cardVisibility.totalCache,
@@ -533,7 +493,12 @@ const Dashboard: React.FC = () => {
               t('dashboard.cards.snapshots', { count: cacheSnapshot.snapshotCount })
             : t('dashboard.cards.noSnapshotsYet')
           : cacheInfo
-            ? formatPercent(cacheInfo.usagePercent)
+            ? cacheInfo.configuredCacheSize > 0 &&
+              cacheInfo.usedCacheSize > cacheInfo.totalCacheSize
+              ? t('dashboard.cards.overConfiguredLimit', {
+                  percent: formatPercent(cacheInfo.usagePercent)
+                })
+              : formatPercent(cacheInfo.usagePercent)
             : '0%',
         icon: HardDrive,
         color: 'green' as const,
@@ -576,7 +541,10 @@ const Dashboard: React.FC = () => {
         value: isHistoricalView ? t('dashboard.cards.disabled') : stats.totalActiveDownloads,
         subtitle: isHistoricalView
           ? t('dashboard.cards.liveDataOnly')
-          : `${dashboardStats?.period?.downloads || filteredLatestDownloads.length} ${t('dashboard.cards.inPeriod')}`,
+          : t('dashboard.cards.downloadsInRange', {
+              count: stats.periodDownloads,
+              period: periodLabel
+            }),
         icon: Download,
         color: 'orange' as const,
         visible: cardVisibility.activeDownloads,
@@ -588,7 +556,10 @@ const Dashboard: React.FC = () => {
         value: isHistoricalView ? t('dashboard.cards.disabled') : stats.activeClients,
         subtitle: isHistoricalView
           ? t('dashboard.cards.liveDataOnly')
-          : `${stats.uniqueClients} ${t('dashboard.cards.uniqueInPeriod')}`,
+          : t('dashboard.cards.uniqueClientsInRange', {
+              count: stats.uniqueClients,
+              period: periodLabel
+            }),
         icon: Users,
         color: 'yellow' as const,
         visible: cardVisibility.activeClients,
@@ -608,7 +579,17 @@ const Dashboard: React.FC = () => {
         key: 'cacheFiles',
         title: t('dashboard.cards.cacheFiles'),
         value: cacheInfo ? formatCount(cacheInfo.totalFiles) : '0',
-        subtitle: t('dashboard.cards.filesOnDisk'),
+        subtitle: [
+          t('dashboard.cards.filesOnDisk'),
+          formattedCacheScanTime
+            ? t('dashboard.cards.scannedAt', { time: formattedCacheScanTime })
+            : null
+        ]
+          .filter(Boolean)
+          .join(' • '),
+        badge: cacheInfo?.cacheScanMayBeStale ? (
+          <Badge variant="warning">{t('dashboard.cards.staleScanData')}</Badge>
+        ) : undefined,
         icon: Files,
         color: 'teal' as const,
         visible: cardVisibility.cacheFiles,
@@ -619,13 +600,28 @@ const Dashboard: React.FC = () => {
         title: t('dashboard.cards.gamesOnDisk'),
         value: gamesOnDiskStats ? formatBytes(gamesOnDiskStats.totalSize) : '-',
         subtitle: gamesOnDiskStats
-          ? t('dashboard.cards.gamesDetected', { count: gamesOnDiskStats.gameCount })
+          ? [
+              t('dashboard.cards.gamesDetected', { count: gamesOnDiskStats.gameCount }),
+              formattedLastDetectionTime
+                ? t('dashboard.cards.scannedAt', { time: formattedLastDetectionTime })
+                : null
+            ]
+              .filter(Boolean)
+              .join(' • ')
           : t('dashboard.cards.noScanData'),
-        badge: gamesOnDiskStats?.includesEvicted ? (
-          <Badge variant="warning">
-            {t('dashboard.cards.evictedIncluded', { count: gamesOnDiskStats.evictedCount })}
-          </Badge>
-        ) : undefined,
+        badge:
+          gamesOnDiskStats?.mayBeStale || gamesOnDiskStats?.includesEvicted ? (
+            <>
+              {gamesOnDiskStats?.mayBeStale ? (
+                <Badge variant="warning">{t('dashboard.cards.staleScanData')}</Badge>
+              ) : null}
+              {gamesOnDiskStats?.includesEvicted ? (
+                <Badge variant="warning">
+                  {t('dashboard.cards.evictedIncluded', { count: gamesOnDiskStats.evictedCount })}
+                </Badge>
+              ) : null}
+            </>
+          ) : undefined,
         icon: HardDrive,
         color: 'cyan' as const,
         visible: cardVisibility.gamesOnDisk ?? false,
@@ -638,12 +634,13 @@ const Dashboard: React.FC = () => {
       cacheSnapshot,
       cardVisibility,
       stats,
+      periodLabel,
       getTimeRangeLabel,
-      dashboardStats,
-      filteredLatestDownloads,
       isHistoricalView,
       statTooltips,
-      gamesOnDiskStats
+      gamesOnDiskStats,
+      formattedLastDetectionTime,
+      formattedCacheScanTime
     ]
   );
 
@@ -990,8 +987,7 @@ const Dashboard: React.FC = () => {
         >
           <div className="w-full h-full">
             <ServiceAnalyticsChart
-              serviceStats={filteredServiceStats}
-              timeRange={timeRange}
+              serviceStats={serviceStats}
               glassmorphism={true}
               loading={loading}
               onExpandedChange={setIsChartExpanded}

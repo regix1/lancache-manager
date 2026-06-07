@@ -1,12 +1,13 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { PieChart, Maximize2, Minimize2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { isActiveGame } from '@utils/gameDetection';
+import { isActiveGame, buildGamesOnDiskDisplayStats } from '@utils/gameDetection';
 import { useGameDetection } from '@contexts/DashboardDataContext/hooks';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { Tooltip } from '@components/ui/Tooltip';
+import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import DoughnutChart from './DoughnutChart';
 import ChartLegend from './ChartLegend';
@@ -41,6 +42,16 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
     }, []);
 
     const games = useMemo(() => gameDetectionData?.games ?? [], [gameDetectionData?.games]);
+
+    const gamesOnDisk = useMemo(
+      () => buildGamesOnDiskDisplayStats(gameDetectionData),
+      [gameDetectionData]
+    );
+
+    const activeServiceCount = useMemo(
+      () => serviceStats.filter((service) => service.totalBytes > 0).length,
+      [serviceStats]
+    );
 
     const tabs: TabOption[] = useMemo(
       () => [
@@ -96,20 +107,30 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
             'Bytes the cache server fetched from origin (not served from cache). Lower is better.'
           );
         case 'games':
-          return t(
-            'dashboard.serviceAnalytics.descriptions.games',
-            'Review detected game installs and their on-disk footprint.'
-          );
+          return gamesOnDisk?.mayBeStale
+            ? t(
+                'dashboard.serviceAnalytics.descriptions.gamesStale',
+                'Scan data may be outdated — re-run Game Cache Detection for accurate sizes.'
+              )
+            : t(
+                'dashboard.serviceAnalytics.descriptions.games',
+                'Review detected game installs and their on-disk footprint.'
+              );
         default:
           return t(
             'dashboard.serviceAnalytics.descriptions.service',
             'Compare total cache traffic across every tracked service.'
           );
       }
-    }, [activeTab, t]);
+    }, [activeTab, t, gamesOnDisk?.mayBeStale]);
 
     // Get chart data from hook
-    const chartData = useChartData(serviceStats, activeTab, games);
+    const chartData = useChartData(
+      serviceStats,
+      activeTab,
+      games,
+      gameDetectionData?.games_on_disk_bytes
+    );
 
     // Transform to legend items
     const legendItems: LegendItem[] = useMemo(() => {
@@ -147,7 +168,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
     const footerStats: FooterStats = useMemo(() => {
       if (activeTab === 'games') {
         const activeGames = games.filter(isActiveGame);
-        const totalDisk = activeGames.reduce((sum, g) => sum + g.total_size_bytes, 0);
+        const totalDisk = gamesOnDisk?.totalSize ?? gameDetectionData?.games_on_disk_bytes ?? 0;
         const sorted = [...activeGames].sort((a, b) => b.total_size_bytes - a.total_size_bytes);
         const largest = sorted[0];
         return {
@@ -155,7 +176,8 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
           hitRatio: 0,
           missBytes: 0,
           serviceCount: 0,
-          gameCount: activeGames.length,
+          gameCount:
+            gamesOnDisk?.gameCount ?? gameDetectionData?.games_on_disk_count ?? activeGames.length,
           largestGame: largest?.game_name ?? '',
           largestGameBytes: largest?.total_size_bytes ?? 0,
           topServiceName: '',
@@ -167,13 +189,14 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
       const totalHits = serviceStats.reduce((sum, s) => sum + s.totalCacheHitBytes, 0);
       const totalMisses = serviceStats.reduce((sum, s) => sum + s.totalCacheMissBytes, 0);
       const hitRatio = totalBytes > 0 ? (totalHits / totalBytes) * 100 : 0;
-      const sortedByTotal = [...serviceStats].sort((a, b) => b.totalBytes - a.totalBytes);
+      const activeServices = serviceStats.filter((service) => service.totalBytes > 0);
+      const sortedByTotal = [...activeServices].sort((a, b) => b.totalBytes - a.totalBytes);
       const top = sortedByTotal[0];
       return {
         totalBytes,
         hitRatio,
         missBytes: totalMisses,
-        serviceCount: serviceStats.length,
+        serviceCount: activeServiceCount,
         gameCount: 0,
         largestGame: '',
         largestGameBytes: 0,
@@ -181,7 +204,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
         topServiceBytes: top?.totalBytes ?? 0,
         totalHitBytes: totalHits
       };
-    }, [serviceStats, activeTab, games]);
+    }, [serviceStats, activeTab, games, gameDetectionData, gamesOnDisk, activeServiceCount]);
 
     const insightCards = useMemo(
       () => getInsightCards(activeTab, footerStats, chartData, t),
@@ -202,6 +225,9 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
             </div>
             <h3>{t('dashboard.serviceAnalytics.title')}</h3>
             <p>{activeDescription}</p>
+            {activeTab === 'games' && gamesOnDisk?.mayBeStale ? (
+              <Badge variant="warning">{t('dashboard.cards.staleScanData')}</Badge>
+            ) : null}
           </div>
 
           <div className="service-analytics-controls">

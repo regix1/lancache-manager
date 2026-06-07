@@ -9,6 +9,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
@@ -284,13 +285,17 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const latestDownloads = useMemo(() => downloads, [downloads]);
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
   const { getGroupForIp } = useClientGroups();
-  const { speedSnapshot, gameSpeeds, refreshSpeed } = useSpeed();
-  const { timeRange: contextTimeRange } = useTimeFilter();
+  const {
+    speedSnapshot,
+    gameSpeeds,
+    activeDownloadCount,
+    isLoading: speedLoading,
+    refreshSpeed
+  } = useSpeed();
+  const { timeRange: contextTimeRange, selectedEventIds } = useTimeFilter();
 
-  // Determine if we're viewing historical data (not live)
-  // Only time ranges other than 'live' are considered historical
-  // Event selection does NOT make it historical - user can filter live downloads by event
-  const isHistoricalView = contextTimeRange !== 'live';
+  // Match Dashboard/DownloadsTab: non-live time range or event filter disables live Active tab
+  const isHistoricalView = contextTimeRange !== 'live' || selectedEventIds.length > 0;
 
   // Auto-switch to Recent view when user switches to historical view while on Active tab
   useEffect(() => {
@@ -524,9 +529,9 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     return { totalDownloads, totalBytes, overallHitRate };
   }, [filteredDownloads]);
 
-  // Active downloads data from speed context
+  // Active downloads data from speed context (same source as Active Downloads stat card)
   const activeGames = gameSpeeds;
-  const activeCount = activeGames.length;
+  const activeCount = activeDownloadCount;
   const totalSpeed = speedSnapshot?.totalBytesPerSecond || 0;
   const hasActiveDownloads = speedSnapshot?.hasActiveDownloads || false;
 
@@ -1074,7 +1079,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                   <>
                     {t('dashboard.downloadsPanel.active')}
                     {!isHistoricalView && activeCount > 0 && (
-                      <span className="count-badge">{activeCount}</span>
+                      <span className="tab-badge">{activeCount}</span>
                     )}
                   </>
                 ),
@@ -1166,7 +1171,12 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       <CustomScrollbar maxHeight="380px" paddingMode="default">
         <div className="downloads-list">
           {viewMode === 'active' ? (
-            hasActiveDownloads && activeGames.length > 0 ? (
+            speedLoading ? (
+              <div className="loading-state">
+                <LoadingSpinner size="md" />
+                <span>{t('dashboard.downloadsPanel.emptyStates.loading')}</span>
+              </div>
+            ) : hasActiveDownloads && activeGames.length > 0 ? (
               activeGames.map((game, idx) => (
                 <ActiveDownloadItem
                   key={`${game.service}-${game.depotId}-${game.clientIp ?? 'unknown'}`}

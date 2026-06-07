@@ -11,6 +11,10 @@ export interface CacheInfo {
   usagePercent: number;
   totalFiles: number;
   serviceSizes: Record<string, number>;
+  /** UTC timestamp of the cache file scan backing totalFiles. */
+  cacheScanTimestampUtc?: string;
+  /** True when disk usage changed significantly since the cache file scan. */
+  cacheScanMayBeStale?: boolean;
 }
 
 export interface CacheSizeInfo {

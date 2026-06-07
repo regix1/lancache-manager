@@ -193,6 +193,10 @@ public class CacheManagementService
         }
 
         info.TotalFiles = cachedScan.TotalFiles;
+        info.CacheScanTimestampUtc = _cachedCacheScan!.ScannedAtUtc;
+
+        const long staleThresholdBytes = 50L * 1024 * 1024 * 1024;
+        info.CacheScanMayBeStale = Math.Abs(info.UsedCacheSize - _cachedCacheScan.UsedCacheSizeAtScan) >= staleThresholdBytes;
     }
     
     /// <summary>

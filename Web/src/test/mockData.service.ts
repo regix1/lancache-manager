@@ -563,13 +563,18 @@ class MockDataService {
       }
     ];
 
+    const totalSizeBytes = games.reduce((s, g) => s + g.total_size_bytes, 0);
+
     return {
       hasCachedResults: true,
       games,
       services,
       totalGamesDetected: games.length,
       totalServicesDetected: 1,
-      lastDetectionTime: new Date().toISOString()
+      lastDetectionTime: new Date().toISOString(),
+      games_on_disk_bytes: totalSizeBytes,
+      games_on_disk_count: games.length,
+      games_on_disk_may_be_stale: false
     };
   }
 

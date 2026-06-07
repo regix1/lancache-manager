@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { DashboardDataContext } from './types';
+import { DashboardDataContext, type CachedDetectionResponse } from './types';
 import type {
   CacheInfo,
   ClientStat,
@@ -7,7 +7,6 @@ import type {
   DashboardStats,
   Download,
   GameDetectionSummary,
-  ServiceDetectionSummary,
   SparklineDataResponse,
   HourlyActivityResponse,
   CacheSnapshotResponse,
@@ -60,12 +59,7 @@ export const useGameDetection = (): {
     string,
     { service_name: string; cache_files_found: number; total_size_bytes: number }
   > | null;
-  gameDetectionData: {
-    hasCachedResults: boolean;
-    games?: GameDetectionSummary[];
-    services?: ServiceDetectionSummary[];
-    lastDetectionTime?: string;
-  } | null;
+  gameDetectionData: CachedDetectionResponse | null;
   isLoading: boolean;
 } => {
   const context = useContext(DashboardDataContext);
