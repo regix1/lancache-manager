@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using Docker.DotNet;
 using Docker.DotNet.Models;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
-using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using static LancacheManager.Infrastructure.Utilities.FormattingUtils;
 using LancacheManager.Models;
@@ -1019,98 +1019,72 @@ public class CacheManagementService
         ProcessStartInfo startInfo,
         string failedProcessDescription,
         CancellationToken cancellationToken,
+        Guid? operationId,
         Func<TProgress, Task>? onProgress,
         Func<RustRemovalProcessResult, Task<TReport>> buildReportAsync)
         where TProgress : class
     {
-        using var process = Process.Start(startInfo);
-        if (process == null)
-        {
-            throw new InvalidOperationException(
-                $"Failed to start {failedProcessDescription} process for datasource '{execution.Datasource.Name}'");
-        }
-
-        using var pollCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var pollTask = Task.Run(async () =>
-        {
-            while (!process.HasExited && !pollCts.Token.IsCancellationRequested)
-            {
-                await Task.Delay(250, pollCts.Token).ConfigureAwait(false);
-
-                try
-                {
-                    var progressData = await _rustProcessHelper.ReadProgressFileAsync<TProgress>(execution.ProgressJsonPath);
-                    if (progressData != null && onProgress != null)
-                    {
-                        await onProgress(progressData);
-                    }
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    _logger.LogDebug("{LogPrefix} Progress file read error (transient): {Error}", logPrefix, ex.Message);
-                }
-            }
-        }, pollCts.Token);
-
-        var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-
-        await _processManager.WaitForProcessAsync(process, cancellationToken);
-
-        pollCts.Cancel();
-        try { await pollTask; } catch (OperationCanceledException) { }
-
-        var output = await outputTask;
-        var error = await errorTask;
+        var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync<TProgress>(
+            startInfo,
+            operationId,
+            cancellationToken,
+            execution.ProgressJsonPath,
+            onProgress,
+            failedProcessDescription,
+            pollIntervalMs: 250);
 
         _logger.LogInformation(
             "{LogPrefix} Process exit code for datasource '{DatasourceName}': {Code}",
             logPrefix,
             execution.Datasource.Name,
-            process.ExitCode);
+            result.ExitCode);
 
-        if (!string.IsNullOrEmpty(output))
+        if (!string.IsNullOrEmpty(result.Output))
         {
             _logger.LogInformation(
                 "{LogPrefix} Process output for datasource '{DatasourceName}':\n{Output}",
                 logPrefix,
                 execution.Datasource.Name,
-                output);
+                result.Output);
         }
 
-        if (!string.IsNullOrEmpty(error))
+        if (!string.IsNullOrEmpty(result.Error))
         {
             _logger.LogInformation(
                 "{LogPrefix} Process stderr for datasource '{DatasourceName}': {Error}",
                 logPrefix,
                 execution.Datasource.Name,
-                error);
+                result.Error);
         }
 
-        if (process.ExitCode != 0)
+        if (result.ExitCode != 0)
         {
             _logger.LogError(
                 "{LogPrefix} Failed for datasource '{DatasourceName}' with exit code {Code}: {Error}",
                 logPrefix,
                 execution.Datasource.Name,
-                process.ExitCode,
-                error);
+                result.ExitCode,
+                result.Error);
             throw new Exception(
-                $"{failedProcessDescription} failed for datasource '{execution.Datasource.Name}' with exit code {process.ExitCode}: {error}");
+                $"{failedProcessDescription} failed for datasource '{execution.Datasource.Name}' with exit code {result.ExitCode}: {result.Error}");
         }
 
         return await buildReportAsync(new RustRemovalProcessResult(
             execution.Datasource,
             execution.OutputJsonPath,
             execution.ProgressJsonPath,
-            output,
-            error));
+            result.Output,
+            result.Error));
     }
 
     /// <summary>
     /// Remove all cache files for a specific game across all datasources
     /// </summary>
-    public async Task<GameCacheRemovalReport> RemoveGameFromCacheAsync(long gameAppId, CancellationToken cancellationToken = default, Func<double, string, Dictionary<string, object?>?, int, long, Task>? onProgress = null)
+    public async Task<GameCacheRemovalReport> RemoveGameFromCacheAsync(
+        long gameAppId,
+        CancellationToken cancellationToken = default,
+        Func<double, string, Dictionary<string, object?>?, int, long, Task>? onProgress = null,
+        Guid? operationId = null)
     {
         await _cacheLock.WaitAsync(cancellationToken);
         try
@@ -1178,6 +1152,7 @@ public class CacheManagementService
                     startInfo,
                     "game_cache_remover",
                     cancellationToken,
+                    operationId,
                     async progressData =>
                     {
                         if (onProgress != null)
@@ -1253,7 +1228,7 @@ public class CacheManagementService
             _logger.LogInformation("[GameRemoval] Removed cached game detection entry for AppID: {AppId}", gameAppId);
 
             // Refresh persisted disk-summary totals so dashboard reads reflect post-removal state
-            await _gameCacheDetectionService.RefreshAndInvalidateDetectionCacheAsync();
+            await _gameCacheDetectionService.RefreshAndInvalidateDetectionCacheAsync(cancellationToken);
 
             // Invalidate service counts cache since logs were modified
             await InvalidateServiceCountsCacheAsync();
@@ -1276,7 +1251,11 @@ public class CacheManagementService
     /// 2. Removes matching lines from access log text files
     /// 3. Deletes LogEntry and Download records from the database
     /// </summary>
-    public async Task<GameCacheRemovalReport> RemoveEpicGameFromCacheAsync(string gameName, CancellationToken cancellationToken = default, Func<double, string, Dictionary<string, object?>?, int, long, Task>? onProgress = null)
+    public async Task<GameCacheRemovalReport> RemoveEpicGameFromCacheAsync(
+        string gameName,
+        CancellationToken cancellationToken = default,
+        Func<double, string, Dictionary<string, object?>?, int, long, Task>? onProgress = null,
+        Guid? operationId = null)
     {
         // Sanitize user-provided game name to prevent process argument injection
         gameName = RustProcessHelper.SanitizeProcessArgument(gameName);
@@ -1319,6 +1298,7 @@ public class CacheManagementService
                     startInfo,
                     "cache_epic_remove",
                     cancellationToken,
+                    operationId,
                     async progressData =>
                     {
                         if (onProgress != null)
@@ -1392,7 +1372,11 @@ public class CacheManagementService
     /// <summary>
     /// Remove all cache files for a specific service across all datasources
     /// </summary>
-    public async Task<ServiceCacheRemovalReport> RemoveServiceFromCacheAsync(string serviceName, CancellationToken cancellationToken = default, Func<double, string, Dictionary<string, object?>?, int, long, Task>? onProgress = null)
+    public async Task<ServiceCacheRemovalReport> RemoveServiceFromCacheAsync(
+        string serviceName,
+        CancellationToken cancellationToken = default,
+        Func<double, string, Dictionary<string, object?>?, int, long, Task>? onProgress = null,
+        Guid? operationId = null)
     {
         // Sanitize user-provided service name to prevent process argument injection
         serviceName = RustProcessHelper.SanitizeProcessArgument(serviceName);
@@ -1434,6 +1418,7 @@ public class CacheManagementService
                     startInfo,
                     "service_remover",
                     cancellationToken,
+                    operationId,
                     async progressData =>
                     {
                         if (onProgress != null)
@@ -1494,7 +1479,7 @@ public class CacheManagementService
                 .ExecuteDeleteAsync();
             _logger.LogInformation("[ServiceRemoval] Removed cached service detection entry for: {Service}", serviceName);
 
-            await _gameCacheDetectionService.RefreshAndInvalidateDetectionCacheAsync();
+            await _gameCacheDetectionService.RefreshAndInvalidateDetectionCacheAsync(cancellationToken);
 
             // Invalidate service counts cache since logs were modified
             await InvalidateServiceCountsCacheAsync();

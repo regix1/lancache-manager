@@ -41,8 +41,17 @@ impl DatasourceRoots {
     }
 }
 
-pub(super) fn collect_files_on_disk(datasources: &[DatasourceConfig]) -> HashSet<String> {
+/// Walks all configured cache directories and returns normalized file paths.
+/// Invokes `on_file_count` every `FILE_COUNT_PROGRESS_INTERVAL` files so the
+/// caller can report incremental progress during large scans (millions of files).
+const FILE_COUNT_PROGRESS_INTERVAL: usize = 25_000;
+
+pub(super) fn collect_files_on_disk<F>(datasources: &[DatasourceConfig], mut on_file_count: F) -> HashSet<String>
+where
+    F: FnMut(usize),
+{
     let mut files_on_disk = HashSet::new();
+    let mut files_since_last_report = 0usize;
 
     for ds in datasources {
         let cache_dir = Path::new(&ds.cache_path);
@@ -62,8 +71,17 @@ pub(super) fn collect_files_on_disk(datasources: &[DatasourceConfig]) -> HashSet
             if entry.file_type().is_file() {
                 let path = entry.path();
                 files_on_disk.insert(path_lookup_key(&path));
+                files_since_last_report += 1;
+                if files_since_last_report >= FILE_COUNT_PROGRESS_INTERVAL {
+                    on_file_count(files_on_disk.len());
+                    files_since_last_report = 0;
+                }
             }
         }
+    }
+
+    if files_since_last_report > 0 || !files_on_disk.is_empty() {
+        on_file_count(files_on_disk.len());
     }
 
     files_on_disk

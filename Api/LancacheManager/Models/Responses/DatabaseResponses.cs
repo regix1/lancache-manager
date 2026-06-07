@@ -33,6 +33,7 @@ public class DatabaseResetStatusResponse
     public OperationStatus? Status { get; set; }
     public string? Message { get; set; }
     public int? PercentComplete { get; set; }
+    public Guid? OperationId { get; set; }
 }
 
 /// <summary>

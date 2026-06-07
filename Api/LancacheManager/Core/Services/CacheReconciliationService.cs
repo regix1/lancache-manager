@@ -279,24 +279,31 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     progressFilePath,
                     async (progress) =>
                     {
-                        _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.Message);
+                        var stageKey = string.IsNullOrEmpty(progress.StageKey)
+                            ? "signalr.evictionScan.progress"
+                            : progress.StageKey;
+                        var context = BuildEvictionScanProgressContext(progress);
+
+                        _operationTracker.UpdateProgress(operationId, progress.PercentComplete, stageKey);
                         await _notifications.NotifyAllAsync(SignalREvents.EvictionScanProgress, new EvictionScanProgress(
                             OperationId: operationId,
                             Status: progress.Status.ToWireString(),
-                            StageKey: "signalr.evictionScan.progress",
+                            StageKey: stageKey,
                             PercentComplete: progress.PercentComplete,
                             Processed: progress.Processed,
                             TotalEstimate: progress.TotalEstimate,
                             Evicted: progress.Evicted,
                             UnEvicted: progress.UnEvicted,
-                            Context: new Dictionary<string, object?> { ["totalProcessed"] = progress.Processed, ["totalEstimate"] = progress.TotalEstimate }));
+                            Context: context));
                     },
                     progressCts.Token);
             }
 
             // Execute the Rust binary
             var result = await _rustProcessHelper.RunEvictionScanAsync(
-                datasourceConfigPath, progressFilePath, stoppingToken);
+                datasourceConfigPath, progressFilePath, stoppingToken, operationId);
+
+            stoppingToken.ThrowIfCancellationRequested();
 
             // Stop progress monitoring
             if (progressCts != null)
@@ -317,6 +324,17 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 _logger.LogInformation(
                     "[EvictionScan] Scan complete: processed {Total} downloads, {Evicted} newly evicted, {UnEvicted} un-evicted (re-cached)",
                     scanResult.Processed, scanResult.Evicted, scanResult.UnEvicted);
+
+                if (!silent)
+                {
+                    await NotifyEvictionScanPostRustProgressAsync(
+                        operationId,
+                        99.5,
+                        "signalr.evictionScan.postProcessing",
+                        scanResult);
+                }
+
+                stoppingToken.ThrowIfCancellationRequested();
 
                 // Fix 3 Trigger #1: whenever the eviction scan flipped any Downloads rows from
                 // IsEvicted=true → IsEvicted=false (cache files reappeared), reverse-reconcile
@@ -349,6 +367,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 // Fix A + B: Propagate eviction to CachedGameDetection and bust the in-memory cache
                 if (scanResult.Evicted > 0)
                 {
+                    stoppingToken.ThrowIfCancellationRequested();
+
                     try
                     {
                         var evictedCount = await EvictCachedGameDetectionsAsync(context, _logger, stoppingToken);
@@ -369,8 +389,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     // (via manual clear, nginx cache miss, etc.) at any time.
                     try
                     {
-                        var gamesRecovered = await _gameCacheDetectionService.RecoverEvictedGamesAsync();
-                        var servicesRecovered = await _gameCacheDetectionService.RecoverEvictedServicesAsync();
+                        stoppingToken.ThrowIfCancellationRequested();
+                        var gamesRecovered = await _gameCacheDetectionService.RecoverEvictedGamesAsync(stoppingToken);
+                        var servicesRecovered = await _gameCacheDetectionService.RecoverEvictedServicesAsync(stoppingToken);
                         _logger.LogInformation(
                             "[EvictionScan] Post-scan recovery: inserted {Games} game + {Services} service detection rows from Downloads history (zero counts mean every evicted entity already had a row - their evicted_downloads_count will update in-place)",
                             gamesRecovered, servicesRecovered);
@@ -383,14 +404,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     await _gameCacheDetectionService.RefreshAndInvalidateDetectionCacheAsync(stoppingToken);
                 }
 
-                // Handle evicted data "remove" mode - only run if there are evicted records.
+                stoppingToken.ThrowIfCancellationRequested();
+
+                // Handle evicted data "remove" mode
                 // The removal inherits the scan's silent flag: in Remove mode the scan is
                 // already silent, so the removal must also stay silent (no notification).
                 var evictedDataMode = _stateService.GetEvictedDataMode();
                 if (evictedDataMode == EvictedDataMode.Remove.ToWireString()
                     && await context.Downloads.AnyAsync(d => d.IsEvicted, stoppingToken))
                 {
-                    await RemoveEvictedRecordsAsync(context, stoppingToken, silent: silent);
+                    await RemoveEvictedRecordsAsync(context, stoppingToken, operationId, silent: silent);
                 }
 
                 _operationTracker.CompleteOperation(operationId, success: true);
@@ -473,6 +496,46 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             if (progressFilePath != null)
                 await _rustProcessHelper.DeleteTemporaryFileAsync(progressFilePath);
         }
+    }
+
+    private static Dictionary<string, object?> BuildEvictionScanProgressContext(EvictionScanProgressData progress)
+    {
+        if (progress.Context != null && progress.Context.Count > 0)
+        {
+            return progress.Context;
+        }
+
+        return new Dictionary<string, object?>
+        {
+            ["totalProcessed"] = progress.Processed,
+            ["totalEstimate"] = progress.TotalEstimate
+        };
+    }
+
+    private async Task NotifyEvictionScanPostRustProgressAsync(
+        Guid operationId,
+        double percentComplete,
+        string stageKey,
+        EvictionScanResult scanResult)
+    {
+        var context = new Dictionary<string, object?>
+        {
+            ["totalProcessed"] = scanResult.Processed,
+            ["totalEvicted"] = scanResult.Evicted,
+            ["totalUnEvicted"] = scanResult.UnEvicted
+        };
+
+        _operationTracker.UpdateProgress(operationId, percentComplete, stageKey);
+        await _notifications.NotifyAllAsync(SignalREvents.EvictionScanProgress, new EvictionScanProgress(
+            OperationId: operationId,
+            Status: OperationStatus.Running.ToWireString(),
+            StageKey: stageKey,
+            PercentComplete: percentComplete,
+            Processed: scanResult.Processed,
+            TotalEstimate: scanResult.Processed,
+            Evicted: scanResult.Evicted,
+            UnEvicted: scanResult.UnEvicted,
+            Context: context));
     }
 
     private static EvictionScanResult ParseScanResult(RustExecutionResult result)
@@ -754,65 +817,51 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                 try
                 {
-                    using var process = Process.Start(startInfo);
-                    if (process == null)
-                    {
-                        throw new InvalidOperationException(
-                            $"Failed to start cache_purge_log_entries for datasource '{datasource.Name}'");
-                    }
-
-                    var stderrTask = process.StandardError.ReadToEndAsync(stoppingToken);
                     var progressOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-
-                    string? line;
-                    while ((line = await process.StandardOutput.ReadLineAsync(stoppingToken)) != null)
-                    {
-                        stoppingToken.ThrowIfCancellationRequested();
-                        if (string.IsNullOrWhiteSpace(line))
+                    var purgeResult = await _rustProcessHelper.ExecuteTrackedProcessWithStdoutLinesAsync(
+                        startInfo,
+                        operationId,
+                        stoppingToken,
+                        async line =>
                         {
-                            continue;
-                        }
-
-                        try
-                        {
-                            var progressEvent = JsonSerializer.Deserialize<PurgeLogProgressEvent>(line, progressOptions);
-                            if (progressEvent?.Event == RustProgressEventKind.Progress && progressEvent.PercentComplete.HasValue)
+                            try
                             {
-                                var dsSliceStart = options.ProgressStartPercent +
-                                    (options.ProgressSpanPercent * dsIndex / totalDatasources);
-                                var dsSliceSize = options.ProgressSpanPercent / totalDatasources;
-                                var mappedPercent = dsSliceStart +
-                                    (progressEvent.PercentComplete.Value / 100.0) * dsSliceSize;
+                                var progressEvent = JsonSerializer.Deserialize<PurgeLogProgressEvent>(line, progressOptions);
+                                if (progressEvent?.Event == RustProgressEventKind.Progress && progressEvent.PercentComplete.HasValue)
+                                {
+                                    var dsSliceStart = options.ProgressStartPercent +
+                                        (options.ProgressSpanPercent * dsIndex / totalDatasources);
+                                    var dsSliceSize = options.ProgressSpanPercent / totalDatasources;
+                                    var mappedPercent = dsSliceStart +
+                                        (progressEvent.PercentComplete.Value / 100.0) * dsSliceSize;
 
-                                await ReportEvictionRemovalProgressAsync(
-                                    operationId,
-                                    mappedPercent,
-                                    "purging_log_entries",
-                                    "signalr.evictionRemove.purgingLogs",
-                                    context: new Dictionary<string, object?>
-                                    {
-                                        ["count"] = targets.Urls.Count + targets.DepotIds.Count,
-                                        ["datasource"] = datasource.Name
-                                    });
+                                    await ReportEvictionRemovalProgressAsync(
+                                        operationId,
+                                        mappedPercent,
+                                        "purging_log_entries",
+                                        "signalr.evictionRemove.purgingLogs",
+                                        context: new Dictionary<string, object?>
+                                        {
+                                            ["count"] = targets.Urls.Count + targets.DepotIds.Count,
+                                            ["datasource"] = datasource.Name
+                                        });
+                                }
                             }
-                        }
-                        catch (JsonException)
-                        {
-                            // Ignore non-JSON stdout lines.
-                        }
-                    }
+                            catch (JsonException)
+                            {
+                                // Ignore non-JSON stdout lines.
+                            }
+                        },
+                        "cache_purge_log_entries");
 
-                    await process.WaitForExitAsync(stoppingToken);
-                    var stderr = await stderrTask;
-
-                    if (process.ExitCode != 0)
+                    if (purgeResult.ExitCode != 0)
                     {
                         datasourcesFailed++;
                         _logger.LogWarning(
                             "[EvictedLogPurge] cache_purge_log_entries exited {Code} for datasource '{Datasource}'. stderr: {Err}",
-                            process.ExitCode,
+                            purgeResult.ExitCode,
                             datasource.Name,
-                            stderr);
+                            purgeResult.Error);
                         dsIndex++;
                         continue;
                     }
@@ -1787,12 +1836,19 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 internal class EvictionScanProgressData
 {
     public OperationStatus Status { get; set; } = OperationStatus.Pending;
+
+    [System.Text.Json.Serialization.JsonPropertyName("stageKey")]
+    public string StageKey { get; set; } = string.Empty;
+
     public string Message { get; set; } = string.Empty;
     public double PercentComplete { get; set; }
     public int Processed { get; set; }
     public int TotalEstimate { get; set; }
     public int Evicted { get; set; }
     public int UnEvicted { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("context")]
+    public Dictionary<string, object?>? Context { get; set; }
 }
 
 /// <summary>

@@ -279,6 +279,8 @@ public sealed class GameCacheDetectionDataService
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
+        cancellationToken.ThrowIfCancellationRequested();
+
         var cachedGames = await dbContext.CachedGameDetections.ToListAsync(cancellationToken);
         var cachedServices = await dbContext.CachedServiceDetections.ToListAsync(cancellationToken);
 
@@ -288,12 +290,15 @@ public sealed class GameCacheDetectionDataService
             return;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+
         var games = cachedGames.Select(ConvertToGameCacheInfo).ToList();
         var services = cachedServices.Select(ConvertToServiceCacheInfo).ToList();
         var attributed = GamesOnDiskCalculator.ComputeAttributedCacheFromDisk(games, services);
 
         foreach (var cached in cachedGames)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (cached.IsEvicted)
             {
                 cached.TotalSizeBytes = 0;
@@ -306,6 +311,7 @@ public sealed class GameCacheDetectionDataService
 
         foreach (var cached in cachedServices)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (cached.IsEvicted)
             {
                 cached.TotalSizeBytes = 0;

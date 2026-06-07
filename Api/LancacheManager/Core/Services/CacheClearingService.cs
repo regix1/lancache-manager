@@ -16,7 +16,6 @@ public class CacheClearingService : ScheduledBackgroundService
     private readonly ISignalRNotificationService _notifications;
     private readonly IPathResolver _pathResolver;
     private readonly StateService _stateService;
-    private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly DatasourceService _datasourceService;
     private readonly IUnifiedOperationTracker _operationTracker;
@@ -38,7 +37,6 @@ public class CacheClearingService : ScheduledBackgroundService
         IConfiguration configuration,
         IPathResolver pathResolver,
         StateService stateService,
-        ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
         DatasourceService datasourceService,
         IUnifiedOperationTracker operationTracker,
@@ -48,7 +46,6 @@ public class CacheClearingService : ScheduledBackgroundService
         _notifications = notifications;
         _pathResolver = pathResolver;
         _stateService = stateService;
-        _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
         _datasourceService = datasourceService;
         _operationTracker = operationTracker;
@@ -389,152 +386,92 @@ public class CacheClearingService : ScheduledBackgroundService
                     rustBinaryPath,
                     arguments);
 
-                using (var process = Process.Start(startInfo))
-                {
-                    if (process == null)
+                var lastLoggedDirs = 0;
+                var lastLogTime = DateTime.UtcNow;
+
+                var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync<RustCacheProgress>(
+                    startInfo,
+                    operationId,
+                    cancellationToken,
+                    progressFile,
+                    async progressData =>
                     {
-                        throw new Exception($"Failed to start Rust cache_cleaner process for datasource {dsName}");
-                    }
+                        var currentDirsProcessed = dirsProcessedBefore + progressData.DirectoriesProcessed;
+                        var currentBytesDeleted = totalBytesDeleted + (long)progressData.BytesDeleted;
+                        var currentFilesDeleted = totalFilesDeleted + (long)progressData.FilesDeleted;
+                        var percentComplete = (double)currentDirsProcessed / totalDirectoriesAllDatasources * 100;
 
-                    // Store process reference for force kill capability
-                    operation = _operationTracker.GetOperation(operationId);
-                    if (operation != null)
-                    {
-                        operation.AssociatedProcess = process;
-                    }
-
-                    // Track last logged values for console output
-                    var lastLoggedDirs = 0;
-                    var lastLogTime = DateTime.UtcNow;
-
-                    // Poll the progress file while the process runs
-                    var pollTask = Task.Run(async () =>
-                    {
-                        while (!process.HasExited)
-                        {
-                            await Task.Delay(500);
-
-                            operation = _operationTracker.GetOperation(operationId);
-                            if (operation?.CancellationTokenSource?.Token.IsCancellationRequested == true)
-                            {
-                                process.Kill();
-
-                                // Mark operation as complete (cancelled) in unified tracker
-                                _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
-                                _currentTrackerOperationId = null;
-
-                                await NotifyProgressAsync(operationId);
-                                SaveOperationToState(trackerKey, operationId);
-
-                                return;
-                            }
-
-                            var progressData = await _rustProcessHelper.ReadProgressFileAsync<RustCacheProgress>(progressFile);
-
-                            if (progressData != null)
-                            {
-                                // Calculate aggregate progress across all datasources
-                                var currentDirsProcessed = dirsProcessedBefore + progressData.DirectoriesProcessed;
-                                var currentBytesDeleted = totalBytesDeleted + (long)progressData.BytesDeleted;
-                                var currentFilesDeleted = totalFilesDeleted + (long)progressData.FilesDeleted;
-                                var percentComplete = (double)currentDirsProcessed / totalDirectoriesAllDatasources * 100;
-
-                                // Update metrics - forward StageKey/Context from Rust progress
-                                _operationTracker.UpdateMetadata(operationId, (object meta) =>
-                                {
-                                    var metricsToUpdate = (CacheClearingMetrics)meta;
-                                    metricsToUpdate.DirectoriesProcessed = currentDirsProcessed;
-                                    metricsToUpdate.BytesDeleted = currentBytesDeleted;
-                                    metricsToUpdate.FilesDeleted = currentFilesDeleted;
-                                    metricsToUpdate.CurrentStageKey = progressData.StageKey;
-                                    metricsToUpdate.CurrentContext = progressData.Context;
-                                });
-
-                                _operationTracker.UpdateProgress(operationId, percentComplete, progressData.StageKey ?? string.Empty);
-
-                                await NotifyProgressAsync(operationId);
-
-                                // Log progress to console when:
-                                // 1. Every 5 directories, OR
-                                // 2. Every 30 seconds (if stuck on same directory)
-                                var timeSinceLastLog = DateTime.UtcNow - lastLogTime;
-                                var dirsChanged = progressData.DirectoriesProcessed != lastLoggedDirs;
-                                var shouldLog =
-                                    (dirsChanged && progressData.DirectoriesProcessed % 5 == 0) ||
-                                    (dirsChanged && timeSinceLastLog.TotalSeconds >= 3) ||
-                                    (!dirsChanged && timeSinceLastLog.TotalSeconds >= 30);
-
-                                if (shouldLog)
-                                {
-                                    var activeInfo = progressData.ActiveCount > 0
-                                        ? $" | Active: {progressData.ActiveCount} [{string.Join(", ", progressData.ActiveDirectories)}]"
-                                        : "";
-                                    _logger.LogInformation($"[{GetDeleteModeDisplayName()}] Cache Clear Progress: {percentComplete:F1}% complete - {currentDirsProcessed}/{totalDirectoriesAllDatasources} directories cleared{activeInfo}");
-                                    lastLoggedDirs = progressData.DirectoriesProcessed;
-                                    lastLogTime = DateTime.UtcNow;
-                                }
-
-                                if (progressData.DirectoriesProcessed % 10 == 0)
-                                {
-                                    SaveOperationToState(trackerKey, operationId);
-                                }
-                            }
-                        }
-                    });
-
-                    // Read output asynchronously
-                    operation = _operationTracker.GetOperation(operationId);
-                    var token = operation?.CancellationTokenSource?.Token ?? CancellationToken.None;
-                    var outputTask = process.StandardOutput.ReadToEndAsync(token);
-                    var errorTask = process.StandardError.ReadToEndAsync(token);
-
-                    await _processManager.WaitForProcessAsync(process, token);
-                    await pollTask;
-
-                    var output = await outputTask;
-                    var error = await errorTask;
-
-                    // Get updated operation status
-                    operation = _operationTracker.GetOperation(operationId);
-
-                    // Exit code 137 = SIGKILL (from cancellation) - don't treat as error
-                    if (process.ExitCode == 137 && operation?.Status == OperationStatus.Cancelled)
-                    {
-                        _logger.LogInformation("Cache clear cancelled by user");
-                        return; // Already handled by cancellation logic
-                    }
-
-                    if (process.ExitCode != 0)
-                    {
-                        throw new Exception($"Rust cache_cleaner failed for {dsName} with exit code {process.ExitCode}: {error}");
-                    }
-
-                    _logger.LogInformation($"[{GetDeleteModeDisplayName()}] Rust cache cleaner output: {output}");
-
-                    // Read final progress for this datasource
-                    var finalProgress = await _rustProcessHelper.ReadProgressFileAsync<RustCacheProgress>(progressFile);
-                    if (finalProgress != null)
-                    {
-                        totalBytesDeleted += (long)finalProgress.BytesDeleted;
-                        totalFilesDeleted += (long)finalProgress.FilesDeleted;
-                        totalDirsProcessed += finalProgress.DirectoriesProcessed;
-                        dirsProcessedBefore = totalDirsProcessed;
-
-                        // Update metrics with totals so far
                         _operationTracker.UpdateMetadata(operationId, (object meta) =>
                         {
                             var metricsToUpdate = (CacheClearingMetrics)meta;
-                            metricsToUpdate.DirectoriesProcessed = totalDirsProcessed;
-                            metricsToUpdate.BytesDeleted = totalBytesDeleted;
-                            metricsToUpdate.FilesDeleted = totalFilesDeleted;
+                            metricsToUpdate.DirectoriesProcessed = currentDirsProcessed;
+                            metricsToUpdate.BytesDeleted = currentBytesDeleted;
+                            metricsToUpdate.FilesDeleted = currentFilesDeleted;
+                            metricsToUpdate.CurrentStageKey = progressData.StageKey;
+                            metricsToUpdate.CurrentContext = progressData.Context;
                         });
-                    }
 
-                    // Clean up progress file
-                    await _rustProcessHelper.DeleteTemporaryFileAsync(progressFile);
+                        _operationTracker.UpdateProgress(operationId, percentComplete, progressData.StageKey ?? string.Empty);
+                        await NotifyProgressAsync(operationId);
 
-                    _logger.LogInformation($"Completed clearing {dsName} cache: {finalProgress?.DirectoriesProcessed ?? 0} directories");
+                        var timeSinceLastLog = DateTime.UtcNow - lastLogTime;
+                        var dirsChanged = progressData.DirectoriesProcessed != lastLoggedDirs;
+                        var shouldLog =
+                            (dirsChanged && progressData.DirectoriesProcessed % 5 == 0) ||
+                            (dirsChanged && timeSinceLastLog.TotalSeconds >= 3) ||
+                            (!dirsChanged && timeSinceLastLog.TotalSeconds >= 30);
+
+                        if (shouldLog)
+                        {
+                            var activeInfo = progressData.ActiveCount > 0
+                                ? $" | Active: {progressData.ActiveCount} [{string.Join(", ", progressData.ActiveDirectories)}]"
+                                : "";
+                            _logger.LogInformation($"[{GetDeleteModeDisplayName()}] Cache Clear Progress: {percentComplete:F1}% complete - {currentDirsProcessed}/{totalDirectoriesAllDatasources} directories cleared{activeInfo}");
+                            lastLoggedDirs = progressData.DirectoriesProcessed;
+                            lastLogTime = DateTime.UtcNow;
+                        }
+
+                        if (progressData.DirectoriesProcessed % 10 == 0)
+                        {
+                            SaveOperationToState(trackerKey, operationId);
+                        }
+                    },
+                    "cache_cleaner");
+
+                operation = _operationTracker.GetOperation(operationId);
+
+                if (result.ExitCode == 137 && operation?.Status == OperationStatus.Cancelled)
+                {
+                    _logger.LogInformation("Cache clear cancelled by user");
+                    return;
                 }
+
+                if (result.ExitCode != 0)
+                {
+                    throw new Exception($"Rust cache_cleaner failed for {dsName} with exit code {result.ExitCode}: {result.Error}");
+                }
+
+                _logger.LogInformation($"[{GetDeleteModeDisplayName()}] Rust cache cleaner output: {result.Output}");
+
+                var finalProgress = await _rustProcessHelper.ReadProgressFileAsync<RustCacheProgress>(progressFile);
+                if (finalProgress != null)
+                {
+                    totalBytesDeleted += (long)finalProgress.BytesDeleted;
+                    totalFilesDeleted += (long)finalProgress.FilesDeleted;
+                    totalDirsProcessed += finalProgress.DirectoriesProcessed;
+                    dirsProcessedBefore = totalDirsProcessed;
+
+                    _operationTracker.UpdateMetadata(operationId, (object meta) =>
+                    {
+                        var metricsToUpdate = (CacheClearingMetrics)meta;
+                        metricsToUpdate.DirectoriesProcessed = totalDirsProcessed;
+                        metricsToUpdate.BytesDeleted = totalBytesDeleted;
+                        metricsToUpdate.FilesDeleted = totalFilesDeleted;
+                    });
+                }
+
+                await _rustProcessHelper.DeleteTemporaryFileAsync(progressFile);
+                _logger.LogInformation($"Completed clearing {dsName} cache: {finalProgress?.DirectoriesProcessed ?? 0} directories");
             }
 
             var datasourceNames = string.Join(", ", validCachePaths.Select(p => p.Name));

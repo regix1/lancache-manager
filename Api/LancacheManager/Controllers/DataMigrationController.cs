@@ -117,34 +117,14 @@ public class DataMigrationController : ControllerBase
 
             _logger.LogInformation("[data_migrator] Executing: {Binary} {Args}", dataMigratorPath, arguments);
 
-            // Start the process
+            // Start the process with operation-tracker association for universal cancel/force-kill
             var startInfo = _rustProcessHelper.CreateProcessStartInfo(dataMigratorPath, arguments);
-            using var process = Process.Start(startInfo);
+            var result = await _rustProcessHelper.ExecuteTrackedProcessAsync(
+                startInfo, operationId, cts.Token, "data_migrator");
 
-            if (process == null)
+            if (result.ExitCode != 0)
             {
-                _operationTracker.CompleteOperation(operationId, false, "Failed to start data migrator process");
-                await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
-                {
-                    OperationId = operationId,
-                    Success = false,
-                    Message = "Failed to start data migrator process"
-                });
-                return StatusCode(500, new ErrorResponse { Error = "Failed to start data migrator process" });
-            }
-
-            // Monitor stdout and stderr
-            var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(process, "data_migrator");
-
-            // Wait for process to complete with cancellation support
-            await _processManager.WaitForProcessAsync(process, cts.Token);
-
-            // Wait for output tasks
-            await _rustProcessHelper.WaitForOutputTasksAsync(stdoutTask, stderrTask, TimeSpan.FromSeconds(5));
-
-            if (process.ExitCode != 0)
-            {
-                var errorMessage = $"Data migration failed with exit code {process.ExitCode}";
+                var errorMessage = $"Data migration failed with exit code {result.ExitCode}";
                 _operationTracker.CompleteOperation(operationId, false, errorMessage);
                 await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
                 {
@@ -155,7 +135,7 @@ public class DataMigrationController : ControllerBase
                 return StatusCode(500, new ErrorResponse
                 {
                     Error = "Data migration failed",
-                    Details = $"Process exited with code {process.ExitCode}"
+                    Details = $"Process exited with code {result.ExitCode}"
                 });
             }
 

@@ -5558,7 +5558,10 @@
     },
     "evictionScan": {
       "scanning": "Scanning cache files...",
+      "scanningFiles": "Scanning cache files... ({{filesFound}} found so far)",
       "progress": "Processed {{totalProcessed}} of ~{{totalEstimate}} downloads...",
+      "finalizing": "Reconciling evicted downloads...",
+      "postProcessing": "Updating detection records...",
       "complete": "Scan complete: {{totalProcessed}} processed, {{totalEvicted}} evicted, {{totalUnEvicted}} un-evicted"
     },
     "gameDetect": {

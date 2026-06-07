@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Text.Json;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
@@ -18,7 +17,6 @@ public class CorruptionDetectionService
 {
     private readonly ILogger<CorruptionDetectionService> _logger;
     private readonly IPathResolver _pathResolver;
-    private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly ISignalRNotificationService _notifications;
     private readonly DatasourceService _datasourceService;
@@ -40,7 +38,6 @@ public class CorruptionDetectionService
     public CorruptionDetectionService(
         ILogger<CorruptionDetectionService> logger,
         IPathResolver pathResolver,
-        ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
         ISignalRNotificationService notifications,
         DatasourceService datasourceService,
@@ -50,7 +47,6 @@ public class CorruptionDetectionService
     {
         _logger = logger;
         _pathResolver = pathResolver;
-        _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
         _notifications = notifications;
         _datasourceService = datasourceService;
@@ -283,7 +279,6 @@ public class CorruptionDetectionService
         string logDir, string cacheDir, string timezone, string rustBinaryPath,
         Guid operationId, string datasourceName, int threshold, bool compareToCacheLogs, CancellationToken cancellationToken, bool detectRedownloads = false)
     {
-        // Create progress file for this datasource
         var operationsDir = _pathResolver.GetOperationsDirectory();
         Directory.CreateDirectory(operationsDir);
         var progressFile = Path.Combine(operationsDir, $"corruption_detection_{operationId}_{datasourceName}.json");
@@ -296,76 +291,55 @@ public class CorruptionDetectionService
                 rustBinaryPath,
                 $"summary \"{logDir}\" \"{cacheDir}\" \"{progressFile}\" \"{timezone}\" {threshold}{noCacheCheckFlag}{redownloadFlag}");
 
-            using var process = Process.Start(startInfo);
-            if (process == null)
-            {
-                throw new Exception("Failed to start corruption_manager process");
-            }
+            var lastMessage = string.Empty;
+            var lastPercent = 0.0;
+            const double percentThreshold = 5.0;
 
-            // Poll the progress file while the process runs
-            var pollTask = Task.Run(async () =>
-            {
-                var lastMessage = string.Empty;
-                var lastPercent = 0.0;
-                const double percentThreshold = 5.0; // Send update if percent changes by 5% or more
-
-                while (!process.HasExited)
+            var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync<CorruptionDetectionProgressData>(
+                startInfo,
+                operationId,
+                cancellationToken,
+                progressFile,
+                async progressData =>
                 {
-                    await Task.Delay(500, cancellationToken);
+                    var keyChanged = progressData.StageKey != lastMessage;
+                    var percentChanged = Math.Abs(progressData.PercentComplete - lastPercent) >= percentThreshold;
 
-                    var progressData = await _rustProcessHelper.ReadProgressFileAsync<CorruptionDetectionProgressData>(progressFile);
-
-                    if (progressData != null)
+                    if (!keyChanged && !percentChanged)
                     {
-                        var keyChanged = progressData.StageKey != lastMessage;
-                        var percentChanged = Math.Abs(progressData.PercentComplete - lastPercent) >= percentThreshold;
-
-                        // Send update if either stageKey OR percentComplete changes significantly
-                        if (keyChanged || percentChanged)
-                        {
-                            lastMessage = progressData.StageKey ?? string.Empty;
-                            lastPercent = progressData.PercentComplete;
-
-                            // Send progress notification via SignalR
-                            await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionProgress, new
-                            {
-                                OperationId = operationId,
-                                PercentComplete = progressData.PercentComplete,
-                                Status = OperationStatus.Running,
-                                StageKey = progressData.StageKey,
-                                Context = progressData.Context,
-                                filesProcessed = progressData.FilesProcessed,
-                                totalFiles = progressData.TotalFiles,
-                                currentFile = progressData.CurrentFile,
-                                datasourceName
-                            });
-
-                            _logger.LogDebug("[CorruptionDetection] Progress: {Percent:F1}% - {StageKey}",
-                                progressData.PercentComplete, progressData.StageKey);
-                        }
+                        return;
                     }
-                }
-            }, cancellationToken);
 
-            var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+                    lastMessage = progressData.StageKey ?? string.Empty;
+                    lastPercent = progressData.PercentComplete;
 
-            await _processManager.WaitForProcessAsync(process, cancellationToken);
-            await pollTask;
+                    await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionProgress, new
+                    {
+                        OperationId = operationId,
+                        PercentComplete = progressData.PercentComplete,
+                        Status = OperationStatus.Running,
+                        StageKey = progressData.StageKey,
+                        Context = progressData.Context,
+                        filesProcessed = progressData.FilesProcessed,
+                        totalFiles = progressData.TotalFiles,
+                        currentFile = progressData.CurrentFile,
+                        datasourceName
+                    });
 
-            var output = await outputTask;
-            var error = await errorTask;
+                    _logger.LogDebug("[CorruptionDetection] Progress: {Percent:F1}% - {StageKey}",
+                        progressData.PercentComplete, progressData.StageKey);
+                },
+                "corruption_manager");
 
-            _logger.LogDebug("[CorruptionDetection] Rust process exit code: {Code}", process.ExitCode);
+            _logger.LogDebug("[CorruptionDetection] Rust process exit code: {Code}", result.ExitCode);
 
-            if (process.ExitCode != 0)
+            if (result.ExitCode != 0)
             {
-                _logger.LogError("[CorruptionDetection] Failed with exit code {Code}: {Error}", process.ExitCode, error);
-                throw new Exception($"corruption_manager failed with exit code {process.ExitCode}: {error}");
+                _logger.LogError("[CorruptionDetection] Failed with exit code {Code}: {Error}", result.ExitCode, result.Error);
+                throw new Exception($"corruption_manager failed with exit code {result.ExitCode}: {result.Error}");
             }
 
-            // Parse JSON output from Rust binary
-            var summaryData = JsonSerializer.Deserialize<CorruptionSummaryData>(output,
+            var summaryData = JsonSerializer.Deserialize<CorruptionSummaryData>(result.Output,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
             if (summaryData?.ServiceCounts == null)
@@ -377,7 +351,6 @@ public class CorruptionDetectionService
         }
         finally
         {
-            // Clean up progress file
             await _rustProcessHelper.DeleteTemporaryFileAsync(progressFile);
         }
     }

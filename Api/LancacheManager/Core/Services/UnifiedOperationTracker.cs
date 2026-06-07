@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Models;
 
@@ -82,89 +83,104 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
     public bool CancelOperation(Guid operationId)
     {
-        if (_operations.TryGetValue(operationId, out var operation))
+        if (!_operations.TryGetValue(operationId, out var operation))
         {
-            if (operation.CancellationTokenSource != null)
-            {
-                // If cancellation was already requested, return true (idempotent)
-                // This prevents errors when user clicks cancel button multiple times
-                if (operation.CancellationTokenSource.IsCancellationRequested)
-                {
-                    _logger.LogDebug("Cancellation already in progress for operation {Id}", operationId);
-                    return true;
-                }
-
-                _logger.LogInformation("Requesting cancellation for operation {Id} ({Type}: {Name})",
-                    operationId, operation.Type, operation.Name);
-
-                operation.CancellationTokenSource.Cancel();
-                operation.Status = OperationStatus.Cancelling;
-                operation.Message = "Cancellation requested...";
-                return true;
-            }
-            else
-            {
-                _logger.LogWarning("Operation {Id} has no CancellationTokenSource", operationId);
-                return false;
-            }
+            _logger.LogWarning("Operation {Id} not found for cancellation", operationId);
+            return false;
         }
 
-        _logger.LogWarning("Operation {Id} not found for cancellation", operationId);
-        return false;
+        if (operation.CancellationTokenSource == null)
+        {
+            _logger.LogWarning("Operation {Id} has no CancellationTokenSource", operationId);
+            return false;
+        }
+
+        if (operation.CancellationTokenSource.IsCancellationRequested)
+        {
+            _logger.LogDebug("Cancellation already in progress for operation {Id} — re-attempting process kill", operationId);
+            TryKillAssociatedProcess(operation, operationId);
+            return true;
+        }
+
+        _logger.LogInformation(
+            "Requesting aggressive cancellation for operation {Id} ({Type}: {Name})",
+            operationId, operation.Type, operation.Name);
+
+        operation.Status = OperationStatus.Cancelling;
+        operation.Cancelled = true;
+        operation.Message = "Cancellation requested...";
+
+        TryKillAssociatedProcess(operation, operationId);
+        operation.CancellationTokenSource.Cancel();
+        return true;
+    }
+
+    public void AssociateProcess(Guid operationId, Process process)
+    {
+        if (_operations.TryGetValue(operationId, out var operation))
+        {
+            operation.AssociatedProcess = process;
+            _logger.LogDebug(
+                "Associated process {ProcessName} (PID: {Pid}) with operation {Id}",
+                process.ProcessName, process.Id, operationId);
+        }
+    }
+
+    public void DisassociateProcess(Guid operationId, Process process)
+    {
+        if (_operations.TryGetValue(operationId, out var operation)
+            && ReferenceEquals(operation.AssociatedProcess, process))
+        {
+            operation.AssociatedProcess = null;
+        }
     }
 
     public bool ForceKillOperation(Guid operationId)
     {
-        if (_operations.TryGetValue(operationId, out var operation))
+        if (!_operations.TryGetValue(operationId, out var operation))
         {
-            // First cancel the token
-            operation.CancellationTokenSource?.Cancel();
-
-            // Kill the associated process if it exists and is still running
-            if (operation.AssociatedProcess != null && !operation.AssociatedProcess.HasExited)
-            {
-                _logger.LogWarning("Force killing process (PID: {Pid}) for operation {Id} ({Type}: {Name})",
-                    operation.AssociatedProcess.Id, operationId, operation.Type, operation.Name);
-
-                try
-                {
-                    operation.AssociatedProcess.Kill(entireProcessTree: true);
-                    operation.Status = OperationStatus.Cancelled;
-                    operation.Message = "Force killed by user";
-                    operation.Cancelled = true;
-                    operation.CompletedAt = DateTime.UtcNow;
-                    operation.AssociatedProcess = null;
-
-                    // Clean up after a short delay
-                    _ = Task.Delay(TimeSpan.FromSeconds(10)).ContinueWith(task =>
-                    {
-                        _operations.TryRemove(operationId, out OperationInfo? _removed);
-
-                        // Also clean up entity key index
-                        var keysToRemove = _entityKeyIndex.Where(kvp => kvp.Value == operationId).Select(kvp => kvp.Key).ToList();
-                        foreach (var key in keysToRemove)
-                        {
-                            _entityKeyIndex.TryRemove(key, out _);
-                        }
-                    });
-
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error force killing process for operation {Id}", operationId);
-                    return false;
-                }
-            }
-            else
-            {
-                _logger.LogWarning("Operation {Id} has no running process to kill", operationId);
-                return false;
-            }
+            _logger.LogWarning("Operation {Id} not found for force kill", operationId);
+            return false;
         }
 
-        _logger.LogWarning("Operation {Id} not found for force kill", operationId);
-        return false;
+        _logger.LogWarning(
+            "Force killing operation {Id} ({Type}: {Name})",
+            operationId, operation.Type, operation.Name);
+
+        operation.Status = OperationStatus.Cancelling;
+        operation.Cancelled = true;
+        operation.Message = "Force killed by user";
+
+        if (TryKillAssociatedProcess(operation, operationId))
+        {
+            operation.AssociatedProcess = null;
+        }
+
+        operation.CancellationTokenSource?.Cancel();
+        return true;
+    }
+
+    private bool TryKillAssociatedProcess(OperationInfo operation, Guid operationId)
+    {
+        var process = operation.AssociatedProcess;
+        if (process == null || process.HasExited)
+        {
+            return false;
+        }
+
+        try
+        {
+            _logger.LogWarning(
+                "Terminating process {ProcessName} (PID: {Pid}) for operation {Id} ({Type}: {Name})",
+                process.ProcessName, process.Id, operationId, operation.Type, operation.Name);
+            process.Kill(entireProcessTree: true);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to kill process PID {Pid} for operation {Id}", process.Id, operationId);
+            return false;
+        }
     }
 
     public OperationInfo? GetOperation(Guid operationId)

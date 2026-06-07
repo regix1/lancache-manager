@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core.Interfaces;
@@ -17,15 +18,26 @@ public interface IUnifiedOperationTracker
     bool TryRestoreOperation(Guid operationId, OperationType type, string name, CancellationTokenSource cts, object? metadata = null);
 
     /// <summary>
-    /// Cancels an operation by requesting cancellation on its CancellationTokenSource.
-    /// Returns true if cancellation was requested or is already in progress (idempotent).
-    /// Returns false if the operation was not found.
+    /// Aggressively cancels an operation: terminates any associated process tree immediately,
+    /// then cancels the operation's <see cref="CancellationTokenSource"/>.
+    /// Idempotent — repeated calls re-attempt process termination.
+    /// Returns false only when the operation was not found or has no cancellation source.
     /// </summary>
     bool CancelOperation(Guid operationId);
 
     /// <summary>
-    /// Force kills the associated process for an operation (if any).
-    /// Returns true if the process was killed, false if no operation or process found.
+    /// Associates a running OS process with an operation so cancel/force-kill can terminate it.
+    /// </summary>
+    void AssociateProcess(Guid operationId, Process process);
+
+    /// <summary>
+    /// Clears the associated process reference when it has exited or been superseded.
+    /// </summary>
+    void DisassociateProcess(Guid operationId, Process process);
+
+    /// <summary>
+    /// Force kills the associated process for an operation (if any) and cancels its token.
+    /// Returns true when the operation was found (even if no process was running).
     /// </summary>
     bool ForceKillOperation(Guid operationId);
 

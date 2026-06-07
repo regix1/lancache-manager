@@ -68,6 +68,7 @@ interface DatabaseResetStatusResponse {
   percentComplete?: number | null;
   stageKey?: string;
   context?: StageContext;
+  operationId?: string;
 }
 
 /** GET /api/depots/rebuild/progress - SteamPicsProgress */
@@ -334,7 +335,8 @@ const RECOVERY_CONFIGS = {
         ? i18n.t(data.stageKey, data.context ?? {})
         : i18n.t('signalr.dbReset.starting'),
       // `??` (not `||`): backend field is `int?` - nullable. `??` preserves 0.
-      progress: data.percentComplete ?? 0
+      progress: data.percentComplete ?? 0,
+      details: data.operationId ? { operationId: data.operationId } : undefined
     }),
     staleMessage: 'Database reset completed'
   } satisfies SimpleRecoveryConfig<DatabaseResetStatusResponse>,

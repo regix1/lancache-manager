@@ -1912,6 +1912,23 @@ class ApiService {
     }
   }
 
+  static async forceKillOperation(operationId: string): Promise<{ message: string }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/operations/${operationId}/force-kill`,
+        this.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(10000)
+        })
+      );
+      return await this.handleResponse<{ message: string }>(res);
+    } catch (error: unknown) {
+      console.error('forceKillOperation error:', error);
+      throw error;
+    }
+  }
+
   // =====================
   // Prefill Admin APIs
   // =====================

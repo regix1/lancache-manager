@@ -154,8 +154,8 @@ public class GamesController : ControllerBase
             appId: appId,
             entityKind: "steam",
             epicAppId: null,
-            removeFunc: (CancellationToken ct, Func<double, string, Dictionary<string, object?>?, int, long, Task> onProgress) =>
-                _cacheManagementService.RemoveGameFromCacheAsync(appId, ct, onProgress),
+            removeFunc: (Guid opId, CancellationToken ct, Func<double, string, Dictionary<string, object?>?, int, long, Task> onProgress) =>
+                _cacheManagementService.RemoveGameFromCacheAsync(appId, ct, onProgress, opId),
             onSuccess: async (long _) => await _gameCacheDetectionService.RemoveGameFromCacheAsync(appId),
             responseMessage: $"Started removal of game {appId} from cache");
     }
@@ -201,8 +201,8 @@ public class GamesController : ControllerBase
             appId: null,
             entityKind: "epic",
             epicAppId: epicAppId,
-            removeFunc: (CancellationToken ct, Func<double, string, Dictionary<string, object?>?, int, long, Task> onProgress) =>
-                _cacheManagementService.RemoveEpicGameFromCacheAsync(gameName, ct, onProgress),
+            removeFunc: (Guid opId, CancellationToken ct, Func<double, string, Dictionary<string, object?>?, int, long, Task> onProgress) =>
+                _cacheManagementService.RemoveEpicGameFromCacheAsync(gameName, ct, onProgress, opId),
             onSuccess: null,
             responseMessage: $"Started removal of Epic game {gameName} from cache");
     }
@@ -225,7 +225,7 @@ public class GamesController : ControllerBase
         long? appId,
         string entityKind,
         string? epicAppId,
-        Func<CancellationToken, Func<double, string, Dictionary<string, object?>?, int, long, Task>, Task<CacheManagementService.GameCacheRemovalReport>> removeFunc,
+        Func<Guid, CancellationToken, Func<double, string, Dictionary<string, object?>?, int, long, Task>, Task<CacheManagementService.GameCacheRemovalReport>> removeFunc,
         Func<long, Task>? onSuccess,
         string responseMessage)
     {
@@ -339,7 +339,8 @@ public class GamesController : ControllerBase
                     StageKey: errorStageKey,
                     GameName: displayName,
                     Context: BuildGameRemovalContext(displayName, appId, epicAppId, errorDetail: ex.Message)),
-                ExecuteAsync: (ct, onProgress) => removeFunc(
+                ExecuteAsync: (opId, ct, onProgress) => removeFunc(
+                    opId,
                     ct,
                     (percentComplete, stageKey, context, filesDeleted, bytesFreed) =>
                         onProgress(new TrackedRemovalOperationRunner.RemovalProgressUpdate(

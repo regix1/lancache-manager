@@ -519,7 +519,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     progress: {
       getMessage: (event: EvictionScanProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.evictionScan.progress', event.context ?? {}),
-      getProgress: (event: EvictionScanProgressEvent) => event.percentComplete,
+      getProgress: (event: EvictionScanProgressEvent) => Math.min(99.9, event.percentComplete),
       getStatus: (event: EvictionScanProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: EvictionScanProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.evictionScan.complete', event.context ?? {}),

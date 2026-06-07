@@ -19,7 +19,6 @@ public class RustLogRemovalService
     private readonly IPathResolver _pathResolver;
     private readonly ISignalRNotificationService _notifications;
     private readonly CacheManagementService _cacheManagementService;
-    private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
@@ -92,7 +91,6 @@ public class RustLogRemovalService
         IPathResolver pathResolver,
         ISignalRNotificationService notifications,
         CacheManagementService cacheManagementService,
-        ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
         NginxLogRotationService nginxLogRotationService,
         IDbContextFactory<AppDbContext> dbContextFactory,
@@ -103,7 +101,6 @@ public class RustLogRemovalService
         _pathResolver = pathResolver;
         _notifications = notifications;
         _cacheManagementService = cacheManagementService;
-        _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
         _nginxLogRotationService = nginxLogRotationService;
         _dbContextFactory = dbContextFactory;
@@ -282,17 +279,6 @@ public class RustLogRemovalService
                         arguments,
                         Path.GetDirectoryName(rustExecutablePath));
 
-                    _rustProcess = Process.Start(startInfo);
-
-                    if (_rustProcess == null)
-                    {
-                        throw new Exception($"Failed to start Rust process for datasource '{datasource.Name}'");
-                    }
-
-                    // Monitor stdout and stderr - track tasks for proper cleanup
-                    var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(_rustProcess, "Rust log removal");
-
-                    // Send datasource-level progress notification
                     await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
                     {
                         OperationId = _currentTrackerOperationId,
@@ -307,30 +293,27 @@ public class RustLogRemovalService
                         Datasource = datasource.Name
                     });
 
-                    // Start progress monitoring task using the datasource-specific progress file
-                    using var dsMonitorCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token);
-                    var progressTask = Task.Run(
-                        async () => await MonitorProgressAsync(dsProgressPath, service, datasource.Name, dsMonitorCts.Token));
+                    var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync<ProgressData>(
+                        startInfo,
+                        _currentTrackerOperationId,
+                        _cancellationTokenSource.Token,
+                        dsProgressPath,
+                        progress => SendLogRemovalProgressAsync(progress, service, datasource.Name),
+                        processLabel: "log_removal",
+                        onProcessStarted: p => _rustProcess = p);
 
-                    // Wait for process to complete with graceful cancellation handling
-                    await _processManager.WaitForProcessAsync(_rustProcess, _cancellationTokenSource.Token);
-
-                    var exitCode = _rustProcess.ExitCode;
+                    var exitCode = result.ExitCode;
                     _logger.LogInformation("Rust log_manager exited with code {ExitCode} for datasource '{DatasourceName}'",
                         exitCode, datasource.Name);
 
-                    // Wait for stdout/stderr reading tasks to complete
-                    await _rustProcessHelper.WaitForOutputTasksAsync(stdoutTask, stderrTask, TimeSpan.FromSeconds(5));
-
-                    // Stop the progress monitoring task for this datasource
-                    dsMonitorCts.Cancel();
-                    try
+                    if (!string.IsNullOrWhiteSpace(result.Output))
                     {
-                        await progressTask;
+                        _logger.LogInformation("[Rust log removal] {Output}", result.Output);
                     }
-                    catch (OperationCanceledException)
+
+                    if (!string.IsNullOrWhiteSpace(result.Error))
                     {
-                        // Expected
+                        _logger.LogInformation("[Rust log removal stderr] {Error}", result.Error);
                     }
 
                     // Accumulate progress from this datasource
@@ -569,16 +552,6 @@ public class RustLogRemovalService
                     arguments,
                     Path.GetDirectoryName(rustExecutablePath));
 
-                _rustProcess = Process.Start(startInfo);
-
-                if (_rustProcess == null)
-                {
-                    throw new Exception("Failed to start Rust process");
-                }
-
-                var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(_rustProcess, "Rust log removal");
-
-                // Send started event
                 await _notifications.NotifyAllAsync(SignalREvents.LogRemovalStarted, new
                 {
                     OperationId = _currentTrackerOperationId,
@@ -600,17 +573,17 @@ public class RustLogRemovalService
                     Datasource = datasourceName
                 });
 
-                var progressTask = Task.Run(async () => await MonitorProgressAsync(progressPath, service, datasourceName, _cancellationTokenSource.Token));
+                var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync<ProgressData>(
+                    startInfo,
+                    _currentTrackerOperationId,
+                    _cancellationTokenSource.Token,
+                    progressPath,
+                    progress => SendLogRemovalProgressAsync(progress, service, datasourceName),
+                    processLabel: "log_removal",
+                    onProcessStarted: p => _rustProcess = p);
 
-                await _processManager.WaitForProcessAsync(_rustProcess, _cancellationTokenSource.Token);
-
-                var exitCode = _rustProcess.ExitCode;
+                var exitCode = result.ExitCode;
                 _logger.LogInformation("Rust log_manager exited with code {ExitCode} for datasource {Datasource}", exitCode, datasourceName);
-
-                await _rustProcessHelper.WaitForOutputTasksAsync(stdoutTask, stderrTask, TimeSpan.FromSeconds(5));
-
-                _cancellationTokenSource.Cancel();
-                try { await progressTask; } catch (OperationCanceledException) { }
 
                 if (exitCode == 0)
                 {
@@ -704,39 +677,35 @@ public class RustLogRemovalService
         }
     }
 
-    private Task MonitorProgressAsync(string progressPath, string service, string datasourceName, CancellationToken cancellationToken)
+    private Task SendLogRemovalProgressAsync(ProgressData progress, string service, string datasourceName)
     {
-        var monitor = new RustProgressMonitor<ProgressData>(_rustProcessHelper, _logger);
-        return monitor.MonitorAsync(progressPath, async (ProgressData progress) =>
+        // The Rust log_manager binary doesn't receive the datasource name (only the
+        // log directory + service), so its progress JSON context omits `datasourceName`.
+        // i18n templates like "signalr.logRemoval.processingDatasource" render `{{datasourceName}}`
+        // as an empty string when the context is missing the key, producing
+        // "Removing localhost entries from datasource ''..." in the UI.
+        // Enrich the context here so every forwarded progress event carries it.
+        var enrichedContext = progress.Context != null
+            ? new Dictionary<string, object?>(progress.Context)
+            : new Dictionary<string, object?>();
+        if (!enrichedContext.ContainsKey("datasourceName"))
         {
-            // The Rust log_manager binary doesn't receive the datasource name (only the
-            // log directory + service), so its progress JSON context omits `datasourceName`.
-            // i18n templates like "signalr.logRemoval.processingDatasource" render `{{datasourceName}}`
-            // as an empty string when the context is missing the key, producing
-            // "Removing localhost entries from datasource ''..." in the UI.
-            // Enrich the context here so every forwarded progress event carries it.
-            var enrichedContext = progress.Context != null
-                ? new Dictionary<string, object?>(progress.Context)
-                : new Dictionary<string, object?>();
-            if (!enrichedContext.ContainsKey("datasourceName"))
-            {
-                enrichedContext["datasourceName"] = datasourceName;
-            }
+            enrichedContext["datasourceName"] = datasourceName;
+        }
 
-            await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
-            {
-                OperationId = _currentTrackerOperationId,
-                progress.PercentComplete,
-                Status = OperationStatus.Running,
-                StageKey = progress.StageKey,
-                Context = enrichedContext,
-                progress.FilesProcessed,
-                progress.LinesProcessed,
-                progress.LinesRemoved,
-                Service = service,
-                Datasource = datasourceName
-            });
-        }, cancellationToken);
+        return _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
+        {
+            OperationId = _currentTrackerOperationId,
+            progress.PercentComplete,
+            Status = OperationStatus.Running,
+            StageKey = progress.StageKey,
+            Context = enrichedContext,
+            progress.FilesProcessed,
+            progress.LinesProcessed,
+            progress.LinesRemoved,
+            Service = service,
+            Datasource = datasourceName
+        });
     }
 
     private async Task<ProgressData?> ReadProgressFileAsync(string progressPath)

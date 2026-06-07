@@ -29,7 +29,7 @@ internal static class TrackedRemovalOperationRunner
         Func<Guid, object> BuildCancelledPayload,
         Func<Guid, Exception, object> BuildErrorProgressPayload,
         Func<Guid, Exception, object> BuildErrorCompletePayload,
-        Func<CancellationToken, Func<RemovalProgressUpdate, Task>, Task<TReport>> ExecuteAsync,
+        Func<Guid, CancellationToken, Func<RemovalProgressUpdate, Task>, Task<TReport>> ExecuteAsync,
         Action<RemovalMetrics, RemovalProgressUpdate>? ApplyProgressMetrics = null,
         Action<RemovalMetrics, TReport>? ApplyFinalMetrics = null,
         Func<TReport, Task>? OnSuccessAsync = null,
@@ -66,6 +66,7 @@ internal static class TrackedRemovalOperationRunner
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var report = await config.ExecuteAsync(
+                    operationId,
                     cancellationToken,
                     async update =>
                     {

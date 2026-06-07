@@ -120,10 +120,43 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
 
     let datasource_roots = cache_eviction_paths::DatasourceRoots::from_configs(&datasources);
 
-    write_progress(progress_path, "running", "signalr.evictionScan.scanning", json!({}), 0.0, 0, 0, 0, 0)?;
+    // Progress budget: file scan 0–50%, DB reconcile 50–99%. Reserve 100% for the
+    // C# EvictionScanComplete event so the UI never shows "done" while post-processing runs.
+    const FILE_SCAN_PROGRESS_START: f64 = 0.0;
+    const FILE_SCAN_PROGRESS_END: f64 = 50.0;
+    const DB_PROGRESS_START: f64 = 50.0;
+    const DB_PROGRESS_END: f64 = 99.0;
+
+    write_progress(
+        progress_path,
+        "running",
+        "signalr.evictionScan.scanning",
+        json!({}),
+        FILE_SCAN_PROGRESS_START,
+        0,
+        0,
+        0,
+        0,
+    )?;
 
     // Step 2: Build HashSet of all files on disk across all cache directories
-    let files_on_disk = cache_eviction_paths::collect_files_on_disk(&datasources);
+    let file_scan_span = FILE_SCAN_PROGRESS_END - FILE_SCAN_PROGRESS_START;
+    let files_on_disk = cache_eviction_paths::collect_files_on_disk(&datasources, |files_found| {
+        // Asymptotic curve toward FILE_SCAN_PROGRESS_END — we don't know the total upfront.
+        let fraction = 1.0 - 1.0 / (1.0 + files_found as f64 / 1_000_000.0);
+        let percent = FILE_SCAN_PROGRESS_START + fraction * file_scan_span;
+        let _ = write_progress(
+            progress_path,
+            "running",
+            "signalr.evictionScan.scanningFiles",
+            json!({ "filesFound": files_found }),
+            percent,
+            0,
+            0,
+            0,
+            0,
+        );
+    });
 
     if files_on_disk.is_empty() {
         eprintln!("[EvictionScan] No cache files found on disk - skipping to prevent false eviction flags");
@@ -276,11 +309,13 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
 
         total_processed += batch_count;
 
-        // Write progress
+        // Write progress (50–99% band; never 100% — C# owns completion)
+        let db_span = DB_PROGRESS_END - DB_PROGRESS_START;
         let percent = if total_estimate > 0 {
-            (total_processed as f64 / total_estimate as f64 * 100.0).min(100.0)
+            DB_PROGRESS_START
+                + (total_processed as f64 / total_estimate as f64 * db_span).min(db_span)
         } else {
-            0.0
+            DB_PROGRESS_START
         };
 
         write_progress(
@@ -306,12 +341,14 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
         total_processed, total_evicted, total_un_evicted
     );
 
+    // Final Rust progress tick — still "running" at 99% so the frontend waits for
+    // EvictionScanComplete from C# after post-processing (detection recovery, etc.).
     write_progress(
         progress_path,
-        "completed",
-        "signalr.evictionScan.complete",
+        "running",
+        "signalr.evictionScan.finalizing",
         json!({ "totalProcessed": total_processed, "totalEvicted": total_evicted, "totalUnEvicted": total_un_evicted }),
-        100.0,
+        DB_PROGRESS_END,
         total_processed,
         total_estimate,
         total_evicted,

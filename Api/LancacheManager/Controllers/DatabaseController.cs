@@ -122,7 +122,8 @@ public class DatabaseController : ControllerBase
                 IsProcessing = progress.IsProcessing,
                 Status = progress.Status,
                 Message = progress.Message,
-                PercentComplete = (int)progress.PercentComplete
+                PercentComplete = (int)progress.PercentComplete,
+                OperationId = DatabaseService.CurrentResetOperationId
             });
         }
 

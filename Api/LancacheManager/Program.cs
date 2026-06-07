@@ -471,6 +471,7 @@ builder.Services.AddSingleton<GameCacheDetectionDataService>();
 builder.Services.AddSingleton<UnknownGameResolutionService>();
 builder.Services.AddSingleton<EvictedDetectionPreservationService>();
 builder.Services.AddSingleton<IUnifiedOperationTracker, UnifiedOperationTracker>();
+builder.Services.AddSingleton<OperationCancellationService>();
 builder.Services.AddSingleton<IOperationConflictChecker, OperationConflictChecker>();
 builder.Services.AddSingleton<PicsDataService>();
 

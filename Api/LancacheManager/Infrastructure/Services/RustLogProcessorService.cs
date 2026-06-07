@@ -53,11 +53,54 @@ public class RustLogProcessorService
             return Task.FromResult<Guid?>(null);
         }
 
-        return StartBackgroundProcessingAsync(async () =>
+        return StartBackgroundProcessingAsync(
+            () => RunAllDatasourcesAsync(silentMode: false),
+            "processing all datasources");
+    }
+
+    private Guid BeginLogProcessingOperation()
+    {
+        _cancellationTokenSource = new CancellationTokenSource();
+        var operationId = _operationTracker.RegisterOperation(
+            OperationType.LogProcessing,
+            "Log Processing",
+            _cancellationTokenSource);
+        _currentOperationId = operationId;
+        _operationRegisteredTcs?.TrySetResult(operationId);
+        IsProcessing = true;
+        IsSilentMode = false;
+        return operationId;
+    }
+
+    private void EndLogProcessingOperation()
+    {
+        IsProcessing = false;
+        IsSilentMode = false;
+        IsCancelling = false;
+        _currentOperationId = null;
+        _currentDatasourceName = null;
+        _currentProgressPath = null;
+        _currentLogDirectory = null;
+        _cancellationTokenSource?.Dispose();
+        _cancellationTokenSource = null;
+    }
+
+    private async Task<bool> RunAllDatasourcesAsync(bool silentMode)
+    {
+        var datasources = _datasourceService.GetDatasources();
+        if (datasources.Count == 0)
+        {
+            _logger.LogWarning("No datasources configured for log processing");
+            return false;
+        }
+
+        var batchOperationId = BeginLogProcessingOperation();
+        try
         {
             var allSuccess = true;
-            foreach (var datasource in datasources)
+            for (var i = 0; i < datasources.Count; i++)
             {
+                var datasource = datasources[i];
                 var logPosition = _stateService.GetLogPosition(datasource.Name);
                 _logger.LogInformation("Processing datasource '{DatasourceName}' from position {Position}",
                     datasource.Name, logPosition);
@@ -65,25 +108,26 @@ public class RustLogProcessorService
                 var success = await StartProcessingAsync(
                     datasource.LogPath,
                     logPosition,
-                    silentMode: false,
-                    datasourceName: datasource.Name);
+                    silentMode,
+                    datasource.Name,
+                    sharedOperationId: batchOperationId,
+                    finalizeOperation: i == datasources.Count - 1);
                 if (!success)
                 {
-                    // Another processing run can beat this batch between the controller check and
-                    // our first datasource start attempt; stop instead of continuing the loop.
-                    if (IsProcessing)
-                    {
-                        _logger.LogWarning("Aborting background all-datasource log processing start because another operation is already running");
-                        return false;
-                    }
-
                     allSuccess = false;
                     _logger.LogWarning("Processing failed for datasource '{DatasourceName}'", datasource.Name);
                 }
             }
 
             return allSuccess;
-        }, "processing all datasources");
+        }
+        finally
+        {
+            if (IsProcessing)
+            {
+                EndLogProcessingOperation();
+            }
+        }
     }
 
     public Task<Guid?> StartProcessingInBackgroundAsync(string logFilePath, long startPosition = 0, bool silentMode = false, string? datasourceName = null)
@@ -99,6 +143,11 @@ public class RustLogProcessorService
     /// <returns>True if cancellation was requested, false if no operation was running</returns>
     public bool CancelProcessing()
     {
+        if (_currentOperationId.HasValue)
+        {
+            return _operationTracker.CancelOperation(_currentOperationId.Value);
+        }
+
         if (!IsProcessing || _cancellationTokenSource == null)
         {
             _logger.LogWarning("No log processing operation to cancel");
@@ -235,31 +284,7 @@ public class RustLogProcessorService
     /// </summary>
     public async Task<bool> StartProcessingAsync()
     {
-        var datasources = _datasourceService.GetDatasources();
-
-        if (datasources.Count == 0)
-        {
-            _logger.LogWarning("No datasources configured for log processing");
-            return false;
-        }
-
-        // Process each datasource sequentially
-        var allSuccess = true;
-        foreach (var datasource in datasources)
-        {
-            var logPosition = _stateService.GetLogPosition(datasource.Name);
-            _logger.LogInformation("Processing datasource '{DatasourceName}' from position {Position}",
-                datasource.Name, logPosition);
-
-            var success = await StartProcessingAsync(datasource.LogPath, logPosition, silentMode: false, datasourceName: datasource.Name);
-            if (!success)
-            {
-                allSuccess = false;
-                _logger.LogWarning("Processing failed for datasource '{DatasourceName}'", datasource.Name);
-            }
-        }
-
-        return allSuccess;
+        return await RunAllDatasourcesAsync(silentMode: false);
     }
 
     /// <summary>
@@ -390,41 +415,54 @@ public class RustLogProcessorService
         public List<string> Errors { get; set; } = new();
     }
 
-    public async Task<bool> StartProcessingAsync(string logFilePath, long startPosition = 0, bool silentMode = false, string? datasourceName = null)
+    public async Task<bool> StartProcessingAsync(
+        string logFilePath,
+        long startPosition = 0,
+        bool silentMode = false,
+        string? datasourceName = null,
+        Guid? sharedOperationId = null,
+        bool finalizeOperation = true)
     {
         await _startLock.WaitAsync();
         try
         {
-            if (IsProcessing)
+            if (IsProcessing && sharedOperationId == null)
             {
                 _logger.LogWarning("Rust log processor is already running");
                 return false;
             }
 
-            IsProcessing = true;
-            IsSilentMode = silentMode;
+            if (sharedOperationId == null)
+            {
+                IsProcessing = true;
+                IsSilentMode = silentMode;
+            }
         }
         finally
         {
             _startLock.Release();
         }
 
-        // Use default datasource name if not specified
         datasourceName ??= _datasourceService.GetDefaultDatasource()?.Name ?? "default";
+
+        var shouldFinalizeOperation = finalizeOperation;
 
         try
         {
-            _cancellationTokenSource = new CancellationTokenSource();
-            
-            // Register the operation with the unified tracker
-            _currentOperationId = _operationTracker.RegisterOperation(
-                OperationType.LogProcessing,
-                "Log Processing",
-                _cancellationTokenSource
-            );
-
-            // Unblock any StartBackgroundProcessingAsync waiter now that the id is assigned.
-            _operationRegisteredTcs?.TrySetResult(_currentOperationId.Value);
+            if (sharedOperationId != null)
+            {
+                _currentOperationId = sharedOperationId;
+                IsSilentMode = silentMode;
+            }
+            else
+            {
+                _cancellationTokenSource = new CancellationTokenSource();
+                _currentOperationId = _operationTracker.RegisterOperation(
+                    OperationType.LogProcessing,
+                    "Log Processing",
+                    _cancellationTokenSource);
+                _operationRegisteredTcs?.TrySetResult(_currentOperationId.Value);
+            }
 
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var progressPath = Path.Combine(operationsDir, $"rust_progress_{datasourceName}.json");
@@ -499,62 +537,58 @@ public class RustLogProcessorService
                 _logger.LogInformation("Passing TZ={TimeZone} to Rust processor", tz);
             }
 
-            _rustProcess = Process.Start(startInfo);
-
-            if (_rustProcess == null)
-            {
-                throw new Exception("Failed to start Rust process");
-            }
-
-            // Monitor stdout and stderr - track tasks for proper cleanup
-            var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(_rustProcess, "Rust log processor");
-
-            // Send initial progress notification to show UI immediately
-            if (!silentMode)
-            {
-                await _notifications.NotifyAllAsync(SignalREvents.LogProcessingProgress, new
-                {
-                    OperationId = _currentOperationId,
-                    PercentComplete = 0.0,
-                    Status = OperationStatus.Running,
-                    StageKey = "signalr.logProcessing.starting",
-                    Context = new Dictionary<string, object?>(),
-                    TotalLines = 0,
-                    LinesParsed = 0,
-                    EntriesSaved = 0,
-                    MbProcessed = 0.0,
-                    MbTotal = 0.0
-                });
-
-                // Start progress monitoring task
-                _progressMonitorTask = Task.Run(async () => await MonitorProgressAsync(progressPath, _cancellationTokenSource.Token));
-            }
-
-            // Track start time for minimum display duration
             var startTime = DateTime.UtcNow;
 
-            // Wait for process to complete with graceful cancellation handling
-            await _processManager.WaitForProcessAsync(_rustProcess, _cancellationTokenSource.Token);
-
-            var exitCode = _rustProcess.ExitCode;
-            _logger.LogInformation("Rust processor exited with code {ExitCode}", exitCode);
-
-            // Wait for stdout/stderr reading tasks to complete
-            await _rustProcessHelper.WaitForOutputTasksAsync(stdoutTask, stderrTask, TimeSpan.FromSeconds(5));
-
-            // Stop the progress monitoring task immediately
-            _cancellationTokenSource.Cancel();
-            if (_progressMonitorTask != null)
-            {
-                try
+            var exitCode = await _rustProcessHelper.RunTrackedProcessAsync(
+                startInfo,
+                _currentOperationId,
+                _cancellationTokenSource.Token,
+                async process =>
                 {
-                    await _progressMonitorTask;
-                }
-                catch (OperationCanceledException)
-                {
-                    // Expected
-                }
-            }
+                    var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(process, "Rust log processor");
+
+                    if (!silentMode)
+                    {
+                        await _notifications.NotifyAllAsync(SignalREvents.LogProcessingProgress, new
+                        {
+                            OperationId = _currentOperationId,
+                            PercentComplete = 0.0,
+                            Status = OperationStatus.Running,
+                            StageKey = "signalr.logProcessing.starting",
+                            Context = new Dictionary<string, object?>(),
+                            TotalLines = 0,
+                            LinesParsed = 0,
+                            EntriesSaved = 0,
+                            MbProcessed = 0.0,
+                            MbTotal = 0.0
+                        });
+
+                        _progressMonitorTask = Task.Run(async () => await MonitorProgressAsync(progressPath, _cancellationTokenSource.Token));
+                    }
+
+                    await _processManager.WaitForProcessAsync(process, _cancellationTokenSource.Token);
+
+                    _logger.LogInformation("Rust processor exited with code {ExitCode}", process.ExitCode);
+
+                    await _rustProcessHelper.WaitForOutputTasksAsync(stdoutTask, stderrTask, TimeSpan.FromSeconds(5));
+
+                    _cancellationTokenSource.Cancel();
+                    if (_progressMonitorTask != null)
+                    {
+                        try
+                        {
+                            await _progressMonitorTask;
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            // Expected
+                        }
+                    }
+
+                    return process.ExitCode;
+                },
+                onProcessStarted: p => _rustProcess = p,
+                processLabel: "log_processor");
 
             // Check if this was a cancellation by looking at exit code and progress
             // Exit code 1 typically indicates cancellation or error
@@ -568,13 +602,13 @@ public class RustLogProcessorService
                     exitCode, finalProgress?.PercentComplete ?? 0);
 
                 // Complete the operation with cancellation status
-                if (_currentOperationId.HasValue)
+                if (_currentOperationId.HasValue && shouldFinalizeOperation)
                 {
                     _operationTracker.CompleteOperation(_currentOperationId.Value, false, "Operation was cancelled");
                 }
 
                 // Send cancellation notification so frontend doesn't get stuck in "Cancelling..." state
-                if (!silentMode)
+                if (!silentMode && shouldFinalizeOperation)
                 {
                     await _notifications.SendOperationCompleteAsync(
                         SignalREvents.LogProcessingComplete, _currentOperationId,
@@ -593,7 +627,7 @@ public class RustLogProcessorService
                 {
                     _logger.LogError("Rust processor exited with code 0 but reported failure: {StageKey}", finalProgress.StageKey);
 
-                    if (!silentMode)
+                    if (!silentMode && shouldFinalizeOperation)
                     {
                         await _notifications.SendOperationCompleteAsync(
                             SignalREvents.LogProcessingComplete, _currentOperationId,
@@ -601,7 +635,7 @@ public class RustLogProcessorService
                             new { EntriesProcessed = 0, LinesProcessed = finalProgress.LinesParsed });
                     }
 
-                    if (_currentOperationId.HasValue)
+                    if (_currentOperationId.HasValue && shouldFinalizeOperation)
                     {
                         _operationTracker.CompleteOperation(_currentOperationId.Value, false, finalProgress.StageKey);
                     }
@@ -702,7 +736,7 @@ public class RustLogProcessorService
                     // game detection (GameDetectionService) has finished.
                 });
 
-                if (!silentMode)
+                if (!silentMode && shouldFinalizeOperation)
                 {
                     // Set IsProcessing to false BEFORE the delay so polling can detect completion
                     // This is critical for the initialization wizard step 5 to detect completion
@@ -737,7 +771,7 @@ public class RustLogProcessorService
                         success: true, message: "Log processing completed successfully", cancelled: false,
                         new { EntriesProcessed = finalProgress?.EntriesSaved ?? 0, LinesProcessed = finalProgress?.LinesParsed ?? 0, Elapsed = Math.Round(finalElapsed.TotalMinutes, 1) });
                 }
-                else
+                else if (shouldFinalizeOperation)
                 {
                     // In silent mode, we can set IsProcessing to false immediately
                     IsProcessing = false;
@@ -752,7 +786,7 @@ public class RustLogProcessorService
                 }
 
                 // Complete the operation successfully
-                if (_currentOperationId.HasValue)
+                if (_currentOperationId.HasValue && shouldFinalizeOperation)
                 {
                     _operationTracker.CompleteOperation(_currentOperationId.Value, true);
                 }
@@ -764,7 +798,7 @@ public class RustLogProcessorService
                 // Non-zero exit code but not cancelled - this is an actual error
                 _logger.LogError("Rust processor failed with exit code {ExitCode}", exitCode);
 
-                if (!silentMode)
+                if (!silentMode && shouldFinalizeOperation)
                 {
                     // Send failure notification so frontend doesn't get stuck
                     await _notifications.SendOperationCompleteAsync(
@@ -774,7 +808,7 @@ public class RustLogProcessorService
                 }
 
                 // Complete the operation with error
-                if (_currentOperationId.HasValue)
+                if (_currentOperationId.HasValue && shouldFinalizeOperation)
                 {
                     _operationTracker.CompleteOperation(_currentOperationId.Value, false, $"Rust processor failed with exit code {exitCode}");
                 }
@@ -786,7 +820,7 @@ public class RustLogProcessorService
         {
             _logger.LogError(ex, "Error starting Rust log processor");
 
-            if (!silentMode)
+            if (!silentMode && shouldFinalizeOperation)
             {
                 // Send failure notification so frontend doesn't get stuck
                 await _notifications.SendOperationCompleteAsync(
@@ -796,7 +830,7 @@ public class RustLogProcessorService
             }
 
             // Complete the operation with error
-            if (_currentOperationId.HasValue)
+            if (_currentOperationId.HasValue && shouldFinalizeOperation)
             {
                 _operationTracker.CompleteOperation(_currentOperationId.Value, false, ex.Message);
             }
@@ -805,15 +839,19 @@ public class RustLogProcessorService
         }
         finally
         {
-            IsProcessing = false;
-            IsSilentMode = false;
-            IsCancelling = false;
-            _currentOperationId = null;
-            _currentDatasourceName = null;
-            _currentProgressPath = null;
-            _currentLogDirectory = null;
-            _cancellationTokenSource?.Dispose();
-            _rustProcess?.Dispose();
+            if (shouldFinalizeOperation)
+            {
+                EndLogProcessingOperation();
+            }
+            else
+            {
+                IsCancelling = false;
+                _currentDatasourceName = null;
+                _currentProgressPath = null;
+                _currentLogDirectory = null;
+            }
+
+            _rustProcess = null;
         }
     }
 

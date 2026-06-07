@@ -13,16 +13,22 @@ public partial class RustProcessHelper
     private readonly ILogger<RustProcessHelper> _logger;
     private readonly ProcessManager _processManager;
     private readonly IPathResolver _pathResolver;
+    private readonly IUnifiedOperationTracker _operationTracker;
 
     // Matches characters that could be used for argument injection or shell escaping
     [GeneratedRegex(@"[""'`$\\!;|&<>(){}\[\]\r\n\0]")]
     private static partial Regex DangerousArgumentCharsRegex();
 
-    public RustProcessHelper(ILogger<RustProcessHelper> logger, ProcessManager processManager, IPathResolver pathResolver)
+    public RustProcessHelper(
+        ILogger<RustProcessHelper> logger,
+        ProcessManager processManager,
+        IPathResolver pathResolver,
+        IUnifiedOperationTracker operationTracker)
     {
         _logger = logger;
         _processManager = processManager;
         _pathResolver = pathResolver;
+        _operationTracker = operationTracker;
     }
 
     /// <summary>
@@ -108,33 +114,198 @@ public partial class RustProcessHelper
     /// <summary>
     /// Executes a Rust process and returns output/error streams with proper handling
     /// </summary>
-    public async Task<ProcessExecutionResult> ExecuteProcessAsync(
+    public Task<ProcessExecutionResult> ExecuteProcessAsync(
         ProcessStartInfo startInfo,
-        CancellationToken cancellationToken)
-    {
-        using var process = Process.Start(startInfo);
+        CancellationToken cancellationToken) =>
+        ExecuteTrackedProcessAsync(startInfo, operationId: null, cancellationToken);
 
+    /// <summary>
+    /// Executes a Rust process with optional operation-tracker association so universal cancel /
+    /// force-kill can terminate the process tree immediately (same pattern as cache clearing).
+    /// </summary>
+    public Task<ProcessExecutionResult> ExecuteTrackedProcessAsync(
+        ProcessStartInfo startInfo,
+        Guid? operationId,
+        CancellationToken cancellationToken,
+        string processLabel = "rust") =>
+        ExecuteTrackedProcessWithProgressAsync<object>(
+            startInfo,
+            operationId,
+            cancellationToken,
+            progressFilePath: null,
+            onProgress: null,
+            processLabel);
+
+    /// <summary>
+    /// Core tracked-process runner: associate → cancel-kill → execute → disassociate → dispose.
+    /// All higher-level helpers delegate here so operationId wiring lives in one place.
+    /// </summary>
+    public async Task<T> RunTrackedProcessAsync<T>(
+        ProcessStartInfo startInfo,
+        Guid? operationId,
+        CancellationToken cancellationToken,
+        Func<Process, Task<T>> executeAsync,
+        Action<Process>? onProcessStarted = null,
+        string processLabel = "rust")
+    {
+        var process = Process.Start(startInfo);
         if (process == null)
         {
             throw new Exception($"Failed to start process: {startInfo.FileName}");
         }
 
-        // Start reading output asynchronously
+        onProcessStarted?.Invoke(process);
+
+        if (operationId.HasValue)
+        {
+            _operationTracker.AssociateProcess(operationId.Value, process);
+        }
+
+        using var cancelRegistration = cancellationToken.Register(() => TryKillProcess(process, processLabel));
+
+        try
+        {
+            return await executeAsync(process);
+        }
+        finally
+        {
+            if (operationId.HasValue)
+            {
+                _operationTracker.DisassociateProcess(operationId.Value, process);
+            }
+
+            process.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Runs a tracked Rust process, optionally polling a JSON progress file until exit.
+    /// Centralizes associate → cancel-kill → disassociate so callers don't duplicate that wiring.
+    /// </summary>
+    public Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressAsync<TProgress>(
+        ProcessStartInfo startInfo,
+        Guid? operationId,
+        CancellationToken cancellationToken,
+        string? progressFilePath,
+        Func<TProgress, Task>? onProgress,
+        string processLabel = "rust",
+        int pollIntervalMs = 500,
+        Action<Process>? onProcessStarted = null) where TProgress : class =>
+        RunTrackedProcessAsync(
+            startInfo,
+            operationId,
+            cancellationToken,
+            process => ExecuteWithProgressPollingAsync(
+                process,
+                cancellationToken,
+                progressFilePath,
+                onProgress,
+                pollIntervalMs),
+            onProcessStarted: onProcessStarted,
+            processLabel: processLabel);
+
+    private async Task<ProcessExecutionResult> ExecuteWithProgressPollingAsync<TProgress>(
+        Process process,
+        CancellationToken cancellationToken,
+        string? progressFilePath,
+        Func<TProgress, Task>? onProgress,
+        int pollIntervalMs) where TProgress : class
+    {
+        using var pollCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Task? pollTask = null;
+        if (!string.IsNullOrEmpty(progressFilePath) && onProgress != null)
+        {
+            pollTask = Task.Run(async () =>
+            {
+                while (!process.HasExited && !pollCts.Token.IsCancellationRequested)
+                {
+                    await Task.Delay(pollIntervalMs, pollCts.Token);
+
+                    var progressData = await ReadProgressFileAsync<TProgress>(progressFilePath);
+                    if (progressData != null)
+                    {
+                        await onProgress(progressData);
+                    }
+                }
+            }, pollCts.Token);
+        }
+
         var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
-        // Wait for process to complete
         await _processManager.WaitForProcessAsync(process, cancellationToken);
 
-        var output = await outputTask;
-        var error = await errorTask;
+        pollCts.Cancel();
+        if (pollTask != null)
+        {
+            try { await pollTask; } catch (OperationCanceledException) { }
+        }
 
         return new ProcessExecutionResult
         {
             ExitCode = process.ExitCode,
-            Output = output,
-            Error = error
+            Output = await outputTask,
+            Error = await errorTask
         };
+    }
+
+    /// <summary>
+    /// Runs a tracked Rust process that emits newline-delimited JSON progress on stdout.
+    /// </summary>
+    public Task<ProcessExecutionResult> ExecuteTrackedProcessWithStdoutLinesAsync(
+        ProcessStartInfo startInfo,
+        Guid? operationId,
+        CancellationToken cancellationToken,
+        Func<string, Task> onStdoutLine,
+        string processLabel = "rust") =>
+        RunTrackedProcessAsync(
+            startInfo,
+            operationId,
+            cancellationToken,
+            async process =>
+            {
+                var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+
+                string? line;
+                while ((line = await process.StandardOutput.ReadLineAsync(cancellationToken)) != null)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!string.IsNullOrWhiteSpace(line))
+                    {
+                        await onStdoutLine(line);
+                    }
+                }
+
+                await process.WaitForExitAsync(cancellationToken);
+
+                return new ProcessExecutionResult
+                {
+                    ExitCode = process.ExitCode,
+                    Output = string.Empty,
+                    Error = await stderrTask
+                };
+            },
+            processLabel: processLabel);
+
+    private void TryKillProcess(Process process, string processLabel)
+    {
+        if (process.HasExited)
+        {
+            return;
+        }
+
+        try
+        {
+            _logger.LogWarning(
+                "[{ProcessLabel}] Cancellation — killing process tree PID {Pid}",
+                processLabel,
+                process.Id);
+            process.Kill(entireProcessTree: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[{ProcessLabel}] Failed to kill PID {Pid} during cancellation", processLabel, process.Id);
+        }
     }
 
     /// <summary>
@@ -379,7 +550,8 @@ public partial class RustProcessHelper
         CancellationToken cancellationToken = default,
         int threshold = 3,
         bool compareToCacheLogs = true,
-        bool detectRedownloads = false)
+        bool detectRedownloads = false,
+        Guid? operationId = null)
     {
         try
         {
@@ -408,7 +580,11 @@ public partial class RustProcessHelper
             _logger.LogInformation("[corruption_manager] Executing: {Binary} {Args}", rustBinaryPath, arguments);
 
             var startInfo = CreateProcessStartInfo(rustBinaryPath, arguments);
-            var result = await ExecuteProcessAsync(startInfo, cancellationToken);
+            var result = await ExecuteTrackedProcessAsync(
+                startInfo,
+                operationId,
+                cancellationToken,
+                "corruption_manager");
 
             // Log stdout and stderr for debugging
             if (!string.IsNullOrEmpty(result.Output))
@@ -486,7 +662,8 @@ public partial class RustProcessHelper
     public async Task<RustExecutionResult> RunEvictionScanAsync(
         string datasourceConfigPath,
         string? progressFile = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Guid? operationId = null)
     {
         try
         {
@@ -499,7 +676,11 @@ public partial class RustProcessHelper
             _logger.LogInformation("[cache_eviction_scan] Executing: {Binary} {Args}", rustBinaryPath, arguments);
 
             var startInfo = CreateProcessStartInfo(rustBinaryPath, arguments);
-            var result = await ExecuteProcessAsync(startInfo, cancellationToken);
+            var result = await ExecuteTrackedProcessAsync(
+                startInfo,
+                operationId,
+                cancellationToken,
+                "cache_eviction_scan");
 
             if (!string.IsNullOrEmpty(result.Error))
             {

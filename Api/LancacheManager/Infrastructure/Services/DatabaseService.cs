@@ -23,6 +23,7 @@ public class DatabaseService : IDatabaseService
     private readonly DatasourceService _datasourceService;
     private readonly IUnifiedOperationTracker _operationTracker;
     private static readonly ConcurrentDictionary<Guid, bool> _activeResetOperations = new();
+    private static Guid? _currentResetOperationId;
     private static ResetProgressInfo _currentResetProgress = new();
 
     public class ResetProgressInfo
@@ -39,6 +40,7 @@ public class DatabaseService : IDatabaseService
     }
 
     public static ResetProgressInfo CurrentResetProgress => _currentResetProgress;
+    public static Guid? CurrentResetOperationId => _currentResetOperationId;
 
     public DatabaseService(
         AppDbContext context,
@@ -93,6 +95,7 @@ public class DatabaseService : IDatabaseService
 
         if (_activeResetOperations.TryAdd(operationId, true))
         {
+            _currentResetOperationId = operationId;
             _logger.LogInformation("Starting background reset operation {OperationId} for tables: {Tables}", operationId, string.Join(", ", tableNames));
 
             // Initialize progress tracking
@@ -896,6 +899,10 @@ public class DatabaseService : IDatabaseService
         {
             // Clean up operation tracking
             _activeResetOperations.TryRemove(operationId, out _);
+            if (_currentResetOperationId == operationId)
+            {
+                _currentResetOperationId = null;
+            }
 
             // Clear progress tracking - reflect actual outcome
             var wasCancelled = cancellationToken.IsCancellationRequested;

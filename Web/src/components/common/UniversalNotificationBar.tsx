@@ -74,11 +74,20 @@ const handleCancel = async (
     return;
   }
 
-  updateNotification(notification.id, {
-    details: { ...notification.details, cancelling: true }
-  });
+  const alreadyCancelling = notification.details?.cancelling === true;
+
+  if (!alreadyCancelling) {
+    updateNotification(notification.id, {
+      details: { ...notification.details, cancelling: true }
+    });
+  }
 
   try {
+    if (alreadyCancelling) {
+      await ApiService.forceKillOperation(operationId);
+      return;
+    }
+
     await ApiService.cancelOperation(operationId);
     // Do NOT remove the notification here!
     // The SignalR completion event (with cancelled: true) will:

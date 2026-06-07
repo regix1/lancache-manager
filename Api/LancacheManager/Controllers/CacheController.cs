@@ -557,8 +557,8 @@ public class CacheController : ControllerBase
                                 cancellationToken: cts.Token,
                                 threshold: threshold,
                                 compareToCacheLogs: compareToCacheLogs,
-                                detectRedownloads: detectionMode == "redownload"
-                            );
+                                detectRedownloads: detectionMode == "redownload",
+                                operationId: operationId);
 
                             // Stop progress monitoring for this datasource
                             await dsProgressCts.CancelAsync();
@@ -829,8 +829,8 @@ public class CacheController : ControllerBase
                                         cancellationToken: cts.Token,
                                         threshold: threshold,
                                         compareToCacheLogs: compareToCacheLogs,
-                                        detectRedownloads: detectionMode == "redownload"
-                                    );
+                                        detectRedownloads: detectionMode == "redownload",
+                                        operationId: operationId);
 
                                     await dsProgressCts.CancelAsync();
                                     try { await progressMonitorTask; } catch { /* ignore cancellation */ }
@@ -1079,7 +1079,7 @@ public class CacheController : ControllerBase
                     id,
                     "signalr.serviceRemove.failed.generic",
                     Context: new Dictionary<string, object?> { ["name"] = name }),
-                ExecuteAsync: (ct, onProgress) => _cacheService.RemoveServiceFromCacheAsync(
+                ExecuteAsync: (opId, ct, onProgress) => _cacheService.RemoveServiceFromCacheAsync(
                     name,
                     ct,
                     (percentComplete, stageKey, context, filesDeleted, bytesFreed) =>
@@ -1088,7 +1088,8 @@ public class CacheController : ControllerBase
                             stageKey,
                             context,
                             filesDeleted,
-                            bytesFreed))),
+                            bytesFreed)),
+                    opId),
                 ApplyProgressMetrics: (removalMetrics, update) =>
                 {
                     if (update.FilesDeleted > 0)

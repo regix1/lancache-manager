@@ -17,13 +17,11 @@ public class RustDatabaseResetService
     private readonly IPathResolver _pathResolver;
     private readonly ISignalRNotificationService _notifications;
     private readonly CacheManagementService _cacheManagementService;
-    private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly IUnifiedOperationTracker _operationTracker;
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
     private Guid? _currentTrackerOperationId;
-    private Task? _progressMonitorTask;
     private readonly SemaphoreSlim _startLock = new(1, 1);
 
     public bool IsProcessing { get; private set; }
@@ -34,7 +32,6 @@ public class RustDatabaseResetService
         IPathResolver pathResolver,
         ISignalRNotificationService notifications,
         CacheManagementService cacheManagementService,
-        ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
         IUnifiedOperationTracker operationTracker)
     {
@@ -42,7 +39,6 @@ public class RustDatabaseResetService
         _pathResolver = pathResolver;
         _notifications = notifications;
         _cacheManagementService = cacheManagementService;
-        _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
         _operationTracker = operationTracker;
     }
@@ -95,7 +91,8 @@ public class RustDatabaseResetService
             return new
             {
                 isProcessing = false,
-                status = "idle"
+                status = "idle",
+                operationId = _currentTrackerOperationId
             };
         }
 
@@ -123,7 +120,8 @@ public class RustDatabaseResetService
             {
                 isProcessing = true,
                 status = "starting",
-                stageKey = "signalr.dbReset.starting"
+                stageKey = "signalr.dbReset.starting",
+                operationId = _currentTrackerOperationId
             };
         }
 
@@ -136,7 +134,8 @@ public class RustDatabaseResetService
             context = progress.Context,
             tablesCleared = progress.TablesCleared,
             totalTables = progress.TotalTables,
-            filesDeleted = progress.FilesDeleted
+            filesDeleted = progress.FilesDeleted,
+            operationId = _currentTrackerOperationId
         };
     }
 
@@ -206,35 +205,24 @@ public class RustDatabaseResetService
 
             // Wrap Rust process execution in shared lock to prevent concurrent database access
             // This prevents database connection issues and SignalR disconnects during reset
+            var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                rustExecutablePath,
+                $"\"{dataDirectory}\" \"{progressPath}\"",
+                Path.GetDirectoryName(rustExecutablePath));
+
             return await _cacheManagementService.ExecuteWithLockAsync(async () =>
             {
-                // Start Rust process
-                var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-                    rustExecutablePath,
-                    $"\"{dataDirectory}\" \"{progressPath}\"",
-                    Path.GetDirectoryName(rustExecutablePath));
+                var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync<ProgressData>(
+                    startInfo,
+                    _currentTrackerOperationId,
+                    _cancellationTokenSource.Token,
+                    progressPath,
+                    async progress => await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, progress),
+                    processLabel: "database_reset",
+                    onProcessStarted: p => _rustProcess = p);
 
-                _rustProcess = Process.Start(startInfo);
-
-                if (_rustProcess == null)
-                {
-                    throw new Exception("Failed to start rust database reset process");
-                }
-
-                // Monitor stdout and stderr - track tasks for proper cleanup
-                var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(_rustProcess, "Rust database reset");
-
-                // Start progress monitoring task
-                _progressMonitorTask = Task.Run(async () => await MonitorProgressAsync(progressPath, _cancellationTokenSource.Token));
-
-                // Wait for process to complete with graceful cancellation handling
-                await _processManager.WaitForProcessAsync(_rustProcess, _cancellationTokenSource.Token);
-
-                var exitCode = _rustProcess.ExitCode;
+                var exitCode = result.ExitCode;
                 _logger.LogInformation($"rust database reset exited with code {exitCode}");
-
-                // Wait for stdout/stderr reading tasks to complete
-                await _rustProcessHelper.WaitForOutputTasksAsync(stdoutTask, stderrTask, TimeSpan.FromSeconds(5));
 
                 if (exitCode == 0)
                 {
@@ -264,20 +252,6 @@ public class RustDatabaseResetService
                     if (_currentTrackerOperationId.HasValue)
                     {
                         _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: true);
-                    }
-                }
-
-                // Stop the progress monitoring task after sending final progress
-                _cancellationTokenSource.Cancel();
-                if (_progressMonitorTask != null)
-                {
-                    try
-                    {
-                        await _progressMonitorTask;
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Expected
                     }
                 }
 
@@ -353,17 +327,8 @@ public class RustDatabaseResetService
             IsProcessing = false;
             _currentTrackerOperationId = null;
             _cancellationTokenSource?.Dispose();
-            _rustProcess?.Dispose();
+            _rustProcess = null;
         }
-    }
-
-    private Task MonitorProgressAsync(string progressPath, CancellationToken cancellationToken)
-    {
-        var monitor = new RustProgressMonitor<ProgressData>(_rustProcessHelper, _logger);
-        return monitor.MonitorAsync(progressPath, async (ProgressData progress) =>
-        {
-            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, progress);
-        }, cancellationToken);
     }
 
     private async Task<ProgressData?> ReadProgressFileAsync(string progressPath)

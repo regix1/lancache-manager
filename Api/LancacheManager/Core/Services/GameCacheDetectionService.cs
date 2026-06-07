@@ -438,7 +438,11 @@ public class GameCacheDetectionService : IDisposable
                 ProcessExecutionResult result;
                 try
                 {
-                    result = await _rustProcessHelper.ExecuteProcessAsync(startInfo, cancellationToken);
+                    result = await _rustProcessHelper.ExecuteTrackedProcessAsync(
+                        startInfo,
+                        operationId,
+                        cancellationToken,
+                        "cache_game_detect");
                 }
                 finally
                 {
