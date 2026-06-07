@@ -79,6 +79,8 @@ export interface UnifiedNotification {
     operationId?: string;
     /** First cancel click sent; second click force-kills. */
     cancelRequested?: boolean;
+    /** Set after cancel/force-kill API call was invoked for this notification. */
+    cancelSent?: boolean;
     cancelling?: boolean;
 
     // For service_removal

@@ -89,10 +89,17 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             return false;
         }
 
+        if (operation.Status is OperationStatus.Completed or OperationStatus.Failed)
+        {
+            _logger.LogDebug("Operation {Id} already terminal ({Status}) — cancel is a no-op", operationId, operation.Status);
+            return true;
+        }
+
         if (operation.CancellationTokenSource == null)
         {
-            _logger.LogWarning("Operation {Id} has no CancellationTokenSource", operationId);
-            return false;
+            _logger.LogDebug("Operation {Id} has no CancellationTokenSource — attempting process kill only", operationId);
+            TryKillAssociatedProcess(operation, operationId);
+            return true;
         }
 
         if (operation.CancellationTokenSource.IsCancellationRequested)
@@ -143,6 +150,12 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             return false;
         }
 
+        if (operation.Status is OperationStatus.Completed or OperationStatus.Failed)
+        {
+            _logger.LogDebug("Operation {Id} already terminal ({Status}) — force kill is a no-op", operationId, operation.Status);
+            return true;
+        }
+
         _logger.LogWarning(
             "Force killing operation {Id} ({Type}: {Name})",
             operationId, operation.Type, operation.Name);
@@ -151,10 +164,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         operation.Cancelled = true;
         operation.Message = "Force killed by user";
 
-        if (TryKillAssociatedProcess(operation, operationId))
-        {
-            operation.AssociatedProcess = null;
-        }
+        TryKillAssociatedProcess(operation, operationId);
 
         operation.CancellationTokenSource?.Cancel();
         return true;
@@ -163,22 +173,36 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     private bool TryKillAssociatedProcess(OperationInfo operation, Guid operationId)
     {
         var process = operation.AssociatedProcess;
-        if (process == null || process.HasExited)
+        if (process == null)
         {
             return false;
         }
 
         try
         {
+            if (process.HasExited)
+            {
+                operation.AssociatedProcess = null;
+                return false;
+            }
+
             _logger.LogWarning(
                 "Terminating process {ProcessName} (PID: {Pid}) for operation {Id} ({Type}: {Name})",
                 process.ProcessName, process.Id, operationId, operation.Type, operation.Name);
             process.Kill(entireProcessTree: true);
             return true;
         }
+        catch (InvalidOperationException ex)
+        {
+            // Process handle already exited/disposed — treat as already gone.
+            _logger.LogDebug(ex, "Process handle invalid for operation {Id} — clearing association", operationId);
+            operation.AssociatedProcess = null;
+            return false;
+        }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to kill process PID {Pid} for operation {Id}", process.Id, operationId);
+            _logger.LogWarning(ex, "Failed to kill associated process for operation {Id}", operationId);
+            operation.AssociatedProcess = null;
             return false;
         }
     }

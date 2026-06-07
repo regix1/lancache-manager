@@ -70,7 +70,7 @@ const handleCancel = async (
 
   if (!cancelRequested) {
     updateNotification(notification.id, {
-      details: { ...notification.details, cancelRequested: true }
+      details: { ...notification.details, cancelRequested: true, cancelSent: true }
     });
 
     try {
@@ -78,16 +78,24 @@ const handleCancel = async (
     } catch (err) {
       console.error('Cancel failed:', err);
       const errorMessage = err instanceof Error ? err.message : '';
-      if (errorMessage.includes('not found') || errorMessage.includes('Not Found')) {
+      if (
+        errorMessage.includes('not found') ||
+        errorMessage.includes('Not Found') ||
+        errorMessage.includes('cannot be cancelled')
+      ) {
         removeNotification(notification.id);
       } else {
         updateNotification(notification.id, {
-          details: { ...notification.details, cancelRequested: false }
+          details: { ...notification.details, cancelRequested: false, cancelSent: false }
         });
       }
     }
     return;
   }
+
+  updateNotification(notification.id, {
+    details: { ...notification.details, cancelSent: true }
+  });
 
   try {
     await ApiService.forceKillOperation(operationId);
@@ -462,8 +470,7 @@ const UniversalNotificationBar: React.FC = () => {
   // re-render. Pruned as notifications disappear.
   const deferredCancelFiredRef = useRef<Set<string>>(new Set());
 
-  // Deferred-cancel watchdog: if cancel was requested before operationId existed,
-  // fire cancelOperation() as soon as the opId materialises.
+  // Deferred-cancel watchdog: only when user clicked X before operationId existed.
   useEffect(() => {
     notifications.forEach((n) => {
       const opId = n.details?.operationId;
@@ -471,10 +478,14 @@ const UniversalNotificationBar: React.FC = () => {
         n.status === 'running' &&
         n.type !== 'bulk_removal' &&
         n.details?.cancelRequested &&
+        !n.details?.cancelSent &&
         opId &&
         !deferredCancelFiredRef.current.has(n.id)
       ) {
         deferredCancelFiredRef.current.add(n.id);
+        updateNotification(n.id, {
+          details: { ...n.details, cancelSent: true }
+        });
         ApiService.cancelOperation(opId).catch((err) => {
           console.error('[UniversalNotificationBar] Deferred cancel failed:', err);
         });
@@ -487,7 +498,7 @@ const UniversalNotificationBar: React.FC = () => {
     deferredCancelFiredRef.current.forEach((id) => {
       if (!currentIds.has(id)) deferredCancelFiredRef.current.delete(id);
     });
-  }, [notifications]);
+  }, [notifications, updateNotification]);
 
   // Listen for sticky notifications setting changes
   useEffect(() => {

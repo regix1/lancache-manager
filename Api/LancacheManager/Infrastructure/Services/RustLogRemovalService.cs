@@ -360,6 +360,11 @@ public class RustLogRemovalService
                     _logger.LogInformation("Rust log_manager exited with code {ExitCode} for datasource '{DatasourceName}'",
                         exitCode, datasource.Name);
 
+                    if (WasLogRemovalCancelled())
+                    {
+                        return false;
+                    }
+
                     if (!string.IsNullOrWhiteSpace(result.Output))
                     {
                         _logger.LogInformation("[Rust log removal] {Output}", result.Output);
@@ -394,11 +399,23 @@ public class RustLogRemovalService
                 if (!dsSuccess)
                 {
                     allSuccess = false;
+                    if (WasLogRemovalCancelled())
+                    {
+                        await CompleteLogRemovalCancelledAsync(service);
+                        return false;
+                    }
+
                     _logger.LogWarning("Log removal failed for datasource '{DatasourceName}', continuing with remaining datasources",
                         datasource.Name);
                 }
 
                 datasourcesProcessed++;
+            }
+
+            if (WasLogRemovalCancelled())
+            {
+                await CompleteLogRemovalCancelledAsync(service);
+                return false;
             }
 
             _logger.LogInformation(
@@ -640,6 +657,12 @@ public class RustLogRemovalService
                 var exitCode = result.ExitCode;
                 _logger.LogInformation("Rust log_manager exited with code {ExitCode} for datasource {Datasource}", exitCode, datasourceName);
 
+                if (WasLogRemovalCancelled())
+                {
+                    await CompleteLogRemovalCancelledAsync(service, datasourceName);
+                    return false;
+                }
+
                 if (exitCode == 0)
                 {
                     await _cacheManagementService.InvalidateServiceCountsCacheAsync();
@@ -687,16 +710,7 @@ public class RustLogRemovalService
         {
             _logger.LogInformation("Service removal for {Service} in {Datasource} was cancelled", service, datasourceName);
 
-            await _notifications.SendOperationCompleteAsync(
-                SignalREvents.LogRemovalComplete, _currentTrackerOperationId,
-                success: false, message: $"Service removal for {service} in {datasourceName} was cancelled", cancelled: true,
-                new { Service = service, Datasource = datasourceName });
-
-            // Mark operation as cancelled in unified tracker
-            if (_currentTrackerOperationId.HasValue)
-            {
-                _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: "Cancelled by user");
-            }
+            await CompleteLogRemovalCancelledAsync(service, datasourceName);
 
             return false;
         }
@@ -761,6 +775,42 @@ public class RustLogRemovalService
             Service = service,
             Datasource = datasourceName
         });
+    }
+
+    private bool WasLogRemovalCancelled()
+    {
+        if (_cancellationTokenSource?.IsCancellationRequested == true)
+        {
+            return true;
+        }
+
+        if (_currentTrackerOperationId.HasValue)
+        {
+            var op = _operationTracker.GetOperation(_currentTrackerOperationId.Value);
+            if (op?.Cancelled == true || op?.Status == OperationStatus.Cancelling)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private async Task CompleteLogRemovalCancelledAsync(string service, string? datasourceName = null)
+    {
+        var message = datasourceName != null
+            ? $"Service removal for {service} in {datasourceName} was cancelled"
+            : $"Service removal for {service} was cancelled";
+
+        await _notifications.SendOperationCompleteAsync(
+            SignalREvents.LogRemovalComplete, _currentTrackerOperationId,
+            success: false, message: message, cancelled: true,
+            new { Service = service, Datasource = datasourceName });
+
+        if (_currentTrackerOperationId.HasValue)
+        {
+            _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: "Cancelled by user");
+        }
     }
 
     private async Task<ProgressData?> ReadProgressFileAsync(string progressPath)

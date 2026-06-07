@@ -823,6 +823,25 @@ public class RustLogProcessorService
                 return false;
             }
         }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Log processing was cancelled for datasource '{DatasourceName}'", datasourceName);
+
+            if (_currentOperationId.HasValue && shouldFinalizeOperation)
+            {
+                _operationTracker.CompleteOperation(_currentOperationId.Value, false, "Operation was cancelled");
+            }
+
+            if (!silentMode && shouldFinalizeOperation)
+            {
+                await _notifications.SendOperationCompleteAsync(
+                    SignalREvents.LogProcessingComplete, _currentOperationId,
+                    success: false, message: "Log processing was cancelled", cancelled: true,
+                    new { EntriesProcessed = 0, LinesProcessed = 0 });
+            }
+
+            return false;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error starting Rust log processor");

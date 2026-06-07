@@ -59,13 +59,13 @@ public class OperationCancellationService
         // Match cache-clear / log-removal force-kill: give the OS a moment to reap the process.
         await Task.Delay(500);
 
-        // If the worker already completed, nothing left to do.
-        if (_operationTracker.GetOperation(operationId) == null)
+        var current = _operationTracker.GetOperation(operationId);
+        if (current == null || current.Status is OperationStatus.Completed or OperationStatus.Failed)
         {
             return true;
         }
 
-        await NotifyForceKillCompleteAsync(operation);
+        await NotifyForceKillCompleteAsync(current);
         _operationTracker.CompleteOperation(operationId, success: false, error: "Force killed by user");
         return true;
     }
@@ -151,7 +151,9 @@ public class OperationCancellationService
 
             case OperationType.LogRemoval:
             {
-                var service = (operation.Metadata as RemovalMetrics)?.EntityName ?? "unknown";
+                var service = GetMetadataString(operation.Metadata, "service")
+                              ?? (operation.Metadata as RemovalMetrics)?.EntityName
+                              ?? "unknown";
                 await _notifications.SendOperationCompleteAsync(
                     SignalREvents.LogRemovalComplete,
                     operationId,
@@ -220,5 +222,22 @@ public class OperationCancellationService
                     operation.Type, operationId);
                 break;
         }
+    }
+
+    private static string? GetMetadataString(object? metadata, string key)
+    {
+        if (metadata == null)
+        {
+            return null;
+        }
+
+        if (metadata is System.Collections.Generic.IDictionary<string, object?> dict
+            && dict.TryGetValue(key, out var value))
+        {
+            return value?.ToString();
+        }
+
+        var prop = metadata.GetType().GetProperty(key);
+        return prop?.GetValue(metadata)?.ToString();
     }
 }
