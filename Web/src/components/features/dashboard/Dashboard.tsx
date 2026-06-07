@@ -455,6 +455,20 @@ const Dashboard: React.FC = () => {
     return result;
   }, [gameDetectionData, evictedDataMode, evictedGamesCount]);
 
+  const unmappedCacheBytes = useMemo(() => {
+    const cacheScanTotal = cacheInfo?.cacheScanTotalBytes;
+    const identifiedTotal = gameDetectionData?.identified_cache_bytes;
+    if (
+      cacheScanTotal === undefined ||
+      identifiedTotal === undefined ||
+      cacheScanTotal <= identifiedTotal
+    ) {
+      return null;
+    }
+
+    return cacheScanTotal - identifiedTotal;
+  }, [cacheInfo?.cacheScanTotalBytes, gameDetectionData?.identified_cache_bytes]);
+
   const allStatCards = useMemo<AllStatCards>(
     () => ({
       totalCache: {
@@ -603,6 +617,9 @@ const Dashboard: React.FC = () => {
               t('dashboard.cards.gamesDetected', { count: gamesOnDiskStats.gameCount }),
               formattedLastDetectionTime
                 ? t('dashboard.cards.scannedAt', { time: formattedLastDetectionTime })
+                : null,
+              unmappedCacheBytes && unmappedCacheBytes > 0
+                ? t('dashboard.statCards.unmappedCache', { size: formatBytes(unmappedCacheBytes) })
                 : null
             ]
               .filter(Boolean)
@@ -639,7 +656,8 @@ const Dashboard: React.FC = () => {
       statTooltips,
       gamesOnDiskStats,
       formattedLastDetectionTime,
-      formattedCacheScanTime
+      formattedCacheScanTime,
+      unmappedCacheBytes
     ]
   );
 

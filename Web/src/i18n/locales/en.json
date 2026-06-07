@@ -436,7 +436,7 @@
       },
       "usedSpace": {
         "term": "Used Space",
-        "description": "In Live mode, this is the current space used on the cache volume (entire mount point, not just matched game files). In historical views, it's the size at the end of the selected period."
+        "description": "Live usage of the cache volume mount point (everything on that disk). This can differ from Games on Disk, which only counts cache files matched to known games. Compare with the cache file scan total when available."
       },
       "bandwidthSaved": {
         "term": "Bandwidth Saved",
@@ -468,8 +468,9 @@
       },
       "gamesOnDisk": {
         "term": "Games on Disk",
-        "description": "Total size of cache files matched to known games during the last Game Cache Detection scan. Shared files are counted once. This is usually less than Used Space because it excludes unidentified cache content. If the value exceeds Used Space, re-run detection — the scan is likely outdated after cache evictions or removals."
-      }
+        "description": "Size of cache files matched to known games during the last Game Cache Detection scan. Shared files are counted once using actual on-disk file sizes. Service-level cache (Windows Update, etc.) and unidentified cache files are not included here — they appear in the unmapped cache portion when a cache file scan is available."
+      },
+      "unmappedCache": "{{size}} unmapped cache"
     },
     "downloadsPanel": {
       "title": "Downloads",

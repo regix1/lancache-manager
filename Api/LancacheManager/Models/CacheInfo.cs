@@ -29,7 +29,12 @@ public class CacheInfo
     public DateTime? CacheScanTimestampUtc { get; set; }
 
     /// <summary>
-    /// True when cache scan data (file scan or game detection) is likely outdated vs live mount usage.
+    /// Total bytes in the cache directory from the last Rust cache-size scan.
+    /// </summary>
+    public long CacheScanTotalBytes { get; set; }
+
+    /// <summary>
+    /// True when mount used space has changed significantly since the last cache file scan.
     /// </summary>
     public bool ScanMayBeStale { get; set; }
 }

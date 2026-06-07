@@ -3,9 +3,9 @@ using LancacheManager.Models;
 namespace LancacheManager.Core;
 
 /// <summary>
-/// Computes dashboard "Games on Disk" aggregates from cached game detection results.
-/// Deduplicates cache file paths across games so shared CDN / depot files are not
-/// counted multiple times when summing per-game sizes.
+/// Computes dashboard cache-on-disk aggregates from cached detection results.
+/// Deduplicates cache file paths across games and services using actual file sizes
+/// so shared CDN / depot files are not counted multiple times.
 /// </summary>
 public static class GamesOnDiskCalculator
 {
@@ -13,48 +13,119 @@ public static class GamesOnDiskCalculator
         ulong TotalBytes,
         int ActiveGameCount);
 
-    public static GamesOnDiskAggregate Compute(IEnumerable<GameCacheInfo> games)
+    public readonly record struct IdentifiedCacheAggregate(
+        ulong TotalBytes,
+        ulong GameBytes,
+        ulong ServiceBytes,
+        int ActiveGameCount,
+        int ActiveServiceCount);
+
+    public static GamesOnDiskAggregate Compute(IEnumerable<GameCacheInfo> games) =>
+        ComputeGames(games);
+
+    public static GamesOnDiskAggregate ComputeGames(IEnumerable<GameCacheInfo> games)
     {
         var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        ulong deduplicatedBytes = 0;
+        ulong totalBytes = 0;
         var activeGameCount = 0;
 
         foreach (var game in games)
         {
-            if (game.IsEvicted || game.TotalSizeBytes == 0)
+            if (game.IsEvicted)
             {
                 continue;
             }
 
-            var paths = game.CacheFilePaths;
-            if (paths == null || paths.Count == 0)
+            var contributedBytes = AddUniquePathBytes(seenPaths, game.CacheFilePaths);
+            if (contributedBytes == 0)
             {
-                activeGameCount++;
-                deduplicatedBytes += game.TotalSizeBytes;
                 continue;
             }
 
-            var bytesPerPath = game.TotalSizeBytes / (ulong)paths.Count;
-            var remainder = (int)(game.TotalSizeBytes % (ulong)paths.Count);
-            var contributedToGame = false;
-
-            for (var i = 0; i < paths.Count; i++)
-            {
-                if (!seenPaths.Add(paths[i]))
-                {
-                    continue;
-                }
-
-                deduplicatedBytes += bytesPerPath + (i < remainder ? 1UL : 0UL);
-                contributedToGame = true;
-            }
-
-            if (contributedToGame)
-            {
-                activeGameCount++;
-            }
+            totalBytes += contributedBytes;
+            activeGameCount++;
         }
 
-        return new GamesOnDiskAggregate(deduplicatedBytes, activeGameCount);
+        return new GamesOnDiskAggregate(totalBytes, activeGameCount);
+    }
+
+    public static IdentifiedCacheAggregate ComputeIdentifiedCache(
+        IEnumerable<GameCacheInfo> games,
+        IEnumerable<ServiceCacheInfo> services)
+    {
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        ulong gameBytes = 0;
+        ulong serviceBytes = 0;
+        var activeGameCount = 0;
+        var activeServiceCount = 0;
+
+        foreach (var game in games)
+        {
+            if (game.IsEvicted)
+            {
+                continue;
+            }
+
+            var contributedBytes = AddUniquePathBytes(seenPaths, game.CacheFilePaths);
+            if (contributedBytes == 0)
+            {
+                continue;
+            }
+
+            gameBytes += contributedBytes;
+            activeGameCount++;
+        }
+
+        foreach (var service in services)
+        {
+            if (service.IsEvicted)
+            {
+                continue;
+            }
+
+            var contributedBytes = AddUniquePathBytes(seenPaths, service.CacheFilePaths);
+            if (contributedBytes == 0)
+            {
+                continue;
+            }
+
+            serviceBytes += contributedBytes;
+            activeServiceCount++;
+        }
+
+        return new IdentifiedCacheAggregate(
+            gameBytes + serviceBytes,
+            gameBytes,
+            serviceBytes,
+            activeGameCount,
+            activeServiceCount);
+    }
+
+    private static ulong AddUniquePathBytes(HashSet<string> seenPaths, IReadOnlyList<string>? paths)
+    {
+        if (paths == null || paths.Count == 0)
+        {
+            return 0;
+        }
+
+        ulong addedBytes = 0;
+
+        foreach (var path in paths)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+
+            var normalizedPath = CacheFileSizeHelper.NormalizePath(path);
+            if (!seenPaths.Add(normalizedPath))
+            {
+                continue;
+            }
+
+            addedBytes += CacheFileSizeHelper.TryGetFileSize(normalizedPath);
+        }
+
+        return addedBytes;
     }
 }

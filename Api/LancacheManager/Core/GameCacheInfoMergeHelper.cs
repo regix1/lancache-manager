@@ -66,7 +66,7 @@ internal static class GameCacheInfoMergeHelper
             }
 
             existing.CacheFilePaths.Add(path);
-            addedBytes += TryGetFileSize(path);
+            addedBytes += CacheFileSizeHelper.TryGetFileSize(path);
         }
 
         if (addedBytes > 0 || incoming.CacheFilePaths is { Count: > 0 })
@@ -94,7 +94,7 @@ internal static class GameCacheInfoMergeHelper
             }
 
             existing.CacheFilePaths.Add(path);
-            addedBytes += TryGetFileSize(path);
+            addedBytes += CacheFileSizeHelper.TryGetFileSize(path);
         }
 
         if (addedBytes > 0 || incoming.CacheFilePaths is { Count: > 0 })
@@ -106,22 +106,5 @@ internal static class GameCacheInfoMergeHelper
 
         existing.CacheFilesFound += incoming.CacheFilesFound;
         existing.TotalSizeBytes += incoming.TotalSizeBytes;
-    }
-
-    private static ulong TryGetFileSize(string path)
-    {
-        try
-        {
-            if (!File.Exists(path))
-            {
-                return 0;
-            }
-
-            return (ulong)new FileInfo(path).Length;
-        }
-        catch
-        {
-            return 0;
-        }
     }
 }

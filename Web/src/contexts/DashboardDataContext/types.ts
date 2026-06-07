@@ -43,6 +43,10 @@ export interface CachedDetectionResponse {
   games_on_disk_bytes?: number;
   /** Count of non-evicted games with cache files on disk. */
   games_on_disk_count?: number;
+  /** Deduplicated total size of matched game and service cache files. */
+  identified_cache_bytes?: number;
+  /** Portion of identified_cache_bytes attributed to non-game services. */
+  identified_service_bytes?: number;
 }
 
 interface DashboardDataContextType {

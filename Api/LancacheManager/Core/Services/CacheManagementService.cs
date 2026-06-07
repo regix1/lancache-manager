@@ -192,20 +192,19 @@ public class CacheManagementService
         }
 
         info.TotalFiles = cachedScan.TotalFiles;
+        info.CacheScanTotalBytes = cachedScan.TotalBytes;
         info.CacheScanTimestampUtc = _cachedCacheScan!.ScannedAtUtc;
         await ApplyScanMayBeStaleAsync(info);
     }
 
     /// <summary>
-    /// Sets <see cref="CacheInfo.ScanMayBeStale"/> using live usage, optional game-detection totals,
-    /// and the cached file-scan baseline when available.
+    /// Sets <see cref="CacheInfo.ScanMayBeStale"/> using live usage and the cached file-scan baseline.
     /// </summary>
-    public async Task ApplyScanMayBeStaleAsync(CacheInfo info, long? gameDetectionAggregateBytes = null)
+    public async Task ApplyScanMayBeStaleAsync(CacheInfo info)
     {
         await LoadCachedScanAsync();
         info.ScanMayBeStale = CacheScanStaleCalculator.IsAnyScanStale(
             info.UsedCacheSize,
-            gameDetectionAggregateBytes,
             _cachedCacheScan?.UsedCacheSizeAtScan);
     }
     

@@ -96,12 +96,6 @@ public class DashboardBatchService : IDashboardBatchService
         await Task.WhenAll(clientsTask, servicesTask, dashboardTask, downloadsTask, detectionTask, sparklinesTask, hourlyTask, cacheSnapshotTask, cacheGrowthTask);
 
         var detectionResult = await detectionTask;
-        if (cacheResult != null && detectionResult is CachedDetectionResponse detection)
-        {
-            await _cacheService.ApplyScanMayBeStaleAsync(
-                cacheResult,
-                detection.HasCachedResults ? (long)detection.GamesOnDiskBytes : null);
-        }
 
         DashboardBatchResponse response = new()
         {

@@ -56,6 +56,18 @@ public class CachedDetectionResponse
     /// </summary>
     [JsonPropertyName("games_on_disk_count")]
     public int GamesOnDiskCount { get; set; }
+
+    /// <summary>
+    /// Deduplicated total size of matched game and service cache files on disk.
+    /// </summary>
+    [JsonPropertyName("identified_cache_bytes")]
+    public ulong IdentifiedCacheBytes { get; set; }
+
+    /// <summary>
+    /// Portion of <see cref="IdentifiedCacheBytes"/> attributed to non-game services.
+    /// </summary>
+    [JsonPropertyName("identified_service_bytes")]
+    public ulong IdentifiedServiceBytes { get; set; }
 }
 
 /// <summary>

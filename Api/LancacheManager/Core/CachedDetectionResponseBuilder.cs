@@ -25,7 +25,7 @@ public static class CachedDetectionResponseBuilder
         DateTime lastDetectionUtc,
         bool slimForDashboard)
     {
-        var gamesOnDisk = GamesOnDiskCalculator.Compute(games);
+        var identifiedCache = GamesOnDiskCalculator.ComputeIdentifiedCache(games, services ?? []);
         var activeGamesCount = games.Count(g => !g.IsEvicted);
 
         object? responseGames = slimForDashboard
@@ -62,8 +62,10 @@ public static class CachedDetectionResponseBuilder
             TotalGamesDetected = activeGamesCount,
             TotalServicesDetected = totalServicesDetected,
             LastDetectionTime = lastDetectionUtc.ToString("o"),
-            GamesOnDiskBytes = gamesOnDisk.TotalBytes,
-            GamesOnDiskCount = gamesOnDisk.ActiveGameCount
+            GamesOnDiskBytes = identifiedCache.GameBytes,
+            GamesOnDiskCount = identifiedCache.ActiveGameCount,
+            IdentifiedCacheBytes = identifiedCache.TotalBytes,
+            IdentifiedServiceBytes = identifiedCache.ServiceBytes
         };
     }
 }
