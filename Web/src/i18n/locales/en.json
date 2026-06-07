@@ -5538,7 +5538,7 @@
       },
       "complete": {
         "default": "Detection complete",
-        "newGames": "Found {{newGamesCount}} new game(s) ({{totalGamesDetected}} total with cache files)",
+        "newGames": "Incremental scan complete — {{newGamesCount}} new game(s) found ({{totalGamesDetected}} total on disk)",
         "noNewGames": "No new games detected ({{totalGamesDetected}} total with cache files)",
         "full": "Detected {{totalGamesDetected}} games with cache files"
       },

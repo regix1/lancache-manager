@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
+import { EMPTY_CACHED_DETECTION, buildDetectionLookupMaps } from '@utils/gameDetection';
 import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../useTimeFilter';
 import { useRefreshRate } from '../useRefreshRate';
@@ -78,6 +79,18 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
   const refreshDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const applyDetectionFromBatch = useCallback((detection: CachedDetectionResponse) => {
+    setGameDetectionData(detection);
+    const { byAppId, byName, byService } = buildDetectionLookupMaps(detection);
+    setGameDetectionLookup(byAppId);
+    setGameDetectionByName(byName);
+    setGameDetectionByService(byService);
+  }, []);
+
+  const clearDetectionState = useCallback(() => {
+    applyDetectionFromBatch(EMPTY_CACHED_DETECTION);
+  }, [applyDetectionFromBatch]);
   const prevEventIdsRef = useRef<string>(JSON.stringify(selectedEventIds));
   const currentRequestIdRef = useRef(0);
 
@@ -202,37 +215,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 
         // Game detection data is not time-range dependent, always apply
         if (batchResponse.detection !== null && batchResponse.detection !== undefined) {
-          const detectionResult = batchResponse.detection;
-          setGameDetectionData(detectionResult);
-          // Build lookup maps: primary by game_app_id, fallback by game_name
-          if (detectionResult.games && detectionResult.games.length > 0) {
-            const byAppId = new Map<number, GameDetectionSummary>();
-            const byName = new Map<string, GameDetectionSummary>();
-            for (const game of detectionResult.games) {
-              if (game.game_app_id) {
-                byAppId.set(game.game_app_id, game);
-              }
-              if (game.game_name) {
-                byName.set(game.game_name.toLowerCase(), game);
-              }
-            }
-            setGameDetectionLookup(byAppId);
-            setGameDetectionByName(byName);
-
-            // Build service-level lookup
-            if (detectionResult.services) {
-              const bySvc = new Map<
-                string,
-                { service_name: string; cache_files_found: number; total_size_bytes: number }
-              >();
-              for (const svc of detectionResult.services) {
-                if (svc.service_name) {
-                  bySvc.set(svc.service_name.toLowerCase(), svc);
-                }
-              }
-              setGameDetectionByService(bySvc);
-            }
-          }
+          applyDetectionFromBatch(batchResponse.detection);
         }
 
         // Time-range dependent data - apply unconditionally. A null from a failed
@@ -293,7 +276,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         }
       }
     },
-    []
+    [applyDetectionFromBatch]
   );
 
   // Public refresh function for manual refreshes
@@ -321,12 +304,39 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       );
     };
 
-    // Handler for database reset completion - always refresh immediately
-    const handleDatabaseResetProgress = (event: { status?: string }) => {
+    // Handler for database reset — clear stale dashboard slices as tables are wiped
+    const handleDatabaseResetProgress = (event: { status?: string; stageKey?: string }) => {
       const status = (event.status || '').toLowerCase();
+      const stageKey = event.stageKey;
+
+      if (status === 'starting' || status === 'deleting') {
+        if (stageKey === 'signalr.dbReset.clearedGameDetections') {
+          clearDetectionState();
+        }
+
+        if (
+          stageKey === 'signalr.dbReset.clearedDownloads' ||
+          stageKey === 'signalr.dbReset.clearedServiceStats' ||
+          stageKey === 'signalr.dbReset.clearedClientStats'
+        ) {
+          setServiceStats([]);
+          setClientStats([]);
+          setLatestDownloads([]);
+        }
+      }
+
       if (status === 'completed') {
         setTimeout(() => fetchAllData({ trigger: 'signalr:DatabaseResetCompleted' }), 500);
       }
+    };
+
+    const handleGameDetectionStarted = () => {
+      clearDetectionState();
+    };
+
+    const handleCacheClearingComplete = () => {
+      clearDetectionState();
+      handleRefreshEvent('CacheClearingComplete');
     };
 
     // Handler for game detection completion - always refresh game detection data
@@ -335,10 +345,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       fetchAllData({ forceRefresh: true, trigger: 'signalr:GameDetectionComplete' });
     };
 
-    // Create stable handler references for proper cleanup
-    // Exclude GameDetectionComplete from the throttled handler since we have a dedicated one
+    // Exclude events with dedicated handlers from the debounced refresh list
     const throttledEvents = SIGNALR_REFRESH_EVENTS.filter(
-      (event) => event !== 'GameDetectionComplete'
+      (event) => event !== 'GameDetectionComplete' && event !== 'CacheClearingComplete'
     );
     const eventHandlers: Record<string, () => void> = {};
     throttledEvents.forEach((event) => {
@@ -346,7 +355,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       signalR.on(event, eventHandlers[event]);
     });
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
+    signalR.on('GameDetectionStarted', handleGameDetectionStarted);
     signalR.on('GameDetectionComplete', handleGameDetectionComplete);
+    signalR.on('CacheClearingComplete', handleCacheClearingComplete);
 
     return () => {
       // Use the same handler references for cleanup
@@ -354,34 +365,23 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         signalR.off(event, eventHandlers[event]);
       });
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
+      signalR.off('GameDetectionStarted', handleGameDetectionStarted);
       signalR.off('GameDetectionComplete', handleGameDetectionComplete);
+      signalR.off('CacheClearingComplete', handleCacheClearingComplete);
       // Clear any pending debounce timer on unmount
       if (refreshDebounceTimerRef.current) {
         clearTimeout(refreshDebounceTimerRef.current);
         refreshDebounceTimerRef.current = null;
       }
     };
-  }, [mockMode, signalR, fetchAllData]);
+  }, [mockMode, signalR, fetchAllData, clearDetectionState]);
 
   // Load mock data when mock mode is enabled
   useEffect(() => {
     if (mockMode) {
       const mockData = MockDataService.generateMockData('unlimited');
       const mockDetection = MockDataService.generateMockGameDetection();
-
-      // Build detection lookup maps: primary by game_app_id, fallback by game_name
-      const lookup = new Map<number, GameDetectionSummary>();
-      const nameLookup = new Map<string, GameDetectionSummary>();
-      if (mockDetection.games) {
-        for (const game of mockDetection.games) {
-          if (game.game_app_id) {
-            lookup.set(game.game_app_id, game);
-          }
-          if (game.game_name) {
-            nameLookup.set(game.game_name.toLowerCase(), game);
-          }
-        }
-      }
+      const { byAppId, byName, byService } = buildDetectionLookupMaps(mockDetection);
 
       // React 18+ auto-batches setState calls in event handlers; no transition needed.
       setLoading(true);
@@ -392,8 +392,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       setDashboardStats(mockData.dashboardStats);
       setLatestDownloads(mockData.latestDownloads);
       setGameDetectionData(mockDetection);
-      setGameDetectionLookup(lookup);
-      setGameDetectionByName(nameLookup);
+      setGameDetectionLookup(byAppId);
+      setGameDetectionByName(byName);
+      setGameDetectionByService(byService);
       setError(null);
       setLoading(false);
 

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { PieChart, Maximize2, Minimize2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { isActiveGame, buildGamesOnDiskDisplayStats } from '@utils/gameDetection';
+import { isActiveGame, buildGamesOnDiskDisplayStats, getChartGames } from '@utils/gameDetection';
 import { useGameDetection, useStats } from '@contexts/DashboardDataContext/hooks';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -43,7 +43,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
       setShowList((prev) => !prev);
     }, []);
 
-    const games = useMemo(() => gameDetectionData?.games ?? [], [gameDetectionData?.games]);
+    const games = useMemo(() => getChartGames(gameDetectionData), [gameDetectionData]);
 
     const gamesOnDisk = useMemo(
       () => buildGamesOnDiskDisplayStats(gameDetectionData),

@@ -12,6 +12,7 @@ import {
   formatLogProcessingRecoveryDetailMessage,
   formatDepotMappingRecoveryDetailMessage
 } from './detailMessageFormatters';
+import { translateStageKeyMessage } from '@utils/stageKeyMessage';
 import i18n from '@/i18n';
 
 export type FetchWithAuth = (url: string) => Promise<Response>;
@@ -99,6 +100,7 @@ interface GameDetectionOperationInfo {
   statusMessage: string;
   percentComplete: number;
   scanType?: 'full' | 'incremental';
+  context?: StageContext;
 }
 
 interface GameDetectionStatusResponse {
@@ -395,7 +397,11 @@ const RECOVERY_CONFIGS = {
       // `isProcessing` guard above ensures `data.operation !== null` here.
       const op = data.operation!;
       return {
-        message: op.statusMessage,
+        message: translateStageKeyMessage(
+          op.statusMessage,
+          op.context,
+          'signalr.gameDetect.starting.default'
+        ),
         progress: op.percentComplete,
         details: {
           operationId: op.operationId,

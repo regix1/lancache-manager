@@ -432,27 +432,17 @@ const Dashboard: React.FC = () => {
   // Compute "Games on Disk" aggregate from detection data.
   // Hold the previous stable value in a ref so the card doesn't jump
   // while game detection is running and returning intermediate results.
-  const prevGamesOnDiskRef = useRef<{
-    totalSize: number;
-    gameCount: number;
-    includesEvicted: boolean;
-    evictedCount: number;
-  } | null>(null);
   const formattedLastDetectionTime = useFormattedDateTime(gameDetectionData?.lastDetectionTime);
   const gamesOnDiskStats = useMemo(() => {
     if (!gameDetectionData?.hasCachedResults) {
-      return prevGamesOnDiskRef.current;
+      return null;
     }
+
     const includeEvicted = evictedDataMode === 'show' || evictedDataMode === 'showClean';
-    const result = buildGamesOnDiskDisplayStats(gameDetectionData, {
+    return buildGamesOnDiskDisplayStats(gameDetectionData, {
       showEvictedBadge: includeEvicted,
       evictedCount: evictedGamesCount
     });
-    if (!result) {
-      return prevGamesOnDiskRef.current;
-    }
-    prevGamesOnDiskRef.current = result;
-    return result;
   }, [gameDetectionData, evictedDataMode, evictedGamesCount]);
 
   const unmappedCacheBytes = useMemo(() => {
