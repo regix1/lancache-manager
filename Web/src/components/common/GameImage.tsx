@@ -7,6 +7,7 @@ import {
   writeCachedCrispBanner,
   type BannerScalingMode
 } from '@utils/bannerImageScaling';
+import { logBannerImageDebug, warnBannerImageDebug } from '@utils/bannerImageDebug';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
@@ -63,6 +64,18 @@ export const GameImage: React.FC<GameImageProps> = ({
       : (src ?? undefined);
 
   useEffect(() => {
+    logBannerImageDebug('game-image', 'Render state', {
+      imageKey,
+      scalingMode: scalingMode ?? 'none',
+      finalSrc,
+      cacheBuster,
+      failed,
+      sourceReady,
+      hasCrispSrc: crispSrc != null
+    });
+  }, [imageKey, scalingMode, finalSrc, cacheBuster, failed, sourceReady, crispSrc]);
+
+  useEffect(() => {
     if (failed || !src) {
       onError(imageKey);
     }
@@ -72,7 +85,12 @@ export const GameImage: React.FC<GameImageProps> = ({
     setCrispSrc(null);
     setSourceReady(false);
     sourceImageRef.current = null;
-  }, [finalSrc, scalingMode]);
+    logBannerImageDebug('game-image', 'Scaling inputs changed — reset crisp pipeline', {
+      imageKey,
+      scalingMode: scalingMode ?? 'none',
+      finalSrc
+    });
+  }, [finalSrc, scalingMode, imageKey]);
 
   useEffect(() => {
     if (scalingMode !== 'crisp' || !finalSrc || failed) {
@@ -84,35 +102,78 @@ export const GameImage: React.FC<GameImageProps> = ({
     let cancelled = false;
     const loader = new Image();
     loader.crossOrigin = 'anonymous';
+
+    logBannerImageDebug('game-image', 'Loading crisp source image', {
+      imageKey,
+      finalSrc,
+      crossOrigin: loader.crossOrigin
+    });
+
     loader.onload = () => {
       if (cancelled) return;
       sourceImageRef.current = loader;
       setSourceReady(true);
+      logBannerImageDebug('game-image', 'Crisp source loaded', {
+        imageKey,
+        naturalWidth: loader.naturalWidth,
+        naturalHeight: loader.naturalHeight,
+        currentSrc: loader.currentSrc
+      });
     };
     loader.onerror = () => {
-      if (!cancelled) setFailed(true);
+      if (cancelled) return;
+      warnBannerImageDebug('game-image', 'Crisp source failed to load', {
+        imageKey,
+        finalSrc,
+        crossOrigin: loader.crossOrigin
+      });
+      setFailed(true);
     };
     loader.src = finalSrc;
 
     return () => {
       cancelled = true;
     };
-  }, [scalingMode, finalSrc, failed]);
+  }, [scalingMode, finalSrc, failed, imageKey]);
 
   const updateCrispSrc = useCallback(() => {
     if (scalingMode !== 'crisp' || !finalSrc || failed) return;
 
     const element = imgRef.current;
     const sourceImage = sourceImageRef.current;
-    if (!element || !sourceImage || sourceImage.naturalWidth === 0) return;
+    if (!element || !sourceImage || sourceImage.naturalWidth === 0) {
+      warnBannerImageDebug('game-image', 'Crisp update skipped — display or source not ready', {
+        imageKey,
+        hasElement: Boolean(element),
+        hasSourceImage: Boolean(sourceImage),
+        naturalWidth: sourceImage?.naturalWidth ?? 0,
+        clientWidth: element?.clientWidth ?? 0,
+        clientHeight: element?.clientHeight ?? 0
+      });
+      return;
+    }
 
     const displayWidth = element.clientWidth;
     const displayHeight = element.clientHeight;
-    if (displayWidth < 2 || displayHeight < 2) return;
+    if (displayWidth < 2 || displayHeight < 2) {
+      warnBannerImageDebug('game-image', 'Crisp update skipped — display box too small', {
+        imageKey,
+        displayWidth,
+        displayHeight,
+        className
+      });
+      return;
+    }
 
     const cacheKey = getCrispBannerCacheKey(finalSrc, displayWidth, displayHeight);
     const cached = readCachedCrispBanner(cacheKey);
     if (cached) {
+      logBannerImageDebug('game-image', 'Using cached crisp render', {
+        imageKey,
+        cacheKey,
+        displayWidth,
+        displayHeight
+      });
       setCrispSrc(cached);
       return;
     }
@@ -122,13 +183,30 @@ export const GameImage: React.FC<GameImageProps> = ({
       sourceImage.naturalWidth,
       sourceImage.naturalHeight,
       displayWidth,
-      displayHeight
+      displayHeight,
+      imageKey
     );
-    if (!rendered) return;
+    if (!rendered) {
+      warnBannerImageDebug('game-image', 'Crisp render returned null', {
+        imageKey,
+        cacheKey,
+        displayWidth,
+        displayHeight,
+        sourceWidth: sourceImage.naturalWidth,
+        sourceHeight: sourceImage.naturalHeight
+      });
+      return;
+    }
 
     writeCachedCrispBanner(cacheKey, rendered);
     setCrispSrc(rendered);
-  }, [scalingMode, finalSrc, failed]);
+    logBannerImageDebug('game-image', 'Crisp render applied to img', {
+      imageKey,
+      cacheKey,
+      displayWidth,
+      displayHeight
+    });
+  }, [scalingMode, finalSrc, failed, imageKey, className]);
 
   useEffect(() => {
     if (scalingMode !== 'crisp' || !finalSrc || failed || !sourceReady) return;
@@ -150,6 +228,32 @@ export const GameImage: React.FC<GameImageProps> = ({
     ? className.replace(/\S+--crisp\b/g, (token) => token.replace('--crisp', '--crisp-processed'))
     : className;
 
+  const handleDisplayLoad = () => {
+    const element = imgRef.current;
+    logBannerImageDebug('game-image', 'Display img loaded', {
+      imageKey,
+      scalingMode: scalingMode ?? 'none',
+      useCrispOutput,
+      srcType: useCrispOutput ? 'data-url' : 'api-url',
+      displaySrc: useCrispOutput ? '[data-url]' : displaySrc,
+      className: displayClassName,
+      naturalWidth: element?.naturalWidth ?? 0,
+      naturalHeight: element?.naturalHeight ?? 0,
+      clientWidth: element?.clientWidth ?? 0,
+      clientHeight: element?.clientHeight ?? 0
+    });
+  };
+
+  const handleDisplayError = () => {
+    warnBannerImageDebug('game-image', 'Display img failed to load', {
+      imageKey,
+      scalingMode: scalingMode ?? 'none',
+      useCrispOutput,
+      displaySrc: useCrispOutput ? '[data-url]' : displaySrc
+    });
+    setFailed(true);
+  };
+
   return (
     <img
       ref={imgRef}
@@ -158,7 +262,8 @@ export const GameImage: React.FC<GameImageProps> = ({
       alt={alt}
       className={displayClassName}
       loading={loading}
-      onError={() => setFailed(true)}
+      onLoad={handleDisplayLoad}
+      onError={handleDisplayError}
     />
   );
 };

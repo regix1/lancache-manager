@@ -55,6 +55,7 @@ import {
   parseBannerImageRendering,
   type BannerImageRendering
 } from './bannerImageRendering';
+import { logBannerImageDebug } from '@utils/bannerImageDebug';
 
 // Storage keys for persistence
 const STORAGE_KEYS = {
@@ -591,7 +592,18 @@ const DownloadsTab: React.FC = () => {
     storage.setItem(STORAGE_KEYS.BANNER_ONLY, settings.bannerOnly.toString());
     storage.setItem(STORAGE_KEYS.GROUP_BY_GAME_RETRO, settings.groupByGameRetro.toString());
     storage.setItem(BANNER_IMAGE_RENDERING_STORAGE_KEY, settings.bannerImageRendering);
+    logBannerImageDebug('toggle', 'Banner scaling persisted to storage', {
+      bannerImageRendering: settings.bannerImageRendering,
+      viewMode: settings.viewMode
+    });
   }, [settings]);
+
+  useEffect(() => {
+    logBannerImageDebug('toggle', 'Active banner scaling mode', {
+      bannerImageRendering: settings.bannerImageRendering,
+      viewMode: settings.viewMode
+    });
+  }, [settings.bannerImageRendering, settings.viewMode]);
 
   // Track previous view mode to detect changes
   const prevViewModeRef = useRef(settings.viewMode);
@@ -1815,12 +1827,18 @@ const DownloadsTab: React.FC = () => {
                                 { value: 'crisp', label: t('downloads.tab.display.bannerCrisp') }
                               ]}
                               value={settings.bannerImageRendering}
-                              onChange={(value) =>
+                              onChange={(value) => {
+                                const nextMode = value as BannerImageRendering;
+                                logBannerImageDebug('toggle', 'Banner scaling button clicked', {
+                                  previous: settings.bannerImageRendering,
+                                  next: nextMode,
+                                  viewMode: settings.viewMode
+                                });
                                 setSettings({
                                   ...settings,
-                                  bannerImageRendering: value as BannerImageRendering
-                                })
-                              }
+                                  bannerImageRendering: nextMode
+                                });
+                              }}
                               size="sm"
                               fullWidth
                             />
