@@ -1,5 +1,4 @@
 using LancacheManager.Configuration;
-using LancacheManager.Core;
 using LancacheManager.Core.Constants;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
@@ -96,6 +95,14 @@ public class DashboardBatchService : IDashboardBatchService
 
         await Task.WhenAll(clientsTask, servicesTask, dashboardTask, downloadsTask, detectionTask, sparklinesTask, hourlyTask, cacheSnapshotTask, cacheGrowthTask);
 
+        var detectionResult = await detectionTask;
+        if (cacheResult != null && detectionResult is CachedDetectionResponse detection)
+        {
+            await _cacheService.ApplyScanMayBeStaleAsync(
+                cacheResult,
+                detection.HasCachedResults ? (long)detection.GamesOnDiskBytes : null);
+        }
+
         DashboardBatchResponse response = new()
         {
             Cache = cacheResult,
@@ -103,7 +110,7 @@ public class DashboardBatchService : IDashboardBatchService
             Services = await servicesTask,
             Dashboard = await dashboardTask,
             Downloads = await downloadsTask,
-            Detection = await detectionTask,
+            Detection = detectionResult,
             Sparklines = await sparklinesTask,
             HourlyActivity = await hourlyTask,
             CacheSnapshot = await cacheSnapshotTask,
@@ -455,7 +462,6 @@ public class DashboardBatchService : IDashboardBatchService
             cachedResults.Services,
             cachedResults.TotalServicesDetected,
             cachedResults.StartTime.AsUtc(),
-            usedCacheSizeBytes,
             slimForDashboard: true);
     }
 

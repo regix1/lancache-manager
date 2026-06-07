@@ -607,16 +607,13 @@ public class GamesController : ControllerBase
         }
 
         var games = cachedResults.Games ?? [];
-        var cacheInfo = await _cacheManagementService.GetCacheInfoAsync();
 
         return Ok(CachedDetectionResponseBuilder.Build(
             games,
             cachedResults.Services,
             cachedResults.TotalServicesDetected,
             cachedResults.StartTime.AsUtc(),
-            cacheInfo.UsedCacheSize,
-            slimForDashboard: false));
-    }
+            slimForDashboard: false));    }
 
 
 }

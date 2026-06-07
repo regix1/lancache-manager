@@ -9,16 +9,11 @@ namespace LancacheManager.Core;
 /// </summary>
 public static class GamesOnDiskCalculator
 {
-    private const double StaleTolerance = 1.02;
-
     public readonly record struct GamesOnDiskAggregate(
         ulong TotalBytes,
-        int ActiveGameCount,
-        bool MayBeStale);
+        int ActiveGameCount);
 
-    public static GamesOnDiskAggregate Compute(
-        IEnumerable<GameCacheInfo> games,
-        long usedCacheSizeBytes)
+    public static GamesOnDiskAggregate Compute(IEnumerable<GameCacheInfo> games)
     {
         var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         ulong deduplicatedBytes = 0;
@@ -60,9 +55,6 @@ public static class GamesOnDiskCalculator
             }
         }
 
-        var mayBeStale = usedCacheSizeBytes > 0
-            && deduplicatedBytes > (ulong)(usedCacheSizeBytes * StaleTolerance);
-
-        return new GamesOnDiskAggregate(deduplicatedBytes, activeGameCount, mayBeStale);
+        return new GamesOnDiskAggregate(deduplicatedBytes, activeGameCount);
     }
 }

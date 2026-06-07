@@ -29,7 +29,7 @@ public class CacheInfo
     public DateTime? CacheScanTimestampUtc { get; set; }
 
     /// <summary>
-    /// True when mount used space has changed significantly since the last cache scan.
+    /// True when cache scan data (file scan or game detection) is likely outdated vs live mount usage.
     /// </summary>
-    public bool CacheScanMayBeStale { get; set; }
+    public bool ScanMayBeStale { get; set; }
 }

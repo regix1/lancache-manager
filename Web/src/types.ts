@@ -13,8 +13,8 @@ export interface CacheInfo {
   serviceSizes: Record<string, number>;
   /** UTC timestamp of the cache file scan backing totalFiles. */
   cacheScanTimestampUtc?: string;
-  /** True when disk usage changed significantly since the cache file scan. */
-  cacheScanMayBeStale?: boolean;
+  /** True when cache scan data is likely outdated vs live mount usage. */
+  scanMayBeStale?: boolean;
 }
 
 export interface CacheSizeInfo {

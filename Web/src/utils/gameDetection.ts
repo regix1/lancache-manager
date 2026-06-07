@@ -5,12 +5,11 @@ import type { GameDetectionSummary } from '../types';
 export const isActiveGame = (game: GameDetectionSummary): boolean =>
   game.is_evicted !== true && game.total_size_bytes > 0;
 
-export interface GamesOnDiskDisplayStats {
+interface GamesOnDiskDisplayStats {
   totalSize: number;
   gameCount: number;
   includesEvicted: boolean;
   evictedCount: number;
-  mayBeStale: boolean;
 }
 
 /**
@@ -36,8 +35,7 @@ export function buildGamesOnDiskDisplayStats(
     totalSize: detection.games_on_disk_bytes,
     gameCount: detection.games_on_disk_count,
     includesEvicted: showEvictedBadge && evictedCount > 0,
-    evictedCount,
-    mayBeStale: detection.games_on_disk_may_be_stale ?? false
+    evictedCount
   };
 }
 

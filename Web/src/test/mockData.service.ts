@@ -573,8 +573,7 @@ class MockDataService {
       totalServicesDetected: 1,
       lastDetectionTime: new Date().toISOString(),
       games_on_disk_bytes: totalSizeBytes,
-      games_on_disk_count: games.length,
-      games_on_disk_may_be_stale: false
+      games_on_disk_count: games.length
     };
   }
 

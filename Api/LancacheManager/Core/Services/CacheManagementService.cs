@@ -43,7 +43,6 @@ public class CacheManagementService
     private CachedCacheScan? _cachedCacheScan;
     private readonly string _cachedScanFilePath;
     private readonly SemaphoreSlim _scanCacheLock = new SemaphoreSlim(1, 1);
-    private const long CacheScanThresholdBytes = 50L * 1024 * 1024 * 1024; // 50 GB
 
     public CacheManagementService(
         IConfiguration configuration,
@@ -194,9 +193,20 @@ public class CacheManagementService
 
         info.TotalFiles = cachedScan.TotalFiles;
         info.CacheScanTimestampUtc = _cachedCacheScan!.ScannedAtUtc;
+        await ApplyScanMayBeStaleAsync(info);
+    }
 
-        const long staleThresholdBytes = 50L * 1024 * 1024 * 1024;
-        info.CacheScanMayBeStale = Math.Abs(info.UsedCacheSize - _cachedCacheScan.UsedCacheSizeAtScan) >= staleThresholdBytes;
+    /// <summary>
+    /// Sets <see cref="CacheInfo.ScanMayBeStale"/> using live usage, optional game-detection totals,
+    /// and the cached file-scan baseline when available.
+    /// </summary>
+    public async Task ApplyScanMayBeStaleAsync(CacheInfo info, long? gameDetectionAggregateBytes = null)
+    {
+        await LoadCachedScanAsync();
+        info.ScanMayBeStale = CacheScanStaleCalculator.IsAnyScanStale(
+            info.UsedCacheSize,
+            gameDetectionAggregateBytes,
+            _cachedCacheScan?.UsedCacheSizeAtScan);
     }
     
     /// <summary>
@@ -1791,11 +1801,13 @@ public class CacheManagementService
                 return freshResult;
             }
 
-            // Cached scan exists - check if drive usage has shifted by >= 50 GB
+            // Cached scan exists - rescan when live usage has drifted since the baseline
             var currentInfo = await GetCacheInfoAsync();
             var delta = Math.Abs(currentInfo.UsedCacheSize - _cachedCacheScan.UsedCacheSizeAtScan);
 
-            if (delta >= CacheScanThresholdBytes)
+            if (CacheScanStaleCalculator.IsAnyScanStale(
+                    currentInfo.UsedCacheSize,
+                    usedBytesAtScan: _cachedCacheScan.UsedCacheSizeAtScan))
             {
                 _logger.LogInformation(
                     "Cache usage changed by {DeltaGb:F1} GB since last scan - running fresh scan",

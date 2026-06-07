@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { PieChart, Maximize2, Minimize2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { isActiveGame, buildGamesOnDiskDisplayStats } from '@utils/gameDetection';
-import { useGameDetection } from '@contexts/DashboardDataContext/hooks';
+import { useGameDetection, useStats } from '@contexts/DashboardDataContext/hooks';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
@@ -29,6 +29,8 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
     const [activeTab, setActiveTab] = useState<TabId>('service');
     const [showList, setShowList] = useState<boolean>(true);
     const { gameDetectionData } = useGameDetection();
+    const { cacheInfo } = useStats();
+    const scanMayBeStale = cacheInfo?.scanMayBeStale ?? false;
     const isCompareTab = activeTab === 'hit-ratio';
     const hasBreakdownList = !isCompareTab;
 
@@ -107,7 +109,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
             'Bytes the cache server fetched from origin (not served from cache). Lower is better.'
           );
         case 'games':
-          return gamesOnDisk?.mayBeStale
+          return scanMayBeStale
             ? t(
                 'dashboard.serviceAnalytics.descriptions.gamesStale',
                 'Scan data may be outdated — re-run Game Cache Detection for accurate sizes.'
@@ -122,7 +124,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
             'Compare total cache traffic across every tracked service.'
           );
       }
-    }, [activeTab, t, gamesOnDisk?.mayBeStale]);
+    }, [activeTab, t, scanMayBeStale]);
 
     // Get chart data from hook
     const chartData = useChartData(
@@ -225,7 +227,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
             </div>
             <h3>{t('dashboard.serviceAnalytics.title')}</h3>
             <p>{activeDescription}</p>
-            {activeTab === 'games' && gamesOnDisk?.mayBeStale ? (
+            {activeTab === 'games' && scanMayBeStale ? (
               <Badge variant="warning">{t('dashboard.cards.staleScanData')}</Badge>
             ) : null}
           </div>

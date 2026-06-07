@@ -43,8 +43,6 @@ export interface CachedDetectionResponse {
   games_on_disk_bytes?: number;
   /** Count of non-evicted games with cache files on disk. */
   games_on_disk_count?: number;
-  /** True when scan totals exceed current mount used space — re-run detection. */
-  games_on_disk_may_be_stale?: boolean;
 }
 
 interface DashboardDataContextType {

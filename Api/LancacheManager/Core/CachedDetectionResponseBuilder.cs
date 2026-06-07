@@ -11,6 +11,9 @@ public static class CachedDetectionResponseBuilder
     public static CachedDetectionResponse BuildEmpty() =>
         new() { HasCachedResults = false };
 
+    /// <summary>
+    /// Builds a cached detection response with deduplicated games-on-disk aggregates.
+    /// </summary>
     /// <param name="slimForDashboard">
     /// When true, projects games/services into slim DTOs (dashboard batch).
     /// When false, returns full <see cref="GameCacheInfo"/> / <see cref="ServiceCacheInfo"/> lists.
@@ -20,10 +23,9 @@ public static class CachedDetectionResponseBuilder
         IReadOnlyList<ServiceCacheInfo>? services,
         int totalServicesDetected,
         DateTime lastDetectionUtc,
-        long usedCacheSizeBytes,
         bool slimForDashboard)
     {
-        var gamesOnDisk = GamesOnDiskCalculator.Compute(games, usedCacheSizeBytes);
+        var gamesOnDisk = GamesOnDiskCalculator.Compute(games);
         var activeGamesCount = games.Count(g => !g.IsEvicted);
 
         object? responseGames = slimForDashboard
@@ -61,8 +63,7 @@ public static class CachedDetectionResponseBuilder
             TotalServicesDetected = totalServicesDetected,
             LastDetectionTime = lastDetectionUtc.ToString("o"),
             GamesOnDiskBytes = gamesOnDisk.TotalBytes,
-            GamesOnDiskCount = gamesOnDisk.ActiveGameCount,
-            GamesOnDiskMayBeStale = gamesOnDisk.MayBeStale
+            GamesOnDiskCount = gamesOnDisk.ActiveGameCount
         };
     }
 }

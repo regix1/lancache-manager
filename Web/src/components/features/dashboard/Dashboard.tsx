@@ -437,7 +437,6 @@ const Dashboard: React.FC = () => {
     gameCount: number;
     includesEvicted: boolean;
     evictedCount: number;
-    mayBeStale: boolean;
   } | null>(null);
   const formattedLastDetectionTime = useFormattedDateTime(gameDetectionData?.lastDetectionTime);
   const gamesOnDiskStats = useMemo(() => {
@@ -587,7 +586,7 @@ const Dashboard: React.FC = () => {
         ]
           .filter(Boolean)
           .join(' • '),
-        badge: cacheInfo?.cacheScanMayBeStale ? (
+        badge: cacheInfo?.scanMayBeStale ? (
           <Badge variant="warning">{t('dashboard.cards.staleScanData')}</Badge>
         ) : undefined,
         icon: Files,
@@ -610,9 +609,9 @@ const Dashboard: React.FC = () => {
               .join(' • ')
           : t('dashboard.cards.noScanData'),
         badge:
-          gamesOnDiskStats?.mayBeStale || gamesOnDiskStats?.includesEvicted ? (
+          cacheInfo?.scanMayBeStale || gamesOnDiskStats?.includesEvicted ? (
             <>
-              {gamesOnDiskStats?.mayBeStale ? (
+              {cacheInfo?.scanMayBeStale ? (
                 <Badge variant="warning">{t('dashboard.cards.staleScanData')}</Badge>
               ) : null}
               {gamesOnDiskStats?.includesEvicted ? (

@@ -56,13 +56,6 @@ public class CachedDetectionResponse
     /// </summary>
     [JsonPropertyName("games_on_disk_count")]
     public int GamesOnDiskCount { get; set; }
-
-    /// <summary>
-    /// True when games_on_disk_bytes exceeds current mount-point used space,
-    /// indicating the detection scan is likely outdated.
-    /// </summary>
-    [JsonPropertyName("games_on_disk_may_be_stale")]
-    public bool GamesOnDiskMayBeStale { get; set; }
 }
 
 /// <summary>
