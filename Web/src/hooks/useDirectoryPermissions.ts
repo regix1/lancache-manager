@@ -3,8 +3,6 @@ import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { DirectoryPermissions } from '@contexts/DirectoryPermissionsContext.types';
 
-export type { DirectoryPermissions };
-
 /**
  * Hook to check directory permissions for logs and cache directories.
  * Calls ApiService.getDirectoryPermissions() on mount and provides a reload function.
