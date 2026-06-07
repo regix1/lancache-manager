@@ -128,6 +128,34 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("CachedCorruptionDetections");
                 });
 
+            modelBuilder.Entity("LancacheManager.Models.CachedDetectionSummary", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("ComputedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("GamesOnDiskBytes")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<int>("GamesOnDiskCount")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("IdentifiedCacheBytes")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<decimal>("IdentifiedServiceBytes")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<int>("IdentifiedServiceCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("CachedDetectionSummaries");
+                });
+
             modelBuilder.Entity("LancacheManager.Models.CachedGameDetection", b =>
                 {
                     b.Property<long>("Id")

@@ -456,7 +456,8 @@ public class DashboardBatchService : IDashboardBatchService
             cachedResults.Services,
             cachedResults.TotalServicesDetected,
             cachedResults.StartTime.AsUtc(),
-            slimForDashboard: true);
+            slimForDashboard: true,
+            diskSummary: cachedResults.DiskSummary);
     }
 
     // ───────────────────── New batch sub-queries (sparklines, hourly, cacheGrowth, cacheSnapshot) ─────────────────────

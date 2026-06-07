@@ -13,6 +13,7 @@ public class AppDbContext : DbContext
     public DbSet<LogEntryRecord> LogEntries { get; set; }
     public DbSet<CachedGameDetection> CachedGameDetections { get; set; }
     public DbSet<CachedServiceDetection> CachedServiceDetections { get; set; }
+    public DbSet<CachedDetectionSummary> CachedDetectionSummaries { get; set; }
     public DbSet<CachedCorruptionDetection> CachedCorruptionDetections { get; set; }
     public DbSet<UserSession> UserSessions { get; set; }
     public DbSet<UserPreferences> UserPreferences { get; set; }

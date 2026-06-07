@@ -468,7 +468,7 @@
       },
       "gamesOnDisk": {
         "term": "Games on Disk",
-        "description": "Size of cache files matched to known games during the last Game Cache Detection scan. Shared files are counted once using actual on-disk file sizes. Service-level cache (Windows Update, etc.) and unidentified cache files are not included here — they appear in the unmapped cache portion when a cache file scan is available."
+        "description": "Size of cache files matched to known games during the last Game Cache Detection scan. Shared files are counted once using actual file sizes computed when the scan completes. Service-level cache (Windows Update, etc.) and unidentified cache files are not included here — they appear in the unmapped cache portion when a cache file scan is available."
       },
       "unmappedCache": "{{size}} unmapped cache"
     },

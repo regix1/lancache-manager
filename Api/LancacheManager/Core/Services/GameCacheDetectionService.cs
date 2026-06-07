@@ -53,6 +53,11 @@ public class GameCacheDetectionService : IDisposable
         public int TotalGamesDetected { get; set; }
         public int TotalServicesDetected { get; set; }
         public string? Error { get; set; }
+
+        /// <summary>
+        /// Persisted deduplicated on-disk totals from the last summary refresh.
+        /// </summary>
+        public IdentifiedCacheAggregate? DiskSummary { get; set; }
     }
 
     public GameCacheDetectionService(
@@ -649,6 +654,8 @@ public class GameCacheDetectionService : IDisposable
                 _logger.LogInformation("[GameDetection] Services saved to database - {Count} services total", aggregatedServices.Count);
             }
 
+            await _detectionDataService.RefreshDetectionSummaryFromDatabaseAsync(cancellationToken);
+
             _logger.LogInformation("[GameDetection] Completed: {Count} games detected across {DatasourceCount} datasource(s)",
                 totalGamesDetected, datasources.Count);
 
@@ -903,6 +910,7 @@ public class GameCacheDetectionService : IDisposable
             _logger.LogInformation("[GameDetection] Cleaned up {Count} legacy GameAppId=0 entries from cache on startup", legacyZeroEntries.Count);
         }
 
+        await _detectionDataService.RefreshDetectionSummaryFromDatabaseAsync();
         InvalidateDetectionCache();
         _logger.LogInformation("[GameDetection] Startup reconciliation complete");
     }

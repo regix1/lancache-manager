@@ -4,7 +4,7 @@ using LancacheManager.Models.Responses;
 namespace LancacheManager.Core;
 
 /// <summary>
-/// Builds <see cref="CachedDetectionResponse"/> with deduplicated games-on-disk aggregates.
+/// Builds <see cref="CachedDetectionResponse"/> using persisted disk-summary totals.
 /// </summary>
 public static class CachedDetectionResponseBuilder
 {
@@ -12,21 +12,25 @@ public static class CachedDetectionResponseBuilder
         new() { HasCachedResults = false };
 
     /// <summary>
-    /// Builds a cached detection response with deduplicated games-on-disk aggregates.
+    /// Builds a cached detection response for API/dashboard consumers.
     /// </summary>
     /// <param name="slimForDashboard">
     /// When true, projects games/services into slim DTOs (dashboard batch).
     /// When false, returns full <see cref="GameCacheInfo"/> / <see cref="ServiceCacheInfo"/> lists.
+    /// </param>
+    /// <param name="diskSummary">
+    /// Persisted deduplicated on-disk totals from the last detection scan refresh.
     /// </param>
     public static CachedDetectionResponse Build(
         IReadOnlyList<GameCacheInfo> games,
         IReadOnlyList<ServiceCacheInfo>? services,
         int totalServicesDetected,
         DateTime lastDetectionUtc,
-        bool slimForDashboard)
+        bool slimForDashboard,
+        IdentifiedCacheAggregate? diskSummary)
     {
-        var identifiedCache = GamesOnDiskCalculator.ComputeIdentifiedCache(games, services ?? []);
         var activeGamesCount = games.Count(g => !g.IsEvicted);
+        var summary = diskSummary ?? default;
 
         object? responseGames = slimForDashboard
             ? games.Select(g => new DashboardGameSummary
@@ -62,10 +66,10 @@ public static class CachedDetectionResponseBuilder
             TotalGamesDetected = activeGamesCount,
             TotalServicesDetected = totalServicesDetected,
             LastDetectionTime = lastDetectionUtc.ToString("o"),
-            GamesOnDiskBytes = identifiedCache.GameBytes,
-            GamesOnDiskCount = identifiedCache.ActiveGameCount,
-            IdentifiedCacheBytes = identifiedCache.TotalBytes,
-            IdentifiedServiceBytes = identifiedCache.ServiceBytes
+            GamesOnDiskBytes = summary.GameBytes,
+            GamesOnDiskCount = summary.ActiveGameCount,
+            IdentifiedCacheBytes = summary.TotalBytes,
+            IdentifiedServiceBytes = summary.ServiceBytes
         };
     }
 }
