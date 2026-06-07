@@ -443,9 +443,7 @@ public class DatasourceService
     public bool IsCacheWritable(string datasourceName)
     {
         var datasource = GetDatasource(datasourceName);
-        if (datasource == null) return false;
-
-        return _pathResolver.IsDirectoryWritable(datasource.CachePath);
+        return datasource?.CacheWritable ?? false;
     }
 
     /// <summary>
@@ -454,9 +452,7 @@ public class DatasourceService
     public bool IsLogsWritable(string datasourceName)
     {
         var datasource = GetDatasource(datasourceName);
-        if (datasource == null) return false;
-
-        return _pathResolver.IsDirectoryWritable(datasource.LogPath);
+        return datasource?.LogsWritable ?? false;
     }
 
     /// <summary>
@@ -469,8 +465,8 @@ public class DatasourceService
             Name = d.Name,
             CachePath = d.CachePath,
             LogsPath = d.LogPath,
-            CacheWritable = _pathResolver.IsDirectoryWritable(d.CachePath),
-            LogsWritable = _pathResolver.IsDirectoryWritable(d.LogPath),
+            CacheWritable = d.CacheWritable,
+            LogsWritable = d.LogsWritable,
             Enabled = d.Enabled
         }).ToList();
     }

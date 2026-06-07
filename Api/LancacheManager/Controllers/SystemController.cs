@@ -76,20 +76,17 @@ public class SystemController : ControllerBase
             TimeZone = _configuration.GetValue<string>("TZ")
                       ?? _configuration.GetValue<string>("TimeZone")
                       ?? "UTC",
-            CacheWritable = defaultDatasource != null
-                ? _pathResolver.IsDirectoryWritable(defaultDatasource.CachePath)
-                : _pathResolver.IsCacheDirectoryWritable(),
-            LogsWritable = defaultDatasource != null
-                ? _pathResolver.IsDirectoryWritable(defaultDatasource.LogPath)
-                : _pathResolver.IsLogsDirectoryWritable(),
+            // Use cached permission flags maintained by DirectoryPermissionMonitor.
+            CacheWritable = defaultDatasource?.CacheWritable ?? _pathResolver.IsCacheDirectoryWritable(),
+            LogsWritable = defaultDatasource?.LogsWritable ?? _pathResolver.IsLogsDirectoryWritable(),
             // Include all datasources
             DataSources = datasources.Select(ds => new DatasourceInfoDto
             {
                 Name = ds.Name,
                 CachePath = ds.CachePath,
                 LogsPath = ds.LogPath,
-                CacheWritable = _pathResolver.IsDirectoryWritable(ds.CachePath),
-                LogsWritable = _pathResolver.IsDirectoryWritable(ds.LogPath),
+                CacheWritable = ds.CacheWritable,
+                LogsWritable = ds.LogsWritable,
                 Enabled = ds.Enabled
             }).ToList()
         });
@@ -124,8 +121,8 @@ public class SystemController : ControllerBase
 
         var cacheExists = Directory.Exists(cachePath);
         var logsExists = Directory.Exists(logPath);
-        var cacheWritable = cacheExists && _pathResolver.IsDirectoryWritable(cachePath);
-        var logsWritable = logsExists && _pathResolver.IsDirectoryWritable(logPath);
+        var cacheWritable = cacheExists && (defaultDatasource?.CacheWritable ?? _pathResolver.IsCacheDirectoryWritable());
+        var logsWritable = logsExists && (defaultDatasource?.LogsWritable ?? _pathResolver.IsLogsDirectoryWritable());
         var dockerSocketAvailable = _pathResolver.IsDockerSocketAvailable();
 
         return Ok(new SystemPermissionsResponse

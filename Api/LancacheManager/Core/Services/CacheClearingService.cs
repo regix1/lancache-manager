@@ -172,10 +172,9 @@ public class CacheClearingService : ScheduledBackgroundService
                 .Where(ds => ds.Enabled && !string.IsNullOrEmpty(ds.CachePath))
                 .ToList();
 
-            // CRITICAL: Check write permissions BEFORE proceeding
-            // This prevents operations from failing partway through due to permission issues
+            // Use cached permission flags (refreshed by DirectoryPermissionMonitor).
             var writableDatasources = allDatasources
-                .Where(ds => _pathResolver.IsDirectoryWritable(ds.CachePath))
+                .Where(ds => ds.CacheWritable)
                 .ToList();
 
             if (writableDatasources.Count == 0 && allDatasources.Count > 0)

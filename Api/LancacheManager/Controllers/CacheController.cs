@@ -123,9 +123,9 @@ public class CacheController : ControllerBase
     [HttpDelete]
     public async Task<IActionResult> ClearAllCacheAsync(CancellationToken cancellationToken)
     {
-        // CRITICAL: Check write permissions BEFORE starting the operation
-        // This prevents operations from failing partway through due to permission issues
-        var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
+        // Use cached permission flags (refreshed by DirectoryPermissionMonitor).
+        var defaultDatasource = _datasourceService.GetDefaultDatasource();
+        var cacheWritable = defaultDatasource?.CacheWritable ?? _pathResolver.IsCacheDirectoryWritable();
 
         if (!cacheWritable)
         {
@@ -188,9 +188,7 @@ public class CacheController : ControllerBase
     [HttpDelete("datasources/{name}")]
     public async Task<IActionResult> ClearDatasourceCacheAsync(string name, CancellationToken cancellationToken)
     {
-        // Get the datasource to check its specific permissions
-        var datasourceService = HttpContext.RequestServices.GetRequiredService<DatasourceService>();
-        var datasource = datasourceService.GetDatasources()
+        var datasource = _datasourceService.GetDatasources()
             .FirstOrDefault(d => d.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
 
         if (datasource == null)
@@ -198,11 +196,8 @@ public class CacheController : ControllerBase
             return NotFound(new NotFoundResponse { Error = $"Datasource '{name}' not found" });
         }
 
-        // CRITICAL: Check write permissions BEFORE starting the operation
-        // Use fresh check for the specific datasource's cache directory
-        var cacheWritable = _pathResolver.IsDirectoryWritable(datasource.CachePath);
-
-        if (!cacheWritable)
+        // Use cached permission flags (refreshed by DirectoryPermissionMonitor).
+        if (!datasource.CacheWritable)
         {
             var errorMessage = $"Cannot clear cache for datasource '{name}': cache directory is read-only. " +
                 "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
@@ -425,8 +420,8 @@ public class CacheController : ControllerBase
         // This prevents the DB/filesystem state mismatch when PUID/PGID is wrong
         foreach (ResolvedDatasource datasource in datasources)
         {
-            var cacheWritable = _pathResolver.IsDirectoryWritable(datasource.CachePath);
-            var logsWritable = _pathResolver.IsDirectoryWritable(datasource.LogPath);
+            var cacheWritable = datasource.CacheWritable;
+            var logsWritable = datasource.LogsWritable;
 
             if (!cacheWritable || !logsWritable)
             {
@@ -693,8 +688,8 @@ public class CacheController : ControllerBase
         // CRITICAL: Check write permissions BEFORE starting the operation for ALL datasources
         foreach (ResolvedDatasource datasource in datasources)
         {
-            var cacheWritable = _pathResolver.IsDirectoryWritable(datasource.CachePath);
-            var logsWritable = _pathResolver.IsDirectoryWritable(datasource.LogPath);
+            var cacheWritable = datasource.CacheWritable;
+            var logsWritable = datasource.LogsWritable;
 
             if (!cacheWritable || !logsWritable)
             {

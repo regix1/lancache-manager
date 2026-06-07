@@ -261,6 +261,49 @@ public abstract class PathResolverBase : IPathResolver
     public abstract bool IsDockerSocketAvailable();
 
     /// <summary>
+    /// Finds a small sample of files near the directory root.
+    /// Avoids recursive enumeration, which can block for minutes on large cache trees.
+    /// </summary>
+    protected static List<string> FindSampleFiles(string directoryPath, int maxFiles = 5)
+    {
+        var results = new List<string>(maxFiles);
+
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(directoryPath))
+            {
+                results.Add(file);
+                if (results.Count >= maxFiles)
+                {
+                    return results;
+                }
+            }
+
+            foreach (var subDirectory in Directory.EnumerateDirectories(directoryPath))
+            {
+                foreach (var file in Directory.EnumerateFiles(subDirectory))
+                {
+                    results.Add(file);
+                    if (results.Count >= maxFiles)
+                    {
+                        return results;
+                    }
+                }
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Caller falls back to create/delete test.
+        }
+
+        return results;
+    }
+
+    /// <summary>
     /// Tests write access by opening existing files first, then falling back to create-test.
     /// </summary>
     protected bool TestWriteAccess(string directoryPath)
@@ -271,12 +314,10 @@ public abstract class PathResolverBase : IPathResolver
         // - Handles ACLs, group permissions, and root correctly
         // - Tests real write ability, not just ownership
 
-        // Step 1: Try to find and test existing files in the directory tree
+        // Step 1: Try to find and test a shallow sample of existing files
         try
         {
-            var existingFiles = Directory.EnumerateFiles(directoryPath, "*", SearchOption.AllDirectories)
-                .Take(20) // Check up to 20 files for a representative sample
-                .ToList();
+            var existingFiles = FindSampleFiles(directoryPath);
 
             _logger.LogDebug("Found {Count} files to test in {Path}", existingFiles.Count, directoryPath);
 

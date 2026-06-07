@@ -58,7 +58,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const { t } = useTranslation();
   const { cacheReadOnly, checkingPermissions } = useDirectoryPermissionsContext();
   const signalR = useSignalR();
-  const { config, refreshConfig } = useConfig();
+  const { config, updateConfig } = useConfig();
 
   // Rsync availability check
   const [rsyncAvailable, setRsyncAvailable] = useState(false);
@@ -188,9 +188,10 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
     setDeleteModeLoading(true);
     try {
-      await ApiService.setCacheDeleteMode(newMode);
-      setDeleteMode(newMode);
-      await refreshConfig();
+      const response = await ApiService.setCacheDeleteMode(newMode);
+      const confirmedMode = response.deleteMode as 'preserve' | 'full' | 'rsync';
+      setDeleteMode(confirmedMode);
+      updateConfig({ cacheDeleteMode: confirmedMode });
       const modeDesc =
         newMode === 'rsync'
           ? t('management.cache.deleteModes.rsync')

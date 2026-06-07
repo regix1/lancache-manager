@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, type ReactNode } from 'react';
+import React, { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { ConfigContext } from './ConfigContext.types';
 import type { Config } from '../types';
 import ApiService from '../services/api.service';
@@ -20,9 +20,14 @@ const CONFIG_TIMEOUT_MS = 8000;
 export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
   const [config, setConfig] = useState<Config | null>(null);
   const [error, setError] = useState<ConfigLoadError | null>(null);
+  const configRef = useRef<Config | null>(null);
+  configRef.current = config;
 
-  const loadConfig = useCallback(async (): Promise<void> => {
-    setError(null);
+  const loadConfig = useCallback(async (options?: { isRefresh?: boolean }): Promise<void> => {
+    const isRefresh = options?.isRefresh ?? false;
+    if (!isRefresh) {
+      setError(null);
+    }
 
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => {
@@ -37,6 +42,11 @@ export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
       const data = await ApiService.handleResponse<Config>(response);
       setConfig(data);
     } catch (err: unknown) {
+      if (isRefresh && configRef.current) {
+        console.warn('[ConfigProvider] Config refresh failed, keeping cached config:', err);
+        return;
+      }
+
       if (err instanceof DOMException && err.name === 'AbortError') {
         console.error('[ConfigProvider] Config request timed out after', CONFIG_TIMEOUT_MS, 'ms');
         setError({
@@ -58,8 +68,12 @@ export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
   }, []);
 
   const refreshConfig = useCallback(async (): Promise<void> => {
-    await loadConfig();
+    await loadConfig({ isRefresh: true });
   }, [loadConfig]);
+
+  const updateConfig = useCallback((patch: Partial<Config>) => {
+    setConfig((prev) => (prev ? { ...prev, ...patch } : prev));
+  }, []);
 
   useEffect(() => {
     void loadConfig();
@@ -84,6 +98,8 @@ export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
   }
 
   return (
-    <ConfigContext.Provider value={{ config, refreshConfig }}>{children}</ConfigContext.Provider>
+    <ConfigContext.Provider value={{ config, refreshConfig, updateConfig }}>
+      {children}
+    </ConfigContext.Provider>
   );
 };

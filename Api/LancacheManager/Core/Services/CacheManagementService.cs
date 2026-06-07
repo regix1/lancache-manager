@@ -960,7 +960,7 @@ public class CacheManagementService
         ResolvedDatasource datasource,
         bool requireWritableLogs)
     {
-        if (!_pathResolver.IsDirectoryWritable(datasource.CachePath))
+        if (!datasource.CacheWritable)
         {
             _logger.LogWarning(
                 "{LogPrefix} Skipping datasource '{DatasourceName}': cache directory '{CachePath}' is not writable",
@@ -970,7 +970,7 @@ public class CacheManagementService
             return false;
         }
 
-        if (requireWritableLogs && !_pathResolver.IsDirectoryWritable(datasource.LogPath))
+        if (requireWritableLogs && !datasource.LogsWritable)
         {
             _logger.LogWarning(
                 "{LogPrefix} Skipping datasource '{DatasourceName}': logs directory '{LogsDir}' is not writable",
