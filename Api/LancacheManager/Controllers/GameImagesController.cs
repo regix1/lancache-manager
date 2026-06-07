@@ -64,15 +64,8 @@ public class GameImagesController : ControllerBase
 
         if (imageData == null)
         {
-            _logger.LogInformation("[GameImages] Steam header miss appId={AppId}", appId);
             return NotFound(new GameImageErrorResponse { Error = $"Game image not available for app {appId}" });
         }
-
-        _logger.LogInformation(
-            "[GameImages] Serving Steam header appId={AppId} bytes={Bytes} contentType={ContentType}",
-            appId,
-            imageData.Length,
-            contentType ?? "image/jpeg");
 
         return ReturnImageWithCaching(imageData, contentType ?? "image/jpeg", appId.ToString());
     }
@@ -92,15 +85,8 @@ public class GameImagesController : ControllerBase
 
         if (imageData == null)
         {
-            _logger.LogInformation("[GameImages] Epic header miss epicAppId={EpicAppId}", epicAppId);
             return NotFound(new GameImageErrorResponse { Error = $"Game image not available for Epic app {epicAppId}" });
         }
-
-        _logger.LogInformation(
-            "[GameImages] Serving Epic header epicAppId={EpicAppId} bytes={Bytes} contentType={ContentType}",
-            epicAppId,
-            imageData.Length,
-            contentType ?? "image/jpeg");
 
         return ReturnImageWithCaching(imageData, contentType ?? "image/jpeg", $"epic-{epicAppId}");
     }
@@ -200,20 +186,8 @@ public class GameImagesController : ControllerBase
         var ifNoneMatch = Request.Headers["If-None-Match"].ToString();
         if (!string.IsNullOrEmpty(ifNoneMatch) && (ifNoneMatch.Contains(etag) || ifNoneMatch.Trim() == "*"))
         {
-            _logger.LogDebug(
-                "[GameImages] 304 Not Modified etagPrefix={EtagPrefix} bytes={Bytes} ifNoneMatch={IfNoneMatch}",
-                etagPrefix,
-                imageBytes.Length,
-                ifNoneMatch);
             return StatusCode(304);
         }
-
-        _logger.LogDebug(
-            "[GameImages] 200 OK etagPrefix={EtagPrefix} bytes={Bytes} etag={Etag} cacheControl={CacheControl}",
-            etagPrefix,
-            imageBytes.Length,
-            etag,
-            Response.Headers["Cache-Control"].ToString());
 
         return File(imageBytes, contentType);
     }

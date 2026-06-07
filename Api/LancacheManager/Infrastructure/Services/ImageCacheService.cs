@@ -44,11 +44,6 @@ public class ImageCacheService : IImageCacheService
 
         if (_memoryCache.TryGetValue(cacheKey, out (byte[] imageBytes, string contentType) cached))
         {
-            _logger.LogDebug(
-                "[ImageCache] Memory hit for {AppId} ({Platform}): {Bytes} bytes",
-                appId,
-                platform,
-                cached.imageBytes.Length);
             return cached;
         }
 
@@ -61,19 +56,7 @@ public class ImageCacheService : IImageCacheService
                 .FirstOrDefaultAsync(cancellationToken);
 
             if (image == null || image.ImageData.Length == 0)
-            {
-                _logger.LogDebug("[ImageCache] Miss — no DB row for {AppId} ({Platform})", appId, platform);
                 return null;
-            }
-
-            _logger.LogDebug(
-                "[ImageCache] DB hit for {AppId} ({Platform}): {Bytes} bytes, contentType={ContentType}, sourceUrl={SourceUrl}, fetchedAt={FetchedAt}",
-                appId,
-                platform,
-                image.ImageData.Length,
-                image.ContentType,
-                image.SourceUrl ?? "(none)",
-                image.FetchedAtUtc);
 
             var result = (image.ImageData, image.ContentType);
 
