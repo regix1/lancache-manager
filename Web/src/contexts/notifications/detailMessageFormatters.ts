@@ -25,6 +25,20 @@ import type {
 } from '../SignalRContext/types';
 import i18n from '@/i18n';
 
+type GameDetectionInterpolation = Record<string, string | number | boolean>;
+
+/** Merge SignalR/API context with top-level detection counts for i18n interpolation. */
+export function buildGameDetectionInterpolation(
+  context?: GameDetectionInterpolation | null,
+  extras?: { totalGamesDetected?: number; newGamesCount?: number }
+): GameDetectionInterpolation {
+  return {
+    totalGamesDetected: context?.totalGamesDetected ?? extras?.totalGamesDetected ?? 0,
+    newGamesCount: context?.newGamesCount ?? extras?.newGamesCount ?? 0,
+    ...(context ?? {})
+  };
+}
+
 /**
  * Detail message formatter functions for notification events.
  * These extract inline message generation logic into reusable, testable functions.
@@ -272,7 +286,12 @@ export const formatGameDetectionStartedMessage = (event: GameDetectionStartedEve
  */
 export const formatGameDetectionProgressMessage = (event: GameDetectionProgressEvent): string => {
   return event.stageKey
-    ? i18n.t(event.stageKey, event.context ?? {})
+    ? i18n.t(
+        event.stageKey,
+        buildGameDetectionInterpolation(event.context, {
+          totalGamesDetected: event.gamesDetected
+        })
+      )
     : i18n.t('signalr.gameDetect.scan.inProgress');
 };
 
@@ -282,8 +301,13 @@ export const formatGameDetectionProgressMessage = (event: GameDetectionProgressE
  * @returns Formatted success message string
  */
 export const formatGameDetectionCompleteMessage = (event: GameDetectionCompleteEvent): string => {
+  const interpolation = buildGameDetectionInterpolation(event.context, {
+    totalGamesDetected: event.totalGamesDetected,
+    newGamesCount: event.newGamesCount
+  });
+
   return event.stageKey
-    ? i18n.t(event.stageKey, event.context ?? {})
+    ? i18n.t(event.stageKey, interpolation)
     : i18n.t('signalr.gameDetect.complete.default', {
         totalGamesDetected: event.totalGamesDetected ?? 0
       });
@@ -296,7 +320,13 @@ export const formatGameDetectionCompleteMessage = (event: GameDetectionCompleteE
  */
 export const formatGameDetectionFailureMessage = (event: GameDetectionCompleteEvent): string => {
   return event.stageKey
-    ? i18n.t(event.stageKey, event.context ?? {})
+    ? i18n.t(
+        event.stageKey,
+        buildGameDetectionInterpolation(event.context, {
+          totalGamesDetected: event.totalGamesDetected,
+          newGamesCount: event.newGamesCount
+        })
+      )
     : i18n.t('signalr.generic.failed');
 };
 

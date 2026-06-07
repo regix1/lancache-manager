@@ -8,9 +8,9 @@ namespace LancacheManager.Infrastructure.Services;
 
 /// <summary>
 /// Scheduled service that runs game cache detection on a user-configurable interval.
-/// Whether it also runs at startup is controlled by the user via the Schedules UI
-/// (persisted in IStateService.GetServiceRunOnStartup) - defaults to true so that
-/// existing installs continue to seed the detection cache on first boot.
+/// Whether it also runs at startup is controlled by the Schedules UI
+/// (persisted in IStateService.GetServiceRunOnStartup) - defaults to false.
+/// Game detection is never triggered by other services (depot mapping, Epic refresh, etc.).
 /// </summary>
 public class GameDetectionService : ScheduledBackgroundService
 {

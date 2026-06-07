@@ -55,6 +55,11 @@ public class GameCacheDetectionService : IDisposable
         public string? Error { get; set; }
 
         /// <summary>
+        /// i18n interpolation values for <see cref="Message"/> when it is a signalr stage key.
+        /// </summary>
+        public Dictionary<string, object?>? Context { get; set; }
+
+        /// <summary>
         /// Persisted deduplicated on-disk totals from the last summary refresh.
         /// </summary>
         public IdentifiedCacheAggregate? DiskSummary { get; set; }
@@ -604,6 +609,7 @@ public class GameCacheDetectionService : IDisposable
                 metrics.Services = finalServices;
                 metrics.TotalGamesDetected = totalGamesDetected;
                 metrics.TotalServicesDetected = finalServices.Count;
+                metrics.CompletionContext = completionContext;
             });
 
             // Send progress for saving to database
@@ -784,6 +790,12 @@ public class GameCacheDetectionService : IDisposable
         });
 
         // Build and send SignalR completion notification
+        int? newGamesCount = null;
+        if (context != null && context.TryGetValue("newGamesCount", out var newGamesRaw) && newGamesRaw != null)
+        {
+            newGamesCount = Convert.ToInt32(newGamesRaw);
+        }
+
         await _notifications.NotifyAllAsync(SignalREvents.GameDetectionComplete, new
         {
             OperationId = operationId,
@@ -792,6 +804,7 @@ public class GameCacheDetectionService : IDisposable
             StageKey = stageKey,
             Context = context,
             Cancelled = cancelled,
+            newGamesCount,
             totalGamesDetected = gamesDetected,
             totalServicesDetected = servicesDetected,
             timestamp = DateTime.UtcNow
@@ -1079,7 +1092,8 @@ public class GameCacheDetectionService : IDisposable
             Services = metrics?.Services,
             TotalGamesDetected = metrics?.TotalGamesDetected ?? 0,
             TotalServicesDetected = metrics?.TotalServicesDetected ?? 0,
-            Error = metrics?.Error
+            Error = metrics?.Error,
+            Context = metrics?.CompletionContext
         };
     }
 

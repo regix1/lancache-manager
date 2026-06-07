@@ -471,6 +471,7 @@ export interface GameDetectionCompleteEvent {
   status?: OperationStatus;
   totalGamesDetected?: number;
   totalServicesDetected?: number;
+  newGamesCount?: number;
   timestamp?: string;
 }
 

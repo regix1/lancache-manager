@@ -28,6 +28,7 @@ import {
   formatGameDetectionProgressMessage,
   formatGameDetectionCompleteMessage,
   formatGameDetectionFailureMessage,
+  buildGameDetectionInterpolation,
   formatCorruptionDetectionStartedMessage,
   formatCorruptionDetectionProgressMessage,
   formatCorruptionDetectionCompleteMessage,
@@ -344,7 +345,12 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getProgress: (event: GameDetectionProgressEvent) => event.percentComplete,
       getStatus: (event: GameDetectionProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: GameDetectionProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.gameDetect.complete.default', event.context ?? {}),
+        i18n.t(
+          event.stageKey ?? 'signalr.gameDetect.complete.default',
+          buildGameDetectionInterpolation(event.context, {
+            totalGamesDetected: event.gamesDetected
+          })
+        ),
       getErrorMessage: (event: GameDetectionProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.generic.failed', event.context ?? {}),
       getDetails: (event: GameDetectionProgressEvent) => ({ operationId: event.operationId })

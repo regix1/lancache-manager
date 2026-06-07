@@ -549,7 +549,7 @@ builder.Services.AddHostedService<DirectoryPermissionMonitorService>();
 builder.Services.AddSingletonHostedService<RustSpeedTrackerService>();
 
 // Register GameDetectionService - runs scheduled game cache detection. Whether it
-// also runs at startup is user-controlled via the Schedules UI (DefaultRunOnStartup = true).
+// also runs at startup is user-controlled via the Schedules UI (DefaultRunOnStartup = false).
 builder.Services.AddSingletonHostedService<GameDetectionService>();
 
 // Register dashboard batch service - shared compute behind /api/dashboard/batch. Lives as a

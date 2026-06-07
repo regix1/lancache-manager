@@ -10,7 +10,8 @@ import { NOTIFICATION_STORAGE_KEYS, NOTIFICATION_IDS } from './constants';
 import {
   formatLogProcessingRecoveryMessage,
   formatLogProcessingRecoveryDetailMessage,
-  formatDepotMappingRecoveryDetailMessage
+  formatDepotMappingRecoveryDetailMessage,
+  buildGameDetectionInterpolation
 } from './detailMessageFormatters';
 import { translateStageKeyMessage } from '@utils/stageKeyMessage';
 import i18n from '@/i18n';
@@ -100,6 +101,7 @@ interface GameDetectionOperationInfo {
   statusMessage: string;
   percentComplete: number;
   scanType?: 'full' | 'incremental';
+  totalGamesDetected?: number;
   context?: StageContext;
 }
 
@@ -399,7 +401,9 @@ const RECOVERY_CONFIGS = {
       return {
         message: translateStageKeyMessage(
           op.statusMessage,
-          op.context,
+          buildGameDetectionInterpolation(op.context, {
+            totalGamesDetected: op.totalGamesDetected
+          }),
           'signalr.gameDetect.starting.default'
         ),
         progress: op.percentComplete,

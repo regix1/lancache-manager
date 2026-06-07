@@ -44,4 +44,10 @@ public class GameDetectionMetrics
     /// Used by GetCachedDetectionAsync to carry the last detection timestamp.
     /// </summary>
     public DateTime StartTime { get; set; }
+
+    /// <summary>
+    /// i18n interpolation values for the current/completion stage key (e.g. newGamesCount).
+    /// Persisted on the operation so recovery endpoints can translate stage messages.
+    /// </summary>
+    public Dictionary<string, object?>? CompletionContext { get; set; }
 }
