@@ -1615,7 +1615,6 @@ const RetroView = memo(
                                         gameAppId={data.epicAppId || data.gameAppId!}
                                         epicAppId={data.epicAppId || undefined}
                                         alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                                        renderProfileKey={bannerImageRendering}
                                         className={`w-[120px] h-[56px] rounded object-cover ${getBannerImageClass('retro-banner-image', bannerImageRendering)}`}
                                         onError={handleImageError}
                                       />
@@ -1805,7 +1804,6 @@ const RetroView = memo(
                                       gameAppId={data.epicAppId || data.gameAppId!}
                                       epicAppId={data.epicAppId || undefined}
                                       alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                                      renderProfileKey={bannerImageRendering}
                                       className={`w-[120px] h-[56px] rounded object-cover flex-shrink-0 ${getBannerImageClass('retro-banner-image', bannerImageRendering)}`}
                                       onError={handleImageError}
                                     />

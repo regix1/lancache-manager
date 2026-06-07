@@ -15,7 +15,7 @@
     object-position: center;
   }
 
-  /* Crisp: sharper downscaled banners (image-rendering alone is ignored for photos in most browsers) */
+  /* Crisp: punchier downscaled banners (image-rendering alone is ignored for JPEG photos) */
   .download-banner-image--crisp,
   .download-banner-image-natural--crisp,
   .drawer-banner-image--crisp,
@@ -23,19 +23,17 @@
   .retro-banner-image--crisp {
     image-rendering: -webkit-optimize-contrast;
     image-rendering: crisp-edges;
-    filter: contrast(1.08) saturate(1.05);
-    transition: filter 0.15s ease;
+    filter: contrast(1.2) saturate(1.1) brightness(1.02);
   }
 
-  /* Smooth: standard bilinear scaling, slightly softer than crisp */
+  /* Smooth: softer bilinear scaling */
   .download-banner-image--smooth,
   .download-banner-image-natural--smooth,
   .drawer-banner-image--smooth,
   .card-grid-banner-image--smooth,
   .retro-banner-image--smooth {
-    image-rendering: auto;
-    filter: contrast(1) saturate(1);
-    transition: filter 0.15s ease;
+    image-rendering: smooth;
+    filter: blur(0.45px) contrast(0.98) saturate(0.98);
   }
 
   /* Full-height banner: natural aspect ratio, no cropping */

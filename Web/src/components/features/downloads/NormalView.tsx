@@ -263,7 +263,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
           gameAppId={showEpicImage ? epicAppId! : steamAppId!}
           epicAppId={showEpicImage ? epicAppId! : undefined}
           alt={primaryName || group.name}
-          renderProfileKey={bannerImageRendering}
           className={getBannerImageClass(
             fullHeightBanners ? 'download-banner-image-natural' : 'download-banner-image',
             bannerImageRendering
@@ -1033,7 +1032,6 @@ const GridCard: React.FC<GridCardProps> = ({
           gameAppId={showEpicImage ? epicAppId! : steamAppId!}
           epicAppId={showEpicImage ? epicAppId! : undefined}
           alt={primaryName || group.name}
-          renderProfileKey={bannerImageRendering}
           className={getBannerImageClass('card-grid-banner-image', bannerImageRendering)}
           sizes="(max-width: 639px) 100vw, 360px"
           onError={handleImageError}
@@ -1259,7 +1257,6 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
         gameAppId={showEpicImage ? epicAppId! : steamAppId!}
         epicAppId={showEpicImage ? epicAppId! : undefined}
         alt={primaryName || group.name}
-        renderProfileKey={bannerImageRendering}
         className={getBannerImageClass('drawer-banner-image', bannerImageRendering)}
         sizes="(max-width: 639px) 100vw, 550px"
         onError={handleImageError}
