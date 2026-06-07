@@ -1,11 +1,16 @@
 import React from 'react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { useOptionalDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'filled' | 'subtle' | 'outline' | 'default';
   color?: 'blue' | 'green' | 'red' | 'yellow' | 'purple' | 'gray' | 'orange' | 'default';
   size?: 'xs' | 'sm' | 'md' | 'lg';
   loading?: boolean;
+  /** Explicit permission-check state (overrides awaitPermissions). */
+  checkingPermissions?: boolean;
+  /** Read checkingPermissions from DirectoryPermissionsProvider and gate this button. */
+  awaitPermissions?: boolean;
   leftSection?: React.ReactNode;
   rightSection?: React.ReactNode;
   fullWidth?: boolean;
@@ -17,6 +22,8 @@ export const Button: React.FC<ButtonProps> = ({
   color = 'blue',
   size = 'md',
   loading = false,
+  checkingPermissions,
+  awaitPermissions = false,
   leftSection,
   rightSection,
   fullWidth = false,
@@ -80,6 +87,13 @@ export const Button: React.FC<ButtonProps> = ({
     lg: 'px-6 py-3 text-lg'
   };
 
+  const permissionsContext = useOptionalDirectoryPermissionsContext();
+  const resolvedCheckingPermissions =
+    checkingPermissions ??
+    (awaitPermissions ? (permissionsContext?.checkingPermissions ?? false) : false);
+
+  const showLoading = loading || resolvedCheckingPermissions;
+
   return (
     <button
       className={`
@@ -93,10 +107,10 @@ export const Button: React.FC<ButtonProps> = ({
         button-press
         ${className}
       `}
-      disabled={disabled || loading}
+      disabled={disabled || showLoading}
       {...props}
     >
-      {loading ? <LoadingSpinner inline size="sm" /> : leftSection}
+      {showLoading ? <LoadingSpinner inline size="sm" /> : leftSection}
       {children}
       {rightSection}
     </button>

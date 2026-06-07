@@ -8,9 +8,10 @@ import { useConfig } from '@contexts/useConfig';
 import { useCacheSize } from '@contexts/useCacheSize';
 import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { useNotifications } from '@contexts/notifications';
-import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
+import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
+import { showPermissionBlock, showActionWhileCheckingPermissions } from '@utils/permissionUi';
 import { Card } from '@components/ui/Card';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
@@ -54,6 +55,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   onSuccess
 }) => {
   const { t } = useTranslation();
+  const { cacheReadOnly, checkingPermissions } = useDirectoryPermissionsContext();
   const signalR = useSignalR();
   const { config, refreshConfig } = useConfig();
 
@@ -64,9 +66,6 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       .then((data: { available: boolean }) => setRsyncAvailable(data.available))
       .catch((err: unknown) => console.error('Failed to check rsync availability:', err));
   }, []);
-
-  // Directory permissions from shared hook (auto-refreshes via SignalR)
-  const { cacheReadOnly } = useDirectoryPermissions();
 
   // Cache size from global context (persists across navigation)
   const {
@@ -282,25 +281,27 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           {cacheSizeLoading ? <LoadingSpinner inline size="sm" /> : t('common.refresh')}
         </Button>
       </Tooltip>
-      {hasMultipleDatasources && !cacheReadOnly && (
-        <Button
-          variant="filled"
-          color="red"
-          size="sm"
-          onClick={() => handleClearCache(null)}
-          disabled={
-            actionLoading ||
-            mockMode ||
-            isAnyRemovalRunning ||
-            authMode !== 'authenticated' ||
-            cacheReadOnly
-          }
-          loading={actionLoading && !clearingDatasource}
-          title={cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined}
-        >
-          {isCacheClearing && !clearingDatasource ? t('common.clearing') : t('common.clearAll')}
-        </Button>
-      )}
+      {hasMultipleDatasources &&
+        showActionWhileCheckingPermissions(checkingPermissions, !cacheReadOnly) && (
+          <Button
+            variant="filled"
+            color="red"
+            size="sm"
+            onClick={() => handleClearCache(null)}
+            awaitPermissions
+            loading={actionLoading && !clearingDatasource}
+            disabled={
+              actionLoading ||
+              mockMode ||
+              isAnyRemovalRunning ||
+              authMode !== 'authenticated' ||
+              cacheReadOnly
+            }
+            title={cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined}
+          >
+            {isCacheClearing && !clearingDatasource ? t('common.clearing') : t('common.clearAll')}
+          </Button>
+        )}
     </div>
   );
 
@@ -330,7 +331,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               </Alert>
             )}
 
-            {cacheReadOnly ? (
+            {showPermissionBlock(checkingPermissions, cacheReadOnly) ? (
               <ReadOnlyBadge />
             ) : (
               <>
@@ -356,6 +357,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                               e.stopPropagation();
                               handleClearCache(ds.name);
                             }}
+                            awaitPermissions
+                            loading={isCacheClearing && clearingDatasource === ds.name}
                             disabled={
                               actionLoading ||
                               mockMode ||
@@ -364,7 +367,6 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                               cacheReadOnly ||
                               !ds.cacheWritable
                             }
-                            loading={isCacheClearing && clearingDatasource === ds.name}
                             fullWidth
                             title={
                               !ds.cacheWritable
@@ -495,8 +497,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                         variant={deleteMode === 'preserve' ? 'filled' : 'default'}
                         color={deleteMode === 'preserve' ? 'blue' : undefined}
                         onClick={() => handleDeleteModeChange('preserve')}
+                        awaitPermissions
+                        loading={deleteModeLoading}
                         disabled={
-                          deleteModeLoading ||
                           mockMode ||
                           isAnyRemovalRunning ||
                           authMode !== 'authenticated' ||
@@ -514,8 +517,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                         variant={deleteMode === 'full' ? 'filled' : 'default'}
                         color={deleteMode === 'full' ? 'green' : undefined}
                         onClick={() => handleDeleteModeChange('full')}
+                        awaitPermissions
+                        loading={deleteModeLoading}
                         disabled={
-                          deleteModeLoading ||
                           mockMode ||
                           isAnyRemovalRunning ||
                           authMode !== 'authenticated' ||
@@ -534,8 +538,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                           variant={deleteMode === 'rsync' ? 'filled' : 'default'}
                           color={deleteMode === 'rsync' ? 'purple' : undefined}
                           onClick={() => handleDeleteModeChange('rsync')}
+                          awaitPermissions
+                          loading={deleteModeLoading}
                           disabled={
-                            deleteModeLoading ||
                             mockMode ||
                             isAnyRemovalRunning ||
                             authMode !== 'authenticated' ||

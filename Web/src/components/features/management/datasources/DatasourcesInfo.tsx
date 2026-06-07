@@ -257,6 +257,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         variant="subtle"
         size="sm"
         onClick={() => setResetModal({ datasource: null, all: true })}
+        awaitPermissions
         disabled={loading || actionLoading !== null || isProcessing || mockMode || !isAdmin}
       >
         {t('management.datasources.reposition')}
@@ -266,6 +267,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         color="green"
         size="sm"
         onClick={handleProcessAll}
+        awaitPermissions
         disabled={loading || actionLoading !== null || isProcessing || mockMode || !isAdmin}
         loading={actionLoading === 'all'}
       >
@@ -326,6 +328,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                               e.stopPropagation();
                               setResetModal({ datasource: ds.name, all: false });
                             }}
+                            awaitPermissions
                             disabled={
                               actionLoading !== null ||
                               isProcessing ||
@@ -346,6 +349,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                               e.stopPropagation();
                               handleProcessDatasource(ds.name);
                             }}
+                            awaitPermissions
                             disabled={
                               actionLoading !== null ||
                               isProcessing ||
@@ -402,6 +406,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
               variant="filled"
               color="blue"
               onClick={() => handleResetPosition(resetModal?.datasource || null, 'top')}
+              awaitPermissions
               loading={actionLoading?.startsWith('reset-')}
               fullWidth
             >
@@ -410,6 +415,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
             <Button
               variant="default"
               onClick={() => handleResetPosition(resetModal?.datasource || null, 'bottom')}
+              awaitPermissions
               loading={actionLoading?.startsWith('reset-')}
               fullWidth
             >

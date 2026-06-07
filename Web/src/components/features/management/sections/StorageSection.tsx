@@ -10,7 +10,8 @@ import { Checkbox } from '@components/ui/Checkbox';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { type AuthMode } from '@services/auth.service';
-import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
+import { DirectoryPermissionsProvider } from '@contexts/DirectoryPermissionsProvider';
+import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 import { useDockerSocket } from '@contexts/useDockerSocket';
 import { ImageCacheContext, ImageInvalidateContext } from '@components/common/ImageCacheContext';
@@ -56,7 +57,7 @@ interface StorageSectionProps {
   onDataRefresh: () => void;
 }
 
-const StorageSection: React.FC<StorageSectionProps> = ({
+const StorageSectionContent: React.FC<StorageSectionProps> = ({
   isAdmin,
   authMode,
   mockMode,
@@ -69,9 +70,8 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   const {
     logsReadOnly,
     cacheReadOnly,
-    checkingPermissions,
     reload: reloadPermissions
-  } = useDirectoryPermissions();
+  } = useDirectoryPermissionsContext();
   const { isDockerAvailable } = useDockerSocket();
   const [isRechecking, setIsRechecking] = useState(false);
 
@@ -879,8 +879,9 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                         variant="filled"
                         color="red"
                         onClick={() => setShowRemoveAllConfirm(true)}
-                        disabled={removeAllRunning || isAnyEvictedRemovalRunning}
+                        awaitPermissions
                         loading={removeAllRunning}
+                        disabled={removeAllRunning || isAnyEvictedRemovalRunning || cacheReadOnly}
                       >
                         {t('management.sections.data.evictionRemoveAll', 'Remove All')}
                       </Button>
@@ -900,9 +901,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                     games={evictedGames}
                     services={evictedServices}
                     isAdmin={isAdmin}
-                    cacheReadOnly={cacheReadOnly}
                     dockerSocketAvailable={isDockerAvailable}
-                    checkingPermissions={checkingPermissions}
                     isAnyRemovalRunning={isAnyEvictedRemovalRunning || removeAllRunning}
                     onRemoveGame={handleEvictedGameRemoveClick}
                     onRemoveService={handleEvictedServiceRemoveClick}
@@ -1043,5 +1042,11 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     </div>
   );
 };
+
+const StorageSection: React.FC<StorageSectionProps> = (props) => (
+  <DirectoryPermissionsProvider>
+    <StorageSectionContent {...props} />
+  </DirectoryPermissionsProvider>
+);
 
 export default StorageSection;

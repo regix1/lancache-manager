@@ -17,9 +17,7 @@ interface GameCardProps {
   isExpanding: boolean;
   isAnyRemovalRunning: boolean;
   isAdmin: boolean;
-  cacheReadOnly: boolean;
   dockerSocketAvailable: boolean;
-  checkingPermissions: boolean;
   onToggleDetails: (gameId: string) => void;
   onRemove: (game: GameCacheInfo) => void;
   variant?: CacheEntityVariant;
@@ -34,9 +32,7 @@ const GameCard: React.FC<GameCardProps> = ({
   isExpanding,
   isAnyRemovalRunning,
   isAdmin,
-  cacheReadOnly,
   dockerSocketAvailable,
-  checkingPermissions,
   onToggleDetails,
   onRemove,
   variant = 'active'
@@ -138,9 +134,7 @@ const GameCard: React.FC<GameCardProps> = ({
         isRemoving={isRemoving}
         isAnyRemovalRunning={isAnyRemovalRunning}
         isAdmin={isAdmin}
-        cacheReadOnly={cacheReadOnly}
         dockerSocketAvailable={dockerSocketAvailable}
-        checkingPermissions={checkingPermissions}
         hasExpandableContent={hasExpandableContent}
         onToggleDetails={(id) => onToggleDetails(String(id))}
         onRemove={() => onRemove(game)}

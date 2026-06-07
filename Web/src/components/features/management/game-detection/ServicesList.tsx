@@ -8,9 +8,7 @@ interface ServicesListProps {
   services: ServiceCacheInfo[];
   isAnyRemovalRunning: boolean;
   isAdmin: boolean;
-  cacheReadOnly: boolean;
   dockerSocketAvailable: boolean;
-  checkingPermissions: boolean;
   onRemoveService: (service: ServiceCacheInfo) => void;
   variant?: CacheEntityVariant;
 }
@@ -30,9 +28,7 @@ const ServicesList: React.FC<ServicesListProps> = ({
   services,
   isAnyRemovalRunning,
   isAdmin,
-  cacheReadOnly,
   dockerSocketAvailable,
-  checkingPermissions,
   onRemoveService,
   variant = 'active'
 }) => {
@@ -52,9 +48,7 @@ const ServicesList: React.FC<ServicesListProps> = ({
           isExpanding={state.isExpanding}
           isAnyRemovalRunning={isAnyRemovalRunning}
           isAdmin={isAdmin}
-          cacheReadOnly={cacheReadOnly}
           dockerSocketAvailable={dockerSocketAvailable}
-          checkingPermissions={checkingPermissions}
           onToggleDetails={state.onToggleDetails}
           onRemove={onRemoveService}
           variant={variant}

@@ -1,6 +1,6 @@
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
 
-export const FULL_REMOVAL_REFRESH_DELAY_MS = 30_000;
+export const FULL_REMOVAL_REFRESH_DELAY_MS = 500;
 
 const isEvictedGame = (game: GameCacheInfo) =>
   (game.evicted_downloads_count ?? 0) > 0 || game.is_evicted === true;

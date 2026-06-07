@@ -5,6 +5,7 @@ import { AlertTriangle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useDockerSocket } from '@contexts/useDockerSocket';
+import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useNotifications } from '@contexts/notifications';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { CorruptionRemovalCompleteEvent } from '@contexts/SignalRContext/types';
@@ -12,6 +13,7 @@ import { Card } from '@components/ui/Card';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Button } from '@components/ui/Button';
+import { showPermissionBlock } from '@utils/permissionUi';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -20,7 +22,6 @@ import { formatCount } from '@utils/formatters';
 import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
 import Badge from '@components/ui/Badge';
 import { useFormattedDateTime } from '@/hooks/useFormattedDateTime';
-import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
 import type { CorruptedChunkDetail } from '@/types';
 
@@ -35,6 +36,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const { notifications, addNotification, isAnyRemovalRunning } = useNotifications();
   const { on, off } = useSignalR();
   const { isDockerAvailable } = useDockerSocket();
+  const { logsReadOnly, cacheReadOnly, logsExist, cacheExist, checkingPermissions } =
+    useDirectoryPermissionsContext();
 
   // Derive corruption detection scan state from notifications (standardized pattern like GameCacheDetector)
   const activeCorruptionDetectionNotification = notifications.find(
@@ -56,7 +59,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     Record<string, CorruptedChunkDetail[]>
   >({});
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
-  const { isLoading, hasInitiallyLoaded, setLoading, markLoaded } = useManagerLoading();
+  const { isLoading, isRefreshing, hasInitiallyLoaded, beginLoad, markLoaded, markFailed } =
+    useManagerLoading();
   const {
     isPending: isCorruptionRemovalPending,
     anyPending: anyCorruptionRemovalPending,
@@ -72,9 +76,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     clearOnNotification: clearRemoveAllOnNotification
   } = useOptimisticPending<'removeAll'>();
 
-  // Use shared directory permissions hook
-  const { logsReadOnly, cacheReadOnly, logsExist, cacheExist, checkingPermissions } =
-    useDirectoryPermissions();
+  // Directory permissions are provided by StorageSection to avoid duplicate API calls.
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [hasCachedResults, setHasCachedResults] = useState(false);
   const [missThreshold, setMissThreshold] = useState(3);
@@ -152,7 +154,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   // Load cached data from database
   const loadCachedData = useCallback(
     async (showNotification = false) => {
-      setLoading(true);
+      beginLoad(showNotification);
       try {
         const cached = await ApiService.getCachedCorruptionDetection();
         if (cached.hasCachedResults && cached.corruptionCounts) {
@@ -206,10 +208,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         markLoaded();
       } catch (err: unknown) {
         console.error('Failed to load cached corruption data:', err);
-        setLoading(false);
+        markFailed();
       }
     },
-    [addNotification, t, setLoading, markLoaded]
+    [addNotification, t, beginLoad, markLoaded, markFailed]
   );
 
   // Start a background scan
@@ -243,7 +245,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       );
       if (corruptionDetectionCompleteNotifs.length > 0) {
         setIsStartingScan(false);
-        setLoading(true);
+        beginLoad(true);
 
         // Load fresh results from the database (backend already saved them)
         const loadResults = async () => {
@@ -279,7 +281,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         // Note: Error is displayed in notification bar, no inline error needed
       }
     }
-  }, [notifications, isStartingScan, setLoading, markLoaded]);
+  }, [notifications, isStartingScan, beginLoad, markLoaded]);
 
   // Listen for corruption removal completion via SignalR directly. Subscribing to the
   // raw event (instead of deriving from notifications.filter(status === 'completed'))
@@ -449,6 +451,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const isReadOnly = logsReadOnly || cacheReadOnly;
   const directoryMissing = !logsExist || !cacheExist;
   const hasPermissionIssue = isReadOnly || directoryMissing;
+  const showReadOnlyPlaceholder = showPermissionBlock(
+    checkingPermissions,
+    hasPermissionIssue || !isDockerAvailable
+  );
 
   // Action buttons for header
   // Cancel is handled by UniversalNotificationBar via CANCEL_CONFIGS
@@ -479,21 +485,20 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       {corruptionList.length > 0 && (
         <Button
           onClick={handleRemoveAll}
+          awaitPermissions
+          loading={startingRemoveAll}
           disabled={
             mockMode ||
             isAnyRemovalRunning ||
             anyCorruptionRemovalPending ||
-            startingRemoveAll ||
             authMode !== 'authenticated' ||
             logsReadOnly ||
             cacheReadOnly ||
-            !isDockerAvailable ||
-            checkingPermissions
+            !isDockerAvailable
           }
           variant="subtle"
           color="red"
           size="sm"
-          loading={startingRemoveAll}
         >
           {startingRemoveAll
             ? t('management.corruption.removing')
@@ -503,11 +508,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       <Tooltip content={t('management.corruption.loadPreviousResults')} position="top">
         <Button
           onClick={() => loadCachedData(true)}
-          disabled={isLoading || isScanning || isAnyRemovalRunning}
+          disabled={isRefreshing || isScanning || isAnyRemovalRunning}
           variant="default"
           size="sm"
         >
-          {isLoading ? <LoadingSpinner inline size="sm" /> : t('common.load')}
+          {isRefreshing ? <LoadingSpinner inline size="sm" /> : t('common.load')}
         </Button>
       </Tooltip>
       <Tooltip content={t('management.corruption.scanForCorrupted')} position="top">
@@ -632,7 +637,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               )}
 
               {/* Content */}
-              {hasPermissionIssue || !isDockerAvailable ? (
+              {showReadOnlyPlaceholder ? (
                 <ReadOnlyBadge
                   message={
                     directoryMissing
@@ -713,6 +718,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                             <Tooltip content={t('management.corruption.deleteCorrupted')}>
                               <Button
                                 onClick={() => handleRemoveCorruption(service)}
+                                awaitPermissions
+                                loading={
+                                  removingCorruption === service ||
+                                  isCorruptionRemovalPending(service)
+                                }
                                 disabled={
                                   mockMode ||
                                   isAnyRemovalRunning ||
@@ -720,16 +730,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                   authMode !== 'authenticated' ||
                                   logsReadOnly ||
                                   cacheReadOnly ||
-                                  !isDockerAvailable ||
-                                  checkingPermissions
+                                  !isDockerAvailable
                                 }
                                 variant="subtle"
                                 color="red"
                                 size="sm"
-                                loading={
-                                  removingCorruption === service ||
-                                  isCorruptionRemovalPending(service)
-                                }
                               >
                                 {removingCorruption !== service &&
                                 !isCorruptionRemovalPending(service)

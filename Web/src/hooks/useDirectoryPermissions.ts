@@ -1,27 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import type { DirectoryPermissions } from '@contexts/DirectoryPermissionsContext.types';
 
-interface DirectoryPermissions {
-  logsReadOnly: boolean;
-  cacheReadOnly: boolean;
-  logsExist: boolean;
-  cacheExist: boolean;
-  cacheWritable: boolean;
-  logsWritable: boolean;
-  cachePath: string;
-  logsPath: string;
-  dockerSocketAvailable: boolean;
-  checkingPermissions: boolean;
-  timedOut: boolean;
-  error: string | null;
-  reload: () => Promise<void>;
-}
+export type { DirectoryPermissions };
 
 /**
  * Hook to check directory permissions for logs and cache directories.
  * Calls ApiService.getDirectoryPermissions() on mount and provides a reload function.
  * Auto-refreshes when DirectoryPermissionsChanged SignalR event is received.
+ *
+ * Prefer DirectoryPermissionsProvider + useDirectoryPermissionsContext() under Storage
+ * so the permissions API is only called once per page.
  */
 export const useDirectoryPermissions = (): DirectoryPermissions => {
   const { on, off } = useSignalR();

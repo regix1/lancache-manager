@@ -9,9 +9,7 @@ interface GamesListProps {
   games: GameCacheInfo[];
   isAnyRemovalRunning: boolean;
   isAdmin: boolean;
-  cacheReadOnly: boolean;
   dockerSocketAvailable: boolean;
-  checkingPermissions: boolean;
   onRemoveGame: (game: GameCacheInfo) => void;
   variant?: CacheEntityVariant;
 }
@@ -36,9 +34,7 @@ const GamesList: React.FC<GamesListProps> = ({
   games,
   isAnyRemovalRunning,
   isAdmin,
-  cacheReadOnly,
   dockerSocketAvailable,
-  checkingPermissions,
   onRemoveGame,
   variant = 'active'
 }) => {
@@ -58,9 +54,7 @@ const GamesList: React.FC<GamesListProps> = ({
           isExpanding={state.isExpanding}
           isAnyRemovalRunning={isAnyRemovalRunning}
           isAdmin={isAdmin}
-          cacheReadOnly={cacheReadOnly}
           dockerSocketAvailable={dockerSocketAvailable}
-          checkingPermissions={checkingPermissions}
           onToggleDetails={state.onToggleDetails}
           onRemove={onRemoveGame}
           variant={variant}

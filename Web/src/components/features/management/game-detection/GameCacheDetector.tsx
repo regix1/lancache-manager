@@ -17,7 +17,7 @@ import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 import { useConfig } from '@contexts/useConfig';
 import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useSetupStatus } from '@contexts/useSetupStatus';
-import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
+import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useInvalidateImages } from '@components/common/ImageCacheContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { MANAGEMENT_STORAGE_KEYS } from '../sections/managementStorageKeys';
@@ -62,7 +62,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const { on, off } = useSignalR();
   const { config } = useConfig();
   const { isDockerAvailable } = useDockerSocket();
-  const { cacheReadOnly, checkingPermissions } = useDirectoryPermissions();
+  const { cacheReadOnly } = useDirectoryPermissionsContext();
   const invalidateImageCache = useInvalidateImages();
   const { setupStatus, refreshSetupStatus } = useSetupStatus();
   const hasProcessedLogs = setupStatus?.hasProcessedLogs ?? false;
@@ -532,6 +532,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   };
 
   const hasResults = filteredGames.length > 0 || filteredServices.length > 0;
+  const showBlockingLoader =
+    isDetectionFromNotification || isStartingDetection || (isLoadingData && !hasResults);
   const allExpanded = servicesExpanded && gamesExpanded;
 
   // Sequential per-item cache-removal queue. The per-item endpoints (remove
@@ -775,10 +777,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         >
           <Button
             onClick={() => setShowRemoveAllConfirm(true)}
-            disabled={
-              loading || mockMode || checkingPermissions || removeAllRunning || isAnyRemovalRunning
-            }
+            awaitPermissions
             loading={removeAllRunning}
+            disabled={loading || mockMode || cacheReadOnly || isAnyRemovalRunning}
             variant="filled"
             color="red"
             size="sm"
@@ -795,7 +796,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       >
         <Button
           onClick={handleLoadData}
-          disabled={loading || mockMode || checkingPermissions}
+          disabled={loading || mockMode}
           variant="default"
           size="sm"
           className="w-full sm:w-auto"
@@ -814,7 +815,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       >
         <Button
           onClick={handleIncrementalScan}
-          disabled={loading || mockMode || checkingPermissions || !hasProcessedLogs}
+          disabled={loading || mockMode || !hasProcessedLogs}
           variant="default"
           size="sm"
           className="w-full sm:w-auto"
@@ -837,7 +838,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       >
         <Button
           onClick={handleFullScan}
-          disabled={loading || mockMode || checkingPermissions || !hasProcessedLogs}
+          disabled={loading || mockMode || !hasProcessedLogs}
           variant="filled"
           color="blue"
           size="sm"
@@ -917,7 +918,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               )}
 
               {/* Loading State */}
-              {loading && (
+              {showBlockingLoader && (
                 <LoadingState
                   message={
                     datasources.length > 1
@@ -930,7 +931,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 />
               )}
 
-              {!cacheReadOnly && !loading && (
+              {!cacheReadOnly && !showBlockingLoader && (
                 <>
                   {/* Previous Results Badge */}
                   {lastDetectionTime && hasResults && (
@@ -982,9 +983,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                         services={filteredServices}
                         isAnyRemovalRunning={isAnyRemovalRunning}
                         isAdmin={isAdmin}
-                        cacheReadOnly={cacheReadOnly}
                         dockerSocketAvailable={isDockerAvailable}
-                        checkingPermissions={checkingPermissions}
                         onRemoveService={handleServiceRemoveClick}
                       />
                     </AccordionSection>
@@ -1004,9 +1003,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                         games={filteredGames}
                         isAnyRemovalRunning={isAnyRemovalRunning}
                         isAdmin={isAdmin}
-                        cacheReadOnly={cacheReadOnly}
                         dockerSocketAvailable={isDockerAvailable}
-                        checkingPermissions={checkingPermissions}
                         onRemoveGame={handleRemoveClick}
                       />
                     </AccordionSection>

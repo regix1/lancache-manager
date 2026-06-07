@@ -6,11 +6,12 @@ import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useNotifications } from '@contexts/notifications';
 import { useDockerSocket } from '@contexts/useDockerSocket';
-import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
+import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
 import { Card } from '@components/ui/Card';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { Button } from '@components/ui/Button';
+import { showPermissionBlock } from '@utils/permissionUi';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -58,13 +59,16 @@ const ServiceButton: React.FC<{
   return (
     <Button
       onClick={onClick}
+      awaitPermissions
       disabled={isDisabled}
       variant="outline"
       loading={isRemoving}
       className="flex flex-col items-center min-h-[60px] justify-center"
       fullWidth
     >
-      {!isRemoving ? (
+      {isRemoving ? (
+        <span className="capitalize font-medium text-sm sm:text-base">{removingLabel}</span>
+      ) : (
         <>
           <span className="capitalize font-medium text-sm sm:text-base">
             {clearLabel} {service}
@@ -73,8 +77,6 @@ const ServiceButton: React.FC<{
             ({formatCount(count)} {entriesLabel})
           </span>
         </>
-      ) : (
-        <span className="capitalize font-medium text-sm sm:text-base">{removingLabel}</span>
       )}
     </Button>
   );
@@ -90,7 +92,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const { t } = useTranslation();
   const { notifications, isAnyRemovalRunning } = useNotifications();
   const { isDockerAvailable } = useDockerSocket();
-  const { logsReadOnly, logsExist, checkingPermissions } = useDirectoryPermissions();
+  const { logsReadOnly, logsExist, checkingPermissions } = useDirectoryPermissionsContext();
 
   // State
   const [datasourceCounts, setDatasourceCounts] = useState<DatasourceServiceCounts[]>([]);
@@ -102,7 +104,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const [pendingLogFileDeletion, setPendingLogFileDeletion] = useState<string | null>(null);
   const [deletingLogFile, setDeletingLogFile] = useState<string | null>(null);
   const [showMoreServices, setShowMoreServices] = useState<Record<string, boolean>>({});
-  const { isLoading, hasInitiallyLoaded, setLoading, markLoaded } = useManagerLoading(true);
+  const { isLoading, isRefreshing, hasInitiallyLoaded, beginLoad, markLoaded, markFailed } =
+    useManagerLoading(true);
   const {
     isPending: isServiceRemovalPending,
     anyPending: anyServiceRemovalPending,
@@ -164,15 +167,15 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notifications, hasInitiallyLoaded]);
 
-  const loadData = async (_forceRefresh = false) => {
-    setLoading(true);
+  const loadData = async (forceRefresh = false) => {
+    beginLoad(forceRefresh);
     try {
       const dsCounts = await ApiService.getServiceLogCountsByDatasource();
       setDatasourceCounts(dsCounts);
       markLoaded();
     } catch (err: unknown) {
       console.error('Failed to load log data:', err);
-      setLoading(false);
+      markFailed();
     }
   };
 
@@ -268,17 +271,21 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
 
   const logsMissing = !logsExist;
   const hasPermissionIssue = logsReadOnly || logsMissing;
+  const showReadOnlyPlaceholder = showPermissionBlock(
+    checkingPermissions,
+    hasPermissionIssue || !isDockerAvailable
+  );
 
   // Header badge - Refresh button in AccordionSection header
   const headerBadge = (
     <Tooltip content={t('management.logRemoval.refreshServiceCounts')} position="top">
       <Button
         onClick={() => loadData(true)}
-        disabled={isLoading || isAnyRemovalRunning}
+        disabled={isRefreshing || isAnyRemovalRunning}
         variant="default"
         size="sm"
       >
-        {isLoading ? <LoadingSpinner inline size="sm" /> : t('common.refresh')}
+        {isRefreshing ? <LoadingSpinner inline size="sm" /> : t('common.refresh')}
       </Button>
     </Tooltip>
   );
@@ -350,7 +357,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
             )}
 
             {/* Content */}
-            {hasPermissionIssue || !isDockerAvailable ? (
+            {showReadOnlyPlaceholder ? (
               <ReadOnlyBadge
                 message={
                   logsMissing
@@ -401,6 +408,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                     e.stopPropagation();
                                     setPendingLogFileDeletion(ds.datasource);
                                   }}
+                                  awaitPermissions
+                                  loading={deletingLogFile === ds.datasource}
                                   disabled={
                                     mockMode ||
                                     isAnyRemovalRunning ||
@@ -408,10 +417,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                     !!deletingLogFile ||
                                     authMode !== 'authenticated' ||
                                     !ds.logsWritable ||
-                                    !isDockerAvailable ||
-                                    checkingPermissions
+                                    !isDockerAvailable
                                   }
-                                  loading={deletingLogFile === ds.datasource}
                                   className="w-full sm:w-auto"
                                 >
                                   {t('management.logRemoval.buttons.deleteLogFile')}
@@ -435,8 +442,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                         anyServiceRemovalPending ||
                                         authMode !== 'authenticated' ||
                                         !ds.logsWritable ||
-                                        !isDockerAvailable ||
-                                        checkingPermissions
+                                        !isDockerAvailable
                                       }
                                       onClick={() =>
                                         handleRemoveServiceLogs(ds.datasource, service)

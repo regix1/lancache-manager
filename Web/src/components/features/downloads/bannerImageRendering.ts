@@ -3,7 +3,7 @@ export type BannerImageRendering = 'crisp' | 'smooth';
 export const BANNER_IMAGE_RENDERING_STORAGE_KEY = 'lancache_downloads_banner_image_rendering';
 
 export function parseBannerImageRendering(value: string | null): BannerImageRendering {
-  return value === 'smooth' ? 'smooth' : 'crisp';
+  return value === 'crisp' ? 'crisp' : 'smooth';
 }
 
 export function getBannerImageClass(

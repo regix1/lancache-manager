@@ -12,21 +12,42 @@ import { useState, useCallback } from 'react';
  */
 export const useManagerLoading = (initialLoading = false) => {
   const [isLoading, setIsLoading] = useState(initialLoading);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
 
   const setLoading = useCallback((loading: boolean) => {
     setIsLoading(loading);
   }, []);
 
+  const beginLoad = useCallback(
+    (refresh = false) => {
+      if (refresh && hasInitiallyLoaded) {
+        setIsRefreshing(true);
+      } else {
+        setIsLoading(true);
+      }
+    },
+    [hasInitiallyLoaded]
+  );
+
   const markLoaded = useCallback(() => {
     setHasInitiallyLoaded(true);
     setIsLoading(false);
+    setIsRefreshing(false);
+  }, []);
+
+  const markFailed = useCallback(() => {
+    setIsLoading(false);
+    setIsRefreshing(false);
   }, []);
 
   return {
     isLoading,
+    isRefreshing,
     hasInitiallyLoaded,
     setLoading,
-    markLoaded
+    beginLoad,
+    markLoaded,
+    markFailed
   };
 };

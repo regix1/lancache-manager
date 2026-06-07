@@ -12,9 +12,7 @@ interface EvictedItemsListProps {
   services: ServiceCacheInfo[];
   isAnyRemovalRunning: boolean;
   isAdmin: boolean;
-  cacheReadOnly: boolean;
   dockerSocketAvailable: boolean;
-  checkingPermissions: boolean;
   onRemoveGame: (game: GameCacheInfo) => void;
   onRemoveService: (service: ServiceCacheInfo) => void;
   loading?: boolean;
@@ -25,9 +23,7 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
   services,
   isAnyRemovalRunning,
   isAdmin,
-  cacheReadOnly,
   dockerSocketAvailable,
-  checkingPermissions,
   onRemoveGame,
   onRemoveService,
   loading = false
@@ -53,9 +49,7 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
           services={evictedServices}
           isAnyRemovalRunning={isAnyRemovalRunning}
           isAdmin={isAdmin}
-          cacheReadOnly={cacheReadOnly}
           dockerSocketAvailable={dockerSocketAvailable}
-          checkingPermissions={checkingPermissions}
           onRemoveService={onRemoveService}
           variant="evicted"
         />
@@ -65,9 +59,7 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
           games={evictedGames}
           isAnyRemovalRunning={isAnyRemovalRunning}
           isAdmin={isAdmin}
-          cacheReadOnly={cacheReadOnly}
           dockerSocketAvailable={dockerSocketAvailable}
-          checkingPermissions={checkingPermissions}
           onRemoveGame={onRemoveGame}
           variant="evicted"
         />

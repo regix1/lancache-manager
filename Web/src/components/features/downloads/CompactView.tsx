@@ -633,7 +633,7 @@ const CompactView = React.memo(function CompactView({
   detectionLookup = null,
   detectionByName = null,
   detectionByService = null,
-  bannerImageRendering = 'crisp'
+  bannerImageRendering = 'smooth'
 }: CompactViewProps) {
   const { t } = useTranslation();
   const labels = { ...getDefaultSectionLabels(t), ...sectionLabels };

@@ -14,9 +14,7 @@ interface ServiceCardProps {
   isExpanding: boolean;
   isAnyRemovalRunning: boolean;
   isAdmin: boolean;
-  cacheReadOnly: boolean;
   dockerSocketAvailable: boolean;
-  checkingPermissions: boolean;
   onToggleDetails: (serviceName: string) => void;
   onRemove: (service: ServiceCacheInfo) => void;
   variant?: CacheEntityVariant;
@@ -31,9 +29,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   isExpanding,
   isAnyRemovalRunning,
   isAdmin,
-  cacheReadOnly,
   dockerSocketAvailable,
-  checkingPermissions,
   onToggleDetails,
   onRemove,
   variant = 'active'
@@ -92,9 +88,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
       isRemoving={isRemoving}
       isAnyRemovalRunning={isAnyRemovalRunning}
       isAdmin={isAdmin}
-      cacheReadOnly={cacheReadOnly}
       dockerSocketAvailable={dockerSocketAvailable}
-      checkingPermissions={checkingPermissions}
       hasExpandableContent={hasExpandableContent}
       onToggleDetails={(id) => onToggleDetails(id as string)}
       onRemove={() => onRemove(service)}

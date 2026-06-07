@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { GameImage } from '../../../common/GameImage';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 
@@ -29,9 +30,7 @@ interface ExpandableItemCardProps {
   isRemoving: boolean;
   isAnyRemovalRunning: boolean;
   isAdmin: boolean;
-  cacheReadOnly: boolean;
   dockerSocketAvailable: boolean;
-  checkingPermissions: boolean;
   hasExpandableContent?: boolean;
   onToggleDetails: (id: number | string) => void;
   onRemove: () => void;
@@ -54,9 +53,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   isRemoving,
   isAnyRemovalRunning,
   isAdmin,
-  cacheReadOnly,
   dockerSocketAvailable,
-  checkingPermissions,
   hasExpandableContent = true,
   onToggleDetails,
   onRemove,
@@ -64,6 +61,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   children
 }) => {
   const { t } = useTranslation();
+  const { cacheReadOnly } = useDirectoryPermissionsContext();
   const [imageError, setImageError] = useState(false);
   const availableImages = useAvailableGameImages();
 
@@ -150,17 +148,12 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
         <Tooltip content={removeTooltip}>
           <Button
             onClick={onRemove}
-            disabled={
-              isAnyRemovalRunning ||
-              !isAdmin ||
-              cacheReadOnly ||
-              !dockerSocketAvailable ||
-              checkingPermissions
-            }
+            awaitPermissions
+            loading={isRemoving}
+            disabled={isAnyRemovalRunning || !isAdmin || cacheReadOnly || !dockerSocketAvailable}
             variant="filled"
             color="red"
             size="sm"
-            loading={isRemoving}
             className="flex-shrink-0 min-h-[44px] sm:min-h-0"
             title={
               cacheReadOnly

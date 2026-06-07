@@ -136,7 +136,7 @@ const PRESETS = {
     showBannerColumn: true,
     bannerOnly: false,
     groupByGameRetro: false,
-    bannerImageRendering: 'crisp' as BannerImageRendering
+    bannerImageRendering: 'smooth' as BannerImageRendering
   },
   minimal: {
     showZeroBytes: false,
@@ -176,7 +176,7 @@ const PRESETS = {
     showBannerColumn: true,
     bannerOnly: false,
     groupByGameRetro: false,
-    bannerImageRendering: 'crisp' as BannerImageRendering
+    bannerImageRendering: 'smooth' as BannerImageRendering
   },
   default: {
     showZeroBytes: false,
@@ -196,7 +196,7 @@ const PRESETS = {
     showBannerColumn: true,
     bannerOnly: false,
     groupByGameRetro: false,
-    bannerImageRendering: 'crisp' as BannerImageRendering
+    bannerImageRendering: 'smooth' as BannerImageRendering
   }
 };
 

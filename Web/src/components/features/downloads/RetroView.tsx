@@ -680,7 +680,7 @@ const RetroView = memo(
         onPageChange,
         showTimestamps,
         showBannerColumn,
-        bannerImageRendering = 'crisp',
+        bannerImageRendering = 'smooth',
         aestheticMode = false,
         showDatasourceLabels = true,
         hasMultipleDatasources = false,
