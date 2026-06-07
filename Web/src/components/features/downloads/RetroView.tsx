@@ -40,6 +40,7 @@ import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { GameImage } from '@components/common/GameImage';
+import { getBannerImageClass, type BannerImageRendering } from './bannerImageRendering';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { resolveGameDetection } from '@utils/gameDetection';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -96,6 +97,7 @@ interface RetroViewProps {
   onPageChange: (page: number) => void;
   showTimestamps: boolean;
   showBannerColumn: boolean;
+  bannerImageRendering?: BannerImageRendering;
   aestheticMode?: boolean;
   showDatasourceLabels?: boolean;
   hasMultipleDatasources?: boolean;
@@ -678,6 +680,7 @@ const RetroView = memo(
         onPageChange,
         showTimestamps,
         showBannerColumn,
+        bannerImageRendering = 'crisp',
         aestheticMode = false,
         showDatasourceLabels = true,
         hasMultipleDatasources = false,
@@ -1612,7 +1615,7 @@ const RetroView = memo(
                                         gameAppId={data.epicAppId || data.gameAppId!}
                                         epicAppId={data.epicAppId || undefined}
                                         alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                                        className="w-[120px] h-[56px] rounded object-cover"
+                                        className={`w-[120px] h-[56px] rounded object-cover ${getBannerImageClass('retro-banner-image', bannerImageRendering)}`}
                                         onError={handleImageError}
                                       />
                                     ) : (
@@ -1801,7 +1804,7 @@ const RetroView = memo(
                                       gameAppId={data.epicAppId || data.gameAppId!}
                                       epicAppId={data.epicAppId || undefined}
                                       alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                                      className="w-[120px] h-[56px] rounded object-cover flex-shrink-0"
+                                      className={`w-[120px] h-[56px] rounded object-cover flex-shrink-0 ${getBannerImageClass('retro-banner-image', bannerImageRendering)}`}
                                       onError={handleImageError}
                                     />
                                   ) : (

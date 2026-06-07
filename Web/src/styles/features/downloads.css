@@ -7,14 +7,29 @@
    * and avoid cropping/blurring that comes from forced dimensions
    */
 
-  /* High-quality image rendering for game banners */
+  /* Game banner base layout (rendering mode set via --crisp / --smooth modifiers) */
   .download-banner-image {
     width: 100%;
     height: 100%;
     object-fit: cover;
     object-position: center;
+  }
+
+  .download-banner-image--crisp,
+  .download-banner-image-natural--crisp,
+  .drawer-banner-image--crisp,
+  .card-grid-banner-image--crisp,
+  .retro-banner-image--crisp {
     image-rendering: -webkit-optimize-contrast;
     image-rendering: crisp-edges;
+  }
+
+  .download-banner-image--smooth,
+  .download-banner-image-natural--smooth,
+  .drawer-banner-image--smooth,
+  .card-grid-banner-image--smooth,
+  .retro-banner-image--smooth {
+    image-rendering: auto;
   }
 
   /* Full-height banner: natural aspect ratio, no cropping */
@@ -23,8 +38,6 @@
     height: auto;
     object-fit: contain;
     object-position: center;
-    image-rendering: -webkit-optimize-contrast;
-    image-rendering: crisp-edges;
   }
 
   /* Full-height mode: banner determines row height, content clips to fit */
@@ -538,10 +551,11 @@
     background: var(--theme-bg-secondary);
   }
 
-  .card-grid-item-banner img {
+  .card-grid-banner-image {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    object-position: center;
   }
 
   .card-grid-item-info {
@@ -681,8 +695,6 @@
     display: block;
     object-fit: cover;
     object-position: center;
-    image-rendering: -webkit-optimize-contrast;
-    image-rendering: crisp-edges;
   }
 
   .drawer-detail-content {

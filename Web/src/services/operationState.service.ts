@@ -31,7 +31,6 @@ class OperationStateService {
   private requestQueue: QueuedRequest<unknown>[] = [];
   private activeRequests = 0;
   private readonly MAX_CONCURRENT_REQUESTS = 3;
-  private readonly REQUEST_DELAY_MS = 100;
 
   async saveState(
     key: string,
@@ -129,7 +128,6 @@ class OperationStateService {
     this.activeRequests++;
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, this.REQUEST_DELAY_MS));
       const result = await request.execute();
       request.resolve(result);
     } catch (error) {

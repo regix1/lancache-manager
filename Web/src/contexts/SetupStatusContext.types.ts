@@ -19,6 +19,7 @@ export interface SetupStatus {
   postgresHost: string | null;
   postgresPort: number | null;
   postgresDatabase: string | null;
+  postgresUser: string | null;
 }
 
 interface SetupStatusContextType {

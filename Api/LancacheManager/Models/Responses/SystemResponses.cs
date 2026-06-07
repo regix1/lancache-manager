@@ -141,11 +141,12 @@ public class SetupStatusResponse
     // Postgres deployment mode: "embedded" (default) or "external".
     public string Mode { get; set; } = "embedded";
 
-    // Sanitized connection details for the external-mode info screen.
+    // Sanitized connection details for the database info screen (external or embedded).
     // Never includes the password.
     public string? PostgresHost { get; set; }
     public int? PostgresPort { get; set; }
     public string? PostgresDatabase { get; set; }
+    public string? PostgresUser { get; set; }
 }
 
 /// <summary>

@@ -33,6 +33,7 @@ import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
 import { Pagination } from '@components/ui/Pagination';
 import { BackToTopButton } from '@components/ui/BackToTopButton';
+import { getBannerImageClass, type BannerImageRendering } from './bannerImageRendering';
 import IpSessionList from './IpSessionList';
 import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
@@ -71,6 +72,7 @@ interface NormalViewProps {
   showCacheHitBar?: boolean;
   showEventBadges?: boolean;
   bannerOnly?: boolean;
+  bannerImageRendering?: BannerImageRendering;
   detectionLookup?: Map<number, GameDetectionSummary> | null;
   detectionByName?: Map<string, GameDetectionSummary> | null;
   detectionByService?: Map<
@@ -85,6 +87,7 @@ interface GroupCardProps {
   onItemClick: (id: string) => void;
   aestheticMode: boolean;
   fullHeightBanners: boolean;
+  bannerImageRendering: BannerImageRendering;
   imageErrors: Set<string>;
   handleImageError: (gameAppId: string) => void;
   groupPages: Record<string, number>;
@@ -112,6 +115,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   onItemClick,
   aestheticMode,
   fullHeightBanners,
+  bannerImageRendering,
   imageErrors,
   handleImageError,
   groupPages,
@@ -259,7 +263,10 @@ const GroupCard: React.FC<GroupCardProps> = ({
           gameAppId={showEpicImage ? epicAppId! : steamAppId!}
           epicAppId={showEpicImage ? epicAppId! : undefined}
           alt={primaryName || group.name}
-          className={fullHeightBanners ? 'download-banner-image-natural' : 'download-banner-image'}
+          className={getBannerImageClass(
+            fullHeightBanners ? 'download-banner-image-natural' : 'download-banner-image',
+            bannerImageRendering
+          )}
           sizes="(max-width: 639px) 100vw, 280px"
           onError={handleImageError}
         />
@@ -936,6 +943,7 @@ interface GridCardProps {
   showCacheHitBar: boolean;
   showEventBadges: boolean;
   bannerOnly: boolean;
+  bannerImageRendering: BannerImageRendering;
   groupPages: Record<string, number>;
   setGroupPages: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   startHoldTimer: (callback: () => void) => void;
@@ -955,6 +963,7 @@ const GridCard: React.FC<GridCardProps> = ({
   showCacheHitBar,
   showEventBadges,
   bannerOnly,
+  bannerImageRendering,
   groupPages: _groupPages,
   setGroupPages: _setGroupPages,
   startHoldTimer: _startHoldTimer,
@@ -1023,7 +1032,7 @@ const GridCard: React.FC<GridCardProps> = ({
           gameAppId={showEpicImage ? epicAppId! : steamAppId!}
           epicAppId={showEpicImage ? epicAppId! : undefined}
           alt={primaryName || group.name}
-          className="download-banner-image"
+          className={getBannerImageClass('card-grid-banner-image', bannerImageRendering)}
           sizes="(max-width: 639px) 100vw, 360px"
           onError={handleImageError}
           loading="lazy"
@@ -1123,6 +1132,7 @@ const GridCard: React.FC<GridCardProps> = ({
 
 interface GridCardDrawerContentProps {
   group: DownloadGroup;
+  bannerImageRendering: BannerImageRendering;
   imageErrors: Set<string>;
   handleImageError: (gameAppId: string) => void;
   showEventBadges: boolean;
@@ -1143,6 +1153,7 @@ interface GridCardDrawerContentProps {
 
 const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
   group,
+  bannerImageRendering,
   imageErrors,
   handleImageError,
   showEventBadges,
@@ -1246,7 +1257,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
         gameAppId={showEpicImage ? epicAppId! : steamAppId!}
         epicAppId={showEpicImage ? epicAppId! : undefined}
         alt={primaryName || group.name}
-        className="drawer-banner-image"
+        className={getBannerImageClass('drawer-banner-image', bannerImageRendering)}
         sizes="(max-width: 639px) 100vw, 550px"
         onError={handleImageError}
       />
@@ -1654,6 +1665,7 @@ const NormalView: React.FC<NormalViewProps> = ({
   showCacheHitBar = true,
   showEventBadges = true,
   bannerOnly = false,
+  bannerImageRendering = 'crisp',
   detectionLookup = null,
   detectionByName = null,
   detectionByService = null
@@ -1823,6 +1835,7 @@ const NormalView: React.FC<NormalViewProps> = ({
       onItemClick={onItemClick}
       aestheticMode={aestheticMode}
       fullHeightBanners={fullHeightBanners}
+      bannerImageRendering={bannerImageRendering}
       imageErrors={imageErrors}
       handleImageError={handleImageError}
       groupPages={groupPages}
@@ -1919,6 +1932,7 @@ const NormalView: React.FC<NormalViewProps> = ({
           showCacheHitBar={showCacheHitBar}
           showEventBadges={showEventBadges}
           bannerOnly={bannerOnly}
+          bannerImageRendering={bannerImageRendering}
           groupPages={groupPages}
           setGroupPages={setGroupPages}
           startHoldTimer={startHoldTimer}
@@ -1947,6 +1961,7 @@ const NormalView: React.FC<NormalViewProps> = ({
         {drawerItem && (
           <GridCardDrawerContent
             group={drawerItem}
+            bannerImageRendering={bannerImageRendering}
             imageErrors={imageErrors}
             handleImageError={handleImageError}
             showEventBadges={showEventBadges}

@@ -22,6 +22,7 @@ import { resolveGameDetection } from '@utils/gameDetection';
 import type { Download, DownloadGroup, GameDetectionSummary } from '../../../types';
 import { useFlatRows } from '@hooks/useFlatRows';
 import type { HeaderRowKind } from './types';
+import { getBannerImageClass, type BannerImageRendering } from './bannerImageRendering';
 
 interface CompactViewSectionLabels {
   multipleDownloads: string;
@@ -57,6 +58,7 @@ interface CompactViewProps {
     string,
     { service_name: string; cache_files_found: number; total_size_bytes: number }
   > | null;
+  bannerImageRendering?: BannerImageRendering;
 }
 
 interface GroupRowProps {
@@ -64,6 +66,7 @@ interface GroupRowProps {
   expandedItem: string | null;
   onItemClick: (id: string) => void;
   aestheticMode: boolean;
+  bannerImageRendering: BannerImageRendering;
   imageErrors: Set<string>;
   handleImageError: (gameAppId: string) => void;
   groupPages: Record<string, number>;
@@ -87,6 +90,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
   expandedItem,
   onItemClick,
   aestheticMode,
+  bannerImageRendering,
   imageErrors,
   handleImageError,
   groupPages,
@@ -362,7 +366,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     gameAppId={gameImageAppId}
                     epicAppId={showEpicImage ? primaryDownload.epicAppId! : undefined}
                     alt={primaryDownload.gameName || group.name}
-                    className="compact-expanded-banner sm:w-[100px] sm:h-[46px] rounded object-cover border border-[var(--theme-border-secondary)]"
+                    className={`compact-expanded-banner sm:w-[100px] sm:h-[46px] rounded object-cover border border-[var(--theme-border-secondary)] ${getBannerImageClass('retro-banner-image', bannerImageRendering)}`}
                     sizes="(max-width: 639px) 100%, 100px"
                     onError={handleImageError}
                   />
@@ -628,7 +632,8 @@ const CompactView = React.memo(function CompactView({
   hasMultipleDatasources = false,
   detectionLookup = null,
   detectionByName = null,
-  detectionByService = null
+  detectionByService = null,
+  bannerImageRendering = 'crisp'
 }: CompactViewProps) {
   const { t } = useTranslation();
   const labels = { ...getDefaultSectionLabels(t), ...sectionLabels };
@@ -646,6 +651,7 @@ const CompactView = React.memo(function CompactView({
       expandedItem={expandedItem}
       onItemClick={onItemClick}
       aestheticMode={aestheticMode}
+      bannerImageRendering={bannerImageRendering}
       imageErrors={imageErrors}
       handleImageError={handleImageError}
       groupPages={groupPages}

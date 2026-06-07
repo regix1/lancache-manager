@@ -1060,6 +1060,7 @@ class ApiService {
     postgresHost: string | null;
     postgresPort: number | null;
     postgresDatabase: string | null;
+    postgresUser: string | null;
   }> {
     const response = await fetch(
       `${API_BASE}/system/setup`,
@@ -1077,6 +1078,7 @@ class ApiService {
       postgresHost: string | null;
       postgresPort: number | null;
       postgresDatabase: string | null;
+      postgresUser: string | null;
     }>(response);
   }
 

@@ -184,10 +184,7 @@ const AppContent: React.FC = () => {
       }
     };
 
-    // Initial check after 2 seconds (backend is already running)
-    const initialTimer = setTimeout(() => {
-      checkCachedViabilityState();
-    }, 2000);
+    void checkCachedViabilityState();
 
     // Then check every 10 seconds for up to 60 seconds
     intervalTimer = setInterval(() => {
@@ -204,7 +201,6 @@ const AppContent: React.FC = () => {
     }, 10000);
 
     return () => {
-      clearTimeout(initialTimer);
       if (intervalTimer) {
         clearInterval(intervalTimer);
       }

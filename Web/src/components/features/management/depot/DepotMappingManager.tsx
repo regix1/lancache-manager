@@ -221,8 +221,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         })
         .then((intervalResponse) => {
           if (intervalResponse && intervalResponse.ok) {
-            // Force a refresh to update the UI with persisted values
-            setTimeout(() => refreshProgress(), 1000);
+            void refreshProgress();
           } else if (intervalResponse && !intervalResponse.ok) {
             console.error('[DepotMapping] Failed to set interval:', intervalResponse.status);
             // Reset flag so interval can be retried
@@ -346,11 +345,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       if (picsNotifications.length > 0) {
         // Note: Operation state now handled by NotificationsContext
 
-        // Refresh progress data when scan completes
-        setTimeout(() => {
-          refreshProgress();
-          onDataRefresh?.();
-        }, 1000);
+        void refreshProgress();
+        onDataRefresh?.();
       }
     }
   }, [notifications, onDataRefresh, operationType, refreshProgress]);
@@ -479,8 +475,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
       // Refresh the depot config after download
       await refreshProgress();
-
-      setTimeout(() => onDataRefresh?.(), 2000);
+      onDataRefresh?.();
     } catch (err: unknown) {
       // Don't show error for user-initiated cancellation
       if (!isAbortError(err)) {
@@ -552,7 +547,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         onSuccess?.(
           'Imported depot mappings to database - depot count will update after scan completes'
         );
-        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
 
       // Use incremental or full scan based on user selection
@@ -585,7 +579,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
       const scanType = useIncrementalScan ? 'Incremental' : 'Full';
       onSuccess?.(`${scanType} depot scan started - mappings will be applied when complete`);
-      setTimeout(() => onDataRefresh?.(), 2000);
 
       // Note: NotificationsContext will create a notification via SignalR (DepotMappingStarted event)
       // and recovery is handled by recoverDepotMapping
@@ -855,7 +848,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                 return;
               }
               onSuccess?.('Full depot scan started - mappings will be applied when complete');
-              setTimeout(() => onDataRefresh?.(), 2000);
               // Note: NotificationsContext will create a notification via SignalR (DepotMappingStarted event)
             } catch (err: unknown) {
               onError?.(

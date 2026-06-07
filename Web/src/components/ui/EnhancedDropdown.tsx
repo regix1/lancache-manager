@@ -174,47 +174,45 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       : undefined);
 
   useEffect(() => {
-    if (!isOpen) setExpandedSubmenu(null);
+    if (!isOpen) {
+      setExpandedSubmenu(null);
+      setDropdownPosition(null);
+    }
   }, [isOpen]);
 
-  // Calculate position before paint - for portal rendering
+  const computeInitialDropdownPosition = useCallback(() => {
+    if (!buttonRef.current) return null;
+
+    const rect = buttonRef.current.getBoundingClientRect();
+    const parsedMaxHeight = maxHeight && maxHeight.endsWith('px') ? parseInt(maxHeight, 10) : 300;
+    const estimatedContentHeight = compactMode
+      ? Math.min(parsedMaxHeight, options.length * 24 + 8)
+      : parsedMaxHeight;
+    const dropdownHeight = estimatedContentHeight + 50;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > dropdownHeight;
+    const dropdownWidthPx = resolveDropdownWidthToPx(dropdownWidth, rect.width);
+
+    const desiredLeft = alignRight ? rect.right - dropdownWidthPx : rect.left;
+    const maxLeft = Math.max(
+      VIEWPORT_PADDING_PX,
+      window.innerWidth - dropdownWidthPx - VIEWPORT_PADDING_PX
+    );
+    const left = Math.min(Math.max(desiredLeft, VIEWPORT_PADDING_PX), maxLeft);
+
+    const gap = 4;
+    const top = shouldOpenUpward ? undefined : rect.bottom + gap;
+    const bottom = shouldOpenUpward ? window.innerHeight - rect.top + gap : undefined;
+
+    return { top, bottom, left, width: rect.width, shouldOpenUpward };
+  }, [alignRight, dropdownWidth, maxHeight, compactMode, options.length]);
+
+  // Refine position after paint when trigger/layout changes while open
   useLayoutEffect(() => {
     if (!isOpen || !buttonRef.current) return;
 
-    const calculatePosition = () => {
-      if (!buttonRef.current) return null;
-
-      const rect = buttonRef.current.getBoundingClientRect();
-      // Parse maxHeight if provided in pixels, otherwise default to 300
-      const parsedMaxHeight = maxHeight && maxHeight.endsWith('px') ? parseInt(maxHeight, 10) : 300;
-      // In compactMode items are much shorter (py-1 text-xs vs py-2.5 text-sm),
-      // so estimate a smaller dropdown height to avoid unnecessarily opening upward
-      const estimatedContentHeight = compactMode
-        ? Math.min(parsedMaxHeight, options.length * 24 + 8) // ~24px per compact item + padding
-        : parsedMaxHeight;
-      const dropdownHeight = estimatedContentHeight + 50; // Add buffer for header/footer
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const spaceAbove = rect.top;
-      const shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > dropdownHeight;
-      const dropdownWidthPx = resolveDropdownWidthToPx(dropdownWidth, rect.width);
-
-      // Calculate horizontal position and clamp within viewport
-      const desiredLeft = alignRight ? rect.right - dropdownWidthPx : rect.left;
-      const maxLeft = Math.max(
-        VIEWPORT_PADDING_PX,
-        window.innerWidth - dropdownWidthPx - VIEWPORT_PADDING_PX
-      );
-      const left = Math.min(Math.max(desiredLeft, VIEWPORT_PADDING_PX), maxLeft);
-
-      // Calculate vertical position (floating: small gap between trigger and panel)
-      const gap = 4;
-      const top = shouldOpenUpward ? undefined : rect.bottom + gap;
-      const bottom = shouldOpenUpward ? window.innerHeight - rect.top + gap : undefined;
-
-      return { top, bottom, left, width: rect.width, shouldOpenUpward };
-    };
-
-    const pos = calculatePosition();
+    const pos = computeInitialDropdownPosition();
     if (pos) {
       setDropdownPosition({
         top: pos.top,
@@ -226,7 +224,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         animation: `${pos.shouldOpenUpward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`
       });
     }
-  }, [isOpen, alignRight, dropdownWidth, maxHeight, compactMode, options.length]);
+  }, [isOpen, computeInitialDropdownPosition]);
 
   // After the dropdown is rendered, clamp its position using the *actual* measured dimensions.
   // This corrects both horizontal overflow and vertical direction using real rendered height.
@@ -372,7 +370,24 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          if (!disabled) setIsOpen(!isOpen);
+          if (disabled) return;
+          if (!isOpen) {
+            const pos = computeInitialDropdownPosition();
+            if (pos) {
+              setDropdownPosition({
+                top: pos.top,
+                bottom: pos.bottom,
+                left: pos.left,
+                width: pos.width
+              });
+              setDropdownStyle({
+                animation: `${pos.shouldOpenUpward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`
+              });
+            }
+            setIsOpen(true);
+          } else {
+            setIsOpen(false);
+          }
         }}
         onTouchEnd={(e) => {
           e.stopPropagation();

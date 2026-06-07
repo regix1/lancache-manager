@@ -257,13 +257,15 @@ export function useInitializationFlow({
           return 'external-db-confirm';
         }
       } else {
-        // Embedded mode: any external-mode step should map back to the embedded one
-        // (or skip past it entirely if creds are already there).
-        if (step === 'external-db-form' || step === 'external-db-confirm') {
-          return setupStatus.needsPostgresCredentials ? 'database-setup' : 'permissions-check';
+        // Embedded mode: credential form when needed, shared info screen when configured.
+        if (step === 'database-setup') {
+          return setupStatus.needsPostgresCredentials ? 'database-setup' : 'external-db-confirm';
         }
-        if (step === 'database-setup' && !setupStatus.needsPostgresCredentials) {
-          return 'permissions-check';
+        if (step === 'external-db-form') {
+          return setupStatus.needsPostgresCredentials ? 'database-setup' : 'external-db-confirm';
+        }
+        if (step === 'external-db-confirm' && setupStatus.needsPostgresCredentials) {
+          return 'database-setup';
         }
       }
 
@@ -568,10 +570,17 @@ export function useInitializationFlow({
 
   const handleGoBack = useCallback((): void => {
     switch (currentStep) {
-      case 'permissions-check':
+      case 'permissions-check': {
         // Intentionally bypass transition guards so "Back" does not bounce forward.
-        setCurrentStep('database-setup');
+        if (setupStatus && !setupStatus.needsPostgresCredentials) {
+          setCurrentStep('external-db-confirm');
+        } else if (setupStatus?.mode === 'external') {
+          setCurrentStep('external-db-form');
+        } else {
+          setCurrentStep('database-setup');
+        }
         break;
+      }
       case 'import-historical-data':
         goToStep('permissions-check');
         break;
@@ -603,7 +612,7 @@ export function useInitializationFlow({
       default:
         break;
     }
-  }, [currentStep, dataSourceChoice, goToStep]);
+  }, [currentStep, dataSourceChoice, goToStep, setupStatus]);
 
   // --- Computed ---
   // When setup was already completed (e.g. SQLite migration) and only the credentials

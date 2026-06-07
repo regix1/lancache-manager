@@ -251,22 +251,29 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     </HelpPopover>
   );
 
-  if (loading) {
-    return (
-      <Card>
-        <AccordionSection
-          title={t('management.datasources.title')}
-          icon={Logs}
-          iconColor="var(--theme-icon-purple)"
-          isExpanded={isExpanded}
-          onToggle={() => setIsExpanded((prev) => !prev)}
-          badge={helpContent}
-        >
-          <LoadingState message={t('management.datasources.loadingDatasources')} />
-        </AccordionSection>
-      </Card>
-    );
-  }
+  const headerActions = (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        variant="subtle"
+        size="sm"
+        onClick={() => setResetModal({ datasource: null, all: true })}
+        disabled={loading || actionLoading !== null || isProcessing || mockMode || !isAdmin}
+      >
+        {t('management.datasources.reposition')}
+      </Button>
+      <Button
+        variant="filled"
+        color="green"
+        size="sm"
+        onClick={handleProcessAll}
+        disabled={loading || actionLoading !== null || isProcessing || mockMode || !isAdmin}
+        loading={actionLoading === 'all'}
+      >
+        {t('common.processAll')}
+      </Button>
+      {helpContent}
+    </div>
+  );
 
   return (
     <>
@@ -277,106 +284,89 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
           iconColor="var(--theme-icon-purple)"
           isExpanded={isExpanded}
           onToggle={() => setIsExpanded((prev) => !prev)}
-          badge={
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="subtle"
-                size="sm"
-                onClick={() => setResetModal({ datasource: null, all: true })}
-                disabled={actionLoading !== null || isProcessing || mockMode || !isAdmin}
-              >
-                {t('management.datasources.reposition')}
-              </Button>
-              <Button
-                variant="filled"
-                color="green"
-                size="sm"
-                onClick={handleProcessAll}
-                disabled={actionLoading !== null || isProcessing || mockMode || !isAdmin}
-                loading={actionLoading === 'all'}
-              >
-                {t('common.processAll')}
-              </Button>
-              {helpContent}
-            </div>
-          }
+          badge={headerActions}
         >
-          {/* Datasource list */}
-          <div className="space-y-3">
-            {datasources.map((ds) => {
-              const position = getPositionForDatasource(ds.name);
-              const isDatasourceExpanded = expandedDatasources.has(ds.name);
+          {loading ? (
+            <LoadingState message={t('management.datasources.loadingDatasources')} />
+          ) : (
+            <div className="space-y-3">
+              {datasources.map((ds) => {
+                const position = getPositionForDatasource(ds.name);
+                const isDatasourceExpanded = expandedDatasources.has(ds.name);
 
-              return (
-                <DatasourceListItem
-                  key={ds.name}
-                  name={ds.name}
-                  path={ds.logsPath}
-                  isExpanded={isDatasourceExpanded}
-                  onToggle={() => toggleExpanded(ds.name)}
-                  enabled={ds.enabled}
-                >
-                  {/* Expanded content - Position info */}
-                  <div className="pt-3 space-y-4">
-                    {/* Access Log Section */}
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 rounded-lg bg-themed-tertiary">
-                      <div className="flex items-center gap-3">
-                        <FileText className="w-4 h-4 text-themed-muted flex-shrink-0" />
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium text-themed-primary">access.log</div>
-                          <div className="text-xs text-themed-muted truncate">
-                            {formatPosition(position)}
+                return (
+                  <DatasourceListItem
+                    key={ds.name}
+                    name={ds.name}
+                    path={ds.logsPath}
+                    isExpanded={isDatasourceExpanded}
+                    onToggle={() => toggleExpanded(ds.name)}
+                    enabled={ds.enabled}
+                  >
+                    {/* Expanded content - Position info */}
+                    <div className="pt-3 space-y-4">
+                      {/* Access Log Section */}
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 rounded-lg bg-themed-tertiary">
+                        <div className="flex items-center gap-3">
+                          <FileText className="w-4 h-4 text-themed-muted flex-shrink-0" />
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-themed-primary">
+                              access.log
+                            </div>
+                            <div className="text-xs text-themed-muted truncate">
+                              {formatPosition(position)}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <div className="flex gap-2 flex-shrink-0">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setResetModal({ datasource: ds.name, all: false });
-                          }}
-                          disabled={
-                            actionLoading !== null ||
-                            isProcessing ||
-                            mockMode ||
-                            !isAdmin ||
-                            !ds.enabled
-                          }
-                          className="flex-1 sm:flex-initial"
-                        >
-                          {t('management.datasources.reposition')}
-                        </Button>
-                        <Button
-                          variant="filled"
-                          color="green"
-                          size="sm"
-                          leftSection={<PlayCircle className="w-3 h-3" />}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleProcessDatasource(ds.name);
-                          }}
-                          disabled={
-                            actionLoading !== null ||
-                            isProcessing ||
-                            mockMode ||
-                            !isAdmin ||
-                            !ds.enabled ||
-                            position?.totalLines === 0
-                          }
-                          loading={actionLoading === `access-${ds.name}`}
-                          className="flex-1 sm:flex-initial"
-                        >
-                          {t('common.process')}
-                        </Button>
+                        <div className="flex gap-2 flex-shrink-0">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setResetModal({ datasource: ds.name, all: false });
+                            }}
+                            disabled={
+                              actionLoading !== null ||
+                              isProcessing ||
+                              mockMode ||
+                              !isAdmin ||
+                              !ds.enabled
+                            }
+                            className="flex-1 sm:flex-initial"
+                          >
+                            {t('management.datasources.reposition')}
+                          </Button>
+                          <Button
+                            variant="filled"
+                            color="green"
+                            size="sm"
+                            leftSection={<PlayCircle className="w-3 h-3" />}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleProcessDatasource(ds.name);
+                            }}
+                            disabled={
+                              actionLoading !== null ||
+                              isProcessing ||
+                              mockMode ||
+                              !isAdmin ||
+                              !ds.enabled ||
+                              position?.totalLines === 0
+                            }
+                            loading={actionLoading === `access-${ds.name}`}
+                            className="flex-1 sm:flex-initial"
+                          >
+                            {t('common.process')}
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </DatasourceListItem>
-              );
-            })}
-          </div>
+                  </DatasourceListItem>
+                );
+              })}
+            </div>
+          )}
         </AccordionSection>
       </Card>
 

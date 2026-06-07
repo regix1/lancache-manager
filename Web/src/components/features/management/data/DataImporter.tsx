@@ -31,9 +31,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
         errors: result.errors
       })
     );
-    if (onDataRefresh) {
-      setTimeout(() => onDataRefresh(), 1000);
-    }
+    onDataRefresh?.();
   };
 
   return (

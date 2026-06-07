@@ -1270,6 +1270,9 @@
       "display": {
         "minimalMode": "Minimal mode",
         "fullHeightBanners": "Full-height banners",
+        "bannerImageRendering": "Banner image scaling",
+        "bannerSmooth": "Smooth",
+        "bannerCrisp": "Crisp",
         "groupByGameRetro": "Group by game"
       },
       "behavior": {
@@ -4944,6 +4947,20 @@
       "errors": {
         "required": "API key is required"
       }
+    },
+    "dbInfo": {
+      "externalTitle": "External PostgreSQL Connected",
+      "embeddedTitle": "Embedded PostgreSQL Ready",
+      "externalBody": "This container is configured to use an external PostgreSQL server. The connection details below come from your environment variables (or a saved credentials file).",
+      "embeddedBody": "This container uses the bundled PostgreSQL database over a local Unix socket. Credentials are already configured via environment variables or the setup wizard.",
+      "target": "Connection target",
+      "host": "Host",
+      "socket": "Socket",
+      "port": "Port",
+      "database": "Database",
+      "user": "User",
+      "continue": "Continue",
+      "unknown": "(unknown)"
     },
     "permissionsCheck": {
       "title": "Permissions Check",

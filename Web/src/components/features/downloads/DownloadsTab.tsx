@@ -50,6 +50,11 @@ import DownloadsHeader from './DownloadsHeader';
 import ActiveDownloadsView from './ActiveDownloadsView';
 
 import type { Download, DownloadGroup } from '../../../types';
+import {
+  BANNER_IMAGE_RENDERING_STORAGE_KEY,
+  parseBannerImageRendering,
+  type BannerImageRendering
+} from './bannerImageRendering';
 
 // Storage keys for persistence
 const STORAGE_KEYS = {
@@ -130,7 +135,8 @@ const PRESETS = {
     showTimestamps: true,
     showBannerColumn: true,
     bannerOnly: false,
-    groupByGameRetro: false
+    groupByGameRetro: false,
+    bannerImageRendering: 'crisp' as BannerImageRendering
   },
   minimal: {
     showZeroBytes: false,
@@ -149,7 +155,8 @@ const PRESETS = {
     showTimestamps: false,
     showBannerColumn: false,
     bannerOnly: false,
-    groupByGameRetro: false
+    groupByGameRetro: false,
+    bannerImageRendering: 'smooth' as BannerImageRendering
   },
   showAll: {
     showZeroBytes: true,
@@ -168,7 +175,8 @@ const PRESETS = {
     showTimestamps: true,
     showBannerColumn: true,
     bannerOnly: false,
-    groupByGameRetro: false
+    groupByGameRetro: false,
+    bannerImageRendering: 'crisp' as BannerImageRendering
   },
   default: {
     showZeroBytes: false,
@@ -187,7 +195,8 @@ const PRESETS = {
     showTimestamps: true,
     showBannerColumn: true,
     bannerOnly: false,
-    groupByGameRetro: false
+    groupByGameRetro: false,
+    bannerImageRendering: 'crisp' as BannerImageRendering
   }
 };
 
@@ -210,6 +219,7 @@ const detectActivePreset = (settings: {
   showBannerColumn: boolean;
   bannerOnly: boolean;
   groupByGameRetro: boolean;
+  bannerImageRendering: BannerImageRendering;
 }): PresetType => {
   const presetKeys = ['pretty', 'minimal', 'showAll', 'default'] as const;
 
@@ -231,7 +241,8 @@ const detectActivePreset = (settings: {
       settings.showTimestamps === presetConfig.showTimestamps &&
       settings.showBannerColumn === presetConfig.showBannerColumn &&
       settings.bannerOnly === presetConfig.bannerOnly &&
-      settings.groupByGameRetro === presetConfig.groupByGameRetro;
+      settings.groupByGameRetro === presetConfig.groupByGameRetro &&
+      settings.bannerImageRendering === presetConfig.bannerImageRendering;
 
     if (matches) return preset;
   }
@@ -499,7 +510,10 @@ const DownloadsTab: React.FC = () => {
       showTimestamps: storage.getItem(STORAGE_KEYS.SHOW_TIMESTAMPS) !== 'false',
       showBannerColumn: storage.getItem(STORAGE_KEYS.SHOW_BANNER_COLUMN) !== 'false',
       bannerOnly: storage.getItem(STORAGE_KEYS.BANNER_ONLY) === 'true',
-      groupByGameRetro: storage.getItem(STORAGE_KEYS.GROUP_BY_GAME_RETRO) === 'true'
+      groupByGameRetro: storage.getItem(STORAGE_KEYS.GROUP_BY_GAME_RETRO) === 'true',
+      bannerImageRendering: parseBannerImageRendering(
+        storage.getItem(BANNER_IMAGE_RENDERING_STORAGE_KEY)
+      )
     };
   });
 
@@ -576,6 +590,7 @@ const DownloadsTab: React.FC = () => {
     storage.setItem(STORAGE_KEYS.SHOW_BANNER_COLUMN, settings.showBannerColumn.toString());
     storage.setItem(STORAGE_KEYS.BANNER_ONLY, settings.bannerOnly.toString());
     storage.setItem(STORAGE_KEYS.GROUP_BY_GAME_RETRO, settings.groupByGameRetro.toString());
+    storage.setItem(BANNER_IMAGE_RENDERING_STORAGE_KEY, settings.bannerImageRendering);
   }, [settings]);
 
   // Track previous view mode to detect changes
@@ -1789,6 +1804,28 @@ const DownloadsTab: React.FC = () => {
                             label={t('downloads.tab.display.fullHeightBanners')}
                           />
                         )}
+                        {['normal', 'card', 'retro', 'compact'].includes(settings.viewMode) && (
+                          <div className="flex flex-col gap-1 py-1">
+                            <span className="text-sm text-[var(--theme-text-secondary)]">
+                              {t('downloads.tab.display.bannerImageRendering')}
+                            </span>
+                            <SegmentedControl
+                              options={[
+                                { value: 'smooth', label: t('downloads.tab.display.bannerSmooth') },
+                                { value: 'crisp', label: t('downloads.tab.display.bannerCrisp') }
+                              ]}
+                              value={settings.bannerImageRendering}
+                              onChange={(value) =>
+                                setSettings({
+                                  ...settings,
+                                  bannerImageRendering: value as BannerImageRendering
+                                })
+                              }
+                              size="sm"
+                              fullWidth
+                            />
+                          </div>
+                        )}
                         {settings.viewMode === 'retro' && (
                           <Checkbox
                             checked={settings.groupByGameRetro}
@@ -1965,6 +2002,7 @@ const DownloadsTab: React.FC = () => {
                     onPageChange={handlePageChange}
                     showTimestamps={settings.showTimestamps}
                     showBannerColumn={settings.showBannerColumn}
+                    bannerImageRendering={settings.bannerImageRendering}
                     aestheticMode={settings.aestheticMode}
                     showDatasourceLabels={showDatasourceLabels}
                     hasMultipleDatasources={hasMultipleDatasources}
@@ -2005,6 +2043,7 @@ const DownloadsTab: React.FC = () => {
                       detectionLookup={detectionLookup}
                       detectionByName={detectionByName}
                       detectionByService={detectionByService}
+                      bannerImageRendering={settings.bannerImageRendering}
                     />
                   )}
                 </div>
@@ -2026,6 +2065,7 @@ const DownloadsTab: React.FC = () => {
                       showCacheHitBar={settings.showCacheHitBar}
                       showEventBadges={settings.showEventBadges}
                       bannerOnly={settings.bannerOnly}
+                      bannerImageRendering={settings.bannerImageRendering}
                       detectionLookup={detectionLookup}
                       detectionByName={detectionByName}
                       detectionByService={detectionByService}
@@ -2050,6 +2090,7 @@ const DownloadsTab: React.FC = () => {
                       showCacheHitBar={settings.showCacheHitBar}
                       showEventBadges={settings.showEventBadges}
                       bannerOnly={settings.bannerOnly}
+                      bannerImageRendering={settings.bannerImageRendering}
                       detectionLookup={detectionLookup}
                       detectionByName={detectionByName}
                       detectionByService={detectionByService}

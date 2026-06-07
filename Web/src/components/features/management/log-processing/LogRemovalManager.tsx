@@ -131,9 +131,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
 
   useEffect(() => {
     if (!hasInitiallyLoaded) {
-      setTimeout(() => {
-        loadData();
-      }, 100);
+      void loadData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasInitiallyLoaded]);
@@ -149,10 +147,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       // Only reload if we haven't already processed this completion
       if (lastProcessedCompletionRef.current !== completedLogRemoval.id) {
         lastProcessedCompletionRef.current = completedLogRemoval.id;
-        // Delay reload slightly to allow notification to settle
-        setTimeout(() => {
-          loadData(true);
-        }, 500);
+        void loadData(true);
       }
     }
 

@@ -184,11 +184,12 @@ public class SystemController : ControllerBase
         // credentials file when the UI was used to enter creds.
         string? postgresHost = null;
         int? postgresPort = null;
-        string? postgresDatabase = null;
+        string? postgresDatabase = Environment.GetEnvironmentVariable("POSTGRES_DB");
+        string? postgresUser = Environment.GetEnvironmentVariable("POSTGRES_USER");
+
         if (mode == "external")
         {
             postgresHost = Environment.GetEnvironmentVariable("POSTGRES_HOST");
-            postgresDatabase = Environment.GetEnvironmentVariable("POSTGRES_DB");
             var envPort = Environment.GetEnvironmentVariable("POSTGRES_PORT");
             if (int.TryParse(envPort, out var parsedPort))
                 postgresPort = parsedPort;
@@ -211,10 +212,40 @@ public class SystemController : ControllerBase
                     }
                     if (string.IsNullOrEmpty(postgresDatabase) && root.TryGetProperty("database", out var dbElement))
                         postgresDatabase = dbElement.GetString();
+                    if (string.IsNullOrEmpty(postgresUser) && root.TryGetProperty("username", out var userElement))
+                        postgresUser = userElement.GetString();
                 }
                 catch
                 {
                     // Best-effort; missing info just means the info screen shows less detail.
+                }
+            }
+        }
+        else if (!needsPostgresCredentials)
+        {
+            // Embedded mode with credentials configured: surface socket path for the info screen.
+            postgresHost = "/var/run/postgresql";
+            postgresPort = null;
+            if (string.IsNullOrEmpty(postgresDatabase))
+                postgresDatabase = "lancache";
+            if (string.IsNullOrEmpty(postgresUser))
+                postgresUser = "lancache";
+
+            if (hasCredentialsFile)
+            {
+                try
+                {
+                    var json = System.IO.File.ReadAllText(credentialsFilePath);
+                    using var doc = System.Text.Json.JsonDocument.Parse(json);
+                    var root = doc.RootElement;
+                    if (string.IsNullOrEmpty(postgresDatabase) && root.TryGetProperty("database", out var dbElement))
+                        postgresDatabase = dbElement.GetString();
+                    if (string.IsNullOrEmpty(postgresUser) && root.TryGetProperty("username", out var userElement))
+                        postgresUser = userElement.GetString();
+                }
+                catch
+                {
+                    // Best-effort only.
                 }
             }
         }
@@ -231,7 +262,8 @@ public class SystemController : ControllerBase
             Mode = mode,
             PostgresHost = postgresHost,
             PostgresPort = postgresPort,
-            PostgresDatabase = postgresDatabase
+            PostgresDatabase = postgresDatabase,
+            PostgresUser = postgresUser
         });
     }
 

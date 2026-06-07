@@ -326,7 +326,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       }
 
       if (status === 'completed') {
-        setTimeout(() => fetchAllData({ trigger: 'signalr:DatabaseResetCompleted' }), 500);
+        void fetchAllData({ trigger: 'signalr:DatabaseResetCompleted' });
       }
     };
 

@@ -40,7 +40,8 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
           mode: data.mode === 'external' ? 'external' : 'embedded',
           postgresHost: data.postgresHost ?? null,
           postgresPort: typeof data.postgresPort === 'number' ? data.postgresPort : null,
-          postgresDatabase: data.postgresDatabase ?? null
+          postgresDatabase: data.postgresDatabase ?? null,
+          postgresUser: data.postgresUser ?? null
         });
       } else {
         // Non-OK response: default to showing the database-setup step so the
@@ -55,7 +56,8 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
           mode: 'embedded',
           postgresHost: null,
           postgresPort: null,
-          postgresDatabase: null
+          postgresDatabase: null,
+          postgresUser: null
         });
       }
     } catch (error) {
@@ -76,7 +78,8 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
         mode: 'embedded',
         postgresHost: null,
         postgresPort: null,
-        postgresDatabase: null
+        postgresDatabase: null,
+        postgresUser: null
       });
     } finally {
       clearTimeout(timeoutId);
@@ -103,6 +106,17 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
     );
   };
 
+  const patchSetupState = async (body: Record<string, unknown>): Promise<Response> => {
+    return fetch(
+      `${API_BASE}/system/setup`,
+      ApiService.getFetchOptions({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+    );
+  };
+
   const updateWizardState = async (updates: {
     currentSetupStep?: string | null;
     dataSourceChoice?: string | null;
@@ -110,17 +124,28 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
   }): Promise<boolean> => {
     const maxAttempts = 3;
     const baseDelayMs = 250;
+    const legacyStepMap: Record<string, string> = {
+      'external-db-form': 'database-setup',
+      'external-db-confirm': 'database-setup'
+    };
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
-        const response = await fetch(
-          `${API_BASE}/system/setup`,
-          ApiService.getFetchOptions({
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updates)
-          })
-        );
+        let response = await patchSetupState(updates);
+
+        // Older API builds only knew database-setup — fall back so sync still works.
+        if (
+          !response.ok &&
+          response.status === 400 &&
+          updates.currentSetupStep &&
+          legacyStepMap[updates.currentSetupStep]
+        ) {
+          response = await patchSetupState({
+            ...updates,
+            currentSetupStep: legacyStepMap[updates.currentSetupStep]
+          });
+        }
+
         if (!response.ok) {
           throw new Error(`PATCH /system/setup failed with status ${response.status}`);
         }

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { HelpCircle, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
 import { CustomScrollbar } from './CustomScrollbar';
@@ -43,7 +43,23 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
     return () => window.removeEventListener('resize', calculateWidth);
   }, [width]);
 
-  // Reset position when closing so stale position doesn't flash on reopen
+  const setInitialPopoverPosition = useCallback(() => {
+    if (!triggerRef.current) return;
+
+    const triggerRect = triggerRef.current.getBoundingClientRect();
+    const viewportPadding = 12;
+    let x = position === 'left' ? triggerRect.left : triggerRect.right - effectiveWidth;
+    if (x + effectiveWidth > window.innerWidth - viewportPadding) {
+      x = window.innerWidth - effectiveWidth - viewportPadding;
+    }
+    if (x < viewportPadding) {
+      x = viewportPadding;
+    }
+    setPopoverPos({ x, y: triggerRect.bottom + 8 });
+    setIsReady(true);
+  }, [effectiveWidth, position]);
+
+  // Reset visibility when closing so stale position doesn't flash on reopen
   useEffect(() => {
     if (!isOpen) {
       setIsReady(false);
@@ -124,7 +140,14 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
     <>
       <button
         ref={triggerRef}
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          if (!isOpen) {
+            setInitialPopoverPosition();
+            setIsOpen(true);
+          } else {
+            setIsOpen(false);
+          }
+        }}
         className={`p-1 rounded-md transition-colors ${
           isOpen
             ? 'text-[var(--theme-primary)] bg-[var(--theme-primary-subtle)]'
