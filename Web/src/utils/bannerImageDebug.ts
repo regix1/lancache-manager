@@ -1,7 +1,7 @@
 /* eslint-disable no-console -- intentional debug logging for banner scaling diagnostics */
 const DEBUG_STORAGE_KEY = 'debug.bannerImage';
 
-export function isBannerImageDebugEnabled(): boolean {
+function isBannerImageDebugEnabled(): boolean {
   if (import.meta.env.DEV) return true;
   try {
     return localStorage.getItem(DEBUG_STORAGE_KEY) === '1';
