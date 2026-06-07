@@ -12,9 +12,7 @@ export const EMPTY_CACHED_DETECTION: CachedDetectionResponse = {
 };
 
 /** Returns true when persisted on-disk totals are present and non-zero. */
-export function hasOnDiskDetectionData(
-  detection: CachedDetectionResponse | null | undefined
-): boolean {
+function hasOnDiskDetectionData(detection: CachedDetectionResponse | null | undefined): boolean {
   return (
     detection?.hasCachedResults === true &&
     detection.games_on_disk_bytes !== undefined &&
