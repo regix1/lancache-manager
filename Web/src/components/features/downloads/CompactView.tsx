@@ -366,6 +366,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     gameAppId={gameImageAppId}
                     epicAppId={showEpicImage ? primaryDownload.epicAppId! : undefined}
                     alt={primaryDownload.gameName || group.name}
+                    renderProfileKey={bannerImageRendering}
                     className={`compact-expanded-banner sm:w-[100px] sm:h-[46px] rounded object-cover border border-[var(--theme-border-secondary)] ${getBannerImageClass('retro-banner-image', bannerImageRendering)}`}
                     sizes="(max-width: 639px) 100%, 100px"
                     onError={handleImageError}

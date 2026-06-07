@@ -873,7 +873,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                   isExpanded={evictedItemsExpanded}
                   onToggle={() => setEvictedItemsExpanded((prev) => !prev)}
                 >
-                  {isAdmin && evictedGames.length + evictedServices.length > 0 && (
+                  {isAdmin && (
                     <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
                       <Button
                         variant="filled"
@@ -881,7 +881,12 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                         onClick={() => setShowRemoveAllConfirm(true)}
                         awaitPermissions
                         loading={removeAllRunning}
-                        disabled={removeAllRunning || isAnyEvictedRemovalRunning || cacheReadOnly}
+                        disabled={
+                          evictedGames.length + evictedServices.length === 0 ||
+                          removeAllRunning ||
+                          isAnyEvictedRemovalRunning ||
+                          cacheReadOnly
+                        }
                       >
                         {t('management.sections.data.evictionRemoveAll', 'Remove All')}
                       </Button>

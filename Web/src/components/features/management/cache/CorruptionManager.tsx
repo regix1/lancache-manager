@@ -482,29 +482,29 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         dropdownTitle={t('management.corruption.sensitivityTitle')}
         compactMode={true}
       />
-      {corruptionList.length > 0 && (
-        <Button
-          onClick={handleRemoveAll}
-          awaitPermissions
-          loading={startingRemoveAll}
-          disabled={
-            mockMode ||
-            isAnyRemovalRunning ||
-            anyCorruptionRemovalPending ||
-            authMode !== 'authenticated' ||
-            logsReadOnly ||
-            cacheReadOnly ||
-            !isDockerAvailable
-          }
-          variant="subtle"
-          color="red"
-          size="sm"
-        >
-          {startingRemoveAll
-            ? t('management.corruption.removing')
-            : t('management.corruption.removeAllServices')}
-        </Button>
-      )}
+      <Button
+        onClick={handleRemoveAll}
+        awaitPermissions
+        loading={startingRemoveAll}
+        disabled={
+          (isLoading && !hasInitiallyLoaded) ||
+          corruptionList.length === 0 ||
+          mockMode ||
+          isAnyRemovalRunning ||
+          anyCorruptionRemovalPending ||
+          authMode !== 'authenticated' ||
+          logsReadOnly ||
+          cacheReadOnly ||
+          !isDockerAvailable
+        }
+        variant="subtle"
+        color="red"
+        size="sm"
+      >
+        {startingRemoveAll
+          ? t('management.corruption.removing')
+          : t('management.corruption.removeAllServices')}
+      </Button>
       <Tooltip content={t('management.corruption.loadPreviousResults')} position="top">
         <Button
           onClick={() => loadCachedData(true)}

@@ -11,7 +11,7 @@ import { useNotifications } from '@contexts/notifications';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
-import { showPermissionBlock, showActionWhileCheckingPermissions } from '@utils/permissionUi';
+import { showPermissionBlock } from '@utils/permissionUi';
 import { Card } from '@components/ui/Card';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
@@ -281,27 +281,26 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           {cacheSizeLoading ? <LoadingSpinner inline size="sm" /> : t('common.refresh')}
         </Button>
       </Tooltip>
-      {hasMultipleDatasources &&
-        showActionWhileCheckingPermissions(checkingPermissions, !cacheReadOnly) && (
-          <Button
-            variant="filled"
-            color="red"
-            size="sm"
-            onClick={() => handleClearCache(null)}
-            awaitPermissions
-            loading={actionLoading && !clearingDatasource}
-            disabled={
-              actionLoading ||
-              mockMode ||
-              isAnyRemovalRunning ||
-              authMode !== 'authenticated' ||
-              cacheReadOnly
-            }
-            title={cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined}
-          >
-            {isCacheClearing && !clearingDatasource ? t('common.clearing') : t('common.clearAll')}
-          </Button>
-        )}
+      {hasMultipleDatasources && (
+        <Button
+          variant="filled"
+          color="red"
+          size="sm"
+          onClick={() => handleClearCache(null)}
+          awaitPermissions
+          loading={actionLoading && !clearingDatasource}
+          disabled={
+            actionLoading ||
+            mockMode ||
+            isAnyRemovalRunning ||
+            authMode !== 'authenticated' ||
+            cacheReadOnly
+          }
+          title={cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined}
+        >
+          {isCacheClearing && !clearingDatasource ? t('common.clearing') : t('common.clearAll')}
+        </Button>
+      )}
     </div>
   );
 

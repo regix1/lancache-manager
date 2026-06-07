@@ -125,6 +125,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     total: number;
     label: string;
   } | null>(null);
+  const [isLoadingInitialCache, setIsLoadingInitialCache] = useState(() => !mockMode);
 
   useEffect(() => {
     localStorage.setItem(MANAGEMENT_STORAGE_KEYS.GAME_CACHE_EXPANDED, String(sectionExpanded));
@@ -228,31 +229,40 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Load cached games and services from backend on mount and when refreshKey changes
   useEffect(() => {
     const loadCachedGames = async () => {
-      if (mockMode) return;
-
-      const snapshot = await syncCachedDetection('Failed to load cached games and services');
-      if (!snapshot?.hasCachedResults) {
+      if (mockMode) {
+        setIsLoadingInitialCache(false);
         return;
       }
 
-      const alreadyShownThisSession = sessionStorage.getItem(LOADED_RESULTS_SESSION_KEY) === 'true';
-      const isActivelyScanning = loading || scanType === 'full' || scanType === 'incremental';
-      const resultsSummary = buildLoadedResultsSummary(snapshot);
+      setIsLoadingInitialCache(true);
+      try {
+        const snapshot = await syncCachedDetection('Failed to load cached games and services');
+        if (!snapshot?.hasCachedResults) {
+          return;
+        }
 
-      if (!isActivelyScanning && !alreadyShownThisSession && resultsSummary) {
-        addNotification({
-          type: 'generic',
-          status: 'completed',
-          message: t('management.gameDetection.loadedPreviousResults', {
-            results: resultsSummary
-          }),
-          details: { notificationType: 'info' }
-        });
-        sessionStorage.setItem(LOADED_RESULTS_SESSION_KEY, 'true');
+        const alreadyShownThisSession =
+          sessionStorage.getItem(LOADED_RESULTS_SESSION_KEY) === 'true';
+        const isActivelyScanning = loading || scanType === 'full' || scanType === 'incremental';
+        const resultsSummary = buildLoadedResultsSummary(snapshot);
+
+        if (!isActivelyScanning && !alreadyShownThisSession && resultsSummary) {
+          addNotification({
+            type: 'generic',
+            status: 'completed',
+            message: t('management.gameDetection.loadedPreviousResults', {
+              results: resultsSummary
+            }),
+            details: { notificationType: 'info' }
+          });
+          sessionStorage.setItem(LOADED_RESULTS_SESSION_KEY, 'true');
+        }
+      } finally {
+        setIsLoadingInitialCache(false);
       }
     };
 
-    loadCachedGames();
+    void loadCachedGames();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mockMode, refreshKey]); // Re-run when mockMode or refreshKey changes
 
@@ -532,6 +542,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   };
 
   const hasResults = filteredGames.length > 0 || filteredServices.length > 0;
+  const actionsPending = isLoadingInitialCache || !hasResults;
   const showBlockingLoader =
     isDetectionFromNotification || isStartingDetection || (isLoadingData && !hasResults);
   const allExpanded = servicesExpanded && gamesExpanded;
@@ -757,20 +768,19 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Header actions - scan buttons + expand/collapse all
   const headerActions = (
     <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
-      {hasResults && (
-        <Button
-          variant="default"
-          size="sm"
-          onClick={handleExpandCollapseAll}
-          className="inline-flex flex-1 basis-[120px] sm:flex-none sm:basis-auto"
-        >
-          {allExpanded
-            ? t('management.gameDetection.collapseAll')
-            : t('management.gameDetection.expandAll')}
-        </Button>
-      )}
+      <Button
+        variant="default"
+        size="sm"
+        onClick={handleExpandCollapseAll}
+        disabled={actionsPending}
+        className="inline-flex flex-1 basis-[120px] sm:flex-none sm:basis-auto"
+      >
+        {allExpanded
+          ? t('management.gameDetection.collapseAll')
+          : t('management.gameDetection.expandAll')}
+      </Button>
 
-      {hasResults && isAdmin && (
+      {isAdmin && (
         <Tooltip
           content={t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
           className="inline-flex flex-1 basis-[120px] sm:flex-none sm:basis-auto"
@@ -779,7 +789,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             onClick={() => setShowRemoveAllConfirm(true)}
             awaitPermissions
             loading={removeAllRunning}
-            disabled={loading || mockMode || cacheReadOnly || isAnyRemovalRunning}
+            disabled={actionsPending || loading || mockMode || cacheReadOnly || isAnyRemovalRunning}
             variant="filled"
             color="red"
             size="sm"

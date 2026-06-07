@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useContext } from 'react';
+import React, { useState, useMemo, useEffect, useContext, useLayoutEffect, useRef } from 'react';
 import { ImageCacheContext } from './ImageCacheContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
@@ -11,6 +11,8 @@ interface GameImageProps {
   onError: (gameAppId: string) => void;
   sizes?: string;
   epicAppId?: string;
+  /** Forces img remount when display profile changes (e.g. smooth vs crisp banners). */
+  renderProfileKey?: string;
 }
 
 /**
@@ -23,7 +25,8 @@ export const GameImage: React.FC<GameImageProps> = ({
   loading = 'lazy',
   onError,
   sizes,
-  epicAppId
+  epicAppId,
+  renderProfileKey
 }) => {
   const appId = gameAppId != null ? String(gameAppId) : '';
   const imageKey = epicAppId ? `epic-${epicAppId}` : appId;
@@ -40,10 +43,29 @@ export const GameImage: React.FC<GameImageProps> = ({
     return null;
   }, [epicAppId, appId]);
 
-  const finalSrc =
-    src && cacheBuster > 0
-      ? `${src}${src.includes('?') ? '&' : '?'}_cb=${cacheBuster}`
-      : (src ?? undefined);
+  const profileToken = renderProfileKey ?? 'default';
+
+  const finalSrc = useMemo(() => {
+    if (!src) return undefined;
+    const params = new URLSearchParams();
+    if (cacheBuster > 0) params.set('_cb', String(cacheBuster));
+    params.set('_rp', profileToken);
+    const qs = params.toString();
+    return qs ? `${src}?${qs}` : src;
+  }, [src, cacheBuster, profileToken]);
+
+  // Browsers cache decoded bitmaps; remount when render profile changes so CSS scaling updates apply.
+  const [visible, setVisible] = useState(true);
+  const skipProfileRemountRef = useRef(true);
+  useLayoutEffect(() => {
+    if (skipProfileRemountRef.current) {
+      skipProfileRemountRef.current = false;
+      return;
+    }
+    setVisible(false);
+    const frame = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(frame);
+  }, [profileToken]);
 
   useEffect(() => {
     if (failed || !src) {
@@ -51,7 +73,7 @@ export const GameImage: React.FC<GameImageProps> = ({
     }
   }, [failed, src, imageKey, onError]);
 
-  if (failed || !src) return null;
+  if (failed || !src || !visible) return null;
 
   return (
     <img
