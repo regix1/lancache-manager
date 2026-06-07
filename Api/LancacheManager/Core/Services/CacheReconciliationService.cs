@@ -380,7 +380,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         _logger.LogError(ex, "[EvictionScan] Post-scan recovery failed - newly-evicted entities may remain hidden until next full scan");
                     }
 
-                    _gameCacheDetectionService.InvalidateDetectionCache();
+                    await _gameCacheDetectionService.RefreshAndInvalidateDetectionCacheAsync(stoppingToken);
                 }
 
                 // Handle evicted data "remove" mode - only run if there are evicted records.
@@ -1007,9 +1007,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     detectionGamesDeleted, detectionServicesDeleted, downloadsDeleted, logEntriesDeleted);
             }
 
-            // Invalidate the detection cache so the frontend refetch gets fresh data
-            _gameCacheDetectionService.InvalidateDetectionCache();
-            _logger.LogDebug("[EvictedRemoval] Detection cache invalidated");
+            // Refresh persisted disk-summary totals so dashboard reads reflect post-removal state
+            await _gameCacheDetectionService.RefreshAndInvalidateDetectionCacheAsync(stoppingToken);
+            _logger.LogDebug("[EvictedRemoval] Detection cache refreshed after bulk removal");
 
             await CompleteEvictionRemovalAsync(
                 opId,
@@ -1518,7 +1518,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 logEntriesRemoved: logEntriesDeleted);
 
             var detectionService = _serviceProvider.GetService<GameCacheDetectionService>();
-            detectionService?.InvalidateDetectionCache();
+            if (detectionService != null)
+            {
+                await detectionService.RefreshAndInvalidateDetectionCacheAsync(stoppingToken);
+            }
 
             await CompleteEvictionRemovalAsync(
                 opId,

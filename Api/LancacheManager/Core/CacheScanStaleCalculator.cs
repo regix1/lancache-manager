@@ -1,23 +1,23 @@
 namespace LancacheManager.Core;
 
 /// <summary>
-/// Shared logic for deciding when cache scan data is likely outdated relative to
-/// live mount-point usage. Used for cache file scans and rescan triggers.
+/// Shared logic for deciding when mount usage has drifted since the last cache file scan.
 /// </summary>
 public static class CacheScanStaleCalculator
 {
-    /// <summary>Allow minor timing/rounding differences before flagging stale.</summary>
+    /// <summary>Relative drift threshold (2% of baseline mount usage).</summary>
     public const double ToleranceRatio = 0.02;
 
-    /// <summary>Minimum mount-usage drift before flagging/rescanning regardless of ratio.</summary>
+    /// <summary>
+    /// Absolute drift threshold for large caches where 2% would be impractically high.
+    /// Stale when drift exceeds 2% OR this absolute minimum — whichever is reached first.
+    /// </summary>
     public const long MinimumUsageDriftBytes = 50L * 1024 * 1024 * 1024;
 
     /// <summary>
-    /// Returns true when mount usage has drifted significantly since the last cache file scan.
+    /// Returns true when live mount usage has drifted significantly since the last cache file scan.
     /// </summary>
-    /// <param name="currentUsedBytes">Live mount-point used space.</param>
-    /// <param name="usedBytesAtScan">Mount usage recorded when the cache file scan last ran.</param>
-    public static bool IsAnyScanStale(long currentUsedBytes, long? usedBytesAtScan = null)
+    public static bool IsMountUsageStale(long currentUsedBytes, long? usedBytesAtScan = null)
     {
         if (usedBytesAtScan is long baseline && IsUsageDriftStale(currentUsedBytes, baseline))
         {
@@ -26,6 +26,10 @@ public static class CacheScanStaleCalculator
 
         return false;
     }
+
+    /// <summary>Backward-compatible alias.</summary>
+    public static bool IsAnyScanStale(long currentUsedBytes, long? usedBytesAtScan = null) =>
+        IsMountUsageStale(currentUsedBytes, usedBytesAtScan);
 
     private static bool IsUsageDriftStale(long currentUsedBytes, long baselineUsedBytes)
     {
@@ -37,6 +41,6 @@ public static class CacheScanStaleCalculator
         var baseline = Math.Max(baselineUsedBytes, 1L);
         var delta = Math.Abs(currentUsedBytes - baselineUsedBytes);
         var ratioThreshold = (long)(baseline * ToleranceRatio);
-        return delta >= Math.Max(ratioThreshold, MinimumUsageDriftBytes);
+        return delta >= ratioThreshold || delta >= MinimumUsageDriftBytes;
     }
 }

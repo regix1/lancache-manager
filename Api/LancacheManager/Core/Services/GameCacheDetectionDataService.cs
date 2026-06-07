@@ -254,7 +254,7 @@ public sealed class GameCacheDetectionDataService
             steamCount + epicCount,
             evictedCount);
 
-        var diskSummary = await LoadDetectionSummaryAsync(dbContext, cancellationToken);
+        var (diskSummary, summaryComputedAt) = await LoadDetectionSummaryAsync(dbContext, cancellationToken);
 
         return new DetectionOperationResponse
         {
@@ -266,7 +266,8 @@ public sealed class GameCacheDetectionDataService
             Services = services,
             TotalGamesDetected = games.Count,
             TotalServicesDetected = services.Count,
-            DiskSummary = diskSummary
+            DiskSummary = diskSummary,
+            SummaryComputedAtUtc = summaryComputedAt
         };
     }
 
@@ -278,8 +279,8 @@ public sealed class GameCacheDetectionDataService
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var cachedGames = await dbContext.CachedGameDetections.AsNoTracking().ToListAsync(cancellationToken);
-        var cachedServices = await dbContext.CachedServiceDetections.AsNoTracking().ToListAsync(cancellationToken);
+        var cachedGames = await dbContext.CachedGameDetections.ToListAsync(cancellationToken);
+        var cachedServices = await dbContext.CachedServiceDetections.ToListAsync(cancellationToken);
 
         if (cachedGames.Count == 0 && cachedServices.Count == 0)
         {
@@ -289,20 +290,45 @@ public sealed class GameCacheDetectionDataService
 
         var games = cachedGames.Select(ConvertToGameCacheInfo).ToList();
         var services = cachedServices.Select(ConvertToServiceCacheInfo).ToList();
-        var aggregate = GamesOnDiskCalculator.ComputeIdentifiedCacheFromDisk(games, services);
+        var attributed = GamesOnDiskCalculator.ComputeAttributedCacheFromDisk(games, services);
 
-        await UpsertDetectionSummaryAsync(dbContext, aggregate, cancellationToken);
+        foreach (var cached in cachedGames)
+        {
+            if (cached.IsEvicted)
+            {
+                cached.TotalSizeBytes = 0;
+                continue;
+            }
+
+            var key = GamesOnDiskCalculator.GetGameKey(ConvertToGameCacheInfo(cached));
+            cached.TotalSizeBytes = attributed.GameBytesByKey.TryGetValue(key, out var bytes) ? bytes : 0;
+        }
+
+        foreach (var cached in cachedServices)
+        {
+            if (cached.IsEvicted)
+            {
+                cached.TotalSizeBytes = 0;
+                continue;
+            }
+
+            var key = GamesOnDiskCalculator.GetServiceKey(ConvertToServiceCacheInfo(cached));
+            cached.TotalSizeBytes = attributed.ServiceBytesByKey.TryGetValue(key, out var bytes) ? bytes : 0;
+        }
+
+        await UpsertDetectionSummaryAsync(dbContext, attributed.Aggregate, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(
             "[GameDetection] Refreshed disk summary: {GameCount} games ({GameGb:F2} GB), {ServiceCount} services ({ServiceGb:F2} GB), {IdentifiedGb:F2} GB identified total",
-            aggregate.ActiveGameCount,
-            aggregate.GameBytes / 1_073_741_824.0,
-            aggregate.ActiveServiceCount,
-            aggregate.ServiceBytes / 1_073_741_824.0,
-            aggregate.TotalBytes / 1_073_741_824.0);
+            attributed.Aggregate.ActiveGameCount,
+            attributed.Aggregate.GameBytes / 1_073_741_824.0,
+            attributed.Aggregate.ActiveServiceCount,
+            attributed.Aggregate.ServiceBytes / 1_073_741_824.0,
+            attributed.Aggregate.TotalBytes / 1_073_741_824.0);
     }
 
-    private static async Task<IdentifiedCacheAggregate?> LoadDetectionSummaryAsync(
+    private static async Task<(IdentifiedCacheAggregate? Aggregate, DateTime? ComputedAtUtc)> LoadDetectionSummaryAsync(
         AppDbContext dbContext,
         CancellationToken cancellationToken)
     {
@@ -312,15 +338,17 @@ public sealed class GameCacheDetectionDataService
 
         if (summary == null)
         {
-            return null;
+            return (null, null);
         }
 
-        return new IdentifiedCacheAggregate(
-            summary.IdentifiedCacheBytes,
-            summary.GamesOnDiskBytes,
-            summary.IdentifiedServiceBytes,
-            summary.GamesOnDiskCount,
-            summary.IdentifiedServiceCount);
+        return (
+            new IdentifiedCacheAggregate(
+                summary.IdentifiedCacheBytes,
+                summary.GamesOnDiskBytes,
+                summary.IdentifiedServiceBytes,
+                summary.GamesOnDiskCount,
+                summary.IdentifiedServiceCount),
+            summary.ComputedAtUtc);
     }
 
     private static async Task UpsertDetectionSummaryAsync(
@@ -343,8 +371,6 @@ public sealed class GameCacheDetectionDataService
         summary.IdentifiedServiceBytes = aggregate.ServiceBytes;
         summary.IdentifiedServiceCount = aggregate.ActiveServiceCount;
         summary.ComputedAtUtc = DateTime.UtcNow;
-
-        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     private static async Task ClearDetectionSummaryAsync(
@@ -379,7 +405,6 @@ public sealed class GameCacheDetectionDataService
 
         dbContext.CachedGameDetections.Remove(game);
         await dbContext.SaveChangesAsync(cancellationToken);
-        await RefreshDetectionSummaryFromDatabaseAsync(cancellationToken);
         _logger.LogInformation(
             "[GameDetection] Removed game {AppId} ({GameName}) from cache",
             gameAppId,
@@ -402,7 +427,6 @@ public sealed class GameCacheDetectionDataService
 
         dbContext.CachedServiceDetections.Remove(service);
         await dbContext.SaveChangesAsync(cancellationToken);
-        await RefreshDetectionSummaryFromDatabaseAsync(cancellationToken);
         _logger.LogInformation("[GameDetection] Removed service '{ServiceName}' from cache", serviceName);
     }
 

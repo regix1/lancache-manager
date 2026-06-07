@@ -47,6 +47,8 @@ export interface CachedDetectionResponse {
   identified_cache_bytes?: number;
   /** Portion of identified_cache_bytes attributed to non-game services. */
   identified_service_bytes?: number;
+  /** UTC timestamp when deduplicated on-disk totals were last computed. */
+  detection_summary_computed_at?: string;
 }
 
 interface DashboardDataContextType {

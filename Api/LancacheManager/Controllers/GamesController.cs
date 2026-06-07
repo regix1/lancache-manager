@@ -614,7 +614,8 @@ public class GamesController : ControllerBase
             cachedResults.TotalServicesDetected,
             cachedResults.StartTime.AsUtc(),
             slimForDashboard: false,
-            diskSummary: cachedResults.DiskSummary));
+            diskSummary: cachedResults.DiskSummary,
+            summaryComputedAtUtc: cachedResults.SummaryComputedAtUtc));
     }
 
 

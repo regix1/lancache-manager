@@ -58,6 +58,11 @@ public class GameCacheDetectionService : IDisposable
         /// Persisted deduplicated on-disk totals from the last summary refresh.
         /// </summary>
         public IdentifiedCacheAggregate? DiskSummary { get; set; }
+
+        /// <summary>
+        /// UTC timestamp when <see cref="DiskSummary"/> was last computed.
+        /// </summary>
+        public DateTime? SummaryComputedAtUtc { get; set; }
     }
 
     public GameCacheDetectionService(
@@ -931,6 +936,16 @@ public class GameCacheDetectionService : IDisposable
         {
             _detectionCacheLock.Release();
         }
+    }
+
+    /// <summary>
+    /// Recomputes persisted disk-summary totals and clears the in-memory detection cache.
+    /// Call once after batch detection mutations (evictions, removals, scans).
+    /// </summary>
+    public async Task RefreshAndInvalidateDetectionCacheAsync(CancellationToken cancellationToken = default)
+    {
+        await _detectionDataService.RefreshDetectionSummaryFromDatabaseAsync(cancellationToken);
+        InvalidateDetectionCache();
     }
 
     public async Task<DetectionOperationResponse?> GetCachedDetectionAsync()

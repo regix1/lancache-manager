@@ -1252,8 +1252,8 @@ public class CacheManagementService
                 .ExecuteDeleteAsync();
             _logger.LogInformation("[GameRemoval] Removed cached game detection entry for AppID: {AppId}", gameAppId);
 
-            // Invalidate in-memory detection cache so frontend refetch gets fresh data
-            _gameCacheDetectionService.InvalidateDetectionCache();
+            // Refresh persisted disk-summary totals so dashboard reads reflect post-removal state
+            await _gameCacheDetectionService.RefreshAndInvalidateDetectionCacheAsync();
 
             // Invalidate service counts cache since logs were modified
             await InvalidateServiceCountsCacheAsync();
@@ -1493,6 +1493,8 @@ public class CacheManagementService
                 .Where(s => s.ServiceName == serviceName)
                 .ExecuteDeleteAsync();
             _logger.LogInformation("[ServiceRemoval] Removed cached service detection entry for: {Service}", serviceName);
+
+            await _gameCacheDetectionService.RefreshAndInvalidateDetectionCacheAsync();
 
             // Invalidate service counts cache since logs were modified
             await InvalidateServiceCountsCacheAsync();

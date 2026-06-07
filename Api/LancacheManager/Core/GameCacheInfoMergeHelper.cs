@@ -56,55 +56,45 @@ internal static class GameCacheInfoMergeHelper
     {
         existing.CacheFilePaths ??= [];
         var knownPaths = new HashSet<string>(existing.CacheFilePaths, StringComparer.OrdinalIgnoreCase);
-        var addedBytes = 0UL;
 
         foreach (var path in incoming.CacheFilePaths ?? [])
         {
-            if (!knownPaths.Add(path))
+            if (knownPaths.Add(path))
             {
-                continue;
+                existing.CacheFilePaths.Add(path);
             }
-
-            existing.CacheFilePaths.Add(path);
-            addedBytes += CacheFileSizeHelper.TryGetFileSize(path);
         }
 
-        if (addedBytes > 0 || incoming.CacheFilePaths is { Count: > 0 })
+        if (existing.CacheFilePaths.Count > 0)
         {
-            existing.TotalSizeBytes += addedBytes;
+            existing.TotalSizeBytes = GamesOnDiskCalculator.SumUniquePathBytes(existing.CacheFilePaths);
             existing.CacheFilesFound = existing.CacheFilePaths.Count;
             return;
         }
 
         existing.CacheFilesFound += incoming.CacheFilesFound;
-        existing.TotalSizeBytes += incoming.TotalSizeBytes;
     }
 
     private static void MergeCacheFiles(ServiceCacheInfo existing, ServiceCacheInfo incoming)
     {
         existing.CacheFilePaths ??= [];
         var knownPaths = new HashSet<string>(existing.CacheFilePaths, StringComparer.OrdinalIgnoreCase);
-        var addedBytes = 0UL;
 
         foreach (var path in incoming.CacheFilePaths ?? [])
         {
-            if (!knownPaths.Add(path))
+            if (knownPaths.Add(path))
             {
-                continue;
+                existing.CacheFilePaths.Add(path);
             }
-
-            existing.CacheFilePaths.Add(path);
-            addedBytes += CacheFileSizeHelper.TryGetFileSize(path);
         }
 
-        if (addedBytes > 0 || incoming.CacheFilePaths is { Count: > 0 })
+        if (existing.CacheFilePaths.Count > 0)
         {
-            existing.TotalSizeBytes += addedBytes;
+            existing.TotalSizeBytes = GamesOnDiskCalculator.SumUniquePathBytes(existing.CacheFilePaths);
             existing.CacheFilesFound = existing.CacheFilePaths.Count;
             return;
         }
 
         existing.CacheFilesFound += incoming.CacheFilesFound;
-        existing.TotalSizeBytes += incoming.TotalSizeBytes;
     }
 }

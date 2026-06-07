@@ -127,12 +127,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
     }, [activeTab, t, scanMayBeStale]);
 
     // Get chart data from hook
-    const chartData = useChartData(
-      serviceStats,
-      activeTab,
-      games,
-      gameDetectionData?.games_on_disk_bytes
-    );
+    const chartData = useChartData(serviceStats, activeTab, games);
 
     // Transform to legend items
     const legendItems: LegendItem[] = useMemo(() => {

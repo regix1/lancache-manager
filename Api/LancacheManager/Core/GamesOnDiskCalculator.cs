@@ -2,10 +2,6 @@ using LancacheManager.Models;
 
 namespace LancacheManager.Core;
 
-public readonly record struct GamesOnDiskAggregate(
-    ulong TotalBytes,
-    int ActiveGameCount);
-
 public readonly record struct IdentifiedCacheAggregate(
     ulong TotalBytes,
     ulong GameBytes,
@@ -14,30 +10,41 @@ public readonly record struct IdentifiedCacheAggregate(
     int ActiveServiceCount);
 
 /// <summary>
+/// Per-entity unique path contributions after global deduplication.
+/// First game/service to claim a shared cache file owns its bytes.
+/// </summary>
+public readonly record struct AttributedCacheResult(
+    IdentifiedCacheAggregate Aggregate,
+    IReadOnlyDictionary<string, ulong> GameBytesByKey,
+    IReadOnlyDictionary<string, ulong> ServiceBytesByKey);
+
+/// <summary>
 /// Computes deduplicated cache-on-disk aggregates from detection results.
 /// File-size totals are computed once after each scan via
-/// <see cref="ComputeIdentifiedCacheFromDisk"/> and persisted in
+/// <see cref="ComputeAttributedCacheFromDisk"/> and persisted in
 /// <see cref="CachedDetectionSummary"/> for fast dashboard reads.
 /// </summary>
 public static class GamesOnDiskCalculator
 {
-    public static GamesOnDiskAggregate ComputeGamesFromDisk(IEnumerable<GameCacheInfo> games)
-    {
-        var aggregate = ComputeIdentifiedCacheFromDisk(games, []);
-        return new GamesOnDiskAggregate(aggregate.GameBytes, aggregate.ActiveGameCount);
-    }
+    public static string GetGameKey(GameCacheInfo game) =>
+        !string.IsNullOrEmpty(game.EpicAppId)
+            ? $"epic:{game.EpicAppId}"
+            : $"steam:{game.GameAppId}";
+
+    public static string GetServiceKey(ServiceCacheInfo service) =>
+        service.ServiceName.ToLowerInvariant();
 
     /// <summary>
     /// Deduplicates cache file paths across games and services using actual on-disk file sizes.
-    /// Intended to run once after detection scans — not on dashboard requests.
+    /// Returns global totals and per-entity unique contributions (Option A attribution).
     /// </summary>
-    public static IdentifiedCacheAggregate ComputeIdentifiedCacheFromDisk(
+    public static AttributedCacheResult ComputeAttributedCacheFromDisk(
         IEnumerable<GameCacheInfo> games,
         IEnumerable<ServiceCacheInfo> services)
     {
         var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        ulong gameBytes = 0;
-        ulong serviceBytes = 0;
+        var gameBytesByKey = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
+        var serviceBytesByKey = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
         var activeGameCount = 0;
         var activeServiceCount = 0;
 
@@ -54,7 +61,7 @@ public static class GamesOnDiskCalculator
                 continue;
             }
 
-            gameBytes += contributedBytes;
+            gameBytesByKey[GetGameKey(game)] = contributedBytes;
             activeGameCount++;
         }
 
@@ -71,16 +78,28 @@ public static class GamesOnDiskCalculator
                 continue;
             }
 
-            serviceBytes += contributedBytes;
+            serviceBytesByKey[GetServiceKey(service)] = contributedBytes;
             activeServiceCount++;
         }
 
-        return new IdentifiedCacheAggregate(
-            gameBytes + serviceBytes,
-            gameBytes,
-            serviceBytes,
-            activeGameCount,
-            activeServiceCount);
+        var gameBytes = gameBytesByKey.Values.Aggregate(0UL, static (sum, value) => sum + value);
+        var serviceBytes = serviceBytesByKey.Values.Aggregate(0UL, static (sum, value) => sum + value);
+
+        return new AttributedCacheResult(
+            new IdentifiedCacheAggregate(
+                gameBytes + serviceBytes,
+                gameBytes,
+                serviceBytes,
+                activeGameCount,
+                activeServiceCount),
+            gameBytesByKey,
+            serviceBytesByKey);
+    }
+
+    public static ulong SumUniquePathBytes(IEnumerable<string> paths)
+    {
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        return AddUniquePathBytesFromDisk(seenPaths, paths.ToList());
     }
 
     private static ulong AddUniquePathBytesFromDisk(HashSet<string> seenPaths, List<string>? paths)

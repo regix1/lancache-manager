@@ -559,6 +559,9 @@ public class CacheClearingService : ScheduledBackgroundService
             var gamesDeleted = await dbContext.CachedGameDetections.ExecuteDeleteAsync();
             var servicesDeleted = await dbContext.CachedServiceDetections.ExecuteDeleteAsync();
             var corruptionDeleted = await dbContext.CachedCorruptionDetections.ExecuteDeleteAsync();
+            await dbContext.CachedDetectionSummaries
+                .Where(s => s.Id == CachedDetectionSummary.SingletonId)
+                .ExecuteDeleteAsync();
             _logger.LogInformation("[CacheClearing] Cleared cached detection results: {Games} games, {Services} services, {Corruption} corruption entries",
                 gamesDeleted, servicesDeleted, corruptionDeleted);
 

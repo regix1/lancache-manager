@@ -27,7 +27,8 @@ public static class CachedDetectionResponseBuilder
         int totalServicesDetected,
         DateTime lastDetectionUtc,
         bool slimForDashboard,
-        IdentifiedCacheAggregate? diskSummary)
+        IdentifiedCacheAggregate? diskSummary,
+        DateTime? summaryComputedAtUtc = null)
     {
         var activeGamesCount = games.Count(g => !g.IsEvicted);
         var summary = diskSummary ?? default;
@@ -69,7 +70,8 @@ public static class CachedDetectionResponseBuilder
             GamesOnDiskBytes = summary.GameBytes,
             GamesOnDiskCount = summary.ActiveGameCount,
             IdentifiedCacheBytes = summary.TotalBytes,
-            IdentifiedServiceBytes = summary.ServiceBytes
+            IdentifiedServiceBytes = summary.ServiceBytes,
+            DetectionSummaryComputedAt = summaryComputedAtUtc?.ToString("o")
         };
     }
 }

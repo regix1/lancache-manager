@@ -68,6 +68,12 @@ public class CachedDetectionResponse
     /// </summary>
     [JsonPropertyName("identified_service_bytes")]
     public ulong IdentifiedServiceBytes { get; set; }
+
+    /// <summary>
+    /// When deduplicated on-disk totals were last computed from cache file paths.
+    /// </summary>
+    [JsonPropertyName("detection_summary_computed_at")]
+    public string? DetectionSummaryComputedAt { get; set; }
 }
 
 /// <summary>
