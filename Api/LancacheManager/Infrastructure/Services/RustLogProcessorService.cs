@@ -464,6 +464,10 @@ public class RustLogProcessorService
                 _operationRegisteredTcs?.TrySetResult(_currentOperationId.Value);
             }
 
+            var processingToken = _cancellationTokenSource?.Token
+                ?? _operationTracker.GetOperation(_currentOperationId!.Value)?.CancellationTokenSource?.Token
+                ?? CancellationToken.None;
+
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var progressPath = Path.Combine(operationsDir, $"rust_progress_{datasourceName}.json");
             var rustExecutablePath = _pathResolver.GetRustLogProcessorPath();
@@ -542,7 +546,7 @@ public class RustLogProcessorService
             var exitCode = await _rustProcessHelper.RunTrackedProcessAsync(
                 startInfo,
                 _currentOperationId,
-                _cancellationTokenSource.Token,
+                processingToken,
                 async process =>
                 {
                     var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(process, "Rust log processor");
@@ -563,16 +567,19 @@ public class RustLogProcessorService
                             MbTotal = 0.0
                         });
 
-                        _progressMonitorTask = Task.Run(async () => await MonitorProgressAsync(progressPath, _cancellationTokenSource.Token));
+                        _progressMonitorTask = Task.Run(async () => await MonitorProgressAsync(progressPath, processingToken));
                     }
 
-                    await _processManager.WaitForProcessAsync(process, _cancellationTokenSource.Token);
+                    await _processManager.WaitForProcessAsync(process, processingToken);
 
                     _logger.LogInformation("Rust processor exited with code {ExitCode}", process.ExitCode);
 
                     await _rustProcessHelper.WaitForOutputTasksAsync(stdoutTask, stderrTask, TimeSpan.FromSeconds(5));
 
-                    _cancellationTokenSource.Cancel();
+                    if (_cancellationTokenSource != null)
+                    {
+                        _cancellationTokenSource.Cancel();
+                    }
                     if (_progressMonitorTask != null)
                     {
                         try

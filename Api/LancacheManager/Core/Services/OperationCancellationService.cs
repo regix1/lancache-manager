@@ -2,6 +2,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Core.Services;
 

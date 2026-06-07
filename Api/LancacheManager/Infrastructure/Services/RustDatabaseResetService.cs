@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
@@ -19,7 +18,6 @@ public class RustDatabaseResetService
     private readonly CacheManagementService _cacheManagementService;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly IUnifiedOperationTracker _operationTracker;
-    private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
     private Guid? _currentTrackerOperationId;
     private readonly SemaphoreSlim _startLock = new(1, 1);
@@ -218,8 +216,7 @@ public class RustDatabaseResetService
                     _cancellationTokenSource.Token,
                     progressPath,
                     async progress => await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, progress),
-                    processLabel: "database_reset",
-                    onProcessStarted: p => _rustProcess = p);
+                    processLabel: "database_reset");
 
                 var exitCode = result.ExitCode;
                 _logger.LogInformation($"rust database reset exited with code {exitCode}");
@@ -327,7 +324,6 @@ public class RustDatabaseResetService
             IsProcessing = false;
             _currentTrackerOperationId = null;
             _cancellationTokenSource?.Dispose();
-            _rustProcess = null;
         }
     }
 

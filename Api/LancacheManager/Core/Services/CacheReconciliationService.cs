@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Text.Json;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;

@@ -6,7 +6,6 @@ using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
-using System.Diagnostics;
 
 namespace LancacheManager.Controllers;
 
@@ -27,7 +26,6 @@ public class DataMigrationController : ControllerBase
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IOperationConflictChecker _conflictChecker;
-    private readonly ProcessManager _processManager;
     private readonly IConfiguration _configuration;
 
     public DataMigrationController(
@@ -37,7 +35,6 @@ public class DataMigrationController : ControllerBase
         ISignalRNotificationService notifications,
         IUnifiedOperationTracker operationTracker,
         IOperationConflictChecker conflictChecker,
-        ProcessManager processManager,
         IConfiguration configuration)
     {
         _logger = logger;
@@ -46,7 +43,6 @@ public class DataMigrationController : ControllerBase
         _notifications = notifications;
         _operationTracker = operationTracker;
         _conflictChecker = conflictChecker;
-        _processManager = processManager;
         _configuration = configuration;
     }
 

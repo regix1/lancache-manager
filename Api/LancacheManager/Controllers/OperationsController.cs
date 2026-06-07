@@ -58,7 +58,7 @@ public class OperationsController : ControllerBase
     /// kill process tree → wait → SignalR completion → tracker cleanup.
     /// </summary>
     [HttpPost("{id}/force-kill")]
-    public async Task<IActionResult> ForceKillOperation(Guid id)
+    public async Task<IActionResult> ForceKillOperationAsync(Guid id)
     {
         var killed = await _cancellationService.ForceKillAsync(id);
         if (!killed)
