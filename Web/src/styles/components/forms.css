@@ -365,4 +365,10 @@
   .segmented-control-button {
     border-radius: var(--theme-border-radius);
   }
+
+  .segmented-control-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+  }
 }

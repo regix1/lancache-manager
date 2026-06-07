@@ -1076,12 +1076,12 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
               {
                 value: 'active',
                 label: (
-                  <>
+                  <span className="segmented-control-label">
                     {t('dashboard.downloadsPanel.active')}
                     {!isHistoricalView && activeCount > 0 && (
                       <span className="tab-badge">{activeCount}</span>
                     )}
-                  </>
+                  </span>
                 ),
                 icon: <Activity size={14} />,
                 disabled: isHistoricalView,

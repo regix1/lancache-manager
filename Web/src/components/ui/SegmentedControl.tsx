@@ -58,7 +58,7 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
             key={option.value}
             onClick={() => !isDisabled && onChange(option.value)}
             disabled={isDisabled}
-            className={`segmented-control-button ${sizes.button} transition-all flex items-center justify-center gap-[0.4rem] font-semibold whitespace-nowrap text-xs ${
+            className={`segmented-control-button ${sizes.button} transition-all flex items-center justify-center gap-[0.5rem] font-semibold whitespace-nowrap text-xs ${
               fullWidth ? 'flex-1' : ''
             } ${isDisabled && !isActive ? 'opacity-50 cursor-default' : ''} ${
               isActive
