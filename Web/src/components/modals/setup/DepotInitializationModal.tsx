@@ -60,13 +60,8 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
   } = useInitializationFlow({ onInitialized });
 
   const renderStep = (step: InitStep): React.ReactNode => {
-    // Show loading state while hydrating wizard state from the server.
-    if (
-      isCheckingAuth &&
-      step !== 'database-setup' &&
-      step !== 'external-db-form' &&
-      step !== 'external-db-confirm'
-    ) {
+    // Show loading until setup status is known and the correct step is resolved.
+    if (isCheckingAuth) {
       return (
         <div className="flex flex-col items-center justify-center py-12">
           <LoadingSpinner size="lg" className="icon-primary mb-4" />

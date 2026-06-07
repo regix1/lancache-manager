@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 import { useSetupStatus } from '@contexts/useSetupStatus';
+import type { SetupStatus } from '@contexts/SetupStatusContext.types';
 import type { PicsStatus } from '@/types';
 
 export type InitStep =
@@ -172,6 +173,41 @@ function parseCompletedPlatforms(raw: string | null): CompletedPlatforms {
   return { steam: null, epic: false };
 }
 
+/** Map database-setup and related steps to the correct form for embedded vs external Postgres. */
+function resolveStepForPostgresMode(step: InitStep, setupStatus: SetupStatus): InitStep {
+  if (setupStatus.mode === 'external') {
+    if (step === 'database-setup') {
+      return setupStatus.needsPostgresCredentials ? 'external-db-form' : 'external-db-confirm';
+    }
+    if (step === 'external-db-form' && !setupStatus.needsPostgresCredentials) {
+      return 'external-db-confirm';
+    }
+  } else {
+    if (step === 'database-setup') {
+      return setupStatus.needsPostgresCredentials ? 'database-setup' : 'external-db-confirm';
+    }
+    if (step === 'external-db-form') {
+      return setupStatus.needsPostgresCredentials ? 'database-setup' : 'external-db-confirm';
+    }
+    if (step === 'external-db-confirm' && setupStatus.needsPostgresCredentials) {
+      return 'database-setup';
+    }
+  }
+
+  return step;
+}
+
+function resolveInitialStep(setupStatus: SetupStatus | null): InitStep {
+  if (!setupStatus) {
+    return 'database-setup';
+  }
+
+  const stored = setupStatus.currentSetupStep;
+  const normalized = stored ? normalizeServerStep(stored) : null;
+  const baseStep = (normalized ?? 'database-setup') as InitStep;
+  return resolveStepForPostgresMode(baseStep, setupStatus);
+}
+
 function normalizeServerStep(raw: string | null): InitStep | null {
   switch (raw) {
     case 'database-setup':
@@ -218,12 +254,7 @@ export function useInitializationFlow({
   const lastPersistedPlatforms = useRef<string | null>(null);
 
   // --- State ---
-  const [currentStep, setCurrentStep] = useState<InitStep>(() => {
-    if (setupStatus?.currentSetupStep) {
-      return setupStatus.currentSetupStep as InitStep;
-    }
-    return 'database-setup';
-  });
+  const [currentStep, setCurrentStep] = useState<InitStep>(() => resolveInitialStep(setupStatus));
 
   const [dataSourceChoice, setDataSourceChoice] = useState<DataSourceChoice>(() => {
     if (setupStatus?.dataSourceChoice) {
@@ -239,37 +270,16 @@ export function useInitializationFlow({
   const [picsData, setPicsData] = useState<PicsStatus | null>(null);
   const [usingSteamAuth, setUsingSteamAuth] = useState(false);
   const [backButtonDisabled, setBackButtonDisabled] = useState(false);
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(
+    () => setupStatusLoading || setupStatus === null
+  );
   const transitionTo = useCallback(
     (step: InitStep): InitStep => {
       if (setupStatusLoading || !setupStatus) {
         return step;
       }
 
-      // Route between the embedded/external DB steps based on mode so the
-      // wizard never lands on the wrong-mode form.
-      if (setupStatus.mode === 'external') {
-        if (step === 'database-setup') {
-          return setupStatus.needsPostgresCredentials ? 'external-db-form' : 'external-db-confirm';
-        }
-        // External mode with creds already configured: skip the form, show info screen instead.
-        if (step === 'external-db-form' && !setupStatus.needsPostgresCredentials) {
-          return 'external-db-confirm';
-        }
-      } else {
-        // Embedded mode: credential form when needed, shared info screen when configured.
-        if (step === 'database-setup') {
-          return setupStatus.needsPostgresCredentials ? 'database-setup' : 'external-db-confirm';
-        }
-        if (step === 'external-db-form') {
-          return setupStatus.needsPostgresCredentials ? 'database-setup' : 'external-db-confirm';
-        }
-        if (step === 'external-db-confirm' && setupStatus.needsPostgresCredentials) {
-          return 'database-setup';
-        }
-      }
-
-      return step;
+      return resolveStepForPostgresMode(step, setupStatus);
     },
     [setupStatusLoading, setupStatus]
   );
