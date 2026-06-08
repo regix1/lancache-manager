@@ -15,4 +15,9 @@ public class CorruptionDetectionMetrics
     /// Timestamp of the last completed corruption detection.
     /// </summary>
     public DateTime? LastDetectionTime { get; set; }
+
+    /// <summary>
+    /// When set, this operation is loading per-service corruption details (not a full summary scan).
+    /// </summary>
+    public string? ServiceName { get; set; }
 }

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
@@ -13,10 +14,12 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 {
     private readonly ConcurrentDictionary<Guid, OperationInfo> _operations = new();
     private readonly ConcurrentDictionary<(OperationType Type, string EntityKey), Guid> _entityKeyIndex = new();
+    private readonly ProcessManager _processManager;
     private readonly ILogger<UnifiedOperationTracker> _logger;
 
-    public UnifiedOperationTracker(ILogger<UnifiedOperationTracker> logger)
+    public UnifiedOperationTracker(ProcessManager processManager, ILogger<UnifiedOperationTracker> logger)
     {
+        _processManager = processManager;
         _logger = logger;
     }
 
@@ -178,33 +181,21 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             return false;
         }
 
-        try
+        if (process.HasExited)
         {
-            if (process.HasExited)
-            {
-                operation.AssociatedProcess = null;
-                return false;
-            }
+            operation.AssociatedProcess = null;
+            return false;
+        }
 
-            _logger.LogWarning(
-                "Terminating process {ProcessName} (PID: {Pid}) for operation {Id} ({Type}: {Name})",
-                process.ProcessName, process.Id, operationId, operation.Type, operation.Name);
-            process.Kill(entireProcessTree: true);
-            return true;
-        }
-        catch (InvalidOperationException ex)
+        var killed = _processManager.KillProcessTree(
+            process,
+            $"operation {operationId} ({operation.Type}: {operation.Name})");
+        if (!killed)
         {
-            // Process handle already exited/disposed — treat as already gone.
-            _logger.LogDebug(ex, "Process handle invalid for operation {Id} — clearing association", operationId);
             operation.AssociatedProcess = null;
-            return false;
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to kill associated process for operation {Id}", operationId);
-            operation.AssociatedProcess = null;
-            return false;
-        }
+
+        return killed;
     }
 
     public OperationInfo? GetOperation(Guid operationId)

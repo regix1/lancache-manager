@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Extensions;
@@ -21,11 +20,9 @@ public class RustLogProcessorService
     private readonly ISignalRNotificationService _notifications;
     private readonly StateService _stateService;
     private readonly IServiceProvider _serviceProvider;
-    private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly DatasourceService _datasourceService;
     private readonly IUnifiedOperationTracker _operationTracker;
-    private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
     private Guid? _currentOperationId;
     private string? _currentDatasourceName;
@@ -164,18 +161,10 @@ public class RustLogProcessorService
 
         IsCancelling = true;
         _logger.LogInformation("Cancellation requested for log processing");
-        
+
         try
         {
             _cancellationTokenSource.Cancel();
-            
-            // Kill the Rust process if it's running
-            if (_rustProcess != null && !_rustProcess.HasExited)
-            {
-                _logger.LogInformation("Killing Rust log processor process");
-                _rustProcess.Kill(entireProcessTree: true);
-            }
-            
             return true;
         }
         catch (Exception ex)
@@ -225,23 +214,23 @@ public class RustLogProcessorService
         }
 
         _logger.LogWarning("Force killing log processing operation");
-        
+
         try
         {
-            // Force cancel the token
-            _cancellationTokenSource?.Cancel();
-            
-            // Kill the process tree
-            if (_rustProcess != null && !_rustProcess.HasExited)
+            if (_currentOperationId.HasValue)
             {
-                _rustProcess.Kill(entireProcessTree: true);
-                await _rustProcess.WaitForExitAsync();
+                _operationTracker.ForceKillOperation(_currentOperationId.Value);
             }
-            
+            else
+            {
+                _cancellationTokenSource?.Cancel();
+            }
+
+            await Task.Delay(500);
+
             IsProcessing = false;
             IsCancelling = false;
 
-            // Send cancellation notification
             await _notifications.SendOperationCompleteAsync(
                 SignalREvents.LogProcessingComplete, _currentOperationId,
                 success: false, message: "Log processing was cancelled", cancelled: true);
@@ -366,7 +355,6 @@ public class RustLogProcessorService
         ISignalRNotificationService notifications,
         StateService stateService,
         IServiceProvider serviceProvider,
-        ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
         DatasourceService datasourceService,
         IUnifiedOperationTracker operationTracker)
@@ -376,7 +364,6 @@ public class RustLogProcessorService
         _notifications = notifications;
         _stateService = stateService;
         _serviceProvider = serviceProvider;
-        _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
         _datasourceService = datasourceService;
         _operationTracker = operationTracker;
@@ -570,7 +557,7 @@ public class RustLogProcessorService
                         _progressMonitorTask = Task.Run(async () => await MonitorProgressAsync(progressPath, processingToken));
                     }
 
-                    await _processManager.WaitForProcessAsync(process, processingToken);
+                    await process.WaitForExitAsync(processingToken);
 
                     _logger.LogInformation("Rust processor exited with code {ExitCode}", process.ExitCode);
 
@@ -594,7 +581,6 @@ public class RustLogProcessorService
 
                     return process.ExitCode;
                 },
-                onProcessStarted: p => _rustProcess = p,
                 processLabel: "log_processor");
 
             // Check if this was a cancellation by looking at exit code and progress
@@ -876,8 +862,6 @@ public class RustLogProcessorService
                 _currentProgressPath = null;
                 _currentLogDirectory = null;
             }
-
-            _rustProcess = null;
         }
     }
 

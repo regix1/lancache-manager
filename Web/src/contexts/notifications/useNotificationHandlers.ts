@@ -94,6 +94,8 @@ function buildCompleteHandler(
       getSuccessDetails: entry.complete.getSuccessDetails,
       getDetailMessage: entry.complete.getDetailMessage,
       getFailureMessage: entry.complete.getFailureMessage,
+      getCancelledMessage: entry.complete.getCancelledMessage,
+      getCancelledDetails: entry.complete.getCancelledDetails,
       useAnimationDelay: entry.complete.useAnimationDelay,
       supportFastCompletion: entry.complete.supportFastCompletion,
       getFastCompletionId: entry.complete.getFastCompletionId

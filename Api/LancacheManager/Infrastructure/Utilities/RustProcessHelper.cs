@@ -137,15 +137,15 @@ public partial class RustProcessHelper
             processLabel);
 
     /// <summary>
-    /// Core tracked-process runner: associate → cancel-kill → execute → disassociate → dispose.
-    /// All higher-level helpers delegate here so operationId wiring lives in one place.
+    /// Core tracked-process runner: associate → execute → disassociate → dispose.
+    /// Process kill on cancel is handled by <see cref="UnifiedOperationTracker"/> when
+    /// operationId is set; only untracked runs register a token callback to kill locally.
     /// </summary>
     public async Task<T> RunTrackedProcessAsync<T>(
         ProcessStartInfo startInfo,
         Guid? operationId,
         CancellationToken cancellationToken,
         Func<Process, Task<T>> executeAsync,
-        Action<Process>? onProcessStarted = null,
         string processLabel = "rust")
     {
         var process = Process.Start(startInfo);
@@ -154,14 +154,17 @@ public partial class RustProcessHelper
             throw new Exception($"Failed to start process: {startInfo.FileName}");
         }
 
-        onProcessStarted?.Invoke(process);
+        _processManager.Track(process);
 
         if (operationId.HasValue)
         {
             _operationTracker.AssociateProcess(operationId.Value, process);
         }
 
-        using var cancelRegistration = cancellationToken.Register(() => TryKillProcess(process, processLabel));
+        var cancelRegistration = operationId.HasValue
+            ? default(CancellationTokenRegistration)
+            : cancellationToken.Register(() =>
+                _processManager.KillProcessTree(process, $"{processLabel} cancellation"));
 
         try
         {
@@ -169,11 +172,14 @@ public partial class RustProcessHelper
         }
         finally
         {
+            cancelRegistration.Dispose();
+
             if (operationId.HasValue)
             {
                 _operationTracker.DisassociateProcess(operationId.Value, process);
             }
 
+            _processManager.Untrack(process);
             process.Dispose();
         }
     }
@@ -189,8 +195,7 @@ public partial class RustProcessHelper
         string? progressFilePath,
         Func<TProgress, Task>? onProgress,
         string processLabel = "rust",
-        int pollIntervalMs = 500,
-        Action<Process>? onProcessStarted = null) where TProgress : class =>
+        int pollIntervalMs = 500) where TProgress : class =>
         RunTrackedProcessAsync(
             startInfo,
             operationId,
@@ -201,7 +206,6 @@ public partial class RustProcessHelper
                 progressFilePath,
                 onProgress,
                 pollIntervalMs),
-            onProcessStarted: onProcessStarted,
             processLabel: processLabel);
 
     private async Task<ProcessExecutionResult> ExecuteWithProgressPollingAsync<TProgress>(
@@ -233,7 +237,7 @@ public partial class RustProcessHelper
         var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
-        await _processManager.WaitForProcessAsync(process, cancellationToken);
+        await _processManager.WaitForExitAsync(process, cancellationToken);
 
         pollCts.Cancel();
         if (pollTask != null)
@@ -276,7 +280,7 @@ public partial class RustProcessHelper
                     }
                 }
 
-                await process.WaitForExitAsync(cancellationToken);
+                await _processManager.WaitForExitAsync(process, cancellationToken);
 
                 return new ProcessExecutionResult
                 {
@@ -286,27 +290,6 @@ public partial class RustProcessHelper
                 };
             },
             processLabel: processLabel);
-
-    private void TryKillProcess(Process process, string processLabel)
-    {
-        if (process.HasExited)
-        {
-            return;
-        }
-
-        try
-        {
-            _logger.LogWarning(
-                "[{ProcessLabel}] Cancellation — killing process tree PID {Pid}",
-                processLabel,
-                process.Id);
-            process.Kill(entireProcessTree: true);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[{ProcessLabel}] Failed to kill PID {Pid} during cancellation", processLabel, process.Id);
-        }
-    }
 
     /// <summary>
     /// Monitors a progress file and invokes callback with progress updates

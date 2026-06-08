@@ -4,15 +4,14 @@ using System.Diagnostics;
 namespace LancacheManager.Infrastructure.Utilities;
 
 /// <summary>
-/// Centralized process management service that tracks all spawned processes
-/// and ensures they are properly terminated during application shutdown.
-/// This prevents orphaned Rust processes when the app stops.
+/// Central process lifecycle: track spawned processes for app shutdown, kill process trees on cancel,
+/// and run short-lived commands with consistent wait/output handling.
 /// </summary>
 public class ProcessManager : IHostedService, IDisposable
 {
     private readonly ILogger<ProcessManager> _logger;
     private readonly ConcurrentDictionary<int, Process> _activeProcesses = new();
-    private bool _isShuttingDown = false;
+    private bool _isShuttingDown;
 
     public ProcessManager(ILogger<ProcessManager> logger)
     {
@@ -34,23 +33,8 @@ public class ProcessManager : IHostedService, IDisposable
         {
             try
             {
-                if (!process.HasExited)
-                {
-                    _logger.LogWarning("Terminating process {ProcessName} (PID: {ProcessId}) on shutdown",
-                        process.ProcessName, process.Id);
-                    process.Kill(entireProcessTree: true);
-
-                    // Wait for process to exit with timeout
-                    try
-                    {
-                        await process.WaitForExitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
-                        _logger.LogInformation("Process {ProcessId} terminated successfully", process.Id);
-                    }
-                    catch (TimeoutException)
-                    {
-                        _logger.LogWarning("Process {ProcessId} did not exit within 5 seconds", process.Id);
-                    }
-                }
+                KillProcessTree(process, "application shutdown", log: false);
+                await WaitForExitAfterKillAsync(process, TimeSpan.FromSeconds(5));
             }
             catch (Exception ex)
             {
@@ -63,56 +47,116 @@ public class ProcessManager : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Waits for a process to exit with cancellation token support.
-    /// If cancelled, attempts to kill the process gracefully.
-    /// Automatically tracks the process and cleans up on completion.
+    /// Registers a process so it is terminated during application shutdown.
     /// </summary>
-    public async Task WaitForProcessAsync(Process process, CancellationToken cancellationToken)
+    public void Track(Process process) => _activeProcesses.TryAdd(process.Id, process);
+
+    /// <summary>
+    /// Removes a process from shutdown tracking once it has exited.
+    /// </summary>
+    public void Untrack(Process process) => _activeProcesses.TryRemove(process.Id, out _);
+
+    /// <summary>
+    /// Kills a process and its child processes. Safe to call when already exited or handle is stale.
+    /// </summary>
+    public bool KillProcessTree(Process process, string reason, bool log = true)
     {
-        // Track the process
-        _activeProcesses.TryAdd(process.Id, process);
+        try
+        {
+            if (process.HasExited)
+            {
+                return false;
+            }
+
+            if (log)
+            {
+                _logger.LogWarning(
+                    "Killing process tree {ProcessName} (PID: {ProcessId}): {Reason}",
+                    process.ProcessName,
+                    process.Id,
+                    reason);
+            }
+
+            process.Kill(entireProcessTree: true);
+            return true;
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogDebug(ex, "Process handle invalid while killing PID {ProcessId}", process.Id);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to kill process tree PID {ProcessId}", process.Id);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Waits for a process to exit. Does not kill on cancellation — callers must kill separately.
+    /// </summary>
+    public Task WaitForExitAsync(Process process, CancellationToken cancellationToken) =>
+        process.WaitForExitAsync(cancellationToken);
+
+    /// <summary>
+    /// Waits for a process to exit after a kill signal, with timeout.
+    /// </summary>
+    public async Task WaitForExitAfterKillAsync(Process process, TimeSpan timeout)
+    {
+        if (process.HasExited)
+        {
+            return;
+        }
 
         try
         {
-            await process.WaitForExitAsync(cancellationToken);
+            await process.WaitForExitAsync(CancellationToken.None).WaitAsync(timeout);
+            _logger.LogInformation("Process {ProcessId} terminated successfully", process.Id);
         }
-        catch (OperationCanceledException)
+        catch (TimeoutException)
         {
-            // Cancellation requested - try to kill the process
-            if (!_isShuttingDown) // Only log if it's user cancellation, not app shutdown
-            {
-                _logger.LogWarning("Cancellation requested - terminating process {ProcessName} (PID: {ProcessId})",
-                    process.ProcessName, process.Id);
-            }
+            _logger.LogWarning("Process {ProcessId} did not exit within {Seconds}s after kill signal",
+                process.Id, timeout.TotalSeconds);
+        }
+    }
 
-            try
-            {
-                if (!process.HasExited)
-                {
-                    process.Kill(entireProcessTree: true);
+    /// <summary>
+    /// Runs a short-lived process: track → wait for output → untrack → dispose.
+    /// When <paramref name="killOnCancel"/> is true, cancellation kills the process tree before rethrowing.
+    /// </summary>
+    public async Task<ProcessCommandResult> RunAsync(
+        ProcessStartInfo startInfo,
+        CancellationToken cancellationToken = default,
+        string? label = null,
+        bool killOnCancel = true)
+    {
+        var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException($"Failed to start process: {startInfo.FileName}");
 
-                    // Wait for the process to actually exit (with timeout)
-                    try
-                    {
-                        await process.WaitForExitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
-                    }
-                    catch (TimeoutException)
-                    {
-                        _logger.LogWarning("Process {ProcessId} did not exit within 5 seconds after kill signal", process.Id);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to kill process {ProcessId} during cancellation", process.Id);
-            }
+        Track(process);
 
-            throw; // Re-throw the cancellation exception
+        var cancelRegistration = killOnCancel && cancellationToken.CanBeCanceled
+            ? cancellationToken.Register(() => KillProcessTree(process, label ?? startInfo.FileName))
+            : default(CancellationTokenRegistration);
+
+        try
+        {
+            var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+            await WaitForExitAsync(process, cancellationToken);
+
+            return new ProcessCommandResult
+            {
+                ExitCode = process.ExitCode,
+                Output = await outputTask,
+                Error = await errorTask
+            };
         }
         finally
         {
-            // Remove from tracking when done
-            _activeProcesses.TryRemove(process.Id, out _);
+            cancelRegistration.Dispose();
+            Untrack(process);
+            process.Dispose();
         }
     }
 
@@ -122,10 +166,7 @@ public class ProcessManager : IHostedService, IDisposable
         {
             try
             {
-                if (!process.HasExited)
-                {
-                    process.Kill(entireProcessTree: true);
-                }
+                KillProcessTree(process, "ProcessManager dispose", log: false);
                 process.Dispose();
             }
             catch
@@ -133,6 +174,17 @@ public class ProcessManager : IHostedService, IDisposable
                 // Best effort cleanup
             }
         }
+
         _activeProcesses.Clear();
     }
+}
+
+/// <summary>
+/// Result of a short-lived process run via <see cref="ProcessManager.RunAsync"/>.
+/// </summary>
+public class ProcessCommandResult
+{
+    public int ExitCode { get; set; }
+    public string Output { get; set; } = string.Empty;
+    public string Error { get; set; } = string.Empty;
 }

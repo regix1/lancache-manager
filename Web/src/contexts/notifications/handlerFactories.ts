@@ -201,19 +201,22 @@ export function createCompletionHandler<
     const notificationId = config.getId(event);
     const isCancelled = event.cancelled === true;
 
-    const getCancelledMessage = (existing?: UnifiedNotification): string =>
-      config.getCancelledMessage?.(event, existing) ??
-      event.message ??
-      (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-      'Operation cancelled';
+    const resolveFailureMessage = (existing?: UnifiedNotification): string => {
+      if (isCancelled) {
+        return (
+          config.getCancelledMessage?.(event, existing) ??
+          event.message ??
+          (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
+          'Operation cancelled'
+        );
+      }
 
-    const getCancelledDetails = (
-      existing?: UnifiedNotification
-    ): UnifiedNotification['details'] => ({
-      ...existing?.details,
-      ...config.getCancelledDetails?.(event, existing),
-      cancelled: true
-    });
+      return (
+        config.getFailureMessage?.(event) ??
+        (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
+        i18n.t('signalr.generic.failed')
+      );
+    };
 
     // Clear from localStorage IMMEDIATELY to prevent stuck state on refresh
     localStorage.removeItem(config.storageKey);
@@ -234,17 +237,7 @@ export function createCompletionHandler<
 
         return prev.map((n) => {
           if (n.id === notificationId) {
-            if (isCancelled) {
-              return {
-                ...n,
-                progress: 100,
-                status: 'completed' as const,
-                message: getCancelledMessage(n),
-                details: getCancelledDetails(n)
-              };
-            }
-
-            if (event.success) {
+            if (event.success && !isCancelled) {
               return {
                 ...n,
                 progress: 100,
@@ -255,17 +248,23 @@ export function createCompletionHandler<
                   ...config.getSuccessDetails?.(event, n)
                 }
               };
-            } else {
-              return {
-                ...n,
-                progress: 100,
-                status: 'failed' as const,
-                error:
-                  config.getFailureMessage?.(event) ??
-                  (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-                  i18n.t('signalr.generic.failed')
-              };
             }
+
+            const failureMessage = resolveFailureMessage(n);
+            return {
+              ...n,
+              progress: 100,
+              status: 'failed' as const,
+              message: failureMessage,
+              error: failureMessage,
+              ...(isCancelled && {
+                details: {
+                  ...n.details,
+                  ...config.getCancelledDetails?.(event, n),
+                  cancelled: true
+                }
+              })
+            };
           }
           return n;
         });
@@ -279,32 +278,38 @@ export function createCompletionHandler<
           // Fast completion - no prior started event
           if (config.supportFastCompletion) {
             const fastId = config.getFastCompletionId?.(event) ?? notificationId;
-            idToSchedule = fastId; // Update the ID to schedule
-            const status: 'completed' | 'failed' =
-              event.success || isCancelled ? 'completed' : 'failed';
+            idToSchedule = fastId;
+            const failureMessage = resolveFailureMessage();
+
+            if (event.success && !isCancelled) {
+              const newNotification = {
+                id: fastId,
+                type: config.type,
+                status: 'completed' as const,
+                message:
+                  config.getSuccessMessage?.(event) ??
+                  (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
+                  i18n.t('signalr.generic.complete'),
+                detailMessage: config.getDetailMessage?.(event),
+                startedAt: new Date(),
+                progress: 100,
+                details: config.getSuccessDetails?.(event)
+              };
+              return [...prev, newNotification];
+            }
+
             const newNotification = {
               id: fastId,
               type: config.type,
-              status,
-              message: isCancelled
-                ? getCancelledMessage()
-                : event.success
-                  ? (config.getSuccessMessage?.(event) ??
-                    (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-                    i18n.t('signalr.generic.complete'))
-                  : (config.getFailureMessage?.(event) ??
-                    (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-                    i18n.t('signalr.generic.failed')),
+              status: 'failed' as const,
+              message: failureMessage,
+              error: failureMessage,
               detailMessage: config.getDetailMessage?.(event),
               startedAt: new Date(),
               progress: 100,
-              details: isCancelled ? getCancelledDetails() : config.getSuccessDetails?.(event),
-              error:
-                event.success || isCancelled
-                  ? undefined
-                  : (config.getFailureMessage?.(event) ??
-                    (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-                    i18n.t('signalr.generic.failed'))
+              details: isCancelled
+                ? { ...config.getCancelledDetails?.(event), cancelled: true }
+                : config.getSuccessDetails?.(event)
             };
 
             return [...prev, newNotification];
@@ -317,18 +322,7 @@ export function createCompletionHandler<
 
         return prev.map((n) => {
           if (n.id === notificationId) {
-            if (isCancelled) {
-              return {
-                ...n,
-                progress: 100,
-                status: 'completed' as const,
-                message: getCancelledMessage(n),
-                detailMessage: config.getDetailMessage?.(event) ?? n.detailMessage,
-                details: getCancelledDetails(n)
-              };
-            }
-
-            if (event.success) {
+            if (event.success && !isCancelled) {
               return {
                 ...n,
                 progress: 100,
@@ -339,27 +333,31 @@ export function createCompletionHandler<
                   ...config.getSuccessDetails?.(event, n)
                 }
               };
-            } else {
-              return {
-                ...n,
-                progress: 100,
-                status: 'failed' as const,
-                error:
-                  config.getFailureMessage?.(event) ??
-                  (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-                  i18n.t('signalr.generic.failed')
-              };
             }
+
+            const failureMessage = resolveFailureMessage(n);
+            return {
+              ...n,
+              progress: 100,
+              status: 'failed' as const,
+              message: failureMessage,
+              error: failureMessage,
+              detailMessage: config.getDetailMessage?.(event) ?? n.detailMessage,
+              ...(isCancelled && {
+                details: {
+                  ...n.details,
+                  ...config.getCancelledDetails?.(event, n),
+                  cancelled: true
+                }
+              })
+            };
           }
           return n;
         });
       });
     }
 
-    // ALWAYS schedule auto-dismiss - React 18 batching means we can't rely on
-    // closure variables set inside setNotifications callback.
-    // scheduleAutoDismiss will verify the notification is in terminal state before dismissing.
-    scheduleAutoDismiss(idToSchedule);
+    scheduleAutoDismiss(idToSchedule, isCancelled ? CANCELLED_NOTIFICATION_DELAY_MS : undefined);
   };
 }
 

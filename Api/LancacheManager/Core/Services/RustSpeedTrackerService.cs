@@ -4,6 +4,7 @@ using LancacheManager.Models;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services.Base;
+using LancacheManager.Infrastructure.Utilities;
 
 namespace LancacheManager.Core.Services;
 
@@ -16,6 +17,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     private readonly IPathResolver _pathResolver;
     private readonly DatasourceService _datasourceService;
     private readonly ISignalRNotificationService _notifications;
+    private readonly ProcessManager _processManager;
     private string? _rustExecutablePath;
     private Process? _rustProcess;
     private DownloadSpeedSnapshot _currentSnapshot = new() { WindowSeconds = 2 };
@@ -33,12 +35,14 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         IConfiguration configuration,
         IPathResolver pathResolver,
         DatasourceService datasourceService,
-        ISignalRNotificationService notifications)
+        ISignalRNotificationService notifications,
+        ProcessManager processManager)
         : base(logger, configuration)
     {
         _pathResolver = pathResolver;
         _datasourceService = datasourceService;
         _notifications = notifications;
+        _processManager = processManager;
     }
 
     /// <summary>
@@ -150,6 +154,8 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
             throw new Exception("Failed to start Rust speed tracker process");
         }
 
+        _processManager.Track(_rustProcess);
+
         _logger.LogInformation("Rust speed tracker started with PID {Pid}", _rustProcess.Id);
 
         // Monitor stderr in background
@@ -226,14 +232,19 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         }
         finally
         {
-            if (!_rustProcess.HasExited)
+            if (_rustProcess != null)
             {
-                _logger.LogInformation("Stopping Rust speed tracker");
-                _rustProcess.Kill();
-                await _rustProcess.WaitForExitAsync(stoppingToken);
+                if (!_rustProcess.HasExited)
+                {
+                    _logger.LogInformation("Stopping Rust speed tracker");
+                    _processManager.KillProcessTree(_rustProcess, "speed tracker stop");
+                    await _processManager.WaitForExitAfterKillAsync(_rustProcess, TimeSpan.FromSeconds(5));
+                }
+
+                _processManager.Untrack(_rustProcess);
+                _rustProcess.Dispose();
+                _rustProcess = null;
             }
-            _rustProcess.Dispose();
-            _rustProcess = null;
         }
     }
 
@@ -242,8 +253,8 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         if (_rustProcess != null && !_rustProcess.HasExited)
         {
             _logger.LogInformation("Stopping Rust speed tracker process");
-            _rustProcess.Kill();
-            await _rustProcess.WaitForExitAsync(cancellationToken);
+            _processManager.KillProcessTree(_rustProcess, "speed tracker service stop");
+            await _processManager.WaitForExitAfterKillAsync(_rustProcess, TimeSpan.FromSeconds(5));
         }
 
         await base.StopAsync(cancellationToken);

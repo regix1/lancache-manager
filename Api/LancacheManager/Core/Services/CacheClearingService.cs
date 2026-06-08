@@ -964,12 +964,8 @@ public class CacheClearingService : ScheduledBackgroundService
         {
             // Check if rsync command exists
             var startInfo = _rustProcessHelper.CreateProcessStartInfo("which", "rsync");
-
-            using var process = Process.Start(startInfo);
-            if (process == null) return false;
-
-            process.WaitForExit();
-            return process.ExitCode == 0;
+            var result = await _rustProcessHelper.ExecuteProcessAsync(startInfo, CancellationToken.None);
+            return result.ExitCode == 0;
         }
         catch
         {

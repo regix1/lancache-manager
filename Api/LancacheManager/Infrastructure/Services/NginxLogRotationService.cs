@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using LancacheManager.Infrastructure.Utilities;
 
 namespace LancacheManager.Infrastructure.Services;
 
@@ -28,13 +29,16 @@ public class NginxLogRotationService
 {
     private readonly ILogger<NginxLogRotationService> _logger;
     private readonly IConfiguration _configuration;
+    private readonly ProcessManager _processManager;
 
     public NginxLogRotationService(
         ILogger<NginxLogRotationService> logger,
-        IConfiguration _configuration)
+        IConfiguration configuration,
+        ProcessManager processManager)
     {
         _logger = logger;
-        this._configuration = _configuration;
+        _configuration = configuration;
+        _processManager = processManager;
     }
 
     /// <summary>
@@ -126,35 +130,20 @@ public class NginxLogRotationService
             }
 
             // Get all running containers with names and images
-            var processStartInfo = new ProcessStartInfo
-            {
-                FileName = "docker",
-                Arguments = "ps --filter status=running --format \"{{.Names}}|{{.Image}}\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+            var processStartInfo = CreateDockerStartInfo(
+                "ps --filter status=running --format \"{{.Names}}|{{.Image}}\"");
 
-            using var process = Process.Start(processStartInfo);
-            if (process == null)
-            {
-                var error = "Docker command failed. Ensure Docker socket is mounted.";
-                _logger.LogWarning("Failed to start docker ps command. Docker socket may not be mounted.");
-                return (null, error);
-            }
+            var result = await _processManager.RunAsync(processStartInfo, label: "docker ps");
 
-            var stdout = await process.StandardOutput.ReadToEndAsync();
-            var stderr = await process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync();
-
-            if (process.ExitCode != 0)
+            if (result.ExitCode != 0)
             {
-                var errorMsg = string.IsNullOrWhiteSpace(stderr) ? "Unknown error" : stderr.Trim();
+                var errorMsg = string.IsNullOrWhiteSpace(result.Error) ? "Unknown error" : result.Error.Trim();
                 _logger.LogWarning("docker ps command failed with exit code {ExitCode}: {Error}. " +
-                    "Docker socket may not be mounted or accessible.", process.ExitCode, errorMsg);
+                    "Docker socket may not be mounted or accessible.", result.ExitCode, errorMsg);
                 return (null, $"Docker command failed: {errorMsg}");
             }
+
+            var stdout = result.Output;
 
             static bool LooksLikeLancache(string value)
             {
@@ -277,21 +266,11 @@ public class NginxLogRotationService
     {
         try
         {
-            var processStartInfo = new ProcessStartInfo
-            {
-                FileName = "docker",
-                Arguments = $"exec {containerName} sh -c \"which nginx || command -v nginx\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+            var processStartInfo = CreateDockerStartInfo(
+                $"exec {containerName} sh -c \"which nginx || command -v nginx\"");
 
-            using var process = Process.Start(processStartInfo);
-            if (process == null) return false;
-
-            await process.WaitForExitAsync();
-            return process.ExitCode == 0;
+            var result = await _processManager.RunAsync(processStartInfo, label: "docker exec nginx-check");
+            return result.ExitCode == 0;
         }
         catch
         {
@@ -307,42 +286,19 @@ public class NginxLogRotationService
         try
         {
             var commandStr = string.Join(" ", command.Select(c => c.Contains(" ") ? $"\"{c}\"" : c));
-            var processStartInfo = new ProcessStartInfo
-            {
-                FileName = "docker",
-                Arguments = $"exec {containerName} {commandStr}",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+            var processStartInfo = CreateDockerStartInfo($"exec {containerName} {commandStr}");
 
-            using var process = Process.Start(processStartInfo);
-            if (process == null)
-            {
-                _logger.LogWarning("Failed to start docker exec process");
-                return false;
-            }
+            var result = await _processManager.RunAsync(processStartInfo, label: "docker exec");
 
-            var stdoutTask = process.StandardOutput.ReadToEndAsync();
-            var stderrTask = process.StandardError.ReadToEndAsync();
-
-            await process.WaitForExitAsync();
-
-            var stdout = await stdoutTask;
-            var stderr = await stderrTask;
-
-            if (process.ExitCode == 0)
+            if (result.ExitCode == 0)
             {
                 _logger.LogDebug("Command executed successfully in container {Container}", containerName);
                 return true;
             }
-            else
-            {
-                _logger.LogDebug("docker exec failed with exit code {ExitCode}: {Error}",
-                    process.ExitCode, stderr.Trim());
-                return false;
-            }
+
+            _logger.LogDebug("docker exec failed with exit code {ExitCode}: {Error}",
+                result.ExitCode, result.Error.Trim());
+            return false;
         }
         catch (Exception ex)
         {
@@ -359,42 +315,19 @@ public class NginxLogRotationService
     {
         try
         {
-            var processStartInfo = new ProcessStartInfo
-            {
-                FileName = "docker",
-                Arguments = $"kill --signal={signal} {containerName}",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+            var processStartInfo = CreateDockerStartInfo($"kill --signal={signal} {containerName}");
 
-            using var process = Process.Start(processStartInfo);
-            if (process == null)
-            {
-                _logger.LogWarning("Failed to start docker kill process");
-                return false;
-            }
+            var result = await _processManager.RunAsync(processStartInfo, label: "docker kill");
 
-            var stdoutTask = process.StandardOutput.ReadToEndAsync();
-            var stderrTask = process.StandardError.ReadToEndAsync();
-
-            await process.WaitForExitAsync();
-
-            var stdout = await stdoutTask;
-            var stderr = await stderrTask;
-
-            if (process.ExitCode == 0)
+            if (result.ExitCode == 0)
             {
                 _logger.LogDebug("Signal {Signal} sent successfully to container {Container}", signal, containerName);
                 return true;
             }
-            else
-            {
-                _logger.LogWarning("docker kill failed with exit code {ExitCode}: {Error}",
-                    process.ExitCode, stderr.Trim());
-                return false;
-            }
+
+            _logger.LogWarning("docker kill failed with exit code {ExitCode}: {Error}",
+                result.ExitCode, result.Error.Trim());
+            return false;
         }
         catch (Exception ex)
         {
@@ -402,4 +335,14 @@ public class NginxLogRotationService
             return false;
         }
     }
+
+    private static ProcessStartInfo CreateDockerStartInfo(string arguments) => new()
+    {
+        FileName = "docker",
+        Arguments = arguments,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        UseShellExecute = false,
+        CreateNoWindow = true
+    };
 }

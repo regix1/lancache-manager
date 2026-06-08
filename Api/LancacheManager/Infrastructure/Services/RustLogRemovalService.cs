@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
@@ -23,7 +22,6 @@ public class RustLogRemovalService
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly IUnifiedOperationTracker _operationTracker;
-    private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private Guid? _currentTrackerOperationId;
@@ -353,8 +351,7 @@ public class RustLogRemovalService
                         _cancellationTokenSource.Token,
                         dsProgressPath,
                         progress => SendLogRemovalProgressAsync(progress, service, datasource.Name),
-                        processLabel: "log_removal",
-                        onProcessStarted: p => _rustProcess = p);
+                        processLabel: "log_removal");
 
                     var exitCode = result.ExitCode;
                     _logger.LogInformation("Rust log_manager exited with code {ExitCode} for datasource '{DatasourceName}'",
@@ -539,7 +536,6 @@ public class RustLogRemovalService
             IsProcessing = false;
             CurrentService = null;
             CurrentDatasource = null;
-            _rustProcess = null;
             _currentTrackerOperationId = null;
             _cancellationTokenSource?.Dispose();
         }
@@ -651,8 +647,7 @@ public class RustLogRemovalService
                     _cancellationTokenSource.Token,
                     progressPath,
                     progress => SendLogRemovalProgressAsync(progress, service, datasourceName),
-                    processLabel: "log_removal",
-                    onProcessStarted: p => _rustProcess = p);
+                    processLabel: "log_removal");
 
                 var exitCode = result.ExitCode;
                 _logger.LogInformation("Rust log_manager exited with code {ExitCode} for datasource {Datasource}", exitCode, datasourceName);
@@ -740,7 +735,6 @@ public class RustLogRemovalService
             IsProcessing = false;
             CurrentService = null;
             CurrentDatasource = null;
-            _rustProcess = null;
             _currentTrackerOperationId = null;
             _cancellationTokenSource?.Dispose();
         }
@@ -875,26 +869,17 @@ public class RustLogRemovalService
 
         try
         {
-            // First cancel the token
-            _cancellationTokenSource?.Cancel();
-
-            // Kill the Rust process if it exists and is still running
-            if (_rustProcess != null && !_rustProcess.HasExited)
+            if (_currentTrackerOperationId.HasValue)
             {
-                _logger.LogWarning("Killing Rust log_manager process (PID: {ProcessId}) for service {Service}",
-                    _rustProcess.Id, CurrentService);
-                _rustProcess.Kill(entireProcessTree: true);
-
-                // Wait briefly for the process to exit
-                await Task.Delay(500);
-
-                if (!_rustProcess.HasExited)
-                {
-                    _logger.LogError("Process did not exit after Kill() for service {Service}", CurrentService);
-                }
+                _operationTracker.ForceKillOperation(_currentTrackerOperationId.Value);
+            }
+            else
+            {
+                _cancellationTokenSource?.Cancel();
             }
 
-            // Send cancellation notification
+            await Task.Delay(500);
+
             await _notifications.SendOperationCompleteAsync(
                 SignalREvents.LogRemovalComplete, _currentTrackerOperationId,
                 success: false, message: $"Service removal for {CurrentService} was cancelled", cancelled: true,

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Core.Interfaces;
@@ -17,7 +16,6 @@ public class CacheManagementService
     private readonly IConfiguration _configuration;
     private readonly ILogger<CacheManagementService> _logger;
     private readonly IPathResolver _pathResolver;
-    private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly DatasourceService _datasourceService;
@@ -48,7 +46,6 @@ public class CacheManagementService
         IConfiguration configuration,
         ILogger<CacheManagementService> logger,
         IPathResolver pathResolver,
-        ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
         NginxLogRotationService nginxLogRotationService,
         DatasourceService datasourceService,
@@ -58,7 +55,6 @@ public class CacheManagementService
         _configuration = configuration;
         _logger = logger;
         _pathResolver = pathResolver;
-        _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
         _nginxLogRotationService = nginxLogRotationService;
         _datasourceService = datasourceService;
@@ -600,33 +596,19 @@ public class CacheManagementService
                 rustBinaryPath,
                 $"count \"{logDir}\" \"{progressFile}\"");
 
-            using (var process = Process.Start(startInfo))
+            var result = await _rustProcessHelper.ExecuteProcessAsync(startInfo, cancellationToken);
+
+            if (result.ExitCode != 0)
             {
-                if (process == null)
-                {
-                    throw new Exception($"Failed to start Rust log_manager process for datasource '{datasourceName}'");
-                }
+                throw new Exception($"Rust log_manager failed for datasource '{datasourceName}' with exit code {result.ExitCode}: {result.Error}");
+            }
 
-                var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-                var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+            // Read results from progress file
+            var progressData = await _rustProcessHelper.ReadProgressFileAsync<LogCountProgressData>(progressFile);
 
-                await _processManager.WaitForProcessAsync(process, cancellationToken);
-
-                var output = await outputTask;
-                var error = await errorTask;
-
-                if (process.ExitCode != 0)
-                {
-                    throw new Exception($"Rust log_manager failed for datasource '{datasourceName}' with exit code {process.ExitCode}: {error}");
-                }
-
-                // Read results from progress file
-                var progressData = await _rustProcessHelper.ReadProgressFileAsync<LogCountProgressData>(progressFile);
-
-                if (progressData?.ServiceCounts != null)
-                {
-                    counts = progressData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
-                }
+            if (progressData?.ServiceCounts != null)
+            {
+                counts = progressData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
             }
         }
         catch (Exception ex)
@@ -713,7 +695,14 @@ public class CacheManagementService
     /// <summary>
     /// Get detailed corruption information for a specific service
     /// </summary>
-    public async Task<List<CorruptedChunkDetail>> GetCorruptionDetailsAsync(string service, bool forceRefresh = false, int threshold = 3, bool compareToCacheLogs = true, CancellationToken cancellationToken = default, bool detectRedownloads = false)
+    public async Task<List<CorruptedChunkDetail>> GetCorruptionDetailsAsync(
+        string service,
+        bool forceRefresh,
+        int threshold,
+        bool compareToCacheLogs,
+        Guid operationId,
+        CancellationToken cancellationToken,
+        bool detectRedownloads = false)
     {
         // Use semaphore to ensure only one Rust process runs at a time
         await _cacheLock.WaitAsync(cancellationToken);
@@ -743,49 +732,39 @@ public class CacheManagementService
                 _logger.LogInformation("[CorruptionDetection] Running detect command: {Command} {Args}",
                     rustBinaryPath, startInfo.Arguments);
 
-                using (var process = Process.Start(startInfo))
+                var result = await _rustProcessHelper.ExecuteTrackedProcessAsync(
+                    startInfo,
+                    operationId,
+                    cancellationToken,
+                    "corruption_manager_detect");
+
+                _logger.LogInformation("[CorruptionDetection] Detect process exit code: {Code}", result.ExitCode);
+
+                if (result.ExitCode != 0)
                 {
-                    if (process == null)
-                    {
-                        throw new Exception("Failed to start corruption_manager process");
-                    }
-
-                    var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-                    var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-
-                    await _processManager.WaitForProcessAsync(process, cancellationToken);
-
-                    var output = await outputTask;
-                    var error = await errorTask;
-
-                    _logger.LogInformation("[CorruptionDetection] Detect process exit code: {Code}", process.ExitCode);
-
-                    if (process.ExitCode != 0)
-                    {
-                        _logger.LogError("[CorruptionDetection] Detect failed with exit code {Code}: {Error}",
-                            process.ExitCode, error);
-                        throw new Exception($"corruption_manager detect failed with exit code {process.ExitCode}: {error}");
-                    }
-
-                    // Read the generated JSON file (keep for operation history)
-                    var report = await _rustProcessHelper.ReadOutputJsonAsync<CorruptionReport>(outputJson, "CorruptionDetection");
-
-                    if (report?.CorruptedChunks == null)
-                    {
-                        _logger.LogInformation("[CorruptionDetection] No corrupted chunks in report");
-                        return new List<CorruptedChunkDetail>();
-                    }
-
-                    // Filter by service
-                    var serviceDetails = report.CorruptedChunks
-                        .Where(chunk => chunk.Service.Equals(service, StringComparison.OrdinalIgnoreCase))
-                        .ToList();
-
-                    _logger.LogInformation("[CorruptionDetection] Found {Count} corrupted chunks for service {Service}",
-                        serviceDetails.Count, service);
-
-                    return serviceDetails;
+                    _logger.LogError("[CorruptionDetection] Detect failed with exit code {Code}: {Error}",
+                        result.ExitCode, result.Error);
+                    throw new Exception($"corruption_manager detect failed with exit code {result.ExitCode}: {result.Error}");
                 }
+
+                // Read the generated JSON file (keep for operation history)
+                var report = await _rustProcessHelper.ReadOutputJsonAsync<CorruptionReport>(outputJson, "CorruptionDetection");
+
+                if (report?.CorruptedChunks == null)
+                {
+                    _logger.LogInformation("[CorruptionDetection] No corrupted chunks in report");
+                    return new List<CorruptedChunkDetail>();
+                }
+
+                // Filter by service
+                var serviceDetails = report.CorruptedChunks
+                    .Where(chunk => chunk.Service.Equals(service, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                _logger.LogInformation("[CorruptionDetection] Found {Count} corrupted chunks for service {Service}",
+                    serviceDetails.Count, service);
+
+                return serviceDetails;
             }
             catch (Exception ex)
             {
@@ -1677,29 +1656,17 @@ public class CacheManagementService
 
             var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, $"\"{cachePath}\" \"{outputFile}\"");
 
-            using var process = Process.Start(startInfo);
-            if (process == null)
+            var processResult = await _rustProcessHelper.ExecuteProcessAsync(startInfo, CancellationToken.None);
+
+            if (!string.IsNullOrWhiteSpace(processResult.Error))
+                _logger.LogInformation("Cache size calculation output:\n{Output}", processResult.Error);
+            if (!string.IsNullOrWhiteSpace(processResult.Output))
+                _logger.LogInformation("Cache size result JSON:\n{Json}", processResult.Output);
+
+            if (processResult.ExitCode != 0)
             {
-                _logger.LogError("Failed to start Rust cache-size process");
-                return null;
-            }
-
-            var stdoutTask = process.StandardOutput.ReadToEndAsync();
-            var stderrTask = process.StandardError.ReadToEndAsync();
-
-            await process.WaitForExitAsync();
-
-            var stdout = await stdoutTask;
-            var stderr = await stderrTask;
-
-            if (!string.IsNullOrWhiteSpace(stderr))
-                _logger.LogInformation("Cache size calculation output:\n{Output}", stderr);
-            if (!string.IsNullOrWhiteSpace(stdout))
-                _logger.LogInformation("Cache size result JSON:\n{Json}", stdout);
-
-            if (process.ExitCode != 0)
-            {
-                _logger.LogError("Cache size calculation failed with exit code {ExitCode}: {Error}", process.ExitCode, stderr);
+                _logger.LogError("Cache size calculation failed with exit code {ExitCode}: {Error}",
+                    processResult.ExitCode, processResult.Error);
                 await _rustProcessHelper.DeleteTemporaryFileAsync(outputFile);
                 return null;
             }

@@ -386,11 +386,57 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("services/{service}/corruption")]
-    public async Task<IActionResult> GetCorruptionDetailsAsync(string service, [FromQuery] bool forceRefresh = false, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
+    public async Task<IActionResult> GetCorruptionDetailsAsync(
+        string service,
+        CancellationToken cancellationToken,
+        [FromQuery] bool forceRefresh = false,
+        [FromQuery] int threshold = 3,
+        [FromQuery] bool compareToCacheLogs = true,
+        [FromQuery] string detectionMode = "miss_count")
     {
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.CorruptionDetection,
+            ConflictScope.Service(service),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Conflict(conflict);
+        }
+
         var detectRedownloads = detectionMode == "redownload";
-        var details = await _cacheService.GetCorruptionDetailsAsync(service, forceRefresh, threshold, compareToCacheLogs, detectRedownloads: detectRedownloads);
-        return Ok(details);
+        var cts = new CancellationTokenSource();
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cts.Token);
+
+        var operationId = _operationTracker.RegisterOperation(
+            OperationType.CorruptionDetection,
+            $"Corruption Details ({service})",
+            cts,
+            new CorruptionDetectionMetrics { ServiceName = service });
+
+        try
+        {
+            var details = await _cacheService.GetCorruptionDetailsAsync(
+                service,
+                forceRefresh,
+                threshold,
+                compareToCacheLogs,
+                operationId,
+                linkedCts.Token,
+                detectRedownloads);
+
+            _operationTracker.CompleteOperation(operationId, success: true);
+            return Ok(details);
+        }
+        catch (OperationCanceledException) when (linkedCts.Token.IsCancellationRequested)
+        {
+            _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled");
+            return StatusCode(499, new { error = "Operation cancelled", operationId });
+        }
+        catch (Exception ex)
+        {
+            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+            throw;
+        }
     }
 
     /// <summary>

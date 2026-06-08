@@ -608,11 +608,6 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     complete: {
       getSuccessMessage: (event: EvictionRemovalCompleteEvent) =>
         i18n.t(event.stageKey ?? 'signalr.evictionRemove.complete', event.context ?? {}),
-      getCancelledMessage: (event: EvictionRemovalCompleteEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.evictionRemove.cancelled', event.context ?? {}),
-      getCancelledDetails: (event: EvictionRemovalCompleteEvent) => ({
-        operationId: event.operationId
-      }),
       getFailureMessage: (event: EvictionRemovalCompleteEvent) =>
         event.error ??
         (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
