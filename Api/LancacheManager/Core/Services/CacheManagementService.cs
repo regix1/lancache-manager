@@ -499,14 +499,25 @@ public class CacheManagementService
     /// </summary>
     public async Task InvalidateServiceCountsCacheAsync()
     {
-        // Delete the Rust cache file to force rescan
+        // Delete the Rust cache files (global + per-datasource) to force rescan
         var operationsDir = _pathResolver.GetOperationsDirectory();
         var progressFile = Path.Combine(operationsDir, "log_count_progress.json");
 
-        if (File.Exists(progressFile))
+        await Task.Run(() =>
         {
-            await Task.Run(() => File.Delete(progressFile));
-        }
+            if (File.Exists(progressFile))
+            {
+                File.Delete(progressFile);
+            }
+
+            if (Directory.Exists(operationsDir))
+            {
+                foreach (var datasourceProgressFile in Directory.GetFiles(operationsDir, "log_count_progress_*.json"))
+                {
+                    File.Delete(datasourceProgressFile);
+                }
+            }
+        });
     }
 
     /// <summary>

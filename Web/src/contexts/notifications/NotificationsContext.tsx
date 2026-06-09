@@ -37,6 +37,12 @@ const shouldAutoDismiss = (): boolean => {
   return !themeService.getPicsAlwaysVisibleSync();
 };
 
+// How recently a terminal (completed/failed) card must have landed for a fresh 'running'
+// seed on the same singleton id to be skipped instead of downgrading it back to running.
+// Covers the sub-second-op race where the Complete event is processed before the
+// post-202 REST seed; older terminal cards (a genuine re-run) are still replaced.
+const TERMINAL_SEED_GUARD_MS = 5000;
+
 // Removal/clearing operation types that share the backend _cacheLock
 const REMOVAL_TYPES = [
   'log_removal',
@@ -153,13 +159,29 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
 
       setNotifications((prev: UnifiedNotification[]) => {
+        // Never downgrade a terminal card that JUST landed back to 'running': for a
+        // sub-second op the Complete event can be processed before the post-202 seed
+        // runs, and a reinserted running slot would never be completed by anything.
+        // Older terminal cards (a genuine re-run) are still replaced as before.
+        const existing = prev.find((n) => n.id === id);
+        if (
+          notification.status === 'running' &&
+          existing &&
+          (existing.status === 'completed' || existing.status === 'failed') &&
+          Date.now() - new Date(existing.startedAt).getTime() < TERMINAL_SEED_GUARD_MS
+        ) {
+          return prev;
+        }
+
         const filtered = prev.filter((n) => n.id !== id);
         return [...filtered, newNotification];
       });
 
-      if (notification.status !== 'running') {
-        scheduleAutoDismiss(id);
-      }
+      // For terminal inserts this arms the normal dismiss. For running seeds it re-arms
+      // the dismiss of a recent terminal card the updater may have kept (its timer was
+      // cancelled above); the timer callback only removes terminal cards, so when the
+      // running seed did insert this is a no-op.
+      scheduleAutoDismiss(id);
 
       return id;
     },

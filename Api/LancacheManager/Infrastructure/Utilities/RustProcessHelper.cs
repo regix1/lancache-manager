@@ -98,7 +98,7 @@ public partial class RustProcessHelper
         }
         catch (Exception ex)
         {
-            _logger.LogTrace(ex, "Failed to read progress file (may not exist yet): {FilePath}", progressPath);
+            _logger.LogWarning(ex, "Failed to read progress file: {FilePath}", progressPath);
             return null;
         }
     }
@@ -641,7 +641,7 @@ public partial class RustProcessHelper
             var redownloadFlag = detectRedownloads ? " --detect-redownloads" : "";
             var arguments = command switch
             {
-                "summary" => $"summary \"{logsPath}\" \"{cachePath}\" UTC {threshold}{noCacheCheckFlag}{redownloadFlag}",
+                "summary" => $"summary \"{logsPath}\" \"{cachePath}\" \"{progressArg ?? "none"}\" \"UTC\" {threshold}{noCacheCheckFlag}{redownloadFlag}",
                 "remove" when !string.IsNullOrEmpty(service) =>
                     $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressArg}\" {threshold}{noCacheCheckFlag}{redownloadFlag}",
                 _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")

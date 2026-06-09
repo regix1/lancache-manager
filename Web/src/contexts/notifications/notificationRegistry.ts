@@ -166,7 +166,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         ...existing?.details,
         linesProcessed: event.linesProcessed
       }),
-      useAnimationDelay: true
+      useAnimationDelay: true,
+      supportFastCompletion: true,
+      getFastCompletionId: () => NOTIFICATION_IDS.LOG_REMOVAL
     }
   },
 
@@ -336,7 +338,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getSuccessMessage: (event: CorruptionRemovalCompleteEvent) =>
         formatCorruptionRemovalCompleteMessage(event),
       getSuccessDetails: (event: CorruptionRemovalCompleteEvent) => ({ service: event.service }),
-      useAnimationDelay: true
+      useAnimationDelay: true,
+      supportFastCompletion: true,
+      getFastCompletionId: () => NOTIFICATION_IDS.CORRUPTION_REMOVAL
     },
     onComplete: (removeNotification) => {
       removeNotification(NOTIFICATION_IDS.CORRUPTION_DETECTION);
@@ -476,7 +480,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         filesDeleted: event.filesDeleted,
         directoriesProcessed: event.directoriesProcessed
       }),
-      getFailureMessage: (event: CacheClearCompleteEvent) => formatCacheClearFailureMessage(event)
+      getFailureMessage: (event: CacheClearCompleteEvent) => formatCacheClearFailureMessage(event),
+      supportFastCompletion: true,
+      getFastCompletionId: () => NOTIFICATION_IDS.CACHE_CLEARING
     }
   },
 

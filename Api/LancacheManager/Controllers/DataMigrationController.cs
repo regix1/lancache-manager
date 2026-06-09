@@ -105,10 +105,6 @@ public class DataMigrationController : ControllerBase
             return StatusCode(500, new ErrorResponse { Error = "Target database connection string not configured" });
         }
 
-        // Get data migrator binary path
-        var dataMigratorPath = _pathResolver.GetRustDataMigratorPath();
-        _rustProcessHelper.ValidateRustBinaryExists(dataMigratorPath, "data_migrator");
-
         // Create temporary progress file
         var progressPath = Path.GetTempFileName();
 
@@ -123,6 +119,10 @@ public class DataMigrationController : ControllerBase
 
         try
         {
+            // Get data migrator binary path
+            var dataMigratorPath = _pathResolver.GetRustDataMigratorPath();
+            _rustProcessHelper.ValidateRustBinaryExists(dataMigratorPath, "data_migrator");
+
             // Build arguments for data_migrator
             // Sanitize the user-provided database path to prevent process argument injection
             var sanitizedSourcePath = RustProcessHelper.SanitizeProcessArgument(sourceDatabasePath);

@@ -113,19 +113,23 @@ public class RustLogRemovalService
     public object GetRemovalStatus()
     {
         ProgressData? progress = null;
-        try
+        var datasourceName = CurrentDatasource;
+        if (datasourceName != null)
         {
-            var operationsDir = _pathResolver.GetOperationsDirectory();
-            var progressPath = Path.Combine(operationsDir, "log_remove_progress.json");
-            if (File.Exists(progressPath))
+            try
             {
-                var json = File.ReadAllText(progressPath);
-                progress = System.Text.Json.JsonSerializer.Deserialize<ProgressData>(json);
+                var operationsDir = _pathResolver.GetOperationsDirectory();
+                var progressPath = Path.Combine(operationsDir, $"log_remove_progress_{datasourceName}.json");
+                if (File.Exists(progressPath))
+                {
+                    var json = File.ReadAllText(progressPath);
+                    progress = System.Text.Json.JsonSerializer.Deserialize<ProgressData>(json);
+                }
             }
-        }
-        catch
-        {
-            // Ignore read errors - file may be being written
+            catch
+            {
+                // Ignore read errors - file may be being written
+            }
         }
 
         // Return object with isProcessing and service fields that frontend expects
@@ -179,7 +183,8 @@ public class RustLogRemovalService
         long LinesProcessed = 0,
         long LinesRemoved = 0,
         int DatabaseRecordsDeleted = 0,
-        string? Datasource = null);
+        string? Datasource = null,
+        string? StageKey = null);
 
     /// <summary>
     /// Builds the onTerminalEmit closure that emits the terminal LogRemovalComplete event EXACTLY
@@ -216,7 +221,14 @@ public class RustLogRemovalService
                     LinesProcessed: metrics.LinesProcessed,
                     LinesRemoved: metrics.LinesRemoved,
                     DatabaseRecordsDeleted: metrics.DatabaseRecordsDeleted,
-                    Datasource: metrics.Datasource));
+                    Datasource: metrics.Datasource,
+                    StageKey: metrics.StageKey,
+                    Context: new Dictionary<string, object?>
+                    {
+                        ["service"] = metrics.Service,
+                        ["datasourceName"] = metrics.Datasource,
+                        ["linesRemoved"] = metrics.LinesRemoved
+                    }));
         };
     }
 
@@ -371,6 +383,7 @@ public class RustLogRemovalService
             var datasourcesProcessed = 0;
             var datasourcesSkipped = 0;
             var allSuccess = true;
+            string? lastStageKey = null;
 
             foreach (ResolvedDatasource datasource in datasources)
             {
@@ -475,6 +488,10 @@ public class RustLogRemovalService
                         totalFilesProcessed += dsProgress.FilesProcessed;
                         totalLinesProcessed += dsProgress.LinesProcessed;
                         totalLinesRemoved += dsProgress.LinesRemoved;
+                        if (!string.IsNullOrEmpty(dsProgress.StageKey))
+                        {
+                            lastStageKey = dsProgress.StageKey;
+                        }
                     }
 
                     if (exitCode != 0)
@@ -538,7 +555,8 @@ public class RustLogRemovalService
                     FilesProcessed = totalFilesProcessed,
                     LinesProcessed = totalLinesProcessed,
                     LinesRemoved = totalLinesRemoved,
-                    DatabaseRecordsDeleted = dbCleanupResult.TotalDeleted
+                    DatabaseRecordsDeleted = dbCleanupResult.TotalDeleted,
+                    StageKey = lastStageKey
                 };
 
                 _logger.LogInformation(
@@ -802,6 +820,16 @@ public class RustLogRemovalService
                     return false;
                 }
 
+                if (!string.IsNullOrWhiteSpace(result.Output))
+                {
+                    _logger.LogInformation("[Rust log removal] {Output}", result.Output);
+                }
+
+                if (!string.IsNullOrWhiteSpace(result.Error))
+                {
+                    _logger.LogInformation("[Rust log removal stderr] {Error}", result.Error);
+                }
+
                 if (exitCode == 0)
                 {
                     await _cacheManagementService.InvalidateServiceCountsCacheAsync();
@@ -816,10 +844,10 @@ public class RustLogRemovalService
                     // LogRemovalComplete is emitted inside CompleteOperation.
                     _completionMetrics = _completionMetrics with
                     {
-                        SuccessMessage = finalProgress?.StageKey ?? $"Successfully removed {service} entries from {datasourceName}",
                         FilesProcessed = finalProgress?.FilesProcessed ?? 0,
                         LinesProcessed = finalProgress?.LinesProcessed ?? 0,
-                        LinesRemoved = finalProgress?.LinesRemoved ?? 0
+                        LinesRemoved = finalProgress?.LinesRemoved ?? 0,
+                        StageKey = string.IsNullOrEmpty(finalProgress?.StageKey) ? null : finalProgress.StageKey
                     };
 
                     _logger.LogInformation("Log removal completed for {Service} in datasource {Datasource}: Removed {LinesRemoved} lines",
@@ -1053,8 +1081,14 @@ public class RustLogRemovalService
 
     public async Task<ProgressData?> GetProgressAsync()
     {
+        var datasourceName = CurrentDatasource;
+        if (datasourceName == null)
+        {
+            return null;
+        }
+
         var operationsDir = _pathResolver.GetOperationsDirectory();
-        var progressPath = Path.Combine(operationsDir, "log_remove_progress.json");
+        var progressPath = Path.Combine(operationsDir, $"log_remove_progress_{datasourceName}.json");
         return await ReadProgressFileAsync(progressPath);
     }
 

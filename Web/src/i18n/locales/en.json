@@ -5660,6 +5660,7 @@
       "progressWithCount": "Removing {{service}} entries ({{linesRemoved}} removed)...",
       "removing": "Removing {{service}} entries from logs...",
       "complete": "Removed {{service}} entries from logs.",
+      "completeNoFiles": "No matching log entries found — nothing to remove",
       "starting": {
         "default": "Starting removal of {{service}} entries from logs...",
         "multi": "Starting removal of {{service}} entries from {{datasourceCount}} datasource(s)...",

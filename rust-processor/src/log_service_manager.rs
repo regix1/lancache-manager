@@ -267,6 +267,21 @@ fn remove_service_from_logs(
 
     if log_files.is_empty() {
         eprintln!("No log files found matching pattern: {}", base_name);
+
+        let progress = ProgressData::new(
+            false,
+            100.0,
+            "completed".to_string(),
+            "No log files found".to_string(),
+            0,
+            0,
+            0,
+            None,
+            ds_name.clone(),
+        )
+        .with_stage_key("signalr.logRemoval.completeNoFiles");
+        write_progress(progress_path, &progress)?;
+
         return Ok(());
     }
 

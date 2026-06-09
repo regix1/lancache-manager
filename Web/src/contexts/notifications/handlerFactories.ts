@@ -224,16 +224,57 @@ export function createCompletionHandler<
     // Track the ID to schedule (may be different for fast completion)
     let idToSchedule = notificationId;
 
+    /** Builds a terminal card for fast completion (no prior started event). */
+    const buildFastCompletionNotification = (): UnifiedNotification => {
+      const fastId = config.getFastCompletionId?.(event) ?? notificationId;
+      idToSchedule = fastId;
+      const failureMessage = resolveFailureMessage();
+
+      if (event.success && !isCancelled) {
+        return {
+          id: fastId,
+          type: config.type,
+          status: 'completed' as const,
+          message:
+            config.getSuccessMessage?.(event) ??
+            (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
+            i18n.t('signalr.generic.complete'),
+          detailMessage: config.getDetailMessage?.(event),
+          startedAt: new Date(),
+          progress: 100,
+          details: config.getSuccessDetails?.(event)
+        };
+      }
+
+      return {
+        id: fastId,
+        type: config.type,
+        status: 'failed' as const,
+        message: failureMessage,
+        error: failureMessage,
+        detailMessage: config.getDetailMessage?.(event),
+        startedAt: new Date(),
+        progress: 100,
+        details: isCancelled
+          ? { ...config.getCancelledDetails?.(event), cancelled: true }
+          : config.getSuccessDetails?.(event)
+      };
+    };
+
     if (config.useAnimationDelay) {
       // Single atomic update that sets BOTH progress=100 AND final status
       setNotifications((prev: UnifiedNotification[]) => {
         const existing = prev.find((n) => n.id === notificationId);
 
-        // Validate notification exists
-        if (!existing) return prev;
-
-        // Only complete notifications that are still 'running'
-        if (existing.status !== 'running') return prev;
+        // Fast completion - no live running slot to transition (missing or already
+        // terminal); materialize a terminal card instead of dropping the event
+        if (!existing || existing.status !== 'running') {
+          if (config.supportFastCompletion) {
+            const newNotification = buildFastCompletionNotification();
+            return [...prev.filter((n) => n.id !== newNotification.id), newNotification];
+          }
+          return prev;
+        }
 
         return prev.map((n) => {
           if (n.id === notificationId) {
@@ -277,42 +318,7 @@ export function createCompletionHandler<
         if (!existing) {
           // Fast completion - no prior started event
           if (config.supportFastCompletion) {
-            const fastId = config.getFastCompletionId?.(event) ?? notificationId;
-            idToSchedule = fastId;
-            const failureMessage = resolveFailureMessage();
-
-            if (event.success && !isCancelled) {
-              const newNotification = {
-                id: fastId,
-                type: config.type,
-                status: 'completed' as const,
-                message:
-                  config.getSuccessMessage?.(event) ??
-                  (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-                  i18n.t('signalr.generic.complete'),
-                detailMessage: config.getDetailMessage?.(event),
-                startedAt: new Date(),
-                progress: 100,
-                details: config.getSuccessDetails?.(event)
-              };
-              return [...prev, newNotification];
-            }
-
-            const newNotification = {
-              id: fastId,
-              type: config.type,
-              status: 'failed' as const,
-              message: failureMessage,
-              error: failureMessage,
-              detailMessage: config.getDetailMessage?.(event),
-              startedAt: new Date(),
-              progress: 100,
-              details: isCancelled
-                ? { ...config.getCancelledDetails?.(event), cancelled: true }
-                : config.getSuccessDetails?.(event)
-            };
-
-            return [...prev, newNotification];
+            return [...prev, buildFastCompletionNotification()];
           }
           return prev;
         }
