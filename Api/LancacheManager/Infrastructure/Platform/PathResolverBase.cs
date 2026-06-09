@@ -264,7 +264,7 @@ public abstract class PathResolverBase : IPathResolver
     /// Finds a small sample of files near the directory root.
     /// Avoids recursive enumeration, which can block for minutes on large cache trees.
     /// </summary>
-    protected static List<string> FindSampleFiles(string directoryPath, int maxFiles = 5)
+    protected List<string> FindSampleFiles(string directoryPath, int maxFiles = 5)
     {
         var results = new List<string>(maxFiles);
 
@@ -295,9 +295,9 @@ public abstract class PathResolverBase : IPathResolver
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Caller falls back to create/delete test.
+            _logger.LogDebug(ex, "Shallow file sample failed for {Directory}; caller falls back to create/delete test", directoryPath);
         }
 
         return results;

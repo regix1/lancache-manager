@@ -11,7 +11,6 @@ public class ProcessManager : IHostedService, IDisposable
 {
     private readonly ILogger<ProcessManager> _logger;
     private readonly ConcurrentDictionary<int, Process> _activeProcesses = new();
-    private bool _isShuttingDown;
 
     public ProcessManager(ILogger<ProcessManager> logger)
     {
@@ -26,7 +25,6 @@ public class ProcessManager : IHostedService, IDisposable
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _isShuttingDown = true;
         _logger.LogWarning("ProcessManager stopping - terminating {Count} active processes", _activeProcesses.Count);
 
         var killTasks = _activeProcesses.Values.Select(process => Task.Run(async () =>

@@ -141,7 +141,7 @@ public partial class RustProcessHelper
 
     /// <summary>
     /// Core tracked-process runner: associate → execute → disassociate → dispose.
-    /// Process kill on cancel is handled by <see cref="UnifiedOperationTracker"/> when
+    /// Process kill on cancel is handled by <see cref="IUnifiedOperationTracker"/> when
     /// operationId is set; only untracked runs register a token callback to kill locally.
     /// </summary>
     public async Task<T> RunTrackedProcessAsync<T>(

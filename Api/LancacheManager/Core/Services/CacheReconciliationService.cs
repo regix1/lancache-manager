@@ -583,6 +583,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         int DatasourcesProcessed,
         int DatasourcesFailed);
 
+    /// <summary>
+    /// Starts bulk eviction removal for all evicted records.
+    /// </summary>
     /// <param name="cancellationToken">
     /// Unused for cancellation control — eviction removals are cancelled via the tracker
     /// (universal cancel/force-kill drives the registered CTS). Kept so the controller can pass
@@ -629,6 +632,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         return operationId;
     }
 
+    /// <summary>
+    /// Starts scoped eviction removal for a single game, service, or bulk target.
+    /// </summary>
     /// <param name="cancellationToken">
     /// Unused for cancellation control — eviction removals are cancelled via the tracker
     /// (universal cancel/force-kill drives the registered CTS). Kept so the controller can pass
