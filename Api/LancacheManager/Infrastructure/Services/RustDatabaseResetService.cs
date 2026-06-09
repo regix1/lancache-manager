@@ -41,6 +41,26 @@ public class RustDatabaseResetService
         _operationTracker = operationTracker;
     }
 
+    /// <summary>
+    /// Strongly-typed SignalR progress payload for database reset. Built from the polled Rust
+    /// <see cref="ProgressData"/> so we never forward that raw DTO over SignalR: its
+    /// <c>[JsonPropertyName("stage_key")]</c> would override the global camelCase policy and the
+    /// frontend would receive <c>stage_key</c> for db-reset while every other op emits <c>stageKey</c>
+    /// (D-rust-2). This record carries no JsonPropertyName attributes, so the global camelCase policy
+    /// serializes <c>StageKey</c> as <c>stageKey</c> like all other progress events.
+    /// </summary>
+    public record DatabaseResetProgress(
+        Guid? OperationId,
+        bool IsProcessing,
+        double PercentComplete,
+        string Status,
+        string StageKey,
+        int TablesCleared,
+        int TotalTables,
+        int FilesDeleted,
+        DateTime Timestamp,
+        Dictionary<string, object?>? Context = null);
+
     public class ProgressData
     {
         [System.Text.Json.Serialization.JsonPropertyName("isProcessing")]
@@ -256,7 +276,9 @@ public class RustDatabaseResetService
                     _currentTrackerOperationId,
                     _cancellationTokenSource.Token,
                     progressPath,
-                    async progress => await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, progress),
+                    async progress => await _notifications.NotifyAllAsync(
+                        SignalREvents.DatabaseResetProgress,
+                        ToProgressPayload(progress)),
                     processLabel: "database_reset");
 
                 var exitCode = result.ExitCode;
@@ -271,7 +293,9 @@ public class RustDatabaseResetService
                     var finalProgress = await ReadProgressFileAsync(progressPath);
                     if (finalProgress != null)
                     {
-                        await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, finalProgress);
+                        await _notifications.NotifyAllAsync(
+                            SignalREvents.DatabaseResetProgress,
+                            ToProgressPayload(finalProgress));
                     }
                     else
                     {
@@ -372,4 +396,22 @@ public class RustDatabaseResetService
     {
         return await _rustProcessHelper.ReadProgressFileAsync<ProgressData>(progressPath);
     }
+
+    /// <summary>
+    /// Projects the polled Rust <see cref="ProgressData"/> into the camelCase-serializing
+    /// <see cref="DatabaseResetProgress"/> record (stamping the current operation id), so the SignalR
+    /// payload emits <c>stageKey</c> instead of the DTO's attribute-forced <c>stage_key</c> (D-rust-2).
+    /// </summary>
+    private DatabaseResetProgress ToProgressPayload(ProgressData progress) =>
+        new(
+            OperationId: _currentTrackerOperationId,
+            IsProcessing: progress.IsProcessing,
+            PercentComplete: progress.PercentComplete,
+            Status: progress.Status,
+            StageKey: progress.StageKey,
+            TablesCleared: progress.TablesCleared,
+            TotalTables: progress.TotalTables,
+            FilesDeleted: progress.FilesDeleted,
+            Timestamp: progress.Timestamp == default ? DateTime.UtcNow : progress.Timestamp,
+            Context: progress.Context);
 }

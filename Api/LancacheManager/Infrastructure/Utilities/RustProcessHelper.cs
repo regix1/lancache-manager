@@ -15,6 +15,13 @@ public partial class RustProcessHelper
     private readonly IPathResolver _pathResolver;
     private readonly IUnifiedOperationTracker _operationTracker;
 
+    /// <summary>
+    /// Default interval (ms) between progress-file polls. Shared so the several callers that poll a
+    /// Rust progress JSON file (db reset, log removal, cache clear, corruption removal, eviction scan)
+    /// stay consistent instead of scattering 250/500 literals.
+    /// </summary>
+    public const int DefaultProgressPollMs = 500;
+
     // Matches characters that could be used for argument injection or shell escaping
     [GeneratedRegex(@"[""'`$\\!;|&<>(){}\[\]\r\n\0]")]
     private static partial Regex DangerousArgumentCharsRegex();
@@ -212,7 +219,7 @@ public partial class RustProcessHelper
         string? progressFilePath,
         Func<TProgress, Task>? onProgress,
         string processLabel = "rust",
-        int pollIntervalMs = 500) where TProgress : class =>
+        int pollIntervalMs = DefaultProgressPollMs) where TProgress : class =>
         RunTrackedProcessAsync(
             startInfo,
             operationId,
@@ -362,7 +369,7 @@ public partial class RustProcessHelper
         string progressPath,
         Func<T, Task> onProgressUpdate,
         CancellationToken cancellationToken,
-        int pollIntervalMs = 500) where T : class
+        int pollIntervalMs = DefaultProgressPollMs) where T : class
     {
         try
         {
@@ -600,6 +607,17 @@ public partial class RustProcessHelper
         bool detectRedownloads = false,
         Guid? operationId = null)
     {
+        // D-rust-4: the Rust `remove` command's only data sink is its progress_json file, which the
+        // CALLER monitors on a 500ms poll loop (CacheController). Previously that same caller path was
+        // ALSO passed here as the "output JSON" we read back after exit — so the poller and the
+        // result-reader raced on one file (a poll could read a half-written final-summary tick).
+        // Keep them on DISTINCT paths: the Rust binary writes progress to `progressFile` (the poll
+        // path) while the post-exit result read targets a SEPARATE internal temp. (Callers consume
+        // only Success/Error, not Data, so an empty output read is harmless.) The temp is created up
+        // front and removed unconditionally in the finally so it never leaks.
+        var progressArg = progressFile;
+        var outputFile = Path.GetTempFileName();
+
         try
         {
             // Sanitize user-provided service name to prevent process argument injection
@@ -610,9 +628,6 @@ public partial class RustProcessHelper
             var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
             ValidateRustBinaryExists(rustBinaryPath, "corruption_manager");
 
-            // Create temp file path once if not provided
-            var outputFile = progressFile ?? Path.GetTempFileName();
-
             // Build arguments based on command
             var noCacheCheckFlag = !compareToCacheLogs ? " --no-cache-check" : "";
             var redownloadFlag = detectRedownloads ? " --detect-redownloads" : "";
@@ -620,7 +635,7 @@ public partial class RustProcessHelper
             {
                 "summary" => $"summary \"{logsPath}\" \"{cachePath}\" UTC {threshold}{noCacheCheckFlag}{redownloadFlag}",
                 "remove" when !string.IsNullOrEmpty(service) =>
-                    $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{outputFile}\" {threshold}{noCacheCheckFlag}{redownloadFlag}",
+                    $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressArg}\" {threshold}{noCacheCheckFlag}{redownloadFlag}",
                 _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
             };
 
@@ -645,7 +660,9 @@ public partial class RustProcessHelper
 
             if (result.ExitCode == 0)
             {
-                // Try to read output JSON if it exists
+                // Try to read the internal output JSON if the binary wrote one. This temp is DISTINCT
+                // from the caller-polled progress file (see progressArg above), so reading it can never
+                // collide with the 500ms poll. It is cleaned up unconditionally in the finally.
                 object? data = null;
 
                 if (File.Exists(outputFile))
@@ -662,12 +679,6 @@ public partial class RustProcessHelper
                         else
                         {
                             _logger.LogDebug("corruption_manager output file is empty");
-                        }
-
-                        // Clean up temp file
-                        if (progressFile == null)
-                        {
-                            await DeleteTemporaryFileAsync(outputFile);
                         }
                     }
                     catch (Exception ex)
@@ -700,6 +711,12 @@ public partial class RustProcessHelper
                 Data = null,
                 Error = ex.Message
             };
+        }
+        finally
+        {
+            // Always remove the internal output-JSON temp (distinct from the caller-polled progress
+            // file). The caller owns cleanup of its own progress file.
+            await DeleteTemporaryFileAsync(outputFile);
         }
     }
 

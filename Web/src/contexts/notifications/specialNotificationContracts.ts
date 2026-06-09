@@ -14,8 +14,13 @@
  *
  * Invariants (load-bearing):
  * - `details.operationId` is carried through on every depot_mapping /
- *   database_reset / epic_game_mapping notification. Cancel plumbing in
+ *   database_reset / epic_game_mapping notification (start, progress AND the
+ *   terminal `DatabaseResetComplete`). Cancel plumbing in
  *   `UniversalNotificationBar` depends on it.
+ * - `database_reset` completes via the terminal `DatabaseResetComplete` event
+ *   (handled by `createCompletionHandler`) which is idempotent with the legacy
+ *   `DatabaseResetProgress(status==='completed')` completion — whichever arrives
+ *   first wins, the other is a safe no-op (factory only acts on a 'running' slot).
  * - `createStatusAwareProgressHandler` MERGES details across progress ticks
  *   (`prev.details` spread into new details). Do not replace the handler with
  *   anything that uses set-semantics instead of merge-semantics.
@@ -61,7 +66,8 @@ export const SPECIAL_NOTIFICATION_CONTRACTS: SpecialNotificationContract[] = [
     key: 'database_reset',
     subscribe: (h) => [
       { event: 'DatabaseResetStarted', handler: h.handleDatabaseResetStarted as EventHandler },
-      { event: 'DatabaseResetProgress', handler: h.handleDatabaseResetProgress as EventHandler }
+      { event: 'DatabaseResetProgress', handler: h.handleDatabaseResetProgress as EventHandler },
+      { event: 'DatabaseResetComplete', handler: h.handleDatabaseResetComplete as EventHandler }
     ]
   },
   {

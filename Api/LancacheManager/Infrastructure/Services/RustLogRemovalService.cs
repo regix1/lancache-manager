@@ -425,7 +425,9 @@ public class RustLogRemovalService
                     await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
                     {
                         OperationId = _currentTrackerOperationId,
-                        PercentComplete = (double)datasourcesProcessed / datasources.Count * 100.0,
+                        // Band START for this datasource (bottom of its slice of [0, ceiling]); the inner
+                        // file ticks below fill upward from here so there is no jump at the boundary.
+                        PercentComplete = (double)datasourcesProcessed / datasources.Count * MultiDatasourceFileCeiling,
                         Status = OperationStatus.Running,
                         StageKey = "signalr.logRemoval.processingDatasource",
                         Context = new Dictionary<string, object?> { ["service"] = service, ["datasourceName"] = datasource.Name },
@@ -441,7 +443,10 @@ public class RustLogRemovalService
                         _currentTrackerOperationId,
                         _cancellationTokenSource.Token,
                         dsProgressPath,
-                        progress => SendLogRemovalProgressAsync(progress, service, datasource.Name),
+                        // Scale this datasource's inner 0-100% into its band so the outer card moves
+                        // smoothly across datasources instead of jumping at each boundary. The bands fill
+                        // [0, MultiDatasourceFileCeiling]; DB cleanup owns the remaining top slice.
+                        progress => SendLogRemovalProgressAsync(progress, service, datasource.Name, datasourcesProcessed, datasources.Count, MultiDatasourceFileCeiling),
                         processLabel: "log_removal");
 
                     var exitCode = result.ExitCode;
@@ -903,7 +908,33 @@ public class RustLogRemovalService
         }
     }
 
-    private Task SendLogRemovalProgressAsync(ProgressData progress, string service, string datasourceName)
+    /// <summary>
+    /// Upper bound (percent) of the file-processing phase when removing across MULTIPLE datasources.
+    /// The datasource bands fill [0, MultiDatasourceFileCeiling]; the remaining
+    /// [MultiDatasourceFileCeiling, 100] is reserved for the post-loop database cleanup phase (which
+    /// emits 95% — see <see cref="CleanupDatabaseRecordsAsync"/>) and final completion, so progress
+    /// never steps backward from a full 100% band into the 95% cleanup tick.
+    /// </summary>
+    private const double MultiDatasourceFileCeiling = 95.0;
+
+    /// <summary>
+    /// Forwards a per-datasource Rust progress tick to the UI. The Rust log_manager reports
+    /// <see cref="ProgressData.PercentComplete"/> as 0-100 for the CURRENT datasource only, so when
+    /// removing across multiple datasources the raw value would reset to a low number at every
+    /// datasource boundary (a visible jump). To keep the outer card moving smoothly we scale the inner
+    /// percent into this datasource's band: datasource <paramref name="datasourceIndex"/> of
+    /// <paramref name="datasourceCount"/> maps inner 0-100% into
+    /// [index/count, (index+1)/count] * <paramref name="ceiling"/>. For the single-datasource path
+    /// (index 0, count 1) the band is [0, ceiling] with ceiling 100, so the inner percent passes
+    /// through unchanged.
+    /// </summary>
+    private Task SendLogRemovalProgressAsync(
+        ProgressData progress,
+        string service,
+        string datasourceName,
+        int datasourceIndex = 0,
+        int datasourceCount = 1,
+        double ceiling = 100.0)
     {
         // The Rust log_manager binary doesn't receive the datasource name (only the
         // log directory + service), so its progress JSON context omits `datasourceName`.
@@ -919,10 +950,12 @@ public class RustLogRemovalService
             enrichedContext["datasourceName"] = datasourceName;
         }
 
+        var scaledPercent = ScaleIntoBand(progress.PercentComplete, datasourceIndex, datasourceCount, ceiling);
+
         return _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
         {
             OperationId = _currentTrackerOperationId,
-            progress.PercentComplete,
+            PercentComplete = scaledPercent,
             Status = OperationStatus.Running,
             StageKey = progress.StageKey,
             Context = enrichedContext,
@@ -932,6 +965,26 @@ public class RustLogRemovalService
             Service = service,
             Datasource = datasourceName
         });
+    }
+
+    /// <summary>
+    /// Maps an inner 0-100 percent for datasource <paramref name="index"/> of <paramref name="count"/>
+    /// into that datasource's slice of the overall [0, <paramref name="ceiling"/>] range:
+    /// [index/count, (index+1)/count] * ceiling. Guards against a zero/negative count and clamps the
+    /// inner percent to 0-100 so a stray Rust value can't push the outer bar outside its band.
+    /// </summary>
+    private static double ScaleIntoBand(double innerPercent, int index, int count, double ceiling)
+    {
+        var clampedInner = Math.Clamp(innerPercent, 0.0, 100.0);
+
+        if (count <= 1)
+        {
+            return clampedInner / 100.0 * ceiling;
+        }
+
+        var bandStart = (double)index / count * ceiling;
+        var bandWidth = ceiling / count;
+        return bandStart + (clampedInner / 100.0 * bandWidth);
     }
 
     /// <summary>

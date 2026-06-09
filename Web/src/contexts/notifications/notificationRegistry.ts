@@ -5,7 +5,9 @@
  *
  * Types NOT in this registry (they stay manual in NotificationsContext.tsx):
  *   - depot_mapping: special completion handler with animation/cancellation logic
- *   - database_reset: no separate complete event (uses status-aware progress only)
+ *   - database_reset: special contract (started + progress + a terminal complete event
+ *     handled via createCompletionHandler, idempotent with the legacy progress-status
+ *     completion) — see specialNotificationContracts.ts / specialCaseHandlers.ts
  *   - epic_game_mapping: progress-only with custom EpicGameMappingsUpdated handler
  *   - SteamSessionError: custom one-shot error notification
  *   - EpicGameMappingsUpdated: custom one-shot notification

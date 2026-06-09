@@ -31,6 +31,7 @@ import {
 import {
   createStartedHandler,
   createStatusAwareProgressHandler,
+  createCompletionHandler,
   createDepotMappingCompletionHandler
 } from './handlerFactories';
 import i18n from '@/i18n';
@@ -44,12 +45,31 @@ import {
   formatEpicGameMappingsUpdatedMessage
 } from './detailMessageFormatters';
 
+/**
+ * Terminal `DatabaseResetComplete` SignalR payload (camelCase, mirrors the backend
+ * `SignalRNotifications.DatabaseResetComplete` record). Emitted exactly once via
+ * `OperationInfo.OnTerminalEmit` on the normal success/error path AND the universal
+ * force-kill/cancel path (PR2). Defined locally because the special-case handlers consume
+ * it directly; it satisfies `createCompletionHandler`'s `{ success; stageKey?; context?;
+ * message?; cancelled? }` generic constraint.
+ */
+interface DatabaseResetCompleteEvent {
+  operationId: string;
+  success: boolean;
+  stageKey?: string;
+  status?: string;
+  cancelled?: boolean;
+  error?: string;
+  context?: Record<string, string | number | boolean>;
+}
+
 export interface SpecialCaseHandlers {
   handleDepotMappingStarted: (event: DepotMappingStartedEvent) => void;
   handleDepotMappingProgress: (event: DepotMappingProgressEvent) => void;
   handleDepotMappingComplete: (event: DepotMappingCompleteEvent) => void;
   handleDatabaseResetStarted: (event: DatabaseResetStartedEvent) => void;
   handleDatabaseResetProgress: (event: DatabaseResetProgressEvent) => void;
+  handleDatabaseResetComplete: (event: DatabaseResetCompleteEvent) => void;
   handleEpicMappingProgress: (event: EpicMappingProgressEvent) => void;
   handleEpicGameMappingsUpdated: (event: EpicGameMappingsUpdatedEvent) => void;
   handleSteamSessionError: (event: SteamSessionErrorEvent) => void;
@@ -59,7 +79,8 @@ export interface SpecialCaseHandlers {
  * Creates all special-case notification handlers.
  * These are handlers that don't fit the standard registry pattern because they:
  * - Use a custom completion handler (depot mapping)
- * - Have no completion event (database reset)
+ * - Complete via a terminal event that is idempotent with a legacy progress-status
+ *   completion (database reset)
  * - Have only progress events (epic game mapping)
  * - Are one-shot custom handlers (EpicGameMappingsUpdated, SteamSessionError)
  */
@@ -110,7 +131,7 @@ export function createSpecialCaseHandlers(
     scheduleAutoDismiss
   );
 
-  // ========== Database Reset (only started + progress, no complete event) ==========
+  // ========== Database Reset (started + progress + terminal complete event) ==========
   const handleDatabaseResetStarted = createStartedHandler<DatabaseResetStartedEvent>(
     {
       type: 'database_reset',
@@ -146,6 +167,34 @@ export function createSpecialCaseHandlers(
     setNotifications,
     scheduleAutoDismiss,
     cancelAutoDismissTimer
+  );
+
+  // Terminal DatabaseResetComplete handler (PR2 emits this exactly once on the normal
+  // success/error path AND the universal force-kill/cancel path). Reuses the canonical
+  // createCompletionHandler factory. Idempotent by construction: the factory's immediate
+  // completion path returns `prev` unchanged when the target slot is no longer 'running'
+  // (handlerFactories.ts ~line 321), so if the legacy terminal progress tick already
+  // completed the notification this is a safe no-op — and vice versa. supportFastCompletion
+  // mirrors the progress handler so a Complete arriving with no prior notification still
+  // surfaces. operationId is seeded into success/cancelled details so a fast-created card
+  // keeps a working cancel button (Task 2 cancel safety).
+  const handleDatabaseResetComplete = createCompletionHandler<DatabaseResetCompleteEvent>(
+    {
+      type: 'database_reset',
+      getId: () => NOTIFICATION_IDS.DATABASE_RESET,
+      storageKey: NOTIFICATION_STORAGE_KEYS.DATABASE_RESET,
+      getSuccessMessage: (e) =>
+        e.stageKey ? i18n.t(e.stageKey, e.context ?? {}) : i18n.t('signalr.dbReset.complete'),
+      getSuccessDetails: (e) => ({ operationId: e.operationId }),
+      getFailureMessage: (e) =>
+        e.stageKey ? i18n.t(e.stageKey, e.context ?? {}) : i18n.t('signalr.generic.failed'),
+      getCancelledMessage: (e) =>
+        e.stageKey ? i18n.t(e.stageKey, e.context ?? {}) : i18n.t('signalr.dbReset.cancelled'),
+      getCancelledDetails: (e) => ({ operationId: e.operationId }),
+      supportFastCompletion: true
+    },
+    setNotifications,
+    scheduleAutoDismiss
   );
 
   // ========== Epic Game Mapping (progress only via createStatusAwareProgressHandler) ==========
@@ -265,6 +314,7 @@ export function createSpecialCaseHandlers(
     handleDepotMappingComplete,
     handleDatabaseResetStarted,
     handleDatabaseResetProgress,
+    handleDatabaseResetComplete,
     handleEpicMappingProgress,
     handleEpicGameMappingsUpdated,
     handleSteamSessionError
