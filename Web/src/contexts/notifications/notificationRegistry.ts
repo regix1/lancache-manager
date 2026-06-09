@@ -223,13 +223,21 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     complete: {
       getSuccessDetails: (event: GameRemovalCompleteEvent, existing) => ({
         ...existing?.details,
+        // Seed operationId + scope identity from the event so the fast-completion create
+        // path (no prior running slot) still produces a cancellable, scope-aware card.
+        // gameAppId/epicAppId are scope-exclusive (exactly one non-null).
+        operationId: event.operationId,
         ...(event.gameAppId !== null && { gameAppId: event.gameAppId }),
         ...(event.epicAppId !== null && { epicAppId: event.epicAppId }),
         gameName: event.gameName,
         filesDeleted: event.filesDeleted,
         bytesFreed: event.bytesFreed,
         logEntriesRemoved: event.logEntriesRemoved
-      })
+      }),
+      // Allow a GameRemovalComplete that arrives with NO live slot to still materialize a
+      // completed card instead of being dropped. Parity with service_removal above.
+      supportFastCompletion: true,
+      getFastCompletionId: () => NOTIFICATION_IDS.GAME_REMOVAL
     }
   },
 
@@ -270,10 +278,22 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     complete: {
       getSuccessDetails: (event: ServiceRemovalCompleteEvent, existing) => ({
         ...existing?.details,
+        // Seed operationId + service identity from the event so the fast-completion
+        // create path (no prior running slot) still produces a cancellable, scope-aware
+        // card. When `existing` is present these are merged after its details (event
+        // values win, which is fine - they describe the same completed op).
+        operationId: event.operationId,
+        service: event.serviceName,
         filesDeleted: event.filesDeleted,
         bytesFreed: event.bytesFreed,
         logEntriesRemoved: event.logEntriesRemoved
-      })
+      }),
+      // Allow a ServiceRemovalComplete that arrives with NO live slot (e.g. the started
+      // slot was removed by an orphaned auto-dismiss timer from a just-cancelled prior op)
+      // to still materialize a completed card instead of being dropped. Parity with
+      // game_detection / eviction_removal / data_import.
+      supportFastCompletion: true,
+      getFastCompletionId: () => NOTIFICATION_IDS.SERVICE_REMOVAL
     }
   },
 

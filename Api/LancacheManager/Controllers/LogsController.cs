@@ -563,7 +563,7 @@ public class LogsController : ControllerBase
 
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.LogRemoval,
-            ConflictScope.Bulk(),
+            ConflictScope.Service(service),
             cancellationToken);
         if (conflict != null)
         {
@@ -576,7 +576,7 @@ public class LogsController : ControllerBase
         {
             var raceConflict = await _conflictChecker.CheckAsync(
                 OperationType.LogRemoval,
-                ConflictScope.Bulk(),
+                ConflictScope.Service(service),
                 cancellationToken);
             if (raceConflict != null)
             {
@@ -621,7 +621,7 @@ public class LogsController : ControllerBase
 
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.LogRemoval,
-            ConflictScope.Bulk(),
+            ConflictScope.Service(service),
             cancellationToken);
         if (conflict != null)
         {
@@ -634,7 +634,7 @@ public class LogsController : ControllerBase
         {
             var raceConflict = await _conflictChecker.CheckAsync(
                 OperationType.LogRemoval,
-                ConflictScope.Bulk(),
+                ConflictScope.Service(service),
                 cancellationToken);
             if (raceConflict != null)
             {

@@ -56,6 +56,67 @@ public class OperationConflictCheckerTests
         Assert.Null(response);
     }
 
+    [Fact]
+    public async Task Blocks_LogRemoval_When_SameServiceLogRemoval_IsActiveAsync()
+    {
+        using var tracker = new TrackerHarness();
+        RegisterLogRemoval(tracker.Tracker, serviceName: "steam");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.LogRemoval,
+            ConflictScope.Service("steam"),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.duplicate", response!.StageKey);
+        Assert.Equal("service:steam", response.ActiveOperationScope);
+        Assert.Equal(nameof(OperationType.LogRemoval), response.ActiveOperationType);
+    }
+
+    [Fact]
+    public async Task Allows_LogRemoval_When_DifferentServiceLogRemoval_IsActiveAsync()
+    {
+        using var tracker = new TrackerHarness();
+        RegisterLogRemoval(tracker.Tracker, serviceName: "steam");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.LogRemoval,
+            ConflictScope.Service("epicgames"),
+            CancellationToken.None);
+
+        Assert.Null(response);
+    }
+
+    [Fact]
+    public async Task Allows_ServiceRemoval_When_SameServiceLogRemoval_IsActiveAsync()
+    {
+        // A log-pipeline op (touches nginx logs) must NOT block a cache ServiceRemoval
+        // for the same service - they operate on different resources.
+        using var tracker = new TrackerHarness();
+        RegisterLogRemoval(tracker.Tracker, serviceName: "steam");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.ServiceRemoval,
+            ConflictScope.Service("steam"),
+            CancellationToken.None);
+
+        Assert.Null(response);
+    }
+
+    private static void RegisterLogRemoval(IUnifiedOperationTracker tracker, string serviceName)
+    {
+        tracker.RegisterOperation(
+            OperationType.LogRemoval,
+            "Log Removal",
+            new CancellationTokenSource(),
+            new RemovalMetrics
+            {
+                EntityKind = "service",
+                EntityKey = serviceName.ToLowerInvariant(),
+                EntityName = serviceName
+            });
+    }
+
     private static void RegisterServiceRemoval(IUnifiedOperationTracker tracker, string serviceName)
     {
         tracker.RegisterOperation(

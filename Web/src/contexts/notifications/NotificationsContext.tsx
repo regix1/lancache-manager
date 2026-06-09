@@ -142,6 +142,16 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         startedAt: new Date()
       };
 
+      // Before inserting a fresh 'running' slot on a singleton id, kill any auto-dismiss
+      // timer left over from a PRIOR terminal op on that same id. Without this, the REST
+      // seed path (which inserts a running slot but does NOT cancel timers, unlike the
+      // SignalR createStartedHandler) can let an orphaned CANCELLED/completed timer from
+      // the previous op fire mid-flight and remove this new running slot - which would then
+      // cause the next Complete event to be dropped (existing absent / non-running guard).
+      if (notification.status === 'running') {
+        cancelAutoDismissTimer(id);
+      }
+
       setNotifications((prev: UnifiedNotification[]) => {
         const filtered = prev.filter((n) => n.id !== id);
         return [...filtered, newNotification];

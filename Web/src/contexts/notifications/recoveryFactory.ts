@@ -566,7 +566,13 @@ function createCacheRemovalsRecoveryFunction(
 
       const data = (await response.json()) as CacheRemovalsData;
 
-      if (!data.isProcessing) return;
+      // NOTE: no top-level `if (!data.isProcessing) return;` here. When the server reports
+      // no active processing, the per-type branches below must still run so their else
+      // (empty-array) branches stale-complete any stuck `running` card for game/service/
+      // corruption/eviction removal - exactly how createSimpleRecoveryFunction self-heals.
+      // recoverOperations / recoverEvictionRemovals already transition running→completed +
+      // scheduleAutoDismiss when their op array is empty. data.isProcessing===false implies
+      // every op array is empty/absent, so each branch takes its clear path.
 
       // Recover game removals.
       // Post-Phase-2 contract: game_removal rehydrates scope-aware identity. Steam entries

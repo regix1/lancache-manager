@@ -32,6 +32,10 @@ struct ProgressData {
     service_counts: Option<HashMap<String, u64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     datasource_name: Option<String>,
+    // i18n stage key consumed by C# RustLogRemovalService.ProgressData.StageKey
+    // (read via [JsonPropertyName("stage_key")]). Empty unless explicitly set so the
+    // frontend progress card always has a non-blank stage to render. See arch-rust-progress.md.
+    stage_key: String,
     timestamp: String,
 }
 
@@ -57,8 +61,16 @@ impl ProgressData {
             files_processed,
             service_counts,
             datasource_name,
+            stage_key: String::new(),
             timestamp: progress_utils::current_timestamp(),
         }
+    }
+
+    /// Attaches an i18n stage key for the C#/frontend progress card. Returns self so it can
+    /// be chained onto a `ProgressData::new(...)` call without touching the other call sites.
+    fn with_stage_key(mut self, stage_key: &str) -> Self {
+        self.stage_key = stage_key.to_string();
+        self
     }
 }
 
@@ -351,7 +363,7 @@ fn remove_service_from_logs(
                     file_index + 1,
                     None,
                     ds_name.clone(),
-                );
+                ).with_stage_key("signalr.logRemoval.removing");
                 write_progress(progress_path, &progress)?;
 
                 loop {
@@ -414,7 +426,7 @@ fn remove_service_from_logs(
                             file_index + 1,
                             None,
                             ds_name.clone(),
-                        );
+                        ).with_stage_key("signalr.logRemoval.removing");
                         write_progress(progress_path, &progress)?;
                         last_progress_update = Instant::now();
                     }
@@ -531,7 +543,7 @@ fn remove_service_from_logs(
         log_files.len(),
         None,
         ds_name,
-    );
+    ).with_stage_key("signalr.logRemoval.complete");
     write_progress(progress_path, &progress)?;
 
     Ok(())

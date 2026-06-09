@@ -209,12 +209,20 @@ public class RustLogRemovalService
         {
             _cancellationTokenSource = new CancellationTokenSource();
 
-            // Register with unified operation tracker for centralized cancellation
+            // Register with unified operation tracker for centralized cancellation.
+            // Service-scoped metadata so OperationConflictChecker.DeriveScope yields
+            // ConflictScope.Service(service): EntityKind="service" + lowercased EntityKey
+            // match ConflictScope.Service(service) (Ordinal compare requires identical casing).
             _currentTrackerOperationId = _operationTracker.RegisterOperation(
                 OperationType.LogRemoval,
                 "Log Removal",
                 _cancellationTokenSource,
-                new { service },
+                new RemovalMetrics
+                {
+                    EntityKind = "service",
+                    EntityKey = service.ToLowerInvariant(),
+                    EntityName = service
+                },
                 onTerminalCleanup: () =>
                 {
                     CurrentService = null;
@@ -546,6 +554,21 @@ public class RustLogRemovalService
         }
         finally
         {
+            // GUARANTEE terminality: if the worker is torn down (host shutdown, an exception thrown
+            // before any explicit CompleteOperation, a mid-await teardown inside ExecuteWithLockAsync)
+            // the tracker entry would otherwise stay Running forever and 409-block every future
+            // LogRemoval. CompleteOperation is idempotent via the Interlocked CompletedFlag, so this is
+            // a no-op when a happy/cancel/error path already completed it (in which case
+            // onTerminalCleanup has already nulled _currentTrackerOperationId and this guard is skipped).
+            var leakedOperationId = _currentTrackerOperationId;
+            if (leakedOperationId.HasValue && !IsOperationAlreadyTerminal())
+            {
+                _operationTracker.CompleteOperation(
+                    leakedOperationId.Value,
+                    success: false,
+                    error: "Log removal ended without reaching a terminal state");
+            }
+
             IsProcessing = false;
             CurrentService = null;
             CurrentDatasource = null;
@@ -601,12 +624,20 @@ public class RustLogRemovalService
         {
             _cancellationTokenSource = new CancellationTokenSource();
 
-            // Register with unified operation tracker for centralized cancellation
+            // Register with unified operation tracker for centralized cancellation.
+            // Service-scoped metadata so OperationConflictChecker.DeriveScope yields
+            // ConflictScope.Service(service): EntityKind="service" + lowercased EntityKey
+            // match ConflictScope.Service(service) (Ordinal compare requires identical casing).
             _currentTrackerOperationId = _operationTracker.RegisterOperation(
                 OperationType.LogRemoval,
                 "Log Removal",
                 _cancellationTokenSource,
-                new { service, datasourceName },
+                new RemovalMetrics
+                {
+                    EntityKind = "service",
+                    EntityKey = service.ToLowerInvariant(),
+                    EntityName = service
+                },
                 onTerminalCleanup: () =>
                 {
                     CurrentService = null;
@@ -758,6 +789,21 @@ public class RustLogRemovalService
         }
         finally
         {
+            // GUARANTEE terminality: if the worker is torn down (host shutdown, an exception thrown
+            // before any explicit CompleteOperation, a mid-await teardown inside ExecuteWithLockAsync)
+            // the tracker entry would otherwise stay Running forever and 409-block every future
+            // LogRemoval. CompleteOperation is idempotent via the Interlocked CompletedFlag, so this is
+            // a no-op when a happy/cancel/error path already completed it (in which case
+            // onTerminalCleanup has already nulled _currentTrackerOperationId and this guard is skipped).
+            var leakedOperationId = _currentTrackerOperationId;
+            if (leakedOperationId.HasValue && !IsOperationAlreadyTerminal())
+            {
+                _operationTracker.CompleteOperation(
+                    leakedOperationId.Value,
+                    success: false,
+                    error: "Log removal ended without reaching a terminal state");
+            }
+
             IsProcessing = false;
             CurrentService = null;
             CurrentDatasource = null;

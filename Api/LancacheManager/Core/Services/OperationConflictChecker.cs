@@ -96,6 +96,39 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
                 });
         }
 
+        // ---- 1b. Log-pipeline ops (LogRemoval / LogProcessing) ----
+        // These touch nginx log files, NOT the cache. They conflict ONLY with another op of the
+        // SAME type AND SAME scope:
+        //   - Two LogRemoval ops collide only when they target the SAME service (Service scope),
+        //     so different services' log removals run concurrently.
+        //   - LogProcessing is global (Bulk scope), so a second LogProcessing always collides.
+        // Handled explicitly here so they never fall into the cache-removal section below (which
+        // would otherwise block a LogRemoval against an unrelated same-service cache ServiceRemoval).
+        if (newType == OperationType.LogRemoval || newType == OperationType.LogProcessing)
+        {
+            if (newType == activeOp.Type && newScope.Matches(activeScope))
+            {
+                return BuildResponse(activeOp, activeScope,
+                    stageKey: "errors.conflict.duplicate",
+                    englishError: $"A {newType} operation for the same target is already in progress.",
+                    context: new Dictionary<string, object?>
+                    {
+                        ["activeType"] = activeOp.Type.ToString(),
+                        ["serviceName"] = newScope.Kind == "service" ? newScope.Key : null
+                    });
+            }
+
+            // Any other pairing (different log target, or a log op alongside a cache op) → ALLOW.
+            return null;
+        }
+
+        // A log-pipeline op is active and the NEW op is something else (a cache removal/scan).
+        // The new op does not touch nginx logs, so it never conflicts with an active log op → ALLOW.
+        if (activeOp.Type == OperationType.LogRemoval || activeOp.Type == OperationType.LogProcessing)
+        {
+            return null;
+        }
+
         // ---- 2. Scan × Scan / Scan × matching-removal rules ----
         // GameDetection + CorruptionDetection are read-only → tolerate unrelated removals (fall through).
         // Duplicate scans always block.
