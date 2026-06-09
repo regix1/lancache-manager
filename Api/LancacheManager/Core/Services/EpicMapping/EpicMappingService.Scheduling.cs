@@ -1,6 +1,7 @@
 using LancacheManager.Core.Utilities;
 using LancacheManager.Hubs;
 using LancacheManager.Models;
+using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Core.Services.EpicMapping;
 
@@ -91,7 +92,31 @@ public partial class EpicMappingService
                 _currentRefreshCts = null;
                 _currentOperationId = null;
                 _currentStatus = EpicMappingStatus.Idle;
-            }
+            },
+            onTerminalEmit: info => info.Cancelled
+                ? _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress,
+                    new EpicMappingComplete(
+                        OperationId: _currentOperationId, Success: false,
+                        Status: OperationStatus.Completed,
+                        StageKey: "signalr.epicMapping.cancelled",
+                        PercentComplete: 100.0, GamesDiscovered: _gamesDiscovered,
+                        Cancelled: true, Context: new Dictionary<string, object?>()))
+                : info.Success
+                    ? _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress,
+                        new EpicMappingComplete(
+                            OperationId: _currentOperationId, Success: true,
+                            Status: OperationStatus.Completed,
+                            StageKey: "signalr.epicMapping.completed",
+                            PercentComplete: 100.0, GamesDiscovered: _gamesDiscovered,
+                            Message: $"Epic catalog refresh completed - {_gamesDiscovered} games"))
+                    : _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress,
+                        new EpicMappingComplete(
+                            OperationId: _currentOperationId, Success: false,
+                            Status: OperationStatus.Failed,
+                            StageKey: "signalr.epicMapping.failed",
+                            PercentComplete: 0.0, GamesDiscovered: _gamesDiscovered,
+                            Error: info.Error,
+                            Context: new Dictionary<string, object?> { ["errorDetail"] = info.Error }))
         );
 
         _currentProgressPercent = 0;
@@ -133,17 +158,8 @@ public partial class EpicMappingService
                 _logger.LogInformation("Epic catalog refresh cancelled");
                 errorMessage = "Operation cancelled";
 
-                // Send cancellation notification (mirrors Steam's DepotMappingComplete with cancelled: true)
-                await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
-                {
-                    operationId = _currentOperationId,
-                    status = OperationStatus.Completed,
-                    percentComplete = 100.0,
-                    gamesDiscovered = _gamesDiscovered,
-                    stageKey = "signalr.epicMapping.cancelled",
-                    cancelled = true
-                });
-
+                // Terminal cancellation SignalR is emitted exactly once from the onTerminalEmit
+                // closure (CompletedFlag-gated) via CompleteOperation in the finally below.
                 _currentProgressPercent = 0;
                 _currentStatus = EpicMappingStatus.Idle;
             }
@@ -152,16 +168,8 @@ public partial class EpicMappingService
                 _logger.LogWarning(ex, "Epic catalog refresh failed");
                 errorMessage = ex.Message;
 
-                await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
-                {
-                    operationId = _currentOperationId,
-                    status = OperationStatus.Failed,
-                    percentComplete = 0.0,
-                    gamesDiscovered = _gamesDiscovered,
-                    stageKey = "signalr.epicMapping.failed",
-                    context = new Dictionary<string, object?> { ["errorDetail"] = ex.Message }
-                });
-
+                // Terminal failure SignalR (status=failed, context[errorDetail]) is emitted exactly
+                // once from the onTerminalEmit closure via CompleteOperation in the finally below.
                 _currentProgressPercent = 0;
                 _currentStatus = EpicMappingStatus.Idle;
             }
@@ -388,16 +396,9 @@ public partial class EpicMappingService
             _logger.LogWarning(ex, "Failed to resolve Epic downloads (non-fatal)");
         }
 
-        // Send completion progress event
+        // Terminal completion SignalR (status=completed, percentComplete=100, success message) is
+        // emitted exactly once from the onTerminalEmit closure via CompleteOperation in TryStartRefresh.
         _currentProgressPercent = 100;
-        await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
-        {
-            operationId = _currentOperationId,
-            status = OperationStatus.Completed,
-            percentComplete = 100.0,
-            gamesDiscovered = _gamesDiscovered,
-            message = $"Epic catalog refresh completed - {_gamesDiscovered} games"
-        });
 
         // Notify frontend of data updates
         await _notifications.NotifyAllAsync(SignalREvents.EpicGameMappingsUpdated, new

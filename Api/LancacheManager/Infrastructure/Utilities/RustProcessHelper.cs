@@ -243,19 +243,14 @@ public partial class RustProcessHelper
         Task? pollTask = null;
         if (!string.IsNullOrEmpty(progressFilePath) && onProgress != null)
         {
-            pollTask = Task.Run(async () =>
-            {
-                while (!process.HasExited && !pollCts.Token.IsCancellationRequested)
-                {
-                    await Task.Delay(pollIntervalMs, pollCts.Token);
-
-                    var progressData = await ReadProgressFileAsync<TProgress>(progressFilePath);
-                    if (progressData != null)
-                    {
-                        await onProgress(progressData);
-                    }
-                }
-            }, pollCts.Token);
+            pollTask = Task.Run(
+                () => PollProgressFileLoopAsync<TProgress>(
+                    progressFilePath,
+                    onProgress,
+                    () => !process.HasExited,
+                    pollIntervalMs,
+                    pollCts.Token),
+                pollCts.Token);
         }
 
         var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
@@ -362,25 +357,23 @@ public partial class RustProcessHelper
             },
             processLabel: processLabel);
 
-    /// <summary>
-    /// Monitors a progress file and invokes callback with progress updates
-    /// </summary>
-    public async Task MonitorProgressFileAsync<T>(
-        string progressPath,
-        Func<T, Task> onProgressUpdate,
-        CancellationToken cancellationToken,
-        int pollIntervalMs = DefaultProgressPollMs) where T : class
+    private async Task PollProgressFileLoopAsync<T>(
+        string progressFilePath,
+        Func<T, Task> onProgress,
+        Func<bool> shouldContinue,
+        int pollIntervalMs,
+        CancellationToken ct) where T : class
     {
         try
         {
-            while (!cancellationToken.IsCancellationRequested)
+            while (!ct.IsCancellationRequested && shouldContinue())
             {
-                await Task.Delay(pollIntervalMs, cancellationToken);
+                await Task.Delay(pollIntervalMs, ct);
 
-                var progress = await ReadProgressFileAsync<T>(progressPath);
-                if (progress != null)
+                var progressData = await ReadProgressFileAsync<T>(progressFilePath);
+                if (progressData != null)
                 {
-                    await onProgressUpdate(progress);
+                    await onProgress(progressData);
                 }
             }
         }
@@ -390,9 +383,24 @@ public partial class RustProcessHelper
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error monitoring progress file: {FilePath}", progressPath);
+            _logger.LogError(ex, "Error monitoring progress file: {FilePath}", progressFilePath);
         }
     }
+
+    /// <summary>
+    /// Monitors a progress file and invokes callback with progress updates
+    /// </summary>
+    public Task MonitorProgressFileAsync<T>(
+        string progressPath,
+        Func<T, Task> onProgressUpdate,
+        CancellationToken cancellationToken,
+        int pollIntervalMs = DefaultProgressPollMs) where T : class =>
+        PollProgressFileLoopAsync<T>(
+            progressPath,
+            onProgressUpdate,
+            () => true,
+            pollIntervalMs,
+            cancellationToken);
 
     /// <summary>
     /// Validates that a Rust binary exists at the specified path

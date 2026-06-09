@@ -323,6 +323,75 @@ public static class SignalRNotifications
 
     #endregion
 
+    #region Mapping / Import Notifications
+
+    /// <summary>
+    /// Notification when the Steam depot mapping scan completes (success, failure, or cancellation).
+    /// Property names/casing mirror the previous anonymous payloads emitted on the
+    /// <c>DepotMappingComplete</c> SignalR event EXACTLY (serialized camelCase via the global
+    /// <c>JsonNamingPolicy.CamelCase</c>): success carried
+    /// <c>success / message / totalMappings / downloadsUpdated / scanMode / isLoggedOn / timestamp</c>;
+    /// cancel carried <c>operationId / success / cancelled / message / isLoggedOn / timestamp</c>;
+    /// error carried <c>success / message / error / isLoggedOn / timestamp</c>. <c>OperationId</c> is
+    /// additive on the success/error paths (the prior anon omitted it there) and optional everywhere.
+    /// Emitted from a single place via <c>OperationInfo.OnTerminalEmit</c>.
+    /// </summary>
+    public record DepotMappingComplete(
+        Guid? OperationId,
+        bool Success,
+        string Message,
+        bool Cancelled = false,
+        int? TotalMappings = null,
+        int? DownloadsUpdated = null,
+        Models.DepotScanMode? ScanMode = null,
+        bool IsLoggedOn = false,
+        string? Error = null,
+        DateTime? Timestamp = null
+    );
+
+    /// <summary>
+    /// Notification when the Epic catalog mapping / auth-login terminal state is reached (success,
+    /// failure, or cancellation). Emitted on the <c>EpicMappingProgress</c> SignalR event (there is no
+    /// dedicated <c>EpicMappingComplete</c> event const — the terminal rides the progress event, exactly
+    /// as the prior anonymous payloads did). Property names/casing mirror those terminal anons EXACTLY
+    /// (<c>operationId / status / percentComplete / gamesDiscovered / stageKey / cancelled / context</c>);
+    /// <c>status</c> is the <c>OperationStatus</c> enum (Completed / Failed) as before. <c>Success</c> is
+    /// carried additively (the prior anon conveyed success via <c>status</c> only). Emitted from a single
+    /// place via <c>OperationInfo.OnTerminalEmit</c>.
+    /// </summary>
+    public record EpicMappingComplete(
+        Guid? OperationId,
+        bool Success,
+        Models.OperationStatus Status,
+        string StageKey,
+        double PercentComplete = 100.0,
+        int GamesDiscovered = 0,
+        bool Cancelled = false,
+        string? Error = null,
+        Dictionary<string, object?>? Context = null,
+        string? Message = null
+    );
+
+    /// <summary>
+    /// Notification when a data import completes (success, failure, or cancellation). Property
+    /// names/casing mirror the previous anonymous payloads emitted on the <c>DataImportComplete</c>
+    /// SignalR event EXACTLY (<c>operationId / success / message</c> on every path; the rich success
+    /// paths additionally carried <c>recordsImported / recordsSkipped / recordsErrors / totalRecords</c>).
+    /// Emitted from a single place via <c>OperationInfo.OnTerminalEmit</c>.
+    /// </summary>
+    public record DataImportComplete(
+        Guid OperationId,
+        bool Success,
+        string Message,
+        bool Cancelled = false,
+        ulong? RecordsImported = null,
+        ulong? RecordsSkipped = null,
+        ulong? RecordsErrors = null,
+        ulong? TotalRecords = null
+    );
+
+    #endregion
+
     #region Client Groups
 
     /// <summary>

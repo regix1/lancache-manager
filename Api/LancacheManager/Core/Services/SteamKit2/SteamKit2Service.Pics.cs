@@ -3,11 +3,22 @@ using LancacheManager.Hubs;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using SteamKit2;
+using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Core.Services.SteamKit2;
 
 public partial class SteamKit2Service
 {
+    // Captured-by-value completion metrics for the depot-mapping onTerminalEmit closure. The success
+    // metrics (totalMappings/downloadsUpdated/scanMode) are only known in the success path
+    // (UpdateDownloadsWithDepotMappingsAsync), NOT at CompleteOperation, so they are stashed here
+    // immediately before that path returns. Only one depot-mapping op runs at a time (enforced by the
+    // _rebuildActive guard), so a single set is safe. The closure (which fires exactly once inside
+    // CompleteOperation) reads these for the success branch.
+    private int _emitTotalMappings;
+    private int _emitDownloadsUpdated;
+    private DepotScanMode _emitScanMode;
+
     public bool TryStartRebuild(CancellationToken cancellationToken = default, bool incrementalOnly = false)
     {
         if (Interlocked.CompareExchange(ref _rebuildActive, 1, 0) != 0)
@@ -41,7 +52,10 @@ public partial class SteamKit2Service
         // operation immediately (no associated process to wait on) WITHOUT unwinding RunAsync's finally.
         // It mirrors the worker finally (lines 95-108): release the busy flag, dispose+null the CTS,
         // and null the current operation id so the next TryStartRebuild can run.
-        var operationId = _operationTracker.RegisterOperation(
+        // Pre-declared so the onTerminalEmit closure below can capture it: the closure only runs at
+        // terminal time (inside CompleteOperation), long after this assignment completes.
+        Guid operationId = default;
+        operationId = _operationTracker.RegisterOperation(
             OperationType.DepotMapping,
             "Depot Mapping",
             _currentRebuildCts,
@@ -51,7 +65,38 @@ public partial class SteamKit2Service
                 _currentRebuildCts?.Dispose();
                 _currentRebuildCts = null;
                 _currentPicsOperationId = null;
-            }
+            },
+            // Terminal DepotMappingComplete (success/cancel/error) fires EXACTLY ONCE from inside
+            // CompleteOperation via this closure. Success metrics are captured by value into the
+            // _emit* fields by the success path immediately before CompleteOperation runs.
+            onTerminalEmit: info => info.Cancelled
+                ? _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete,
+                    new DepotMappingComplete(
+                        OperationId: operationId,
+                        Success: false,
+                        Message: "Depot mapping scan cancelled",
+                        Cancelled: true,
+                        IsLoggedOn: IsSteamAuthenticated,
+                        Timestamp: DateTime.UtcNow))
+                : info.Success
+                    ? _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete,
+                        new DepotMappingComplete(
+                            OperationId: operationId,
+                            Success: true,
+                            Message: $"Depot mapping completed - {_emitTotalMappings} mappings, {_emitDownloadsUpdated} downloads updated",
+                            TotalMappings: _emitTotalMappings,
+                            DownloadsUpdated: _emitDownloadsUpdated,
+                            ScanMode: _emitScanMode,
+                            IsLoggedOn: IsSteamAuthenticated,
+                            Timestamp: DateTime.UtcNow))
+                    : _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete,
+                        new DepotMappingComplete(
+                            OperationId: operationId,
+                            Success: false,
+                            Message: $"Depot mapping failed: {info.Error}",
+                            Error: info.Error,
+                            IsLoggedOn: IsSteamAuthenticated,
+                            Timestamp: DateTime.UtcNow))
         );
         _currentPicsOperationId = operationId;
 
@@ -80,18 +125,9 @@ public partial class SteamKit2Service
                 _logger.LogInformation("Steam PICS depot crawl cancelled");
                 errorMessage = "Operation cancelled";
 
-                // Always send cancellation notification from the task itself
-                // This ensures the frontend is notified regardless of which cancel path was used
-                // (CancelRebuildAsync via REST, or UnifiedOperationTracker.CancelOperation via notification bar)
-                await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
-                {
-                    operationId,
-                    success = false,
-                    cancelled = true,
-                    message = "Depot mapping scan cancelled",
-                    isLoggedOn = IsSteamAuthenticated,
-                    timestamp = DateTime.UtcNow
-                });
+                // Terminal DepotMappingComplete (cancelled) is emitted by the onTerminalEmit closure
+                // inside CompleteOperation (exactly-once, CompletedFlag-gated), regardless of which
+                // cancel path was used (CancelRebuildAsync via REST, or the unified tracker cancel path).
             }
             catch (Exception ex)
             {
@@ -205,15 +241,9 @@ public partial class SteamKit2Service
             _lastErrorMessage = ex.Message;
             _logger.LogError(ex, "Error building depot index");
 
-            // Send error notification
-            await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
-            {
-                success = false,
-                message = $"Depot mapping failed: {ex.Message}",
-                error = ex.Message,
-                isLoggedOn = IsSteamAuthenticated,
-                timestamp = DateTime.UtcNow
-            });
+            // Terminal DepotMappingComplete (error) is emitted by the onTerminalEmit closure inside
+            // CompleteOperation. The exception propagates to RunAsync, which passes ex.Message as the
+            // error to CompleteOperation, so the closure reconstructs the same wire message/error.
 
             // Re-throw the exception so calling code knows the operation failed
             throw;
@@ -514,18 +544,13 @@ public partial class SteamKit2Service
         ClearViabilityCache();
         _logger.LogInformation("Cleared cached viability check - next check will query Steam for fresh data");
 
-        // Send completion notification
+        // Capture the success metrics BY VALUE so the onTerminalEmit closure (which fires exactly
+        // once inside CompleteOperation, after RunAsync sets success=true) builds the typed
+        // DepotMappingComplete record with the same wire shape the old inline anon emitted here.
         var totalMappings = _depotToAppMappings.Count;
-        await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
-        {
-            success = true,
-            message = $"Depot mapping completed - {totalMappings} mappings, {downloadsUpdated} downloads updated",
-            totalMappings,
-            downloadsUpdated,
-            scanMode = incrementalOnly ? DepotScanMode.Incremental : DepotScanMode.Full,
-            isLoggedOn = IsSteamAuthenticated,
-            timestamp = DateTime.UtcNow
-        });
+        _emitTotalMappings = totalMappings;
+        _emitDownloadsUpdated = downloadsUpdated;
+        _emitScanMode = incrementalOnly ? DepotScanMode.Incremental : DepotScanMode.Full;
     }
 
     private List<uint> ProcessAppDepots(SteamApps.PICSProductInfoCallback.PICSProductInfo app)

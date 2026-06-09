@@ -3,6 +3,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Utilities;
+using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
@@ -19,6 +20,24 @@ namespace LancacheManager.Controllers;
 public class DataMigrationController : ControllerBase
 {
     private static readonly SemaphoreSlim _importStartLock = new(1, 1);
+
+    /// <summary>
+    /// Per-operation mutable result holder. The two import action methods share one
+    /// <see cref="BeginDataImportAsync"/> register factory, but the terminal metrics
+    /// (counts + message) are only known at emit time. Each method fills this holder
+    /// immediately BEFORE calling <c>CompleteOperation</c>; the <c>onTerminalEmit</c>
+    /// closure (created in the factory) reads it to build the single DataImportComplete
+    /// event. Records* stay null for success-no-progress and the early validation
+    /// fast-fail paths.
+    /// </summary>
+    private sealed class DataImportResultHolder
+    {
+        public string? Message { get; set; }
+        public ulong? RecordsImported { get; set; }
+        public ulong? RecordsSkipped { get; set; }
+        public ulong? RecordsErrors { get; set; }
+        public ulong? TotalRecords { get; set; }
+    }
 
     private readonly ILogger<DataMigrationController> _logger;
     private readonly IPathResolver _pathResolver;
@@ -68,6 +87,7 @@ public class DataMigrationController : ControllerBase
 
         var cts = start.CancellationTokenSource!;
         var operationId = start.OperationId!.Value;
+        var result = start.Result!;
 
         // Extract the database path - supports both raw paths and connection strings
         var sourceDatabasePath = ExtractDatabasePath(request.ConnectionString);
@@ -115,23 +135,19 @@ public class DataMigrationController : ControllerBase
 
             // Start the process with operation-tracker association for universal cancel/force-kill
             var startInfo = _rustProcessHelper.CreateProcessStartInfo(dataMigratorPath, arguments);
-            var result = await _rustProcessHelper.ExecuteTrackedProcessAsync(
+            var execResult = await _rustProcessHelper.ExecuteTrackedProcessAsync(
                 startInfo, operationId, cts.Token, "data_migrator");
 
-            if (result.ExitCode != 0)
+            if (execResult.ExitCode != 0)
             {
-                var errorMessage = $"Data migration failed with exit code {result.ExitCode}";
+                var errorMessage = $"Data migration failed with exit code {execResult.ExitCode}";
+                // Terminal DataImportComplete is emitted once from the onTerminalEmit closure
+                // (fail branch uses info.Error == errorMessage).
                 _operationTracker.CompleteOperation(operationId, false, errorMessage);
-                await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
-                {
-                    OperationId = operationId,
-                    Success = false,
-                    Message = errorMessage
-                });
                 return StatusCode(500, new ErrorResponse
                 {
                     Error = "Data migration failed",
-                    Details = $"Process exited with code {result.ExitCode}"
+                    Details = $"Process exited with code {execResult.ExitCode}"
                 });
             }
 
@@ -141,13 +157,9 @@ public class DataMigrationController : ControllerBase
             if (progress == null)
             {
                 _logger.LogWarning("Progress file not found after migration");
+                // Success-no-progress: leave Records* null; closure emits the single terminal event.
+                result.Message = "Import completed but progress data unavailable";
                 _operationTracker.CompleteOperation(operationId, true);
-                await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
-                {
-                    OperationId = operationId,
-                    Success = true,
-                    Message = "Import completed but progress data unavailable"
-                });
                 return Ok(new MessageResponse { Message = "Import completed but progress data unavailable" });
             }
 
@@ -157,17 +169,13 @@ public class DataMigrationController : ControllerBase
 
             // Send completion notification
             _operationTracker.UpdateProgress(operationId, 100, $"Import completed: {progress.RecordsImported} imported, {progress.RecordsSkipped} skipped");
+            // Fill the per-op holder so the onTerminalEmit closure reproduces the old success wire shape.
+            result.Message = $"Import completed: {progress.RecordsImported} imported, {progress.RecordsSkipped} skipped";
+            result.RecordsImported = progress.RecordsImported;
+            result.RecordsSkipped = progress.RecordsSkipped;
+            result.RecordsErrors = progress.RecordsErrors;
+            result.TotalRecords = progress.RecordsProcessed;
             _operationTracker.CompleteOperation(operationId, true);
-            await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
-            {
-                OperationId = operationId,
-                Success = true,
-                Message = $"Import completed: {progress.RecordsImported} imported, {progress.RecordsSkipped} skipped",
-                RecordsImported = progress.RecordsImported,
-                RecordsSkipped = progress.RecordsSkipped,
-                RecordsErrors = progress.RecordsErrors,
-                TotalRecords = progress.RecordsProcessed
-            });
 
             return Ok(new MigrationImportResponse
             {
@@ -182,24 +190,14 @@ public class DataMigrationController : ControllerBase
         catch (OperationCanceledException)
         {
             _logger.LogWarning("DeveLanCacheUI import was cancelled (Operation: {OperationId})", operationId);
+            // Cancel branch of the closure defaults Message to "Import was cancelled by user" (Records* null).
             _operationTracker.CompleteOperation(operationId, false, "Import was cancelled by user");
-            await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
-            {
-                OperationId = operationId,
-                Success = false,
-                Message = "Import was cancelled by user"
-            });
             return StatusCode(499, new ErrorResponse { Error = "Import was cancelled by user" });
         }
         catch (Exception ex)
         {
+            // Fail branch uses info.Error == ex.Message (matches the old wire message).
             _operationTracker.CompleteOperation(operationId, false, ex.Message);
-            await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
-            {
-                OperationId = operationId,
-                Success = false,
-                Message = ex.Message
-            });
             throw;
         }
         finally
@@ -231,6 +229,7 @@ public class DataMigrationController : ControllerBase
 
         var cts = start.CancellationTokenSource!;
         var operationId = start.OperationId!.Value;
+        var result = start.Result!;
 
         NpgsqlConnectionStringBuilder sourceConnBuilder;
         try
@@ -461,17 +460,13 @@ public class DataMigrationController : ControllerBase
 
             // Send completion notification
             _operationTracker.UpdateProgress(operationId, 100, $"Import completed: {recordsImported:N0} imported, {recordsSkipped:N0} skipped");
+            // Fill the per-op holder so the onTerminalEmit closure reproduces the old success wire shape.
+            result.Message = $"Import completed: {recordsImported:N0} imported, {recordsSkipped:N0} skipped";
+            result.RecordsImported = recordsImported;
+            result.RecordsSkipped = recordsSkipped;
+            result.RecordsErrors = recordsErrors;
+            result.TotalRecords = totalRecords;
             _operationTracker.CompleteOperation(operationId, true);
-            await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
-            {
-                OperationId = operationId,
-                Success = true,
-                Message = $"Import completed: {recordsImported:N0} imported, {recordsSkipped:N0} skipped",
-                RecordsImported = recordsImported,
-                RecordsSkipped = recordsSkipped,
-                RecordsErrors = recordsErrors,
-                TotalRecords = totalRecords
-            });
 
             return Ok(new MigrationImportResponse
             {
@@ -486,17 +481,13 @@ public class DataMigrationController : ControllerBase
         catch (OperationCanceledException)
         {
             _logger.LogInformation("LancacheManager import was cancelled by user");
+            // Fill the per-op holder so the cancel-branch terminal event keeps the old wire message + counts.
+            result.Message = "Import was cancelled";
+            result.RecordsImported = recordsImported;
+            result.RecordsSkipped = recordsSkipped;
+            result.RecordsErrors = recordsErrors;
+            result.TotalRecords = totalRecords;
             _operationTracker.CompleteOperation(operationId, false, "Cancelled by user");
-            await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
-            {
-                OperationId = operationId,
-                Success = false,
-                Message = "Import was cancelled",
-                RecordsImported = recordsImported,
-                RecordsSkipped = recordsSkipped,
-                RecordsErrors = recordsErrors,
-                TotalRecords = totalRecords
-            });
 
             return Ok(new MigrationImportResponse
             {
@@ -511,17 +502,13 @@ public class DataMigrationController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during LancacheManager import");
+            // Fill the per-op holder so the fail-branch terminal event keeps "Import failed: ..." + counts.
+            result.Message = $"Import failed: {ex.Message}";
+            result.RecordsImported = recordsImported;
+            result.RecordsSkipped = recordsSkipped;
+            result.RecordsErrors = recordsErrors;
+            result.TotalRecords = totalRecords;
             _operationTracker.CompleteOperation(operationId, false, ex.Message);
-            await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
-            {
-                OperationId = operationId,
-                Success = false,
-                Message = $"Import failed: {ex.Message}",
-                RecordsImported = recordsImported,
-                RecordsSkipped = recordsSkipped,
-                RecordsErrors = recordsErrors,
-                TotalRecords = totalRecords
-            });
             throw;
         }
     }
@@ -679,7 +666,7 @@ public class DataMigrationController : ControllerBase
         return trimmed;
     }
 
-    private async Task<(Guid? OperationId, CancellationTokenSource? CancellationTokenSource, OperationConflictResponse? Conflict)> BeginDataImportAsync(
+    private async Task<(Guid? OperationId, CancellationTokenSource? CancellationTokenSource, DataImportResultHolder? Result, OperationConflictResponse? Conflict)> BeginDataImportAsync(
         string operationName,
         CancellationToken cancellationToken)
     {
@@ -692,12 +679,51 @@ public class DataMigrationController : ControllerBase
                 cancellationToken);
             if (conflict != null)
             {
-                return (null, null, conflict);
+                return (null, null, null, conflict);
             }
 
             var cts = new CancellationTokenSource();
-            var operationId = _operationTracker.RegisterOperation(OperationType.DataImport, operationName, cts);
-            return (operationId, cts, null);
+            var result = new DataImportResultHolder();
+            // Single terminal emit for the whole op: every CompleteOperation (success, cancel,
+            // exception, AND the early validation fast-fails) funnels here exactly once. The owning
+            // method fills `result` before completing; cancel/error/validation fall back to info.Error.
+            Guid registeredId = Guid.Empty;
+            var operationId = _operationTracker.RegisterOperation(
+                OperationType.DataImport,
+                operationName,
+                cts,
+                onTerminalEmit: info => info.Cancelled
+                    ? _notifications.NotifyAllAsync(SignalREvents.DataImportComplete,
+                        new DataImportComplete(
+                            OperationId: registeredId,
+                            Success: false,
+                            Message: result.Message ?? "Import was cancelled by user",
+                            Cancelled: true,
+                            RecordsImported: result.RecordsImported,
+                            RecordsSkipped: result.RecordsSkipped,
+                            RecordsErrors: result.RecordsErrors,
+                            TotalRecords: result.TotalRecords))
+                    : info.Success
+                        ? _notifications.NotifyAllAsync(SignalREvents.DataImportComplete,
+                            new DataImportComplete(
+                                OperationId: registeredId,
+                                Success: true,
+                                Message: result.Message ?? "Import completed",
+                                RecordsImported: result.RecordsImported,
+                                RecordsSkipped: result.RecordsSkipped,
+                                RecordsErrors: result.RecordsErrors,
+                                TotalRecords: result.TotalRecords))
+                        : _notifications.NotifyAllAsync(SignalREvents.DataImportComplete,
+                            new DataImportComplete(
+                                OperationId: registeredId,
+                                Success: false,
+                                Message: result.Message ?? info.Error ?? "Data import failed",
+                                RecordsImported: result.RecordsImported,
+                                RecordsSkipped: result.RecordsSkipped,
+                                RecordsErrors: result.RecordsErrors,
+                                TotalRecords: result.TotalRecords)));
+            registeredId = operationId;
+            return (operationId, cts, result, null);
         }
         finally
         {

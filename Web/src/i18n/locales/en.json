@@ -5513,6 +5513,7 @@
       "checkingFreeGames": "Checking for free game promotions...",
       "applyingMappings": "Resolving Epic downloads to game names...",
       "gamesDiscovered": "Discovered {{gamesDiscovered}} games",
+      "completed": "Epic catalog refresh completed - {{gamesDiscovered}} games",
       "cancelled": "Epic catalog refresh cancelled",
       "failed": "Epic catalog refresh failed: {{errorDetail}}"
     },

@@ -60,8 +60,8 @@ public class OperationInfo
     /// event from a single place regardless of which path completed the op (worker success,
     /// worker OCE-catch, or universal force-kill). Receives a strongly-typed
     /// <see cref="OperationTerminalInfo"/>. Must not throw (exceptions are swallowed/logged like
-    /// <see cref="OnTerminalCleanup"/>). When this is non-null the op is "migrated" — the legacy
-    /// <c>OperationCancellationService.NotifyForceKillCompleteAsync</c> switch no-ops for it.</summary>
+    /// <see cref="OnTerminalCleanup"/>). This is the sole source of an operation's terminal SignalR
+    /// event on every completion path (worker success, worker OCE-catch, and universal force-kill).</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public Func<OperationTerminalInfo, Task>? OnTerminalEmit { get; set; }
 

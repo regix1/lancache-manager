@@ -24,17 +24,12 @@ mod progress_utils;
 mod service_utils;
 
 use cache_corruption_detector::CorruptionDetector;
-use progress_events::ProgressReporter;
 
 /// Cache corruption detector and remover
 #[derive(Parser, Debug)]
 #[command(name = "cache_corruption")]
 #[command(about = "Detects and removes corrupted cache chunks")]
 struct Args {
-    /// Emit JSON progress events to stdout
-    #[arg(short, long, global = true)]
-    progress: bool,
-
     #[command(subcommand)]
     command: Commands,
 }
@@ -278,11 +273,9 @@ async fn delete_corrupted_from_database(
 async fn main() -> Result<()> {
     cancel::install();
     let args = Args::parse();
-    let reporter = ProgressReporter::new(args.progress);
 
     match args.command {
         Commands::Detect { log_dir, cache_dir, output_json, timezone, threshold, no_cache_check, detect_redownloads } => {
-            reporter.emit_started("signalr.corruptionDetect.scanningLogs", json!({}));
 
             let log_dir = PathBuf::from(&log_dir);
             let cache_dir = PathBuf::from(&cache_dir);
@@ -302,7 +295,6 @@ async fn main() -> Result<()> {
             eprintln!("  Skip cache check: {}", no_cache_check);
             eprintln!("  Detect redownloads: {}", detect_redownloads);
 
-            reporter.emit_progress(10.0, "signalr.corruptionDetect.scanningLogs", json!({}));
 
             let detector = CorruptionDetector::new(&cache_dir, threshold)
                 .with_skip_cache_check(no_cache_check);
@@ -311,7 +303,6 @@ async fn main() -> Result<()> {
                     Ok(r) => r,
                     Err(e) => {
                         let msg = format!("Failed to generate re-download report: {}", e);
-                        reporter.emit_failed("signalr.corruptionDetect.scanningLogs", json!({ "errorDetail": msg }));
                         anyhow::bail!("{}", msg);
                     }
                 }
@@ -320,13 +311,11 @@ async fn main() -> Result<()> {
                     Ok(r) => r,
                     Err(e) => {
                         let msg = format!("Failed to generate corruption report: {}", e);
-                        reporter.emit_failed("signalr.corruptionDetect.scanningLogs", json!({ "errorDetail": msg }));
                         anyhow::bail!("{}", msg);
                     }
                 }
             };
 
-            reporter.emit_progress(80.0, "signalr.corruptionDetect.found", json!({ "totalCorrupted": report.summary.total_corrupted, "serviceCount": report.summary.service_counts.len() }));
 
             eprintln!("Found {} corrupted chunks across {} services",
                 report.summary.total_corrupted,
@@ -339,11 +328,9 @@ async fn main() -> Result<()> {
             file.flush()?;
 
             eprintln!("Report saved to: {}", output_json.display());
-            reporter.emit_complete("signalr.corruptionDetect.reportSaved", json!({ "outputJson": output_json.display().to_string() }));
         }
 
         Commands::Summary { log_dir, cache_dir, progress_json, timezone, threshold, no_cache_check, detect_redownloads } => {
-            reporter.emit_started("signalr.corruptionSummary.scanningLogs", json!({}));
 
             let log_dir = PathBuf::from(&log_dir);
             let cache_dir = PathBuf::from(&cache_dir);
@@ -370,7 +357,6 @@ async fn main() -> Result<()> {
             eprintln!("  Skip cache check: {}", no_cache_check);
             eprintln!("  Detect redownloads: {}", detect_redownloads);
 
-            reporter.emit_progress(10.0, "signalr.corruptionSummary.scanningLogs", json!({}));
 
             let detector = CorruptionDetector::new(&cache_dir, threshold)
                 .with_skip_cache_check(no_cache_check);
@@ -381,7 +367,6 @@ async fn main() -> Result<()> {
                     Ok(s) => s,
                     Err(e) => {
                         let msg = format!("Failed to generate re-download summary: {}", e);
-                        reporter.emit_failed("signalr.corruptionSummary.scanningLogs", json!({ "errorDetail": msg }));
                         anyhow::bail!("{}", msg);
                     }
                 }
@@ -392,7 +377,6 @@ async fn main() -> Result<()> {
                     Ok(s) => s,
                     Err(e) => {
                         let msg = format!("Failed to generate corruption summary: {}", e);
-                        reporter.emit_failed("signalr.corruptionSummary.scanningLogs", json!({ "errorDetail": msg }));
                         anyhow::bail!("{}", msg);
                     }
                 }
@@ -401,11 +385,9 @@ async fn main() -> Result<()> {
             // Output JSON to stdout for C# to capture (ONLY stdout should be JSON)
             let json = serde_json::to_string(&summary)?;
             println!("{}", json);
-            reporter.emit_complete("signalr.corruptionSummary.complete", json!({}));
         }
 
         Commands::Remove { log_dir, cache_dir, service, progress_json, threshold, no_cache_check, detect_redownloads } => {
-            reporter.emit_started("signalr.corruptionRemove.starting", json!({ "service": service }));
 
             let log_dir = PathBuf::from(&log_dir);
             let cache_dir = PathBuf::from(&cache_dir);
@@ -420,7 +402,6 @@ async fn main() -> Result<()> {
             eprintln!("  Cache directory: {}", cache_dir.display());
 
             write_progress(&progress_path, "starting", "signalr.corruptionRemove.starting", json!({ "service": service }), 0.0, 0, 0)?;
-            reporter.emit_progress(0.0, "signalr.corruptionRemove.starting", json!({ "service": service }));
 
             use log_reader::LogFileReader;
             use std::io::Write as IoWrite;
@@ -434,7 +415,6 @@ async fn main() -> Result<()> {
 
                 eprintln!("Step 1: Detecting re-downloaded URLs for {}...", service);
                 write_progress(&progress_path, "scanning", "signalr.corruptionRemove.scanningRedownload", json!({}), 5.0, 0, 0)?;
-                reporter.emit_progress(5.0, "signalr.corruptionRemove.scanningRedownload", json!({}));
 
                 let detector = CorruptionDetector::new(&cache_dir, miss_threshold);
                 let timezone_tz: chrono_tz::Tz = chrono_tz::UTC;
@@ -452,7 +432,6 @@ async fn main() -> Result<()> {
                 if service_urls_with_sizes.is_empty() {
                     eprintln!("No re-download corrupted chunks found for {}, nothing to remove", service);
                     write_progress(&progress_path, "completed", "signalr.corruptionRemove.noChunksFound", json!({}), 100.0, 0, 0)?;
-                    reporter.emit_complete("signalr.corruptionRemove.noChunksFound", json!({}));
                     return Ok(());
                 }
 
@@ -468,12 +447,10 @@ async fn main() -> Result<()> {
                 let mut total_lines_removed: u64 = 0;
 
                 write_progress(&progress_path, "filtering", "signalr.corruptionRemove.filteringLogs", json!({ "totalFiles": total_files }), 30.0, 0, total_files)?;
-                reporter.emit_progress(30.0, "signalr.corruptionRemove.filteringLogs", json!({ "totalFiles": total_files }));
 
                 for (file_index, log_file) in log_files.iter().enumerate() {
                     let filter_percent = 30.0 + (file_index as f64 / total_files as f64) * 20.0;
                     write_progress(&progress_path, "filtering", "signalr.corruptionRemove.filteringFile", json!({ "fileIndex": file_index + 1, "totalFiles": total_files }), filter_percent, file_index, total_files)?;
-                    reporter.emit_progress(filter_percent, "signalr.corruptionRemove.filteringFile", json!({ "fileIndex": file_index + 1, "totalFiles": total_files }));
                     eprintln!("  Processing file {}/{}: {}", file_index + 1, total_files, log_file.path.display());
 
                     let file_result = (|| -> Result<u64> {
@@ -582,7 +559,6 @@ async fn main() -> Result<()> {
                 let total_urls = service_urls_with_sizes.len();
                 eprintln!("Step 3: Deleting cache files for {} corrupted URLs...", total_urls);
                 write_progress(&progress_path, "removing_cache", "signalr.corruptionRemove.removingCacheFiles", json!({ "totalUrls": total_urls }), 50.0, 0, total_urls)?;
-                reporter.emit_progress(50.0, "signalr.corruptionRemove.removingCacheFiles", json!({ "totalUrls": total_urls }));
 
                 let mut deleted_count = 0usize;
                 let mut permission_errors = 0usize;
@@ -595,14 +571,12 @@ async fn main() -> Result<()> {
                         let percent = 50.0 + (url_index as f64 / total_urls.max(1) as f64) * 25.0;
                         eprintln!("Cancellation requested at URL {}/{} — flushing partial progress.", url_index, total_urls);
                         let _ = write_progress(&progress_path, "removing_cache", "signalr.corruptionRemove.removingCacheFile", json!({ "urlIndex": url_index, "totalUrls": total_urls }), percent, url_index, total_urls);
-                        reporter.emit_progress(percent, "signalr.corruptionRemove.removingCacheFile", json!({ "urlIndex": url_index, "totalUrls": total_urls }));
                         return Ok(());
                     }
 
                     if url_index % 50 == 0 || url_index == total_urls - 1 {
                         let percent = 50.0 + (url_index as f64 / total_urls.max(1) as f64) * 25.0;
                         write_progress(&progress_path, "removing_cache", "signalr.corruptionRemove.removingCacheFile", json!({ "urlIndex": url_index + 1, "totalUrls": total_urls }), percent, url_index, total_urls)?;
-                        reporter.emit_progress(percent, "signalr.corruptionRemove.removingCacheFile", json!({ "urlIndex": url_index + 1, "totalUrls": total_urls }));
                     }
 
                     // FIRST: Try the no-range format (standard lancache format)
@@ -726,20 +700,17 @@ async fn main() -> Result<()> {
                     );
                     eprintln!("\n{}", error_msg);
                     write_progress(&progress_path, "failed", "signalr.corruptionRemove.error.fatal", json!({ "errorDetail": error_msg }), 0.0, 0, 0)?;
-                    reporter.emit_failed("signalr.corruptionRemove.error.fatal", json!({ "errorDetail": error_msg }));
                     std::process::exit(1);
                 }
 
                 // Step 4: Delete database records for corrupted downloads
                 eprintln!("Step 4: Deleting database records...");
                 write_progress(&progress_path, "removing_database", "signalr.corruptionRemove.deletingDb", json!({}), 85.0, 0, 0)?;
-                reporter.emit_progress(85.0, "signalr.corruptionRemove.deletingDb", json!({}));
 
                 let pool = db::create_pool().await?;
                 let (downloads_deleted, log_entries_deleted) = delete_corrupted_from_database(&pool, &service, &corrupted_urls).await?;
 
                 write_progress(&progress_path, "completed", "signalr.corruptionRemove.redownload.complete", json!({ "count": service_urls_with_sizes.len(), "service": service, "files": deleted_count, "logLines": total_lines_removed, "downloads": downloads_deleted, "logEntries": log_entries_deleted }), 100.0, 0, 0)?;
-                reporter.emit_complete("signalr.corruptionRemove.redownload.complete", json!({ "count": service_urls_with_sizes.len(), "service": service, "files": deleted_count, "logLines": total_lines_removed, "downloads": downloads_deleted, "logEntries": log_entries_deleted }));
                 eprintln!("\n=== Re-download Corruption Removal Summary ===");
                 eprintln!("Corrupted URLs detected: {}", service_urls_with_sizes.len());
                 eprintln!("Cache files deleted: {}", deleted_count);
@@ -764,14 +735,12 @@ async fn main() -> Result<()> {
 
             let total_files = log_files.len();
             write_progress(&progress_path, "scanning", "signalr.corruptionRemove.scanningFiles", json!({ "totalFiles": total_files }), 0.0, 0, total_files)?;
-            reporter.emit_progress(0.0, "signalr.corruptionRemove.scanningFiles", json!({ "totalFiles": total_files }));
 
             // First pass: identify all corrupted URLs AND track their response sizes
             for (file_index, log_file) in log_files.iter().enumerate() {
                 // Update progress during scanning (0-30%)
                 let scan_percent = (file_index as f64 / total_files as f64) * 30.0;
                 write_progress(&progress_path, "scanning", "signalr.corruptionRemove.scanningFile", json!({ "fileIndex": file_index + 1, "totalFiles": total_files }), scan_percent, file_index, total_files)?;
-                reporter.emit_progress(scan_percent, "signalr.corruptionRemove.scanningFile", json!({ "fileIndex": file_index + 1, "totalFiles": total_files }));
                 eprintln!("  Scanning file {}/{}: {}", file_index + 1, total_files, log_file.path.display());
 
                 let scan_result = (|| -> Result<()> {
@@ -858,12 +827,10 @@ async fn main() -> Result<()> {
                 eprintln!("Confirmed {} corrupted URLs for {} (file exists on disk with {}+ MISS/UNKNOWN)", filtered.len(), service, miss_threshold);
                 filtered
             };
-            reporter.emit_progress(30.0, "signalr.corruptionRemove.foundUrls", json!({ "count": corrupted_urls_with_sizes.len(), "service": service }));
 
             if corrupted_urls_with_sizes.is_empty() && all_candidate_urls.is_empty() {
                 eprintln!("No corrupted chunks found, nothing to remove");
                 write_progress(&progress_path, "completed", "signalr.corruptionRemove.noChunksFound", json!({}), 100.0, 0, 0)?;
-                reporter.emit_complete("signalr.corruptionRemove.noChunksFound", json!({}));
                 return Ok(());
             }
 
@@ -880,13 +847,11 @@ async fn main() -> Result<()> {
             let mut total_lines_removed: u64 = 0;
 
             write_progress(&progress_path, "filtering", "signalr.corruptionRemove.filteringLogs", json!({ "totalFiles": total_files }), 30.0, 0, total_files)?;
-            reporter.emit_progress(30.0, "signalr.corruptionRemove.filteringLogs", json!({ "totalFiles": total_files }));
 
             for (file_index, log_file) in log_files.iter().enumerate() {
                 // Update progress during filtering (30-70%)
                 let filter_percent = 30.0 + (file_index as f64 / total_files as f64) * 40.0;
                 write_progress(&progress_path, "filtering", "signalr.corruptionRemove.filteringFile", json!({ "fileIndex": file_index + 1, "totalFiles": total_files }), filter_percent, file_index, total_files)?;
-                reporter.emit_progress(filter_percent, "signalr.corruptionRemove.filteringFile", json!({ "fileIndex": file_index + 1, "totalFiles": total_files }));
                 eprintln!("  Processing file {}/{}: {}", file_index + 1, total_files, log_file.path.display());
 
                 let file_result = (|| -> Result<u64> {
@@ -1007,7 +972,6 @@ async fn main() -> Result<()> {
 
             let total_urls = corrupted_urls_with_sizes.len();
             write_progress(&progress_path, "removing_cache", "signalr.corruptionRemove.removingCacheFiles", json!({ "totalUrls": total_urls }), 70.0, 0, total_urls)?;
-            reporter.emit_progress(70.0, "signalr.corruptionRemove.removingCacheFiles", json!({ "totalUrls": total_urls }));
 
             // Step 3: Delete ALL cache file chunks from disk
             eprintln!("Step 3: Deleting cache files...");
@@ -1022,7 +986,6 @@ async fn main() -> Result<()> {
                     let cache_percent = 70.0 + (url_index as f64 / total_urls.max(1) as f64) * 20.0;
                     eprintln!("Cancellation requested at URL {}/{} — flushing partial progress.", url_index, total_urls);
                     let _ = write_progress(&progress_path, "removing_cache", "signalr.corruptionRemove.removingCacheFile", json!({ "urlIndex": url_index, "totalUrls": total_urls }), cache_percent, url_index, total_urls);
-                    reporter.emit_progress(cache_percent, "signalr.corruptionRemove.removingCacheFile", json!({ "urlIndex": url_index, "totalUrls": total_urls }));
                     return Ok(());
                 }
 
@@ -1030,7 +993,6 @@ async fn main() -> Result<()> {
                 if url_index % 50 == 0 || url_index == total_urls - 1 {
                     let cache_percent = 70.0 + (url_index as f64 / total_urls.max(1) as f64) * 20.0;
                     write_progress(&progress_path, "removing_cache", "signalr.corruptionRemove.removingCacheFile", json!({ "urlIndex": url_index + 1, "totalUrls": total_urls }), cache_percent, url_index, total_urls)?;
-                    reporter.emit_progress(cache_percent, "signalr.corruptionRemove.removingCacheFile", json!({ "urlIndex": url_index + 1, "totalUrls": total_urls }));
                 }
 
                 // FIRST: Try the no-range format (standard lancache format)
@@ -1154,20 +1116,17 @@ async fn main() -> Result<()> {
                 );
                 eprintln!("\n{}", error_msg);
                 write_progress(&progress_path, "failed", "signalr.corruptionRemove.error.fatal", json!({ "errorDetail": error_msg }), 0.0, 0, 0)?;
-                reporter.emit_failed("signalr.corruptionRemove.error.fatal", json!({ "errorDetail": error_msg }));
                 std::process::exit(1);
             }
 
             // Step 4: Delete database records for corrupted downloads
             eprintln!("Step 4: Deleting database records...");
             write_progress(&progress_path, "removing_database", "signalr.corruptionRemove.deletingDb", json!({}), 90.0, 0, 0)?;
-            reporter.emit_progress(90.0, "signalr.corruptionRemove.deletingDb", json!({}));
 
             let pool = db::create_pool().await?;
             let (downloads_deleted, log_entries_deleted) = delete_corrupted_from_database(&pool, &service, &corrupted_urls).await?;
 
             write_progress(&progress_path, "completed", "signalr.corruptionRemove.complete", json!({ "count": corrupted_urls_with_sizes.len(), "service": service, "files": deleted_count, "logLines": total_lines_removed, "downloads": downloads_deleted, "logEntries": log_entries_deleted }), 100.0, 0, 0)?;
-            reporter.emit_complete("signalr.corruptionRemove.complete", json!({ "count": corrupted_urls_with_sizes.len(), "service": service, "files": deleted_count, "logLines": total_lines_removed, "downloads": downloads_deleted, "logEntries": log_entries_deleted }));
             eprintln!("\n=== Corruption Removal Summary ===");
             eprintln!("Corrupted URLs removed: {}", corrupted_urls_with_sizes.len());
             eprintln!("Cache files deleted: {}", deleted_count);
