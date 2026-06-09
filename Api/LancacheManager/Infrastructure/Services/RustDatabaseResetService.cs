@@ -163,7 +163,11 @@ public class RustDatabaseResetService
             // onTerminalCleanup is the safety net for the universal force-kill path: it mirrors the worker
             // finally (lines 322-325) so service-local busy/identity state is reset even if the worker
             // does not unwind (IsProcessing is the restart gate at line 144-148).
-            _currentTrackerOperationId = _operationTracker.RegisterOperation(
+            // onTerminalEmit fires the typed DatabaseResetComplete event EXACTLY ONCE (CompletedFlag-gated)
+            // for the normal success/error path AND the universal force-kill/cancel path. The legacy
+            // DatabaseResetProgress(status) completion emits are preserved (frontend Complete handler is PR4).
+            Guid trackerOperationId = default;
+            trackerOperationId = _operationTracker.RegisterOperation(
                 OperationType.DatabaseReset,
                 "Database Reset",
                 _cancellationTokenSource,
@@ -173,8 +177,35 @@ public class RustDatabaseResetService
                     _currentTrackerOperationId = null;
                     _cancellationTokenSource?.Dispose();
                     _cancellationTokenSource = null;
-                }
+                },
+                onTerminalEmit: info => info.Cancelled
+                    ? _notifications.NotifyAllAsync(
+                        SignalREvents.DatabaseResetComplete,
+                        new SignalRNotifications.DatabaseResetComplete(
+                            OperationId: trackerOperationId,
+                            Success: false,
+                            StageKey: "signalr.dbReset.cancelled",
+                            Status: OperationStatus.Cancelled,
+                            Cancelled: true,
+                            Error: info.Error))
+                    : info.Success
+                        ? _notifications.NotifyAllAsync(
+                            SignalREvents.DatabaseResetComplete,
+                            new SignalRNotifications.DatabaseResetComplete(
+                                OperationId: trackerOperationId,
+                                Success: true,
+                                StageKey: "signalr.dbReset.complete",
+                                Status: OperationStatus.Completed))
+                        : _notifications.NotifyAllAsync(
+                            SignalREvents.DatabaseResetComplete,
+                            new SignalRNotifications.DatabaseResetComplete(
+                                OperationId: trackerOperationId,
+                                Success: false,
+                                StageKey: "signalr.dbReset.failed",
+                                Status: OperationStatus.Failed,
+                                Error: info.Error))
             );
+            _currentTrackerOperationId = trackerOperationId;
 
             // Send started event
             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetStarted, new

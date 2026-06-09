@@ -24,7 +24,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     }
 
     public Guid RegisterOperation(OperationType type, string name, CancellationTokenSource cts,
-                                  object? metadata = null, Action? onTerminalCleanup = null)
+                                  object? metadata = null, Action? onTerminalCleanup = null,
+                                  Func<OperationTerminalInfo, Task>? onTerminalEmit = null)
     {
         var operationId = Guid.NewGuid();
         var operation = new OperationInfo
@@ -37,7 +38,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             StartedAt = DateTime.UtcNow,
             CancellationTokenSource = cts,
             Metadata = metadata,
-            OnTerminalCleanup = onTerminalCleanup
+            OnTerminalCleanup = onTerminalCleanup,
+            OnTerminalEmit = onTerminalEmit
         };
 
         if (_operations.TryAdd(operationId, operation))
@@ -57,7 +59,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     }
 
     public bool TryRestoreOperation(Guid operationId, OperationType type, string name, CancellationTokenSource cts,
-                                    object? metadata = null, Action? onTerminalCleanup = null)
+                                    object? metadata = null, Action? onTerminalCleanup = null,
+                                    Func<OperationTerminalInfo, Task>? onTerminalEmit = null)
     {
         var operation = new OperationInfo
         {
@@ -69,7 +72,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             StartedAt = DateTime.UtcNow,
             CancellationTokenSource = cts,
             Metadata = metadata,
-            OnTerminalCleanup = onTerminalCleanup
+            OnTerminalCleanup = onTerminalCleanup,
+            OnTerminalEmit = onTerminalEmit
         };
 
         if (_operations.TryAdd(operationId, operation))
@@ -99,7 +103,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             return false;
         }
 
-        if (operation.Status is OperationStatus.Completed or OperationStatus.Failed or OperationStatus.Cancelled)
+        if (operation.Status.IsTerminal())
         {
             _logger.LogDebug("Operation {Id} already terminal ({Status}) — cancel is a no-op", operationId, operation.Status);
             return true;
@@ -174,7 +178,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             return false;
         }
 
-        if (operation.Status is OperationStatus.Completed or OperationStatus.Failed or OperationStatus.Cancelled)
+        if (operation.Status.IsTerminal())
         {
             _logger.LogDebug("Operation {Id} already terminal ({Status}) — force kill is a no-op", operationId, operation.Status);
             return true;
@@ -237,10 +241,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
     public IEnumerable<OperationInfo> GetActiveOperations(OperationType? filterType = null)
     {
-        var operations = _operations.Values.Where(op =>
-            op.Status != OperationStatus.Completed
-            && op.Status != OperationStatus.Failed
-            && op.Status != OperationStatus.Cancelled);
+        var operations = _operations.Values.Where(op => !op.Status.IsTerminal());
 
         if (filterType.HasValue)
         {
@@ -281,6 +282,20 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         // Clear the process reference
         operation.AssociatedProcess = null;
 
+        // Fire the owning service's terminal SignalR emit EXACTLY ONCE (gated by CompletedFlag above),
+        // fire-and-forget — CompleteOperation stays synchronous and never awaits the emit. This is the
+        // SINGLE place a migrated op's terminal event is produced (worker success, OCE-catch, and
+        // universal force-kill all funnel here), eliminating ordering/double-emit divergence.
+        // Capture+null first so it can never re-run, and run it BEFORE OnTerminalCleanup (cleanup may
+        // null service state the closure captured by value, so emit-first is safe).
+        var emit = operation.OnTerminalEmit;
+        operation.OnTerminalEmit = null;
+        if (emit != null)
+        {
+            _ = SafeInvokeTerminalEmitAsync(operationId, emit,
+                new OperationTerminalInfo(success, operation.Cancelled, error));
+        }
+
         // Invoke the owning service's local-state reset BEFORE we log/remove. Best-effort: never throw.
         try { operation.OnTerminalCleanup?.Invoke(); }
         catch (Exception ex) { _logger.LogWarning(ex, "OnTerminalCleanup threw for operation {Id}", operationId); }
@@ -290,6 +305,25 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             operationId, operation.Type, operation.Name, success);
 
         ScheduleReaper(operationId); // core-2: delayed cleanup, see ScheduleReaper
+    }
+
+    /// <summary>
+    /// Fire-and-forget wrapper around an operation's <see cref="OperationInfo.OnTerminalEmit"/>:
+    /// awaits the emit Task off the CompleteOperation call stack and swallows/logs any exception so a
+    /// faulty terminal-emit closure can never crash the tracker or leave the op un-reaped. Mirrors the
+    /// best-effort handling of <see cref="OperationInfo.OnTerminalCleanup"/>.
+    /// </summary>
+    private async Task SafeInvokeTerminalEmitAsync(Guid operationId,
+        Func<OperationTerminalInfo, Task> emit, OperationTerminalInfo info)
+    {
+        try
+        {
+            await emit(info).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "OnTerminalEmit threw for operation {Id}", operationId);
+        }
     }
 
     /// <summary>

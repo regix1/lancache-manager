@@ -7,6 +7,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Models;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.EntityFrameworkCore;
+using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Infrastructure.Services;
 
@@ -35,6 +36,19 @@ public class RustLogProcessorService
     // can return the assigned operationId without polling. Class-field is safe because _startLock
     // gates IsProcessing = true, so there is at most one in-flight start at a time.
     private TaskCompletionSource<Guid>? _operationRegisteredTcs;
+
+    // Completion metrics captured by value just before CompleteOperation is called, so the
+    // onTerminalEmit closure (PR2: terminal SignalR fires exactly once from CompleteOperation)
+    // can read the final EntriesProcessed/LinesProcessed/Elapsed without re-reading the progress
+    // file. _startLock gates a single in-flight start, so a class field is safe here.
+    private LogProcessingTerminalMetrics _terminalMetrics;
+
+    private readonly record struct LogProcessingTerminalMetrics(
+        long EntriesProcessed,
+        long LinesProcessed,
+        double? Elapsed,
+        string? Message,
+        string? StageKey);
 
     public bool IsProcessing { get; private set; }
     public bool IsSilentMode { get; private set; }
@@ -76,12 +90,80 @@ public class RustLogProcessorService
                 IsProcessing = false;
                 IsSilentMode = false;
                 IsCancelling = false;
-            });
+            },
+            // Batch path is always interactive (RunAllDatasourcesAsync is only ever invoked with
+            // silentMode:false), so the terminal SignalR emitter is always wired here.
+            onTerminalEmit: BuildLogProcessingTerminalEmit());
         _currentOperationId = operationId;
         _operationRegisteredTcs?.TrySetResult(operationId);
         IsProcessing = true;
         IsSilentMode = false;
         return operationId;
+    }
+
+    /// <summary>
+    /// Builds the single terminal SignalR emitter for a LogProcessing operation. Invoked EXACTLY
+    /// ONCE from inside <see cref="IUnifiedOperationTracker.CompleteOperation"/> (CompletedFlag-gated)
+    /// across the success, cancel (OCE/force-kill), and error paths. Reads the completion metrics that
+    /// <see cref="StartProcessingAsync"/> snapshots into <see cref="_terminalMetrics"/> just before
+    /// calling CompleteOperation. Silent operations never register an onTerminalEmit, so this only
+    /// runs for interactive ops. The closure must not throw (tracker fire-and-forgets it).
+    /// </summary>
+    private Func<OperationTerminalInfo, Task> BuildLogProcessingTerminalEmit()
+    {
+        // operationId is captured lazily via _currentOperationId because RegisterOperation has not
+        // returned the id yet at the moment this closure is constructed. By the time the closure
+        // fires (at CompleteOperation), _currentOperationId is set; we snapshot it then.
+        return info =>
+        {
+            var metrics = _terminalMetrics;
+            var operationId = _currentOperationId;
+
+            if (info.Cancelled)
+            {
+                return _notifications.NotifyAllAsync(
+                    SignalREvents.LogProcessingComplete,
+                    new LogProcessingComplete(
+                        OperationId: operationId,
+                        Success: false,
+                        Status: OperationStatus.Cancelled,
+                        Message: metrics.Message ?? "Log processing was cancelled",
+                        Cancelled: true,
+                        EntriesProcessed: metrics.EntriesProcessed,
+                        LinesProcessed: metrics.LinesProcessed,
+                        Elapsed: metrics.Elapsed,
+                        StageKey: metrics.StageKey));
+            }
+
+            if (info.Success)
+            {
+                return _notifications.NotifyAllAsync(
+                    SignalREvents.LogProcessingComplete,
+                    new LogProcessingComplete(
+                        OperationId: operationId,
+                        Success: true,
+                        Status: OperationStatus.Completed,
+                        Message: metrics.Message ?? "Log processing completed successfully",
+                        Cancelled: false,
+                        EntriesProcessed: metrics.EntriesProcessed,
+                        LinesProcessed: metrics.LinesProcessed,
+                        Elapsed: metrics.Elapsed,
+                        StageKey: metrics.StageKey));
+            }
+
+            return _notifications.NotifyAllAsync(
+                SignalREvents.LogProcessingComplete,
+                new LogProcessingComplete(
+                    OperationId: operationId,
+                    Success: false,
+                    Status: OperationStatus.Failed,
+                    Message: info.Error ?? metrics.Message ?? "Log processing failed",
+                    Cancelled: false,
+                    EntriesProcessed: metrics.EntriesProcessed,
+                    LinesProcessed: metrics.LinesProcessed,
+                    Elapsed: metrics.Elapsed,
+                    StageKey: metrics.StageKey));
+        };
     }
 
     private void EndLogProcessingOperation()
@@ -242,6 +324,10 @@ public class RustLogProcessorService
 
         try
         {
+            // Snapshot a cancelled message for the onTerminalEmit closure. ForceKillOperation drives
+            // CompleteOperation, which fires the single terminal LogProcessingComplete event.
+            _terminalMetrics = _terminalMetrics with { Message = "Log processing was cancelled" };
+
             if (_currentOperationId.HasValue)
             {
                 _operationTracker.ForceKillOperation(_currentOperationId.Value);
@@ -255,10 +341,6 @@ public class RustLogProcessorService
 
             IsProcessing = false;
             IsCancelling = false;
-
-            await _notifications.SendOperationCompleteAsync(
-                SignalREvents.LogProcessingComplete, _currentOperationId,
-                success: false, message: "Log processing was cancelled", cancelled: true);
 
             return true;
         }
@@ -487,7 +569,11 @@ public class RustLogProcessorService
                         IsProcessing = false;
                         IsSilentMode = false;
                         IsCancelling = false;
-                    });
+                    },
+                    // Silent ops emit no terminal SignalR (preserves the old !silentMode guard), so
+                    // only wire the emitter for interactive ops. The single terminal event then fires
+                    // exactly once from CompleteOperation (success / OCE / force-kill).
+                    onTerminalEmit: silentMode ? null : BuildLogProcessingTerminalEmit());
                 _operationRegisteredTcs?.TrySetResult(_currentOperationId.Value);
             }
 
@@ -634,19 +720,18 @@ public class RustLogProcessorService
                 _logger.LogInformation("Processing was cancelled (exit code: {ExitCode}, progress: {Progress}%)",
                     exitCode, finalProgress?.PercentComplete ?? 0);
 
-                // Complete the operation with cancellation status
+                // Complete the operation with cancellation status. The single terminal
+                // LogProcessingComplete event is emitted by the onTerminalEmit closure (interactive
+                // ops only); snapshot the final metrics by value first so the closure can read them.
                 if (_currentOperationId.HasValue && shouldFinalizeOperation)
                 {
+                    _terminalMetrics = new LogProcessingTerminalMetrics(
+                        EntriesProcessed: finalProgress?.EntriesSaved ?? 0,
+                        LinesProcessed: finalProgress?.LinesParsed ?? 0,
+                        Elapsed: null,
+                        Message: "Log processing was cancelled",
+                        StageKey: null);
                     _operationTracker.CompleteOperation(_currentOperationId.Value, false, "Operation was cancelled");
-                }
-
-                // Send cancellation notification so frontend doesn't get stuck in "Cancelling..." state
-                if (!silentMode && shouldFinalizeOperation)
-                {
-                    await _notifications.SendOperationCompleteAsync(
-                        SignalREvents.LogProcessingComplete, _currentOperationId,
-                        success: false, message: "Log processing was cancelled", cancelled: true,
-                        new { EntriesProcessed = finalProgress?.EntriesSaved ?? 0, LinesProcessed = finalProgress?.LinesParsed ?? 0 });
                 }
 
                 return false;
@@ -660,16 +745,16 @@ public class RustLogProcessorService
                 {
                     _logger.LogError("Rust processor exited with code 0 but reported failure: {StageKey}", finalProgress.StageKey);
 
-                    if (!silentMode && shouldFinalizeOperation)
-                    {
-                        await _notifications.SendOperationCompleteAsync(
-                            SignalREvents.LogProcessingComplete, _currentOperationId,
-                            success: false, message: finalProgress.StageKey ?? "Log processing failed", cancelled: false,
-                            new { EntriesProcessed = 0, LinesProcessed = finalProgress.LinesParsed });
-                    }
-
+                    // Snapshot failure metrics for the onTerminalEmit closure, then complete the op
+                    // (CompleteOperation fires the single terminal LogProcessingComplete event).
                     if (_currentOperationId.HasValue && shouldFinalizeOperation)
                     {
+                        _terminalMetrics = new LogProcessingTerminalMetrics(
+                            EntriesProcessed: 0,
+                            LinesProcessed: finalProgress.LinesParsed,
+                            Elapsed: null,
+                            Message: finalProgress.StageKey ?? "Log processing failed",
+                            StageKey: finalProgress.StageKey);
                         _operationTracker.CompleteOperation(_currentOperationId.Value, false, finalProgress.StageKey);
                     }
 
@@ -795,14 +880,16 @@ public class RustLogProcessorService
                         _logger.LogInformation("No delay needed, processing took longer than minimum duration");
                     }
 
-                    // Calculate final elapsed time after delay
+                    // Calculate final elapsed time after delay and snapshot success metrics for the
+                    // onTerminalEmit closure (the single terminal event fires from CompleteOperation
+                    // below, after the min-display-duration delay so UI visibility is preserved).
                     var finalElapsed = DateTime.UtcNow - startTime;
-
-                    // Now send completion signal after the delay
-                    await _notifications.SendOperationCompleteAsync(
-                        SignalREvents.LogProcessingComplete, _currentOperationId,
-                        success: true, message: "Log processing completed successfully", cancelled: false,
-                        new { EntriesProcessed = finalProgress?.EntriesSaved ?? 0, LinesProcessed = finalProgress?.LinesParsed ?? 0, Elapsed = Math.Round(finalElapsed.TotalMinutes, 1) });
+                    _terminalMetrics = new LogProcessingTerminalMetrics(
+                        EntriesProcessed: finalProgress?.EntriesSaved ?? 0,
+                        LinesProcessed: finalProgress?.LinesParsed ?? 0,
+                        Elapsed: Math.Round(finalElapsed.TotalMinutes, 1),
+                        Message: "Log processing completed successfully",
+                        StageKey: "signalr.logProcessing.complete");
                 }
                 else if (shouldFinalizeOperation)
                 {
@@ -831,19 +918,17 @@ public class RustLogProcessorService
                 // Non-zero exit code but not cancelled - this is an actual error
                 _logger.LogError("Rust processor failed with exit code {ExitCode}", exitCode);
 
-                if (!silentMode && shouldFinalizeOperation)
-                {
-                    // Send failure notification so frontend doesn't get stuck
-                    await _notifications.SendOperationCompleteAsync(
-                        SignalREvents.LogProcessingComplete, _currentOperationId,
-                        success: false, message: $"Log processing failed with exit code {exitCode}", cancelled: false,
-                        new { EntriesProcessed = 0, LinesProcessed = 0 });
-                }
-
-                // Complete the operation with error
+                // Snapshot error metrics for the onTerminalEmit closure, then complete the op
+                // (CompleteOperation fires the single terminal LogProcessingComplete event).
                 if (_currentOperationId.HasValue && shouldFinalizeOperation)
                 {
-                    _operationTracker.CompleteOperation(_currentOperationId.Value, false, $"Rust processor failed with exit code {exitCode}");
+                    _terminalMetrics = new LogProcessingTerminalMetrics(
+                        EntriesProcessed: 0,
+                        LinesProcessed: 0,
+                        Elapsed: null,
+                        Message: $"Log processing failed with exit code {exitCode}",
+                        StageKey: null);
+                    _operationTracker.CompleteOperation(_currentOperationId.Value, false, $"Log processing failed with exit code {exitCode}");
                 }
 
                 return false;
@@ -868,15 +953,15 @@ public class RustLogProcessorService
             {
                 if (shouldFinalizeOperation)
                 {
+                    // Snapshot the cancelled message for the onTerminalEmit closure, then complete
+                    // (CompleteOperation fires the single terminal LogProcessingComplete event).
+                    _terminalMetrics = new LogProcessingTerminalMetrics(
+                        EntriesProcessed: 0,
+                        LinesProcessed: 0,
+                        Elapsed: null,
+                        Message: "Log processing was cancelled",
+                        StageKey: null);
                     _operationTracker.CompleteOperation(cancelOpId.Value, false, "Operation was cancelled");
-                }
-
-                if (!silentMode && shouldFinalizeOperation)
-                {
-                    await _notifications.SendOperationCompleteAsync(
-                        SignalREvents.LogProcessingComplete, cancelOpId,
-                        success: false, message: "Log processing was cancelled", cancelled: true,
-                        new { EntriesProcessed = 0, LinesProcessed = 0 });
                 }
             }
 
@@ -886,18 +971,16 @@ public class RustLogProcessorService
         {
             _logger.LogError(ex, "Error starting Rust log processor");
 
-            if (!silentMode && shouldFinalizeOperation)
-            {
-                // Send failure notification so frontend doesn't get stuck
-                await _notifications.SendOperationCompleteAsync(
-                    SignalREvents.LogProcessingComplete, _currentOperationId,
-                    success: false, message: $"Log processing error: {ex.Message}", cancelled: false,
-                    new { EntriesProcessed = 0, LinesProcessed = 0 });
-            }
-
-            // Complete the operation with error
+            // Snapshot error metrics for the onTerminalEmit closure, then complete the op
+            // (CompleteOperation fires the single terminal LogProcessingComplete event).
             if (_currentOperationId.HasValue && shouldFinalizeOperation)
             {
+                _terminalMetrics = new LogProcessingTerminalMetrics(
+                    EntriesProcessed: 0,
+                    LinesProcessed: 0,
+                    Elapsed: null,
+                    Message: $"Log processing error: {ex.Message}",
+                    StageKey: null);
                 _operationTracker.CompleteOperation(_currentOperationId.Value, false, ex.Message);
             }
 

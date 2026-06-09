@@ -91,7 +91,7 @@ public class CacheController : ControllerBase
 
         if (force && string.IsNullOrEmpty(datasource))
         {
-            await _notifications.NotifyAllAsync(SignalREvents.CacheScanComplete, new { success = true });
+            await _notifications.NotifyAllAsync(SignalREvents.CacheScanComplete, new CacheScanComplete(Success: true));
         }
 
         return Ok(result);
@@ -453,11 +453,28 @@ public class CacheController : ControllerBase
         // Create CancellationTokenSource and register with unified operation tracker for cancel support
         var cts = new CancellationTokenSource();
         var metadata = new RemovalMetrics { EntityKey = service.ToLowerInvariant(), EntityName = service };
-        var operationId = _operationTracker.RegisterOperation(
+        Guid operationId = Guid.Empty;
+        operationId = _operationTracker.RegisterOperation(
             OperationType.CorruptionRemoval,
             $"Corruption removal: {service}",
             cts,
-            metadata);
+            metadata,
+            onTerminalEmit: info => info.Cancelled
+                ? _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                    new CorruptionRemovalComplete(false, service,
+                        StageKey: "signalr.corruptionRemove.cancelled",
+                        OperationId: operationId))
+                : info.Success
+                    ? _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                        new CorruptionRemovalComplete(true, service,
+                            StageKey: "signalr.corruptionRemove.success",
+                            OperationId: operationId,
+                            Context: new Dictionary<string, object?> { ["service"] = service }))
+                    : _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                        new CorruptionRemovalComplete(false, service,
+                            StageKey: "signalr.corruptionRemove.failed.generic",
+                            OperationId: operationId,
+                            Error: info.Error)));
 
         // Send start notification via SignalR
         _notifications.NotifyAllFireAndForget(SignalREvents.CorruptionRemovalStarted,
@@ -600,22 +617,14 @@ public class CacheController : ControllerBase
                         // Invalidate service count cache since corruption removal affects counts
                         await _cacheService.InvalidateServiceCountsCacheAsync();
 
+                        // Terminal SignalR emit is centralized in the onTerminalEmit closure
+                        // registered with RegisterOperation (fires exactly once from CompleteOperation).
                         _operationTracker.CompleteOperation(operationId, success: true);
-                        await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                            new CorruptionRemovalComplete(true, service,
-                                StageKey: "signalr.corruptionRemove.success",
-                                OperationId: operationId,
-                                Context: new Dictionary<string, object?> { ["service"] = service }));
                     }
                     else
                     {
                         _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, lastError);
                         _operationTracker.CompleteOperation(operationId, success: false, error: lastError);
-                        await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                            new CorruptionRemovalComplete(false, service,
-                                StageKey: "signalr.corruptionRemove.failed.generic",
-                                OperationId: operationId,
-                                Error: lastError));
                     }
                 }
                 finally
@@ -629,10 +638,6 @@ public class CacheController : ControllerBase
             {
                 _logger.LogInformation("Corruption removal cancelled for service: {Service}", service);
                 _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
-                await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                    new CorruptionRemovalComplete(false, service,
-                        StageKey: "signalr.corruptionRemove.cancelled",
-                        OperationId: operationId));
 
                 // NOTE: LiveLogMonitorService is already resumed by the inner finally above;
                 // no redundant resume here (csharp-services-7).
@@ -641,10 +646,6 @@ public class CacheController : ControllerBase
             {
                 _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
                 _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
-                await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                    new CorruptionRemovalComplete(false, service,
-                        StageKey: "signalr.corruptionRemove.failed.generic",
-                        OperationId: operationId));
             }
         });
 
@@ -742,11 +743,29 @@ public class CacheController : ControllerBase
                         // Register a fresh operation per service
                         var cts = new CancellationTokenSource();
                         var metadata = new RemovalMetrics { EntityKey = service.ToLowerInvariant(), EntityName = service };
-                        var operationId = _operationTracker.RegisterOperation(
+                        var serviceName = service;
+                        Guid operationId = Guid.Empty;
+                        operationId = _operationTracker.RegisterOperation(
                             OperationType.CorruptionRemoval,
                             $"Corruption removal: {service}",
                             cts,
-                            metadata);
+                            metadata,
+                            onTerminalEmit: info => info.Cancelled
+                                ? _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                                    new CorruptionRemovalComplete(false, serviceName,
+                                        StageKey: "signalr.corruptionRemove.cancelled",
+                                        OperationId: operationId))
+                                : info.Success
+                                    ? _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                                        new CorruptionRemovalComplete(true, serviceName,
+                                            StageKey: "signalr.corruptionRemove.success",
+                                            OperationId: operationId,
+                                            Context: new Dictionary<string, object?> { ["service"] = serviceName }))
+                                    : _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                                        new CorruptionRemovalComplete(false, serviceName,
+                                            StageKey: "signalr.corruptionRemove.failed.generic",
+                                            OperationId: operationId,
+                                            Error: info.Error)));
 
                         // Send start notification via SignalR
                         _notifications.NotifyAllFireAndForget(SignalREvents.CorruptionRemovalStarted,
@@ -869,32 +888,20 @@ public class CacheController : ControllerBase
                                 await _nginxLogRotationService.ReopenNginxLogsAsync();
                                 await _cacheService.InvalidateServiceCountsCacheAsync();
 
+                                // Terminal SignalR emit is centralized in the onTerminalEmit closure
+                                // registered with RegisterOperation (fires exactly once from CompleteOperation).
                                 _operationTracker.CompleteOperation(operationId, success: true);
-                                await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                                    new CorruptionRemovalComplete(true, service,
-                                        StageKey: "signalr.corruptionRemove.success",
-                                        OperationId: operationId,
-                                        Context: new Dictionary<string, object?> { ["service"] = service }));
                             }
                             else
                             {
                                 _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, lastError);
                                 _operationTracker.CompleteOperation(operationId, success: false, error: lastError);
-                                await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                                    new CorruptionRemovalComplete(false, service,
-                                        StageKey: "signalr.corruptionRemove.failed.generic",
-                                        OperationId: operationId,
-                                        Error: lastError));
                             }
                         }
                         catch (OperationCanceledException)
                         {
                             _logger.LogInformation("Corruption removal cancelled for service: {Service}", service);
                             _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
-                            await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                                new CorruptionRemovalComplete(false, service,
-                                    StageKey: "signalr.corruptionRemove.cancelled",
-                                    OperationId: operationId));
                             // Stop processing further services on cancellation
                             break;
                         }
@@ -902,10 +909,6 @@ public class CacheController : ControllerBase
                         {
                             _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
                             _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
-                            await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                                new CorruptionRemovalComplete(false, service,
-                                    StageKey: "signalr.corruptionRemove.failed.generic",
-                                    OperationId: operationId));
                         }
                     }
                 }

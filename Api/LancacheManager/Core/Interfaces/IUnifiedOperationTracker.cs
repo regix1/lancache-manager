@@ -20,8 +20,14 @@ public interface IUnifiedOperationTracker
     /// operation reaches a terminal state, letting the owning service reset its local mutable state
     /// (e.g. null out its <c>_currentOperationId</c>/<c>_cts</c>) regardless of which path completed
     /// the op (worker <c>finally</c> vs universal force-kill). Must not throw or block.</param>
+    /// <param name="onTerminalEmit">Optional callback invoked EXACTLY ONCE inside
+    /// <see cref="CompleteOperation"/> (CompletedFlag-gated), fire-and-forget, so the owning service
+    /// emits its terminal SignalR event from a single place regardless of which path completed the op
+    /// (worker success, worker OCE-catch, or universal force-kill). Receives a strongly-typed
+    /// <see cref="OperationTerminalInfo"/>. Must not throw (exceptions are swallowed/logged).</param>
     Guid RegisterOperation(OperationType type, string name, CancellationTokenSource cts,
-                           object? metadata = null, Action? onTerminalCleanup = null);
+                           object? metadata = null, Action? onTerminalCleanup = null,
+                           Func<OperationTerminalInfo, Task>? onTerminalEmit = null);
 
     /// <summary>
     /// Re-registers a previously-persisted operation by its original ID (recovery after restart).
@@ -33,8 +39,10 @@ public interface IUnifiedOperationTracker
     /// did NOT adopt the supplied CTS, so the caller retains ownership and must dispose it.
     /// </remarks>
     /// <param name="onTerminalCleanup">See <see cref="RegisterOperation"/>.</param>
+    /// <param name="onTerminalEmit">See <see cref="RegisterOperation"/>.</param>
     bool TryRestoreOperation(Guid operationId, OperationType type, string name, CancellationTokenSource cts,
-                             object? metadata = null, Action? onTerminalCleanup = null);
+                             object? metadata = null, Action? onTerminalCleanup = null,
+                             Func<OperationTerminalInfo, Task>? onTerminalEmit = null);
 
     /// <summary>
     /// Aggressively cancels an operation: terminates any associated process tree immediately,

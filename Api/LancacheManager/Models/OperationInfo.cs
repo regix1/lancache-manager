@@ -55,6 +55,16 @@ public class OperationInfo
     [System.Text.Json.Serialization.JsonIgnore]
     public Action? OnTerminalCleanup { get; set; }
 
+    /// <summary>Invoked EXACTLY ONCE inside <c>UnifiedOperationTracker.CompleteOperation</c>
+    /// (CompletedFlag-gated), fire-and-forget, so the owning service emits its terminal SignalR
+    /// event from a single place regardless of which path completed the op (worker success,
+    /// worker OCE-catch, or universal force-kill). Receives a strongly-typed
+    /// <see cref="OperationTerminalInfo"/>. Must not throw (exceptions are swallowed/logged like
+    /// <see cref="OnTerminalCleanup"/>). When this is non-null the op is "migrated" — the legacy
+    /// <c>OperationCancellationService.NotifyForceKillCompleteAsync</c> switch no-ops for it.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Func<OperationTerminalInfo, Task>? OnTerminalEmit { get; set; }
+
     /// <summary>0 = not yet completed, 1 = completed. Guards CompleteOperation against double-fire.
     /// Use Interlocked.CompareExchange.</summary>
     [System.Text.Json.Serialization.JsonIgnore]

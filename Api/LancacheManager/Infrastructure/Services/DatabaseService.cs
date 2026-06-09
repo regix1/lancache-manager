@@ -94,6 +94,10 @@ public class DatabaseService : IDatabaseService
         // and completes the op immediately WITHOUT unwinding the worker finally — leaving the static
         // _activeResetOperations dict populated (IsResetOperationRunning stays true, blocking all future
         // resets process-wide). The lambda mirrors the worker finally (lines 900-904).
+        // onTerminalEmit fires the typed DatabaseResetComplete event EXACTLY ONCE (CompletedFlag-gated) for
+        // the normal success/error path AND the universal force-kill/cancel path. The legacy
+        // DatabaseResetProgress(status) completion emits in ResetSelectedTablesInternalAsync are preserved
+        // (frontend Complete handler is PR4).
         Guid opId = default;
         opId = _operationTracker.RegisterOperation(
             OperationType.DatabaseReset,
@@ -106,7 +110,33 @@ public class DatabaseService : IDatabaseService
                 {
                     _currentResetOperationId = null;
                 }
-            });
+            },
+            onTerminalEmit: info => info.Cancelled
+                ? _notifications.NotifyAllAsync(
+                    SignalREvents.DatabaseResetComplete,
+                    new LancacheManager.Infrastructure.Utilities.SignalRNotifications.DatabaseResetComplete(
+                        OperationId: opId,
+                        Success: false,
+                        StageKey: "signalr.dbReset.cancelled",
+                        Status: OperationStatus.Cancelled,
+                        Cancelled: true,
+                        Error: info.Error))
+                : info.Success
+                    ? _notifications.NotifyAllAsync(
+                        SignalREvents.DatabaseResetComplete,
+                        new LancacheManager.Infrastructure.Utilities.SignalRNotifications.DatabaseResetComplete(
+                            OperationId: opId,
+                            Success: true,
+                            StageKey: "signalr.dbReset.complete",
+                            Status: OperationStatus.Completed))
+                    : _notifications.NotifyAllAsync(
+                        SignalREvents.DatabaseResetComplete,
+                        new LancacheManager.Infrastructure.Utilities.SignalRNotifications.DatabaseResetComplete(
+                            OperationId: opId,
+                            Success: false,
+                            StageKey: "signalr.dbReset.failed",
+                            Status: OperationStatus.Failed,
+                            Error: info.Error)));
         var operationId = opId;
 
         if (_activeResetOperations.TryAdd(operationId, true))

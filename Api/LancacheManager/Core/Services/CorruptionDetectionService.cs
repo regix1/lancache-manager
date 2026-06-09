@@ -86,13 +86,19 @@ public class CorruptionDetectionService
             // Note: Don't cancel/dispose old one here - it may have been disposed by CompleteOperation
             var cts = new CancellationTokenSource();
 
-            // Create metadata and register with unified operation tracker
+            // Create metadata and register with unified operation tracker.
+            // The same metadata instance is mutated in-place by UpdateMetadata before CompleteOperation,
+            // so the onTerminalEmit closure reads the final CorruptionCounts by value off this capture.
+            // operationId is captured by the closure and is fully assigned before the closure can ever
+            // run (it only fires at terminal time, inside CompleteOperation).
             var metadata = new CorruptionDetectionMetrics();
-            var operationId = _operationTracker.RegisterOperation(
+            Guid operationId = Guid.Empty;
+            operationId = _operationTracker.RegisterOperation(
                 OperationType.CorruptionDetection,
                 "Corruption Detection",
                 cts,
-                metadata);
+                metadata,
+                onTerminalEmit: info => EmitTerminalAsync(info, operationId, metadata));
 
             // Save operation state for recovery
             _operationStateService.SaveState($"{_operationStateKey}_{operationId}", new OperationState
@@ -127,6 +133,58 @@ public class CorruptionDetectionService
         {
             _startLock.Release();
         }
+    }
+
+    /// <summary>
+    /// Single terminal SignalR emitter for a corruption-detection operation. Invoked EXACTLY ONCE
+    /// from inside <c>CompleteOperation</c> (CompletedFlag-gated) via the registered
+    /// <c>OnTerminalEmit</c> closure, covering the success, cancel, and error paths. Reads the final
+    /// corruption totals by value off the captured <paramref name="metadata"/> (mutated in-place by
+    /// <c>UpdateMetadata</c> before completion); on cancel/error the counts are unset → totals are 0.
+    /// </summary>
+    private Task EmitTerminalAsync(OperationTerminalInfo info, Guid operationId, CorruptionDetectionMetrics metadata)
+    {
+        var counts = metadata.CorruptionCounts;
+        var totalServicesWithCorruption = counts?.Count ?? 0;
+        var totalCorruptedChunks = counts != null ? (int)Math.Min(counts.Values.Sum(), int.MaxValue) : 0;
+
+        if (info.Cancelled)
+        {
+            return _notifications.NotifyAllAsync(
+                SignalREvents.CorruptionDetectionComplete,
+                new SignalRNotifications.CorruptionDetectionComplete(
+                    Success: false,
+                    OperationId: operationId,
+                    StageKey: "signalr.corruptionDetect.cancelled",
+                    Status: OperationStatus.Cancelled,
+                    Cancelled: true));
+        }
+
+        if (info.Success)
+        {
+            return _notifications.NotifyAllAsync(
+                SignalREvents.CorruptionDetectionComplete,
+                new SignalRNotifications.CorruptionDetectionComplete(
+                    Success: true,
+                    OperationId: operationId,
+                    StageKey: "signalr.corruptionDetect.complete",
+                    Status: OperationStatus.Completed,
+                    Cancelled: false,
+                    TotalServicesWithCorruption: totalServicesWithCorruption,
+                    TotalCorruptedChunks: totalCorruptedChunks,
+                    Context: new Dictionary<string, object?> { ["count"] = totalServicesWithCorruption }));
+        }
+
+        return _notifications.NotifyAllAsync(
+            SignalREvents.CorruptionDetectionComplete,
+            new SignalRNotifications.CorruptionDetectionComplete(
+                Success: false,
+                OperationId: operationId,
+                StageKey: "signalr.corruptionDetect.failed",
+                Status: OperationStatus.Failed,
+                Cancelled: false,
+                Error: info.Error,
+                Context: new Dictionary<string, object?> { ["errorDetail"] = info.Error }));
     }
 
     /// <summary>
@@ -195,7 +253,6 @@ public class CorruptionDetectionService
             }
 
             // Update operation via tracker
-            var completionCount = aggregatedCounts.Count;
             _operationTracker.UpdateProgress(operationId, 100, "signalr.corruptionDetect.complete");
             _operationTracker.UpdateMetadata(operationId, metadata =>
             {
@@ -210,21 +267,10 @@ public class CorruptionDetectionService
             // Clear operation state
             _operationStateService.RemoveState($"{_operationStateKey}_{operationId}");
 
-            // Complete unified operation tracker
+            // Complete unified operation tracker. The terminal CorruptionDetectionComplete event is
+            // emitted EXACTLY ONCE from inside CompleteOperation via the registered OnTerminalEmit
+            // closure (success path); metrics are read by value off the metadata updated just above.
             _operationTracker.CompleteOperation(operationId, success: true);
-
-            // Send completion notification via SignalR
-            await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new
-            {
-                OperationId = operationId,
-                Success = true,
-                Status = OperationStatus.Completed,
-                StageKey = "signalr.corruptionDetect.complete",
-                Context = new Dictionary<string, object?> { ["count"] = completionCount },
-                Cancelled = false,
-                totalServicesWithCorruption = aggregatedCounts.Count,
-                totalCorruptedChunks = aggregatedCounts.Values.Sum()
-            });
 
             _logger.LogInformation("[CorruptionDetection] Detection complete: {Services}",
                 string.Join(", ", aggregatedCounts.Select(kvp => $"{kvp.Key}={kvp.Value}")));
@@ -236,18 +282,9 @@ public class CorruptionDetectionService
             // Clear operation state
             _operationStateService.RemoveState($"{_operationStateKey}_{operationId}");
 
-            // Complete unified operation tracker
+            // Complete unified operation tracker. The terminal cancelled event is emitted from the
+            // OnTerminalEmit closure (info.Cancelled branch) inside CompleteOperation.
             _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
-
-            // Send cancellation notification via SignalR
-            await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new
-            {
-                OperationId = operationId,
-                Success = false,
-                Status = OperationStatus.Cancelled,
-                StageKey = "signalr.corruptionDetect.cancelled",
-                Cancelled = true
-            });
         }
         catch (Exception ex)
         {
@@ -256,19 +293,9 @@ public class CorruptionDetectionService
             // Clear operation state
             _operationStateService.RemoveState($"{_operationStateKey}_{operationId}");
 
-            // Complete unified operation tracker
+            // Complete unified operation tracker. The terminal failed event is emitted from the
+            // OnTerminalEmit closure (error branch) inside CompleteOperation.
             _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
-
-            // Send failure notification via SignalR
-            await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new
-            {
-                OperationId = operationId,
-                Success = false,
-                Status = OperationStatus.Failed,
-                StageKey = "signalr.corruptionDetect.failed",
-                Context = new Dictionary<string, object?> { ["errorDetail"] = ex.Message },
-                Cancelled = false
-            });
         }
     }
 

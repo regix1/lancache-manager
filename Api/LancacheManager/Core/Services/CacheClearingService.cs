@@ -7,6 +7,7 @@ using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using ModelCacheClearOperation = LancacheManager.Models.CacheClearOperation;
+using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Core.Services;
 
@@ -23,6 +24,17 @@ public class CacheClearingService : ScheduledBackgroundService
     private string _cachePath = null!;
     private CacheDeleteMode _deleteMode;
     private Guid? _currentTrackerOperationId;
+
+    // Captured-by-value completion payload for the onTerminalEmit closure. Only one cache-clear
+    // operation runs at a time (enforced in StartCacheClearAsync), so a single set is safe. These
+    // are written immediately before the corresponding CompleteOperation call so the closure (which
+    // fires exactly once inside CompleteOperation) reads the final metrics.
+    private string _completionMessage = string.Empty;
+    private int _completionDirectoriesProcessed;
+    private long _completionFilesDeleted;
+    private long _completionBytesDeleted;
+    private int _completionDatasourcesCleared;
+    private double? _completionDuration;
 
     protected override string ServiceName => "CacheClearingService";
     protected override TimeSpan Interval => TimeSpan.FromMinutes(5);
@@ -120,14 +132,21 @@ public class CacheClearingService : ScheduledBackgroundService
                 EntityKey = trackerKey,
                 DatasourceName = datasourceName
             };
+            // operationId is filled in right after RegisterOperation returns; the closure fires later
+            // (at completion) so it reads the assigned value by reference-capture of this local.
+            var capturedOperationId = Guid.Empty;
             _currentTrackerOperationId = _operationTracker.RegisterOperation(
                 OperationType.CacheClearing,
                 "Cache Clearing",
                 cts,
                 metadata,
-                onTerminalCleanup: () => { _currentTrackerOperationId = null; }
+                onTerminalCleanup: () => { _currentTrackerOperationId = null; },
+                onTerminalEmit: info => _notifications.NotifyAllAsync(
+                    SignalREvents.CacheClearingComplete,
+                    BuildCacheClearComplete(capturedOperationId, info))
             );
             var operationId = _currentTrackerOperationId.Value;
+            capturedOperationId = operationId;
 
             // Update the initial message
             var initialMessage = datasourceName != null
@@ -185,16 +204,12 @@ public class CacheClearingService : ScheduledBackgroundService
 
                 _logger.LogWarning("[CacheClear] Permission check failed: {Error}", errorMessage);
 
-                // Mark operation as complete (failed) in unified tracker
+                // Mark operation as complete (failed) in unified tracker.
+                // Terminal CacheClearingComplete (failed) is emitted by the onTerminalEmit closure.
                 _operationTracker.CompleteOperation(operationId, success: false, error: errorMessage);
                 _currentTrackerOperationId = null;
 
                 await NotifyProgressAsync(operationId);
-
-                await _notifications.SendOperationCompleteAsync(
-                    SignalREvents.CacheClearingComplete, operationId,
-                    success: false, message: errorMessage, cancelled: false,
-                    new { Error = errorMessage });
 
                 SaveOperationToState(trackerKey, operationId);
 
@@ -284,16 +299,12 @@ public class CacheClearingService : ScheduledBackgroundService
                 var error = "No cache directories found in any datasource";
                 _logger.LogWarning("Cache clear operation {OperationId} failed: {Error}", operationId, error);
 
-                // Mark operation as complete (failed) in unified tracker
+                // Mark operation as complete (failed) in unified tracker.
+                // Terminal CacheClearingComplete (failed) is emitted by the onTerminalEmit closure.
                 _operationTracker.CompleteOperation(operationId, success: false, error: error);
                 _currentTrackerOperationId = null;
 
                 await NotifyProgressAsync(operationId);
-
-                await _notifications.SendOperationCompleteAsync(
-                    SignalREvents.CacheClearingComplete, operationId,
-                    success: false, message: error, cancelled: false,
-                    new { Error = error });
 
                 SaveOperationToState(trackerKey, operationId);
 
@@ -320,17 +331,12 @@ public class CacheClearingService : ScheduledBackgroundService
             {
                 var error = $"Rust cache_cleaner binary not found at {rustBinaryPath}";
 
-                // Mark operation as complete (failed) in unified tracker
+                // Mark operation as complete (failed) in unified tracker.
+                // Terminal CacheClearingComplete (failed) is emitted by the onTerminalEmit closure.
                 _operationTracker.CompleteOperation(operationId, success: false, error: error);
                 _currentTrackerOperationId = null;
 
                 await NotifyProgressAsync(operationId);
-
-                // Send completion notification
-                await _notifications.SendOperationCompleteAsync(
-                    SignalREvents.CacheClearingComplete, operationId,
-                    success: false, message: error, cancelled: false,
-                    new { Error = error });
 
                 SaveOperationToState(trackerKey, operationId);
 
@@ -484,15 +490,24 @@ public class CacheClearingService : ScheduledBackgroundService
                 ? $"Successfully cleared {totalDirsProcessed} cache directories across {validCachePaths.Count} datasources ({datasourceNames})"
                 : $"Successfully cleared {totalDirsProcessed} cache directories";
 
-            // Mark operation as complete in unified tracker
+            // Compute duration BEFORE CompleteOperation: the onTerminalEmit closure fires inside
+            // CompleteOperation, so the completion metrics must be captured by value first.
+            operation = _operationTracker.GetOperation(operationId);
+            var duration = operation != null
+                ? (DateTime.UtcNow - operation.StartedAt).TotalSeconds
+                : 0;
+
+            _completionMessage = successMessage;
+            _completionDirectoriesProcessed = totalDirsProcessed;
+            _completionFilesDeleted = totalFilesDeleted;
+            _completionBytesDeleted = totalBytesDeleted;
+            _completionDatasourcesCleared = validCachePaths.Count;
+            _completionDuration = duration;
+
+            // Mark operation as complete in unified tracker (emits CacheClearingComplete via onTerminalEmit)
             _operationTracker.CompleteOperation(operationId, success: true);
             _currentTrackerOperationId = null;
 
-            operation = _operationTracker.GetOperation(operationId);
-            var duration = operation?.CompletedAt.HasValue == true
-                ? (operation.CompletedAt.Value - operation.StartedAt).TotalSeconds
-                : 0;
-            
             _logger.LogInformation($"Cache clear completed in {duration:F1} seconds - Cleared {totalDirsProcessed} directories across {validCachePaths.Count} datasource(s)");
 
             // Clear all cached detection results since all cache files were deleted
@@ -509,11 +524,8 @@ public class CacheClearingService : ScheduledBackgroundService
 
             await NotifyProgressAsync(operationId);
 
-            // Send completion notification
-            await _notifications.SendOperationCompleteAsync(
-                SignalREvents.CacheClearingComplete, operationId,
-                success: true, message: successMessage, cancelled: false,
-                new { DirectoriesProcessed = totalDirsProcessed, FilesDeleted = totalFilesDeleted, BytesDeleted = totalBytesDeleted, DatasourcesCleared = validCachePaths.Count, Duration = duration });
+            // Terminal CacheClearingComplete is emitted by the onTerminalEmit closure inside
+            // CompleteOperation above (exactly-once, CompletedFlag-gated).
 
             SaveOperationToState(trackerKey, operationId);
         }
@@ -522,20 +534,16 @@ public class CacheClearingService : ScheduledBackgroundService
             // Handle cancellation gracefully - this is expected when user cancels
             _logger.LogInformation("Cache clear operation {OperationId} was cancelled by user", operationId);
 
-            // If a universal force-kill already completed this op, suppress the duplicate
-            // SignalR completion + CompleteOperation so only ONE terminal event is emitted.
+            // If a universal force-kill already completed this op, the CompletedFlag-gated
+            // CompleteOperation below is a no-op and the onTerminalEmit closure does not re-fire.
             if (_operationTracker.GetOperation(operationId)?.Status
                 is not (OperationStatus.Completed or OperationStatus.Failed or OperationStatus.Cancelled))
             {
-                // Mark operation as complete (cancelled) in unified tracker
+                // Mark operation as complete (cancelled) in unified tracker.
+                // Terminal CacheClearingComplete (cancelled) is emitted by the onTerminalEmit closure.
                 _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
 
                 await NotifyProgressAsync(operationId);
-
-                // Send cancellation notification
-                await _notifications.SendOperationCompleteAsync(
-                    SignalREvents.CacheClearingComplete, operationId,
-                    success: false, message: "Cache clear cancelled by user", cancelled: true);
             }
 
             SaveOperationToState(trackerKey, operationId);
@@ -555,20 +563,60 @@ public class CacheClearingService : ScheduledBackgroundService
                 _logger.LogError(ex, "Error in cache clear operation {OperationId}", operationId);
             }
 
-            // Mark operation as complete (failed) in unified tracker
-            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+            // Mark operation as complete (failed) in unified tracker.
+            // Terminal CacheClearingComplete (failed) is emitted by the onTerminalEmit closure,
+            // which reads this error string from OperationTerminalInfo.Error.
+            _operationTracker.CompleteOperation(operationId, success: false, error: $"Cache clear failed: {ex.Message}");
             _currentTrackerOperationId = null;
 
             await NotifyProgressAsync(operationId);
 
-            // Send failure notification
-            await _notifications.SendOperationCompleteAsync(
-                SignalREvents.CacheClearingComplete, operationId,
-                success: false, message: $"Cache clear failed: {ex.Message}", cancelled: false,
-                new { Error = ex.Message });
-
             SaveOperationToState(trackerKey, operationId);
         }
+    }
+
+    /// <summary>
+    /// Builds the strongly-typed terminal payload for the cache-clear operation. Fires EXACTLY ONCE
+    /// from inside CompleteOperation (CompletedFlag-gated) for success, cancel, and error alike.
+    /// Completion metrics are captured by value into the _completion* fields immediately before the
+    /// corresponding CompleteOperation call; this reads them so the wire payload matches the prior
+    /// SendOperationCompleteAsync emits.
+    /// </summary>
+    private CacheClearComplete BuildCacheClearComplete(Guid operationId, OperationTerminalInfo info)
+    {
+        if (info.Cancelled)
+        {
+            return new CacheClearComplete(
+                OperationId: operationId,
+                Success: false,
+                Status: OperationStatus.Cancelled,
+                Message: "Cache clear cancelled by user",
+                Cancelled: true);
+        }
+
+        if (info.Success)
+        {
+            return new CacheClearComplete(
+                OperationId: operationId,
+                Success: true,
+                Status: OperationStatus.Completed,
+                Message: _completionMessage,
+                Cancelled: false,
+                FilesDeleted: (int)_completionFilesDeleted,
+                DirectoriesProcessed: _completionDirectoriesProcessed,
+                BytesDeleted: _completionBytesDeleted,
+                DatasourcesCleared: _completionDatasourcesCleared,
+                Duration: _completionDuration);
+        }
+
+        var error = info.Error ?? "Cache clear failed";
+        return new CacheClearComplete(
+            OperationId: operationId,
+            Success: false,
+            Status: OperationStatus.Failed,
+            Message: error,
+            Cancelled: false,
+            Error: error);
     }
 
     // Helper class for deserializing Rust progress data

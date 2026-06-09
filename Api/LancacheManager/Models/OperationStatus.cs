@@ -51,4 +51,13 @@ public static class OperationStatusExtensions
         OperationStatus.Cancelled => "cancelled",
         _ => status.ToString().ToLowerInvariant()
     };
+
+    /// <summary>
+    /// True when the status is one of the three terminal states
+    /// (<see cref="OperationStatus.Completed"/>, <see cref="OperationStatus.Failed"/>,
+    /// <see cref="OperationStatus.Cancelled"/>). Centralizes the terminal or-list so callers
+    /// (e.g. <c>UnifiedOperationTracker</c>) no longer inline it.
+    /// </summary>
+    public static bool IsTerminal(this OperationStatus status) =>
+        status is OperationStatus.Completed or OperationStatus.Failed or OperationStatus.Cancelled;
 }

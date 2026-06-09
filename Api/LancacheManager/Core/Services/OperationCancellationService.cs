@@ -95,6 +95,16 @@ public class OperationCancellationService
 
     private async Task NotifyForceKillCompleteAsync(OperationInfo operation)
     {
+        // MIGRATED ops own a single terminal emitter: their registered OnTerminalEmit fires the
+        // terminal SignalR event EXACTLY ONCE from inside CompleteOperation (CompletedFlag-gated),
+        // which ForceKillAsync calls immediately AFTER this method. Emitting here too would
+        // double-fire, so this legacy switch is a NO-OP for them. UNMIGRATED ops (depot_mapping,
+        // epic_game_mapping, data_import, ...) have no OnTerminalEmit yet and keep the switch below.
+        if (operation.OnTerminalEmit != null)
+        {
+            return;
+        }
+
         var operationId = operation.Id;
 
         switch (operation.Type)

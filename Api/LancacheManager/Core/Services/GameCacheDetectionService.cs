@@ -28,12 +28,31 @@ public class GameCacheDetectionService : IDisposable
     private CancellationTokenSource? _cancellationTokenSource;
     private Guid? _currentTrackerOperationId;
 
+    // Terminal-emit payload: completion metrics are only known when FinalizeDetectionAsync runs,
+    // so it stores them here (by value) immediately before CompleteOperation fires the onTerminalEmit
+    // closure registered in StartDetectionAsync/RestoreInterruptedOperations. The closure reads this
+    // to build the typed GameDetectionComplete record (success/failed paths know which via info).
+    private GameDetectionTerminalPayload _terminalPayload;
+
     // In-memory cache for detection response - avoids 10+ DB queries on every dashboard load.
     // Invalidated when detection scans, eviction scans, or game removals change the data.
     private DetectionOperationResponse? _cachedDetectionResponse;
     private readonly SemaphoreSlim _detectionCacheLock = new(1, 1);
 
     private bool _disposed;
+
+    /// <summary>
+    /// Strongly-typed carrier for the data the onTerminalEmit closure needs to build a
+    /// GameDetectionComplete record. Populated by FinalizeDetectionAsync just before CompleteOperation.
+    /// Success/cancel/error is supplied by OperationTerminalInfo, so only the metrics live here.
+    /// </summary>
+    private readonly record struct GameDetectionTerminalPayload(
+        string StageKey,
+        Dictionary<string, object?>? Context,
+        int? GamesDetected,
+        int? ServicesDetected,
+        int? NewGamesCount,
+        OperationStatus Status);
 
     /// <summary>
     /// Response DTO that preserves the JSON shape expected by the frontend.
@@ -135,6 +154,7 @@ public class GameCacheDetectionService : IDisposable
 
             // Register with unified operation tracker for centralized cancellation
             var metadata = new GameDetectionMetrics { ScanType = scanType };
+            var registeredId = default(Guid);
             _currentTrackerOperationId = _operationTracker.RegisterOperation(
                 OperationType.GameDetection,
                 "Game Detection",
@@ -143,9 +163,11 @@ public class GameCacheDetectionService : IDisposable
                 // Universal-force-kill safety net: the tracker invokes this on terminal regardless of
                 // which path completed the op, so a force-kill that bypasses FinalizeDetectionAsync still
                 // clears the service-local "detection running" marker (mirrors the reset at line ~777).
-                onTerminalCleanup: () => { _currentTrackerOperationId = null; }
+                onTerminalCleanup: () => { _currentTrackerOperationId = null; },
+                onTerminalEmit: info => EmitGameDetectionCompleteAsync(registeredId, info)
             );
             var operationId = _currentTrackerOperationId.Value;
+            registeredId = operationId;
 
             // Set initial progress message
             _operationTracker.UpdateProgress(operationId, 0, stageKeyStarting);
@@ -766,7 +788,7 @@ public class GameCacheDetectionService : IDisposable
     /// Finalizes a detection operation by updating the tracker, persisted state, and sending SignalR notification.
     /// Consolidates the common teardown logic shared across success, cancel, and error paths.
     /// </summary>
-    private async Task FinalizeDetectionAsync(
+    private Task FinalizeDetectionAsync(
         Guid operationId, bool success, OperationStatus status, string stageKey, bool cancelled,
         Dictionary<string, object?>? context = null, int? gamesDetected = null, int? servicesDetected = null)
     {
@@ -776,7 +798,25 @@ public class GameCacheDetectionService : IDisposable
         // Determine error string for tracker (cancelled = "Cancelled by user", failed = stageKey, success = null)
         var trackerError = success ? null : (cancelled ? "Cancelled by user" : stageKey);
 
-        // Mark operation as complete in unified tracker
+        // Extract newGamesCount from context for the terminal emit payload
+        int? newGamesCount = null;
+        if (context != null && context.TryGetValue("newGamesCount", out var newGamesRaw) && newGamesRaw != null)
+        {
+            newGamesCount = Convert.ToInt32(newGamesRaw);
+        }
+
+        // Stash the completion metrics by value BEFORE CompleteOperation so the onTerminalEmit closure
+        // (registered in StartDetectionAsync/RestoreInterruptedOperations) can read them when it fires.
+        _terminalPayload = new GameDetectionTerminalPayload(
+            StageKey: stageKey,
+            Context: context,
+            GamesDetected: gamesDetected,
+            ServicesDetected: servicesDetected,
+            NewGamesCount: newGamesCount,
+            Status: status);
+
+        // Mark operation as complete in unified tracker. This fires onTerminalEmit (exactly once,
+        // CompletedFlag-gated) which sends the typed GameDetectionComplete record — no direct emit here.
         _operationTracker.CompleteOperation(operationId, success: success, error: trackerError);
         _currentTrackerOperationId = null;
 
@@ -797,26 +837,45 @@ public class GameCacheDetectionService : IDisposable
             Data = stateData
         });
 
-        // Build and send SignalR completion notification
-        int? newGamesCount = null;
-        if (context != null && context.TryGetValue("newGamesCount", out var newGamesRaw) && newGamesRaw != null)
-        {
-            newGamesCount = Convert.ToInt32(newGamesRaw);
-        }
+        return Task.CompletedTask;
+    }
 
-        await _notifications.NotifyAllAsync(SignalREvents.GameDetectionComplete, new
-        {
-            OperationId = operationId,
-            Success = success,
-            Status = status,
-            StageKey = stageKey,
-            Context = context,
-            Cancelled = cancelled,
-            newGamesCount,
-            totalGamesDetected = gamesDetected,
-            totalServicesDetected = servicesDetected,
-            timestamp = DateTime.UtcNow
-        });
+    /// <summary>
+    /// Sends the typed <see cref="SignalRNotifications.GameDetectionComplete"/> terminal event.
+    /// Invoked EXACTLY ONCE by the unified tracker inside CompleteOperation (CompletedFlag-gated),
+    /// for success, error, AND universal force-kill — replacing the old direct emit and the legacy
+    /// force-kill switch. Reads the metrics FinalizeDetectionAsync stashed in <see cref="_terminalPayload"/>;
+    /// on a force-kill that bypasses Finalize, the payload defaults to a cancelled-shaped record.
+    /// </summary>
+    private Task EmitGameDetectionCompleteAsync(Guid operationId, OperationTerminalInfo info)
+    {
+        var payload = _terminalPayload;
+        var status = info.Cancelled
+            ? OperationStatus.Cancelled
+            : info.Success
+                ? OperationStatus.Completed
+                : OperationStatus.Failed;
+
+        // Fall back to a sensible stageKey when a force-kill bypassed FinalizeDetectionAsync.
+        var stageKey = !string.IsNullOrEmpty(payload.StageKey)
+            ? payload.StageKey
+            : info.Cancelled
+                ? "signalr.gameDetect.starting.incremental"
+                : "signalr.generic.failed";
+
+        var record = new SignalRNotifications.GameDetectionComplete(
+            Success: info.Success,
+            OperationId: operationId,
+            StageKey: stageKey,
+            Status: status,
+            Cancelled: info.Cancelled,
+            TotalGamesDetected: payload.GamesDetected,
+            TotalServicesDetected: payload.ServicesDetected,
+            NewGamesCount: payload.NewGamesCount,
+            Timestamp: DateTime.UtcNow,
+            Context: payload.Context);
+
+        return _notifications.NotifyAllAsync(SignalREvents.GameDetectionComplete, record);
     }
 
     public DetectionOperationResponse? GetOperationStatus(Guid operationId)
@@ -1060,7 +1119,8 @@ public class GameCacheDetectionService : IDisposable
                         "Game Detection",
                         _cancellationTokenSource,
                         metadata,
-                        onTerminalCleanup: () => { _currentTrackerOperationId = null; }))
+                        onTerminalCleanup: () => { _currentTrackerOperationId = null; },
+                        onTerminalEmit: info => EmitGameDetectionCompleteAsync(persistedGuid, info)))
                 {
                     // core-7: the tracker did NOT adopt this CTS (ID already in use), so we still own it.
                     // Dispose the just-created CTS before continuing so it is not leaked.

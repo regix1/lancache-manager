@@ -2,6 +2,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Base;
+using LancacheManager.Infrastructure.Utilities;
 
 namespace LancacheManager.Infrastructure.Services;
 
@@ -77,7 +78,9 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
                 result.TotalFiles,
                 result.TotalBytes / 1_073_741_824.0,
                 trigger);
-            await _notifications.NotifyAllAsync(SignalREvents.CacheScanComplete, new { success = true });
+            await _notifications.NotifyAllAsync(
+                SignalREvents.CacheScanComplete,
+                new SignalRNotifications.CacheScanComplete(Success: true));
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {

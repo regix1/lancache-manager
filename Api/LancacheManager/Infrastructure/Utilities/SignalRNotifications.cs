@@ -143,19 +143,48 @@ public static class SignalRNotifications
     #region Log Processing Notifications
 
     /// <summary>
-    /// Notification when log removal completes.
+    /// Notification when log processing completes (success, failure, or cancellation).
+    /// Mirrors the prior <c>SendOperationCompleteAsync</c> wire shape (OperationId / Success / Status /
+    /// Message / Cancelled + EntriesProcessed / LinesProcessed / Elapsed) so the frontend
+    /// <c>LogProcessingCompleteEvent</c> contract is unchanged. <c>StageKey</c> is additive/optional.
+    /// Emitted from a single place via <c>OperationInfo.OnTerminalEmit</c>.
+    /// </summary>
+    public record LogProcessingComplete(
+        Guid? OperationId,
+        bool Success,
+        Models.OperationStatus Status,
+        string Message,
+        bool Cancelled = false,
+        long EntriesProcessed = 0,
+        long LinesProcessed = 0,
+        double? Elapsed = null,
+        string? StageKey = null,
+        Dictionary<string, object?>? Context = null
+    );
+
+    /// <summary>
+    /// Notification when log removal completes (success, failure, or cancellation).
+    /// Mirrors the prior <c>SendOperationCompleteAsync</c> wire shape (OperationId / Success / Status /
+    /// Message / Cancelled + Service / FilesProcessed / LinesProcessed / LinesRemoved /
+    /// DatabaseRecordsDeleted / Datasource) so the frontend <c>LogRemovalCompleteEvent</c> contract is
+    /// unchanged. <c>StageKey</c> is additive/optional. Emitted from a single place via
+    /// <c>OperationInfo.OnTerminalEmit</c>.
     /// </summary>
     public record LogRemovalComplete(
+        Guid? OperationId,
         bool Success,
+        Models.OperationStatus Status,
+        string Message,
         string Service,
-        string StageKey,
+        bool Cancelled = false,
         int FilesProcessed = 0,
         long LinesProcessed = 0,
         long LinesRemoved = 0,
         int DatabaseRecordsDeleted = 0,
-        bool Cancelled = false,
+        string? Datasource = null,
+        string? StageKey = null,
         Dictionary<string, object?>? Context = null
-    ) : ICompletionNotification;
+    );
 
     #endregion
 
@@ -175,14 +204,22 @@ public static class SignalRNotifications
     );
 
     /// <summary>
-    /// Notification when game detection completes.
+    /// Notification when game detection completes (success, failure, or cancellation).
+    /// Property names/casing mirror the previous anonymous payload exactly (serialized camelCase via
+    /// the global <c>JsonNamingPolicy.CamelCase</c>) so the frontend <c>GameDetectionCompleteEvent</c>
+    /// contract (status / cancelled / totalGamesDetected / totalServicesDetected / newGamesCount /
+    /// timestamp) is unchanged. Emitted from a single place via <c>OperationInfo.OnTerminalEmit</c>.
     /// </summary>
     public record GameDetectionComplete(
         bool Success,
         Guid OperationId,
         string StageKey,
-        int GamesDetected = 0,
-        int ServicesDetected = 0,
+        Models.OperationStatus Status = Models.OperationStatus.Completed,
+        bool Cancelled = false,
+        int? TotalGamesDetected = null,
+        int? TotalServicesDetected = null,
+        int? NewGamesCount = null,
+        DateTime? Timestamp = null,
         Dictionary<string, object?>? Context = null
     ) : ICompletionNotification;
 
@@ -197,12 +234,20 @@ public static class SignalRNotifications
     );
 
     /// <summary>
-    /// Notification when corruption detection completes.
+    /// Notification when corruption detection completes (success, failure, or cancellation).
+    /// One record for ALL terminal paths (replaces the prior anon success object + the separate
+    /// force-kill <c>CorruptionDetectionCancelled</c> record). Property names mirror the frontend
+    /// <c>CorruptionDetectionCompleteEvent</c> contract (status / cancelled / error /
+    /// totalServicesWithCorruption / totalCorruptedChunks). Emitted from a single place via
+    /// <c>OperationInfo.OnTerminalEmit</c>.
     /// </summary>
     public record CorruptionDetectionComplete(
         bool Success,
+        Guid OperationId,
         string StageKey,
-        Dictionary<string, int>? CorruptionCounts = null,
+        Models.OperationStatus Status = Models.OperationStatus.Completed,
+        bool Cancelled = false,
+        string? Error = null,
         int TotalServicesWithCorruption = 0,
         int TotalCorruptedChunks = 0,
         Dictionary<string, object?>? Context = null
@@ -226,14 +271,52 @@ public static class SignalRNotifications
     );
 
     /// <summary>
-    /// Notification when cache clear completes.
+    /// Notification when cache clear completes (success, failure, or cancellation).
+    /// Mirrors the prior <c>SendOperationCompleteAsync</c> wire shape (OperationId / Success / Status /
+    /// Message / Cancelled + FilesDeleted / DirectoriesProcessed / BytesDeleted / DatasourcesCleared /
+    /// Duration / Error) so the frontend <c>CacheClearCompleteEvent</c> contract is unchanged.
+    /// <c>StageKey</c> is additive/optional. Emitted from a single place via
+    /// <c>OperationInfo.OnTerminalEmit</c>.
     /// </summary>
     public record CacheClearComplete(
+        Guid? OperationId,
         bool Success,
-        Guid OperationId,
-        string StageKey,
+        Models.OperationStatus Status,
+        string Message,
+        bool Cancelled = false,
         int FilesDeleted = 0,
-        long BytesFreed = 0,
+        int DirectoriesProcessed = 0,
+        long BytesDeleted = 0,
+        int DatasourcesCleared = 0,
+        double? Duration = null,
+        string? Error = null,
+        string? StageKey = null,
+        Dictionary<string, object?>? Context = null
+    );
+
+    /// <summary>
+    /// Notification when a cache size scan completes. Replaces the prior <c>new { success = true }</c>
+    /// anonymous payload. <c>OperationId</c> is optional because the scheduled scan is not a tracked
+    /// operation. Emitted on the <c>CacheScanComplete</c> SignalR event.
+    /// </summary>
+    public record CacheScanComplete(
+        bool Success,
+        Guid? OperationId = null
+    );
+
+    /// <summary>
+    /// Notification when a database reset completes on the NORMAL path (success or failure) or via
+    /// cancellation. Additive terminal event for db reset (the legacy <c>DatabaseResetProgress</c>
+    /// status completion is preserved until the frontend handler migrates). Emitted on the
+    /// <c>DatabaseResetComplete</c> SignalR event from a single place via
+    /// <c>OperationInfo.OnTerminalEmit</c>.
+    /// </summary>
+    public record DatabaseResetComplete(
+        Guid? OperationId,
+        bool Success,
+        string StageKey,
+        Models.OperationStatus Status = Models.OperationStatus.Completed,
+        bool Cancelled = false,
         string? Error = null,
         Dictionary<string, object?>? Context = null
     ) : ICompletionNotification;
