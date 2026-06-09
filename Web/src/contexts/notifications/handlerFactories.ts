@@ -502,13 +502,16 @@ export function createStatusAwareProgressHandler<T>(
           return prev;
         }
 
+        const eventDetails = config.getDetails?.(event);
         return prev.map((n) => {
           if (n.id === notificationId) {
             return {
               ...n,
               status: 'failed' as const,
               message: errorMessage,
-              error: errorMessage
+              error: errorMessage,
+              // Merge event details (e.g., operationId) to match completed/progress branches
+              ...(eventDetails ? { details: { ...n.details, ...eventDetails } } : {})
             };
           }
           return n;

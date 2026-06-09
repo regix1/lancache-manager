@@ -38,6 +38,8 @@ interface LogProcessingStatusResponse {
   totalLines: number;
   stageKey?: string;
   context?: StageContext;
+  /** camelCase per C.3 — backend anonymous object → JsonNamingPolicy.CamelCase */
+  operationId?: string;
 }
 
 /** GET /api/cache/operations - ActiveOperationsResponse */
@@ -155,8 +157,12 @@ interface EpicGameMappingScheduleResponse {
   statusMessage?: string | null;
   /** C# `double` (non-null) - always emitted; 0 when not processing */
   progressPercent: number;
-  /** C# `string?` - nullable */
-  operationId?: string | null;
+  /**
+   * C# `string?` - non-null when isProcessing is true; absent/undefined when idle.
+   * Narrowed to `string | undefined` (not `| null`) to match the backend contract
+   * and prevent null from slipping into details.operationId.
+   */
+  operationId?: string;
   /** Additional fields from EpicScheduleStatus (not used by recovery handler) */
   refreshIntervalHours?: number;
   nextRefreshIn?: number;
@@ -290,6 +296,7 @@ const RECOVERY_CONFIGS = {
       ),
       progress: Math.min(99.9, data.percentComplete),
       details: {
+        operationId: data.operationId,
         mbProcessed: data.mbProcessed,
         mbTotal: data.mbTotal,
         entriesProcessed: data.entriesProcessed,
@@ -337,7 +344,10 @@ const RECOVERY_CONFIGS = {
         : i18n.t('signalr.dbReset.starting'),
       // `??` (not `||`): backend field is `int?` - nullable. `??` preserves 0.
       progress: data.percentComplete ?? 0,
-      details: data.operationId ? { operationId: data.operationId } : undefined
+      // Always emit a defined details object so the deferred-cancel watchdog can
+      // attach an operationId when it arrives via a later SignalR progress tick.
+      // `?? undefined` normalises null→undefined (backend field is `string?`).
+      details: { operationId: data.operationId ?? undefined }
     }),
     staleMessage: 'Database reset completed'
   } satisfies SimpleRecoveryConfig<DatabaseResetStatusResponse>,

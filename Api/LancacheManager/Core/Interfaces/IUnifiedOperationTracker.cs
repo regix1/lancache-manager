@@ -8,14 +8,33 @@ public interface IUnifiedOperationTracker
     /// <summary>
     /// Registers a new operation and returns its unique ID.
     /// </summary>
-    Guid RegisterOperation(OperationType type, string name, CancellationTokenSource cts, object? metadata = null);
+    /// <remarks>
+    /// CTS OWNERSHIP: once a <see cref="CancellationTokenSource"/> is handed to the tracker it is
+    /// owned by the tracker. The tracker is the SINGLE disposer — it disposes the CTS exactly once
+    /// inside <see cref="CompleteOperation"/>. Callers MUST NOT dispose a CTS they have passed to a
+    /// successfully-registered operation. The lone exception is when <see cref="TryRestoreOperation"/>
+    /// returns <c>false</c> (the ID was already in use and the just-created CTS was never adopted):
+    /// the caller still owns that CTS and must dispose it itself.
+    /// </remarks>
+    /// <param name="onTerminalCleanup">Optional synchronous callback invoked exactly once when the
+    /// operation reaches a terminal state, letting the owning service reset its local mutable state
+    /// (e.g. null out its <c>_currentOperationId</c>/<c>_cts</c>) regardless of which path completed
+    /// the op (worker <c>finally</c> vs universal force-kill). Must not throw or block.</param>
+    Guid RegisterOperation(OperationType type, string name, CancellationTokenSource cts,
+                           object? metadata = null, Action? onTerminalCleanup = null);
 
     /// <summary>
     /// Re-registers a previously-persisted operation by its original ID (recovery after restart).
     /// Returns true if the operation was registered; false if the ID is already in use
     /// (caller should treat as benign - the operation is already tracked).
     /// </summary>
-    bool TryRestoreOperation(Guid operationId, OperationType type, string name, CancellationTokenSource cts, object? metadata = null);
+    /// <remarks>
+    /// CTS OWNERSHIP: see <see cref="RegisterOperation"/>. When this returns <c>false</c> the tracker
+    /// did NOT adopt the supplied CTS, so the caller retains ownership and must dispose it.
+    /// </remarks>
+    /// <param name="onTerminalCleanup">See <see cref="RegisterOperation"/>.</param>
+    bool TryRestoreOperation(Guid operationId, OperationType type, string name, CancellationTokenSource cts,
+                             object? metadata = null, Action? onTerminalCleanup = null);
 
     /// <summary>
     /// Aggressively cancels an operation: terminates any associated process tree immediately,

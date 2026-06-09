@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 mod cache_utils;
+mod cancel;
 mod db;
 mod log_discovery;
 mod log_reader;
@@ -127,6 +128,11 @@ fn remove_cache_files_for_service(
     let mut last_reported_percent: usize = 0;
 
     for url in urls {
+        // Cooperative cancellation: finish the current URL's in-flight deletes, then stop.
+        if cancel::is_cancelled() {
+            break;
+        }
+
         urls_processed += 1;
 
         for cache_path in cache_utils::cache_path_candidates_for_probe(
@@ -218,6 +224,7 @@ async fn delete_service_from_database(pool: &PgPool, service: &str) -> Result<u6
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    cancel::install();
     let args = Args::parse();
     let reporter = ProgressReporter::new(args.progress);
 
@@ -256,6 +263,27 @@ async fn main() -> Result<()> {
     write_progress(&progress_path, "removing_cache", "signalr.serviceRemove.cache.removing", json!({ "count": url_count }), 10.0, 0, url_count)?;
     reporter.emit_progress(10.0, "signalr.serviceRemove.cache.removing", json!({ "count": url_count }));
     let (cache_files_deleted, total_bytes_freed, cache_permission_errors) = remove_cache_files_for_service(&cache_dir, service, &urls, &progress_path, &reporter)?;
+
+    // After cache removal: if cancellation arrived, flush partial progress and exit 0.
+    // C# re-runs reconciliation/detection after a cancelled remove.
+    if cancel::is_cancelled() {
+        eprintln!("Cancellation confirmed — flushing partial progress and exiting.");
+        let _ = write_progress(
+            &progress_path,
+            "removing_cache",
+            "signalr.serviceRemove.cache.file.progress",
+            json!({ "n": cache_files_deleted, "total": url_count }),
+            10.0 + (cache_files_deleted as f64 / url_count.max(1) as f64) * 60.0,
+            cache_files_deleted,
+            url_count,
+        );
+        reporter.emit_progress(
+            10.0 + (cache_files_deleted as f64 / url_count.max(1) as f64) * 60.0,
+            "signalr.serviceRemove.cache.file.progress",
+            json!({ "n": cache_files_deleted, "total": url_count }),
+        );
+        return Ok(());
+    }
 
     // Step 3: Remove log entries
     write_progress(&progress_path, "removing_logs", "signalr.serviceRemove.logs.removing", json!({}), 70.0, cache_files_deleted, url_count)?;

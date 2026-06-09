@@ -74,11 +74,24 @@ public partial class EpicMappingService
                 : new CancellationTokenSource();
         }
 
-        // Register with operation tracker (mirrors Steam's TryStartRebuild)
+        // Register with operation tracker (mirrors Steam's TryStartRebuild).
+        // onTerminalCleanup is the safety net for the universal force-kill path, which completes the
+        // operation immediately (no associated process) WITHOUT unwinding the worker finally below.
+        // It mirrors that finally (lines 163-167): release the busy flag, dispose+null the per-op CTS,
+        // null the current operation id, and reset status to Idle so the next TryStartRefresh can run.
         _currentOperationId = _operationTracker.RegisterOperation(
             OperationType.EpicMapping,
             "Epic Catalog Refresh",
-            _currentRefreshCts
+            _currentRefreshCts,
+            onTerminalCleanup: () =>
+            {
+                Interlocked.Exchange(ref _isProcessingInt, 0);
+                _currentProgressPercent = 0;
+                _currentRefreshCts?.Dispose();
+                _currentRefreshCts = null;
+                _currentOperationId = null;
+                _currentStatus = EpicMappingStatus.Idle;
+            }
         );
 
         _currentProgressPercent = 0;

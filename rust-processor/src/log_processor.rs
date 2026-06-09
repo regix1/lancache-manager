@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+mod cancel;
 mod db;
 mod log_discovery;
 mod log_reader;
@@ -424,6 +425,16 @@ impl Processor {
                         "processing",
                         &format!("{} lines parsed, {} entries saved", parsed, saved),
                     )?;
+
+                    // Cooperative cancel: check after each flushed batch (clean DB-transaction boundary)
+                    if cancel::is_cancelled() {
+                        println!("Cancel requested — stopping after batch flush ({} lines, {} entries saved)", parsed, saved);
+                        self.write_progress(
+                            "cancelled",
+                            &format!("Cancelled: {} lines parsed, {} entries saved", parsed, saved),
+                        )?;
+                        std::process::exit(0);
+                    }
                 }
             }
         }
@@ -963,6 +974,8 @@ impl Processor {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    cancel::install();
+
     let args = Args::parse();
     let reporter = ProgressReporter::new(args.progress);
 

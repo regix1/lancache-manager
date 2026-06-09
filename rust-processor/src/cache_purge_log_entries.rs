@@ -21,6 +21,7 @@ use std::fs;
 use std::path::Path;
 
 mod cache_utils;
+mod cancel;
 mod log_discovery;
 mod log_purge;
 mod log_reader;
@@ -71,6 +72,7 @@ struct PurgeReport {
 }
 
 fn main() -> Result<()> {
+    cancel::install();
     let args = Args::parse();
 
     let reporter = ProgressReporter::new(args.progress);
@@ -176,6 +178,25 @@ fn run_purge(args: &Args, reporter: &ProgressReporter) -> Result<PurgeReport> {
     let (lines_removed, permission_errors) =
         remove_log_entries_for_game(log_dir_path, &urls, &depot_ids, Some(&progress_cb))
             .context("remove_log_entries_for_game failed")?;
+
+    // Cooperative cancellation: if cancel arrived during the purge, flush partial progress
+    // with real counts and return Ok so main() exits 0 without emitting a failed event.
+    if cancel::is_cancelled() {
+        eprintln!("Cancellation confirmed — flushing partial progress ({} lines removed so far).", lines_removed);
+        reporter.emit_progress(
+            95.0,
+            "signalr.logPurge.purging",
+            json!({ "urlCount": url_count, "depotCount": depot_count, "linesRemoved": lines_removed }),
+        );
+        return Ok(PurgeReport {
+            success: true,
+            lines_removed,
+            permission_errors,
+            url_count,
+            depot_count,
+            error: None,
+        });
+    }
 
     reporter.emit_progress(
         95.0,

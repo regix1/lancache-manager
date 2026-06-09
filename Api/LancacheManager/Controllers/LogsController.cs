@@ -729,20 +729,4 @@ public class LogsController : ControllerBase
         return Ok(status);
     }
 
-    /// <summary>
-    /// POST /api/logs/remove/kill - Force kill service removal operation
-    /// Used as fallback when graceful cancellation fails
-    /// </summary>
-    [HttpPost("remove/kill")]
-    public async Task<IActionResult> ForceKillServiceRemovalAsync()
-    {
-        var result = await _rustLogRemovalService.ForceKillOperationAsync();
-
-        if (!result)
-        {
-            return NotFound(new NotFoundResponse { Error = "No service removal operation running or no process to kill" });
-        }
-
-        return Ok(new MessageResponse { Message = "Service removal force killed successfully" });
-    }
 }

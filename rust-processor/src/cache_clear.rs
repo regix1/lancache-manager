@@ -20,6 +20,7 @@ mod progress_utils;
 use std::os::unix::ffi::OsStrExt;
 
 mod cache_utils;
+mod cancel;
 mod progress_events;
 
 use cache_utils::{detect_filesystem_type, FilesystemType};
@@ -508,8 +509,12 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
             let bytes = bytes_for_monitor.load(Ordering::Relaxed);
             let files = files_for_monitor.load(Ordering::Relaxed);
 
-            if processed >= total_dirs {
-                break; // All done
+            // Stop monitoring when all dirs are done OR a cancel was requested.
+            // On cancel the worker closures skip remaining dirs without advancing
+            // `processed`, so without this check the monitor would loop forever and
+            // `monitor_handle.join()` below would deadlock instead of exiting 0.
+            if processed >= total_dirs || cancel::is_cancelled() {
+                break; // All done, or cancellation requested
             }
 
             if last_update.elapsed().as_millis() > 500 {
@@ -575,6 +580,12 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     let active_for_workers = Arc::clone(&active_dirs);
     pool.install(|| {
         hex_dirs.par_iter().for_each(|dir| {
+        // Cooperative cancellation: skip new hex-dirs if cancel was requested.
+        // An in-flight remove_dir_all finishes (not interruptible mid-call); no new dir starts.
+        if cancel::is_cancelled() {
+            return;
+        }
+
         let dir_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
         let dir_name_str = dir_name.to_string();
 
@@ -613,6 +624,34 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
 
     // Wait for monitor thread to finish
     let _ = monitor_handle.join();
+
+    // If cancellation was requested: flush a partial progress event and exit 0.
+    // An in-flight remove_dir_all may have finished; no new dirs were started after the flag.
+    if cancel::is_cancelled() {
+        let processed = dirs_processed.load(Ordering::Relaxed);
+        let percent = if total_dirs > 0 { (processed as f64 / total_dirs as f64) * 100.0 } else { 0.0 };
+        eprintln!("Cancellation confirmed — processed {}/{} hex dirs, exiting.", processed, total_dirs);
+        // Emit partial progress via reporter (avoids re-borrowing the moved operation_id string).
+        reporter.emit_progress(
+            percent.clamp(0.0, 100.0),
+            "signalr.cacheClear.progress",
+            json!({ "processed": processed, "totalDirs": total_dirs, "activeCount": 0usize }),
+        );
+        let progress = ProgressData::new(
+            true,
+            percent,
+            "running".to_string(),
+            "signalr.cacheClear.progress".to_string(),
+            json!({ "processed": processed, "totalDirs": total_dirs, "activeCount": 0usize }),
+            processed,
+            total_dirs,
+            0,
+            0,
+            Vec::new(),
+        );
+        let _ = write_progress(progress_path, &progress);
+        std::process::exit(0);
+    }
 
     let final_dirs = dirs_processed.load(Ordering::Relaxed);
     let final_bytes = get_available_bytes(cache_dir)
@@ -695,6 +734,7 @@ fn get_optimal_thread_count(delete_mode: &str, fs_type: FilesystemType) -> usize
 }
 
 fn main() {
+    cancel::install();
     let args = Args::parse();
 
     let cache_path = &args.cache_path;

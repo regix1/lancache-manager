@@ -423,7 +423,7 @@ const UnifiedNotificationItem = ({
           onCancel && (
             <Tooltip
               content={t(
-                notification.details?.cancelRequested
+                notification.details?.cancelRequested && notification.type !== 'bulk_removal'
                   ? FORCE_KILL_TOOLTIP_KEY
                   : CANCEL_TOOLTIP_KEYS[notification.type]
               )}
@@ -433,7 +433,7 @@ const UnifiedNotificationItem = ({
                 onClick={onCancel}
                 className="p-1 rounded hover:bg-themed-hover transition-colors"
                 aria-label={
-                  notification.details?.cancelRequested
+                  notification.details?.cancelRequested && notification.type !== 'bulk_removal'
                     ? t(FORCE_KILL_TOOLTIP_KEY)
                     : t('common.notifications.cancelOperationAria')
                 }
@@ -483,8 +483,9 @@ const UniversalNotificationBar: React.FC = () => {
         !deferredCancelFiredRef.current.has(n.id)
       ) {
         deferredCancelFiredRef.current.add(n.id);
+        // Reset cancelRequested so the NEXT real click is a soft cancel, not a premature force-kill.
         updateNotification(n.id, {
-          details: { ...n.details, cancelSent: true }
+          details: { ...n.details, cancelRequested: false, cancelSent: true }
         });
         ApiService.cancelOperation(opId).catch((err) => {
           console.error('[UniversalNotificationBar] Deferred cancel failed:', err);

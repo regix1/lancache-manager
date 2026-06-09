@@ -1500,7 +1500,7 @@ class ApiService {
   // Remove all cache files for a specific service (fire-and-forget, requires auth)
   static async removeServiceFromCache(
     serviceName: string
-  ): Promise<{ message: string; serviceName: string; status: string; operationId?: string }> {
+  ): Promise<{ message: string; serviceName: string; status: string; operationId: string }> {
     try {
       const res = await fetch(
         `${API_BASE}/cache/services/${encodeURIComponent(serviceName)}`,
@@ -1509,9 +1509,12 @@ class ApiService {
           // Returns immediately with 202 Accepted - removal happens in background
         })
       );
-      return await this.handleResponse<{ message: string; serviceName: string; status: string }>(
-        res
-      );
+      return await this.handleResponse<{
+        message: string;
+        serviceName: string;
+        status: string;
+        operationId: string;
+      }>(res);
     } catch (error) {
       console.error('removeServiceFromCache error:', error);
       throw error;

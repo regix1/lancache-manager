@@ -139,7 +139,11 @@ public class GameCacheDetectionService : IDisposable
                 OperationType.GameDetection,
                 "Game Detection",
                 _cancellationTokenSource,
-                metadata
+                metadata,
+                // Universal-force-kill safety net: the tracker invokes this on terminal regardless of
+                // which path completed the op, so a force-kill that bypasses FinalizeDetectionAsync still
+                // clears the service-local "detection running" marker (mirrors the reset at line ~777).
+                onTerminalCleanup: () => { _currentTrackerOperationId = null; }
             );
             var operationId = _currentTrackerOperationId.Value;
 
@@ -1055,8 +1059,13 @@ public class GameCacheDetectionService : IDisposable
                         OperationType.GameDetection,
                         "Game Detection",
                         _cancellationTokenSource,
-                        metadata))
+                        metadata,
+                        onTerminalCleanup: () => { _currentTrackerOperationId = null; }))
                 {
+                    // core-7: the tracker did NOT adopt this CTS (ID already in use), so we still own it.
+                    // Dispose the just-created CTS before continuing so it is not leaked.
+                    _cancellationTokenSource.Dispose();
+                    _cancellationTokenSource = null;
                     _logger.LogWarning("[GameDetection] Persisted operation {Id} already registered - skipping", persistedGuid);
                     continue;
                 }

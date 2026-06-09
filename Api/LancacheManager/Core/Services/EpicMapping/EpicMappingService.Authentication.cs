@@ -35,10 +35,25 @@ public partial class EpicMappingService
             _logger.LogInformation("Exchanging Epic authorization code for tokens...");
 
             var authCts = new CancellationTokenSource();
+            // onTerminalCleanup is the safety net for the universal force-kill path, which completes the
+            // operation immediately (no associated process) WITHOUT running this method's success/catch
+            // resets. The outer finally (below) only resets _sessionLock + _isProcessingInt, so a
+            // force-kill or a generic (non-OCE) exception would otherwise leave _currentOperationId and
+            // _currentStatus set, permanently blocking the next auth. The lambda resets exactly those.
+            // NOTE: it deliberately does NOT null _currentTokens — that field is the persistent auth
+            // credential consumed by catalog refresh / image refresh after a SUCCESSFUL login (the
+            // cleanup runs on success too via CompleteOperation(true) at line 137); nulling it here
+            // would wipe valid tokens on every successful auth. Logout/refresh-failure null it instead.
             _currentOperationId = _operationTracker.RegisterOperation(
                 OperationType.EpicMapping,
                 "Epic Auth Login",
-                authCts
+                authCts,
+                onTerminalCleanup: () =>
+                {
+                    Interlocked.Exchange(ref _isProcessingInt, 0);
+                    _currentOperationId = null;
+                    _currentStatus = EpicMappingStatus.Idle;
+                }
             );
             _currentStatus = EpicMappingStatus.Authenticating;
 

@@ -68,7 +68,7 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
         // This loads from the JSON cache file if available, or runs a fresh scan
         try
         {
-            await _cacheService.GetCachedCacheSizeAsync(force: false, datasource: null);
+            await _cacheService.GetCachedCacheSizeAsync(force: false, datasource: null, cancellationToken: stoppingToken);
             _logger.LogInformation("Cache size scan pre-warmed at startup");
         }
         catch (Exception ex)

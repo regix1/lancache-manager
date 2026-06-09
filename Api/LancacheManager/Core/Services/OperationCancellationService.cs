@@ -7,25 +7,28 @@ using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 namespace LancacheManager.Core.Services;
 
 /// <summary>
-/// Centralizes aggressive operation cancellation and force-kill, mirroring the patterns used by
-/// <see cref="CacheClearingService.ForceKillOperationAsync"/>,
-/// <see cref="Infrastructure.Services.RustLogProcessorService.ForceKillProcessingAsync"/>, and
-/// <see cref="Infrastructure.Services.RustLogRemovalService.ForceKillOperationAsync"/>:
-/// cancel token → kill process tree → brief wait → SignalR completion → tracker cleanup.
+/// Centralizes aggressive operation cancellation and force-kill for ALL operation types so the dead
+/// per-service <c>ForceKill*</c> endpoints are no longer needed. Force-kill flow:
+/// graceful CANCEL to the Rust child (await its real exit, escalate to a hard kill on timeout) →
+/// token cancel → single SignalR completion → tracker cleanup (which runs the owning service's
+/// <see cref="Models.OperationInfo.OnTerminalCleanup"/> and disposes the CTS exactly once).
 /// </summary>
 public class OperationCancellationService
 {
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly ISignalRNotificationService _notifications;
+    private readonly ProcessManager _processManager;
     private readonly ILogger<OperationCancellationService> _logger;
 
     public OperationCancellationService(
         IUnifiedOperationTracker operationTracker,
         ISignalRNotificationService notifications,
+        ProcessManager processManager,
         ILogger<OperationCancellationService> logger)
     {
         _operationTracker = operationTracker;
         _notifications = notifications;
+        _processManager = processManager;
         _logger = logger;
     }
 
@@ -54,14 +57,34 @@ public class OperationCancellationService
             "Force killing operation {Id} ({Type}: {Name})",
             operationId, operation.Type, operation.Name);
 
-        _operationTracker.ForceKillOperation(operationId);
+        // Capture the process BEFORE ForceKillOperation nulls AssociatedProcess.
+        var process = operation.AssociatedProcess;
 
-        // Match cache-clear / log-removal force-kill: give the OS a moment to reap the process.
-        await Task.Delay(500);
+        try
+        {
+            if (process is { HasExited: false })
+            {
+                // P2-B / rust-kill-6: graceful-then-force, awaiting the REAL exit (replaces the blind
+                // Task.Delay(500)). Writes "CANCEL" to stdin, waits up to the grace period, then escalates
+                // to a hard kill and waits for the process tree to actually exit.
+                await _processManager.GracefulCancelAsync(process, TimeSpan.FromSeconds(5), $"force-kill op {operationId}");
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // A racing CompleteOperation disposed the Process between capture and the HasExited
+            // check (or during GracefulCancelAsync). The op is already finishing — treat as exited.
+            _logger.LogDebug("Process for operation {Id} was disposed concurrently during force kill — treating as already exited", operationId);
+        }
+
+        _operationTracker.ForceKillOperation(operationId); // cancels token, best-effort kill (idempotent via HasExited)
 
         var current = _operationTracker.GetOperation(operationId);
-        if (current == null || current.Status is OperationStatus.Completed or OperationStatus.Failed)
+        if (current == null
+            || current.Status is OperationStatus.Completed or OperationStatus.Failed or OperationStatus.Cancelled)
         {
+            // The worker observed cancellation and already completed the op (A.3 flag). Avoid a duplicate
+            // SignalR completion — the op is already terminal.
             return true;
         }
 
@@ -113,14 +136,13 @@ public class OperationCancellationService
             }
 
             case OperationType.CorruptionDetection:
-                await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new
-                {
-                    OperationId = operationId,
-                    Success = false,
-                    Status = OperationStatus.Cancelled.ToWireString(),
-                    StageKey = "signalr.corruptionDetect.cancelled",
-                    Cancelled = true
-                });
+                await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete,
+                    new CorruptionDetectionCancelled(
+                        OperationId: operationId,
+                        Success: false,
+                        Status: OperationStatus.Cancelled.ToWireString(),
+                        StageKey: "signalr.corruptionDetect.cancelled",
+                        Cancelled: true));
                 break;
 
             case OperationType.GameDetection:
@@ -186,34 +208,31 @@ public class OperationCancellationService
                 break;
 
             case OperationType.DataImport:
-                await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
-                {
-                    OperationId = operationId,
-                    Success = false,
-                    Message = "Import was cancelled",
-                    Cancelled = true
-                });
+                await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete,
+                    new DataImportCancelled(
+                        OperationId: operationId,
+                        Success: false,
+                        Message: "Import was cancelled",
+                        Cancelled: true));
                 break;
 
             case OperationType.EpicMapping:
-                await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
-                {
-                    OperationId = operationId,
-                    Success = false,
-                    Status = OperationStatus.Cancelled.ToWireString(),
-                    StageKey = "signalr.epicMapping.cancelled",
-                    Cancelled = true
-                });
+                await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress,
+                    new EpicMappingCancelled(
+                        OperationId: operationId,
+                        Success: false,
+                        Status: OperationStatus.Cancelled.ToWireString(),
+                        StageKey: "signalr.epicMapping.cancelled",
+                        Cancelled: true));
                 break;
 
             case OperationType.DepotMapping:
-                await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
-                {
-                    OperationId = operationId,
-                    Success = false,
-                    Status = OperationStatus.Cancelled.ToWireString(),
-                    Cancelled = true
-                });
+                await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete,
+                    new DepotMappingCancelled(
+                        OperationId: operationId,
+                        Success: false,
+                        Status: OperationStatus.Cancelled.ToWireString(),
+                        Cancelled: true));
                 break;
 
             default:

@@ -159,11 +159,21 @@ public class RustDatabaseResetService
         {
             _cancellationTokenSource = new CancellationTokenSource();
 
-            // Register the operation with the unified tracker
+            // Register the operation with the unified tracker.
+            // onTerminalCleanup is the safety net for the universal force-kill path: it mirrors the worker
+            // finally (lines 322-325) so service-local busy/identity state is reset even if the worker
+            // does not unwind (IsProcessing is the restart gate at line 144-148).
             _currentTrackerOperationId = _operationTracker.RegisterOperation(
                 OperationType.DatabaseReset,
                 "Database Reset",
-                _cancellationTokenSource
+                _cancellationTokenSource,
+                onTerminalCleanup: () =>
+                {
+                    IsProcessing = false;
+                    _currentTrackerOperationId = null;
+                    _cancellationTokenSource?.Dispose();
+                    _cancellationTokenSource = null;
+                }
             );
 
             // Send started event

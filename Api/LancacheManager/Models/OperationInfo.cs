@@ -48,4 +48,15 @@ public class OperationInfo
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public object? Metadata { get; set; }
+
+    /// <summary>Invoked exactly once when the operation reaches a terminal state, so the owning
+    /// service can reset its local mutable state (e.g. null _currentOperationId / _cts) regardless
+    /// of which path completed the op (worker finally vs universal force-kill).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Action? OnTerminalCleanup { get; set; }
+
+    /// <summary>0 = not yet completed, 1 = completed. Guards CompleteOperation against double-fire.
+    /// Use Interlocked.CompareExchange.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int CompletedFlag; // plain int field (NOT a property) so Interlocked can take a ref
 }

@@ -583,14 +583,23 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         int DatasourcesProcessed,
         int DatasourcesFailed);
 
+    /// <param name="cancellationToken">
+    /// Unused for cancellation control — eviction removals are cancelled via the tracker
+    /// (universal cancel/force-kill drives the registered CTS). Kept so the controller can pass
+    /// <c>HttpContext.RequestAborted</c> without a signature change.
+    /// </param>
     public async Task<Guid> StartBulkEvictionRemovalAsync(CancellationToken cancellationToken)
     {
         var cts = new CancellationTokenSource();
-        var operationId = _operationTracker.RegisterOperation(
+        Guid operationId = default;
+        operationId = _operationTracker.RegisterOperation(
             OperationType.EvictionRemoval,
             "Eviction Removal",
             cts,
-            new EvictionRemovalMetadata());
+            new EvictionRemovalMetadata(),
+            // critic-2: terminal cleanup is the sole remover of the silent-id entry so a universal
+            // force-kill (which bypasses CompleteEvictionRemovalAsync) cannot leak it.
+            onTerminalCleanup: () => _silentRemovalOperationIds.TryRemove(operationId, out _));
 
         await _notifications.NotifyAllAsync(
             SignalREvents.EvictionRemovalStarted,
@@ -598,6 +607,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         _ = Task.Run(async () =>
         {
+            // core-3: do NOT dispose cts here — the tracker owns its lifetime and disposes it in
+            // CompleteOperation. Disposing it from the worker races the tracker's cancel path.
             try
             {
                 using var scope = _serviceProvider.CreateScope();
@@ -613,15 +624,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     stageKey: "signalr.evictionRemove.failedToStart",
                     error: ex.Message);
             }
-            finally
-            {
-                cts.Dispose();
-            }
         }, cts.Token);
 
         return operationId;
     }
 
+    /// <param name="cancellationToken">
+    /// Unused for cancellation control — eviction removals are cancelled via the tracker
+    /// (universal cancel/force-kill drives the registered CTS). Kept so the controller can pass
+    /// <c>HttpContext.RequestAborted</c> without a signature change.
+    /// </param>
     public async Task<Guid> StartScopedEvictionRemovalAsync(
         EvictionScope scope,
         string key,
@@ -637,11 +649,15 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             Key = key,
             GameName = resolvedGameName
         };
-        var operationId = _operationTracker.RegisterOperation(
+        Guid operationId = default;
+        operationId = _operationTracker.RegisterOperation(
             OperationType.EvictionRemoval,
             $"Eviction Removal ({scope}: {key})",
             cts,
-            metadata);
+            metadata,
+            // critic-2: terminal cleanup is the sole remover of the silent-id entry so a universal
+            // force-kill (which bypasses CompleteEvictionRemovalAsync) cannot leak it.
+            onTerminalCleanup: () => _silentRemovalOperationIds.TryRemove(operationId, out _));
 
         await _notifications.NotifyAllAsync(
             SignalREvents.EvictionRemovalStarted,
@@ -655,6 +671,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         _ = Task.Run(async () =>
         {
+            // core-3: do NOT dispose cts here — the tracker owns its lifetime and disposes it in
+            // CompleteOperation. Disposing it from the worker races the tracker's cancel path.
             try
             {
                 using var scopeLifetime = _serviceProvider.CreateScope();
@@ -669,10 +687,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     success: false,
                     stageKey: "signalr.evictionRemove.failedToStart",
                     error: ex.Message);
-            }
-            finally
-            {
-                cts.Dispose();
             }
         }, cts.Token);
 
@@ -722,11 +736,15 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             _operationTracker.UpdateProgress(operationId, 100, stageKey);
         }
 
+        // critic-2: snapshot the silent flag BEFORE CompleteOperation. The registered
+        // onTerminalCleanup is now the sole remover of the silent-id entry, and it fires inside
+        // CompleteOperation — so reading the set afterward would always miss.
+        var wasSilent = _silentRemovalOperationIds.ContainsKey(operationId);
+
         _operationTracker.CompleteOperation(operationId, success, success ? null : error);
 
-        // Silent ops (Remove-mode auto-cleanup) skip the SignalR notification AND clear
-        // their entry from the silent set so the operationId can be reused later.
-        if (_silentRemovalOperationIds.TryRemove(operationId, out _))
+        // Silent ops (Remove-mode auto-cleanup) skip the SignalR notification.
+        if (wasSilent)
         {
             return;
         }
@@ -938,11 +956,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         if (operationId == null)
         {
             cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-            operationId = _operationTracker.RegisterOperation(
+            Guid selfRegisteredId = default;
+            selfRegisteredId = _operationTracker.RegisterOperation(
                 OperationType.EvictionRemoval,
                 "Eviction Removal",
                 cts,
-                new EvictionRemovalMetadata()); // bulk removal - no specific scope/key
+                new EvictionRemovalMetadata(), // bulk removal - no specific scope/key
+                // critic-2: this scan-driven path can run silently; the terminal cleanup is the sole
+                // remover of the silent-id entry so a universal force-kill cannot leak it.
+                onTerminalCleanup: () => _silentRemovalOperationIds.TryRemove(selfRegisteredId, out _));
+            operationId = selfRegisteredId;
 
             // Silent mode (Remove-mode auto-cleanup): skip the EvictionRemovalStarted SignalR
             // event so the frontend never creates a removal notification. The operationId is
@@ -1335,6 +1358,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         // Deliberately not using TrackedRemovalOperationRunner: this service can start from the background scan path without a controller HTTP lifecycle.
         if (operationId == null)
         {
+            // G3 intentional exemption: unlike the three sibling EvictionRemoval registers (594/652/959),
+            // this self-start register passes NO onTerminalCleanup that removes a silent-id entry. That is
+            // correct because this path can never be silent: it is reached only when operationId == null,
+            // and the sole caller (StartScopedEvictionRemovalAsync, line 679) ALWAYS passes a non-null,
+            // pre-registered operationId — so this branch is the never-silent self-start fallback. It also
+            // emits a NON-silent EvictionRemovalStarted below and never adds opId to
+            // _silentRemovalOperationIds (the only TryAdd sites are in the bulk RemoveEvictedRecordsAsync
+            // path). There is therefore no silent-id to leak, so no cleanup lambda is required here.
             cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
             operationId = _operationTracker.RegisterOperation(
                 OperationType.EvictionRemoval,

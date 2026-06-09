@@ -5,6 +5,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
+mod cancel;
 mod db;
 mod progress_utils;
 
@@ -109,6 +110,19 @@ async fn reset_database(
     let mut deleted_rows = 0i64;
 
     for table_name in &tables {
+        // Cooperative cancel: check between table-level iterations
+        if cancel::is_cancelled() {
+            println!("Cancel requested — stopping at table boundary ({} of {} tables cleared)", tables_cleared, tables.len());
+            progress.is_processing = false;
+            progress.status = "cancelled".to_string();
+            progress.message = format!(
+                "Database reset cancelled. Cleared {} of {} tables, deleted {} files.",
+                tables_cleared, tables.len(), 0usize
+            );
+            write_progress(progress_path, &progress)?;
+            std::process::exit(0);
+        }
+
         println!("Clearing table: {}", table_name);
 
         // Count rows in this table
@@ -159,6 +173,20 @@ async fn reset_database(
                     if batch_num % 10 == 0 {
                         println!("  Batch {}: Deleted {} rows (total: {} / {})", batch_num, deleted, deleted_rows, total_rows);
                     }
+
+                    // Cooperative cancel: check after each batch completes (at a clean batch boundary)
+                    if cancel::is_cancelled() {
+                        println!("Cancel requested — stopping after batch {} ({} rows deleted)", batch_num, deleted_rows);
+                        progress.is_processing = false;
+                        progress.tables_cleared = tables_cleared;
+                        progress.status = "cancelled".to_string();
+                        progress.message = format!(
+                            "Database reset cancelled after {} rows deleted ({} of {} tables fully cleared).",
+                            deleted_rows, tables_cleared, tables.len()
+                        );
+                        write_progress(progress_path, &progress)?;
+                        std::process::exit(0);
+                    }
                 }
                 Err(e) => {
                     eprintln!("  Warning: Failed to delete batch from {}: {}", table_name, e);
@@ -201,6 +229,20 @@ async fn reset_database(
     progress.percent_complete = 90.0;
     progress.status = "cleanup".to_string();
     write_progress(progress_path, &progress)?;
+
+    // Cooperative cancel: check before file deletion loop
+    if cancel::is_cancelled() {
+        println!("Cancel requested — stopping before file cleanup ({} tables cleared)", tables_cleared);
+        progress.is_processing = false;
+        progress.tables_cleared = tables_cleared;
+        progress.status = "cancelled".to_string();
+        progress.message = format!(
+            "Database reset cancelled. Cleared {} of {} tables (all rows deleted), no data files removed.",
+            tables_cleared, tables.len()
+        );
+        write_progress(progress_path, &progress)?;
+        std::process::exit(0);
+    }
 
     let mut files_deleted = 0;
     let files_to_delete = vec![
@@ -259,6 +301,8 @@ async fn main() {
         eprintln!("\nNote: Database connection is configured via DATABASE_URL environment variable.");
         std::process::exit(1);
     }
+
+    cancel::install();
 
     let data_directory = &args[1];
     let progress_path = Path::new(&args[2]);

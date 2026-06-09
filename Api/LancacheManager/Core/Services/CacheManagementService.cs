@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Core.Interfaces;
@@ -1614,7 +1615,7 @@ public class CacheManagementService
     /// Runs the Rust cache-size binary against the given cache path and returns the parsed result,
     /// or null if the binary is not found or the scan fails.
     /// </summary>
-    private async Task<CacheSizeResponse?> RunCacheSizeScanAsync(string cachePath)
+    private async Task<CacheSizeResponse?> RunCacheSizeScanAsync(string cachePath, CancellationToken cancellationToken = default)
     {
         var rustBinaryPath = _pathResolver.GetRustCacheSizePath();
 
@@ -1656,7 +1657,7 @@ public class CacheManagementService
 
             var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, $"\"{cachePath}\" \"{outputFile}\"");
 
-            var processResult = await _rustProcessHelper.ExecuteProcessAsync(startInfo, CancellationToken.None);
+            var processResult = await _rustProcessHelper.ExecuteProcessAsync(startInfo, cancellationToken);
 
             if (!string.IsNullOrWhiteSpace(processResult.Error))
                 _logger.LogInformation("Cache size calculation output:\n{Output}", processResult.Error);
@@ -1714,7 +1715,7 @@ public class CacheManagementService
     ///   - no cached scan exists
     ///   - the drive's used space has changed by >= 50 GB since the last scan
     /// </summary>
-    public async Task<CacheSizeResponse?> GetCachedCacheSizeAsync(bool force = false, string? datasource = null)
+    public async Task<CacheSizeResponse?> GetCachedCacheSizeAsync(bool force = false, string? datasource = null, CancellationToken cancellationToken = default)
     {
         // Per-datasource scans are always live - no caching
         if (!string.IsNullOrEmpty(datasource))
@@ -1723,7 +1724,7 @@ public class CacheManagementService
                 .FirstOrDefault(d => d.Name.Equals(datasource, StringComparison.OrdinalIgnoreCase));
             if (ds == null)
                 return null;
-            return await RunCacheSizeScanAsync(ds.CachePath);
+            return await RunCacheSizeScanAsync(ds.CachePath, cancellationToken);
         }
 
         var allCachePath = _pathResolver.GetCacheDirectory();
@@ -1735,7 +1736,7 @@ public class CacheManagementService
             if (force)
             {
                 _logger.LogInformation("Force rescan requested - running fresh cache size scan");
-                var freshResult = await RunCacheSizeScanAsync(allCachePath);
+                var freshResult = await RunCacheSizeScanAsync(allCachePath, cancellationToken);
                 if (freshResult != null)
                 {
                     var cacheInfo = await GetCacheInfoAsync();
@@ -1752,7 +1753,7 @@ public class CacheManagementService
             if (_cachedCacheScan == null)
             {
                 _logger.LogInformation("No cached cache scan found - running fresh scan");
-                var freshResult = await RunCacheSizeScanAsync(allCachePath);
+                var freshResult = await RunCacheSizeScanAsync(allCachePath, cancellationToken);
                 if (freshResult != null)
                 {
                     var cacheInfo = await GetCacheInfoAsync();
@@ -1773,7 +1774,7 @@ public class CacheManagementService
                 _logger.LogInformation(
                     "Cache usage changed by {DeltaGb:F1} GB since last scan - running fresh scan",
                     delta / (1024.0 * 1024.0 * 1024.0));
-                var freshResult = await RunCacheSizeScanAsync(allCachePath);
+                var freshResult = await RunCacheSizeScanAsync(allCachePath, cancellationToken);
                 if (freshResult != null)
                 {
                     await SaveCachedScanAsync(freshResult, currentInfo.UsedCacheSize);

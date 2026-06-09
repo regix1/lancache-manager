@@ -1,5 +1,6 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -38,18 +39,33 @@ public class OperationsController : ControllerBase
             return NotFound(new { error = "Operation not found", operationId = id });
         }
 
-        var cancelled = _cancellationService.Cancel(id);
-        if (cancelled)
+        try
         {
+            var cancelled = _cancellationService.Cancel(id);
+            if (cancelled)
+            {
+                return Ok(new
+                {
+                    message = "Cancellation requested (process kill + token cancel)",
+                    operationId = id,
+                    status = operation.Status
+                });
+            }
+
+            return BadRequest(new { error = "Operation cannot be cancelled", operationId = id });
+        }
+        catch (Exception ex) when (ex is ObjectDisposedException or NullReferenceException)
+        {
+            // P2-C: the operation completed concurrently (its CTS was disposed / state nulled) between
+            // the lookup above and the cancel. The op is already terminal, so the user's intent is
+            // satisfied — report success instead of leaking an unhandled 500.
             return Ok(new
             {
-                message = "Cancellation requested (process kill + token cancel)",
+                message = "Operation already completed",
                 operationId = id,
-                status = operation.Status
+                status = OperationStatus.Completed
             });
         }
-
-        return BadRequest(new { error = "Operation cannot be cancelled", operationId = id });
     }
 
     /// <summary>
@@ -60,12 +76,27 @@ public class OperationsController : ControllerBase
     [HttpPost("{id}/force-kill")]
     public async Task<IActionResult> ForceKillOperationAsync(Guid id)
     {
-        var killed = await _cancellationService.ForceKillAsync(id);
-        if (!killed)
+        try
         {
-            return NotFound(new { error = "Operation not found or already completed", operationId = id });
-        }
+            var killed = await _cancellationService.ForceKillAsync(id);
+            if (!killed)
+            {
+                return NotFound(new { error = "Operation not found or already completed", operationId = id });
+            }
 
-        return Ok(new { message = "Operation force killed", operationId = id });
+            return Ok(new { message = "Operation force killed", operationId = id });
+        }
+        catch (Exception ex) when (ex is ObjectDisposedException or NullReferenceException)
+        {
+            // P2-C parity with the cancel endpoint: the operation completed concurrently (its CTS /
+            // Process was disposed or state nulled) during the force kill. The op is already terminal,
+            // so the user's intent is satisfied — report success instead of leaking an unhandled 500.
+            return Ok(new
+            {
+                message = "Operation already completed",
+                operationId = id,
+                status = OperationStatus.Completed
+            });
+        }
     }
 }

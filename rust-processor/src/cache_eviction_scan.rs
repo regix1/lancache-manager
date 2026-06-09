@@ -2,12 +2,13 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::{PgPool, Row};
+use sqlx::{Postgres, Transaction, Row};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 mod cache_utils;
 mod cache_eviction_paths;
+mod cancel;
 mod db;
 mod progress_utils;
 
@@ -67,6 +68,7 @@ struct DownloadEntry {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    cancel::install();
     let args = Args::parse();
 
     let progress_path = match args.progress_json.as_deref() {
@@ -295,16 +297,19 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
             }
         }
 
-        // Batch UPDATE evicted downloads
-        if !ids_to_evict.is_empty() {
-            update_download_eviction_state(&pool, &ids_to_evict, true).await?;
-            total_evicted += ids_to_evict.len();
-        }
-
-        // Batch UPDATE un-evicted downloads
-        if !ids_to_unevict.is_empty() {
-            update_download_eviction_state(&pool, &ids_to_unevict, false).await?;
-            total_un_evicted += ids_to_unevict.len();
+        // rust-3: wrap both evict/unevict UPDATEs for this batch in a single transaction
+        // so a kill mid-batch cannot partially flag a batch.
+        if !ids_to_evict.is_empty() || !ids_to_unevict.is_empty() {
+            let mut tx = pool.begin().await.with_context(|| "Failed to begin eviction batch transaction")?;
+            if !ids_to_evict.is_empty() {
+                update_download_eviction_state_tx(&mut tx, &ids_to_evict, true).await?;
+                total_evicted += ids_to_evict.len();
+            }
+            if !ids_to_unevict.is_empty() {
+                update_download_eviction_state_tx(&mut tx, &ids_to_unevict, false).await?;
+                total_un_evicted += ids_to_unevict.len();
+            }
+            tx.commit().await.with_context(|| "Failed to commit eviction batch transaction")?;
         }
 
         total_processed += batch_count;
@@ -329,6 +334,16 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
             total_evicted,
             total_un_evicted,
         )?;
+
+        // Cooperative cancellation: between-batch check (after a full batch has committed).
+        // Never leaves a half-written batch: the transaction above either committed or rolled back.
+        if cancel::is_cancelled() {
+            eprintln!(
+                "[EvictionScan] Cancellation requested after batch — processed {} downloads so far, exiting.",
+                total_processed
+            );
+            break;
+        }
 
         // If we got fewer downloads than batch_size, we've reached the end
         if (batch_count as i64) < batch_size {
@@ -365,16 +380,19 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
     })
 }
 
-async fn update_download_eviction_state(
-    pool: &PgPool,
+/// Transaction-scoped variant used by the per-batch transaction in run_scan (rust-3).
+/// Executes within a caller-owned transaction so that evict + unevict UPDATEs for the
+/// same batch are atomic.
+async fn update_download_eviction_state_tx(
+    tx: &mut Transaction<'_, Postgres>,
     ids: &[i64],
     is_evicted: bool,
 ) -> Result<()> {
     let target_state = if is_evicted { "true" } else { "false" };
     let error_context = if is_evicted {
-        "Failed to update evicted downloads"
+        "Failed to update evicted downloads (tx)"
     } else {
-        "Failed to update un-evicted downloads"
+        "Failed to update un-evicted downloads (tx)"
     };
 
     for chunk in ids.chunks(400) {
@@ -393,7 +411,7 @@ async fn update_download_eviction_state(
             query = query.bind(id);
         }
         query
-            .execute(pool)
+            .execute(&mut **tx)
             .await
             .with_context(|| error_context)?;
     }

@@ -13,6 +13,7 @@ use flate2::Compression;
 
 mod cache_utils;
 mod cache_corruption_detector;
+mod cancel;
 mod db;
 mod log_discovery;
 mod log_reader;
@@ -275,6 +276,7 @@ async fn delete_corrupted_from_database(
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    cancel::install();
     let args = Args::parse();
     let reporter = ProgressReporter::new(args.progress);
 
@@ -588,6 +590,15 @@ async fn main() -> Result<()> {
                 let slice_size: i64 = 1_048_576; // 1MB
 
                 for (url_index, (url, response_size)) in service_urls_with_sizes.iter().enumerate() {
+                    // Cooperative cancellation: stop between chunks.
+                    if cancel::is_cancelled() {
+                        let percent = 50.0 + (url_index as f64 / total_urls.max(1) as f64) * 25.0;
+                        eprintln!("Cancellation requested at URL {}/{} — flushing partial progress.", url_index, total_urls);
+                        let _ = write_progress(&progress_path, "removing_cache", "signalr.corruptionRemove.removingCacheFile", json!({ "urlIndex": url_index, "totalUrls": total_urls }), percent, url_index, total_urls);
+                        reporter.emit_progress(percent, "signalr.corruptionRemove.removingCacheFile", json!({ "urlIndex": url_index, "totalUrls": total_urls }));
+                        return Ok(());
+                    }
+
                     if url_index % 50 == 0 || url_index == total_urls - 1 {
                         let percent = 50.0 + (url_index as f64 / total_urls.max(1) as f64) * 25.0;
                         write_progress(&progress_path, "removing_cache", "signalr.corruptionRemove.removingCacheFile", json!({ "urlIndex": url_index + 1, "totalUrls": total_urls }), percent, url_index, total_urls)?;
@@ -1006,6 +1017,15 @@ async fn main() -> Result<()> {
             let slice_size: i64 = 1_048_576; // 1MB
 
             for (url_index, (url, response_size)) in corrupted_urls_with_sizes.iter().enumerate() {
+                // Cooperative cancellation: stop between chunks.
+                if cancel::is_cancelled() {
+                    let cache_percent = 70.0 + (url_index as f64 / total_urls.max(1) as f64) * 20.0;
+                    eprintln!("Cancellation requested at URL {}/{} — flushing partial progress.", url_index, total_urls);
+                    let _ = write_progress(&progress_path, "removing_cache", "signalr.corruptionRemove.removingCacheFile", json!({ "urlIndex": url_index, "totalUrls": total_urls }), cache_percent, url_index, total_urls);
+                    reporter.emit_progress(cache_percent, "signalr.corruptionRemove.removingCacheFile", json!({ "urlIndex": url_index, "totalUrls": total_urls }));
+                    return Ok(());
+                }
+
                 // Update progress during cache removal (70-95%)
                 if url_index % 50 == 0 || url_index == total_urls - 1 {
                     let cache_percent = 70.0 + (url_index as f64 / total_urls.max(1) as f64) * 20.0;

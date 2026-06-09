@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 mod cache_utils;
+mod cancel;
 mod db;
 mod log_discovery;
 mod log_reader;
@@ -224,6 +225,11 @@ fn remove_cache_files_for_epic_game(
 
     // Parallel deletion with progress reporting
     paths_to_check.par_iter().for_each(|path| {
+        // Cooperative cancellation: skip remaining files if cancel was requested.
+        if cancel::is_cancelled() {
+            return;
+        }
+
         let checked = paths_checked.fetch_add(1, Ordering::Relaxed) + 1;
 
         if path.exists() {
@@ -308,6 +314,26 @@ fn remove_cache_files_for_epic_game(
         eprintln!("  Total permission errors: {}", final_permission_errors);
     }
 
+    // After the parallel deletion phase: flush partial progress on cancel.
+    if cancel::is_cancelled() {
+        eprintln!("Cancellation requested — flushing partial progress and stopping.");
+        let _ = write_progress(
+            progress_path,
+            "removing_cache",
+            "signalr.epicRemove.cache.file.progress",
+            json!({ "n": final_deleted, "total": total_paths }),
+            10.0 + (paths_checked.load(Ordering::Relaxed) as f64 / total_paths.max(1) as f64) * 60.0,
+            final_deleted,
+            total_paths,
+        );
+        reporter.emit_progress(
+            10.0 + (paths_checked.load(Ordering::Relaxed) as f64 / total_paths.max(1) as f64) * 60.0,
+            "signalr.epicRemove.cache.file.progress",
+            json!({ "n": final_deleted, "total": total_paths }),
+        );
+        return Ok((final_deleted, final_bytes, final_dirs, final_permission_errors));
+    }
+
     Ok((final_deleted, final_bytes, final_dirs, final_permission_errors))
 }
 
@@ -356,6 +382,7 @@ fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet<PathBuf>) 
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    cancel::install();
     let args = Args::parse();
     let reporter = ProgressReporter::new(args.progress);
 
@@ -422,6 +449,13 @@ async fn main() -> Result<()> {
     eprintln!("\nRemoving cache files...");
     let (deleted_files, bytes_freed, parent_dirs, cache_permission_errors) =
         remove_cache_files_for_epic_game(&cache_dir, &url_data, &progress_path, &reporter)?;
+
+    // If cancellation arrived during cache removal, do directory cleanup and exit 0.
+    if cancel::is_cancelled() {
+        eprintln!("Cancellation confirmed — cleaning up partial directories and exiting.");
+        cleanup_empty_directories(&cache_dir, parent_dirs);
+        return Ok(());
+    }
 
     // Step 2: Clean up empty directories
     write_progress(&progress_path, "cleaning_directories", "signalr.epicRemove.dirs.cleaning", json!({}), 70.0, 0, 0)?;

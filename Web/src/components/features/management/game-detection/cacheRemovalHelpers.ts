@@ -167,15 +167,17 @@ export async function runTrackedServiceRemoval({
   try {
     const response = await ApiService.removeServiceFromCache(serviceName);
 
-    addNotification({
-      type: 'service_removal',
-      status: 'running',
-      message: t('management.gameDetection.removingService', { name: serviceName }),
-      details: {
-        operationId: response.operationId,
-        service: serviceName
-      }
-    });
+    if (response.operationId) {
+      addNotification({
+        type: 'service_removal',
+        status: 'running',
+        message: t('management.gameDetection.removingService', { name: serviceName }),
+        details: {
+          operationId: response.operationId,
+          service: serviceName
+        }
+      });
+    }
 
     scheduleRemovalRefresh(onDataRefresh);
   } catch (err: unknown) {

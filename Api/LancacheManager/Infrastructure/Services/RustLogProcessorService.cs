@@ -61,7 +61,22 @@ public class RustLogProcessorService
         var operationId = _operationTracker.RegisterOperation(
             OperationType.LogProcessing,
             "Log Processing",
-            _cancellationTokenSource);
+            _cancellationTokenSource,
+            onTerminalCleanup: () =>
+            {
+                _currentOperationId = null;
+                _currentDatasourceName = null;
+                _currentProgressPath = null;
+                _currentLogDirectory = null;
+                _cancellationTokenSource?.Dispose();
+                _cancellationTokenSource = null;
+                // Reset the busy/state gates too: the universal force-kill path bypasses
+                // EndLogProcessingOperation/ResetState, so without this IsProcessing stays true and
+                // blocks the next StartProcessing (guard at the IsProcessing check).
+                IsProcessing = false;
+                IsSilentMode = false;
+                IsCancelling = false;
+            });
         _currentOperationId = operationId;
         _operationRegisteredTcs?.TrySetResult(operationId);
         IsProcessing = true;
@@ -97,6 +112,16 @@ public class RustLogProcessorService
             var allSuccess = true;
             for (var i = 0; i < datasources.Count; i++)
             {
+                // Stop spawning Rust children for the remaining datasources once the shared
+                // operation has been cancelled (csharp-services-1 / P2-E). The in-flight
+                // datasource handles its own cancellation via the shared CTS token.
+                if (_cancellationTokenSource?.IsCancellationRequested == true)
+                {
+                    _logger.LogInformation("Log processing batch cancelled; skipping remaining datasources");
+                    allSuccess = false;
+                    break;
+                }
+
                 var datasource = datasources[i];
                 var logPosition = _stateService.GetLogPosition(datasource.Name);
                 _logger.LogInformation("Processing datasource '{DatasourceName}' from position {Position}",
@@ -447,7 +472,22 @@ public class RustLogProcessorService
                 _currentOperationId = _operationTracker.RegisterOperation(
                     OperationType.LogProcessing,
                     "Log Processing",
-                    _cancellationTokenSource);
+                    _cancellationTokenSource,
+                    onTerminalCleanup: () =>
+                    {
+                        _currentOperationId = null;
+                        _currentDatasourceName = null;
+                        _currentProgressPath = null;
+                        _currentLogDirectory = null;
+                        _cancellationTokenSource?.Dispose();
+                        _cancellationTokenSource = null;
+                        // Reset the busy/state gates too: the universal force-kill path bypasses
+                        // EndLogProcessingOperation/ResetState, so without this IsProcessing stays true
+                        // and blocks the next StartProcessing (guard at the IsProcessing check).
+                        IsProcessing = false;
+                        IsSilentMode = false;
+                        IsCancelling = false;
+                    });
                 _operationRegisteredTcs?.TrySetResult(_currentOperationId.Value);
             }
 
@@ -813,17 +853,31 @@ public class RustLogProcessorService
         {
             _logger.LogInformation("Log processing was cancelled for datasource '{DatasourceName}'", datasourceName);
 
-            if (_currentOperationId.HasValue && shouldFinalizeOperation)
-            {
-                _operationTracker.CompleteOperation(_currentOperationId.Value, false, "Operation was cancelled");
-            }
+            // Snapshot the id once: a universal force-kill may have already run the cleanup
+            // callback (which nulls _currentOperationId) on another thread.
+            var cancelOpId = _currentOperationId;
 
-            if (!silentMode && shouldFinalizeOperation)
+            // If a universal force-kill already completed this op (or already cleared the id),
+            // suppress the duplicate SignalR completion + CompleteOperation so only ONE
+            // terminal event is emitted.
+            var alreadyTerminal = !cancelOpId.HasValue
+                || _operationTracker.GetOperation(cancelOpId.Value)?.Status
+                    is (OperationStatus.Completed or OperationStatus.Failed or OperationStatus.Cancelled);
+
+            if (!alreadyTerminal && cancelOpId.HasValue)
             {
-                await _notifications.SendOperationCompleteAsync(
-                    SignalREvents.LogProcessingComplete, _currentOperationId,
-                    success: false, message: "Log processing was cancelled", cancelled: true,
-                    new { EntriesProcessed = 0, LinesProcessed = 0 });
+                if (shouldFinalizeOperation)
+                {
+                    _operationTracker.CompleteOperation(cancelOpId.Value, false, "Operation was cancelled");
+                }
+
+                if (!silentMode && shouldFinalizeOperation)
+                {
+                    await _notifications.SendOperationCompleteAsync(
+                        SignalREvents.LogProcessingComplete, cancelOpId,
+                        success: false, message: "Log processing was cancelled", cancelled: true,
+                        new { EntriesProcessed = 0, LinesProcessed = 0 });
+                }
             }
 
             return false;

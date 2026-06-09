@@ -603,6 +603,14 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         i18n.t(event.stageKey ?? 'signalr.evictionRemove.complete', event.context ?? {}),
       getErrorMessage: (event: EvictionRemovalProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.evictionRemove.failed', event.context ?? {}),
+      // EvictionRemovalProgressEvent does NOT carry scope identity fields
+      // (gameAppId, epicAppId, service, gameName are absent from the backend event).
+      // Only operationId is available here. Scope identity is set by the started
+      // handler and preserved by createStatusAwareProgressHandler's merge semantics
+      // ({...n.details, ...eventDetails}). If the notification slot is ever
+      // re-created from a progress tick alone (fast-completion path), the scope
+      // identity would be lost — but that cannot happen for eviction_removal because
+      // supportFastCompletion is false and there is always a prior started event.
       getDetails: (event: EvictionRemovalProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {

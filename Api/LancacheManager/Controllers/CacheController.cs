@@ -283,42 +283,6 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/cache/operations/{id} - Cancel a running cache clear operation
-    /// RESTful: DELETE is proper method for cancelling/removing operations
-    /// </summary>
-    [Authorize(Policy = "AdminOnly")]
-    [HttpDelete("operations/{id}")]
-    public IActionResult CancelCacheClear(Guid id)
-    {
-        var result = _cacheClearingService.CancelCacheClear(id);
-
-        if (!result)
-        {
-            return NotFound(new NotFoundResponse { Error = "Cache clear operation not found or already completed", OperationId = id });
-        }
-
-        return Ok(new CacheOperationResponse { Message = "Cache clear operation cancelled successfully", OperationId = id });
-    }
-
-    /// <summary>
-    /// POST /api/cache/operations/{id}/kill - Force kill a cache clear operation's process
-    /// Used as fallback when graceful cancellation fails
-    /// </summary>
-    [Authorize(Policy = "AdminOnly")]
-    [HttpPost("operations/{id}/kill")]
-    public async Task<IActionResult> ForceKillCacheClearAsync(Guid id)
-    {
-        var result = await _cacheClearingService.ForceKillOperationAsync(id);
-
-        if (!result)
-        {
-            return NotFound(new NotFoundResponse { Error = "Cache clear operation not found or no process to kill", OperationId = id });
-        }
-
-        return Ok(new CacheOperationResponse { Message = "Cache clear operation force killed successfully", OperationId = id });
-    }
-
-    /// <summary>
     /// GET /api/cache/corruption/cached - Get cached corruption detection results
     /// Returns immediately with cached results (if available) without running a new scan.
     /// </summary>
@@ -511,18 +475,19 @@ public class CacheController : ControllerBase
         {
             try
             {
-                // Pause LiveLogMonitorService to prevent file locking issues
-                await LiveLogMonitorService.PauseAsync();
-                _logger.LogInformation("Paused LiveLogMonitorService for corruption removal");
-
-                // Update tracking
-                _operationTracker.UpdateProgress(operationId, 0, "signalr.corruptionRemove.starting");
-
-                _logger.LogInformation("[CorruptionRemoval] Processing {Count} datasource(s) for service {Service}",
-                    datasources.Count, service);
-
                 try
                 {
+                    // Pause LiveLogMonitorService to prevent file locking issues.
+                    // Pause MUST be inside this try so the finally below always resumes,
+                    // even if a cancel/throw happens between Pause and the work loop.
+                    await LiveLogMonitorService.PauseAsync();
+                    _logger.LogInformation("Paused LiveLogMonitorService for corruption removal");
+
+                    // Update tracking
+                    _operationTracker.UpdateProgress(operationId, 0, "signalr.corruptionRemove.starting");
+
+                    _logger.LogInformation("[CorruptionRemoval] Processing {Count} datasource(s) for service {Service}",
+                        datasources.Count, service);
                     bool allSucceeded = true;
                     string? lastError = null;
 
@@ -669,8 +634,8 @@ public class CacheController : ControllerBase
                         StageKey: "signalr.corruptionRemove.cancelled",
                         OperationId: operationId));
 
-                // Resume LiveLogMonitorService on cancellation
-                await LiveLogMonitorService.ResumeAsync();
+                // NOTE: LiveLogMonitorService is already resumed by the inner finally above;
+                // no redundant resume here (csharp-services-7).
             }
             catch (Exception ex)
             {
@@ -764,12 +729,14 @@ public class CacheController : ControllerBase
         {
             try
             {
-                // Pause LiveLogMonitorService to prevent file locking issues across all services
-                await LiveLogMonitorService.PauseAsync();
-                _logger.LogInformation("Paused LiveLogMonitorService for all-services corruption removal");
-
                 try
                 {
+                    // Pause LiveLogMonitorService to prevent file locking issues across all services.
+                    // Pause MUST be inside this try so the finally below always resumes,
+                    // even if a cancel/throw happens between Pause and the work loop.
+                    await LiveLogMonitorService.PauseAsync();
+                    _logger.LogInformation("Paused LiveLogMonitorService for all-services corruption removal");
+
                     foreach (var service in servicesWithCorruption)
                     {
                         // Register a fresh operation per service

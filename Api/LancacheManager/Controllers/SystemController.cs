@@ -401,9 +401,9 @@ public class SystemController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("rsync/available")]
-    public IActionResult CheckRsyncAvailable()
+    public async Task<IActionResult> CheckRsyncAvailableAsync()
     {
-        var isAvailable = _cacheClearingService.IsRsyncAvailable();
+        var isAvailable = await _cacheClearingService.IsRsyncAvailableAsync();
         return Ok(new RsyncAvailableResponse { Available = isAvailable });
     }
 

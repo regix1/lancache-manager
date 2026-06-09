@@ -214,7 +214,15 @@ public class RustLogRemovalService
                 OperationType.LogRemoval,
                 "Log Removal",
                 _cancellationTokenSource,
-                new { service }
+                new { service },
+                onTerminalCleanup: () =>
+                {
+                    CurrentService = null;
+                    CurrentDatasource = null;
+                    _currentTrackerOperationId = null;
+                    _cancellationTokenSource?.Dispose();
+                    _cancellationTokenSource = null;
+                }
             );
             NotifyOperationRegistered();
 
@@ -496,15 +504,20 @@ public class RustLogRemovalService
             // Handle cancellation gracefully
             _logger.LogInformation("Service removal for {Service} was cancelled by user", service);
 
-            await _notifications.SendOperationCompleteAsync(
-                SignalREvents.LogRemovalComplete, _currentTrackerOperationId,
-                success: false, message: $"Service removal for {service} was cancelled", cancelled: true,
-                new { Service = service });
-
-            // Mark operation as cancelled in unified tracker
-            if (_currentTrackerOperationId.HasValue)
+            // If a universal force-kill already completed this op, suppress the duplicate
+            // SignalR completion + CompleteOperation so only ONE terminal event is emitted.
+            if (!IsOperationAlreadyTerminal())
             {
-                _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: "Cancelled by user");
+                await _notifications.SendOperationCompleteAsync(
+                    SignalREvents.LogRemovalComplete, _currentTrackerOperationId,
+                    success: false, message: $"Service removal for {service} was cancelled", cancelled: true,
+                    new { Service = service });
+
+                // Mark operation as cancelled in unified tracker
+                if (_currentTrackerOperationId.HasValue)
+                {
+                    _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: "Cancelled by user");
+                }
             }
 
             return false;
@@ -593,7 +606,15 @@ public class RustLogRemovalService
                 OperationType.LogRemoval,
                 "Log Removal",
                 _cancellationTokenSource,
-                new { service, datasourceName }
+                new { service, datasourceName },
+                onTerminalCleanup: () =>
+                {
+                    CurrentService = null;
+                    CurrentDatasource = null;
+                    _currentTrackerOperationId = null;
+                    _cancellationTokenSource?.Dispose();
+                    _cancellationTokenSource = null;
+                }
             );
             NotifyOperationRegistered();
 
@@ -705,7 +726,12 @@ public class RustLogRemovalService
         {
             _logger.LogInformation("Service removal for {Service} in {Datasource} was cancelled", service, datasourceName);
 
-            await CompleteLogRemovalCancelledAsync(service, datasourceName);
+            // If a universal force-kill already completed this op, suppress the duplicate
+            // SignalR completion + CompleteOperation so only ONE terminal event is emitted.
+            if (!IsOperationAlreadyTerminal())
+            {
+                await CompleteLogRemovalCancelledAsync(service, datasourceName);
+            }
 
             return false;
         }
@@ -771,6 +797,25 @@ public class RustLogRemovalService
         });
     }
 
+    /// <summary>
+    /// True when the tracker has already driven this operation to a terminal state
+    /// (e.g. a universal force-kill completed it). Used to suppress duplicate terminal
+    /// SignalR emits + CompleteOperation calls from the OCE catch blocks.
+    /// A null id means the terminal cleanup callback already ran (which nulls the id),
+    /// so it is also treated as already-terminal.
+    /// </summary>
+    private bool IsOperationAlreadyTerminal()
+    {
+        var opId = _currentTrackerOperationId;
+        if (!opId.HasValue)
+        {
+            return true;
+        }
+
+        return _operationTracker.GetOperation(opId.Value)?.Status
+            is (OperationStatus.Completed or OperationStatus.Failed or OperationStatus.Cancelled);
+    }
+
     private bool WasLogRemovalCancelled()
     {
         if (_cancellationTokenSource?.IsCancellationRequested == true)
@@ -817,81 +862,6 @@ public class RustLogRemovalService
         var operationsDir = _pathResolver.GetOperationsDirectory();
         var progressPath = Path.Combine(operationsDir, "log_remove_progress.json");
         return await ReadProgressFileAsync(progressPath);
-    }
-
-    /// <summary>
-    /// Cancels the current service removal operation gracefully.
-    /// Delegates to UnifiedOperationTracker for centralized cancellation.
-    /// </summary>
-    /// <remarks>
-    /// This method exists for backward compatibility.
-    /// Prefer using OperationsController.CancelOperation with operationId for new code.
-    /// </remarks>
-    public bool CancelOperation()
-    {
-        if (_currentTrackerOperationId.HasValue)
-        {
-            _logger.LogInformation("Cancelling service removal via UnifiedOperationTracker: {OperationId}", _currentTrackerOperationId);
-            return _operationTracker.CancelOperation(_currentTrackerOperationId.Value);
-        }
-
-        // Fallback: Cancel directly if tracker ID not available
-        if (!IsProcessing || _cancellationTokenSource == null)
-        {
-            return false;
-        }
-
-        // If cancellation is already requested, return true (idempotent)
-        // This prevents 404 errors when user clicks cancel button multiple times
-        if (_cancellationTokenSource.IsCancellationRequested)
-        {
-            _logger.LogDebug("Cancellation already in progress for service removal: {Service}", CurrentService);
-            return true;
-        }
-
-        _logger.LogInformation("Cancelling service removal operation for {Service}", CurrentService);
-        _cancellationTokenSource.Cancel();
-        return true;
-    }
-
-    /// <summary>
-    /// Force kills the Rust process for service removal.
-    /// Used as fallback when graceful cancellation fails.
-    /// </summary>
-    public async Task<bool> ForceKillOperationAsync()
-    {
-        if (!IsProcessing)
-        {
-            return false;
-        }
-
-        _logger.LogWarning("Force killing service removal operation for {Service}", CurrentService);
-
-        try
-        {
-            if (_currentTrackerOperationId.HasValue)
-            {
-                _operationTracker.ForceKillOperation(_currentTrackerOperationId.Value);
-            }
-            else
-            {
-                _cancellationTokenSource?.Cancel();
-            }
-
-            await Task.Delay(500);
-
-            await _notifications.SendOperationCompleteAsync(
-                SignalREvents.LogRemovalComplete, _currentTrackerOperationId,
-                success: false, message: $"Service removal for {CurrentService} was cancelled", cancelled: true,
-                new { Service = CurrentService });
-
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error force killing service removal for {Service}", CurrentService);
-            return false;
-        }
     }
 
     /// <summary>

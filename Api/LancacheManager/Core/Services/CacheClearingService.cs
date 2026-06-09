@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
@@ -125,7 +124,8 @@ public class CacheClearingService : ScheduledBackgroundService
                 OperationType.CacheClearing,
                 "Cache Clearing",
                 cts,
-                metadata
+                metadata,
+                onTerminalCleanup: () => { _currentTrackerOperationId = null; }
             );
             var operationId = _currentTrackerOperationId.Value;
 
@@ -439,10 +439,16 @@ public class CacheClearingService : ScheduledBackgroundService
 
                 operation = _operationTracker.GetOperation(operationId);
 
-                if (result.ExitCode == 137 && operation?.Status == OperationStatus.Cancelled)
+                // A force-kill (SIGKILL) makes the child exit with 137. If WaitForExitAsync wins the
+                // race against token cancellation it returns normally with ExitCode 137 instead of
+                // throwing OperationCanceledException. Treat that as cancellation (not a failed clear)
+                // so the op is labelled Cancelled, not Failed.
+                if (result.ExitCode == 137 &&
+                    (cancellationToken.IsCancellationRequested ||
+                     operation?.CancellationTokenSource?.Token.IsCancellationRequested == true ||
+                     operation?.Cancelled == true))
                 {
-                    _logger.LogInformation("Cache clear cancelled by user");
-                    return;
+                    throw new OperationCanceledException(cancellationToken);
                 }
 
                 if (result.ExitCode != 0)
@@ -516,16 +522,21 @@ public class CacheClearingService : ScheduledBackgroundService
             // Handle cancellation gracefully - this is expected when user cancels
             _logger.LogInformation("Cache clear operation {OperationId} was cancelled by user", operationId);
 
-            // Mark operation as complete (cancelled) in unified tracker
-            _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
-            _currentTrackerOperationId = null;
+            // If a universal force-kill already completed this op, suppress the duplicate
+            // SignalR completion + CompleteOperation so only ONE terminal event is emitted.
+            if (_operationTracker.GetOperation(operationId)?.Status
+                is not (OperationStatus.Completed or OperationStatus.Failed or OperationStatus.Cancelled))
+            {
+                // Mark operation as complete (cancelled) in unified tracker
+                _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
 
-            await NotifyProgressAsync(operationId);
+                await NotifyProgressAsync(operationId);
 
-            // Send cancellation notification
-            await _notifications.SendOperationCompleteAsync(
-                SignalREvents.CacheClearingComplete, operationId,
-                success: false, message: "Cache clear cancelled by user", cancelled: true);
+                // Send cancellation notification
+                await _notifications.SendOperationCompleteAsync(
+                    SignalREvents.CacheClearingComplete, operationId,
+                    success: false, message: "Cache clear cancelled by user", cancelled: true);
+            }
 
             SaveOperationToState(trackerKey, operationId);
         }
@@ -841,14 +852,6 @@ public class CacheClearingService : ScheduledBackgroundService
         return GetOperationStatus(operationId);
     }
 
-    /// <summary>
-    /// Cancels a cache clear operation (wrapper for CancelOperation)
-    /// </summary>
-    public bool CancelCacheClear(Guid operationId)
-    {
-        return CancelOperation(operationId);
-    }
-
     public List<CacheClearProgress> GetAllOperations()
     {
         // Combine active operations from tracker with completed operations from state
@@ -889,53 +892,6 @@ public class CacheClearingService : ScheduledBackgroundService
         return activeOps.Concat(stateOps).ToList();
     }
 
-    public bool CancelOperation(Guid operationId)
-    {
-        _logger.LogInformation($"Cancelling cache clear operation {operationId}");
-        return _operationTracker.CancelOperation(operationId);
-    }
-
-    /// <summary>
-    /// Force kills the Rust process for a cache clear operation.
-    /// Used as fallback when graceful cancellation fails.
-    /// </summary>
-    public async Task<bool> ForceKillOperationAsync(Guid operationId)
-    {
-        _logger.LogWarning($"Force killing cache clear operation {operationId}");
-
-        try
-        {
-            // Use the unified tracker to force kill the operation
-            var killed = _operationTracker.ForceKillOperation(operationId);
-
-            if (killed)
-            {
-                // Wait briefly for the process to exit
-                await Task.Delay(500);
-
-                // Notify via SignalR
-                await _notifications.SendOperationCompleteAsync(
-                    SignalREvents.CacheClearingComplete, operationId,
-                    success: false, message: "Cache clear operation force killed", cancelled: true);
-
-                // Extract tracker key from metadata if available
-                var operation = _operationTracker.GetOperation(operationId);
-                var metadata = operation?.Metadata as CacheClearingMetrics;
-                var trackerKey = metadata?.EntityKey ?? "all";
-                SaveOperationToState(trackerKey, operationId);
-                return true;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Error force killing operation {operationId}");
-            return false;
-        }
-
-        return false;
-    }
-
-
     public void SetDeleteMode(CacheDeleteMode deleteMode)
     {
         _deleteMode = deleteMode;
@@ -952,7 +908,7 @@ public class CacheClearingService : ScheduledBackgroundService
         return _deleteMode.ToDisplayName();
     }
 
-    public bool IsRsyncAvailable()
+    public async Task<bool> IsRsyncAvailableAsync()
     {
         // Rsync only available on Linux
         if (!OperatingSystemDetector.IsLinux)

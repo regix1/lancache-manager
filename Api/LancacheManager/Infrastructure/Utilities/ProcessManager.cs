@@ -80,6 +80,11 @@ public class ProcessManager : IHostedService, IDisposable
             process.Kill(entireProcessTree: true);
             return true;
         }
+        catch (ObjectDisposedException ex)
+        {
+            _logger.LogDebug(ex, "Process handle already disposed while killing process");
+            return false;
+        }
         catch (InvalidOperationException ex)
         {
             _logger.LogDebug(ex, "Process handle invalid while killing PID {ProcessId}", process.Id);
@@ -117,6 +122,51 @@ public class ProcessManager : IHostedService, IDisposable
         {
             _logger.LogWarning("Process {ProcessId} did not exit within {Seconds}s after kill signal",
                 process.Id, timeout.TotalSeconds);
+        }
+    }
+
+    /// <summary>
+    /// Graceful cancel for a cooperative child: write "CANCEL" to its stdin, then await exit up to
+    /// <paramref name="gracePeriod"/>. If it does not exit in time, escalate to KillProcessTree.
+    /// Returns true if the process exited (gracefully or after kill within the kill-wait).
+    /// </summary>
+    public async Task<bool> GracefulCancelAsync(Process process, TimeSpan gracePeriod, string reason)
+    {
+        if (process.HasExited)
+        {
+            return true;
+        }
+
+        try
+        {
+            if (process.StartInfo.RedirectStandardInput)
+            {
+                await process.StandardInput.WriteLineAsync("CANCEL");
+                await process.StandardInput.FlushAsync();
+                process.StandardInput.Close();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "GracefulCancel: failed writing CANCEL to PID {ProcessId}", process.Id);
+        }
+
+        try
+        {
+            await process.WaitForExitAsync(CancellationToken.None).WaitAsync(gracePeriod);
+            _logger.LogInformation("Process {ProcessId} exited gracefully after CANCEL ({Reason})", process.Id, reason);
+            return true;
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogWarning(
+                "Process {ProcessId} did not honor CANCEL within {Seconds}s — escalating to kill ({Reason})",
+                process.Id,
+                gracePeriod.TotalSeconds,
+                reason);
+            KillProcessTree(process, reason);
+            await WaitForExitAfterKillAsync(process, TimeSpan.FromSeconds(5));
+            return process.HasExited;
         }
     }
 

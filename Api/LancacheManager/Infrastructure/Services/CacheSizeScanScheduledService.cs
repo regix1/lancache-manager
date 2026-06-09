@@ -65,7 +65,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
         try
         {
             _logger.LogInformation("[CacheSizeScan] Starting cache file scan (trigger: {Trigger})", trigger);
-            var result = await _cacheService.GetCachedCacheSizeAsync(force: true);
+            var result = await _cacheService.GetCachedCacheSizeAsync(force: true, datasource: null, cancellationToken: stoppingToken);
             if (result == null)
             {
                 _logger.LogWarning("[CacheSizeScan] Cache file scan returned no result (trigger: {Trigger})", trigger);

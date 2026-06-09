@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
+mod cancel;
 mod cache_utils;
 mod progress_utils;
 use cache_utils::detect_filesystem_type;
@@ -944,7 +945,7 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
             std::thread::sleep(std::time::Duration::from_millis(300));
             
             let scanned = dirs_for_monitor.load(Ordering::Relaxed);
-            if scanned >= total_hex_dirs {
+            if scanned >= total_hex_dirs || cancel::is_cancelled() {
                 break;
             }
             
@@ -1264,6 +1265,10 @@ fn calculate_cache_size_network(
 }
 
 fn main() {
+    // Install cancel listener for hang-safety: if this binary is ever made cooperative,
+    // the monitor thread's cancel check below will already prevent join() deadlock.
+    cancel::install();
+
     let args: Vec<String> = env::args().collect();
 
     if args.len() != 3 {

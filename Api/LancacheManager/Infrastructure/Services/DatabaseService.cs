@@ -87,11 +87,27 @@ public class DatabaseService : IDatabaseService
         // Create cancellation support
         var cts = new CancellationTokenSource();
 
-        // Register with unified operation tracker for cancel support
-        var operationId = _operationTracker.RegisterOperation(
+        // Register with unified operation tracker for cancel support.
+        // Declare-then-assign so the onTerminalCleanup lambda closes over the variable (the lambda runs
+        // later, after opId is assigned). onTerminalCleanup is the safety net for the universal force-kill
+        // path: this is an in-process EF worker with no associated process, so force-kill cancels the CTS
+        // and completes the op immediately WITHOUT unwinding the worker finally — leaving the static
+        // _activeResetOperations dict populated (IsResetOperationRunning stays true, blocking all future
+        // resets process-wide). The lambda mirrors the worker finally (lines 900-904).
+        Guid opId = default;
+        opId = _operationTracker.RegisterOperation(
             OperationType.DatabaseReset,
             "Database Reset",
-            cts);
+            cts,
+            onTerminalCleanup: () =>
+            {
+                _activeResetOperations.TryRemove(opId, out _);
+                if (_currentResetOperationId == opId)
+                {
+                    _currentResetOperationId = null;
+                }
+            });
+        var operationId = opId;
 
         if (_activeResetOperations.TryAdd(operationId, true))
         {

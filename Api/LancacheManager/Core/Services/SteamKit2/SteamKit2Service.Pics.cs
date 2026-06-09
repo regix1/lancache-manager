@@ -36,11 +36,22 @@ public partial class SteamKit2Service
                 : new CancellationTokenSource();
         }
 
-        // Register the operation with the unified tracker
+        // Register the operation with the unified tracker.
+        // onTerminalCleanup is the safety net for the universal force-kill path, which completes the
+        // operation immediately (no associated process to wait on) WITHOUT unwinding RunAsync's finally.
+        // It mirrors the worker finally (lines 95-108): release the busy flag, dispose+null the CTS,
+        // and null the current operation id so the next TryStartRebuild can run.
         var operationId = _operationTracker.RegisterOperation(
             OperationType.DepotMapping,
             "Depot Mapping",
-            _currentRebuildCts
+            _currentRebuildCts,
+            onTerminalCleanup: () =>
+            {
+                Interlocked.Exchange(ref _rebuildActive, 0);
+                _currentRebuildCts?.Dispose();
+                _currentRebuildCts = null;
+                _currentPicsOperationId = null;
+            }
         );
         _currentPicsOperationId = operationId;
 

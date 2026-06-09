@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 mod cache_utils;
+mod cancel;
 mod db;
 mod log_discovery;
 mod log_purge;
@@ -303,6 +304,12 @@ fn remove_cache_files_for_game(
 
     // Parallel deletion with progress reporting
     paths_to_check.par_iter().for_each(|(path, _is_chunked)| {
+        // Cooperative cancellation: skip remaining files if cancel was requested.
+        // Already-deleted files stay deleted — consistent partial state that C# reconciles.
+        if cancel::is_cancelled() {
+            return;
+        }
+
         let checked = paths_checked.fetch_add(1, Ordering::Relaxed) + 1;
 
         if path.exists() {
@@ -403,6 +410,28 @@ fn remove_cache_files_for_game(
         eprintln!("  Total permission errors: {}", final_permission_errors);
     }
 
+    // After the parallel deletion phase: if cancellation was requested, flush a partial
+    // progress event with real counts and return so main() can exit 0.
+    // The C# side will re-run detection/reconciliation after a cancelled remove.
+    if cancel::is_cancelled() {
+        eprintln!("Cancellation requested — flushing partial progress and stopping.");
+        let _ = write_progress(
+            progress_path,
+            "removing_cache",
+            "signalr.gameRemove.cache.file.progress",
+            json!({ "n": final_deleted, "total": total_paths }),
+            10.0 + (paths_checked.load(Ordering::Relaxed) as f64 / total_paths.max(1) as f64) * 60.0,
+            final_deleted,
+            total_paths,
+        );
+        reporter.emit_progress(
+            10.0 + (paths_checked.load(Ordering::Relaxed) as f64 / total_paths.max(1) as f64) * 60.0,
+            "signalr.gameRemove.cache.file.progress",
+            json!({ "n": final_deleted, "total": total_paths }),
+        );
+        return Ok((final_deleted, final_bytes, final_dirs, final_permission_errors));
+    }
+
     Ok((final_deleted, final_bytes, final_dirs, final_permission_errors))
 }
 
@@ -454,6 +483,7 @@ fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet<PathBuf>) 
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    cancel::install();
     let args = Args::parse();
     let reporter = ProgressReporter::new(args.progress);
 
@@ -543,6 +573,14 @@ async fn main() -> Result<()> {
         eprintln!("\nRemoving cache files...");
         let (deleted, bytes, parent_dirs, cache_errs) =
             remove_cache_files_for_game(&cache_dir, &url_data, &progress_path, &reporter)?;
+
+        // If cancellation arrived during cache removal, finish directory cleanup of dirs
+        // already collected, then exit 0.  Log/DB work is skipped — C# re-runs detection.
+        if cancel::is_cancelled() {
+            eprintln!("Cancellation confirmed — cleaning up partial directories and exiting.");
+            cleanup_empty_directories(&cache_dir, parent_dirs);
+            return Ok(());
+        }
 
         write_progress(&progress_path, "cleaning_directories", "signalr.gameRemove.dirs.cleaning", json!({}), 70.0, 0, 0)?;
         reporter.emit_progress(70.0, "signalr.gameRemove.dirs.cleaning", json!({}));

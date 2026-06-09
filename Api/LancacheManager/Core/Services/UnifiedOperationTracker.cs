@@ -23,7 +23,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         _logger = logger;
     }
 
-    public Guid RegisterOperation(OperationType type, string name, CancellationTokenSource cts, object? metadata = null)
+    public Guid RegisterOperation(OperationType type, string name, CancellationTokenSource cts,
+                                  object? metadata = null, Action? onTerminalCleanup = null)
     {
         var operationId = Guid.NewGuid();
         var operation = new OperationInfo
@@ -35,7 +36,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             Message = $"Starting {name}...",
             StartedAt = DateTime.UtcNow,
             CancellationTokenSource = cts,
-            Metadata = metadata
+            Metadata = metadata,
+            OnTerminalCleanup = onTerminalCleanup
         };
 
         if (_operations.TryAdd(operationId, operation))
@@ -54,7 +56,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         throw new InvalidOperationException($"Failed to register operation {operationId}");
     }
 
-    public bool TryRestoreOperation(Guid operationId, OperationType type, string name, CancellationTokenSource cts, object? metadata = null)
+    public bool TryRestoreOperation(Guid operationId, OperationType type, string name, CancellationTokenSource cts,
+                                    object? metadata = null, Action? onTerminalCleanup = null)
     {
         var operation = new OperationInfo
         {
@@ -65,7 +68,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             Message = $"Starting {name}...",
             StartedAt = DateTime.UtcNow,
             CancellationTokenSource = cts,
-            Metadata = metadata
+            Metadata = metadata,
+            OnTerminalCleanup = onTerminalCleanup
         };
 
         if (_operations.TryAdd(operationId, operation))
@@ -80,6 +84,9 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             return true;
         }
 
+        // core-7: the tracker did NOT adopt this CTS (the ID was already in use). The tracker is the
+        // single disposer ONLY for CTSs it adopts; an un-adopted CTS stays owned by the caller, which
+        // disposes it in its restore false-branch (see RestoreInterruptedOperations / IUnifiedOperationTracker docs).
         _logger.LogWarning("Failed to restore operation: {Name} (ID: {Id}) - ID already registered", name, operationId);
         return false;
     }
@@ -92,36 +99,50 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             return false;
         }
 
-        if (operation.Status is OperationStatus.Completed or OperationStatus.Failed)
+        if (operation.Status is OperationStatus.Completed or OperationStatus.Failed or OperationStatus.Cancelled)
         {
             _logger.LogDebug("Operation {Id} already terminal ({Status}) — cancel is a no-op", operationId, operation.Status);
             return true;
         }
 
-        if (operation.CancellationTokenSource == null)
+        // P2-C: snapshot the CTS into a local ONCE so a concurrent CompleteOperation cannot null/dispose
+        // it out from under us between the null-check and the .Cancel() call.
+        var cts = operation.CancellationTokenSource;
+
+        if (cts == null)
         {
             _logger.LogDebug("Operation {Id} has no CancellationTokenSource — attempting process kill only", operationId);
             TryKillAssociatedProcess(operation, operationId);
             return true;
         }
 
-        if (operation.CancellationTokenSource.IsCancellationRequested)
+        try
         {
-            _logger.LogDebug("Cancellation already in progress for operation {Id} — re-attempting process kill", operationId);
+            if (cts.IsCancellationRequested)
+            {
+                _logger.LogDebug("Cancellation already in progress for operation {Id} — re-attempting process kill", operationId);
+                TryKillAssociatedProcess(operation, operationId);
+                return true;
+            }
+
+            _logger.LogInformation(
+                "Requesting aggressive cancellation for operation {Id} ({Type}: {Name})",
+                operationId, operation.Type, operation.Name);
+
+            operation.Status = OperationStatus.Cancelling;
+            operation.Cancelled = true;
+            operation.Message = "Cancellation requested...";
+
             TryKillAssociatedProcess(operation, operationId);
-            return true;
+            cts.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // P2-C: the operation completed concurrently and CompleteOperation disposed the CTS.
+            // The op is already terminal — cancellation is a benign no-op.
+            _logger.LogDebug("Operation {Id} completed concurrently during cancel — CTS already disposed", operationId);
         }
 
-        _logger.LogInformation(
-            "Requesting aggressive cancellation for operation {Id} ({Type}: {Name})",
-            operationId, operation.Type, operation.Name);
-
-        operation.Status = OperationStatus.Cancelling;
-        operation.Cancelled = true;
-        operation.Message = "Cancellation requested...";
-
-        TryKillAssociatedProcess(operation, operationId);
-        operation.CancellationTokenSource.Cancel();
         return true;
     }
 
@@ -153,7 +174,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             return false;
         }
 
-        if (operation.Status is OperationStatus.Completed or OperationStatus.Failed)
+        if (operation.Status is OperationStatus.Completed or OperationStatus.Failed or OperationStatus.Cancelled)
         {
             _logger.LogDebug("Operation {Id} already terminal ({Status}) — force kill is a no-op", operationId, operation.Status);
             return true;
@@ -169,7 +190,18 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
         TryKillAssociatedProcess(operation, operationId);
 
-        operation.CancellationTokenSource?.Cancel();
+        // P2-C: snapshot the CTS into a local ONCE and guard against a concurrent CompleteOperation
+        // having already disposed it.
+        var cts = operation.CancellationTokenSource;
+        try
+        {
+            cts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            _logger.LogDebug("Operation {Id} completed concurrently during force kill — CTS already disposed", operationId);
+        }
+
         return true;
     }
 
@@ -206,7 +238,9 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     public IEnumerable<OperationInfo> GetActiveOperations(OperationType? filterType = null)
     {
         var operations = _operations.Values.Where(op =>
-            op.Status != OperationStatus.Completed && op.Status != OperationStatus.Failed);
+            op.Status != OperationStatus.Completed
+            && op.Status != OperationStatus.Failed
+            && op.Status != OperationStatus.Cancelled);
 
         if (filterType.HasValue)
         {
@@ -218,41 +252,64 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
     public void CompleteOperation(Guid operationId, bool success, string? error = null)
     {
-        if (_operations.TryGetValue(operationId, out var operation))
+        if (!_operations.TryGetValue(operationId, out var operation))
         {
-            operation.Status = success ? OperationStatus.Completed : OperationStatus.Failed;
-            operation.Message = success ? "Operation completed successfully" : (error ?? "Operation failed");
-            operation.Success = success;
-            operation.CompletedAt = DateTime.UtcNow;
+            _logger.LogWarning("Attempted to complete non-existent operation {Id}", operationId);
+            return;
+        }
 
-            // Dispose the CancellationTokenSource
-            operation.CancellationTokenSource?.Dispose();
-            operation.CancellationTokenSource = null;
+        // who-completes-wins: only the first caller proceeds. Second caller is a benign no-op.
+        // This makes the terminal transition + SignalR-completion-trigger + cleanup callback fire
+        // at most once even when the worker finally and the universal force-kill race.
+        if (Interlocked.CompareExchange(ref operation.CompletedFlag, 1, 0) != 0)
+        {
+            _logger.LogDebug("Operation {Id} already completed — ignoring duplicate complete", operationId);
+            return;
+        }
 
-            // Clear the process reference
-            operation.AssociatedProcess = null;
+        operation.Status = success
+            ? OperationStatus.Completed
+            : (operation.Cancelled ? OperationStatus.Cancelled : OperationStatus.Failed); // C.1: Cancelled is terminal
+        operation.Message = success ? "Operation completed successfully" : (error ?? "Operation failed");
+        operation.Success = success;
+        operation.CompletedAt = DateTime.UtcNow;
 
-            _logger.LogInformation("Completed operation {Id} ({Type}: {Name}), Success: {Success}",
-                operationId, operation.Type, operation.Name, success);
+        // Tracker is the single disposer of the CTS it adopted (core-3 / core-7 ownership).
+        operation.CancellationTokenSource?.Dispose();
+        operation.CancellationTokenSource = null;
 
-            // Clean up after a short delay to allow final status queries
-            _ = Task.Delay(TimeSpan.FromSeconds(10)).ContinueWith(task =>
+        // Clear the process reference
+        operation.AssociatedProcess = null;
+
+        // Invoke the owning service's local-state reset BEFORE we log/remove. Best-effort: never throw.
+        try { operation.OnTerminalCleanup?.Invoke(); }
+        catch (Exception ex) { _logger.LogWarning(ex, "OnTerminalCleanup threw for operation {Id}", operationId); }
+        finally { operation.OnTerminalCleanup = null; } // drop the delegate so it cannot re-run
+
+        _logger.LogInformation("Completed operation {Id} ({Type}: {Name}), Success: {Success}",
+            operationId, operation.Type, operation.Name, success);
+
+        ScheduleReaper(operationId); // core-2: delayed cleanup, see ScheduleReaper
+    }
+
+    /// <summary>
+    /// core-2: removes the operation (and its entity-index entries) after a short delay so final
+    /// status queries can still observe the terminal state. The removal body is wrapped in try/catch
+    /// and runs on <see cref="TaskScheduler.Default"/> so it cannot leak unobserved exceptions.
+    /// </summary>
+    private void ScheduleReaper(Guid operationId) =>
+        _ = Task.Delay(TimeSpan.FromSeconds(10)).ContinueWith(_reaperTask =>
+        {
+            try
             {
-                _operations.TryRemove(operationId, out OperationInfo? _removed);
-
-                // Also clean up entity key index
-                var keysToRemove = _entityKeyIndex.Where(kvp => kvp.Value == operationId).Select(kvp => kvp.Key).ToList();
-                foreach (var key in keysToRemove)
+                _operations.TryRemove(operationId, out _);
+                foreach (var key in _entityKeyIndex.Where(kvp => kvp.Value == operationId).Select(kvp => kvp.Key).ToList())
                 {
                     _entityKeyIndex.TryRemove(key, out _);
                 }
-            });
-        }
-        else
-        {
-            _logger.LogWarning("Attempted to complete non-existent operation {Id}", operationId);
-        }
-    }
+            }
+            catch (Exception ex) { _logger.LogDebug(ex, "Reaper cleanup failed for {Id}", operationId); }
+        }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
 
     public void UpdateProgress(Guid operationId, double percent, string message)
     {

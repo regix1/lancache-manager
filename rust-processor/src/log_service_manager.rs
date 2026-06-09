@@ -10,6 +10,7 @@ use std::path::Path;
 use std::time::Instant;
 use tempfile::NamedTempFile;
 
+mod cancel;
 mod log_discovery;
 mod log_reader;
 mod progress_utils;
@@ -268,6 +269,29 @@ fn remove_service_from_logs(
 
     // Process each log file
     for (file_index, log_file) in log_files.iter().enumerate() {
+        // Cooperative cancel: check between file iterations (each file uses NamedTempFile+rename, so
+        // stopping between files is safe — completed files are already atomically rewritten)
+        if cancel::is_cancelled() {
+            eprintln!("Cancel requested — stopping before file {}/{}", file_index + 1, log_files.len());
+            let elapsed = start_time.elapsed();
+            let progress = ProgressData::new(
+                false,
+                if log_files.len() > 0 { (file_index as f64 / log_files.len() as f64) * 100.0 } else { 0.0 },
+                "cancelled".to_string(),
+                format!(
+                    "Cancelled after {} files. {} lines processed, {} removed in {:.2}s.",
+                    file_index, total_lines_processed, total_lines_removed, elapsed.as_secs_f64()
+                ),
+                total_lines_processed,
+                total_lines_removed,
+                file_index,
+                None,
+                ds_name.clone(),
+            );
+            write_progress(progress_path, &progress)?;
+            std::process::exit(0);
+        }
+
         eprintln!("\nProcessing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
 
         // Try to process the file, but skip if it's corrupted (e.g., invalid gzip header)
@@ -573,6 +597,8 @@ fn check_cache_validity(log_path: &str, progress_path: &Path) -> Result<HashMap<
 }
 
 fn main() {
+    cancel::install();
+
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 4 {

@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+mod cancel;
 mod cache_utils;
 mod cache_detect_matching;
 mod cache_detect_queries;
@@ -194,6 +195,8 @@ fn scan_cache_directory(cache_dir: &Path) -> Result<HashMap<String, CacheFileInf
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    cancel::install();
+
     let args = Args::parse();
     let reporter = Arc::new(ProgressReporter::new(args.progress));
 
@@ -294,6 +297,23 @@ async fn main() -> Result<()> {
     let mut last_progress_update = 0;
 
     for (game_id, records) in games_map {
+        // Cooperative cancel: check between Steam game iterations (read-only, safe to stop here)
+        if cancel::is_cancelled() {
+            eprintln!("\nCancel requested — stopping Steam game scan after {}/{} games", processed_count, total_games);
+            let partial_percent = 30.0 + (processed_count as f64 / total_games.max(1) as f64) * 50.0;
+            write_progress(
+                progress_path.as_deref(),
+                "cancelled",
+                "signalr.gameDetect.matching.progress",
+                json!({ "processed": processed_count, "totalGames": total_games }),
+                partial_percent,
+                processed_count,
+                total_games,
+            )?;
+            reporter.emit_progress(partial_percent, "signalr.gameDetect.matching.progress", json!({ "processed": processed_count, "totalGames": total_games }));
+            std::process::exit(0);
+        }
+
         processed_count += 1;
         let url_count = records.len();
         eprint!("  [{}/{}] Matching game {} ({}) - {} URLs... ",
@@ -373,6 +393,21 @@ async fn main() -> Result<()> {
 
         let mut epic_processed = 0;
         for (epic_id, (game_name, service_urls)) in &epic_map {
+            // Cooperative cancel: check between Epic game iterations
+            if cancel::is_cancelled() {
+                eprintln!("\nCancel requested — stopping Epic game scan after {}/{} games", epic_processed, total_epic);
+                write_progress(
+                    progress_path.as_deref(),
+                    "cancelled",
+                    "signalr.gameDetect.epic.detecting",
+                    json!({ "processed": epic_processed, "total": total_epic }),
+                    78.0 + (epic_processed as f64 / total_epic.max(1) as f64) * 2.0,
+                    processed_count + epic_processed,
+                    total_games + total_epic,
+                )?;
+                std::process::exit(0);
+            }
+
             epic_processed += 1;
             eprint!("  [{}/{}] Matching Epic game {} ({}) - {} URLs... ",
                     epic_processed, total_epic, epic_id, game_name, service_urls.len());
@@ -444,6 +479,22 @@ async fn main() -> Result<()> {
         let mut services_processed = 0;
 
         for (service_name, service_urls) in services_map {
+            // Cooperative cancel: check between service iterations
+            if cancel::is_cancelled() {
+                eprintln!("\nCancel requested — stopping service scan after {}/{} services", services_processed, total_services);
+                let partial_percent = 80.0 + (services_processed as f64 / total_services.max(1) as f64) * 10.0;
+                write_progress(
+                    progress_path.as_deref(),
+                    "cancelled",
+                    "signalr.gameDetect.services.progress",
+                    json!({ "processed": services_processed, "total": total_services }),
+                    partial_percent,
+                    services_processed,
+                    total_services,
+                )?;
+                std::process::exit(0);
+            }
+
             services_processed += 1;
             let total_urls = service_urls.len();
             eprint!("  Matching service '{}' - {} URLs... ", service_name, total_urls);
@@ -497,9 +548,9 @@ async fn main() -> Result<()> {
                 let progress_path_for_monitor = progress_path.clone();
                 let service_name_for_monitor = service_name.clone();
                 thread::spawn(move || {
-                    while !stop_monitor.load(Ordering::Relaxed) {
+                    while !stop_monitor.load(Ordering::Relaxed) && !cancel::is_cancelled() {
                         thread::sleep(Duration::from_millis(500));
-                        if stop_monitor.load(Ordering::Relaxed) {
+                        if stop_monitor.load(Ordering::Relaxed) || cancel::is_cancelled() {
                             break;
                         }
                         let done = url_counter.load(Ordering::Relaxed);

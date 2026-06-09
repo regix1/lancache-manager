@@ -135,10 +135,9 @@ internal static class TrackedRemovalOperationRunner
                     config.CompleteEventName,
                     config.BuildErrorCompletePayload(operationId, ex));
             }
-            finally
-            {
-                cancellationTokenSource.Dispose();
-            }
+            // core-3: no finally-dispose of the CTS here — the tracker owns its lifetime and disposes
+            // it inside CompleteOperation. Disposing it from the worker would race the tracker's
+            // cancel/force-kill path and double-dispose.
         }, cancellationTokenSource.Token);
 
         return operationId;

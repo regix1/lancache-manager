@@ -54,6 +54,9 @@ public partial class RustProcessHelper
             Arguments = arguments,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            // Enables ProcessManager.GracefulCancelAsync to write the cooperative "CANCEL" line to
+            // the child's stdin so Rust binaries can stop cleanly before being force-killed.
+            RedirectStandardInput = true,
             UseShellExecute = false,
             CreateNoWindow = true,
             WorkingDirectory = workingDirectory ?? Path.GetDirectoryName(executablePath)
@@ -156,15 +159,29 @@ public partial class RustProcessHelper
 
         _processManager.Track(process);
 
+        // rust-5: associate immediately after Start (no intervening work) so a concurrent
+        // tracker cancel/force-kill can find the process; then close the race by killing right
+        // away if cancellation already fired before/while we wired everything up.
         if (operationId.HasValue)
         {
             _operationTracker.AssociateProcess(operationId.Value, process);
         }
 
-        var cancelRegistration = operationId.HasValue
-            ? default(CancellationTokenRegistration)
-            : cancellationToken.Register(() =>
-                _processManager.KillProcessTree(process, $"{processLabel} cancellation"));
+        // P2-D: always register a token-cancel kill callback, even when an operationId is set.
+        // A linked/host-shutdown token can cancel outside tracker.CancelOperation; without this the
+        // finally would Untrack+Dispose the wrapper while leaving the OS child running. Idempotent
+        // with the tracker's own kill via KillProcessTree's HasExited guard.
+        var cancelRegistration = cancellationToken.CanBeCanceled
+            ? cancellationToken.Register(() =>
+                _processManager.KillProcessTree(process, $"{processLabel} token-cancel"))
+            : default(CancellationTokenRegistration);
+
+        // rust-5: if the token was already cancelled by the time we started, kill now so we don't
+        // run the child to completion past a cancel that landed during startup.
+        if (cancellationToken.IsCancellationRequested)
+        {
+            _processManager.KillProcessTree(process, $"{processLabel} already-cancelled at start");
+        }
 
         try
         {
@@ -237,20 +254,49 @@ public partial class RustProcessHelper
         var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
-        await _processManager.WaitForExitAsync(process, cancellationToken);
-
-        pollCts.Cancel();
-        if (pollTask != null)
+        try
         {
-            try { await pollTask; } catch (OperationCanceledException) { }
+            await _processManager.WaitForExitAsync(process, cancellationToken);
+
+            pollCts.Cancel();
+            if (pollTask != null)
+            {
+                try { await pollTask; } catch (OperationCanceledException) { }
+            }
+
+            return new ProcessExecutionResult
+            {
+                ExitCode = process.ExitCode,
+                Output = await outputTask,
+                Error = await errorTask
+            };
         }
-
-        return new ProcessExecutionResult
+        finally
         {
-            ExitCode = process.ExitCode,
-            Output = await outputTask,
-            Error = await errorTask
-        };
+            // rust-7: when WaitForExitAsync throws on cancel, outputTask/errorTask would otherwise
+            // go unobserved. Observe both and surface any captured stderr at Debug so a killed
+            // binary still leaves diagnostics behind.
+            await ObserveAndLogStderrAsync(outputTask, errorTask);
+        }
+    }
+
+    /// <summary>
+    /// Awaits the stdout/stderr read tasks defensively (swallowing read faults from a killed child)
+    /// and logs any captured stderr at Debug. Used on cancel paths so output tasks are observed.
+    /// </summary>
+    private async Task ObserveAndLogStderrAsync(Task<string> outputTask, Task<string> errorTask)
+    {
+        try { await outputTask; } catch { /* read may fault when the child was killed */ }
+
+        try
+        {
+            var stderr = await errorTask;
+            if (!string.IsNullOrWhiteSpace(stderr))
+            {
+                _logger.LogDebug("Cancelled/exited process stderr: {Stderr}", stderr);
+            }
+        }
+        catch { /* read may fault when the child was killed */ }
     }
 
     /// <summary>
@@ -270,24 +316,42 @@ public partial class RustProcessHelper
             {
                 var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
-                string? line;
-                while ((line = await process.StandardOutput.ReadLineAsync(cancellationToken)) != null)
+                try
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (!string.IsNullOrWhiteSpace(line))
+                    string? line;
+                    while ((line = await process.StandardOutput.ReadLineAsync(cancellationToken)) != null)
                     {
-                        await onStdoutLine(line);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (!string.IsNullOrWhiteSpace(line))
+                        {
+                            await onStdoutLine(line);
+                        }
                     }
+
+                    await _processManager.WaitForExitAsync(process, cancellationToken);
+
+                    return new ProcessExecutionResult
+                    {
+                        ExitCode = process.ExitCode,
+                        Output = string.Empty,
+                        Error = await stderrTask
+                    };
                 }
-
-                await _processManager.WaitForExitAsync(process, cancellationToken);
-
-                return new ProcessExecutionResult
+                catch (OperationCanceledException)
                 {
-                    ExitCode = process.ExitCode,
-                    Output = string.Empty,
-                    Error = await stderrTask
-                };
+                    // rust-7: observe stderrTask so a cancelled/killed binary's diagnostics are not lost.
+                    try
+                    {
+                        var stderr = await stderrTask;
+                        if (!string.IsNullOrWhiteSpace(stderr))
+                        {
+                            _logger.LogDebug("Cancelled stdout-lines process stderr: {Stderr}", stderr);
+                        }
+                    }
+                    catch { /* read may fault when the child was killed */ }
+
+                    throw;
+                }
             },
             processLabel: processLabel);
 
@@ -658,6 +722,9 @@ public partial class RustProcessHelper
 
             _logger.LogInformation("[cache_eviction_scan] Executing: {Binary} {Args}", rustBinaryPath, arguments);
 
+            // services-3: fail fast if cancellation already fired so we never spawn the child.
+            cancellationToken.ThrowIfCancellationRequested();
+
             var startInfo = CreateProcessStartInfo(rustBinaryPath, arguments);
             var result = await ExecuteTrackedProcessAsync(
                 startInfo,
@@ -689,6 +756,12 @@ public partial class RustProcessHelper
                 Data = null,
                 Error = result.Error
             };
+        }
+        catch (OperationCanceledException)
+        {
+            // services-3: let cancellation propagate so the caller's OCE handling runs instead of
+            // being masked as a generic failure result.
+            throw;
         }
         catch (Exception ex)
         {

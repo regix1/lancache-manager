@@ -1,5 +1,6 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -92,7 +93,8 @@ public class OperationConflictCheckerTests
 
         public TrackerHarness()
         {
-            var tracker = new UnifiedOperationTracker(NullLogger<UnifiedOperationTracker>.Instance);
+            var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
+            var tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
             Tracker = tracker;
             Checker = new OperationConflictChecker(
                 tracker,
