@@ -97,7 +97,6 @@ function buildCompleteHandler(
       getCancelledMessage: entry.complete.getCancelledMessage,
       getCancelledDetails: entry.complete.getCancelledDetails,
       useAnimationDelay: entry.complete.useAnimationDelay,
-      supportFastCompletion: entry.complete.supportFastCompletion,
       getFastCompletionId: entry.complete.getFastCompletionId
     },
     setNotifications,

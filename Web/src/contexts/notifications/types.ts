@@ -279,8 +279,6 @@ export interface RegistryCompleteConfig {
   getFailureMessage?: (event: any) => string;
   /** If true, show a brief animation delay before marking complete */
   useAnimationDelay?: boolean;
-  /** If true, support fast completion (no prior started event) */
-  supportFastCompletion?: boolean;
   /** Optional function to get ID for fast completion (if different from getId) */
   getFastCompletionId?: () => string;
 }

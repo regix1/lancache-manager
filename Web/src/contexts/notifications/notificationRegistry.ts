@@ -123,9 +123,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           event.entriesProcessed,
           event.linesProcessed,
           event.elapsed
-        ),
-      supportFastCompletion: true,
-      getFastCompletionId: () => NOTIFICATION_IDS.LOG_PROCESSING
+        )
     }
   },
 
@@ -166,9 +164,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         ...existing?.details,
         linesProcessed: event.linesProcessed
       }),
-      useAnimationDelay: true,
-      supportFastCompletion: true,
-      getFastCompletionId: () => NOTIFICATION_IDS.LOG_REMOVAL
+      useAnimationDelay: true
     }
   },
 
@@ -237,11 +233,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         filesDeleted: event.filesDeleted,
         bytesFreed: event.bytesFreed,
         logEntriesRemoved: event.logEntriesRemoved
-      }),
-      // Allow a GameRemovalComplete that arrives with NO live slot to still materialize a
-      // completed card instead of being dropped. Parity with service_removal above.
-      supportFastCompletion: true,
-      getFastCompletionId: () => NOTIFICATION_IDS.GAME_REMOVAL
+      })
     }
   },
 
@@ -291,13 +283,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         filesDeleted: event.filesDeleted,
         bytesFreed: event.bytesFreed,
         logEntriesRemoved: event.logEntriesRemoved
-      }),
-      // Allow a ServiceRemovalComplete that arrives with NO live slot (e.g. the started
-      // slot was removed by an orphaned auto-dismiss timer from a just-cancelled prior op)
-      // to still materialize a completed card instead of being dropped. Parity with
-      // game_detection / eviction_removal / data_import.
-      supportFastCompletion: true,
-      getFastCompletionId: () => NOTIFICATION_IDS.SERVICE_REMOVAL
+      })
     }
   },
 
@@ -338,9 +324,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getSuccessMessage: (event: CorruptionRemovalCompleteEvent) =>
         formatCorruptionRemovalCompleteMessage(event),
       getSuccessDetails: (event: CorruptionRemovalCompleteEvent) => ({ service: event.service }),
-      useAnimationDelay: true,
-      supportFastCompletion: true,
-      getFastCompletionId: () => NOTIFICATION_IDS.CORRUPTION_REMOVAL
+      useAnimationDelay: true
     },
     onComplete: (removeNotification) => {
       removeNotification(NOTIFICATION_IDS.CORRUPTION_DETECTION);
@@ -390,9 +374,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         totalServicesDetected: event.totalServicesDetected
       }),
       getFailureMessage: (event: GameDetectionCompleteEvent) =>
-        formatGameDetectionFailureMessage(event),
-      supportFastCompletion: true,
-      getFastCompletionId: () => NOTIFICATION_IDS.GAME_DETECTION
+        formatGameDetectionFailureMessage(event)
     }
   },
 
@@ -431,9 +413,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getSuccessMessage: (event: CorruptionDetectionCompleteEvent) =>
         formatCorruptionDetectionCompleteMessage(event),
       getFailureMessage: (event: CorruptionDetectionCompleteEvent) =>
-        formatCorruptionDetectionFailureMessage(event),
-      supportFastCompletion: true,
-      getFastCompletionId: () => NOTIFICATION_IDS.CORRUPTION_DETECTION
+        formatCorruptionDetectionFailureMessage(event)
     }
   },
 
@@ -480,9 +460,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         filesDeleted: event.filesDeleted,
         directoriesProcessed: event.directoriesProcessed
       }),
-      getFailureMessage: (event: CacheClearCompleteEvent) => formatCacheClearFailureMessage(event),
-      supportFastCompletion: true,
-      getFastCompletionId: () => NOTIFICATION_IDS.CACHE_CLEARING
+      getFailureMessage: (event: CacheClearCompleteEvent) => formatCacheClearFailureMessage(event)
     }
   },
 
@@ -522,9 +500,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         recordsErrors: event.recordsErrors,
         totalRecords: event.totalRecords
       }),
-      getFailureMessage: (event: DataImportCompleteEvent) => formatDataImportFailureMessage(event),
-      supportFastCompletion: true,
-      getFastCompletionId: () => NOTIFICATION_IDS.DATA_IMPORT
+      getFailureMessage: (event: DataImportCompleteEvent) => formatDataImportFailureMessage(event)
     }
   },
 
@@ -561,9 +537,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getFailureMessage: (event: EvictionScanCompleteEvent) =>
         event.error ??
         (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-        i18n.t('signalr.generic.failed'),
-      supportFastCompletion: true,
-      getFastCompletionId: () => NOTIFICATION_IDS.EVICTION_SCAN
+        i18n.t('signalr.generic.failed')
     }
   },
 
@@ -636,9 +610,10 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       // Only operationId is available here. Scope identity is set by the started
       // handler and preserved by createStatusAwareProgressHandler's merge semantics
       // ({...n.details, ...eventDetails}). If the notification slot is ever
-      // re-created from a progress tick alone (fast-completion path), the scope
-      // identity would be lost — but that cannot happen for eviction_removal because
-      // supportFastCompletion is false and there is always a prior started event.
+      // re-created from a progress tick alone, the scope identity would be lost —
+      // but that cannot happen for eviction_removal because this progress config does
+      // not opt into the progress-side supportFastCompletion, so a progress tick never
+      // creates a slot; there is always a prior started event.
       getDetails: (event: EvictionRemovalProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
@@ -647,9 +622,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getFailureMessage: (event: EvictionRemovalCompleteEvent) =>
         event.error ??
         (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
-        i18n.t('signalr.evictionRemove.failed'),
-      supportFastCompletion: true,
-      getFastCompletionId: () => NOTIFICATION_IDS.EVICTION_REMOVAL
+        i18n.t('signalr.evictionRemove.failed')
     },
     onComplete: (removeNotification) => {
       removeNotification(NOTIFICATION_IDS.EVICTION_SCAN);

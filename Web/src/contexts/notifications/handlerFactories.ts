@@ -154,8 +154,6 @@ interface CompletionHandlerConfig<T> {
   getFailureMessage?: (event: T) => string;
   /** If true, show a brief animation delay before marking complete */
   useAnimationDelay?: boolean;
-  /** If true, support fast completion (no prior started event) */
-  supportFastCompletion?: boolean;
   /** Optional function to get ID for fast completion (if different from getId) */
   getFastCompletionId?: (event: T) => string;
 }
@@ -269,11 +267,8 @@ export function createCompletionHandler<
         // Fast completion - no live running slot to transition (missing or already
         // terminal); materialize a terminal card instead of dropping the event
         if (!existing || existing.status !== 'running') {
-          if (config.supportFastCompletion) {
-            const newNotification = buildFastCompletionNotification();
-            return [...prev.filter((n) => n.id !== newNotification.id), newNotification];
-          }
-          return prev;
+          const newNotification = buildFastCompletionNotification();
+          return [...prev.filter((n) => n.id !== newNotification.id), newNotification];
         }
 
         return prev.map((n) => {
@@ -317,10 +312,7 @@ export function createCompletionHandler<
 
         if (!existing) {
           // Fast completion - no prior started event
-          if (config.supportFastCompletion) {
-            return [...prev, buildFastCompletionNotification()];
-          }
-          return prev;
+          return [...prev, buildFastCompletionNotification()];
         }
 
         // Only complete notifications that are still 'running'

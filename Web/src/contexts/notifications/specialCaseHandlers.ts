@@ -172,12 +172,11 @@ export function createSpecialCaseHandlers(
   // Terminal DatabaseResetComplete handler (PR2 emits this exactly once on the normal
   // success/error path AND the universal force-kill/cancel path). Reuses the canonical
   // createCompletionHandler factory. Idempotent by construction: the factory's immediate
-  // completion path returns `prev` unchanged when the target slot is no longer 'running'
-  // (handlerFactories.ts ~line 321), so if the legacy terminal progress tick already
-  // completed the notification this is a safe no-op — and vice versa. supportFastCompletion
-  // mirrors the progress handler so a Complete arriving with no prior notification still
-  // surfaces. operationId is seeded into success/cancelled details so a fast-created card
-  // keeps a working cancel button (Task 2 cancel safety).
+  // completion path returns `prev` unchanged when the target slot is no longer 'running',
+  // so if the legacy terminal progress tick already completed the notification this is a
+  // safe no-op — and vice versa. A Complete arriving with no prior notification still
+  // surfaces as a fast-created card. operationId is seeded into success/cancelled details
+  // so a fast-created card keeps a working cancel button (Task 2 cancel safety).
   const handleDatabaseResetComplete = createCompletionHandler<DatabaseResetCompleteEvent>(
     {
       type: 'database_reset',
@@ -190,8 +189,7 @@ export function createSpecialCaseHandlers(
         e.stageKey ? i18n.t(e.stageKey, e.context ?? {}) : i18n.t('signalr.generic.failed'),
       getCancelledMessage: (e) =>
         e.stageKey ? i18n.t(e.stageKey, e.context ?? {}) : i18n.t('signalr.dbReset.cancelled'),
-      getCancelledDetails: (e) => ({ operationId: e.operationId }),
-      supportFastCompletion: true
+      getCancelledDetails: (e) => ({ operationId: e.operationId })
     },
     setNotifications,
     scheduleAutoDismiss
