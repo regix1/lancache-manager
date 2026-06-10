@@ -1211,7 +1211,12 @@ public class CacheController : ControllerBase
         var gameOps = _operationTracker.GetActiveOperations(OperationType.GameRemoval);
         var serviceOps = _operationTracker.GetActiveOperations(OperationType.ServiceRemoval);
         var corruptionOps = _operationTracker.GetActiveOperations(OperationType.CorruptionRemoval);
-        var evictionOps = _operationTracker.GetActiveOperations(OperationType.EvictionRemoval);
+        // Silent removals (automatic Remove-mode auto-cleanup) emit no SignalR events and must
+        // stay invisible to recovery too - reporting them here would make recoverEvictionRemovals
+        // create a notification card for a deliberately silent operation.
+        var evictionOps = _operationTracker.GetActiveOperations(OperationType.EvictionRemoval)
+            .Where(op => !_reconciliationService.IsSilentRemovalOperation(op.Id))
+            .ToList();
 
         return Ok(new AllActiveRemovalsResponse
         {

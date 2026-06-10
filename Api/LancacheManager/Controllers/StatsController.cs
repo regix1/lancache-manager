@@ -449,9 +449,20 @@ public class StatsController : ControllerBase
                 status = OperationStatus.Completed,
                 percentComplete = 0.0,
                 message = string.Empty,
+                // stageKey/context mirror the SignalR EvictionScanProgress shape so the recovery
+                // config (RECOVERY_CONFIGS.evictionScan.createNotification) can render the live stage
+                // label instead of the generic "Scanning..." fallback. No scan active → null.
+                stageKey = (string?)null,
+                context = (object?)null,
                 operationId = (string?)null
             });
         }
+
+        // UpdateProgress stores the current progress stage key in Message (see the scan progress
+        // monitor in CacheReconciliationService), so it doubles as the i18n stageKey the frontend
+        // recovery card interpolates. There is no server-side progress context dictionary tracked on
+        // OperationInfo, so context is null (the frontend falls back to `data.context ?? {}`).
+        var stageKey = string.IsNullOrWhiteSpace(activeScan.Message) ? null : activeScan.Message;
 
         return Ok(new
         {
@@ -459,9 +470,9 @@ public class StatsController : ControllerBase
             silentMode,
             status = activeScan.Status,
             percentComplete = activeScan.PercentComplete,
-            message = string.IsNullOrWhiteSpace(activeScan.Message)
-                ? "Scanning for evictable cache entries..."
-                : activeScan.Message,
+            message = stageKey ?? "Scanning for evictable cache entries...",
+            stageKey,
+            context = (object?)null,
             operationId = activeScan.Id
         });
     }

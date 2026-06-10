@@ -611,9 +611,12 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       // handler and preserved by createStatusAwareProgressHandler's merge semantics
       // ({...n.details, ...eventDetails}). If the notification slot is ever
       // re-created from a progress tick alone, the scope identity would be lost —
-      // but that cannot happen for eviction_removal because this progress config does
-      // not opt into the progress-side supportFastCompletion, so a progress tick never
-      // creates a slot; there is always a prior started event.
+      // but that can happen: createStatusAwareProgressHandler's running branch DOES
+      // create a missing slot from a bare progress tick (fast-completion path). For
+      // eviction_removal this means a bare tick would produce a slot without scope
+      // identity. In practice the backend always emits EvictionRemovalStarted before
+      // any progress tick, so there is always a prior started slot — but this is a
+      // runtime guarantee, not a registry-level opt-out.
       getDetails: (event: EvictionRemovalProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {

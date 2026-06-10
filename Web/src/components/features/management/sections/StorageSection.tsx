@@ -273,7 +273,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
           entry.kind === 'service'
             ? entry.service.service_name
             : (entry.game.game_name ?? entry.game.service ?? String(entry.game.game_app_id));
-        setRemoveAllProgress({ current: index, total, label });
+
         updateNotification(notifId, {
           message: t('management.sections.data.evictionRemoveAllProgress', {
             current: index,
@@ -332,7 +332,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       },
       finalize: ({ id, succeeded, failed, cancelled, total }) => {
         setRemoveAllRunning(false);
-        setRemoveAllProgress(null);
+
         finalizeBulkRemovalNotification({
           id,
           succeeded,
@@ -450,7 +450,11 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const evictionScanNotification = notifications.find(
     (n: { type: string; status: string }) => n.type === 'eviction_scan' && n.status === 'running'
   );
-  const isEvictionScanRunning = !!evictionScanNotification || isStartingEvictionScan;
+  const isEvictionRemovalRunning = notifications.some(
+    (n) => n.type === 'eviction_removal' && n.status === 'running'
+  );
+  const isEvictionScanRunning =
+    !!evictionScanNotification || isStartingEvictionScan || isEvictionRemovalRunning;
 
   const [evictedDataExpanded, setEvictedDataExpanded] = useState(() => {
     const saved = localStorage.getItem(MANAGEMENT_STORAGE_KEYS.EVICTED_DATA_EXPANDED);
@@ -494,11 +498,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // happening and a single failure doesn't abort the rest.
   const [showRemoveAllConfirm, setShowRemoveAllConfirm] = useState(false);
   const [removeAllRunning, setRemoveAllRunning] = useState(false);
-  const [removeAllProgress, setRemoveAllProgress] = useState<{
-    current: number;
-    total: number;
-    label: string;
-  } | null>(null);
 
   const evictionAllExpanded = evictionSettingsExpanded && evictedItemsExpanded;
 
@@ -595,7 +594,11 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     const attemptScan = async (): Promise<boolean> => {
       try {
         const result = await ApiService.startEvictionScan();
-        if (result.operationId) {
+        // Seed the scan card from the PERSISTED mode (savedEvictionMode), not the local radio
+        // selection: the backend silences the scan phase based on its saved EvictedDataMode, so
+        // seeding from an unsaved local 'show' while the server runs silent 'remove' would leave
+        // a stuck running card (and vice versa would merely delay the bar by one SignalR event).
+        if (result.operationId && savedEvictionMode !== 'remove') {
           addNotification(
             buildSeededRunningNotification(
               'eviction_scan',
@@ -802,6 +805,25 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                       t('management.sections.data.runEvictionScan')
                     )}
                   </Button>
+                  {isAdmin && (
+                    <Button
+                      variant="filled"
+                      color="red"
+                      size="sm"
+                      onClick={() => setShowRemoveAllConfirm(true)}
+                      awaitPermissions
+                      loading={removeAllRunning}
+                      disabled={
+                        evictedGames.length + evictedServices.length === 0 ||
+                        removeAllRunning ||
+                        isAnyEvictedRemovalRunning ||
+                        cacheReadOnly
+                      }
+                      className="w-full sm:w-auto"
+                    >
+                      {t('management.sections.data.evictionRemoveAll', 'Remove All')}
+                    </Button>
+                  )}
                 </div>
               }
             >
@@ -883,35 +905,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                   isExpanded={evictedItemsExpanded}
                   onToggle={() => setEvictedItemsExpanded((prev) => !prev)}
                 >
-                  {isAdmin && (
-                    <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-                      <Button
-                        variant="filled"
-                        color="red"
-                        onClick={() => setShowRemoveAllConfirm(true)}
-                        awaitPermissions
-                        loading={removeAllRunning}
-                        disabled={
-                          evictedGames.length + evictedServices.length === 0 ||
-                          removeAllRunning ||
-                          isAnyEvictedRemovalRunning ||
-                          cacheReadOnly
-                        }
-                      >
-                        {t('management.sections.data.evictionRemoveAll', 'Remove All')}
-                      </Button>
-                      {removeAllRunning && removeAllProgress && (
-                        <span className="text-sm text-themed-secondary">
-                          {t('management.sections.data.evictionRemoveAllProgress', {
-                            current: removeAllProgress.current,
-                            total: removeAllProgress.total,
-                            label: removeAllProgress.label,
-                            defaultValue: 'Removing {{current}} of {{total}} - {{label}}'
-                          })}
-                        </span>
-                      )}
-                    </div>
-                  )}
                   <EvictedItemsList
                     games={evictedGames}
                     services={evictedServices}

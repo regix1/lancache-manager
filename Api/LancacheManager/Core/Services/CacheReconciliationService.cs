@@ -244,21 +244,29 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
     private async Task ReconcileCacheFilesAsync(AppDbContext context, Guid operationId, CancellationToken stoppingToken, bool silent = false)
     {
-        _currentScanIsSilent = silent;
+        // In Remove mode the scan phase is ALWAYS notification-silent (manual or automatic): the
+        // user-visible feedback for a Remove-mode run is the removal bar, not the scan bar. A manual
+        // Remove-mode run arrives here with silent:false (RunManualAsync), so we force the scan phase
+        // silent independently of the run origin. Non-Remove modes keep the caller's silent flag, so a
+        // manual non-Remove scan still shows its scan bar exactly as before.
+        var isRemoveMode = _stateService.GetEvictedDataMode() == EvictedDataMode.Remove.ToWireString();
+        var scanSilent = silent || isRemoveMode;
+
+        _currentScanIsSilent = scanSilent;
         // Mirror the silent flag onto the terminal-state holder so the registered onTerminalEmit
         // closure suppresses the EvictionScanComplete emit exactly as the old inline guards did.
         if (_evictionScanTerminalStates.TryGetValue(operationId, out var scanTerminalState))
         {
-            scanTerminalState.Silent = silent;
+            scanTerminalState.Silent = scanSilent;
         }
         string? datasourceConfigPath = null;
         string? progressFilePath = null;
 
         try
         {
-            _logger.LogInformation("[EvictionScan] Starting eviction scan via Rust binary (silent: {Silent})", silent);
+            _logger.LogInformation("[EvictionScan] Starting eviction scan via Rust binary (silent: {Silent})", scanSilent);
 
-            if (!silent)
+            if (!scanSilent)
             {
                 await _notifications.NotifyAllAsync(SignalREvents.EvictionScanStarted, new EvictionScanStarted(
                     StageKey: "signalr.evictionScan.scanning",
@@ -282,7 +290,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // Start progress monitoring task (only if not silent)
             CancellationTokenSource? progressCts = null;
             Task? progressTask = null;
-            if (!silent)
+            if (!scanSilent)
             {
                 progressCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
                 progressTask = _rustProcessHelper.MonitorProgressFileAsync<EvictionScanProgressData>(
@@ -335,7 +343,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     "[EvictionScan] Scan complete: processed {Total} downloads, {Evicted} newly evicted, {UnEvicted} un-evicted (re-cached)",
                     scanResult.Processed, scanResult.Evicted, scanResult.UnEvicted);
 
-                if (!silent)
+                if (!scanSilent)
                 {
                     await NotifyEvictionScanPostRustProgressAsync(
                         operationId,
@@ -416,18 +424,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                 stoppingToken.ThrowIfCancellationRequested();
 
-                // Handle evicted data "remove" mode
-                // The removal inherits the scan's silent flag: in Remove mode the scan is
-                // already silent, so the removal must also stay silent (no notification).
-                var evictedDataMode = _stateService.GetEvictedDataMode();
-                if (evictedDataMode == EvictedDataMode.Remove.ToWireString()
-                    && await context.Downloads.AnyAsync(d => d.IsEvicted, stoppingToken))
-                {
-                    await RemoveEvictedRecordsAsync(context, stoppingToken, operationId, silent: silent);
-                }
-
-                // Capture the success metrics BY VALUE just before CompleteOperation so the
-                // registered onTerminalEmit closure (the sole terminal emitter) builds the record.
+                // Capture the success metrics BY VALUE and COMPLETE the scan op BEFORE the removal
+                // phase runs. Two reasons:
+                //   1. Metrics honesty - the scan's terminal EvictionScanComplete carries the real
+                //      Processed/Evicted/UnEvicted counts (previously these were set after the removal
+                //      had already completed the op, leaving the terminal event with zeroed metrics).
+                //   2. Single active bulk op - the scan op (ConflictScope.Bulk) must be completed
+                //      before the removal self-registers its own ConflictScope.Bulk op, otherwise the
+                //      registration would collide with the still-active scan op.
                 if (scanTerminalState != null)
                 {
                     scanTerminalState.Processed = scanResult.Processed;
@@ -435,6 +439,19 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     scanTerminalState.UnEvicted = scanResult.UnEvicted;
                 }
                 _operationTracker.CompleteOperation(operationId, success: true);
+
+                // Handle evicted data "remove" mode. The removal self-registers its OWN
+                // OperationType.EvictionRemoval operation (operationId: null) so it is cancellable,
+                // visible to GET /api/cache/removals/active, and emits its own
+                // EvictionRemovalStarted/Progress/Complete events with its own operationId. The
+                // removal's silent flag mirrors the run ORIGIN, not the scan phase: automatic runs
+                // (silent:true) stay fully silent (no removal bar - May 2026 behavior); manual runs
+                // (silent:false) show the removal bar as the sole notification for the run.
+                if (isRemoveMode
+                    && await context.Downloads.AnyAsync(d => d.IsEvicted, stoppingToken))
+                {
+                    await RemoveEvictedRecordsAsync(context, stoppingToken, operationId: null, silent: silent);
+                }
 
                 // Notify clients to refresh if eviction flags changed
                 if (scanResult.Evicted > 0 || scanResult.UnEvicted > 0)
@@ -1081,6 +1098,17 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
+    /// True when the given EvictionRemoval operation runs silently (automatic Remove-mode
+    /// auto-cleanup). Silent removals emit no SignalR events, so recovery endpoints must not
+    /// report them either - otherwise the frontend would resurrect a notification card for an
+    /// operation that is deliberately invisible.
+    /// </summary>
+    public bool IsSilentRemovalOperation(Guid operationId)
+    {
+        return _silentRemovalOperationIds.ContainsKey(operationId);
+    }
+
+    /// <summary>
     /// Deletes all evicted Download records, their associated LogEntries, and their matching
     /// CachedGameDetections / CachedServiceDetections rows from the database. Called either
     /// from the scan flow (no operationId, mode == Remove) or from the controller's
@@ -1098,6 +1126,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         if (operationId == null)
         {
             cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            // Run the removal work on the LINKED token: the universal cancel path
+            // (/api/operations/{id}/cancel) drives the CTS registered with the tracker, so the
+            // log purge and EF deletes below must observe cts.Token - not the caller's
+            // stoppingToken - for a user cancel to actually stop the work. This mirrors the
+            // pre-registered path, where the caller passes its tracker CTS token as
+            // stoppingToken. Host/scan shutdown still propagates through the link.
+            stoppingToken = cts.Token;
             var terminalState = new EvictionRemovalTerminalState();
             Guid selfRegisteredId = default;
             selfRegisteredId = _operationTracker.RegisterOperation(
