@@ -245,7 +245,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
         }
       });
     },
-    [addNotification, updateNotification, runEvictedQueue, on, off, t]
+    [addNotification, updateNotification, runEvictedQueue, t]
   );
 
   const runCacheRemoval = useCallback(
