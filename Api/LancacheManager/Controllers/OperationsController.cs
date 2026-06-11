@@ -27,6 +27,28 @@ public class OperationsController : ControllerBase
     }
 
     /// <summary>
+    /// GET /api/operations/{id}
+    ///
+    /// Lightweight liveness/progress probe for a single tracked operation. Used by the frontend
+    /// bulk Remove All loop to await completion of SILENT per-entity removals, which emit no
+    /// SignalR events by design.
+    ///
+    /// Returns 200 with { id, active, percentComplete, message }. active=false means the
+    /// operation is no longer tracked (completed, failed, cancelled, or never existed).
+    /// </summary>
+    [HttpGet("{id}")]
+    public IActionResult GetOperationStatus(Guid id)
+    {
+        var op = _operationTracker.GetActiveOperations().FirstOrDefault(o => o.Id == id);
+        if (op == null)
+        {
+            return Ok(new { id, active = false, percentComplete = 100.0, message = (string?)null });
+        }
+
+        return Ok(new { id, active = true, percentComplete = op.PercentComplete, message = op.Message });
+    }
+
+    /// <summary>
     /// Aggressively cancels a running operation: kills any associated process tree, then cancels the token.
     /// Idempotent — returns 200 OK if already cancelling (re-attempts process kill).
     /// </summary>

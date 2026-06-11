@@ -1523,11 +1523,12 @@ class ApiService {
 
   // Remove only the evicted downloads (and their log entries) for a Steam game (fire-and-forget, requires auth)
   static async removeEvictedForGame(
-    gameAppId: number
+    gameAppId: number,
+    opts?: { silent?: boolean; deferRefresh?: boolean }
   ): Promise<{ operationId: string; scope: string; key: string }> {
     try {
       const res = await fetch(
-        `${API_BASE}/cache/evicted/steam?key=${gameAppId}`,
+        `${API_BASE}/cache/evicted/steam?key=${gameAppId}${opts?.silent ? '&silent=true' : ''}${opts?.deferRefresh ? '&deferRefresh=true' : ''}`,
         this.getFetchOptions({ method: 'DELETE' })
       );
       return await this.handleResponse<{ operationId: string; scope: string; key: string }>(res);
@@ -1539,11 +1540,12 @@ class ApiService {
 
   // Remove only the evicted downloads (and their log entries) for an Epic game (fire-and-forget, requires auth)
   static async removeEvictedForEpicGame(
-    epicAppId: string
+    epicAppId: string,
+    opts?: { silent?: boolean; deferRefresh?: boolean }
   ): Promise<{ operationId: string; scope: string; key: string }> {
     try {
       const res = await fetch(
-        `${API_BASE}/cache/evicted/epic?key=${encodeURIComponent(epicAppId)}`,
+        `${API_BASE}/cache/evicted/epic?key=${encodeURIComponent(epicAppId)}${opts?.silent ? '&silent=true' : ''}${opts?.deferRefresh ? '&deferRefresh=true' : ''}`,
         this.getFetchOptions({ method: 'DELETE' })
       );
       return await this.handleResponse<{ operationId: string; scope: string; key: string }>(res);
@@ -1555,11 +1557,12 @@ class ApiService {
 
   // Remove only the evicted downloads (and their log entries) for a non-game service (fire-and-forget, requires auth)
   static async removeEvictedForService(
-    serviceName: string
+    serviceName: string,
+    opts?: { silent?: boolean; deferRefresh?: boolean }
   ): Promise<{ operationId: string; scope: string; key: string }> {
     try {
       const res = await fetch(
-        `${API_BASE}/cache/evicted/service?key=${encodeURIComponent(serviceName)}`,
+        `${API_BASE}/cache/evicted/service?key=${encodeURIComponent(serviceName)}${opts?.silent ? '&silent=true' : ''}${opts?.deferRefresh ? '&deferRefresh=true' : ''}`,
         this.getFetchOptions({ method: 'DELETE' })
       );
       return await this.handleResponse<{ operationId: string; scope: string; key: string }>(res);
@@ -1897,6 +1900,28 @@ class ApiService {
   // =====================================================
   // Universal Operation Cancellation APIs
   // =====================================================
+
+  /**
+   * Lightweight liveness/progress probe for a tracked operation. Used by the bulk
+   * Remove All loop to await SILENT per-entity removals (which emit no SignalR events).
+   * active=false means the operation finished (completed/failed/cancelled) or never existed.
+   */
+  static async getOperationStatus(
+    operationId: string
+  ): Promise<{ id: string; active: boolean; percentComplete: number; message: string | null }> {
+    try {
+      const res = await fetch(`${API_BASE}/operations/${operationId}`, this.getFetchOptions());
+      return await this.handleResponse<{
+        id: string;
+        active: boolean;
+        percentComplete: number;
+        message: string | null;
+      }>(res);
+    } catch (error: unknown) {
+      console.error('getOperationStatus error:', error);
+      throw error;
+    }
+  }
 
   // Cancel any operation by ID
   static async cancelOperation(operationId: string): Promise<{ message: string }> {

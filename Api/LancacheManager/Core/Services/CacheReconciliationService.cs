@@ -743,7 +743,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         string? resolvedGameName,
         string? resolvedGameAppId,
         CancellationToken cancellationToken,
-        string? resolvedEpicAppId = null)
+        string? resolvedEpicAppId = null,
+        bool silent = false,
+        bool deferDetectionRefresh = false)
     {
         var cts = new CancellationTokenSource();
         var metadata = new EvictionRemovalMetadata
@@ -769,16 +771,29 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
             onTerminalEmit: CreateEvictionRemovalTerminalEmit(() => operationId, terminalState));
         _evictionRemovalTerminalStates[operationId] = terminalState;
+        if (silent)
+        {
+            // Bulk "Remove All" runs each entity silently: the frontend shows ONE bulk
+            // notification and polls operation status instead of consuming per-item
+            // Started/Progress/Complete SignalR events. terminalState.Silent gates the
+            // terminal emit; _silentRemovalOperationIds gates progress events and the
+            // /api/cache/removals/active recovery listing.
+            _silentRemovalOperationIds.TryAdd(operationId, 0);
+            terminalState.Silent = true;
+        }
 
-        await _notifications.NotifyAllAsync(
-            SignalREvents.EvictionRemovalStarted,
-            new EvictionRemovalStarted(
-                "signalr.evictionRemove.starting.entity",
-                operationId,
-                new Dictionary<string, object?> { ["scope"] = scope.ToString(), ["key"] = key },
-                resolvedGameName,
-                resolvedGameAppId,
-                resolvedEpicAppId));
+        if (!silent)
+        {
+            await _notifications.NotifyAllAsync(
+                SignalREvents.EvictionRemovalStarted,
+                new EvictionRemovalStarted(
+                    "signalr.evictionRemove.starting.entity",
+                    operationId,
+                    new Dictionary<string, object?> { ["scope"] = scope.ToString(), ["key"] = key },
+                    resolvedGameName,
+                    resolvedGameAppId,
+                    resolvedEpicAppId));
+        }
 
         _ = Task.Run(async () =>
         {
@@ -788,7 +803,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             {
                 using var scopeLifetime = _serviceProvider.CreateScope();
                 var context = scopeLifetime.ServiceProvider.GetRequiredService<AppDbContext>();
-                await RemoveEvictedRecordsForEntityAsync(context, scope, key, cts.Token, operationId);
+                await RemoveEvictedRecordsForEntityAsync(context, scope, key, cts.Token, operationId, deferDetectionRefresh);
             }
             catch (Exception ex)
             {
@@ -1532,7 +1547,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         EvictionScope scope,
         string key,
         CancellationToken stoppingToken,
-        Guid? operationId = null)
+        Guid? operationId = null,
+        bool deferDetectionRefresh = false)
     {
         // Npgsql cannot translate string.Equals(..., StringComparison.OrdinalIgnoreCase);
         // service names are already stored lowercase, so lowercasing `key` once here lets
@@ -1793,7 +1809,17 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             var detectionService = _serviceProvider.GetService<GameCacheDetectionService>();
             if (detectionService != null)
             {
-                await detectionService.RefreshAndInvalidateDetectionCacheAsync(stoppingToken);
+                if (deferDetectionRefresh)
+                {
+                    // Bulk per-item path: the full disk-summary recompute takes minutes on large
+                    // databases and was serializing every item in a bulk Remove All. Invalidate the
+                    // cache only; the bulk loop requests one full refresh on its LAST item.
+                    detectionService.InvalidateDetectionCache();
+                }
+                else
+                {
+                    await detectionService.RefreshAndInvalidateDetectionCacheAsync(stoppingToken);
+                }
             }
 
             await CompleteEvictionRemovalAsync(

@@ -58,29 +58,26 @@ const ServiceButton: React.FC<{
   removingLabel
 }) => {
   return (
-    <Button
-      onClick={onClick}
-      awaitPermissions
-      disabled={isDisabled}
-      variant="filled"
-      color="red"
-      loading={isRemoving}
-      className="flex flex-col items-center min-h-[60px] justify-center"
-      fullWidth
-    >
-      {isRemoving ? (
-        <span className="capitalize font-medium text-sm sm:text-base">{removingLabel}</span>
-      ) : (
-        <>
-          <span className="capitalize font-medium text-sm sm:text-base">
-            {clearLabel} {service}
-          </span>
-          <span className="text-xs text-themed-muted mt-1">
-            ({formatCount(count)} {entriesLabel})
-          </span>
-        </>
-      )}
-    </Button>
+    <div className="flex items-center justify-between gap-3 p-3 bg-themed-tertiary rounded-lg">
+      <div className="min-w-0">
+        <div className="capitalize font-medium text-sm text-themed-primary truncate">{service}</div>
+        <div className="text-xs text-themed-muted">
+          {formatCount(count)} {entriesLabel}
+        </div>
+      </div>
+      <Button
+        onClick={onClick}
+        awaitPermissions
+        disabled={isDisabled}
+        variant="filled"
+        color="red"
+        size="sm"
+        loading={isRemoving}
+        className="flex-shrink-0"
+      >
+        {isRemoving ? removingLabel : clearLabel}
+      </Button>
+    </div>
   );
 };
 

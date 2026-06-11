@@ -1317,10 +1317,11 @@ public class CacheController : ControllerBase
     ///
     /// Returns 202 Accepted with { operationId, scope, key }.
     /// Returns 409 Conflict if a global eviction removal is already in progress.
+    /// Optional: silent=true suppresses per-item SignalR notifications (bulk loop); deferRefresh=true skips the slow disk-summary refresh (bulk loop runs it on the last item only).
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("evicted/{scope}")]
-    public async Task<IActionResult> RemoveEvictedForEntityAsync(string scope, [FromQuery] string? key, CancellationToken cancellationToken)
+    public async Task<IActionResult> RemoveEvictedForEntityAsync(string scope, [FromQuery] string? key, [FromQuery] bool silent = false, [FromQuery] bool deferRefresh = false, CancellationToken cancellationToken = default)
     {
         // Validate key parameter.
         if (string.IsNullOrWhiteSpace(key))
@@ -1432,7 +1433,9 @@ public class CacheController : ControllerBase
             resolvedGameName,
             resolvedGameAppId,
             cancellationToken,
-            resolvedEpicAppId: evictionScope == EvictionScope.Epic ? key : null);
+            resolvedEpicAppId: evictionScope == EvictionScope.Epic ? key : null,
+            silent: silent,
+            deferDetectionRefresh: deferRefresh);
 
         return Accepted(new { operationId, scope = scopeLower, key });
     }

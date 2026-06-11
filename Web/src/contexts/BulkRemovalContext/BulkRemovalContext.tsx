@@ -50,6 +50,40 @@ function updateBulkProgress({
   updateNotification(bulkNotifId, { progress: Math.floor(overall) });
 }
 
+/** Inputs for {@link pollOperationUntilDone}. */
+interface PollOperationArgs {
+  operationId: string;
+  /** Aborts the poll loop between probes (user cancel). */
+  signal: AbortSignal;
+  /** Receives the operation's inner percent (0-100) on each probe. */
+  onPercent: (percent: number) => void;
+}
+
+/**
+ * Awaits completion of a SILENT per-entity removal by polling the operation
+ * tracker. Silent ops emit no SignalR events by design, so the old
+ * waitForSignalRCompletion approach cannot see them (and previously burned a
+ * 120s timeout per item). Resolves when the tracker no longer reports the
+ * operation as active; rejects only on the safety cap.
+ */
+async function pollOperationUntilDone({
+  operationId,
+  signal,
+  onPercent
+}: PollOperationArgs): Promise<void> {
+  const POLL_INTERVAL_MS = 500;
+  const MAX_POLLS = 1200; // 10 minutes - safety cap so a stuck op cannot hang the queue forever
+
+  for (let i = 0; i < MAX_POLLS; i += 1) {
+    if (signal.aborted) return;
+    const status = await ApiService.getOperationStatus(operationId);
+    if (!status.active) return;
+    onPercent(status.percentComplete ?? 0);
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  }
+  throw new Error(`Operation ${operationId} did not finish within the polling window`);
+}
+
 /**
  * App-root provider that owns the two sequential bulk-removal queues (evicted
  * items + full cache). Because it is mounted near the top of the provider tree
@@ -61,7 +95,10 @@ function updateBulkProgress({
  * selection, and the `waitForSignalRCompletion` plumbing all live in this file
  * (moved verbatim from StorageSection / GameCacheDetector). Callers only supply
  * the item list and the per-run options (`onSettled` refresh, inline `onProgress`,
- * and `onRunningChange`).
+ * and `onRunningChange`). The evicted pipeline runs per-item removals SILENT
+ * (one bulk notification; completion via status polling; disk-summary refresh
+ * deferred to the last item), while the cache pipeline still consumes per-item
+ * SignalR events.
  */
 export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ children }) => {
   const { t } = useTranslation();
@@ -139,63 +176,48 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
         },
         processItem: async (entry, ctx) => {
           if (entry.kind === 'service') {
-            let operationId: string | null = null;
-            const waitPromise = waitForSignalRCompletion<
-              never,
-              { operationId?: string },
-              { operationId?: string; percentComplete?: number }
-            >({
-              signalR: { on, off },
-              completeEvent: 'EvictionRemovalComplete',
-              match: (payload) => payload?.operationId === operationId,
-              progressEvent: 'EvictionRemovalProgress',
-              onProgress: (payload) => {
-                if (!operationId || payload?.operationId !== operationId) return;
+            const { operationId } = await ApiService.removeEvictedForService(
+              entry.service.service_name,
+              { silent: true, deferRefresh: currentIndex < total }
+            );
+            ctx.setOperationId(operationId);
+            await pollOperationUntilDone({
+              operationId,
+              signal: ctx.signal,
+              onPercent: (percent) =>
                 updateBulkProgress({
                   bulkNotifId,
                   currentIndex,
                   total,
-                  inner: payload.percentComplete ?? 0,
+                  inner: percent,
                   updateNotification
-                });
-              },
-              signal: ctx.signal
+                })
             });
-            ({ operationId } = await ApiService.removeEvictedForService(
-              entry.service.service_name
-            ));
-            ctx.setOperationId(operationId);
-            await waitPromise;
           } else {
             const game = entry.game;
             const isEpic = game.service === 'epicgames' && !!game.epic_app_id;
-            let operationId: string | null = null;
-            const waitPromise = waitForSignalRCompletion<
-              never,
-              { operationId?: string },
-              { operationId?: string; percentComplete?: number }
-            >({
-              signalR: { on, off },
-              completeEvent: 'EvictionRemovalComplete',
-              match: (payload) => payload?.operationId === operationId,
-              progressEvent: 'EvictionRemovalProgress',
-              onProgress: (payload) => {
-                if (!operationId || payload?.operationId !== operationId) return;
+            const { operationId } = isEpic
+              ? await ApiService.removeEvictedForEpicGame(game.epic_app_id!, {
+                  silent: true,
+                  deferRefresh: currentIndex < total
+                })
+              : await ApiService.removeEvictedForGame(game.game_app_id, {
+                  silent: true,
+                  deferRefresh: currentIndex < total
+                });
+            ctx.setOperationId(operationId);
+            await pollOperationUntilDone({
+              operationId,
+              signal: ctx.signal,
+              onPercent: (percent) =>
                 updateBulkProgress({
                   bulkNotifId,
                   currentIndex,
                   total,
-                  inner: payload.percentComplete ?? 0,
+                  inner: percent,
                   updateNotification
-                });
-              },
-              signal: ctx.signal
+                })
             });
-            ({ operationId } = isEpic
-              ? await ApiService.removeEvictedForEpicGame(game.epic_app_id!)
-              : await ApiService.removeEvictedForGame(game.game_app_id));
-            ctx.setOperationId(operationId);
-            await waitPromise;
           }
         },
         finalize: ({ id, succeeded, failed, cancelled, total: finalizeTotal }) => {

@@ -354,7 +354,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                         enabled={ds.enabled && ds.cacheWritable}
                       >
                         {/* Expanded content */}
-                        <div className="pt-3">
+                        <div className="pt-3 flex justify-end">
                           <Button
                             variant="filled"
                             color="red"
@@ -373,7 +373,6 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                               cacheReadOnly ||
                               !ds.cacheWritable
                             }
-                            fullWidth
                             title={
                               !ds.cacheWritable
                                 ? t('management.cache.alerts.readOnly.title')
