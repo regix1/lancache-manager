@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
+import {
+  registerBulkQueueCancel,
+  unregisterBulkQueueCancel
+} from '@/hooks/bulkQueueCancelRegistry';
 
 /**
  * Shape of the finalize callback invoked once the queue settles. The caller
@@ -22,7 +26,7 @@ interface CancellableQueueFinalizeArgs {
 
 /**
  * Per-item context threaded through `processItem`. Exposes:
- *   - `signal` - AbortSignal that fires on user cancel or unmount.
+ *   - `signal` - AbortSignal that fires on user cancel.
  *   - `setOperationId` - tells the hook the current in-flight opId so the
  *     cascade effect can cancel it server-side when the user clicks the X
  *     on the bulk notification. Call this as soon as the opId is known
@@ -103,7 +107,14 @@ interface UseCancellableQueueResult<TItem> {
  *     `details.cancelling` flag and fires `ApiService.cancelOperation` on
  *     the in-flight item when the user clicks X
  *   - AbortController plumbing so `processItem` receives a signal
- *   - unmount-cleanup that aborts any in-flight iteration
+ *
+ * The queue deliberately SURVIVES unmount of the calling component: an
+ * in-app tab switch unmounts the Management tab, and treating that as a
+ * user cancel aborted bulk removals mid-run ("Bulk removal cancelled after
+ * 0 items") while the server kept working. The run loop keeps executing in
+ * its closure; progress/finalize flow through the notifications context
+ * (which lives at app root), and local setState calls on the unmounted
+ * instance are React no-ops.
  *
  * The caller retains responsibility for per-item API selection, i18n
  * strings, confirmation modal gating, and the `finalize` update.
@@ -111,9 +122,11 @@ interface UseCancellableQueueResult<TItem> {
  * Contract: when the user cancels the bulk notification,
  * `UniversalNotificationBar.handleCancel`'s bulk_removal special case flips
  * `details.cancelling = true` (it does NOT call ApiService.cancelOperation
- * directly, because bulk notifications carry no server-side opId). The
- * cascade effect inside this hook picks up that flag and calls
- * `ApiService.cancelOperation(currentItemOpId)` on the in-flight item.
+ * directly, because bulk notifications carry no server-side opId) AND calls
+ * `requestBulkQueueCancel(notificationId)`. The registry call is what
+ * actually cancels the run - it works even after the owning component
+ * unmounts, when this hook's effects no longer execute. The cascade effect
+ * below is a mounted-only redundancy for the flag path.
  */
 export function useCancellableQueue<TItem>(
   options?: UseCancellableQueueOptions<TItem>
@@ -127,18 +140,26 @@ export function useCancellableQueue<TItem>(
   const currentItemRef = useRef<TItem | null>(null);
   const cancelRequestedRef = useRef<boolean>(false);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const unmountControllerRef = useRef<AbortController | null>(null);
 
   const [state, setState] = useState<CancellableQueueState>({ status: 'idle' });
 
-  // Unmount guard - abort any in-flight iteration when the caller unmounts.
-  useEffect(() => {
-    const controller = new AbortController();
-    unmountControllerRef.current = controller;
-    return () => {
-      controller.abort();
-      unmountControllerRef.current = null;
-    };
+  // The single cancellation entry point: trips the per-item AbortController
+  // and fires a best-effort server-side cancel on the in-flight item. Safe to
+  // call from any context (mounted effect, returned cancel(), or the
+  // module-level registry after unmount) - dedupes via cancelRequestedRef.
+  const triggerCancel = useCallback(() => {
+    if (cancelRequestedRef.current) return;
+    cancelRequestedRef.current = true;
+
+    abortControllerRef.current?.abort();
+
+    const currentOp = currentItemOperationIdRef.current;
+    if (currentOp) {
+      currentItemOperationIdRef.current = null;
+      ApiService.cancelOperation(currentOp).catch(() => {
+        /* best-effort - current item may already be past the point of cancel */
+      });
+    }
   }, []);
 
   // Cascade effect: watch the bulk notification for `details.cancelling` (set
@@ -152,38 +173,27 @@ export function useCancellableQueue<TItem>(
   // iteration whenever React rendered an unrelated notifications update before
   // the freshly-added bulk notification was batched into the array (the
   // `bulkNotifIdRef` is set synchronously but the array update is queued).
-  // Unmount-driven cancellation is handled by the unmountControllerRef → AbortController
-  // path in run(), not by this effect.
+  // This effect only runs while the owning component is mounted; cancellation
+  // after unmount goes through the bulkQueueCancelRegistry instead.
   useEffect(() => {
     const activeId = bulkNotifIdRef.current;
     if (!activeId) return;
     const notif = notifications.find((n) => n.id === activeId);
     if (!notif) return;
     if (notif.details?.cancelRequested !== true && notif.details?.cancelling !== true) return;
-    if (cancelRequestedRef.current) return;
-    cancelRequestedRef.current = true;
-
-    // Trip the per-item AbortController so processItem sees signal.aborted.
-    abortControllerRef.current?.abort();
-
-    const currentOp = currentItemOperationIdRef.current;
-    if (currentOp) {
-      currentItemOperationIdRef.current = null;
-      ApiService.cancelOperation(currentOp).catch(() => {
-        /* best-effort - current item may already be past the point of cancel */
-      });
-    }
-  }, [notifications]);
+    triggerCancel();
+  }, [notifications, triggerCancel]);
 
   const cancel = useCallback(() => {
     const activeId = bulkNotifIdRef.current;
     if (!activeId) return;
-    // Flip cancelling=true on the bulk notification so the cascade effect
-    // picks it up on the next render tick (same path as the user clicking X).
+    // Flip cancelling=true on the bulk notification for UI feedback (same
+    // shape as the user clicking X), then cancel the run directly.
     updateNotification(activeId, {
       details: { cancelRequested: true, cancelling: true }
     });
-  }, [updateNotification]);
+    triggerCancel();
+  }, [updateNotification, triggerCancel]);
 
   const run = useCallback(
     async (args: CancellableQueueRunArgs<TItem>): Promise<void> => {
@@ -196,14 +206,16 @@ export function useCancellableQueue<TItem>(
       currentItemOperationIdRef.current = null;
       currentItemRef.current = null;
 
-      // One AbortController per run, composed of user-cancel + unmount.
+      // One AbortController per run, tripped only by an explicit user cancel
+      // (X button via the registry, the cascade effect, or cancel()).
       const controller = new AbortController();
       abortControllerRef.current = controller;
-      const unmountAbort = () => controller.abort();
-      unmountControllerRef.current?.signal.addEventListener('abort', unmountAbort, { once: true });
 
       const notifId = openNotification();
       bulkNotifIdRef.current = notifId;
+      // Bridge for cancellation after the owning component unmounts (the run
+      // survives in-app tab switches; effects don't).
+      registerBulkQueueCancel(notifId, triggerCancel);
       setState({ status: 'running', progress: { current: 0, total } });
 
       let succeeded = 0;
@@ -260,7 +272,7 @@ export function useCancellableQueue<TItem>(
           }
         }
       } finally {
-        unmountControllerRef.current?.signal.removeEventListener('abort', unmountAbort);
+        unregisterBulkQueueCancel(notifId);
       }
 
       if (cancelled && onCancel) {

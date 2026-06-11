@@ -13,6 +13,7 @@ import { formatCount, formatBytes } from '@utils/formatters';
 import themeService from '@services/theme.service';
 import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { requestBulkQueueCancel } from '@/hooks/bulkQueueCancelRegistry';
 
 // ============================================================================
 // Cancellable Operation Types
@@ -49,11 +50,15 @@ const handleCancel = async (
 ) => {
   // Client-driven bulk notifications (bulk_removal) are not tied to a single
   // server operation - the initiating component orchestrates a loop of per-
-  // item operations. Signal the loop by flipping cancelRequested=true.
+  // item operations. Flip cancelRequested=true for UI feedback, then cancel
+  // the live run through the registry - the queue survives the owning
+  // component unmounting (in-app tab switches), where the flag alone would
+  // never be observed.
   if (notification.type === 'bulk_removal') {
     updateNotification(notification.id, {
       details: { ...notification.details, cancelRequested: true, cancelling: true }
     });
+    requestBulkQueueCancel(notification.id);
     return;
   }
 
