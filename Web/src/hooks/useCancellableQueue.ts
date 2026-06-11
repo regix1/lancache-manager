@@ -178,7 +178,16 @@ export function useCancellableQueue<TItem>(
     if (!activeId) return;
     const notif = notifications.find((n) => n.id === activeId);
     if (!notif) return;
-    if (notif.details?.cancelRequested !== true && notif.details?.cancelling !== true) return;
+    // ONLY `cancelling === true` is a cancel signal for the bulk queue — it is
+    // set exclusively by handleCancel's clientQueue branch (the X button).
+    // `cancelRequested` alone is NOT honored: that flag is also used by the
+    // serverOp deferred-cancel handshake with different semantics, and honoring
+    // it here would let any stray details merge cancel a live bulk run.
+    if (notif.details?.cancelling !== true) return;
+    console.warn(
+      '[useCancellableQueue] cascade observed cancelling=true on bulk notification - cancelling run',
+      { id: activeId, details: notif.details }
+    );
     triggerCancel();
   }, [notifications, triggerCancel]);
 
@@ -220,7 +229,22 @@ export function useCancellableQueue<TItem>(
         let cancelled = false;
         let lastError: Error | null = null;
 
-        const wasCancelled = () => cancelRequestedRef.current || controller.signal.aborted;
+        // Diagnostic: when a run flips to cancelled, record WHICH lever tripped
+        // (flag vs abort) exactly once - this distinguishes an X-click cascade
+        // from any unexpected abort source in field reports.
+        let cancelLogged = false;
+        const wasCancelled = () => {
+          const hit = cancelRequestedRef.current || controller.signal.aborted;
+          if (hit && !cancelLogged) {
+            cancelLogged = true;
+            console.warn('[useCancellableQueue] run cancelled', {
+              notifId: bulkNotifIdRef.current,
+              viaCancelRequestedRef: cancelRequestedRef.current,
+              viaSignalAborted: controller.signal.aborted
+            });
+          }
+          return hit;
+        };
 
         for (let index = 0; index < items.length; index += 1) {
           const item = items[index];
