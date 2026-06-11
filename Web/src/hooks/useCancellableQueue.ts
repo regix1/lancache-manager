@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
-import {
-  registerBulkQueueCancel,
-  unregisterBulkQueueCancel
-} from '@/hooks/bulkQueueCancelRegistry';
 
 /**
  * Shape of the finalize callback invoked once the queue settles. The caller
@@ -77,13 +73,7 @@ interface CancellableQueueState {
   error?: Error;
 }
 
-interface UseCancellableQueueOptions<TItem> {
-  /**
-   * Called with the item currently in flight when the user cancels. Use for
-   * side-effects like fetching fresh data after cancellation. Fired BEFORE
-   * `onSettled`.
-   */
-  onCancel?: (itemInFlight: TItem | null) => Promise<void> | void;
+interface UseCancellableQueueOptions {
   /**
    * Called once the queue has fully settled (success, cancel, or error).
    * Use for post-run refreshes, e.g. `void fetchEvictedItems()`.
@@ -93,7 +83,6 @@ interface UseCancellableQueueOptions<TItem> {
 
 interface UseCancellableQueueResult<TItem> {
   run: (args: CancellableQueueRunArgs<TItem>) => Promise<void>;
-  cancel: () => void;
   state: CancellableQueueState;
 }
 
@@ -116,23 +105,25 @@ interface UseCancellableQueueResult<TItem> {
  * (which lives at app root), and local setState calls on the unmounted
  * instance are React no-ops.
  *
+ * This hook is instantiated by the app-root `BulkRemovalProvider`, which never
+ * unmounts. Because the provider is always mounted, the cascade effect below
+ * always observes a `details.cancelling`/`cancelRequested` flag flip and is the
+ * sole cancel path - the former module-level `bulkQueueCancelRegistry` bridge
+ * (needed only when the owning component could unmount mid-run) is gone.
+ *
  * The caller retains responsibility for per-item API selection, i18n
  * strings, confirmation modal gating, and the `finalize` update.
  *
  * Contract: when the user cancels the bulk notification,
- * `UniversalNotificationBar.handleCancel`'s bulk_removal special case flips
+ * `UniversalNotificationBar.handleCancel`'s clientQueue branch flips
  * `details.cancelling = true` (it does NOT call ApiService.cancelOperation
- * directly, because bulk notifications carry no server-side opId) AND calls
- * `requestBulkQueueCancel(notificationId)`. The registry call is what
- * actually cancels the run - it works even after the owning component
- * unmounts, when this hook's effects no longer execute. The cascade effect
- * below is a mounted-only redundancy for the flag path.
+ * directly, because bulk notifications carry no server-side opId). The cascade
+ * effect below picks up that flag and cancels the live run.
  */
 export function useCancellableQueue<TItem>(
-  options?: UseCancellableQueueOptions<TItem>
+  options?: UseCancellableQueueOptions
 ): UseCancellableQueueResult<TItem> {
-  const { notifications, updateNotification, scheduleAutoDismiss } = useNotifications();
-  const onCancel = options?.onCancel;
+  const { notifications, scheduleAutoDismiss } = useNotifications();
   const onSettled = options?.onSettled;
 
   const bulkNotifIdRef = useRef<string | null>(null);
@@ -140,13 +131,20 @@ export function useCancellableQueue<TItem>(
   const currentItemRef = useRef<TItem | null>(null);
   const cancelRequestedRef = useRef<boolean>(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Synchronous in-progress guard. A same-tick double-invoke of `run` (e.g. the
+  // confirm Modal's button is still clickable during its 250ms close animation)
+  // must not start the SAME queue instance twice — the second run would clobber
+  // cancelRequestedRef/abortControllerRef and the provider's per-run options ref,
+  // and run #1's settle would fire run #2's callbacks. A ref (not React state) is
+  // required so the guard is observed on the very next synchronous call.
+  const runActiveRef = useRef<boolean>(false);
 
   const [state, setState] = useState<CancellableQueueState>({ status: 'idle' });
 
   // The single cancellation entry point: trips the per-item AbortController
-  // and fires a best-effort server-side cancel on the in-flight item. Safe to
-  // call from any context (mounted effect, returned cancel(), or the
-  // module-level registry after unmount) - dedupes via cancelRequestedRef.
+  // and fires a best-effort server-side cancel on the in-flight item. Invoked
+  // by the cascade effect below when the bulk notification's cancel flag flips
+  // - dedupes via cancelRequestedRef.
   const triggerCancel = useCallback(() => {
     if (cancelRequestedRef.current) return;
     cancelRequestedRef.current = true;
@@ -173,8 +171,8 @@ export function useCancellableQueue<TItem>(
   // iteration whenever React rendered an unrelated notifications update before
   // the freshly-added bulk notification was batched into the array (the
   // `bulkNotifIdRef` is set synchronously but the array update is queued).
-  // This effect only runs while the owning component is mounted; cancellation
-  // after unmount goes through the bulkQueueCancelRegistry instead.
+  // The owning provider (BulkRemovalProvider) is app-root and never unmounts,
+  // so this effect is the sole cancel path for the flag.
   useEffect(() => {
     const activeId = bulkNotifIdRef.current;
     if (!activeId) return;
@@ -184,22 +182,17 @@ export function useCancellableQueue<TItem>(
     triggerCancel();
   }, [notifications, triggerCancel]);
 
-  const cancel = useCallback(() => {
-    const activeId = bulkNotifIdRef.current;
-    if (!activeId) return;
-    // Flip cancelling=true on the bulk notification for UI feedback (same
-    // shape as the user clicking X), then cancel the run directly.
-    updateNotification(activeId, {
-      details: { cancelRequested: true, cancelling: true }
-    });
-    triggerCancel();
-  }, [updateNotification, triggerCancel]);
-
   const run = useCallback(
     async (args: CancellableQueueRunArgs<TItem>): Promise<void> => {
       const { items, openNotification, onItemStart, processItem, finalize } = args;
       const total = items.length;
       if (total === 0) return;
+
+      // C1 in-progress guard: a same-tick double-invoke must be a no-op. Set
+      // synchronously BEFORE any work so the second call returns immediately;
+      // cleared in the finally below so the next legitimate run can start.
+      if (runActiveRef.current) return;
+      runActiveRef.current = true;
 
       // Reset bookkeeping for this run.
       cancelRequestedRef.current = false;
@@ -207,25 +200,28 @@ export function useCancellableQueue<TItem>(
       currentItemRef.current = null;
 
       // One AbortController per run, tripped only by an explicit user cancel
-      // (X button via the registry, the cascade effect, or cancel()).
+      // (the cascade effect).
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
-      const notifId = openNotification();
-      bulkNotifIdRef.current = notifId;
-      // Bridge for cancellation after the owning component unmounts (the run
-      // survives in-app tab switches; effects don't).
-      registerBulkQueueCancel(notifId, triggerCancel);
-      setState({ status: 'running', progress: { current: 0, total } });
-
-      let succeeded = 0;
-      let failed = 0;
-      let cancelled = false;
-      let lastError: Error | null = null;
-
-      const wasCancelled = () => cancelRequestedRef.current || controller.signal.aborted;
-
+      // C2: everything from openNotification() onward runs inside try/finally so
+      // a synchronous throw (e.g. from openNotification) still clears the C1
+      // guard and delivers onSettled (→ provider's onRunningChange(false)). The
+      // finalize() call lives inside the try and only runs once a notifId
+      // exists; if openNotification throws there is nothing to finalize and the
+      // error propagates after the finally.
       try {
+        const notifId = openNotification();
+        bulkNotifIdRef.current = notifId;
+        setState({ status: 'running', progress: { current: 0, total } });
+
+        let succeeded = 0;
+        let failed = 0;
+        let cancelled = false;
+        let lastError: Error | null = null;
+
+        const wasCancelled = () => cancelRequestedRef.current || controller.signal.aborted;
+
         for (let index = 0; index < items.length; index += 1) {
           const item = items[index];
           if (wasCancelled()) {
@@ -271,42 +267,33 @@ export function useCancellableQueue<TItem>(
             currentItemRef.current = null;
           }
         }
+
+        // Finalize hook - callers transition the notification to its terminal
+        // state here (see CancellableQueueFinalizeArgs docs).
+        finalize({ id: notifId, succeeded, failed, cancelled, total });
+
+        // Registry-driven notifications get auto-dismiss scheduled by their
+        // handler factory when they transition to a terminal state. The
+        // bulk_removal notification this hook manages is NOT registry-driven,
+        // so we must schedule auto-dismiss ourselves - otherwise the "Bulk
+        // removal cancelled/completed" toast lingers indefinitely.
+        scheduleAutoDismiss(notifId);
+
+        setState({
+          status: lastError && !cancelled ? 'error' : 'done',
+          progress: { current: succeeded + failed, total },
+          error: lastError ?? undefined
+        });
       } finally {
-        unregisterBulkQueueCancel(notifId);
+        bulkNotifIdRef.current = null;
+        abortControllerRef.current = null;
+        cancelRequestedRef.current = false;
+        runActiveRef.current = false;
+        onSettled?.();
       }
-
-      if (cancelled && onCancel) {
-        try {
-          await onCancel(currentItemRef.current);
-        } catch {
-          /* onCancel failures are not user-facing */
-        }
-      }
-
-      // Finalize hook - callers transition the notification to its terminal
-      // state here (see CancellableQueueFinalizeArgs docs).
-      finalize({ id: notifId, succeeded, failed, cancelled, total });
-
-      // Registry-driven notifications get auto-dismiss scheduled by their
-      // handler factory when they transition to a terminal state. The
-      // bulk_removal notification this hook manages is NOT registry-driven,
-      // so we must schedule auto-dismiss ourselves - otherwise the "Bulk
-      // removal cancelled/completed" toast lingers indefinitely.
-      scheduleAutoDismiss(notifId);
-
-      bulkNotifIdRef.current = null;
-      abortControllerRef.current = null;
-      cancelRequestedRef.current = false;
-      setState({
-        status: lastError && !cancelled ? 'error' : 'done',
-        progress: { current: succeeded + failed, total },
-        error: lastError ?? undefined
-      });
-
-      onSettled?.();
     },
-    [onCancel, onSettled, scheduleAutoDismiss]
+    [onSettled, scheduleAutoDismiss]
   );
 
-  return { run, cancel, state };
+  return { run, state };
 }

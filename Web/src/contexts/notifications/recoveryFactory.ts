@@ -3,205 +3,33 @@ import type {
   NotificationStatus,
   UnifiedNotification,
   SetNotifications,
-  ScheduleAutoDismiss
+  ScheduleAutoDismiss,
+  NotificationRegistryEntry,
+  SimpleRecoveryConfig
 } from './types';
-import type { OperationStatus } from '@/types/operations';
 import { NOTIFICATION_STORAGE_KEYS, NOTIFICATION_IDS } from './constants';
-import {
-  formatLogProcessingRecoveryMessage,
-  formatLogProcessingRecoveryDetailMessage,
-  formatDepotMappingRecoveryDetailMessage,
-  buildGameDetectionInterpolation
-} from './detailMessageFormatters';
-import { translateStageKeyMessage } from '@utils/stageKeyMessage';
+import { NOTIFICATION_REGISTRY } from './notificationRegistry';
 import i18n from '@/i18n';
 
 export type FetchWithAuth = (url: string) => Promise<Response>;
 
 // ============================================================================
-// Per-endpoint Recovery Response DTOs
+// Simple Recovery Engine (for fixed-ID operations)
 // ============================================================================
-// Each interface mirrors the C# controller response shape. Nullability follows
-// the backend C# DTOs (verified in phase2-2B-recovery.md). These types replace
-// the previous `Record<string, unknown>` untyped access pattern.
-
-type StageContext = Record<string, string | number | boolean>;
-
-/** GET /api/logs/process/status - RustLogProcessorService.GetStatus() */
-interface LogProcessingStatusResponse {
-  isProcessing: boolean;
-  silentMode: boolean;
-  percentComplete: number;
-  mbProcessed: number;
-  mbTotal: number;
-  entriesProcessed: number;
-  totalLines: number;
-  stageKey?: string;
-  context?: StageContext;
-  /** camelCase per C.3 — backend anonymous object → JsonNamingPolicy.CamelCase */
-  operationId?: string;
-}
-
-/** GET /api/cache/operations - ActiveOperationsResponse */
-interface CacheOperationProgressItem {
-  operationId?: string;
-  id?: string;
-  statusMessage?: string;
-  stageKey?: string;
-  context?: StageContext;
-  percentComplete: number;
-  filesDeleted: number;
-  directoriesProcessed: number;
-  bytesDeleted: number;
-}
-
-interface CacheOperationsResponse {
-  isProcessing: boolean;
-  operations?: CacheOperationProgressItem[];
-}
-
-/** GET /api/database/reset-status - DatabaseResetStatusResponse */
-interface DatabaseResetStatusResponse {
-  isProcessing: boolean;
-  /** Canonical OperationStatus or null (null replaces the legacy `"idle"` sentinel). */
-  status?: OperationStatus | null;
-  message?: string | null;
-  /** C# `int?` - genuinely nullable */
-  percentComplete?: number | null;
-  stageKey?: string;
-  context?: StageContext;
-  operationId?: string;
-}
-
-/** GET /api/depots/rebuild/progress - SteamPicsProgress */
-interface DepotRebuildProgressResponse {
-  isProcessing: boolean;
-  statusMessage: string;
-  progressPercent: number;
-  processedBatches?: number;
-  totalBatches?: number;
-  depotMappingsFound?: number;
-  totalMappings: number;
-  processedMappings: number;
-  isLoggedOn: boolean;
-  operationId?: string;
-}
-
-/** GET /api/logs/remove/status - RustServiceRemovalService.GetLogRemovalStatus() */
-interface LogRemovalStatusResponse {
-  isProcessing: boolean;
-  service: string;
-  operationId?: string;
-  percentComplete: number;
-  linesProcessed: number;
-  linesRemoved: number;
-  stageKey?: string;
-  context?: StageContext;
-}
-
-/** GET /api/games/detect/active - ActiveDetectionResponse */
-interface GameDetectionOperationInfo {
-  operationId?: string;
-  statusMessage: string;
-  percentComplete: number;
-  scanType?: 'full' | 'incremental';
-  totalGamesDetected?: number;
-  context?: StageContext;
-}
-
-interface GameDetectionStatusResponse {
-  isProcessing: boolean;
-  operation: GameDetectionOperationInfo | null;
-}
-
-/**
- * GET /api/cache/corruption/detect/status - CacheController.GetCorruptionDetectionStatus()
- * Returns anonymous `{ isRunning: false }` when idle, or the full object below when active.
- * NOTE: backend does NOT emit `percentComplete` - the field is absent from the anonymous
- * response object. The recovery handler uses `?? 0` as a gap-filler. To fix properly,
- * add `percentComplete = activeOp.PercentComplete` to the anonymous object in CacheController.cs.
- */
-interface CorruptionDetectionStatusResponse {
-  isRunning: boolean;
-  operationId?: string;
-  status?: string;
-  message?: string;
-  startTime?: string;
-  stageKey?: string;
-  context?: StageContext;
-  /** Not emitted by backend - always undefined on the wire. `?? 0` fallback applies. */
-  percentComplete?: number;
-}
-
-/** GET /api/migration/import/status - DataImportStatusResponse */
-interface DataImportStatusResponse {
-  isProcessing: boolean;
-  status?: string | null;
-  message?: string | null;
-  /** C# `double?` - genuinely nullable */
-  percentComplete?: number | null;
-  operationId?: string | null;
-  stageKey?: string;
-  context?: StageContext;
-}
-
-/**
- * GET /api/epic/game-mappings/schedule - EpicGameMappingController.GetScheduleStatus()
- * Returns EpicScheduleStatus from EpicMappingService. All fields verified against
- * Api/LancacheManager/Core/Services/EpicMapping/EpicMappingService.cs (class EpicScheduleStatus).
- */
-interface EpicGameMappingScheduleResponse {
-  /** Always present */
-  isProcessing: boolean;
-  /** C# `string?` - only set when IsProcessing is true; null/absent when idle */
-  statusMessage?: string | null;
-  /** C# `double` (non-null) - always emitted; 0 when not processing */
-  progressPercent: number;
-  /**
-   * C# `string?` - non-null when isProcessing is true; absent/undefined when idle.
-   * Narrowed to `string | undefined` (not `| null`) to match the backend contract
-   * and prevent null from slipping into details.operationId.
-   */
-  operationId?: string;
-  /** Additional fields from EpicScheduleStatus (not used by recovery handler) */
-  refreshIntervalHours?: number;
-  nextRefreshIn?: number;
-  lastRefreshTime?: string | null;
-  isAuthenticated?: boolean;
-  status?: string;
-}
-
-/** GET /api/stats/eviction/scan/status - anonymous object from StatsController */
-interface EvictionScanStatusResponse {
-  isProcessing: boolean;
-  silentMode: boolean;
-  status: string;
-  percentComplete: number;
-  message: string;
-  operationId: string | null;
-  stageKey?: string;
-  context?: StageContext;
-}
-
-// ============================================================================
-// Simple Recovery Config (for fixed-ID operations)
-// ============================================================================
-
-interface SimpleRecoveryConfig<TData> {
-  apiEndpoint: string;
-  storageKey: string;
-  type: NotificationType;
-  notificationId: string;
-  isProcessing: (data: TData) => boolean;
-  shouldSkip?: (data: TData) => boolean;
-  createNotification: (
-    data: TData
-  ) => Omit<UnifiedNotification, 'id' | 'type' | 'status' | 'startedAt'>;
-  staleMessage: string;
-}
+// Each per-type SimpleRecoveryConfig lives on its registry entry
+// (notificationRegistry.ts). The runner pairs the config with the entry's
+// type / id / storageKey and builds a recovery function with this engine.
+//
+// The createNotification/isProcessing/shouldSkip readers in the config access
+// REST response property names directly (snake_case/camelCase as the wire
+// delivers them) and are intentionally NOT normalized against SignalR event
+// property names — a field may cross both boundaries with different casing.
 
 function createSimpleRecoveryFunction<TData>(
   config: SimpleRecoveryConfig<TData>,
+  type: NotificationType,
+  notificationId: string,
+  storageKey: string,
   fetchWithAuth: FetchWithAuth,
   setNotifications: SetNotifications,
   scheduleAutoDismiss: ScheduleAutoDismiss
@@ -212,26 +40,23 @@ function createSimpleRecoveryFunction<TData>(
       if (!response.ok) return;
 
       const data = (await response.json()) as TData;
-      const notificationId = config.notificationId;
 
       // Check if we should skip (e.g., silent mode)
       if (config.shouldSkip?.(data)) {
-        localStorage.removeItem(config.storageKey);
-        setNotifications((prev: UnifiedNotification[]) =>
-          prev.filter((n) => n.type !== config.type)
-        );
+        localStorage.removeItem(storageKey);
+        setNotifications((prev: UnifiedNotification[]) => prev.filter((n) => n.type !== type));
         return;
       }
 
       if (config.isProcessing(data)) {
         const notificationData = config.createNotification(data);
         setNotifications((prev: UnifiedNotification[]) => {
-          const filtered = prev.filter((n) => n.type !== config.type);
+          const filtered = prev.filter((n) => n.type !== type);
           return [
             ...filtered,
             {
               id: notificationId,
-              type: config.type,
+              type,
               status: 'running' as NotificationStatus,
               startedAt: new Date(),
               ...notificationData
@@ -240,9 +65,9 @@ function createSimpleRecoveryFunction<TData>(
         });
       } else {
         // Clear stale localStorage entry if present
-        const saved = localStorage.getItem(config.storageKey);
+        const saved = localStorage.getItem(storageKey);
         if (saved) {
-          localStorage.removeItem(config.storageKey);
+          localStorage.removeItem(storageKey);
         }
 
         // Always transition any running notification of this type to completed.
@@ -251,11 +76,11 @@ function createSimpleRecoveryFunction<TData>(
         // 2. Notifications created by a previous recovery poll (when isProcessing was true)
         //    - these don't use localStorage, so the old `if (saved)` guard missed them
         setNotifications((prev: UnifiedNotification[]) => {
-          const existing = prev.find((n) => n.type === config.type && n.status === 'running');
+          const existing = prev.find((n) => n.type === type && n.status === 'running');
           if (!existing) return prev;
 
           return prev.map((n) => {
-            if (n.type === config.type && n.status === 'running') {
+            if (n.type === type && n.status === 'running') {
               return {
                 ...n,
                 id: notificationId,
@@ -277,247 +102,12 @@ function createSimpleRecoveryFunction<TData>(
 }
 
 // ============================================================================
-// Recovery Configurations
+// Cache Removals Recovery (handles multiple types via ONE endpoint)
 // ============================================================================
-
-const RECOVERY_CONFIGS = {
-  logProcessing: {
-    apiEndpoint: '/api/logs/process/status',
-    storageKey: NOTIFICATION_STORAGE_KEYS.LOG_PROCESSING,
-    type: 'log_processing' as NotificationType,
-    notificationId: NOTIFICATION_IDS.LOG_PROCESSING,
-    isProcessing: (data: LogProcessingStatusResponse) => data.isProcessing && !data.silentMode,
-    shouldSkip: (data: LogProcessingStatusResponse) => data.isProcessing && data.silentMode,
-    createNotification: (data: LogProcessingStatusResponse) => ({
-      message: formatLogProcessingRecoveryMessage(data.mbProcessed, data.mbTotal),
-      detailMessage: formatLogProcessingRecoveryDetailMessage(
-        data.entriesProcessed,
-        data.totalLines
-      ),
-      progress: Math.min(99.9, data.percentComplete),
-      details: {
-        operationId: data.operationId,
-        mbProcessed: data.mbProcessed,
-        mbTotal: data.mbTotal,
-        entriesProcessed: data.entriesProcessed,
-        totalLines: data.totalLines
-      }
-    }),
-    staleMessage: 'Log processing completed'
-  } satisfies SimpleRecoveryConfig<LogProcessingStatusResponse>,
-
-  cacheClearing: {
-    apiEndpoint: '/api/cache/operations',
-    storageKey: NOTIFICATION_STORAGE_KEYS.CACHE_CLEARING,
-    type: 'cache_clearing' as NotificationType,
-    notificationId: NOTIFICATION_IDS.CACHE_CLEARING,
-    isProcessing: (data: CacheOperationsResponse) =>
-      data.isProcessing && Boolean(data.operations?.length),
-    createNotification: (data: CacheOperationsResponse) => {
-      const activeOp = data.operations?.[0];
-      return {
-        message:
-          activeOp?.statusMessage ??
-          (activeOp?.stageKey ? i18n.t(activeOp.stageKey, activeOp.context ?? {}) : undefined) ??
-          i18n.t('signalr.cacheClear.starting'),
-        progress: activeOp?.percentComplete ?? 0,
-        details: {
-          operationId: activeOp?.operationId ?? activeOp?.id,
-          filesDeleted: activeOp?.filesDeleted ?? 0,
-          directoriesProcessed: activeOp?.directoriesProcessed ?? 0,
-          bytesDeleted: activeOp?.bytesDeleted ?? 0
-        }
-      };
-    },
-    staleMessage: 'Cache clearing completed'
-  } satisfies SimpleRecoveryConfig<CacheOperationsResponse>,
-
-  databaseReset: {
-    apiEndpoint: '/api/database/reset-status',
-    storageKey: NOTIFICATION_STORAGE_KEYS.DATABASE_RESET,
-    type: 'database_reset' as NotificationType,
-    notificationId: NOTIFICATION_IDS.DATABASE_RESET,
-    isProcessing: (data: DatabaseResetStatusResponse) => data.isProcessing,
-    createNotification: (data: DatabaseResetStatusResponse) => ({
-      message: data.stageKey
-        ? i18n.t(data.stageKey, data.context ?? {})
-        : i18n.t('signalr.dbReset.starting'),
-      // `??` (not `||`): backend field is `int?` - nullable. `??` preserves 0.
-      progress: data.percentComplete ?? 0,
-      // Always emit a defined details object so the deferred-cancel watchdog can
-      // attach an operationId when it arrives via a later SignalR progress tick.
-      // `?? undefined` normalises null→undefined (backend field is `string?`).
-      details: { operationId: data.operationId ?? undefined }
-    }),
-    staleMessage: 'Database reset completed'
-  } satisfies SimpleRecoveryConfig<DatabaseResetStatusResponse>,
-
-  depotMapping: {
-    apiEndpoint: '/api/depots/rebuild/progress',
-    storageKey: NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING,
-    type: 'depot_mapping' as NotificationType,
-    notificationId: NOTIFICATION_IDS.DEPOT_MAPPING,
-    isProcessing: (data: DepotRebuildProgressResponse) => data.isProcessing,
-    createNotification: (data: DepotRebuildProgressResponse) => {
-      const detailMessage = formatDepotMappingRecoveryDetailMessage({
-        processedBatches: data.processedBatches,
-        totalBatches: data.totalBatches,
-        depotMappingsFound: data.depotMappingsFound
-      });
-
-      return {
-        message: data.statusMessage,
-        detailMessage,
-        progress: data.progressPercent,
-        details: {
-          operationId: data.operationId,
-          totalMappings: data.totalMappings,
-          processedMappings: data.processedMappings,
-          isLoggedOn: data.isLoggedOn,
-          percentComplete: data.progressPercent
-        }
-      };
-    },
-    staleMessage: 'Depot mapping completed'
-  } satisfies SimpleRecoveryConfig<DepotRebuildProgressResponse>,
-
-  logRemoval: {
-    apiEndpoint: '/api/logs/remove/status',
-    storageKey: NOTIFICATION_STORAGE_KEYS.LOG_REMOVAL,
-    type: 'log_removal' as NotificationType,
-    notificationId: NOTIFICATION_IDS.LOG_REMOVAL,
-    isProcessing: (data: LogRemovalStatusResponse) => data.isProcessing && Boolean(data.service),
-    createNotification: (data: LogRemovalStatusResponse) => ({
-      message: data.stageKey
-        ? i18n.t(data.stageKey, data.context ?? {})
-        : i18n.t('signalr.logRemoval.starting.default', { service: data.service }),
-      progress: data.percentComplete,
-      details: {
-        service: data.service,
-        operationId: data.operationId,
-        linesProcessed: data.linesProcessed,
-        linesRemoved: data.linesRemoved
-      }
-    }),
-    staleMessage: 'Log entry removal completed'
-  } satisfies SimpleRecoveryConfig<LogRemovalStatusResponse>,
-
-  gameDetection: {
-    apiEndpoint: '/api/games/detect/active',
-    storageKey: NOTIFICATION_STORAGE_KEYS.GAME_DETECTION,
-    type: 'game_detection' as NotificationType,
-    notificationId: NOTIFICATION_IDS.GAME_DETECTION,
-    isProcessing: (data: GameDetectionStatusResponse) =>
-      data.isProcessing && data.operation !== null,
-    createNotification: (data: GameDetectionStatusResponse) => {
-      // `isProcessing` guard above ensures `data.operation !== null` here.
-      const op = data.operation!;
-      return {
-        message: translateStageKeyMessage(
-          op.statusMessage,
-          buildGameDetectionInterpolation(op.context, {
-            totalGamesDetected: op.totalGamesDetected
-          }),
-          'signalr.gameDetect.starting.default'
-        ),
-        progress: op.percentComplete,
-        details: {
-          operationId: op.operationId,
-          scanType: op.scanType
-        }
-      };
-    },
-    staleMessage: 'Game detection completed'
-  } satisfies SimpleRecoveryConfig<GameDetectionStatusResponse>,
-
-  corruptionDetection: {
-    apiEndpoint: '/api/cache/corruption/detect/status',
-    storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION,
-    type: 'corruption_detection' as NotificationType,
-    notificationId: NOTIFICATION_IDS.CORRUPTION_DETECTION,
-    isProcessing: (data: CorruptionDetectionStatusResponse) => data.isRunning,
-    createNotification: (data: CorruptionDetectionStatusResponse) => ({
-      message: data.stageKey
-        ? i18n.t(data.stageKey, data.context ?? {})
-        : i18n.t('signalr.corruptionDetect.scanningLogs'),
-      // `percentComplete` is not emitted by backend - always undefined on the wire.
-      // `?? 0` is a legitimate gap-filler until CacheController.GetCorruptionDetectionStatus
-      // is updated to include `percentComplete = activeOp.PercentComplete`.
-      progress: data.percentComplete ?? 0,
-      details: {
-        operationId: data.operationId
-      }
-    }),
-    staleMessage: 'Corruption detection completed'
-  } satisfies SimpleRecoveryConfig<CorruptionDetectionStatusResponse>,
-
-  dataImport: {
-    apiEndpoint: '/api/migration/import/status',
-    storageKey: NOTIFICATION_STORAGE_KEYS.DATA_IMPORT,
-    type: 'data_import' as NotificationType,
-    notificationId: NOTIFICATION_IDS.DATA_IMPORT,
-    isProcessing: (data: DataImportStatusResponse) => data.isProcessing,
-    createNotification: (data: DataImportStatusResponse) => ({
-      message: data.stageKey
-        ? i18n.t(data.stageKey, data.context ?? {})
-        : i18n.t('signalr.generic.unknown'),
-      // `??` (not `||`): backend field is `double?` - nullable. `??` preserves 0.
-      progress: data.percentComplete ?? 0,
-      details: {
-        operationId: data.operationId ?? undefined
-      }
-    }),
-    staleMessage: 'Data import completed'
-  } satisfies SimpleRecoveryConfig<DataImportStatusResponse>,
-
-  epicGameMapping: {
-    apiEndpoint: '/api/epic/game-mappings/schedule',
-    storageKey: NOTIFICATION_STORAGE_KEYS.EPIC_GAME_MAPPING,
-    type: 'epic_game_mapping' as NotificationType,
-    notificationId: NOTIFICATION_IDS.EPIC_GAME_MAPPING,
-    isProcessing: (data: EpicGameMappingScheduleResponse) => data.isProcessing,
-    createNotification: (data: EpicGameMappingScheduleResponse) => ({
-      // `statusMessage` is C# `string?` - only populated when processing.
-      // Fall back to i18n key when null/undefined (e.g. during idle recovery poll).
-      message: data.statusMessage ?? i18n.t('signalr.epicMapping.starting'),
-      // `progressPercent` is C# `double` (non-null) - no fallback needed.
-      progress: data.progressPercent,
-      details: {
-        operationId: data.operationId ?? undefined
-      }
-    }),
-    staleMessage: 'Epic game mapping completed'
-  } satisfies SimpleRecoveryConfig<EpicGameMappingScheduleResponse>,
-
-  evictionScan: {
-    apiEndpoint: '/api/stats/eviction/scan/status',
-    storageKey: NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN,
-    type: 'eviction_scan' as NotificationType,
-    notificationId: NOTIFICATION_IDS.EVICTION_SCAN,
-    isProcessing: (data: EvictionScanStatusResponse) => data.isProcessing && !data.silentMode,
-    shouldSkip: (data: EvictionScanStatusResponse) => data.isProcessing && data.silentMode,
-    createNotification: (data: EvictionScanStatusResponse) => ({
-      message: data.stageKey
-        ? i18n.t(data.stageKey, data.context ?? {})
-        : i18n.t('signalr.evictionScan.scanning'),
-      progress: data.percentComplete,
-      details: {
-        operationId: data.operationId ?? undefined
-      }
-    }),
-    staleMessage: 'Eviction scan completed'
-  } satisfies SimpleRecoveryConfig<EvictionScanStatusResponse>
-};
-
-// ============================================================================
-// Notes
-// ============================================================================
-// Game Removal, Service Removal, and Corruption Removal are all handled by the
-// createCacheRemovalsRecoveryFunction below via /api/cache/removals/active endpoint.
-
-// ============================================================================
-// Cache Removals Recovery (handles multiple types)
-// ============================================================================
+// game_removal, service_removal, corruption_removal, and eviction_removal are
+// all recovered by a SINGLE GET to /api/cache/removals/active. Their registry
+// entries carry `recovery: { kind: 'cacheRemovalsBatch' }` as a marker; the
+// runner issues this fetch exactly once for the whole group.
 
 interface CacheRemovalOperation {
   gameAppId?: number | null;
@@ -534,8 +124,7 @@ interface CacheRemovalOperation {
 }
 
 // REST shape returned by /api/cache/removals/active for eviction_removal entries.
-// Uses snake_case because the field names come from [JsonPropertyName] attributes on the C# DTO.
-// Note: scope/key/gameName are camelCase here because AllActiveRemovalsResponse uses the global
+// scope/key/gameName are camelCase because AllActiveRemovalsResponse uses the global
 // JsonNamingPolicy.CamelCase (no [JsonPropertyName] overrides on EvictionRemovalInfo).
 interface EvictionRemovalOperation {
   operationId?: string;
@@ -856,127 +445,60 @@ function recoverOperations(
  * Creates a reusable recovery runner function that can be called for both
  * initial page load recovery and SignalR reconnection recovery.
  *
- * This eliminates the duplicated recovery logic that was previously spread
- * across two separate useEffect hooks.
+ * The runner is registry-driven: it walks NOTIFICATION_REGISTRY and, per entry's
+ * `recovery` discriminated union, builds the appropriate recovery function:
+ *   - kind:'simple' → createSimpleRecoveryFunction(entry.recovery, type, id, storageKey)
+ *   - kind:'cacheRemovalsBatch' → covered by a SINGLE createCacheRemovalsRecoveryFunction
+ *     run (one GET to /api/cache/removals/active for the whole group)
+ *   - kind:'none' → no recovery
  *
  * @param fetchWithAuth - Authenticated fetch function
  * @param setNotifications - React setState function for notifications
  * @param scheduleAutoDismiss - Function to schedule auto-dismissal
  * @returns An async function that runs all recovery operations
- *
- * @example
- * ```ts
- * const recoverAllOperations = createRecoveryRunner(fetchWithAuth, setNotifications, scheduleAutoDismiss);
- *
- * // On page load
- * useEffect(() => {
- *   if (isAuthenticated) recoverAllOperations();
- * }, [isAuthenticated]);
- *
- * // On SignalR reconnection
- * useEffect(() => {
- *   if (signalR.connectionState === 'connected' && wasDisconnected) {
- *     recoverAllOperations();
- *   }
- * }, [signalR.connectionState]);
- * ```
  */
 export function createRecoveryRunner(
   fetchWithAuth: FetchWithAuth,
   setNotifications: SetNotifications,
   scheduleAutoDismiss: ScheduleAutoDismiss
 ): () => Promise<void> {
-  const recoverLogProcessing = createSimpleRecoveryFunction(
-    RECOVERY_CONFIGS.logProcessing,
-    fetchWithAuth,
-    setNotifications,
-    scheduleAutoDismiss
-  );
+  const recoveryFns: (() => Promise<void>)[] = [];
+  let needsCacheRemovalsBatch = false;
 
-  const recoverCacheClearing = createSimpleRecoveryFunction(
-    RECOVERY_CONFIGS.cacheClearing,
-    fetchWithAuth,
-    setNotifications,
-    scheduleAutoDismiss
-  );
+  for (const entry of NOTIFICATION_REGISTRY as NotificationRegistryEntry[]) {
+    switch (entry.recovery.kind) {
+      case 'simple':
+        recoveryFns.push(
+          createSimpleRecoveryFunction(
+            entry.recovery,
+            entry.type,
+            entry.id,
+            entry.storageKey,
+            fetchWithAuth,
+            setNotifications,
+            scheduleAutoDismiss
+          )
+        );
+        break;
+      case 'cacheRemovalsBatch':
+        // All cacheRemovalsBatch entries share ONE /api/cache/removals/active
+        // fetch; collapse them into a single recovery run below.
+        needsCacheRemovalsBatch = true;
+        break;
+      case 'none':
+        break;
+    }
+  }
 
-  const recoverDatabaseReset = createSimpleRecoveryFunction(
-    RECOVERY_CONFIGS.databaseReset,
-    fetchWithAuth,
-    setNotifications,
-    scheduleAutoDismiss
-  );
-
-  const recoverDepotMapping = createSimpleRecoveryFunction(
-    RECOVERY_CONFIGS.depotMapping,
-    fetchWithAuth,
-    setNotifications,
-    scheduleAutoDismiss
-  );
-
-  const recoverLogRemoval = createSimpleRecoveryFunction(
-    RECOVERY_CONFIGS.logRemoval,
-    fetchWithAuth,
-    setNotifications,
-    scheduleAutoDismiss
-  );
-
-  const recoverGameDetection = createSimpleRecoveryFunction(
-    RECOVERY_CONFIGS.gameDetection,
-    fetchWithAuth,
-    setNotifications,
-    scheduleAutoDismiss
-  );
-
-  const recoverCorruptionDetection = createSimpleRecoveryFunction(
-    RECOVERY_CONFIGS.corruptionDetection,
-    fetchWithAuth,
-    setNotifications,
-    scheduleAutoDismiss
-  );
-
-  const recoverDataImport = createSimpleRecoveryFunction(
-    RECOVERY_CONFIGS.dataImport,
-    fetchWithAuth,
-    setNotifications,
-    scheduleAutoDismiss
-  );
-
-  const recoverEpicGameMapping = createSimpleRecoveryFunction(
-    RECOVERY_CONFIGS.epicGameMapping,
-    fetchWithAuth,
-    setNotifications,
-    scheduleAutoDismiss
-  );
-
-  const recoverEvictionScan = createSimpleRecoveryFunction(
-    RECOVERY_CONFIGS.evictionScan,
-    fetchWithAuth,
-    setNotifications,
-    scheduleAutoDismiss
-  );
-
-  const recoverCacheRemovals = createCacheRemovalsRecoveryFunction(
-    fetchWithAuth,
-    setNotifications,
-    scheduleAutoDismiss
-  );
+  if (needsCacheRemovalsBatch) {
+    recoveryFns.push(
+      createCacheRemovalsRecoveryFunction(fetchWithAuth, setNotifications, scheduleAutoDismiss)
+    );
+  }
 
   return async (): Promise<void> => {
     try {
-      await Promise.allSettled([
-        recoverLogProcessing(),
-        recoverLogRemoval(),
-        recoverDepotMapping(),
-        recoverCacheClearing(),
-        recoverDatabaseReset(),
-        recoverGameDetection(),
-        recoverCorruptionDetection(),
-        recoverDataImport(),
-        recoverEpicGameMapping(),
-        recoverEvictionScan(),
-        recoverCacheRemovals()
-      ]);
+      await Promise.allSettled(recoveryFns.map((fn) => fn()));
     } catch (err) {
       console.error('[NotificationsContext] Failed to recover operations:', err);
     }

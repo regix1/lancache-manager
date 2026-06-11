@@ -7,7 +7,7 @@ import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { ManagerCardHeader } from '@components/ui/ManagerCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import { useNotifications } from '@contexts/notifications';
+import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import ApiService from '@services/api.service';
 import type { EpicMappingAuthStatus, EpicMappingStats } from '../../../../types';
@@ -31,13 +31,9 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
 }) => {
   const { t } = useTranslation();
   const { on, off, connectionState } = useSignalR();
-  const { notifications } = useNotifications();
 
   // Derive Epic mapping operation state from notifications (standardized pattern)
-  const activeEpicNotification = notifications.find(
-    (n) => n.type === 'epic_game_mapping' && n.status === 'running'
-  );
-  const isEpicMappingFromNotification = !!activeEpicNotification;
+  const isEpicMappingFromNotification = useOperationBusy({ types: ['epic_game_mapping'] });
 
   const [authStatus, setAuthStatus] = useState<EpicMappingAuthStatus | null>(null);
   const [stats, setStats] = useState<EpicMappingStats | null>(null);

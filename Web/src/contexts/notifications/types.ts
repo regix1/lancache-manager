@@ -284,29 +284,114 @@ export interface RegistryCompleteConfig {
 }
 
 /**
+ * How a notification type's SignalR lifecycle handlers are wired.
+ *   - 'standard': the {@link useNotificationHandlers} loop subscribes
+ *     started/progress/complete handlers built from this entry's configs.
+ *   - 'special': the entry is metadata-only (cancelKind + recovery). Its
+ *     SignalR handlers are hand-built in `createSpecialCaseHandlers` and wired
+ *     via SPECIAL_NOTIFICATION_CONTRACTS. The standard loop MUST skip these to
+ *     avoid double-subscribing.
+ */
+export type NotificationWiring = 'standard' | 'special';
+
+/**
+ * How the X button cancels a notification.
+ *   - 'serverOp': cancellable server operation (soft-cancel → force-kill, with
+ *     a deferred watchdog when the operationId hasn't arrived yet).
+ *   - 'clientQueue': client-side bulk queue (flag flip only; the
+ *     BulkRemovalProvider's always-mounted cascade effect performs the cancel).
+ *   - 'none': not cancellable (no X button shown).
+ */
+export type CancelKind = 'serverOp' | 'clientQueue' | 'none';
+
+/**
+ * Simple recovery: a single GET to a per-type status endpoint that either
+ * re-seeds a running card, skips (silent self-heal), or stale-completes a stuck
+ * running card. The 10 former RECOVERY_CONFIGS entries map onto this shape.
+ *
+ * The generic `TData` is the REST response DTO. `isProcessing`/`shouldSkip`/
+ * `createNotification` read REST snake_case/camelCase fields directly and MUST
+ * NOT be normalized against the SignalR event property names (a field can cross
+ * both boundaries with different casing).
+ */
+export interface SimpleRecoveryConfig<TData = unknown> {
+  kind: 'simple';
+  apiEndpoint: string;
+  isProcessing: (data: TData) => boolean;
+  shouldSkip?: (data: TData) => boolean;
+  createNotification: (
+    data: TData
+  ) => Omit<UnifiedNotification, 'id' | 'type' | 'status' | 'startedAt'>;
+  staleMessage: string;
+}
+
+/**
+ * Marker recovery: this type is served by the single
+ * `/api/cache/removals/active` batch fetch (one GET covering game_removal,
+ * service_removal, corruption_removal, eviction_removal). The runner issues the
+ * batch fetch exactly once for the whole group.
+ */
+interface CacheRemovalsBatchRecoveryConfig {
+  kind: 'cacheRemovalsBatch';
+}
+
+/** No recovery (special toasts / types with no status endpoint). */
+interface NoRecoveryConfig {
+  kind: 'none';
+}
+
+/** Discriminated recovery union for a registry entry. */
+export type RecoveryConfig =
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  SimpleRecoveryConfig<any> | CacheRemovalsBatchRecoveryConfig | NoRecoveryConfig;
+
+/**
+ * Cancel wiring for a registry entry, as a type-level constraint that pairs
+ * `cancelKind` with `cancelTooltipKey`:
+ *   - `cancelKind: 'none'` → no tooltip key (the X button is never shown).
+ *   - any other `cancelKind` → `cancelTooltipKey` is REQUIRED, so a cancellable
+ *     entry can never compile without the tooltip key that
+ *     `UniversalNotificationBar` needs to render its cancel button.
+ */
+type CancelWiring =
+  | { cancelKind: 'none'; cancelTooltipKey?: never }
+  | { cancelKind: Exclude<CancelKind, 'none'>; cancelTooltipKey: string };
+
+/**
  * Declarative registry entry describing the full lifecycle of a notification type.
  * Each entry specifies the started, progress, and completion handler configs
- * along with the SignalR event names they map to.
+ * along with the SignalR event names they map to, plus cancel + recovery wiring.
  */
-export interface NotificationRegistryEntry {
+export type NotificationRegistryEntry = CancelWiring & {
   /** The notification type */
   type: NotificationType;
   /** Singleton notification ID */
   id: string;
   /** localStorage persistence key */
   storageKey: string;
-  /** SignalR event names for each lifecycle phase */
-  events: {
+  /**
+   * How this entry's SignalR handlers are wired. 'special' entries are
+   * metadata-only (no `events`/`started`/`progress`); the standard handler loop
+   * skips them and they are subscribed by createSpecialCaseHandlers instead.
+   */
+  wiring: NotificationWiring;
+  /** Recovery wiring (discriminated union). */
+  recovery: RecoveryConfig;
+  /**
+   * SignalR event names for each lifecycle phase. Present only for
+   * wiring:'standard' entries (the loop reads them).
+   */
+  events?: {
     started: string;
     progress: string;
     complete: string;
   };
-  /** Configuration for the started handler */
-  started: RegistryStartedConfig;
-  /** Configuration for the progress handler */
-  progress: RegistryProgressConfig;
+  /** Configuration for the started handler (standard entries only) */
+  started?: RegistryStartedConfig;
+  /** Configuration for the progress handler (standard entries only) */
+  progress?: RegistryProgressConfig;
   /** Configuration for the completion handler (optional for types without a separate complete event) */
   complete?: RegistryCompleteConfig;
   /** Optional callback invoked after the completion handler runs (e.g., to remove related notifications) */
   onComplete?: (removeNotification: RemoveNotification) => void;
-}
+};

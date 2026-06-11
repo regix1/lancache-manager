@@ -13,29 +13,35 @@ import { formatCount, formatBytes } from '@utils/formatters';
 import themeService from '@services/theme.service';
 import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import { requestBulkQueueCancel } from '@/hooks/bulkQueueCancelRegistry';
+import { NOTIFICATION_REGISTRY } from '@contexts/notifications/notificationRegistry';
+import type { CancelKind } from '@contexts/notifications/types';
 
 // ============================================================================
-// Cancellable Operation Types
+// Cancellable Operation Types (derived from the registry — single source)
 // ============================================================================
 
-const CANCEL_TOOLTIP_KEYS: Record<string, string> = {
-  cache_clearing: 'common.notifications.cancelCacheClearing',
-  log_removal: 'common.notifications.cancelLogRemoval',
-  depot_mapping: 'common.notifications.cancelDepotMapping',
-  corruption_removal: 'common.notifications.cancelCorruptionRemoval',
-  corruption_detection: 'common.notifications.cancelCorruptionDetection',
-  log_processing: 'common.notifications.cancelLogProcessing',
-  game_detection: 'common.notifications.cancelGameDetection',
-  game_removal: 'common.notifications.cancelGameRemoval',
-  service_removal: 'common.notifications.cancelServiceRemoval',
-  database_reset: 'common.notifications.cancelDatabaseReset',
-  data_import: 'common.notifications.cancelDataImport',
-  epic_game_mapping: 'common.notifications.cancelEpicGameMapping',
-  eviction_scan: 'common.notifications.cancelEvictionScan',
-  eviction_removal: 'common.notifications.cancelEvictionRemoval',
-  bulk_removal: 'common.notifications.cancelBulkRemoval'
-};
+interface CancelConfig {
+  cancelKind: CancelKind;
+  tooltipKey: string;
+}
+
+/**
+ * Per-type cancel config derived from NOTIFICATION_REGISTRY (every entry with
+ * cancelKind !== 'none' that carries a tooltip key). This includes the
+ * client-only `bulk_removal` type, whose metadata-only registry entry
+ * (cancelKind 'clientQueue') makes the X button flip a flag the always-mounted
+ * BulkRemovalProvider's cascade effect observes — so the registry loop is the
+ * single source for cancel wiring.
+ */
+const CANCEL_CONFIG_BY_TYPE: Record<string, CancelConfig> = (() => {
+  const map: Record<string, CancelConfig> = {};
+  for (const entry of NOTIFICATION_REGISTRY) {
+    if (entry.cancelKind !== 'none' && entry.cancelTooltipKey) {
+      map[entry.type] = { cancelKind: entry.cancelKind, tooltipKey: entry.cancelTooltipKey };
+    }
+  }
+  return map;
+})();
 
 // ============================================================================
 // Cancel Handler
@@ -48,20 +54,23 @@ const handleCancel = async (
   updateNotification: (id: string, updates: Partial<UnifiedNotification>) => void,
   removeNotification: (id: string) => void
 ) => {
-  // Client-driven bulk notifications (bulk_removal) are not tied to a single
-  // server operation - the initiating component orchestrates a loop of per-
-  // item operations. Flip cancelRequested=true for UI feedback, then cancel
-  // the live run through the registry - the queue survives the owning
-  // component unmounting (in-app tab switches), where the flag alone would
-  // never be observed.
-  if (notification.type === 'bulk_removal') {
+  const cancelKind = CANCEL_CONFIG_BY_TYPE[notification.type]?.cancelKind ?? 'none';
+
+  // Client-driven bulk notifications (cancelKind 'clientQueue') are not tied to
+  // a single server operation - the initiating BulkRemovalProvider orchestrates
+  // a loop of per-item operations. Flip cancelRequested/cancelling=true for UI
+  // feedback ONLY. The provider lives at app root and never unmounts, so its
+  // cascade effect always observes the flag and cancels the live run - no
+  // module-level registry bridge is needed.
+  if (cancelKind === 'clientQueue') {
     updateNotification(notification.id, {
       details: { ...notification.details, cancelRequested: true, cancelling: true }
     });
-    requestBulkQueueCancel(notification.id);
     return;
   }
 
+  // cancelKind === 'serverOp' below (cancelKind 'none' types never reach here -
+  // they show no cancel button).
   const operationId = notification.details?.operationId;
   const cancelRequested = notification.details?.cancelRequested === true;
 
@@ -423,14 +432,15 @@ const UnifiedNotificationItem = ({
       {/* Action buttons */}
       <div className="flex items-center gap-2 flex-shrink-0">
         {/* Cancel button for operations that support cancellation */}
-        {notification.type in CANCEL_TOOLTIP_KEYS &&
+        {notification.type in CANCEL_CONFIG_BY_TYPE &&
           notification.status === 'running' &&
           onCancel && (
             <Tooltip
               content={t(
-                notification.details?.cancelRequested && notification.type !== 'bulk_removal'
+                notification.details?.cancelRequested &&
+                  CANCEL_CONFIG_BY_TYPE[notification.type]?.cancelKind === 'serverOp'
                   ? FORCE_KILL_TOOLTIP_KEY
-                  : CANCEL_TOOLTIP_KEYS[notification.type]
+                  : CANCEL_CONFIG_BY_TYPE[notification.type].tooltipKey
               )}
               position="left"
             >
@@ -438,7 +448,8 @@ const UnifiedNotificationItem = ({
                 onClick={onCancel}
                 className="p-1 rounded hover:bg-themed-hover transition-colors"
                 aria-label={
-                  notification.details?.cancelRequested && notification.type !== 'bulk_removal'
+                  notification.details?.cancelRequested &&
+                  CANCEL_CONFIG_BY_TYPE[notification.type]?.cancelKind === 'serverOp'
                     ? t(FORCE_KILL_TOOLTIP_KEY)
                     : t('common.notifications.cancelOperationAria')
                 }
@@ -479,9 +490,11 @@ const UniversalNotificationBar: React.FC = () => {
   useEffect(() => {
     notifications.forEach((n) => {
       const opId = n.details?.operationId;
+      // Watchdog is serverOp-only: clientQueue (bulk_removal) carries no
+      // server operationId and is cancelled via the provider cascade instead.
       if (
         n.status === 'running' &&
-        n.type !== 'bulk_removal' &&
+        CANCEL_CONFIG_BY_TYPE[n.type]?.cancelKind === 'serverOp' &&
         n.details?.cancelRequested &&
         !n.details?.cancelSent &&
         opId &&
@@ -577,7 +590,7 @@ const UniversalNotificationBar: React.FC = () => {
 
   // Create cancel handler for a notification
   const getCancelHandler = (notification: UnifiedNotification) => {
-    if (!(notification.type in CANCEL_TOOLTIP_KEYS)) {
+    if (!(notification.type in CANCEL_CONFIG_BY_TYPE)) {
       return undefined;
     }
 

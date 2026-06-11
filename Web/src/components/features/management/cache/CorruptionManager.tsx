@@ -7,6 +7,7 @@ import { type AuthMode } from '@services/auth.service';
 import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useNotifications } from '@contexts/notifications';
+import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { CorruptionRemovalCompleteEvent } from '@contexts/SignalRContext/types';
@@ -41,10 +42,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     useDirectoryPermissionsContext();
 
   // Derive corruption detection scan state from notifications (standardized pattern like GameCacheDetector)
-  const activeCorruptionDetectionNotification = notifications.find(
-    (n) => n.type === 'corruption_detection' && n.status === 'running'
-  );
-  const isScanningFromNotification = !!activeCorruptionDetectionNotification;
+  const isScanningFromNotification = useOperationBusy({ types: ['corruption_detection'] });
 
   // Track local starting state for immediate UI feedback before SignalR events arrive
   const [isStartingScan, setIsStartingScan] = useState(false);

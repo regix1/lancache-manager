@@ -19,9 +19,9 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
-import { waitForSignalRCompletion } from '@contexts/notifications/waitForSignalRCompletion';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import { useCancellableQueue } from '@/hooks/useCancellableQueue';
+import { useBulkRemoval, type BulkQueueEntry } from '@contexts/BulkRemovalContext';
+import { useOperationBusy } from '@/hooks/useOperationBusy';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
 import EvictedItemsList from '../game-detection/EvictedItemsList';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
@@ -41,7 +41,6 @@ import {
   type CacheRemovalTarget
 } from '../game-detection/cacheDetectionData';
 import {
-  finalizeBulkRemovalNotification,
   runTrackedGameRemoval,
   runTrackedServiceRemoval,
   useCompletedRemovalPruning,
@@ -105,13 +104,9 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const [evictedGames, setEvictedGames] = useState<GameCacheInfo[]>([]);
   const [evictedServices, setEvictedServices] = useState<ServiceCacheInfo[]>([]);
 
-  const isAnyEvictedRemovalRunning = notifications.some(
-    (n) =>
-      (n.type === 'game_removal' ||
-        n.type === 'service_removal' ||
-        n.type === 'eviction_removal') &&
-      n.status === 'running'
-  );
+  const isAnyEvictedRemovalRunning = useOperationBusy({
+    types: ['game_removal', 'service_removal', 'eviction_removal']
+  });
 
   // Managed setTimeout for post-SignalR eviction refetch; cancels on unmount.
   const scheduleEvictedItemsRefresh = useTimeoutCallback(CACHED_DETECTION_RELOAD_DELAY_MS);
@@ -214,18 +209,12 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     }
   };
 
-  // Sequential per-item eviction-removal queue. The hook owns the cascade
-  // cancel wiring (bulkNotifId / currentOpId refs + cascade useEffect) and
-  // the AbortController plumbing; see `useCancellableQueue` for details.
-  // This component only supplies the per-item API call + finalize transition.
-  type EvictionQueueEntry =
-    | { kind: 'service'; service: ServiceCacheInfo }
-    | { kind: 'game'; game: GameCacheInfo };
-  const { run: runEvictedRemoval } = useCancellableQueue<EvictionQueueEntry>({
-    onSettled: () => {
-      void fetchEvictedItems();
-    }
-  });
+  // Sequential per-item eviction-removal queue. The app-root BulkRemovalProvider
+  // owns the run loop, cascade cancel wiring, AbortController plumbing, and the
+  // per-item API/i18n pipeline; this component only builds the item list and
+  // supplies the per-run refresh + inline running flag. The run survives an
+  // in-app tab switch because the provider never unmounts.
+  const { runEvictedRemoval } = useBulkRemoval();
 
   const handleRemoveAllEvicted = useCallback(async () => {
     setShowRemoveAllConfirm(false);
@@ -236,137 +225,18 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     const total = services.length + games.length;
     if (total === 0) return;
 
-    setRemoveAllRunning(true);
+    const items: BulkQueueEntry[] = [
+      ...services.map((service) => ({ kind: 'service' as const, service })),
+      ...games.map((game) => ({ kind: 'game' as const, game }))
+    ];
 
-    let bulkNotifId: string | null = null;
-    let currentIndex = 0;
-    const updateBulkProgress = (inner: number) => {
-      if (!bulkNotifId) return;
-      const clamped = Math.min(100, Math.max(0, inner));
-      const overall = Math.min(100, ((currentIndex - 1 + clamped / 100) / total) * 100);
-      updateNotification(bulkNotifId, { progress: Math.floor(overall) });
-    };
-
-    await runEvictedRemoval({
-      items: [
-        ...services.map((service) => ({ kind: 'service' as const, service })),
-        ...games.map((game) => ({ kind: 'game' as const, game }))
-      ],
-      openNotification: () => {
-        const id = addNotification({
-          type: 'bulk_removal',
-          status: 'running',
-          message: t('management.sections.data.evictionRemoveAllStarting', {
-            total,
-            defaultValue: 'Removing 0 of {{total}} evicted items...'
-          }),
-          progress: 0,
-          // No operationId → handleCancel special-cases bulk_removal (sets cancelling=true)
-          details: {}
-        });
-        bulkNotifId = id;
-        return id;
-      },
-      onItemStart: (entry, index, _total, notifId) => {
-        currentIndex = index;
-        const label =
-          entry.kind === 'service'
-            ? entry.service.service_name
-            : (entry.game.game_name ?? entry.game.service ?? String(entry.game.game_app_id));
-
-        updateNotification(notifId, {
-          message: t('management.sections.data.evictionRemoveAllProgress', {
-            current: index,
-            total,
-            label
-          }),
-          progress: Math.floor(((index - 1) / total) * 100)
-        });
-      },
-      processItem: async (entry, ctx) => {
-        if (entry.kind === 'service') {
-          let operationId: string | null = null;
-          const waitPromise = waitForSignalRCompletion<
-            never,
-            { operationId?: string },
-            { operationId?: string; percentComplete?: number }
-          >({
-            signalR: { on, off },
-            completeEvent: 'EvictionRemovalComplete',
-            match: (payload) => payload?.operationId === operationId,
-            progressEvent: 'EvictionRemovalProgress',
-            onProgress: (payload) => {
-              if (!operationId || payload?.operationId !== operationId) return;
-              updateBulkProgress(payload.percentComplete ?? 0);
-            },
-            signal: ctx.signal
-          });
-          ({ operationId } = await ApiService.removeEvictedForService(entry.service.service_name));
-          ctx.setOperationId(operationId);
-          await waitPromise;
-        } else {
-          const game = entry.game;
-          const isEpic = game.service === 'epicgames' && !!game.epic_app_id;
-          let operationId: string | null = null;
-          const waitPromise = waitForSignalRCompletion<
-            never,
-            { operationId?: string },
-            { operationId?: string; percentComplete?: number }
-          >({
-            signalR: { on, off },
-            completeEvent: 'EvictionRemovalComplete',
-            match: (payload) => payload?.operationId === operationId,
-            progressEvent: 'EvictionRemovalProgress',
-            onProgress: (payload) => {
-              if (!operationId || payload?.operationId !== operationId) return;
-              updateBulkProgress(payload.percentComplete ?? 0);
-            },
-            signal: ctx.signal
-          });
-          ({ operationId } = isEpic
-            ? await ApiService.removeEvictedForEpicGame(game.epic_app_id!)
-            : await ApiService.removeEvictedForGame(game.game_app_id));
-          ctx.setOperationId(operationId);
-          await waitPromise;
-        }
-      },
-      finalize: ({ id, succeeded, failed, cancelled, total }) => {
-        setRemoveAllRunning(false);
-
-        finalizeBulkRemovalNotification({
-          id,
-          succeeded,
-          failed,
-          total,
-          cancelled,
-          t,
-          updateNotification,
-          text: {
-            completeKey: 'management.sections.data.evictionRemoveAllComplete',
-            completeDefaultValue: 'Removed {{count}} evicted items',
-            partialFailureKey: 'management.sections.data.evictionRemoveAllCompleteWithFailures',
-            partialFailureDefaultValue: 'Removed {{count}} evicted items, but {{failed}} failed',
-            cancelledKey: 'management.sections.data.evictionRemoveAllCancelled',
-            cancelledDefaultValue: 'Bulk removal cancelled after {{count}} items',
-            cancelledWithFailuresKey:
-              'management.sections.data.evictionRemoveAllCancelledWithFailures',
-            cancelledWithFailuresDefaultValue:
-              'Bulk removal cancelled after {{count}} items, with {{failed}} failures'
-          }
-        });
+    await runEvictedRemoval(items, {
+      onRunningChange: setRemoveAllRunning,
+      onSettled: () => {
+        void fetchEvictedItems();
       }
     });
-  }, [
-    evictedGames,
-    evictedServices,
-    isAdmin,
-    runEvictedRemoval,
-    addNotification,
-    updateNotification,
-    on,
-    off,
-    t
-  ]);
+  }, [evictedGames, evictedServices, isAdmin, runEvictedRemoval, fetchEvictedItems]);
 
   const confirmPartialEvictedRemoval = async () => {
     if (!partialEvictedTarget) return;
@@ -447,14 +317,10 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     });
   };
 
-  const evictionScanNotification = notifications.find(
-    (n: { type: string; status: string }) => n.type === 'eviction_scan' && n.status === 'running'
-  );
-  const isEvictionRemovalRunning = notifications.some(
-    (n) => n.type === 'eviction_removal' && n.status === 'running'
-  );
+  const isEvictionScanNotificationRunning = useOperationBusy({ types: ['eviction_scan'] });
+  const isEvictionRemovalRunning = useOperationBusy({ types: ['eviction_removal'] });
   const isEvictionScanRunning =
-    !!evictionScanNotification || isStartingEvictionScan || isEvictionRemovalRunning;
+    isEvictionScanNotificationRunning || isStartingEvictionScan || isEvictionRemovalRunning;
 
   const [evictedDataExpanded, setEvictedDataExpanded] = useState(() => {
     const saved = localStorage.getItem(MANAGEMENT_STORAGE_KEYS.EVICTED_DATA_EXPANDED);

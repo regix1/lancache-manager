@@ -8,6 +8,7 @@ import { useConfig } from '@contexts/useConfig';
 import { useCacheSize } from '@contexts/useCacheSize';
 import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { useNotifications } from '@contexts/notifications';
+import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { Alert } from '@components/ui/Alert';
@@ -77,13 +78,10 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     clearCacheSize
   } = useCacheSize();
   const { refreshStats } = useStats();
-  const { notifications, addNotification, isAnyRemovalRunning } = useNotifications();
+  const { addNotification, isAnyRemovalRunning } = useNotifications();
 
   // Derive cache clearing state from notifications (standardized pattern)
-  const activeCacheClearNotification = notifications.find(
-    (n) => n.type === 'cache_clearing' && n.status === 'running'
-  );
-  const isCacheClearing = !!activeCacheClearNotification;
+  const isCacheClearing = useOperationBusy({ types: ['cache_clearing'] });
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);

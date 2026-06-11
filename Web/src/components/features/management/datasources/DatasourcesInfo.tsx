@@ -11,6 +11,7 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { LogProcessingCompleteEvent } from '@contexts/SignalRContext/types';
 import { useConfig } from '@contexts/useConfig';
 import { useNotifications } from '@contexts/notifications';
+import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
@@ -51,13 +52,11 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     return saved !== null ? saved === 'true' : false;
   });
 
-  const { notifications, addNotification } = useNotifications();
+  const { addNotification } = useNotifications();
   const signalR = useSignalR();
 
   // Check if processing is running
-  const isProcessing = notifications.some(
-    (n) => n.type === 'log_processing' && n.status === 'running'
-  );
+  const isProcessing = useOperationBusy({ types: ['log_processing'] });
 
   // Load log positions
   useEffect(() => {

@@ -1,25 +1,37 @@
 /**
  * Declarative notification registry.
- * Each entry describes the full lifecycle (started -> progress -> complete) of a standard
- * notification type, including the SignalR event names and handler configurations.
+ * Each entry describes the full lifecycle (started -> progress -> complete) of a
+ * notification type, including the SignalR event names, handler configurations,
+ * cancel wiring (cancelKind + tooltip), and recovery wiring.
  *
- * Types NOT in this registry (they stay manual in NotificationsContext.tsx):
+ * `wiring` splits entries into two families:
+ *   - 'standard': the {@link useNotificationHandlers} loop subscribes
+ *     started/progress/complete handlers from this entry.
+ *   - 'special': metadata-only (cancelKind + recovery). SignalR handlers are
+ *     hand-built in createSpecialCaseHandlers and wired via
+ *     SPECIAL_NOTIFICATION_CONTRACTS. The standard loop skips these.
+ *
+ * The four special-wiring entries (depot_mapping, database_reset,
+ * epic_game_mapping, steam_session_error) appear here ONLY so cancel + recovery
+ * live in one config surface per type. Their handler bodies are NOT inlined:
  *   - depot_mapping: special completion handler with animation/cancellation logic
- *   - database_reset: special contract (started + progress + a terminal complete event
- *     handled via createCompletionHandler, idempotent with the legacy progress-status
- *     completion) — see specialNotificationContracts.ts / specialCaseHandlers.ts
+ *   - database_reset: terminal DatabaseResetComplete handled via createCompletionHandler,
+ *     idempotent with the legacy progress-status completion
  *   - epic_game_mapping: progress-only with custom EpicGameMappingsUpdated handler
- *   - SteamSessionError: custom one-shot error notification
- *   - EpicGameMappingsUpdated: custom one-shot notification
+ *   - steam_session_error: custom one-shot error toast (not a lifecycle, no recovery)
  */
 
-import type { NotificationRegistryEntry } from './types';
+import type { NotificationRegistryEntry, NotificationType, SimpleRecoveryConfig } from './types';
+import type { OperationStatus } from '@/types/operations';
 import { NOTIFICATION_IDS, NOTIFICATION_STORAGE_KEYS } from './constants';
 import i18n from '@/i18n';
 import {
   formatLogProcessingMessage,
   formatLogProcessingCompletionMessage,
   formatLogProcessingDetailMessage,
+  formatLogProcessingRecoveryMessage,
+  formatLogProcessingRecoveryDetailMessage,
+  formatDepotMappingRecoveryDetailMessage,
   formatLogRemovalProgressMessage,
   formatLogRemovalCompleteMessage,
   formatGameRemovalProgressMessage,
@@ -43,6 +55,7 @@ import {
   formatDataImportCompleteMessage,
   formatDataImportFailureMessage
 } from './detailMessageFormatters';
+import { translateStageKeyMessage } from '@utils/stageKeyMessage';
 
 import type {
   LogProcessingStartedEvent,
@@ -90,12 +103,223 @@ function standardGetStatus(event: { status?: string }): string | undefined {
   return undefined;
 }
 
+// ============================================================================
+// Per-endpoint Recovery Response DTOs
+// ============================================================================
+// Each interface mirrors the C# controller response shape. Nullability follows
+// the backend C# DTOs. The simple-recovery `createNotification` readers below
+// access these REST property names directly (snake_case/camelCase as the wire
+// delivers them) and must NOT be normalized against the SignalR event shapes.
+
+type StageContext = Record<string, string | number | boolean>;
+
+/** GET /api/logs/process/status - RustLogProcessorService.GetStatus() */
+interface LogProcessingStatusResponse {
+  isProcessing: boolean;
+  silentMode: boolean;
+  percentComplete: number;
+  mbProcessed: number;
+  mbTotal: number;
+  entriesProcessed: number;
+  totalLines: number;
+  stageKey?: string;
+  context?: StageContext;
+  /** camelCase — backend anonymous object → JsonNamingPolicy.CamelCase */
+  operationId?: string;
+}
+
+/** GET /api/cache/operations - ActiveOperationsResponse */
+interface CacheOperationProgressItem {
+  operationId?: string;
+  id?: string;
+  statusMessage?: string;
+  stageKey?: string;
+  context?: StageContext;
+  percentComplete: number;
+  filesDeleted: number;
+  directoriesProcessed: number;
+  bytesDeleted: number;
+}
+
+interface CacheOperationsResponse {
+  isProcessing: boolean;
+  operations?: CacheOperationProgressItem[];
+}
+
+/** GET /api/database/reset-status - DatabaseResetStatusResponse */
+interface DatabaseResetStatusResponse {
+  isProcessing: boolean;
+  /** Canonical OperationStatus or null (null replaces the legacy `"idle"` sentinel). */
+  status?: OperationStatus | null;
+  message?: string | null;
+  /** C# `int?` - genuinely nullable */
+  percentComplete?: number | null;
+  stageKey?: string;
+  context?: StageContext;
+  operationId?: string;
+}
+
+/** GET /api/depots/rebuild/progress - SteamPicsProgress */
+interface DepotRebuildProgressResponse {
+  isProcessing: boolean;
+  statusMessage: string;
+  progressPercent: number;
+  processedBatches?: number;
+  totalBatches?: number;
+  depotMappingsFound?: number;
+  totalMappings: number;
+  processedMappings: number;
+  isLoggedOn: boolean;
+  operationId?: string;
+}
+
+/** GET /api/logs/remove/status - RustServiceRemovalService.GetLogRemovalStatus() */
+interface LogRemovalStatusResponse {
+  isProcessing: boolean;
+  service: string;
+  operationId?: string;
+  percentComplete: number;
+  linesProcessed: number;
+  linesRemoved: number;
+  stageKey?: string;
+  context?: StageContext;
+}
+
+/** GET /api/games/detect/active - ActiveDetectionResponse */
+interface GameDetectionOperationInfo {
+  operationId?: string;
+  statusMessage: string;
+  percentComplete: number;
+  scanType?: 'full' | 'incremental';
+  totalGamesDetected?: number;
+  context?: StageContext;
+}
+
+interface GameDetectionStatusResponse {
+  isProcessing: boolean;
+  operation: GameDetectionOperationInfo | null;
+}
+
+/**
+ * GET /api/cache/corruption/detect/status - CacheController.GetCorruptionDetectionStatus()
+ * Returns anonymous `{ isRunning: false }` when idle, or the full object below when active.
+ * NOTE: backend does NOT emit `percentComplete` - the field is absent from the anonymous
+ * response object. The recovery handler uses `?? 0` as a gap-filler.
+ */
+interface CorruptionDetectionStatusResponse {
+  isRunning: boolean;
+  operationId?: string;
+  status?: string;
+  message?: string;
+  startTime?: string;
+  stageKey?: string;
+  context?: StageContext;
+  /** Not emitted by backend - always undefined on the wire. `?? 0` fallback applies. */
+  percentComplete?: number;
+}
+
+/** GET /api/migration/import/status - DataImportStatusResponse */
+interface DataImportStatusResponse {
+  isProcessing: boolean;
+  status?: string | null;
+  message?: string | null;
+  /** C# `double?` - genuinely nullable */
+  percentComplete?: number | null;
+  operationId?: string | null;
+  stageKey?: string;
+  context?: StageContext;
+}
+
+/**
+ * GET /api/epic/game-mappings/schedule - EpicGameMappingController.GetScheduleStatus()
+ * Returns EpicScheduleStatus from EpicMappingService.
+ */
+interface EpicGameMappingScheduleResponse {
+  /** Always present */
+  isProcessing: boolean;
+  /** C# `string?` - only set when IsProcessing is true; null/absent when idle */
+  statusMessage?: string | null;
+  /** C# `double` (non-null) - always emitted; 0 when not processing */
+  progressPercent: number;
+  /**
+   * C# `string?` - non-null when isProcessing is true; absent/undefined when idle.
+   * Narrowed to `string | undefined` (not `| null`) to match the backend contract
+   * and prevent null from slipping into details.operationId.
+   */
+  operationId?: string;
+  /** Additional fields from EpicScheduleStatus (not used by recovery handler) */
+  refreshIntervalHours?: number;
+  nextRefreshIn?: number;
+  lastRefreshTime?: string | null;
+  isAuthenticated?: boolean;
+  status?: string;
+}
+
+/** GET /api/stats/eviction/scan/status - anonymous object from StatsController */
+interface EvictionScanStatusResponse {
+  isProcessing: boolean;
+  silentMode: boolean;
+  status: string;
+  percentComplete: number;
+  message: string;
+  operationId: string | null;
+  stageKey?: string;
+  context?: StageContext;
+}
+
+// ============================================================================
+// Cancel tooltip keys (single source — UniversalNotificationBar derives from this)
+// ============================================================================
+
+const CANCEL_TOOLTIP = {
+  logProcessing: 'common.notifications.cancelLogProcessing',
+  logRemoval: 'common.notifications.cancelLogRemoval',
+  gameRemoval: 'common.notifications.cancelGameRemoval',
+  serviceRemoval: 'common.notifications.cancelServiceRemoval',
+  corruptionRemoval: 'common.notifications.cancelCorruptionRemoval',
+  gameDetection: 'common.notifications.cancelGameDetection',
+  corruptionDetection: 'common.notifications.cancelCorruptionDetection',
+  cacheClearing: 'common.notifications.cancelCacheClearing',
+  dataImport: 'common.notifications.cancelDataImport',
+  evictionScan: 'common.notifications.cancelEvictionScan',
+  evictionRemoval: 'common.notifications.cancelEvictionRemoval',
+  depotMapping: 'common.notifications.cancelDepotMapping',
+  databaseReset: 'common.notifications.cancelDatabaseReset',
+  epicGameMapping: 'common.notifications.cancelEpicGameMapping',
+  bulkRemoval: 'common.notifications.cancelBulkRemoval'
+} as const;
+
 export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   // ========== Log Processing ==========
   {
     type: 'log_processing',
     id: NOTIFICATION_IDS.LOG_PROCESSING,
     storageKey: NOTIFICATION_STORAGE_KEYS.LOG_PROCESSING,
+    wiring: 'standard',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.logProcessing,
+    recovery: {
+      kind: 'simple',
+      apiEndpoint: '/api/logs/process/status',
+      isProcessing: (data: LogProcessingStatusResponse) => data.isProcessing && !data.silentMode,
+      shouldSkip: (data: LogProcessingStatusResponse) => data.isProcessing && data.silentMode,
+      createNotification: (data: LogProcessingStatusResponse) => ({
+        message: formatLogProcessingRecoveryMessage(data.mbProcessed, data.mbTotal),
+        detailMessage: formatLogProcessingRecoveryDetailMessage(
+          data.entriesProcessed,
+          data.totalLines
+        ),
+        progress: Math.min(99.9, data.percentComplete),
+        details: {
+          operationId: data.operationId,
+          mbProcessed: data.mbProcessed,
+          mbTotal: data.mbTotal,
+          entriesProcessed: data.entriesProcessed,
+          totalLines: data.totalLines
+        }
+      }),
+      staleMessage: 'Log processing completed'
+    } satisfies SimpleRecoveryConfig<LogProcessingStatusResponse>,
     events: {
       started: 'LogProcessingStarted',
       progress: 'LogProcessingProgress',
@@ -132,6 +356,27 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     type: 'log_removal',
     id: NOTIFICATION_IDS.LOG_REMOVAL,
     storageKey: NOTIFICATION_STORAGE_KEYS.LOG_REMOVAL,
+    wiring: 'standard',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.logRemoval,
+    recovery: {
+      kind: 'simple',
+      apiEndpoint: '/api/logs/remove/status',
+      isProcessing: (data: LogRemovalStatusResponse) => data.isProcessing && Boolean(data.service),
+      createNotification: (data: LogRemovalStatusResponse) => ({
+        message: data.stageKey
+          ? i18n.t(data.stageKey, data.context ?? {})
+          : i18n.t('signalr.logRemoval.starting.default', { service: data.service }),
+        progress: data.percentComplete,
+        details: {
+          service: data.service,
+          operationId: data.operationId,
+          linesProcessed: data.linesProcessed,
+          linesRemoved: data.linesRemoved
+        }
+      }),
+      staleMessage: 'Log entry removal completed'
+    } satisfies SimpleRecoveryConfig<LogRemovalStatusResponse>,
     events: {
       started: 'LogRemovalStarted',
       progress: 'LogRemovalProgress',
@@ -173,6 +418,12 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     type: 'game_removal',
     id: NOTIFICATION_IDS.GAME_REMOVAL,
     storageKey: NOTIFICATION_STORAGE_KEYS.GAME_REMOVAL,
+    wiring: 'standard',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.gameRemoval,
+    // Recovered by the shared /api/cache/removals/active batch fetch (one GET
+    // covering game/service/corruption/eviction removal) — NOT a simple config.
+    recovery: { kind: 'cacheRemovalsBatch' },
     events: {
       started: 'GameRemovalStarted',
       progress: 'GameRemovalProgress',
@@ -242,6 +493,10 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     type: 'service_removal',
     id: NOTIFICATION_IDS.SERVICE_REMOVAL,
     storageKey: NOTIFICATION_STORAGE_KEYS.SERVICE_REMOVAL,
+    wiring: 'standard',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.serviceRemoval,
+    recovery: { kind: 'cacheRemovalsBatch' },
     events: {
       started: 'ServiceRemovalStarted',
       progress: 'ServiceRemovalProgress',
@@ -292,6 +547,10 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     type: 'corruption_removal',
     id: NOTIFICATION_IDS.CORRUPTION_REMOVAL,
     storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_REMOVAL,
+    wiring: 'standard',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.corruptionRemoval,
+    recovery: { kind: 'cacheRemovalsBatch' },
     events: {
       started: 'CorruptionRemovalStarted',
       progress: 'CorruptionRemovalProgress',
@@ -337,6 +596,34 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     type: 'game_detection',
     id: NOTIFICATION_IDS.GAME_DETECTION,
     storageKey: NOTIFICATION_STORAGE_KEYS.GAME_DETECTION,
+    wiring: 'standard',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.gameDetection,
+    recovery: {
+      kind: 'simple',
+      apiEndpoint: '/api/games/detect/active',
+      isProcessing: (data: GameDetectionStatusResponse) =>
+        data.isProcessing && data.operation !== null,
+      createNotification: (data: GameDetectionStatusResponse) => {
+        // `isProcessing` guard above ensures `data.operation !== null` here.
+        const op = data.operation!;
+        return {
+          message: translateStageKeyMessage(
+            op.statusMessage,
+            buildGameDetectionInterpolation(op.context, {
+              totalGamesDetected: op.totalGamesDetected
+            }),
+            'signalr.gameDetect.starting.default'
+          ),
+          progress: op.percentComplete,
+          details: {
+            operationId: op.operationId,
+            scanType: op.scanType
+          }
+        };
+      },
+      staleMessage: 'Game detection completed'
+    } satisfies SimpleRecoveryConfig<GameDetectionStatusResponse>,
     events: {
       started: 'GameDetectionStarted',
       progress: 'GameDetectionProgress',
@@ -383,6 +670,27 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     type: 'corruption_detection',
     id: NOTIFICATION_IDS.CORRUPTION_DETECTION,
     storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION,
+    wiring: 'standard',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.corruptionDetection,
+    recovery: {
+      kind: 'simple',
+      apiEndpoint: '/api/cache/corruption/detect/status',
+      isProcessing: (data: CorruptionDetectionStatusResponse) => data.isRunning,
+      createNotification: (data: CorruptionDetectionStatusResponse) => ({
+        message: data.stageKey
+          ? i18n.t(data.stageKey, data.context ?? {})
+          : i18n.t('signalr.corruptionDetect.scanningLogs'),
+        // `percentComplete` is not emitted by backend - always undefined on the wire.
+        // `?? 0` is a legitimate gap-filler until CacheController.GetCorruptionDetectionStatus
+        // is updated to include `percentComplete = activeOp.PercentComplete`.
+        progress: data.percentComplete ?? 0,
+        details: {
+          operationId: data.operationId
+        }
+      }),
+      staleMessage: 'Corruption detection completed'
+    } satisfies SimpleRecoveryConfig<CorruptionDetectionStatusResponse>,
     events: {
       started: 'CorruptionDetectionStarted',
       progress: 'CorruptionDetectionProgress',
@@ -422,6 +730,32 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     type: 'cache_clearing',
     id: NOTIFICATION_IDS.CACHE_CLEARING,
     storageKey: NOTIFICATION_STORAGE_KEYS.CACHE_CLEARING,
+    wiring: 'standard',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.cacheClearing,
+    recovery: {
+      kind: 'simple',
+      apiEndpoint: '/api/cache/operations',
+      isProcessing: (data: CacheOperationsResponse) =>
+        data.isProcessing && Boolean(data.operations?.length),
+      createNotification: (data: CacheOperationsResponse) => {
+        const activeOp = data.operations?.[0];
+        return {
+          message:
+            activeOp?.statusMessage ??
+            (activeOp?.stageKey ? i18n.t(activeOp.stageKey, activeOp.context ?? {}) : undefined) ??
+            i18n.t('signalr.cacheClear.starting'),
+          progress: activeOp?.percentComplete ?? 0,
+          details: {
+            operationId: activeOp?.operationId ?? activeOp?.id,
+            filesDeleted: activeOp?.filesDeleted ?? 0,
+            directoriesProcessed: activeOp?.directoriesProcessed ?? 0,
+            bytesDeleted: activeOp?.bytesDeleted ?? 0
+          }
+        };
+      },
+      staleMessage: 'Cache clearing completed'
+    } satisfies SimpleRecoveryConfig<CacheOperationsResponse>,
     events: {
       started: 'CacheClearingStarted',
       progress: 'CacheClearingProgress',
@@ -469,6 +803,25 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     type: 'data_import',
     id: NOTIFICATION_IDS.DATA_IMPORT,
     storageKey: NOTIFICATION_STORAGE_KEYS.DATA_IMPORT,
+    wiring: 'standard',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.dataImport,
+    recovery: {
+      kind: 'simple',
+      apiEndpoint: '/api/migration/import/status',
+      isProcessing: (data: DataImportStatusResponse) => data.isProcessing,
+      createNotification: (data: DataImportStatusResponse) => ({
+        message: data.stageKey
+          ? i18n.t(data.stageKey, data.context ?? {})
+          : i18n.t('signalr.generic.unknown'),
+        // `??` (not `||`): backend field is `double?` - nullable. `??` preserves 0.
+        progress: data.percentComplete ?? 0,
+        details: {
+          operationId: data.operationId ?? undefined
+        }
+      }),
+      staleMessage: 'Data import completed'
+    } satisfies SimpleRecoveryConfig<DataImportStatusResponse>,
     events: {
       started: 'DataImportStarted',
       progress: 'DataImportProgress',
@@ -509,6 +862,25 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     type: 'eviction_scan',
     id: NOTIFICATION_IDS.EVICTION_SCAN,
     storageKey: NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN,
+    wiring: 'standard',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.evictionScan,
+    recovery: {
+      kind: 'simple',
+      apiEndpoint: '/api/stats/eviction/scan/status',
+      isProcessing: (data: EvictionScanStatusResponse) => data.isProcessing && !data.silentMode,
+      shouldSkip: (data: EvictionScanStatusResponse) => data.isProcessing && data.silentMode,
+      createNotification: (data: EvictionScanStatusResponse) => ({
+        message: data.stageKey
+          ? i18n.t(data.stageKey, data.context ?? {})
+          : i18n.t('signalr.evictionScan.scanning'),
+        progress: data.percentComplete,
+        details: {
+          operationId: data.operationId ?? undefined
+        }
+      }),
+      staleMessage: 'Eviction scan completed'
+    } satisfies SimpleRecoveryConfig<EvictionScanStatusResponse>,
     events: {
       started: 'EvictionScanStarted',
       progress: 'EvictionScanProgress',
@@ -546,6 +918,12 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     type: 'eviction_removal',
     id: NOTIFICATION_IDS.EVICTION_REMOVAL,
     storageKey: NOTIFICATION_STORAGE_KEYS.EVICTION_REMOVAL,
+    wiring: 'standard',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.evictionRemoval,
+    // Scope-aware recovery lives inside the /api/cache/removals/active batch fn
+    // (recoverEvictionRemovals). Marked as part of that batch.
+    recovery: { kind: 'cacheRemovalsBatch' },
     events: {
       started: 'EvictionRemovalStarted',
       progress: 'EvictionRemovalProgress',
@@ -631,5 +1009,132 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       removeNotification(NOTIFICATION_IDS.EVICTION_SCAN);
       localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN);
     }
+  },
+
+  // ==========================================================================
+  // Special-wiring entries (metadata-only)
+  // --------------------------------------------------------------------------
+  // These four types do NOT fit the standard Started->Progress->Complete loop.
+  // Their SignalR handlers are hand-built in createSpecialCaseHandlers and wired
+  // via SPECIAL_NOTIFICATION_CONTRACTS. They appear here ONLY to keep cancel +
+  // recovery configured in one place per type. useNotificationHandlers skips
+  // every wiring:'special' entry (no `events`/`started`/`progress`), so there is
+  // no double-subscribe.
+  // ==========================================================================
+
+  // ========== Depot Mapping (special) ==========
+  {
+    type: 'depot_mapping',
+    id: NOTIFICATION_IDS.DEPOT_MAPPING,
+    storageKey: NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING,
+    wiring: 'special',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.depotMapping,
+    recovery: {
+      kind: 'simple',
+      apiEndpoint: '/api/depots/rebuild/progress',
+      isProcessing: (data: DepotRebuildProgressResponse) => data.isProcessing,
+      createNotification: (data: DepotRebuildProgressResponse) => {
+        const detailMessage = formatDepotMappingRecoveryDetailMessage({
+          processedBatches: data.processedBatches,
+          totalBatches: data.totalBatches,
+          depotMappingsFound: data.depotMappingsFound
+        });
+
+        return {
+          message: data.statusMessage,
+          detailMessage,
+          progress: data.progressPercent,
+          details: {
+            operationId: data.operationId,
+            totalMappings: data.totalMappings,
+            processedMappings: data.processedMappings,
+            isLoggedOn: data.isLoggedOn,
+            percentComplete: data.progressPercent
+          }
+        };
+      },
+      staleMessage: 'Depot mapping completed'
+    } satisfies SimpleRecoveryConfig<DepotRebuildProgressResponse>
+  },
+
+  // ========== Database Reset (special) ==========
+  {
+    type: 'database_reset',
+    id: NOTIFICATION_IDS.DATABASE_RESET,
+    storageKey: NOTIFICATION_STORAGE_KEYS.DATABASE_RESET,
+    wiring: 'special',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.databaseReset,
+    recovery: {
+      kind: 'simple',
+      apiEndpoint: '/api/database/reset-status',
+      isProcessing: (data: DatabaseResetStatusResponse) => data.isProcessing,
+      createNotification: (data: DatabaseResetStatusResponse) => ({
+        message: data.stageKey
+          ? i18n.t(data.stageKey, data.context ?? {})
+          : i18n.t('signalr.dbReset.starting'),
+        // `??` (not `||`): backend field is `int?` - nullable. `??` preserves 0.
+        progress: data.percentComplete ?? 0,
+        // Always emit a defined details object so the deferred-cancel watchdog can
+        // attach an operationId when it arrives via a later SignalR progress tick.
+        // `?? undefined` normalises null→undefined (backend field is `string?`).
+        details: { operationId: data.operationId ?? undefined }
+      }),
+      staleMessage: 'Database reset completed'
+    } satisfies SimpleRecoveryConfig<DatabaseResetStatusResponse>
+  },
+
+  // ========== Epic Game Mapping (special) ==========
+  {
+    type: 'epic_game_mapping',
+    id: NOTIFICATION_IDS.EPIC_GAME_MAPPING,
+    storageKey: NOTIFICATION_STORAGE_KEYS.EPIC_GAME_MAPPING,
+    wiring: 'special',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.epicGameMapping,
+    recovery: {
+      kind: 'simple',
+      apiEndpoint: '/api/epic/game-mappings/schedule',
+      isProcessing: (data: EpicGameMappingScheduleResponse) => data.isProcessing,
+      createNotification: (data: EpicGameMappingScheduleResponse) => ({
+        // `statusMessage` is C# `string?` - only populated when processing.
+        // Fall back to i18n key when null/undefined (e.g. during idle recovery poll).
+        message: data.statusMessage ?? i18n.t('signalr.epicMapping.starting'),
+        // `progressPercent` is C# `double` (non-null) - no fallback needed.
+        progress: data.progressPercent,
+        details: {
+          operationId: data.operationId ?? undefined
+        }
+      }),
+      staleMessage: 'Epic game mapping completed'
+    } satisfies SimpleRecoveryConfig<EpicGameMappingScheduleResponse>
+  },
+
+  // ========== Steam Session Error (special; toast, no recovery, no cancel) ==========
+  {
+    type: 'steam_session_error' as NotificationType,
+    id: NOTIFICATION_IDS.STEAM_SESSION_ERROR,
+    storageKey: '',
+    wiring: 'special',
+    cancelKind: 'none',
+    recovery: { kind: 'none' }
+  },
+
+  // ========== Bulk Removal (special; client-driven queue, no server op) ==========
+  // Metadata-only entry: the bulk_removal notification is created/managed by the
+  // always-mounted BulkRemovalProvider's useCancellableQueue, NOT by the standard
+  // SignalR loop. It appears here ONLY so UniversalNotificationBar's cancel-config
+  // loop is the single source for cancel wiring (cancelKind 'clientQueue' → the X
+  // button flips a flag the provider's cascade effect observes). No SignalR events,
+  // no recovery (the run loop survives in-app tab switches by construction).
+  {
+    type: 'bulk_removal',
+    id: 'bulk_removal',
+    storageKey: '',
+    wiring: 'special',
+    cancelKind: 'clientQueue',
+    cancelTooltipKey: CANCEL_TOOLTIP.bulkRemoval,
+    recovery: { kind: 'none' }
   }
 ];

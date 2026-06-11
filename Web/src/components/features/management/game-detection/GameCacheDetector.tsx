@@ -11,9 +11,9 @@ import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { useNotifications } from '@contexts/notifications';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
-import { waitForSignalRCompletion } from '@contexts/notifications/waitForSignalRCompletion';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import { useCancellableQueue } from '@/hooks/useCancellableQueue';
+import { useBulkRemoval, type BulkQueueEntry } from '@contexts/BulkRemovalContext';
+import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 import { useConfig } from '@contexts/useConfig';
 import { useDockerSocket } from '@contexts/useDockerSocket';
@@ -36,7 +36,6 @@ import {
   loadCachedDetectionSnapshot
 } from './cacheDetectionData';
 import {
-  finalizeBulkRemovalNotification,
   runTrackedGameRemoval,
   runTrackedServiceRemoval,
   useCompletedRemovalPruning,
@@ -69,10 +68,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const hasProcessedLogs = setupStatus?.hasProcessedLogs ?? false;
 
   // Derive game detection state from notifications (standardized pattern)
-  const activeGameDetectionNotification = notifications.find(
-    (n) => n.type === 'game_detection' && n.status === 'running'
-  );
-  const isDetectionFromNotification = !!activeGameDetectionNotification;
+  const isDetectionFromNotification = useOperationBusy({ types: ['game_detection'] });
 
   // Track local starting state for immediate UI feedback before SignalR events arrive
   const [isStartingDetection, setIsStartingDetection] = useState(false);
@@ -555,20 +551,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     isDetectionFromNotification || isStartingDetection || (isLoadingData && !hasResults);
   const allExpanded = servicesExpanded && gamesExpanded;
 
-  // Sequential per-item cache-removal queue. The per-item endpoints (remove
-  // game/service from cache) return 202 Accepted without an operationId, so
-  // we capture it from the matching `*Started` SignalR event and hand it to
-  // the hook via `ctx.setOperationId` so the cascade cancel can abort the
-  // in-flight op. The hook owns the refs + cascade useEffect; we only supply
-  // per-item API selection and the finalize transition.
-  type CacheQueueEntry =
-    | { kind: 'service'; service: ServiceCacheInfo }
-    | { kind: 'game'; game: GameCacheInfo };
-  const { run: runCacheRemoval } = useCancellableQueue<CacheQueueEntry>({
-    onSettled: () => {
-      onDataRefresh?.();
-    }
-  });
+  // Sequential per-item cache-removal queue. The app-root BulkRemovalProvider
+  // owns the run loop, per-item API/SignalR pipeline (capturing each op's id for
+  // cascade cancel), AbortController plumbing, and the finalize transition; this
+  // component only builds the item list and mirrors inline progress. The run
+  // survives an in-app tab switch because the provider never unmounts.
+  const { runCacheRemoval } = useBulkRemoval();
 
   const handleRemoveAllCached = useCallback(async () => {
     setShowRemoveAllConfirm(false);
@@ -579,198 +567,22 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     const total = services.length + games.length;
     if (total === 0) return;
 
-    setRemoveAllRunning(true);
+    const items: BulkQueueEntry[] = [
+      ...services.map((service) => ({ kind: 'service' as const, service })),
+      ...games.map((game) => ({ kind: 'game' as const, game }))
+    ];
 
-    let bulkNotifId: string | null = null;
-    let currentIndex = 0;
-    const updateBulkProgress = (inner: number) => {
-      if (!bulkNotifId) return;
-      const clamped = Math.min(100, Math.max(0, inner));
-      const overall = Math.min(100, ((currentIndex - 1 + clamped / 100) / total) * 100);
-      updateNotification(bulkNotifId, { progress: Math.floor(overall) });
-    };
-
-    await runCacheRemoval({
-      items: [
-        ...services.map((service) => ({ kind: 'service' as const, service })),
-        ...games.map((game) => ({ kind: 'game' as const, game }))
-      ],
-      openNotification: () => {
-        const id = addNotification({
-          type: 'bulk_removal',
-          status: 'running',
-          message: t('management.sections.data.gameCacheRemoveAllStarting', {
-            total,
-            defaultValue: 'Removing 0 of {{total}} cached items...'
-          }),
-          progress: 0,
-          // No operationId → handleCancel special-cases bulk_removal
-          details: {}
-        });
-        bulkNotifId = id;
-        return id;
+    await runCacheRemoval(items, {
+      onRunningChange: (running) => {
+        setRemoveAllRunning(running);
+        if (!running) setRemoveAllProgress(null);
       },
-      onItemStart: (entry, index, _total, notifId) => {
-        currentIndex = index;
-        const label =
-          entry.kind === 'service'
-            ? entry.service.service_name
-            : (entry.game.game_name ?? String(entry.game.game_app_id));
-        setRemoveAllProgress({ current: index, total, label });
-        updateNotification(notifId, {
-          message: t('management.sections.data.gameCacheRemoveAllProgress', {
-            current: index,
-            total,
-            label
-          }),
-          progress: Math.floor(((index - 1) / total) * 100)
-        });
-      },
-      processItem: async (entry, ctx) => {
-        if (entry.kind === 'service') {
-          const serviceName = entry.service.service_name;
-          let operationId: string | null = null;
-          const waitPromise = waitForSignalRCompletion<
-            { serviceName?: string; operationId?: string },
-            { serviceName?: string },
-            { operationId?: string; percentComplete?: number }
-          >({
-            signalR: { on, off },
-            completeEvent: 'ServiceRemovalComplete',
-            startedEvent: 'ServiceRemovalStarted',
-            match: (payload) => payload?.serviceName === serviceName,
-            onStartedCapture: (payload) =>
-              payload?.serviceName === serviceName && typeof payload.operationId === 'string'
-                ? { opId: payload.operationId }
-                : null,
-            onOperationIdCaptured: (opId) => {
-              operationId = opId;
-              ctx.setOperationId(opId);
-            },
-            progressEvent: 'ServiceRemovalProgress',
-            onProgress: (payload) => {
-              if (!operationId || payload?.operationId !== operationId) return;
-              updateBulkProgress(payload.percentComplete ?? 0);
-            },
-            signal: ctx.signal
-          });
-          await ApiService.removeServiceFromCache(serviceName);
-          await waitPromise;
-        } else {
-          const game = entry.game;
-          const gameAppId = game.game_app_id;
-          const gameName = game.game_name;
-          const isEpic = game.service === 'epicgames' && !!gameName;
-          const epicAppId = game.epic_app_id ?? undefined;
-          let currentOperationId: string | null = null;
-          const matchesGame = (payload?: {
-            gameAppId?: number | null;
-            epicAppId?: string | null;
-            gameName?: string;
-            operationId?: string;
-          }): boolean => {
-            if (!payload) {
-              return false;
-            }
-
-            if (currentOperationId) {
-              return payload.operationId === currentOperationId;
-            }
-
-            if (isEpic) {
-              if (epicAppId && payload.epicAppId === epicAppId) {
-                return true;
-              }
-
-              return payload.gameName === gameName;
-            }
-
-            return payload.gameAppId === gameAppId;
-          };
-          const waitPromise = waitForSignalRCompletion<
-            {
-              gameAppId?: number | null;
-              epicAppId?: string | null;
-              gameName?: string;
-              operationId?: string;
-            },
-            {
-              gameAppId?: number | null;
-              epicAppId?: string | null;
-              gameName?: string;
-              operationId?: string;
-            },
-            { operationId?: string; percentComplete?: number }
-          >({
-            signalR: { on, off },
-            completeEvent: 'GameRemovalComplete',
-            startedEvent: 'GameRemovalStarted',
-            match: matchesGame,
-            onStartedCapture: (payload) =>
-              matchesGame(payload) && typeof payload.operationId === 'string'
-                ? { opId: payload.operationId }
-                : null,
-            onOperationIdCaptured: (opId) => {
-              currentOperationId = opId;
-              ctx.setOperationId(opId);
-            },
-            progressEvent: 'GameRemovalProgress',
-            onProgress: (payload) => {
-              if (!currentOperationId || payload?.operationId !== currentOperationId) return;
-              updateBulkProgress(payload.percentComplete ?? 0);
-            },
-            signal: ctx.signal
-          });
-
-          if (isEpic) {
-            const response = await ApiService.removeEpicGameFromCache(gameName);
-            currentOperationId = response.operationId;
-            ctx.setOperationId(response.operationId);
-          } else {
-            const response = await ApiService.removeGameFromCache(gameAppId);
-            currentOperationId = response.operationId;
-            ctx.setOperationId(response.operationId);
-          }
-          await waitPromise;
-        }
-      },
-      finalize: ({ id, succeeded, failed, cancelled, total }) => {
-        setRemoveAllRunning(false);
-        setRemoveAllProgress(null);
-        finalizeBulkRemovalNotification({
-          id,
-          succeeded,
-          failed,
-          total,
-          cancelled,
-          t,
-          updateNotification,
-          text: {
-            completeKey: 'management.sections.data.gameCacheRemoveAllComplete',
-            completeDefaultValue: 'Removed {{count}} cached items',
-            partialFailureKey: 'management.sections.data.gameCacheRemoveAllCompleteWithFailures',
-            partialFailureDefaultValue: 'Removed {{count}} cached items, but {{failed}} failed',
-            cancelledKey: 'management.sections.data.gameCacheRemoveAllCancelled',
-            cancelledDefaultValue: 'Bulk removal cancelled after {{count}} items',
-            cancelledWithFailuresKey:
-              'management.sections.data.gameCacheRemoveAllCancelledWithFailures',
-            cancelledWithFailuresDefaultValue:
-              'Bulk removal cancelled after {{count}} items, with {{failed}} failures'
-          }
-        });
+      onProgress: setRemoveAllProgress,
+      onSettled: () => {
+        onDataRefresh?.();
       }
     });
-  }, [
-    filteredGames,
-    filteredServices,
-    isAdmin,
-    runCacheRemoval,
-    addNotification,
-    updateNotification,
-    on,
-    off,
-    t
-  ]);
+  }, [filteredGames, filteredServices, isAdmin, runCacheRemoval, onDataRefresh]);
 
   // Help content
   // Header actions - scan buttons + expand/collapse all

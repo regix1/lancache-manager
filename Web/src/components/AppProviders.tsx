@@ -1,5 +1,6 @@
 import React from 'react';
 import { NotificationsProvider } from '@contexts/notifications';
+import { BulkRemovalProvider } from '@contexts/BulkRemovalContext';
 import { CacheSizeProvider } from '@contexts/CacheSizeContext';
 import { DashboardDataProvider } from '@contexts/DashboardDataContext';
 import { TimeFilterProvider } from '@contexts/TimeFilterContext';
@@ -71,20 +72,22 @@ const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => 
                                       {/* Data providers */}
                                       <PicsProgressProviderWithMockMode>
                                         <NotificationsProvider>
-                                          <CacheSizeProvider>
-                                            <DashboardDataProviderWithMockMode>
-                                              {/* UI / calendar / event providers */}
-                                              <CalendarSettingsProvider>
-                                                <EventProvider>
-                                                  <ClientGroupProvider>
-                                                    <DownloadAssociationsProvider>
-                                                      {children}
-                                                    </DownloadAssociationsProvider>
-                                                  </ClientGroupProvider>
-                                                </EventProvider>
-                                              </CalendarSettingsProvider>
-                                            </DashboardDataProviderWithMockMode>
-                                          </CacheSizeProvider>
+                                          <BulkRemovalProvider>
+                                            <CacheSizeProvider>
+                                              <DashboardDataProviderWithMockMode>
+                                                {/* UI / calendar / event providers */}
+                                                <CalendarSettingsProvider>
+                                                  <EventProvider>
+                                                    <ClientGroupProvider>
+                                                      <DownloadAssociationsProvider>
+                                                        {children}
+                                                      </DownloadAssociationsProvider>
+                                                    </ClientGroupProvider>
+                                                  </EventProvider>
+                                                </CalendarSettingsProvider>
+                                              </DashboardDataProviderWithMockMode>
+                                            </CacheSizeProvider>
+                                          </BulkRemovalProvider>
                                         </NotificationsProvider>
                                       </PicsProgressProviderWithMockMode>
                                     </PrefillProvider>

@@ -24,6 +24,7 @@ import { useSignalR } from '../SignalRContext/useSignalR';
  */
 function buildStartedHandler(
   entry: NotificationRegistryEntry,
+  started: NonNullable<NotificationRegistryEntry['started']>,
   setNotifications: SetNotifications,
   cancelAutoDismissTimer: CancelAutoDismissTimer
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -33,10 +34,10 @@ function buildStartedHandler(
       type: entry.type,
       getId: () => entry.id,
       storageKey: entry.storageKey,
-      defaultMessage: entry.started.defaultMessage,
-      getMessage: entry.started.getMessage,
-      getDetails: entry.started.getDetails,
-      replaceExisting: entry.started.replaceExisting
+      defaultMessage: started.defaultMessage,
+      getMessage: started.getMessage,
+      getDetails: started.getDetails,
+      replaceExisting: started.replaceExisting
     },
     setNotifications,
     cancelAutoDismissTimer
@@ -48,6 +49,7 @@ function buildStartedHandler(
  */
 function buildProgressHandler(
   entry: NotificationRegistryEntry,
+  progress: NonNullable<NotificationRegistryEntry['progress']>,
   setNotifications: SetNotifications,
   scheduleAutoDismiss: ScheduleAutoDismiss,
   cancelAutoDismissTimer: CancelAutoDismissTimer
@@ -58,13 +60,13 @@ function buildProgressHandler(
       type: entry.type,
       getId: () => entry.id,
       storageKey: entry.storageKey,
-      getMessage: entry.progress.getMessage,
-      getProgress: entry.progress.getProgress,
-      getStatus: entry.progress.getStatus,
-      getCompletedMessage: entry.progress.getCompletedMessage,
-      getErrorMessage: entry.progress.getErrorMessage,
-      supportFastCompletion: entry.progress.supportFastCompletion,
-      getDetails: entry.progress.getDetails
+      getMessage: progress.getMessage,
+      getProgress: progress.getProgress,
+      getStatus: progress.getStatus,
+      getCompletedMessage: progress.getCompletedMessage,
+      getErrorMessage: progress.getErrorMessage,
+      supportFastCompletion: progress.supportFastCompletion,
+      getDetails: progress.getDetails
     },
     setNotifications,
     scheduleAutoDismiss,
@@ -147,13 +149,27 @@ export function useNotificationHandlers(
     }
 
     for (const entry of registry) {
+      // Special-wiring entries are metadata-only (cancelKind + recovery); their
+      // SignalR handlers are hand-built in createSpecialCaseHandlers and wired
+      // via SPECIAL_NOTIFICATION_CONTRACTS. Skip them here to avoid
+      // double-subscribing. They carry no `events`/`started`/`progress`.
+      if (entry.wiring !== 'standard' || !entry.events || !entry.started || !entry.progress) {
+        continue;
+      }
+
       // Started handler
-      const startedHandler = buildStartedHandler(entry, setNotifications, cancelAutoDismissTimer);
+      const startedHandler = buildStartedHandler(
+        entry,
+        entry.started,
+        setNotifications,
+        cancelAutoDismissTimer
+      );
       subscribe(entry.events.started, startedHandler);
 
       // Progress handler
       const progressHandler = buildProgressHandler(
         entry,
+        entry.progress,
         setNotifications,
         scheduleAutoDismiss,
         cancelAutoDismissTimer

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { useNotifications } from '@contexts/notifications';
+import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useMockMode } from '@contexts/useMockMode';
 import { useAuth } from '@contexts/useAuth';
 import { useSteamAuth } from '@contexts/useSteamAuth';
@@ -26,7 +27,7 @@ import {
 const ManagementTab: React.FC = () => {
   const { t } = useTranslation();
   const { refreshStats } = useStats();
-  const { addNotification, notifications } = useNotifications();
+  const { addNotification } = useNotifications();
   const { mockMode } = useMockMode();
   const { isAdmin, authMode } = useAuth();
   const { steamAuthMode } = useSteamAuth();
@@ -46,10 +47,7 @@ const ManagementTab: React.FC = () => {
   const [highlightScheduleKey, setHighlightScheduleKey] = useState<string | null>(null);
 
   // Derive log processing state from notifications for DepotMappingManager
-  const activeProcessingNotification = notifications.find(
-    (n) => n.type === 'log_processing' && n.status === 'running'
-  );
-  const isProcessingLogs = !!activeProcessingNotification;
+  const isProcessingLogs = useOperationBusy({ types: ['log_processing'] });
 
   // Wrapper to refresh both stats and game cache
   const refreshStatsAndGameCache = useCallback(() => {
