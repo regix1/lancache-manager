@@ -105,7 +105,7 @@ public class RustLogProcessorService
     /// Builds the single terminal SignalR emitter for a LogProcessing operation. Invoked EXACTLY
     /// ONCE from inside <see cref="IUnifiedOperationTracker.CompleteOperation"/> (CompletedFlag-gated)
     /// across the success, cancel (OCE/force-kill), and error paths. Reads the completion metrics that
-    /// <see cref="StartProcessingAsync"/> snapshots into <see cref="_terminalMetrics"/> just before
+    /// <see cref="StartProcessingAsync(string, long, bool, string, System.Guid?, bool)"/> snapshots into <see cref="_terminalMetrics"/> just before
     /// calling CompleteOperation. Silent operations never register an onTerminalEmit, so this only
     /// runs for interactive ops. The closure must not throw (tracker fire-and-forgets it).
     /// </summary>
