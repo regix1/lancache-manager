@@ -564,11 +564,24 @@ async fn main() -> Result<()> {
         (deleted, bytes, empty_dirs, cache_errs)
     };
 
-    // Remove log entries for this game
+    // Remove log entries for this game. Per-file progress fills the 80-90% band
+    // so fast --skip-file-probe runs still surface visible stages.
     write_progress(&progress_path, "removing_logs", "signalr.gameRemove.logs.removing", json!({}), 80.0, 0, 0)?;
     eprintln!("\nRemoving log entries...");
     let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
-    let (log_entries_removed, log_permission_errors) = remove_log_entries_for_game(&log_dir, &urls_to_remove, &valid_depot_ids, None)?;
+    let log_file_progress = |processed: usize, total: usize| {
+        let percent = 80.0 + (processed as f64 / total.max(1) as f64) * 10.0;
+        let _ = write_progress(
+            &progress_path,
+            "removing_logs",
+            "signalr.gameRemove.logs.fileProgress",
+            json!({ "n": processed, "total": total }),
+            percent,
+            processed,
+            total,
+        );
+    };
+    let (log_entries_removed, log_permission_errors) = remove_log_entries_for_game(&log_dir, &urls_to_remove, &valid_depot_ids, Some(&log_file_progress))?;
 
     // CRITICAL: Check for permission errors before deleting database records
     let total_permission_errors = cache_permission_errors + log_permission_errors;

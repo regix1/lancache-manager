@@ -5629,7 +5629,8 @@
         "skippedEvicted": "Skipping directory cleanup (fully evicted game)"
       },
       "logs": {
-        "removing": "Removing log entries"
+        "removing": "Removing log entries",
+        "fileProgress": "Removing log entries — file {{n}} of {{total}}"
       }
     },
     "logProcessing": {
