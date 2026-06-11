@@ -645,7 +645,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               <>
                 {onNavigateToSteamApi && (
                   <Button
-                    variant="outline"
+                    variant="filled"
+                    color="blue"
                     size="sm"
                     onClick={onNavigateToSteamApi}
                     rightSection={<ExternalLink className="w-3.5 h-3.5" />}
@@ -655,7 +656,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                 )}
                 {onNavigateToSchedule && (
                   <Button
-                    variant="outline"
+                    variant="filled"
+                    color="gray"
                     size="sm"
                     onClick={onNavigateToSchedule}
                     rightSection={<Calendar className="w-3.5 h-3.5" />}

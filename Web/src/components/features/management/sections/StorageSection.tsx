@@ -550,7 +550,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
           </div>
           {hasPermissionIssues && (
             <Button
-              variant="outline"
+              variant="filled"
+              color="gray"
               size="sm"
               onClick={handleRecheckPermissions}
               disabled={isRechecking}
@@ -637,7 +638,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
               badge={
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <Button
-                    variant="default"
+                    variant="filled"
+                    color="gray"
                     size="sm"
                     onClick={handleEvictionExpandCollapseAll}
                     className="w-full sm:w-auto"

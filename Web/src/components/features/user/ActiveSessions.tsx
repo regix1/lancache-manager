@@ -1613,7 +1613,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 onClose={() => setBulkMenuOpen(false)}
                 trigger={
                   <Button
-                    variant="outline"
+                    variant="filled"
+                    color="gray"
                     size="sm"
                     leftSection={<MoreVertical className="w-4 h-4" />}
                     onClick={() => setBulkMenuOpen((prev: boolean) => !prev)}

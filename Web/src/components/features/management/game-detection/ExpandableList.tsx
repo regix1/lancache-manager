@@ -43,7 +43,13 @@ const ExpandableList: React.FC<ExpandableListProps> = ({
           {t(labelKey, { count: items.length })}
         </p>
         {visibleCount > maxInitial && (
-          <Button variant="subtle" size="xs" onClick={handleShowLess} className="text-xs">
+          <Button
+            variant="filled"
+            color="gray"
+            size="xs"
+            onClick={handleShowLess}
+            className="text-xs"
+          >
             {t('management.gameDetection.showLess')}
           </Button>
         )}
@@ -60,7 +66,13 @@ const ExpandableList: React.FC<ExpandableListProps> = ({
           <p className="text-xs text-themed-muted italic">
             {t(showingLabelKey, { showing: visibleCount, total: items.length })}
           </p>
-          <Button variant="subtle" size="xs" onClick={handleLoadMore} className="text-xs">
+          <Button
+            variant="filled"
+            color="gray"
+            size="xs"
+            onClick={handleLoadMore}
+            className="text-xs"
+          >
             {t('management.gameDetection.loadMore', {
               count: Math.min(LOAD_MORE_BATCH, remaining)
             })}

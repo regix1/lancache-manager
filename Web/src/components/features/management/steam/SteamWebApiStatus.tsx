@@ -242,7 +242,8 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
               <div />
             )}
             <Button
-              variant="outline"
+              variant="filled"
+              color="gray"
               size="sm"
               onClick={async () => {
                 setRefreshing(true);

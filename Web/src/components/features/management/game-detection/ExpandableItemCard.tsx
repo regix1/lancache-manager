@@ -81,7 +81,8 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
           {hasExpandableContent && (
             <Button
               onClick={() => onToggleDetails(id)}
-              variant="subtle"
+              variant="filled"
+              color="gray"
               size="sm"
               className="flex-shrink-0"
               disabled={isExpanding}

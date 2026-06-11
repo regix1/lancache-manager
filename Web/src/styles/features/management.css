@@ -214,14 +214,14 @@
   }
 }
 
-/* Mobile tab scrollbar styling - thin and subtle */
-@media (max-width: 768px) {
-  .management-nav-container .custom-scrollbar::-webkit-scrollbar {
-    height: 4px;
-  }
+/* Tab-strip scrollbar styling - thin and subtle. Applies at every width: the
+   desktop nav row also overflows horizontally at in-between viewport sizes
+   instead of clipping its last tabs. */
+.management-nav-container .custom-scrollbar::-webkit-scrollbar {
+  height: 4px;
+}
 
-  .management-nav-container .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: var(--theme-border-secondary);
-    border-radius: 2px;
-  }
+.management-nav-container .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--theme-border-secondary);
+  border-radius: 2px;
 }

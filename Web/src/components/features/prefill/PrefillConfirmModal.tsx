@@ -125,7 +125,7 @@ export function PrefillConfirmModal({
         )}
 
         <div className="flex justify-end gap-3 pt-2">
-          <Button variant="outline" onClick={onCancel}>
+          <Button variant="filled" color="gray" onClick={onCancel}>
             {t('common.cancel')}
           </Button>
           <Button

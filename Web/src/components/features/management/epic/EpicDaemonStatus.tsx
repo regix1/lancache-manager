@@ -191,7 +191,7 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
                   {t('management.sections.integrations.epicDaemonStatus.connected')}
                 </span>
               ) : authMode === 'authenticated' && !mockMode ? (
-                <Button onClick={handleLoginClick} variant="outline" size="sm">
+                <Button onClick={handleLoginClick} variant="filled" color="blue" size="sm">
                   {t('management.sections.integrations.epicDaemonStatus.loginButton')}
                 </Button>
               ) : (
@@ -210,7 +210,7 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
             <Button
               onClick={handleLogout}
               disabled={loggingOut}
-              variant="outline"
+              variant="filled"
               color="red"
               size="sm"
             >

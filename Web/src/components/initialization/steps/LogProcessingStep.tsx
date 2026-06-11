@@ -657,7 +657,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
         )}
         {processing && !complete && (
           <Button
-            variant="outline"
+            variant="filled"
             color="red"
             onClick={handleCancelProcessing}
             disabled={isCancelling}

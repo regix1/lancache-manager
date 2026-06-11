@@ -163,7 +163,8 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
                 <span className="access-security-card__source-label">{getSourceLabel(state)}</span>
                 {isAdmin && (
                   <Button
-                    variant="subtle"
+                    variant="filled"
+                    color="gray"
                     size="xs"
                     disabled={state.source !== 'ui' || isSaving}
                     onClick={handleResetToDefault}

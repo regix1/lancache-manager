@@ -62,7 +62,8 @@ const ServiceButton: React.FC<{
       onClick={onClick}
       awaitPermissions
       disabled={isDisabled}
-      variant="outline"
+      variant="filled"
+      color="red"
       loading={isRemoving}
       className="flex flex-col items-center min-h-[60px] justify-center"
       fullWidth
@@ -292,7 +293,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       <Button
         onClick={() => loadData(true)}
         disabled={isRefreshing || isAnyRemovalRunning}
-        variant="default"
+        variant="filled"
+        color="gray"
         size="sm"
       >
         {isRefreshing ? <LoadingSpinner inline size="sm" /> : t('common.refresh')}
@@ -410,7 +412,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                               {/* Delete entire log file button */}
                               <div className="flex justify-end pt-2 pb-1">
                                 <Button
-                                  variant="outline"
+                                  variant="filled"
                                   size="sm"
                                   color="red"
                                   leftSection={<Trash2 className="w-3 h-3" />}
@@ -468,7 +470,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                               {other.length > 0 && (
                                 <div className="mt-3 text-center">
                                   <Button
-                                    variant="default"
+                                    variant="filled"
+                                    color="gray"
                                     size="sm"
                                     onClick={(e) => {
                                       e.stopPropagation();

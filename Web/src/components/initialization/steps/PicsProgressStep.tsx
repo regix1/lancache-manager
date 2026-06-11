@@ -182,7 +182,7 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
           </Button>
         ) : onCancel ? (
           <Button
-            variant="outline"
+            variant="filled"
             color="red"
             onClick={handleCancel}
             disabled={cancelInFlight}

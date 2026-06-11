@@ -405,7 +405,8 @@ const SessionCard: React.FC<{
             {/* Action buttons */}
             <div className="prefill-action-buttons">
               <Button
-                variant="subtle"
+                variant="filled"
+                color="gray"
                 size="sm"
                 onClick={onToggleHistory}
                 className="prefill-expand-btn"
@@ -424,7 +425,7 @@ const SessionCard: React.FC<{
                   {(steamUsername || username) && onBan && (
                     <Tooltip content={t('management.prefillSessions.tooltips.banUser')}>
                       <Button
-                        variant="subtle"
+                        variant="filled"
                         size="sm"
                         color="red"
                         onClick={onBan}
@@ -441,7 +442,7 @@ const SessionCard: React.FC<{
                   {onTerminate && (
                     <Tooltip content={t('management.prefillSessions.tooltips.terminateSession')}>
                       <Button
-                        variant="subtle"
+                        variant="filled"
                         size="sm"
                         color="red"
                         onClick={onTerminate}
@@ -622,7 +623,8 @@ const BannedUserCard: React.FC<{
       {isAdmin && ban.isActive && (
         <Tooltip content={t('management.prefillSessions.tooltips.liftBan')}>
           <Button
-            variant="subtle"
+            variant="filled"
+            color="gray"
             size="sm"
             onClick={onLiftBan}
             disabled={isLifting}
@@ -942,7 +944,8 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         </div>
         <div className="prefill-header-actions">
           <Button
-            variant="subtle"
+            variant="filled"
+            color="gray"
             size="sm"
             onClick={() => {
               loadSessions();

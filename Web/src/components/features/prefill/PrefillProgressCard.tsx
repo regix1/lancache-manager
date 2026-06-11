@@ -90,7 +90,7 @@ export function PrefillProgressCard({ progress, onCancel }: PrefillProgressCardP
                 </p>
               </div>
             )}
-            <Button variant="outline" size="sm" onClick={onCancel}>
+            <Button variant="filled" color="gray" size="sm" onClick={onCancel}>
               <XCircle className="h-4 w-4" />
               {t('common.cancel')}
             </Button>

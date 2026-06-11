@@ -130,7 +130,8 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
             <>
               {onNavigateToEpicLogin && (
                 <Button
-                  variant="outline"
+                  variant="filled"
+                  color="blue"
                   size="sm"
                   onClick={onNavigateToEpicLogin}
                   rightSection={<ExternalLink className="w-3.5 h-3.5" />}
@@ -140,7 +141,8 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
               )}
               {onNavigateToSchedule && (
                 <Button
-                  variant="outline"
+                  variant="filled"
+                  color="gray"
                   size="sm"
                   onClick={onNavigateToSchedule}
                   rightSection={<Calendar className="w-3.5 h-3.5" />}

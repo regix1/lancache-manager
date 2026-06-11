@@ -403,7 +403,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
         {/* Right: Today Button + Settings */}
         <div className="flex items-center gap-2">
           {!isCurrentMonth && (
-            <Button variant="subtle" size="sm" onClick={goToToday}>
+            <Button variant="filled" color="gray" size="sm" onClick={goToToday}>
               {t('events.calendar.today')}
             </Button>
           )}

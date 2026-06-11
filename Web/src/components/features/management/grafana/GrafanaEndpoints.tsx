@@ -345,7 +345,8 @@ const GrafanaEndpoints: React.FC = () => {
             <span className="metrics-source-label">{getSourceLabel(metricsSecurity)}</span>
             {isAdmin && (
               <Button
-                variant="subtle"
+                variant="filled"
+                color="gray"
                 size="xs"
                 disabled={metricsSecurity.source !== 'ui' || isToggling}
                 onClick={handleResetToDefault}

@@ -108,8 +108,8 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled,
               </div>
               <Button
                 onClick={() => setMockMode(!mockMode)}
-                variant={mockMode ? 'filled' : 'outline'}
-                color={mockMode ? 'blue' : undefined}
+                variant="filled"
+                color={mockMode ? 'blue' : 'gray'}
                 leftSection={
                   mockMode ? (
                     <ToggleRight className="w-4 h-4" />

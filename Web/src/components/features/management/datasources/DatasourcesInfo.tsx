@@ -270,7 +270,8 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   const headerActions = (
     <div className="flex flex-wrap items-center gap-2">
       <Button
-        variant="subtle"
+        variant="filled"
+        color="gray"
         size="sm"
         onClick={() => setResetModal({ datasource: null, all: true })}
         awaitPermissions
@@ -338,7 +339,8 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                         </div>
                         <div className="flex gap-2 flex-shrink-0">
                           <Button
-                            variant="outline"
+                            variant="filled"
+                            color="gray"
                             size="sm"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -438,7 +440,8 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
               {t('management.datasources.modal.startFromEnd')}
             </Button>
             <Button
-              variant="outline"
+              variant="filled"
+              color="gray"
               onClick={() => setResetModal(null)}
               disabled={actionLoading !== null}
               fullWidth

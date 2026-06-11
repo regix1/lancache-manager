@@ -294,7 +294,8 @@ export function DatabaseImportForm({
                 <Button
                   onClick={searchForDatabases}
                   disabled={autoSearching || isDisabled}
-                  variant="subtle"
+                  variant="filled"
+                  color="gray"
                   size="xs"
                 >
                   {autoSearching ? (

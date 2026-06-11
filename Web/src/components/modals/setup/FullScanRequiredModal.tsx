@@ -130,7 +130,8 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
             <div className="full-scan-modal-option full-scan-modal-option-secondary">
               <Button
                 onClick={onConfirm}
-                variant="outline"
+                variant="filled"
+                color="gray"
                 fullWidth
                 leftSection={<Scan className="w-4 h-4" />}
               >
@@ -141,7 +142,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
         )}
 
         {/* Cancel */}
-        <Button onClick={onCancel} variant="subtle" fullWidth className="mt-2">
+        <Button onClick={onCancel} variant="filled" color="gray" fullWidth className="mt-2">
           {t('common.cancel')}
         </Button>
       </div>

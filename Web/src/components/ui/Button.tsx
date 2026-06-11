@@ -46,22 +46,8 @@ export const Button: React.FC<ButtonProps> = ({
       return colors[color];
     }
     if (variant === 'subtle') {
-      const colors = {
-        red: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-error border border-themed-secondary',
-        blue: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary',
-        green:
-          'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary',
-        yellow:
-          'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary',
-        purple:
-          'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary',
-        gray: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary',
-        orange:
-          'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary',
-        default:
-          'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary'
-      };
-      return colors[color];
+      // Borderless muted solid (no transparent/ghost look) — same neutral fill for every color.
+      return 'bg-themed-tertiary hover:bg-themed-hover text-themed-primary';
     }
     if (variant === 'outline') {
       const base = 'border focus:border-[var(--theme-border-focus)]';
@@ -72,12 +58,12 @@ export const Button: React.FC<ButtonProps> = ({
         yellow: `${base} outline-reset`,
         orange: `${base} outline-reset`,
         purple: `${base} outline-primary`,
-        gray: `${base} border-themed-secondary hover:bg-themed-hover text-themed-primary`,
-        default: `${base} border-themed-secondary hover:bg-themed-hover text-themed-primary`
+        gray: 'bg-themed-hover hover:bg-themed-tertiary text-themed-primary',
+        default: 'bg-themed-hover hover:bg-themed-tertiary text-themed-primary'
       };
       return colors[color];
     }
-    return 'bg-themed-tertiary hover:bg-themed-hover text-themed-primary border border-themed-secondary';
+    return 'bg-themed-tertiary hover:bg-themed-hover text-themed-primary';
   };
 
   const sizes = {

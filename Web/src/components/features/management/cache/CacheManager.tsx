@@ -281,7 +281,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         <Button
           onClick={handleRefreshCacheSize}
           disabled={cacheSizeLoading || isAnyRemovalRunning}
-          variant="default"
+          variant="filled"
+          color="gray"
           size="sm"
         >
           {cacheSizeLoading ? <LoadingSpinner inline size="sm" /> : t('common.refresh')}
@@ -405,7 +406,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     </p>
                     <Tooltip content={t('management.cache.refreshCacheSize')} position="top">
                       <Button
-                        variant="subtle"
+                        variant="filled"
+                        color="gray"
                         size="sm"
                         onClick={handleRefreshCacheSize}
                         disabled={cacheSizeLoading || isAnyRemovalRunning}

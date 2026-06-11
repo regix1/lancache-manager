@@ -308,7 +308,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 <Button
                   onClick={handleSwitchToAnonymous}
                   disabled={loading}
-                  variant="outline"
+                  variant="filled"
                   color="red"
                   size="sm"
                 >

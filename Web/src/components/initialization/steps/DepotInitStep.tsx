@@ -310,7 +310,13 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
               {t('initialization.depotInit.githubUnavailable')}
             </p>
             {onBackToSteamAuth && (
-              <Button size="xs" variant="outline" onClick={onBackToSteamAuth} className="mt-2">
+              <Button
+                size="xs"
+                variant="filled"
+                color="gray"
+                onClick={onBackToSteamAuth}
+                className="mt-2"
+              >
                 <ArrowLeft className="w-3 h-3 mr-1" />
                 {t('initialization.depotInit.changeAuthMethod')}
               </Button>

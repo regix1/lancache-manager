@@ -191,7 +191,8 @@ const ScheduleIntervalPicker = memo(function ScheduleIntervalPicker({
             {t('management.schedules.customMinutes.suffix')}
           </span>
           <Button
-            variant="outline"
+            variant="filled"
+            color="green"
             size="sm"
             onClick={handleApply}
             disabled={isDisabled || !isCustomInputValid}

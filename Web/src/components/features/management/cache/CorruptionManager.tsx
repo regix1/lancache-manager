@@ -517,7 +517,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           cacheReadOnly ||
           !isDockerAvailable
         }
-        variant="subtle"
+        variant="filled"
         color="red"
         size="sm"
       >
@@ -529,7 +529,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         <Button
           onClick={() => loadCachedData(true)}
           disabled={isRefreshing || isScanning || isAnyRemovalRunning}
-          variant="default"
+          variant="filled"
+          color="gray"
           size="sm"
         >
           {isRefreshing ? <LoadingSpinner inline size="sm" /> : t('common.load')}
@@ -752,7 +753,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                   cacheReadOnly ||
                                   !isDockerAvailable
                                 }
-                                variant="subtle"
+                                variant="filled"
                                 color="red"
                                 size="sm"
                               >

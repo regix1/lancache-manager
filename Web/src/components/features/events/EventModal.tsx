@@ -309,7 +309,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
                   <Button
                     type="button"
                     color="red"
-                    variant="outline"
+                    variant="filled"
                     onClick={handleDeleteClick}
                     leftSection={<Trash2 className="w-4 h-4" />}
                   >
@@ -317,7 +317,8 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
                   </Button>
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="filled"
+                    color="gray"
                     onClick={handleViewOnDashboard}
                     leftSection={<BarChart3 className="w-4 h-4" />}
                   >
@@ -329,7 +330,8 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
             <div className="flex flex-wrap gap-2 sm:justify-end">
               <Button
                 type="button"
-                variant="outline"
+                variant="filled"
+                color="gray"
                 onClick={onClose}
                 disabled={saving || deleting}
               >
@@ -394,7 +396,8 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
           </p>
           <div className="flex justify-end gap-2 pt-4 border-t border-[var(--theme-border-primary)]">
             <Button
-              variant="outline"
+              variant="filled"
+              color="gray"
               onClick={() => setShowDeleteConfirm(false)}
               disabled={deleting}
             >

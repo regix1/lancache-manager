@@ -274,7 +274,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
       <div>
         {/* Month/Year Navigation */}
         <div className="mb-4 flex items-center justify-between">
-          <Button variant="subtle" size="sm" onClick={() => changeMonth(-1)}>
+          <Button variant="filled" color="gray" size="sm" onClick={() => changeMonth(-1)}>
             <ChevronLeft className="w-5 h-5" />
           </Button>
 
@@ -368,7 +368,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
             </div>
           </div>
 
-          <Button variant="subtle" size="sm" onClick={() => changeMonth(1)}>
+          <Button variant="filled" color="gray" size="sm" onClick={() => changeMonth(1)}>
             <ChevronRight className="w-5 h-5" />
           </Button>
         </div>
@@ -584,7 +584,8 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
         {/* Action Buttons */}
         <div className="flex gap-2 mt-4">
           <Button
-            variant="outline"
+            variant="filled"
+            color="gray"
             size="sm"
             onClick={() => {
               const now = new Date();

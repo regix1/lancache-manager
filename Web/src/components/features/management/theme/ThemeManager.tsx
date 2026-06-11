@@ -764,7 +764,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                     {t('management.themes.uploadCustomTheme')}
                   </h4>
                   <Button
-                    variant="subtle"
+                    variant="filled"
+                    color="gray"
                     size="xs"
                     leftSection={<Download className="w-3 h-3" />}
                     onClick={downloadSampleTheme}

@@ -290,7 +290,8 @@ const ScheduleCard = memo(function ScheduleCard({
             />
           </div>
           <Button
-            variant="outline"
+            variant="filled"
+            color="green"
             size="sm"
             onClick={handleRunNow}
             disabled={isDisabled}
@@ -706,7 +707,8 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightS
             {t('management.schedules.runAll')}
           </Button>
           <Button
-            variant="outline"
+            variant="filled"
+            color="yellow"
             size="sm"
             onClick={handleResetDefaults}
             disabled={!isAdmin || resetting || runningAll}

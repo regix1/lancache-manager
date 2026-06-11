@@ -589,7 +589,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const headerActions = (
     <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
       <Button
-        variant="default"
+        variant="filled"
+        color="gray"
         size="sm"
         onClick={handleExpandCollapseAll}
         disabled={actionsPending}
@@ -627,7 +628,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         <Button
           onClick={handleLoadData}
           disabled={loading || mockMode}
-          variant="default"
+          variant="filled"
+          color="gray"
           size="sm"
           className="w-full sm:w-auto"
         >
@@ -646,7 +648,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         <Button
           onClick={handleIncrementalScan}
           disabled={loading || mockMode || !hasProcessedLogs}
-          variant="default"
+          variant="filled"
+          color="gray"
           size="sm"
           className="w-full sm:w-auto"
         >
@@ -789,7 +792,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                           })}
                         </span>
                         <Button
-                          variant="subtle"
+                          variant="filled"
+                          color="gray"
                           size="xs"
                           onClick={() => setSelectedDatasource(null)}
                         >
@@ -857,7 +861,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       action={
                         selectedDatasource ? (
                           <Button
-                            variant="subtle"
+                            variant="filled"
+                            color="gray"
                             size="sm"
                             onClick={() => setSelectedDatasource(null)}
                           >

@@ -105,7 +105,11 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
     <div className="management-nav-container mb-6">
       {/* Desktop Navigation */}
       <nav className="hidden md:block" role="tablist" aria-label={t('aria.managementSections')}>
-        <div className="rounded-lg border bg-themed-secondary border-themed-primary">
+        {/* overflow-x-auto + non-shrinking tabs: the row fills the full width when
+            there is room, and becomes horizontally scrollable instead of clipping
+            the last tabs at in-between viewport widths (same pattern as the
+            mobile row below). */}
+        <div className="rounded-lg border bg-themed-secondary border-themed-primary overflow-x-auto custom-scrollbar">
           <div className="flex">
             {tabs.map((tab, index) => {
               const isActive = activeSection === tab.id;
@@ -124,7 +128,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
                   onClick={() => !isDisabled && onSectionChange(tab.id)}
                   className={`
                     management-nav-tab
-                    relative flex-1 flex items-center justify-center gap-2
+                    relative flex-grow flex-shrink-0 flex items-center justify-center gap-2
                     px-5 py-3.5 font-medium text-sm
                     transition-all duration-200 ease-out
                     border-r last:border-r-0

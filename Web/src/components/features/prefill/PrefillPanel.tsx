@@ -1015,7 +1015,7 @@ function ServicePrefillPanel({
           {/* End Session Button */}
           {!isSessionExpired && (
             <Button
-              variant="outline"
+              variant="filled"
               color="red"
               size="sm"
               onClick={handleEndSession}

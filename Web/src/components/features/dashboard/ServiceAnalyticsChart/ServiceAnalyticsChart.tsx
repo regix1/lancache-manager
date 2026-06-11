@@ -231,8 +231,8 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
             {hasBreakdownList && (
               <Tooltip content={toggleAriaLabel}>
                 <Button
-                  variant="subtle"
-                  color="default"
+                  variant="filled"
+                  color="gray"
                   size="xs"
                   onClick={handleToggleList}
                   aria-pressed={!showList}

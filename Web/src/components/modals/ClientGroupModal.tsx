@@ -464,7 +464,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
 
         {/* Actions */}
         <div className="flex justify-end gap-3 pt-4 border-t border-themed-primary">
-          <Button type="button" variant="subtle" onClick={onClose} disabled={saving}>
+          <Button type="button" variant="filled" color="gray" onClick={onClose} disabled={saving}>
             {t('common.cancel')}
           </Button>
           <Button type="submit" disabled={saving || !nickname.trim()}>

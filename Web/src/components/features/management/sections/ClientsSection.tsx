@@ -387,7 +387,8 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                     {isAdmin && (
                       <div className="flex items-center gap-2">
                         <Button
-                          variant="subtle"
+                          variant="filled"
+                          color="gray"
                           size="sm"
                           onClick={() => handleEditGroup(group)}
                           title={t('common.edit')}
@@ -395,7 +396,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                           <Edit2 className="w-4 h-4" />
                         </Button>
                         <Button
-                          variant="subtle"
+                          variant="filled"
                           size="sm"
                           color="red"
                           onClick={() => handleDeleteGroup(group)}
@@ -647,7 +648,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
 
                         <div className="flex items-center gap-3">
                           <Button
-                            variant="subtle"
+                            variant="filled"
                             size="sm"
                             color="red"
                             className="text-themed-muted hover:text-red-500"

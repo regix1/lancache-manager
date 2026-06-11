@@ -34,45 +34,56 @@
     background-color: var(--theme-action-delete-hover);
   }
 
-  /* Outline Action Buttons - colored border + text, transparent bg */
+  /* Outline Action Buttons — restyled as SOLID fills (safety-net aliases of the
+   * filled counterparts). Class names retained so existing call sites stay valid;
+   * each now renders identically to action-delete/-process/themed-button-primary/
+   * action-reset respectively. */
   .outline-delete {
+    background-color: var(--theme-action-delete-bg);
     border-color: var(--theme-action-delete-bg);
-    color: var(--theme-action-delete-bg);
+    color: var(--theme-button-text);
     transition: background-color 0.2s ease;
   }
 
   .outline-delete:hover {
-    background-color: var(--theme-action-delete-subtle);
+    background-color: var(--theme-action-delete-hover);
+    border-color: var(--theme-action-delete-hover);
   }
 
   .outline-process {
+    background-color: var(--theme-action-process-bg);
     border-color: var(--theme-action-process-bg);
-    color: var(--theme-action-process-bg);
+    color: var(--theme-button-text);
     transition: background-color 0.2s ease;
   }
 
   .outline-process:hover {
-    background-color: var(--theme-action-process-subtle);
+    background-color: var(--theme-action-process-hover);
+    border-color: var(--theme-action-process-hover);
   }
 
   .outline-primary {
+    background-color: var(--theme-button-bg);
     border-color: var(--theme-button-bg);
-    color: var(--theme-button-bg);
+    color: var(--theme-button-text);
     transition: background-color 0.2s ease;
   }
 
   .outline-primary:hover {
-    background-color: var(--theme-button-bg-subtle);
+    background-color: var(--theme-button-hover);
+    border-color: var(--theme-button-hover);
   }
 
   .outline-reset {
+    background-color: var(--theme-action-reset-bg);
     border-color: var(--theme-action-reset-bg);
-    color: var(--theme-action-reset-bg);
+    color: var(--theme-button-text);
     transition: background-color 0.2s ease;
   }
 
   .outline-reset:hover {
-    background-color: var(--theme-action-reset-subtle);
+    background-color: var(--theme-action-reset-hover);
+    border-color: var(--theme-action-reset-hover);
   }
 
   /* Subtle delete hover for icon buttons */

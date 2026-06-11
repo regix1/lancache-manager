@@ -120,7 +120,7 @@ function CacheEntityList<TItem>({
         <div className="text-center py-8 text-themed-muted">
           <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
           <div className="mb-2">{getEmptyMessage(searchQuery)}</div>
-          <Button variant="subtle" size="sm" onClick={() => setSearchQuery('')}>
+          <Button variant="filled" color="gray" size="sm" onClick={() => setSearchQuery('')}>
             {t('management.gameDetection.clearSearch')}
           </Button>
         </div>

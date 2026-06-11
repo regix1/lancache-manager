@@ -1442,7 +1442,8 @@ const DownloadsTab: React.FC = () => {
                   />
                   {settings.searchQuery && (
                     <Button
-                      variant="subtle"
+                      variant="filled"
+                      color="gray"
                       size="xs"
                       onClick={() => setSettings({ ...settings, searchQuery: '' })}
                       className="absolute right-2 top-1/2 -translate-y-1/2 !p-1"
@@ -1453,7 +1454,8 @@ const DownloadsTab: React.FC = () => {
                 </div>
                 <Tooltip content={t('downloads.tab.tooltips.settings')} position="bottom">
                   <Button
-                    variant="subtle"
+                    variant="filled"
+                    color="gray"
                     size="sm"
                     onClick={() => setSettingsOpened(!settingsOpened)}
                     data-settings-button="true"
@@ -1618,7 +1620,8 @@ const DownloadsTab: React.FC = () => {
                     trigger={
                       <Tooltip content={t('downloads.tab.tooltips.export')} position="bottom">
                         <Button
-                          variant="subtle"
+                          variant="filled"
+                          color="gray"
                           size="sm"
                           onClick={() => setShowExportOptions(!showExportOptions)}
                           disabled={exportLoading || itemsToDisplay.length === 0}
@@ -1650,7 +1653,8 @@ const DownloadsTab: React.FC = () => {
                   {settings.viewMode === 'retro' && (
                     <Tooltip content={t('downloads.tab.tooltips.fitColumns')} position="bottom">
                       <Button
-                        variant="subtle"
+                        variant="filled"
+                        color="gray"
                         size="sm"
                         onClick={() => retroViewRef.current?.resetWidths()}
                       >
@@ -1662,7 +1666,8 @@ const DownloadsTab: React.FC = () => {
                   {!isGuest && (
                     <Tooltip content={t('downloads.tab.tooltips.refreshImages')} position="bottom">
                       <Button
-                        variant="subtle"
+                        variant="filled"
+                        color="gray"
                         size="sm"
                         onClick={handleClearImageCache}
                         disabled={imageCacheClearing}
@@ -1674,7 +1679,8 @@ const DownloadsTab: React.FC = () => {
 
                   <Tooltip content={t('downloads.tab.tooltips.settings')} position="bottom">
                     <Button
-                      variant="subtle"
+                      variant="filled"
+                      color="gray"
                       size="sm"
                       onClick={() => setSettingsOpened(!settingsOpened)}
                       data-settings-button="true"
