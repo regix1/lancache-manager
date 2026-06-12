@@ -1,6 +1,7 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import en from './locales/en.json';
+import zh from './locales/zh.json';
 
 const STORAGE_KEY = 'lancache_language';
 const storedLanguage =
@@ -8,11 +9,12 @@ const storedLanguage =
 
 i18n.use(initReactI18next).init({
   resources: {
-    en: { translation: en }
+    en: { translation: en },
+    zh: { translation: zh }
   },
   lng: storedLanguage || 'en',
   fallbackLng: 'en',
-  supportedLngs: ['en'],
+  supportedLngs: ['en', 'zh'],
   interpolation: {
     escapeValue: false
   },

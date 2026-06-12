@@ -32,7 +32,7 @@
       "accessDenied": {
         "title": "拒绝访问",
         "description": "您的账户已被禁止使用预填充功能.",
-        "help": "如果存在问题，请联系管理员."
+        "help": "如果您认为这是误判，请联系管理员。"
       }
     },
     "fullScanRequired": {
@@ -54,7 +54,7 @@
     "search": "搜索",
     "clear": "清除",
     "copy": "复制",
-    "load": "读取",
+    "load": "加载",
     "scan": "扫描",
     "process": "处理",
     "processAll": "全部处理",
@@ -73,7 +73,7 @@
     "nextPage": "下一页",
     "firstPage": "首页",
     "lastPage": "尾页",
-    "goToPage": "前往 {{page}}",
+    "goToPage": "前往第 {{page}} 页",
     "jumpTo": "跳转至...",
     "hideThisHint": "隐藏此提示",
     "remove": "移除",
@@ -109,8 +109,8 @@
       ],
       "notSelected": "未选择",
       "quickSelect": "快速选择：",
-      "selectEndDate": "点选结束时间",
-      "selectStartDate": "点选开始时间",
+      "selectEndDate": "点击选择结束日期",
+      "selectStartDate": "点击选择开始日期",
       "startLabel": "开始：",
       "thisMonth": "本月",
       "thisYear": "今年",
@@ -169,6 +169,7 @@
       "cancelEvictionRemoval": "取消淘汰移除",
       "cancelBulkRemoval": "取消批量移除",
       "cancelOperationAria": "取消操作",
+      "forceKillOperation": "再次点击以强制终止",
       "cancelling": "取消中...",
       "corruptedChunksRemoved": "损坏块已成功移除",
       "filesDeleted": "已删除 {{formattedCount}} 个文件",
@@ -193,13 +194,13 @@
         },
         "realtime": {
           "description": "最多每5秒更新一次",
-          "label": "实时",
+          "label": "准实时",
           "rightLabel": "5秒",
           "shortLabel": "5秒"
         },
         "relaxed": {
           "description": "最多每30秒更新一次",
-          "label": "轻松",
+          "label": "宽松",
           "rightLabel": "30秒",
           "shortLabel": "30秒"
         },
@@ -417,9 +418,15 @@
       "snapshots_plural": "{{count}} 个快照",
       "noSnapshotsYet": "暂无快照",
       "filesOnDisk": "磁盘上的文件",
+      "fullDiskLimit": "使用整个磁盘",
+      "overConfiguredLimit": "已用配置上限的 {{percent}}",
+      "downloadsInRange": "{{count}} 次下载 · {{period}}",
+      "uniqueClientsInRange": "{{count}} 个独立客户端 · {{period}}",
       "gamesOnDisk": "磁盘上的游戏",
       "gamesDetected": "检测到 {{count}} 个游戏",
       "noScanData": "暂无扫描数据",
+      "scannedAt": "扫描于 {{time}}",
+      "staleScanData": "扫描数据已过期",
       "evictedIncluded": "{{count}} 个已淘汰",
       "onDisk": "磁盘 {{size}}"
     },
@@ -430,7 +437,7 @@
       },
       "usedSpace": {
         "term": "已用空间",
-        "description": "在实时模式下，这是当前的磁盘大小。在历史视图中，它是所选期间结束时的尺寸。"
+        "description": "缓存卷挂载点的实时使用情况（该磁盘上的所有内容）。它可能与磁盘上的游戏统计不同，后者仅统计与已知游戏匹配的缓存文件。如有缓存文件扫描结果，可与其总数进行对比。"
       },
       "bandwidthSaved": {
         "term": "节省带宽",
@@ -458,12 +465,13 @@
       },
       "cacheFiles": {
         "term": "缓存文件",
-        "description": "缓存目录中当前找到的文件总数。即使总大小看起来合理，非常高的文件数也可能使缓存扫描、移除和文件系统操作花费更长时间。"
+        "description": "上次全量缓存扫描的文件总数。可在 管理 → 计划 → 缓存文件扫描 中设置自动扫描，或在 管理 → 缓存 中手动刷新。"
       },
       "gamesOnDisk": {
         "term": "磁盘上的游戏",
-        "description": "属于已识别游戏的缓存文件总大小。这是已用空间的子集 - 仅统计在游戏缓存检测扫描中匹配到已知游戏的文件。未识别的缓存文件（更新、非游戏内容）不包括在内。"
-      }
+        "description": "上次游戏缓存检测扫描中与已知游戏匹配的缓存文件大小。共享文件按扫描完成时计算出的实际文件大小只统计一次。服务级缓存（Windows 更新等）和未识别的缓存文件不包含在内——当有缓存文件扫描结果时，它们会显示在未映射缓存部分中。"
+      },
+      "unmappedCache": "{{size}} 未映射缓存"
     },
     "downloadsPanel": {
       "title": "下载",
@@ -488,7 +496,7 @@
       "hitTooltipDetailed": "{{percent}} 命中率 · {{saved}} 从缓存提供（磁盘 {{disk}}）",
       "downloading": "下载中",
       "refresh": "刷新",
-      "showing": "显示 <strong>{{total}}</strong> 中的 <strong>{{displayed}}</strong>",
+      "showing": "显示 <strong>{{displayed}}</strong> 个，共 <strong>{{total}}</strong> 个",
       "totalDownloads": "总下载量",
       "activeDownloadsOnly": "活跃下载仅在实时模式下可用",
       "emptyStates": {
@@ -573,7 +581,8 @@
         "hitRatio": "按服务比较缓存命中与源站流量。",
         "bandwidth": "每个服务节省的带宽。较大的份额 = 更多从缓存而非互联网提供服务的服务。",
         "misses": "每个服务从互联网新下载的数据。较大的份额 = 有更多新内容的服务。首次下载是正常的。",
-        "games": "查看检测到的游戏安装及其磁盘占用。"
+        "games": "查看检测到的游戏安装及其磁盘占用。",
+        "gamesStale": "扫描数据可能已过期，请重新运行游戏缓存检测以获取准确大小。"
       },
       "footer": {
         "totalData": "总数据量",
@@ -586,8 +595,8 @@
         "largestGame": "最大",
         "cacheHits": "缓存命中",
         "bandwidthSaved": "节省带宽",
-        "topService": "最多服务",
-        "topSource": "最多来源",
+        "topService": "主要服务",
+        "topSource": "主要来源",
         "avgSavedPerService": "平均节省 / 服务",
         "originPulls": "来自互联网",
         "missRate": "未命中率",
@@ -820,6 +829,16 @@
         "display": "显示",
         "appearance": "外观"
       },
+      "guestDurationToggle": {
+        "adminRequired": "请以管理员身份登录以更改此设置",
+        "error": "更新访客会话时长失败：{{status}}",
+        "resetToDefault": "重置为默认值",
+        "source": {
+          "ui": "来源：界面覆盖",
+          "config": "来源：环境变量",
+          "default": "来源：默认值"
+        }
+      },
       "durationOptions": {
         "1": "1 小时",
         "2": "2 小时",
@@ -832,11 +851,11 @@
         "168": "168 小时（1 周）"
       },
       "refreshRates": {
-        "LIVE": "实时（实时）",
+        "LIVE": "实时（即时）",
         "ULTRA": "极速（1秒）",
-        "REALTIME": "实时（5秒）",
+        "REALTIME": "准实时（5秒）",
         "STANDARD": "标准（10秒）",
-        "RELAXED": "放松（30秒）",
+        "RELAXED": "宽松（30秒）",
         "SLOW": "慢速（60秒）"
       },
       "timeFormats": {
@@ -867,7 +886,7 @@
         },
         "sharpCorners": {
           "label": "方角",
-          "description": "方角替代圆角"
+          "description": "使用方角而非圆角"
         },
         "disableTooltips": {
           "label": "禁用工具提示",
@@ -1155,7 +1174,7 @@
         },
         "hitRate": {
           "title": "缓存命中率",
-          "description": "缓存命中率 - 从缓存提供与从互联网下载的数据百分比。"
+          "description": "缓存命中率——数据由缓存提供（而非从互联网下载）的百分比。"
         }
       }
     },
@@ -1252,6 +1271,9 @@
       "display": {
         "minimalMode": "简约模式",
         "fullHeightBanners": "全高横幅",
+        "bannerImageRendering": "横幅图片缩放",
+        "bannerSmooth": "平滑",
+        "bannerCrisp": "锐利",
         "groupByGameRetro": "按游戏分组"
       },
       "behavior": {
@@ -1441,7 +1463,7 @@
         "evictedItemsHeading": "已淘汰项目",
         "evictionModes": {
           "show": "带徽章显示",
-          "showDescription": "已淘汰游戏数据在所有页面上可见，带有'已驱逐'徽章和变暗外观，包含在统计计算中",
+          "showDescription": "已淘汰游戏数据在所有页面上可见，带有'已淘汰'徽章和变暗外观，包含在统计计算中",
           "showClean": "显示",
           "showCleanDescription": "已淘汰游戏数据正常显示，无徽章或变暗，包含在统计计算中",
           "hide": "隐藏",
@@ -1459,16 +1481,16 @@
         "evictionRemoveConfirmButton": "启用移除模式",
         "evictionRemoveConfirmCancel": "取消",
         "evictionRemoveAll": "全部移除",
-        "evictionRemoveAllStarting": "正在移除 {{total}} 个已淘汰项目中的第 0 个...",
-        "evictionRemoveAllProgress": "正在移除 {{total}} 个中的第 {{current}} 个 - {{label}}",
+        "evictionRemoveAllStarting": "正在移除 0 / {{total}} 个已淘汰项目...",
+        "evictionRemoveAllProgress": "正在移除 {{current}} / {{total}} - {{label}}",
         "evictionRemoveAllComplete": "已移除 {{count}} 个已淘汰项目",
         "evictionRemoveAllCancelled": "批量移除在 {{count}} 个项目后被取消",
         "evictionRemoveAllConfirmTitle": "移除所有已淘汰项目？",
-        "evictionRemoveAllConfirmMessage": "每个项目都经过各自的移除流程（日志重写 + 数据库清理），且操作无法撤销。",
+        "evictionRemoveAllConfirmMessage": "这将逐个移除全部 {{count}} 个已淘汰项目。每个项目都经过各自的移除流程（日志重写 + 数据库清理），且操作无法撤销。",
         "evictionRemoveAllConfirmWarning": "仅移除已淘汰的仓库 - 部分缓存的游戏保留其磁盘文件。",
         "gameCacheRemoveAll": "全部移除",
-        "gameCacheRemoveAllStarting": "正在移除 {{total}} 个缓存项目中的第 0 个...",
-        "gameCacheRemoveAllProgress": "正在移除 {{total}} 个中的第 {{current}} 个 - {{label}}",
+        "gameCacheRemoveAllStarting": "正在移除 0 / {{total}} 个缓存项目...",
+        "gameCacheRemoveAllProgress": "正在移除 {{current}} / {{total}} - {{label}}",
         "gameCacheRemoveAllComplete": "已移除 {{count}} 个缓存项目",
         "gameCacheRemoveAllCancelled": "批量移除在 {{count}} 个项目后被取消",
         "gameCacheRemoveAllConfirmTitle": "移除所有缓存的游戏与服务？",
@@ -1527,7 +1549,7 @@
             "label": "客户端统计",
             "description": "每个客户端的下载统计和指标",
             "details": "按 IP 地址分组的带宽和下载次数",
-            "affectedPages": "仪表板 • 客户端标签"
+            "affectedPages": "仪表板 • 客户端标签页"
           },
           "serviceStats": {
             "label": "服务统计",
@@ -1545,31 +1567,31 @@
             "label": "缓存检测结果",
             "description": "来自游戏和服务检测扫描的缓存结果",
             "details": "从缓存文件预先计算的游戏和服务检测，以加快仪表板加载速度",
-            "affectedPages": "缓存标签 • 游戏检测卡片"
+            "affectedPages": "缓存标签页 • 游戏检测卡片"
           },
           "cachedCorruptionDetections": {
             "label": "损坏检测缓存",
             "description": "来自缓存文件损坏分析的缓存结果",
             "details": "预先计算的损坏检测结果，以加快损坏状态检查",
-            "affectedPages": "缓存标签 • 损坏检测"
+            "affectedPages": "缓存标签页 • 损坏检测"
           },
           "clientGroups": {
             "label": "客户端组",
             "description": "用于组织客户端的命名组",
             "details": "用户定义的带有昵称和颜色的组。同时清除组成员关联。",
-            "affectedPages": "客户端标签 • 客户端组标签"
+            "affectedPages": "客户端标签页 • 客户端组标签"
           },
           "events": {
             "label": "事件",
             "description": "用于跟踪 LAN 聚会和游戏会话的自定义事件",
             "details": "用户创建的带有日期范围的事件。通过级联清除相关的下载链接。",
-            "affectedPages": "事件标签 • 下载事件筛选器"
+            "affectedPages": "事件标签页 • 下载事件筛选器"
           },
           "eventDownloads": {
             "label": "事件下载链接",
             "description": "事件与下载之间的关联",
             "details": "将下载连接到事件的链接（自动标记和手动）",
-            "affectedPages": "事件标签 • 下载事件标签"
+            "affectedPages": "事件标签页 • 下载事件标签"
           },
           "prefillSessions": {
             "label": "预填充会话",
@@ -1605,7 +1627,7 @@
             "label": "服务检测缓存",
             "description": "来自服务检测扫描的缓存结果",
             "details": "从缓存文件预先计算的服务检测（Steam、Epic 等）",
-            "affectedPages": "缓存标签 • 服务检测卡片"
+            "affectedPages": "缓存标签页 • 服务检测卡片"
           },
           "prefillCachedDepots": {
             "label": "预填充缓存状态",
@@ -1629,7 +1651,7 @@
             "label": "Epic CDN 模式",
             "description": "用于游戏检测的 Epic Games CDN URL 模式",
             "details": "用于识别 Epic 游戏下载的 CDN 主机和块 URL 模式",
-            "affectedPages": "Epic 游戏检测 • 缓存标签"
+            "affectedPages": "Epic 游戏检测 • 缓存标签页"
           }
         }
       },
@@ -1655,7 +1677,7 @@
         "disabled": "已禁用",
         "mockModeActive": "模拟模式已激活 - API 操作已禁用",
         "displayPreferences": "显示首选项",
-        "displayPreferencesDesc": "自定义您的体验",
+        "displayPreferencesDesc": "自定义体验",
         "performanceOptimizations": "性能优化",
         "performanceOptimizationsDesc": "垃圾回收与内存管理",
         "performanceOptimizationsDisabled": "性能优化已禁用",
@@ -1692,18 +1714,17 @@
         "epicIntegration": "Epic Games 集成",
         "loadingEndpoints": "加载端点中...",
         "epicDaemonStatus": {
-          "title": "Epic Games 认证",
-          "status": "状态",
+          "title": "Epic Games",
           "ready": "就绪",
           "unavailable": "不可用",
           "connected": "已连接",
           "notConnected": "未连接",
           "connectedAs": "已连接为 {{name}}",
+          "connectedDesc": "此账户的游戏库已同步到下方的共享游戏库",
           "notConnectedDesc": "登录以发现 Epic 游戏并识别下载",
           "dockerStatus": "Docker 服务",
           "dockerAvailableDesc": "Docker 可用并已准备好进行 Epic 预填充会话",
           "dockerUnavailableDesc": "启动 Docker Desktop 以启用 Epic Games 认证",
-          "gamesDiscovered": "从此账户发现 {{count}} 个游戏",
           "loginButton": "使用 Epic Games 登录",
           "loginDesc": "使用您的 Epic Games 账户登录以发现游戏库用于下载识别",
           "logout": "登出",
@@ -1728,8 +1749,8 @@
           }
         },
         "epicGameMappings": {
-          "title": "Epic Games 库",
-          "description": "从已登录的 Epic 账户发现的游戏",
+          "title": "游戏库",
+          "description": "从已连接的账户、用户预填充会话和免费游戏目录收集的游戏",
           "totalGames": "游戏总数",
           "lastUpdated": "最后更新",
           "noGames": "尚未发现游戏。使用 Epic Games 账户登录以开始构建目录。",
@@ -1743,8 +1764,8 @@
           "source": "发现方法",
           "image": "",
           "imageUrl": "封面图",
-          "gamesDiscovered": "已发现 {{count}} 个游戏",
-          "gamesDiscovered_plural": "已发现 {{count}} 个游戏",
+          "gamesInLibrary_one": "库中有 {{count}} 个游戏，收集自已连接的账户、用户预填充会话和免费游戏目录",
+          "gamesInLibrary_other": "库中有 {{count}} 个游戏，收集自已连接的账户、用户预填充会话和免费游戏目录",
           "noResults": "没有游戏匹配您的搜索",
           "never": "从不",
           "sourceDescriptions": {
@@ -1906,7 +1927,7 @@
       "detectionModeRedownloadShort": "重新下载",
       "detectionModeRedownloadDesc": "检测同一客户端在 60 秒内重新下载缓存内容 {{threshold}}+ 次的 URL。发现基于 MISS 检测不可见的损坏 - 通过 HTTP 检查但内容验证失败的缓存文件。",
       "redownloadCount": "重新下载次数：",
-      "redownloadRemovalUnavailable": "重新下载检测不提供自动移除。使用游戏缓存检测移除特定游戏缓存，或切换到缓存 + 日志模式。",
+      "redownloadRemovalUnavailable": "重新下载检测不支持自动移除。请使用游戏缓存检测移除特定游戏缓存，或切换到缓存 + 日志模式。",
       "sensitivityTitle": "检测灵敏度",
       "sensitivityHigh": "高灵敏度",
       "sensitivityHighShort": "高",
@@ -1948,7 +1969,7 @@
         "cacheReadOnly": "缓存目录为只读",
         "requiresWriteAccess": "损坏移除需要对日志和缓存都具有写权限。请移除",
         "requiresLogsWriteAccess": "损坏移除需要对日志具有写权限。请移除",
-        "fromVolumeMounts": "中的 :ro 从您的 docker-compose 卷挂载。",
+        "fromVolumeMounts": "（位于 docker-compose 卷挂载中）。",
         "dockerSocketUnavailable": "Docker 套接字不可用",
         "requiresNginxSignal": "损坏移除需要通知 nginx 在之后重新打开日志。"
       },
@@ -2074,7 +2095,7 @@
         "unknownGames": {
           "title": "未知和已下架游戏",
           "description": "不再出现在 Steam 应用列表中的游戏（已下架游戏）仍显示为\"未知游戏（仓库 XXXXXX）\"。您可以像任何其他游戏一样移除它们 - 运行扫描并点击移除。",
-          "tip": "移除未知游戏是修复损坏或损坏游戏下载的推荐方法。"
+          "tip": "移除未知游戏是修复损坏或异常游戏下载的推荐方法。"
         }
       },
       "emptyState": {
@@ -2504,7 +2525,7 @@
       "githubDownloadComplete": "GitHub 数据已下载 - 正在应用映射",
       "applyingMappingsDescription": "预先创建的仓库映射已从 GitHub 导入。系统正在将这些映射应用到您的下载历史记录。",
       "applyNowSource": "立即应用扫描模式",
-      "applyNowSourceHelp": "仅影响\"立即应用\"按钮。计划运行和计划卡片的\"立即运行\"按钮使用计划扫描模式。",
+      "applyNowSourceHelp": "仅影响\"立即应用\"按钮。计划运行和计划卡片的\"立即运行\"按钮使用\"计划\"中的计划扫描模式。",
       "intervalFixedNote": "GitHub 模式的间隔固定为 30 分钟",
       "scanSkipped": {
         "title": "自动扫描已跳过 - 需要更新数据",
@@ -2816,6 +2837,17 @@
       "placeholders": {
         "selectRate": "选择速率",
         "selectInterval": "选择间隔"
+      },
+      "accessMode": "端点访问",
+      "metricsToggle": {
+        "adminRequired": "请以管理员身份登录以更改此设置",
+        "error": "更新指标安全设置失败：{{status}}",
+        "resetToDefault": "重置为默认值",
+        "source": {
+          "ui": "来源：界面覆盖",
+          "config": "来源：环境变量",
+          "default": "来源：默认值"
+        }
       }
     },
     "gc": {
@@ -2845,7 +2877,7 @@
       "home": "首页",
       "goBack": "返回",
       "searchForDb": "搜索 .db 文件",
-      "accessDenied": "访问被拒绝到此位置",
+      "accessDenied": "无权访问此位置",
       "noDatabaseFiles": "此位置未找到数据库文件",
       "searchFailed": "搜索失败",
       "noFilesFound": "未找到目录或 .db 文件",
@@ -2937,6 +2969,12 @@
           "gain": "界面中的淘汰徽章和缓存状态更准确和最新",
           "loss": "界面可能显示过时的淘汰状态 - 标记为已缓存的项目可能实际上已被驱逐，反之亦然"
         },
+        "cacheSizeScan": {
+          "displayName": "缓存文件扫描",
+          "description": "遍历整个缓存目录并统计磁盘上的所有文件（已映射和未映射）。更新仪表板的缓存文件统计、扫描时间戳和未映射缓存提示。",
+          "gain": "文件数量和未映射缓存总量保持最新，无需在管理 → 缓存中点击刷新",
+          "loss": "缓存文件统计和未映射缓存副标题可能保持过期，直到下次扫描运行"
+        },
         "gameDetection": {
           "displayName": "游戏检测",
           "description": "扫描您的缓存目录，并使用 Steam 和 Epic 仓库映射将每个缓存数据块标记为所属游戏。增量扫描跳过已检测到的游戏；先前\"未知\"的仓库在新映射到达时被解析。",
@@ -2985,6 +3023,7 @@
       "status": {
         "authenticated": "已验证",
         "guestMode": "访客模式（剩余 {{time}}）",
+        "guestModeNoTime": "访客模式",
         "expired": "访客会话已过期",
         "notAuthenticated": "未验证"
       },
@@ -3088,8 +3127,8 @@
         "loadingHistory": "正在加载历史...",
         "noPrefillHistoryYet": "暂无预填充历史",
         "noPrefillHistoryRecorded": "没有记录的预填充历史",
-        "gamesPrefilled": "{{count}} 个游戏已预填充",
-        "gamesPrefilled_plural": "{{count}} 个游戏已预填充",
+        "gamesPrefilled": "已预填充 {{count}} 个游戏",
+        "gamesPrefilled_plural": "已预填充 {{count}} 个游戏",
         "total": "总计：{{bytes}}",
         "started": "开始：{{time}}",
         "completed": "完成：{{time}}",
@@ -3099,8 +3138,8 @@
       "tooltips": {
         "sessionActive": "会话当前在内存中活跃",
         "steamAuthenticated": "Steam 已验证",
-        "gamesPrefilled": "{{count}} 个游戏已预填充",
-        "gamesPrefilled_plural": "{{count}} 个游戏已预填充",
+        "gamesPrefilled": "已预填充 {{count}} 个游戏",
+        "gamesPrefilled_plural": "已预填充 {{count}} 个游戏",
         "totalDataDownloaded": "总下载数据量",
         "banUser": "封禁此 Steam 用户",
         "terminateSession": "终止会话",
@@ -3138,10 +3177,10 @@
           "confirm": "封禁用户"
         },
         "liftBan": {
-          "title": "封禁已解除",
+          "title": "解除封禁",
           "message": "您确定要解除此封禁吗？该用户将能够再次使用预填充。",
           "cancel": "取消",
-          "confirm": "封禁已解除"
+          "confirm": "解除封禁"
         }
       },
       "actions": {
@@ -3245,7 +3284,7 @@
           "daily": "每日"
         },
         "weekStart": {
-          "title": "每周从",
+          "title": "每周开始于",
           "sunday": "星期日",
           "monday": "星期一"
         },
@@ -3306,7 +3345,7 @@
     }
   },
   "eventFrame": {
-    "badge": "直播",
+    "badge": "进行中",
     "labelWithMore": "{{name}} +{{count}}",
     "activeEvents": "活跃事件"
   },
@@ -3335,7 +3374,7 @@
     "activityLog": {
       "title": "活动日志",
       "subtitle": "状态更新和输出",
-      "paginationCount": "{{start}}-{{end}} / 共 {{total}}",
+      "paginationCount": "{{start}}-{{end}}，共 {{total}}",
       "waitingForActivity": "等待活动",
       "updatesWillAppear": "命令和状态更新将显示在此处"
     },
@@ -3380,7 +3419,7 @@
       "appId": "应用 {{id}}",
       "complete": "已完成",
       "upToDate": "已是最新",
-      "elapsed": "已用时间",
+      "elapsed": "已用时",
       "gameUpToDate": "游戏在缓存中已是最新",
       "preparingOperation": "正在准备预填充操作..."
     },
@@ -3522,7 +3561,7 @@
       "recentMessage": "这将下载最近游玩的游戏（最近 2 周）。这可能会消耗大量带宽。",
       "recentPurchasedTitle": "下载最近购买",
       "recentPurchasedMessage": "这将下载最近购买的游戏（最近 2 周）。这可能会消耗大量带宽。",
-      "topTitle": "下载前 50 游戏",
+      "topTitle": "下载前 50 款游戏",
       "topMessage": "这将下载前 50 个热门游戏。这可能需要一些时间并消耗大量带宽。",
       "forceTitle": "强制重新下载",
       "forceMessage": "即使游戏已缓存也会重新下载。如果您怀疑缓存损坏，请使用此选项。",
@@ -3623,8 +3662,8 @@
       "importAlreadySelected": "{{count}} 已选择",
       "importNotInLibrary": "{{count}} 不在库中",
       "noValidAppIds": "未找到有效的应用 ID",
-      "ofGamesSelected": "已选 {{total}} 个游戏中的 {{count}}",
-      "ofGamesSelected_plural": "已选 {{total}} 个游戏中的 {{count}}",
+      "ofGamesSelected": "/ {{total}} 个游戏已选择",
+      "ofGamesSelected_plural": "/ {{total}} 个游戏已选择",
       "cached": "{{count}} 已缓存",
       "showing": "显示 {{count}}",
       "matching": "匹配 \"{{query}}\"",
@@ -4118,8 +4157,8 @@
         },
         "bgSurfaceHover": {
           "label": "表面悬停",
-          "description": "抬高表面的悬停状态",
-          "affects": ["列表项悬停", "表层悬停", "菜单项悬停"]
+          "description": "提升表面元素上的悬停状态",
+          "affects": ["列表项悬停", "表面悬停", "菜单项悬停"]
         },
         "bgSurfaceActive": {
           "label": "表面激活",
@@ -4298,33 +4337,33 @@
         },
         "error": {
           "label": "错误主要",
-          "description": "错误状态主色（警告边框）",
+          "description": "错误状态主色（错误边框）",
           "affects": ["错误图标", "删除按钮", "关键操作", "警告边框", "错误通知"]
         },
         "errorBg": {
           "label": "错误背景",
-          "description": "错误状态背景色（警告背景）",
-          "affects": ["错误提示", "错误徽章", "警告背景", "错误横幅", "危险区域"]
+          "description": "错误状态背景色（错误背景）",
+          "affects": ["错误提示", "错误徽章", "错误背景", "错误横幅", "危险区域"]
         },
         "errorText": {
           "label": "错误文本",
-          "description": "错误状态文本色（警告文本）",
-          "affects": ["错误消息", "验证错误", "警告文本", "错误通知"]
+          "description": "错误状态文本色（错误文本）",
+          "affects": ["错误消息", "验证错误", "错误文本", "错误通知"]
         },
         "info": {
           "label": "信息主要",
-          "description": "信息状态主色（警告边框）",
+          "description": "信息状态主色（信息边框）",
           "affects": ["信息图标", "信息按钮", "警告边框", "信息通知"]
         },
         "infoBg": {
           "label": "信息背景",
-          "description": "信息状态背景色（警告背景）",
-          "affects": ["信息提示", "信息卡片", "警告背景", "通知面板", "信息横幅"]
+          "description": "信息状态背景色（信息背景）",
+          "affects": ["信息提示", "信息卡片", "信息背景", "通知面板", "信息横幅"]
         },
         "infoText": {
           "label": "信息文本",
-          "description": "信息状态文本色（警告文本）",
-          "affects": ["信息消息", "帮助内容", "警告文本", "通知文本"]
+          "description": "信息状态文本色（信息文本）",
+          "affects": ["信息消息", "帮助内容", "信息文本", "通知文本"]
         },
         "navBg": {
           "label": "导航背景",
@@ -4339,7 +4378,7 @@
         "navTabActive": {
           "label": "活跃标签",
           "description": "活跃导航项",
-          "affects": ["当前页", "活跃标签"]
+          "affects": ["当前页面", "活跃标签"]
         },
         "navTabInactive": {
           "label": "非活跃标签",
@@ -4387,12 +4426,12 @@
           "affects": ["第二数据系列"]
         },
         "chartColor3": {
-          "label": "图表第三",
+          "label": "图表第三色",
           "description": "第三图表颜色",
           "affects": ["第三数据系列"]
         },
         "chartColor4": {
-          "label": "图表第四",
+          "label": "图表第四色",
           "description": "第四图表颜色",
           "affects": ["第四数据系列"]
         },
@@ -4442,42 +4481,42 @@
           "affects": ["图表边框", "图表分隔线"]
         },
         "gameColor1": {
-          "label": "游戏颜色1",
+          "label": "游戏颜色 1",
           "description": "第一个游戏图表扇区",
           "affects": ["磁盘游戏图表"]
         },
         "gameColor2": {
-          "label": "游戏颜色2",
+          "label": "游戏颜色 2",
           "description": "第二个游戏图表扇区",
           "affects": ["磁盘游戏图表"]
         },
         "gameColor3": {
-          "label": "游戏颜色3",
+          "label": "游戏颜色 3",
           "description": "第三个游戏图表扇区",
           "affects": ["磁盘游戏图表"]
         },
         "gameColor4": {
-          "label": "游戏颜色4",
+          "label": "游戏颜色 4",
           "description": "第四个游戏图表扇区",
           "affects": ["磁盘游戏图表"]
         },
         "gameColor5": {
-          "label": "游戏颜色5",
+          "label": "游戏颜色 5",
           "description": "第五个游戏图表扇区",
           "affects": ["磁盘游戏图表"]
         },
         "gameColor6": {
-          "label": "游戏颜色6",
+          "label": "游戏颜色 6",
           "description": "第六个游戏图表扇区",
           "affects": ["磁盘游戏图表"]
         },
         "gameColor7": {
-          "label": "游戏颜色7",
+          "label": "游戏颜色 7",
           "description": "第七个游戏图表扇区",
           "affects": ["磁盘游戏图表"]
         },
         "gameColor8": {
-          "label": "游戏颜色8",
+          "label": "游戏颜色 8",
           "description": "第八个游戏图表扇区",
           "affects": ["磁盘游戏图表"]
         },
@@ -4579,7 +4618,7 @@
         "userSessionColor": {
           "label": "已验证用户颜色",
           "description": "已验证用户的图标和文本颜色",
-          "affects": ["用户徽章文本", "已认证用户图标", "已认证统计卡片"]
+          "affects": ["用户徽章文本", "已验证用户图标", "已验证统计卡片"]
         },
         "userSessionBg": {
           "label": "已验证用户背景",
@@ -4854,7 +4893,7 @@
       "placeholder": "输入您的 Steam Web API 密钥"
     },
     "importData": {
-      "placeholder": "/path/to/lancache.db 文件路径"
+      "placeholder": "/path/to/lancache.db"
     },
     "apiKey": {
       "placeholder": "输入您的 API 密钥",
@@ -4880,6 +4919,20 @@
       "errors": {
         "required": "API 密钥是必需的"
       }
+    },
+    "dbInfo": {
+      "externalTitle": "外部 PostgreSQL 已连接",
+      "embeddedTitle": "内置 PostgreSQL 已就绪",
+      "externalBody": "此容器已配置为使用外部 PostgreSQL 服务器。以下连接信息来自您的环境变量（或已保存的凭据文件）。",
+      "embeddedBody": "此容器通过本地 Unix 套接字使用内置的 PostgreSQL 数据库。凭据已通过环境变量或设置向导配置完成。",
+      "target": "连接目标",
+      "host": "主机",
+      "socket": "套接字",
+      "port": "端口",
+      "database": "数据库",
+      "user": "用户",
+      "continue": "继续",
+      "unknown": "（未知）"
     },
     "permissionsCheck": {
       "title": "权限检查",
@@ -4980,7 +5033,7 @@
       "timeEstimate": "通常需要 1-5 分钟，具体取决于您的网络连接。",
       "continue": "继续",
       "cancelling": "取消中...",
-      "cancelUseGithub": "取消并使用 GitHub 替代"
+      "cancelUseGithub": "取消并改用 GitHub"
     },
     "depotInit": {
       "title": "初始化仓库数据",
@@ -5074,7 +5127,7 @@
       "cache": "缓存：",
       "logs": "日志：",
       "processThisDatasource": "处理此数据源",
-      "complete": "日志处理完成！点击继续以继续。",
+      "complete": "日志处理完成！点击\"继续\"进入下一步。",
       "skipForNow": "暂不处理",
       "continue": "继续",
       "failedToProcess": "启动日志处理失败",
@@ -5127,7 +5180,15 @@
       "imported": "已导入：{{formattedCount}}",
       "skipped": "已跳过：{{formattedCount}}",
       "errors": "错误：{{formattedCount}}",
-      "importFailed": "导入失败：{{error}}"
+      "importFailed": "导入失败：{{error}}",
+      "fileBrowserDisabled": {
+        "title": "文件浏览器已禁用",
+        "description": "自动检测和浏览模式使用服务器文件浏览器在磁盘上查找旧的 DeveLanCacheUI SQLite 数据库。出于安全考虑，该功能默认关闭，因此在您允许特定目录之前，这些模式无法进行搜索。",
+        "manualHint": "您仍然可以在手动模式下输入完整路径进行导入，或跳过此步骤、不导入直接继续。",
+        "envVarInstructions": "将以下环境变量添加到您的 docker-compose.yml 中，然后重启容器。请包含所有可能存放旧 .db 文件的目录：",
+        "envVarExample": "- Security__AllowedBrowsePaths=/data,/mnt",
+        "envVarNote": "只有此列表中的路径（及其子目录）可读，其余路径均返回 403。如果您的数据库位于主机挂载点上，请包含该挂载点（例如 /mnt/old-lancache）。"
+      }
     },
     "platformSetup": {
       "title": "平台设置",
@@ -5272,8 +5333,8 @@
   },
   "aria": {
     "managementSections": "管理区域",
-    "previousEventsPage": "上一页事件",
-    "nextEventsPage": "下一页事件",
+    "previousEventsPage": "上一个事件页面",
+    "nextEventsPage": "下一个事件页面",
     "previousPage": "上一页",
     "nextPage": "下一页",
     "increaseBatchSize": "增加批处理大小",
@@ -5423,6 +5484,7 @@
       "checkingFreeGames": "正在检查免费游戏促销活动...",
       "applyingMappings": "正在将 Epic 下载解析为游戏名称...",
       "gamesDiscovered": "发现 {{gamesDiscovered}} 个游戏",
+      "completed": "Epic 目录刷新完成 - {{gamesDiscovered}} 个游戏",
       "cancelled": "Epic 游戏目录刷新已取消",
       "failed": "Epic 游戏目录刷新失败: {{errorDetail}}"
     },
@@ -5469,8 +5531,12 @@
     },
     "evictionScan": {
       "scanning": "正在扫描缓存文件...",
-      "progress": "已处理 ~{{totalEstimate}} 个下载中的 {{totalProcessed}}...",
-      "complete": "扫描完成: 已处理 {{totalProcessed}}，已淘汰 {{totalEvicted}}，已取消驱逐 {{totalUnEvicted}}"
+      "scanningFiles": "正在扫描缓存文件...（目前已找到 {{filesFound}} 个）",
+      "progress": "已处理 {{totalProcessed}} / ~{{totalEstimate}} 个下载...",
+      "finalizing": "正在核对已淘汰的下载...",
+      "postProcessing": "正在更新检测记录...",
+      "refreshingSummary": "正在刷新检测摘要（可能需要几分钟）...",
+      "complete": "扫描完成: 已处理 {{totalProcessed}}，已淘汰 {{totalEvicted}}，已取消淘汰 {{totalUnEvicted}}"
     },
     "gameDetect": {
       "starting": {
@@ -5480,10 +5546,11 @@
       },
       "complete": {
         "default": "检测完成",
-        "newGames": "发现 {{newGamesCount}} 个新游戏（共 {{totalGamesDetected}} 个有缓存文件的游戏）",
+        "newGames": "增量扫描完成 — 发现 {{newGamesCount}} 个新游戏（磁盘上共 {{totalGamesDetected}} 个）",
         "noNewGames": "未检测到新游戏（共 {{totalGamesDetected}} 个有缓存文件的游戏）",
         "full": "检测到 {{totalGamesDetected}} 个有缓存文件的游戏"
       },
+      "refreshingSummary": "正在刷新检测摘要（可能需要几分钟）...",
       "scan": {
         "skippedIncremental": "跳过缓存文件扫描（增量模式）...",
         "inProgress": "正在扫描缓存文件...",
@@ -5535,7 +5602,8 @@
         "skippedEvicted": "跳过目录清理（游戏已被完全淘汰）"
       },
       "logs": {
-        "removing": "正在移除日志条目"
+        "removing": "正在移除日志条目",
+        "fileProgress": "正在移除日志条目（第 {{n}}/{{total}} 个文件）"
       }
     },
     "logProcessing": {
@@ -5544,7 +5612,7 @@
       "complete": "处理完成",
       "completedEntries": "成功处理了 {{entriesProcessed}} 条条目",
       "completedDetail": "在 {{elapsed}} 分钟内从 {{linesProcessed}} 行中成功处理了 {{entriesProcessed}} 条条目。",
-      "recoveryDetail": "{{totalLines}} 条条目中的 {{entriesProcessed}}"
+      "recoveryDetail": "已处理 {{entriesProcessed}} 条条目"
     },
     "logProcessor": {
       "starting": "开始日志处理...",
@@ -5564,6 +5632,9 @@
     },
     "logRemoval": {
       "progressWithCount": "正在移除 {{service}} 条目（已移除 {{linesRemoved}} 行）...",
+      "removing": "正在从日志中移除 {{service}} 条目...",
+      "complete": "已从日志中移除 {{service}} 条目。",
+      "completeNoFiles": "未找到匹配的日志条目，无需移除",
       "starting": {
         "default": "开始从日志中移除 {{service}} 条目...",
         "multi": "开始从 {{datasourceCount}} 个数据源移除 {{service}} 条目...",

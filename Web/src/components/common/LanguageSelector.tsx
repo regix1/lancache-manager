@@ -5,7 +5,8 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import i18n, { setLanguage } from '../../i18n';
 
 const LANGUAGE_LABELS: Record<string, { label: string; shortLabel: string }> = {
-  en: { label: 'English', shortLabel: 'EN' }
+  en: { label: 'English', shortLabel: 'EN' },
+  zh: { label: '中文（简体）', shortLabel: '中文' }
 };
 
 const getSupportedLanguages = (): string[] => {
