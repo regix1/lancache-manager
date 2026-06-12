@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Gamepad2, Search } from 'lucide-react';
-import { Card } from '@components/ui/Card';
-import { ManagerCardHeader } from '@components/ui/ManagerCard';
 import { DataTable, type DataTableColumn } from '@components/ui/DataTable';
 import { Tooltip } from '@components/ui/Tooltip';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -162,8 +160,9 @@ const EpicGameMappings: React.FC = () => {
       {
         key: 'name',
         header: t('management.sections.integrations.epicGameMappings.name'),
-        defaultWidth: 200,
-        minWidth: 100,
+        defaultWidth: 260,
+        minWidth: 140,
+        flexible: true,
         render: (mapping: EpicGameMappingDto) => (
           <span
             className="block truncate text-xs font-medium text-themed-primary"
@@ -176,8 +175,8 @@ const EpicGameMappings: React.FC = () => {
       {
         key: 'appId',
         header: t('management.sections.integrations.epicGameMappings.appId'),
-        defaultWidth: 140,
-        minWidth: 80,
+        defaultWidth: 190,
+        minWidth: 100,
         render: (mapping: EpicGameMappingDto) => (
           <span
             className="block truncate font-mono text-xs text-themed-secondary"
@@ -190,16 +189,16 @@ const EpicGameMappings: React.FC = () => {
       {
         key: 'source',
         header: t('management.sections.integrations.epicGameMappings.source'),
-        defaultWidth: 130,
-        minWidth: 80,
+        defaultWidth: 150,
+        minWidth: 110,
         align: 'center' as const,
         render: (mapping: EpicGameMappingDto) => <SourceBadgeCell source={mapping.source} />
       },
       {
         key: 'discovered',
         header: t('management.sections.integrations.epicGameMappings.discovered'),
-        defaultWidth: 150,
-        minWidth: 100,
+        defaultWidth: 140,
+        minWidth: 110,
         render: (mapping: EpicGameMappingDto) => (
           <FormattedDateCell dateStr={mapping.discoveredAtUtc} />
         )
@@ -207,8 +206,8 @@ const EpicGameMappings: React.FC = () => {
       {
         key: 'lastSeen',
         header: t('management.sections.integrations.epicGameMappings.lastSeen'),
-        defaultWidth: 150,
-        minWidth: 100,
+        defaultWidth: 140,
+        minWidth: 110,
         render: (mapping: EpicGameMappingDto) => (
           <FormattedDateCell dateStr={mapping.lastSeenAtUtc} />
         )
@@ -218,71 +217,69 @@ const EpicGameMappings: React.FC = () => {
   );
 
   return (
-    <Card>
-      <div className="flex flex-col gap-4">
-        {/* Card Header */}
-        <ManagerCardHeader
-          icon={Gamepad2}
-          iconColor="purple"
-          title={t('management.sections.integrations.epicGameMappings.title')}
-          subtitle={
-            stats && stats.totalGames > 0
-              ? t('management.sections.integrations.epicGameMappings.gamesDiscovered', {
-                  count: stats.totalGames
-                })
-              : t('management.sections.integrations.epicGameMappings.description')
-          }
-        />
-
-        {/* Error / Info Message */}
-        {error && <div className="p-4 text-center text-[var(--theme-error)]">{error}</div>}
-
-        {/* Empty State */}
-        {mappings.length === 0 && !searchQuery && (
-          <p className="text-xs text-themed-secondary text-center py-6">
-            {t('management.sections.integrations.epicGameMappings.noGames')}
-          </p>
-        )}
-
-        {/* Search and Table */}
-        {(mappings.length > 0 || searchQuery) && (
-          <>
-            {/* Search */}
-            <div className="relative">
-              <Search
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-themed-muted pointer-events-none"
-              />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleSearch(e.target.value)}
-                placeholder={t('management.sections.integrations.epicGameMappings.search')}
-                className="w-full py-2 pl-8 pr-3 border border-[var(--theme-border)] rounded-lg bg-themed-secondary text-themed-primary text-xs outline-none focus:border-[var(--theme-primary)]"
-              />
-            </div>
-
-            {/* DataTable */}
-            {mappings.length === 0 ? (
-              <p className="text-xs text-themed-secondary text-center py-4">
-                {t('management.sections.integrations.epicGameMappings.noResults')}
-              </p>
-            ) : (
-              <DataTable<EpicGameMappingDto>
-                columns={columns}
-                data={mappings}
-                keyExtractor={(mapping: EpicGameMappingDto) => mapping.appId}
-                maxHeight="400px"
-                accentColor={() => 'var(--theme-epic)'}
-                resizable
-                storageKey="epic-game-mappings-column-widths"
-                compact
-              />
-            )}
-          </>
-        )}
+    <div className="epic-library-section">
+      {/* Section Header */}
+      <div>
+        <h4 className="text-sm font-semibold text-themed-primary">
+          {t('management.sections.integrations.epicGameMappings.title')}
+        </h4>
+        <p className="text-xs text-themed-muted mt-0.5">
+          {stats && stats.totalGames > 0
+            ? t('management.sections.integrations.epicGameMappings.gamesInLibrary', {
+                count: stats.totalGames
+              })
+            : t('management.sections.integrations.epicGameMappings.description')}
+        </p>
       </div>
-    </Card>
+
+      {/* Error / Info Message */}
+      {error && <div className="p-4 text-center text-[var(--theme-error)]">{error}</div>}
+
+      {/* Empty State */}
+      {mappings.length === 0 && !searchQuery && (
+        <p className="text-xs text-themed-secondary text-center py-6">
+          {t('management.sections.integrations.epicGameMappings.noGames')}
+        </p>
+      )}
+
+      {/* Search and Table */}
+      {(mappings.length > 0 || searchQuery) && (
+        <>
+          {/* Search */}
+          <div className="relative">
+            <Search
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-themed-muted pointer-events-none"
+            />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleSearch(e.target.value)}
+              placeholder={t('management.sections.integrations.epicGameMappings.search')}
+              className="w-full py-2 pl-8 pr-3 border border-[var(--theme-border)] rounded-lg bg-themed-secondary text-themed-primary text-xs outline-none focus:border-[var(--theme-primary)]"
+            />
+          </div>
+
+          {/* DataTable */}
+          {mappings.length === 0 ? (
+            <p className="text-xs text-themed-secondary text-center py-4">
+              {t('management.sections.integrations.epicGameMappings.noResults')}
+            </p>
+          ) : (
+            <DataTable<EpicGameMappingDto>
+              columns={columns}
+              data={mappings}
+              keyExtractor={(mapping: EpicGameMappingDto) => mapping.appId}
+              maxHeight="400px"
+              accentColor={() => 'var(--theme-epic)'}
+              resizable
+              storageKey="epic-game-mappings-column-widths-v2"
+              compact
+            />
+          )}
+        </>
+      )}
+    </div>
   );
 };
 

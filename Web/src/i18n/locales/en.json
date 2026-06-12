@@ -1714,18 +1714,17 @@
         "epicIntegration": "Epic Games Integration",
         "loadingEndpoints": "Loading endpoints...",
         "epicDaemonStatus": {
-          "title": "Epic Games Authentication",
-          "status": "Status",
+          "title": "Epic Games",
           "ready": "Ready",
           "unavailable": "Unavailable",
           "connected": "Connected",
           "notConnected": "Not Connected",
           "connectedAs": "Connected as {{name}}",
+          "connectedDesc": "This account's library is synced into the shared game library below",
           "notConnectedDesc": "Log in to discover Epic games and identify downloads",
           "dockerStatus": "Docker Service",
           "dockerAvailableDesc": "Docker is available and ready for Epic prefill sessions",
           "dockerUnavailableDesc": "Start Docker Desktop to enable Epic Games authentication",
-          "gamesDiscovered": "{{count}} games discovered from this account",
           "loginButton": "Login with Epic Games",
           "loginDesc": "Sign in with your Epic Games account to discover your game library for download identification",
           "logout": "Logout",
@@ -1750,8 +1749,8 @@
           }
         },
         "epicGameMappings": {
-          "title": "Epic Games Library",
-          "description": "Games discovered from Epic accounts that have logged in",
+          "title": "Game Library",
+          "description": "Games collected from connected accounts, user prefill sessions, and the free-games catalog",
           "totalGames": "Total Games",
           "lastUpdated": "Last Updated",
           "noGames": "No games discovered yet. Log in with an Epic Games account to start building the catalog.",
@@ -1765,8 +1764,8 @@
           "source": "Discovery Method",
           "image": "",
           "imageUrl": "Cover Art",
-          "gamesDiscovered": "{{count}} game discovered",
-          "gamesDiscovered_plural": "{{count}} games discovered",
+          "gamesInLibrary_one": "{{count}} game in library — collected from connected accounts, user prefill sessions, and the free-games catalog",
+          "gamesInLibrary_other": "{{count}} games in library — collected from connected accounts, user prefill sessions, and the free-games catalog",
           "noResults": "No games match your search",
           "never": "Never",
           "sourceDescriptions": {
@@ -2839,6 +2838,7 @@
         "selectRate": "Select rate",
         "selectInterval": "Select interval"
       },
+      "accessMode": "Endpoint Access",
       "metricsToggle": {
         "adminRequired": "Sign in as admin to change this setting",
         "error": "Failed to update metrics security: {{status}}",
@@ -3023,6 +3023,7 @@
       "status": {
         "authenticated": "Authenticated",
         "guestMode": "Guest Mode ({{time}} remaining)",
+        "guestModeNoTime": "Guest Mode",
         "expired": "Guest Session Expired",
         "notAuthenticated": "Not Authenticated"
       },

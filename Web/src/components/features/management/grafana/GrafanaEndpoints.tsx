@@ -279,84 +279,35 @@ const GrafanaEndpoints: React.FC = () => {
 
   return (
     <Card>
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-indigo">
-            <Link className="w-5 h-5 icon-indigo" />
-          </div>
-          <h3 className="text-lg font-semibold text-themed-primary">
-            {t('management.grafana.title')}
-          </h3>
-          <HelpPopover position="left" width={320}>
-            <HelpSection title={t('management.grafana.help.metrics.title')} variant="subtle">
-              <HelpDefinition
-                items={[
-                  {
-                    term: t('management.grafana.help.metrics.cache.term'),
-                    description: t('management.grafana.help.metrics.cache.description')
-                  },
-                  {
-                    term: t('management.grafana.help.metrics.activity.term'),
-                    description: t('management.grafana.help.metrics.activity.description')
-                  }
-                ]}
-              />
-            </HelpSection>
-
-            <HelpSection title={t('management.grafana.help.integration.title')} variant="subtle">
-              {t('management.grafana.help.integration.description')}
-            </HelpSection>
-
-            <HelpNote type="info">{t('management.grafana.help.note')}</HelpNote>
-          </HelpPopover>
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-indigo">
+          <Link className="w-5 h-5 icon-indigo" />
         </div>
-        {/* Metrics security toggle */}
-        {metricsSecurity === null ? (
-          <LoadingSpinner inline size="sm" />
-        ) : (
-          <div className="metrics-toggle-row">
-            <ToggleSwitch
-              options={[
+        <h3 className="text-lg font-semibold text-themed-primary">
+          {t('management.grafana.title')}
+        </h3>
+        <HelpPopover position="left" width={320}>
+          <HelpSection title={t('management.grafana.help.metrics.title')} variant="subtle">
+            <HelpDefinition
+              items={[
                 {
-                  value: 'public',
-                  label: t('management.grafana.publicOption'),
-                  icon: <Unlock />,
-                  activeColor: 'default'
+                  term: t('management.grafana.help.metrics.cache.term'),
+                  description: t('management.grafana.help.metrics.cache.description')
                 },
                 {
-                  value: 'secured',
-                  label: t('management.grafana.securedOption'),
-                  icon: <Lock />,
-                  activeColor: 'success'
+                  term: t('management.grafana.help.metrics.activity.term'),
+                  description: t('management.grafana.help.metrics.activity.description')
                 }
               ]}
-              value={metricsSecurity.requiresAuthentication ? 'secured' : 'public'}
-              onChange={handleToggleAuth}
-              disabled={isToggling || !isAdmin}
-              loading={isToggling}
-              title={
-                !isAdmin
-                  ? t('management.grafana.metricsToggle.adminRequired')
-                  : metricsSecurity.requiresAuthentication
-                    ? t('management.grafana.securedTooltip')
-                    : t('management.grafana.publicTooltip')
-              }
             />
-            <span className="metrics-source-label">{getSourceLabel(metricsSecurity)}</span>
-            {isAdmin && (
-              <Button
-                variant="filled"
-                color="gray"
-                size="xs"
-                disabled={metricsSecurity.source !== 'ui' || isToggling}
-                onClick={handleResetToDefault}
-                className="metrics-reset-button"
-              >
-                {t('management.grafana.metricsToggle.resetToDefault')}
-              </Button>
-            )}
-          </div>
-        )}
+          </HelpSection>
+
+          <HelpSection title={t('management.grafana.help.integration.title')} variant="subtle">
+            {t('management.grafana.help.integration.description')}
+          </HelpSection>
+
+          <HelpNote type="info">{t('management.grafana.help.note')}</HelpNote>
+        </HelpPopover>
       </div>
 
       <p className="text-themed-muted text-sm mb-4">
@@ -364,6 +315,63 @@ const GrafanaEndpoints: React.FC = () => {
           ? t('management.grafana.securedDescription')
           : t('management.grafana.publicDescription')}
       </p>
+
+      {/* Endpoint access toolbar */}
+      <div className="mb-4 p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
+        {metricsSecurity === null ? (
+          <LoadingSpinner inline size="sm" />
+        ) : (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <span className="text-sm font-medium text-themed-primary">
+                {t('management.grafana.accessMode')}
+              </span>
+              <p className="metrics-source-label">{getSourceLabel(metricsSecurity)}</p>
+            </div>
+            <div className="metrics-toggle-row">
+              <ToggleSwitch
+                options={[
+                  {
+                    value: 'public',
+                    label: t('management.grafana.publicOption'),
+                    icon: <Unlock />,
+                    activeColor: 'default'
+                  },
+                  {
+                    value: 'secured',
+                    label: t('management.grafana.securedOption'),
+                    icon: <Lock />,
+                    activeColor: 'success'
+                  }
+                ]}
+                value={metricsSecurity.requiresAuthentication ? 'secured' : 'public'}
+                onChange={handleToggleAuth}
+                disabled={isToggling || !isAdmin}
+                loading={isToggling}
+                title={
+                  !isAdmin
+                    ? t('management.grafana.metricsToggle.adminRequired')
+                    : metricsSecurity.requiresAuthentication
+                      ? t('management.grafana.securedTooltip')
+                      : t('management.grafana.publicTooltip')
+                }
+              />
+              {isAdmin && (
+                <Button
+                  variant="filled"
+                  color="gray"
+                  size="xs"
+                  disabled={metricsSecurity.source !== 'ui' || isToggling}
+                  onClick={handleResetToDefault}
+                  className="metrics-reset-button"
+                >
+                  {t('management.grafana.metricsToggle.resetToDefault')}
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="p-4 rounded-lg bg-themed-tertiary">
         <div className="flex items-center justify-between mb-2">

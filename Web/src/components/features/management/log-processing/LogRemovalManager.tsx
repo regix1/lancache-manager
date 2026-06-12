@@ -430,7 +430,9 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                       }
                                       clearLabel={t('management.logRemoval.buttons.clear')}
                                       entriesLabel={t('management.logRemoval.labels.entries')}
-                                      removingLabel={t('management.logRemoval.labels.removing')}
+                                      removingLabel={t('management.logRemoval.labels.removing', {
+                                        service
+                                      })}
                                     />
                                   );
                                 })}

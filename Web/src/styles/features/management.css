@@ -113,12 +113,15 @@
 
 .epic-source-badge {
   display: inline-block;
+  min-width: 6.5rem;
   padding: 2px 8px;
   font-size: 10px;
   font-weight: 500;
   line-height: 1.4;
   border-radius: 6px;
   text-transform: capitalize;
+  text-align: center;
+  white-space: nowrap;
   cursor: help;
 }
 
@@ -197,6 +200,49 @@
   .integrations-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* Group label above each integrations group (Steam / Epic / Monitoring) */
+.integrations-group-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--theme-text-muted);
+  margin-bottom: 0.75rem;
+}
+
+/* Equal-height integration cards inside .integrations-grid */
+.integration-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Card content area that grows to fill remaining card height */
+.integration-card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Rows inside .integration-card-body share the extra height evenly so
+   neither card in the grid ends with a block of dead space */
+.integration-card-body > .integration-row {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* Library section embedded in the merged Epic Games card */
+.epic-library-section {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--theme-border-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
 /* Mobile layout: reduce horizontal padding and section gaps on small phones */

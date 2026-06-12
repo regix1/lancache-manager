@@ -1,3 +1,4 @@
+/* Right-hand group of the endpoint access toolbar: toggle + reset action */
 .metrics-toggle-row {
   display: flex;
   align-items: center;
@@ -5,10 +6,11 @@
   flex-wrap: wrap;
 }
 
+/* Secondary "Source: ..." line under the access-mode label */
 .metrics-source-label {
   font-size: 0.75rem;
-  color: var(--color-text-muted);
-  margin-left: 0.25rem;
+  color: var(--theme-text-muted);
+  margin-top: 0.125rem;
 }
 
 .metrics-reset-button {

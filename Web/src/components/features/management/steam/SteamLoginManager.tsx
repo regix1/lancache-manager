@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Key, CheckCircle, LogOut, AlertTriangle } from 'lucide-react';
+import { Key, CheckCircle, AlertTriangle } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 
 import { Button } from '@components/ui/Button';
@@ -8,7 +8,6 @@ import { Alert } from '@components/ui/Alert';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
-import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
 import { useSteamAuth } from '@contexts/useSteamAuth';
 import ApiService from '@services/api.service';
@@ -132,7 +131,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
 
   return (
     <>
-      <Card>
+      <Card className="integration-card">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-blue">
             <Key className="w-5 h-5 icon-blue" />
@@ -212,113 +211,113 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
         )}
 
         {/* Main auth mode selector */}
-        <div className="p-3 rounded-lg bg-themed-tertiary">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <p className="text-themed-primary text-sm font-medium mb-1">
-                {steamAuthMode === 'authenticated'
-                  ? t('management.steamAuth.status.loggedIn')
-                  : t('management.steamAuth.status.anonymous')}
-              </p>
-              <p className="text-xs text-themed-muted">
-                {steamAuthMode === 'authenticated'
-                  ? t('management.steamAuth.status.canAccessRestricted')
-                  : t('management.steamAuth.status.publicOnly')}
-              </p>
-            </div>
-
-            {authMode === 'authenticated' && !mockMode ? (
-              <div className="w-full sm:w-auto sm:min-w-[220px]">
-                <EnhancedDropdown
-                  options={dropdownOptions}
-                  value={steamAuthMode}
-                  onChange={handleModeChange}
-                  disabled={loading}
-                  dropdownWidth="w-72"
-                  alignRight={true}
-                />
-              </div>
-            ) : (
-              <div className="w-full sm:w-auto sm:min-w-[180px] px-3 py-2 rounded-lg text-center bg-themed-secondary border border-themed-primary">
-                <p className="text-sm text-themed-muted">
-                  {steamAuthMode === 'authenticated'
-                    ? t('management.steamAuth.accountLogin')
-                    : t('management.steamAuth.anonymous')}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Configuration section */}
-        <div className="p-3 mt-2 rounded-lg bg-themed-tertiary">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <p className="text-themed-primary font-medium text-sm mb-1">
-                {t('management.steamAuth.depotMappingAfterLogin')}
-              </p>
-              <p className="text-xs text-themed-muted">
-                {autoStartPics
-                  ? t('management.steamAuth.autoRebuild')
-                  : t('management.steamAuth.manualRebuild')}
-              </p>
-            </div>
-            <div className="inline-flex rounded-lg p-0.5 bg-themed-secondary">
-              <button
-                onClick={() => handleAutoStartPicsChange(true)}
-                disabled={loading || mockMode}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
-                  loading || mockMode ? 'opacity-50 cursor-not-allowed' : ''
-                } ${autoStartPics ? 'toggle-btn-active' : 'toggle-btn-inactive'}`}
-              >
-                {t('management.steamAuth.automatic')}
-              </button>
-              <button
-                onClick={() => handleAutoStartPicsChange(false)}
-                disabled={loading || mockMode}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
-                  loading || mockMode ? 'opacity-50 cursor-not-allowed' : ''
-                } ${!autoStartPics ? 'toggle-btn-active' : 'toggle-btn-inactive'}`}
-              >
-                {t('management.steamAuth.manual')}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Authenticated status row */}
-        {steamAuthMode === 'authenticated' && (
-          <>
-            <div className="flex items-center justify-between gap-4 p-3 mt-2 rounded-lg bg-themed-tertiary">
+        <div className="integration-card-body">
+          <div className="p-3 rounded-lg bg-themed-tertiary integration-row">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex-1 min-w-0">
-                <p className="text-themed-primary text-sm font-medium">
-                  {t('management.steamAuth.authenticatedAs')}{' '}
-                  <strong>{authenticatedUsername || t('management.steamAuth.steamUser')}</strong>
+                <p className="text-themed-primary text-sm font-medium mb-1">
+                  {steamAuthMode === 'authenticated'
+                    ? t('management.steamAuth.status.loggedIn')
+                    : t('management.steamAuth.status.anonymous')}
+                </p>
+                <p className="text-xs text-themed-muted">
+                  {steamAuthMode === 'authenticated'
+                    ? t('management.steamAuth.status.canAccessRestricted')
+                    : t('management.steamAuth.status.publicOnly')}
                 </p>
               </div>
-              <div className="flex-shrink-0">
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
-                  <CheckCircle size={14} />
-                  Connected
-                </span>
+
+              {authMode === 'authenticated' && !mockMode ? (
+                <div className="w-full sm:w-auto sm:min-w-[220px]">
+                  <EnhancedDropdown
+                    options={dropdownOptions}
+                    value={steamAuthMode}
+                    onChange={handleModeChange}
+                    disabled={loading}
+                    dropdownWidth="w-72"
+                    alignRight={true}
+                  />
+                </div>
+              ) : (
+                <div className="w-full sm:w-auto sm:min-w-[180px] px-3 py-2 rounded-lg text-center bg-themed-secondary border border-themed-primary">
+                  <p className="text-sm text-themed-muted">
+                    {steamAuthMode === 'authenticated'
+                      ? t('management.steamAuth.accountLogin')
+                      : t('management.steamAuth.anonymous')}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Configuration section */}
+          <div className="p-3 mt-2 rounded-lg bg-themed-tertiary integration-row">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-themed-primary font-medium text-sm mb-1">
+                  {t('management.steamAuth.depotMappingAfterLogin')}
+                </p>
+                <p className="text-xs text-themed-muted">
+                  {autoStartPics
+                    ? t('management.steamAuth.autoRebuild')
+                    : t('management.steamAuth.manualRebuild')}
+                </p>
+              </div>
+              <div className="inline-flex rounded-lg p-0.5 bg-themed-secondary">
+                <button
+                  onClick={() => handleAutoStartPicsChange(true)}
+                  disabled={loading || mockMode}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
+                    loading || mockMode ? 'opacity-50 cursor-not-allowed' : ''
+                  } ${autoStartPics ? 'toggle-btn-active' : 'toggle-btn-inactive'}`}
+                >
+                  {t('management.steamAuth.automatic')}
+                </button>
+                <button
+                  onClick={() => handleAutoStartPicsChange(false)}
+                  disabled={loading || mockMode}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
+                    loading || mockMode ? 'opacity-50 cursor-not-allowed' : ''
+                  } ${!autoStartPics ? 'toggle-btn-active' : 'toggle-btn-inactive'}`}
+                >
+                  {t('management.steamAuth.manual')}
+                </button>
               </div>
             </div>
-            {authMode === 'authenticated' && !mockMode && (
-              <div className="mt-3 pt-3 border-t border-[var(--theme-border)]">
-                <Button
-                  onClick={handleSwitchToAnonymous}
-                  disabled={loading}
-                  variant="filled"
-                  color="red"
-                  size="sm"
-                >
-                  {loading ? <LoadingSpinner inline size="sm" /> : <LogOut size={14} />}
-                  {t('management.steamAuth.logout')}
-                </Button>
+          </div>
+
+          {/* Authenticated status row */}
+          {steamAuthMode === 'authenticated' && (
+            <div className="p-3 mt-2 rounded-lg bg-themed-tertiary integration-row">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <p className="text-themed-primary text-sm font-medium">
+                    {t('management.steamAuth.authenticatedAs')}{' '}
+                    <strong>{authenticatedUsername || t('management.steamAuth.steamUser')}</strong>
+                  </p>
+                </div>
+                <div className="flex-shrink-0">
+                  {authMode === 'authenticated' && !mockMode ? (
+                    <Button
+                      onClick={handleSwitchToAnonymous}
+                      loading={loading}
+                      variant="filled"
+                      color="red"
+                      size="sm"
+                    >
+                      {t('management.steamAuth.logout')}
+                    </Button>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
+                      <CheckCircle size={14} />
+                      Connected
+                    </span>
+                  )}
+                </div>
               </div>
-            )}
-          </>
-        )}
+            </div>
+          )}
+        </div>
       </Card>
 
       {/* Authentication Modal */}

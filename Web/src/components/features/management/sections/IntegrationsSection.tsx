@@ -7,7 +7,6 @@ import SteamLoginManager from '../steam/SteamLoginManager';
 import SteamWebApiStatus from '../steam/SteamWebApiStatus';
 import GrafanaEndpoints from '../grafana/GrafanaEndpoints';
 import EpicDaemonStatus from '../epic/EpicDaemonStatus';
-import EpicGameMappings from '../epic/EpicGameMappings';
 
 interface IntegrationsSectionProps {
   authMode: AuthMode;
@@ -47,47 +46,59 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
         </p>
       </div>
 
-      <div className="space-y-6">
-        {/* Steam Integration - side by side grid */}
-        <HighlightGlow enabled={highlightSteamApi}>
-          <div className="integrations-grid">
-            <SteamLoginManager
-              authMode={authMode}
-              mockMode={mockMode}
-              onError={onError}
-              onSuccess={onSuccess}
-            />
-            <SteamWebApiStatus steamAuthMode={steamAuthMode} />
-          </div>
-        </HighlightGlow>
+      <div className="space-y-8">
+        {/* Steam - PICS auth + Web API status side by side */}
+        <section>
+          <h3 className="integrations-group-label">
+            {t('management.sections.integrations.steamIntegration')}
+          </h3>
+          <HighlightGlow enabled={highlightSteamApi}>
+            <div className="integrations-grid">
+              <SteamLoginManager
+                authMode={authMode}
+                mockMode={mockMode}
+                onError={onError}
+                onSuccess={onSuccess}
+              />
+              <SteamWebApiStatus steamAuthMode={steamAuthMode} />
+            </div>
+          </HighlightGlow>
+        </section>
 
-        {/* Epic Integration - stacked (auth is compact, library needs full width) */}
-        <HighlightGlow enabled={highlightEpic}>
-          <div className="space-y-4">
+        {/* Epic Games - merged authentication + library card */}
+        <section>
+          <h3 className="integrations-group-label">
+            {t('management.sections.integrations.epicIntegration')}
+          </h3>
+          <HighlightGlow enabled={highlightEpic}>
             <EpicDaemonStatus
               authMode={authMode}
               mockMode={mockMode}
               onError={onError}
               onSuccess={onSuccess}
             />
-            <EpicGameMappings />
-          </div>
-        </HighlightGlow>
+          </HighlightGlow>
+        </section>
 
-        {/* Grafana - monitoring */}
-        <Suspense
-          fallback={
-            <Card>
-              <div className="flex items-center justify-center py-8">
-                <div className="text-themed-muted">
-                  {t('management.sections.integrations.loadingEndpoints')}
+        {/* Monitoring - Grafana endpoints */}
+        <section>
+          <h3 className="integrations-group-label">
+            {t('management.sections.integrations.monitoringMetrics')}
+          </h3>
+          <Suspense
+            fallback={
+              <Card>
+                <div className="flex items-center justify-center py-8">
+                  <div className="text-themed-muted">
+                    {t('management.sections.integrations.loadingEndpoints')}
+                  </div>
                 </div>
-              </div>
-            </Card>
-          }
-        >
-          <GrafanaEndpoints />
-        </Suspense>
+              </Card>
+            }
+          >
+            <GrafanaEndpoints />
+          </Suspense>
+        </section>
       </div>
     </div>
   );

@@ -143,7 +143,11 @@ public class RustLogRemovalService
             linesRemoved = progress?.LinesRemoved ?? 0,
             percentComplete = progress?.PercentComplete ?? 0,
             status = progress?.Status ?? (IsProcessing ? "starting" : "idle"),
-            stageKey = progress?.StageKey ?? ""
+            stageKey = progress?.StageKey ?? "",
+            // Recovery renders i18n.t(stageKey, context); stage templates like
+            // "signalr.logRemoval.removing" interpolate {{service}}, so the
+            // context must carry it or the placeholder renders literally.
+            context = new Dictionary<string, object?> { ["service"] = CurrentService }
         };
     }
 
@@ -976,6 +980,13 @@ public class RustLogRemovalService
         if (!enrichedContext.ContainsKey("datasourceName"))
         {
             enrichedContext["datasourceName"] = datasourceName;
+        }
+        // Same gap for {{service}}: the Rust binary's progress JSON has no context,
+        // so stage templates like "signalr.logRemoval.removing" rendered the
+        // placeholder literally until enriched here.
+        if (!enrichedContext.ContainsKey("service"))
+        {
+            enrichedContext["service"] = service;
         }
 
         var scaledPercent = ScaleIntoBand(progress.PercentComplete, datasourceIndex, datasourceCount, ceiling);

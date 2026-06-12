@@ -8,6 +8,7 @@ import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { useGuestConfig } from '@contexts/useGuestConfig';
 import { useAuth } from '@contexts/useAuth';
+import { formatSessionTimeRemaining } from '@utils/timeFormatters';
 import { useSteamAuth } from '@contexts/useSteamAuth';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 
@@ -19,7 +20,7 @@ interface AuthenticationManagerProps {
 const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, onSuccess }) => {
   const { t } = useTranslation();
   const { guestDurationHours } = useGuestConfig();
-  const { authMode, refreshAuth } = useAuth();
+  const { authMode, refreshAuth, sessionExpiresAt } = useAuth();
   const { refreshSteamAuth, setSteamAuthMode, setUsername } = useSteamAuth();
   const { refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
   const [authChecking, setAuthChecking] = useState(true);
@@ -29,6 +30,19 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
   const [authLoading, setAuthLoading] = useState(false);
   const [hasData, setHasData] = useState(false);
   const [hasBeenInitialized, setHasBeenInitialized] = useState(false);
+  const [timeRemaining, setTimeRemaining] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (authMode !== 'guest' || !sessionExpiresAt) {
+      setTimeRemaining(null);
+      return;
+    }
+    setTimeRemaining(formatSessionTimeRemaining(sessionExpiresAt));
+    const interval = setInterval(() => {
+      setTimeRemaining(formatSessionTimeRemaining(sessionExpiresAt));
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [authMode, sessionExpiresAt]);
 
   // Track previous auth mode to detect unexpected logouts
   const prevAuthMode = useRef<typeof authMode>(authMode);
@@ -219,7 +233,9 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
       case 'authenticated':
         return t('management.auth.status.authenticated');
       case 'guest':
-        return t('management.auth.status.guestMode');
+        return timeRemaining
+          ? t('management.auth.status.guestMode', { time: timeRemaining })
+          : t('management.auth.status.guestModeNoTime');
       default:
         return t('management.auth.status.notAuthenticated');
     }

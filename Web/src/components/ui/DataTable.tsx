@@ -26,6 +26,8 @@ export interface DataTableColumn<T> {
   defaultWidth?: number;
   /** Minimum pixel width during drag resize (default: 60) */
   minWidth?: number;
+  /** When resizable, this column absorbs the remaining width instead of the last column */
+  flexible?: boolean;
   align?: 'left' | 'center' | 'right';
   headerClassName?: string;
   cellClassName?: string;
@@ -92,11 +94,13 @@ function buildResizableGridTemplate<T>(
   columns: DataTableColumn<T>[],
   widths: Record<string, number>
 ): string {
+  // A column marked `flexible` absorbs remaining space; otherwise the last column does (like RetroView)
+  const flexibleIndex = columns.findIndex((col: DataTableColumn<T>) => col.flexible);
+  const fillIndex = flexibleIndex >= 0 ? flexibleIndex : columns.length - 1;
   return columns
     .map((col: DataTableColumn<T>, index: number) => {
       const w = widths[col.key] || col.defaultWidth || 150;
-      // Last column uses minmax to fill remaining space (like RetroView)
-      if (index === columns.length - 1) {
+      if (index === fillIndex) {
         return `minmax(${w}px, 1fr)`;
       }
       return `${w}px`;
