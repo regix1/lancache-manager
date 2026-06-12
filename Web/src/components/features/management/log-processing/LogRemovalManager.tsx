@@ -405,35 +405,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                           statusBadge={`${formatCount(totalEntries)} entries`}
                         >
                           {hasEntries ? (
-                            <>
-                              {/* Delete entire log file button */}
-                              <div className="flex justify-end pt-2 pb-1">
-                                <Button
-                                  variant="filled"
-                                  size="sm"
-                                  color="red"
-                                  leftSection={<Trash2 className="w-3 h-3" />}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setPendingLogFileDeletion(ds.datasource);
-                                  }}
-                                  awaitPermissions
-                                  loading={deletingLogFile === ds.datasource}
-                                  disabled={
-                                    mockMode ||
-                                    isAnyRemovalRunning ||
-                                    anyServiceRemovalPending ||
-                                    !!deletingLogFile ||
-                                    authMode !== 'authenticated' ||
-                                    !ds.logsWritable ||
-                                    !isDockerAvailable
-                                  }
-                                  className="w-full sm:w-auto"
-                                >
-                                  {t('management.logRemoval.buttons.deleteLogFile')}
-                                </Button>
-                              </div>
-
+                            <div className="space-y-3">
                               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                                 {displayed.map((service) => {
                                   const key = `${ds.datasource}:${service}`;
@@ -465,7 +437,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                               </div>
 
                               {other.length > 0 && (
-                                <div className="mt-3 text-center">
+                                <div>
                                   <Button
                                     variant="filled"
                                     color="gray"
@@ -494,9 +466,37 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                   </Button>
                                 </div>
                               )}
-                            </>
+
+                              {/* Delete entire log file button */}
+                              <div className="flex justify-end pt-3 mt-3 border-t border-themed-secondary">
+                                <Button
+                                  variant="filled"
+                                  size="sm"
+                                  color="red"
+                                  leftSection={<Trash2 className="w-3 h-3" />}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setPendingLogFileDeletion(ds.datasource);
+                                  }}
+                                  awaitPermissions
+                                  loading={deletingLogFile === ds.datasource}
+                                  disabled={
+                                    mockMode ||
+                                    isAnyRemovalRunning ||
+                                    anyServiceRemovalPending ||
+                                    !!deletingLogFile ||
+                                    authMode !== 'authenticated' ||
+                                    !ds.logsWritable ||
+                                    !isDockerAvailable
+                                  }
+                                  className="w-full sm:w-auto"
+                                >
+                                  {t('management.logRemoval.buttons.deleteLogFile')}
+                                </Button>
+                              </div>
+                            </div>
                           ) : (
-                            <div className="text-center py-4 text-themed-muted text-sm">
+                            <div className="py-6 text-center text-sm text-themed-muted">
                               {t('management.logRemoval.noEntriesForDatasource')}
                             </div>
                           )}

@@ -2,6 +2,14 @@
 
 A web UI for [LANCache](https://lancache.net/). Watch downloads as they happen, see what's already cached, track bandwidth saved, and prefill Steam and Epic games before your next LAN party.
 
+**What it does:**
+
+- **Live dashboard** - downloads as they happen, bandwidth saved, top clients, service analytics
+- **Cache browser** - see every cached game with cover art, sizes, and per-client history
+- **Prefill** - download Steam and Epic games into your cache *before* guests arrive
+- **Management** - process logs, clear cache, detect corruption, find what's cached, manage themes
+- **Monitoring** - Prometheus metrics out of the box, Grafana-ready
+
 > [!IMPORTANT]
 > **Always pull the `latest` tag.** GitHub's package page surfaces `:dev` because dev builds publish more often, but `:dev` is for testing only and can break at any time.
 >
@@ -9,36 +17,14 @@ A web UI for [LANCache](https://lancache.net/). Watch downloads as they happen, 
 > docker pull ghcr.io/regix1/lancache-manager:latest
 > ```
 
-## Image Variants
-
-Two images, same code, different size:
-
-| Tag | Embedded PostgreSQL | When to use |
-|---|---|---|
-| `:latest` | ✓ Bundled inside the container | One-container setup. Works out of the box - no external DB needed. |
-| `:latest-slim` | ✗ Not installed (~150 MB smaller) | You're running PostgreSQL separately (sidecar, remote host, or managed service). Requires `POSTGRES_MODE=external`. |
-
-Same applies to dev builds: `:dev` (full) and `:dev-slim` (slim).
-
-```bash
-# Full - default, supports both embedded and external Postgres
-docker pull ghcr.io/regix1/lancache-manager:latest
-
-# Slim - external Postgres only
-docker pull ghcr.io/regix1/lancache-manager:latest-slim
-```
-
-See [Configuration → PostgreSQL](#postgresql) for the two compose examples (embedded vs external).
-
 -----
 
 ## Table of Contents
 
-- [Image Variants](#image-variants)
-- [Screenshots](#screenshots)
 - [Quick Start](#quick-start)
-- [Docker Compose](#docker-compose)
-- [Configuration](#configuration)
+- [Screenshots](#screenshots)
+- [Choosing an Image and Database Mode](#image-variants)
+- [Configuration Reference](#configuration)
   - [Volumes](#volumes)
   - [Required Settings](#required-settings)
   - [PostgreSQL](#postgresql)
@@ -56,6 +42,75 @@ See [Configuration → PostgreSQL](#postgresql) for the two compose examples (em
 - [Building from Source](#building-from-source)
 - [Contributing Translations](#contributing-translations)
 - [Support and License](#support-and-license)
+
+-----
+
+<a id="quick-start"></a>
+<a id="docker-compose"></a>
+## Quick Start
+
+Point the container at your existing LANCache logs and cache, and you're online in under a minute. The default image includes its own PostgreSQL, so this is genuinely all you need:
+
+```yaml
+services:
+  lancache-manager:
+    image: ghcr.io/regix1/lancache-manager:latest
+    container_name: lancache-manager
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./data:/data
+      - /mnt/lancache/logs:/logs:ro
+      - /mnt/lancache/cache:/cache:ro
+      - /var/run/docker.sock:/var/run/docker.sock  # Optional: for prefill and log rotation
+    environment:
+      - PUID=33
+      - PGID=33
+      - TZ=America/Chicago
+      - LanCache__LogPath=/logs/access.log
+      - LanCache__CachePath=/cache
+```
+
+```bash
+docker compose up -d
+```
+
+Then:
+
+1. Grab your API key from the container logs:
+
+   ```bash
+   docker logs lancache-manager | grep "API Key"
+   ```
+
+   It's also written to `/data/security/api_key.txt`.
+
+2. Open `http://localhost:8080`.
+3. Head to **Management**, paste your API key, and click **Process Logs** to import your existing cache history.
+
+Two notes on the mounts:
+
+- Drop `:ro` from the `/cache` mount if you want to clear cache or remove individual games from the UI.
+- The Docker socket is optional - you only need it for nginx log rotation and Steam/Epic prefill.
+
+<details>
+<summary><strong>Prefer <code>docker run</code> for a quick test?</strong></summary>
+
+```bash
+docker run -d \
+  --name lancache-manager \
+  -p 8080:80 \
+  -v ./data:/data \
+  -v /path/to/lancache/logs:/logs:ro \
+  -v /path/to/lancache/cache:/cache:ro \
+  -e TZ=America/Chicago \
+  -e LanCache__LogPath=/logs/access.log \
+  -e LanCache__CachePath=/cache \
+  ghcr.io/regix1/lancache-manager:latest
+```
+
+</details>
 
 -----
 
@@ -126,48 +181,53 @@ See [Configuration → PostgreSQL](#postgresql) for the two compose examples (em
 
 -----
 
-<a id="quick-start"></a>
-## Quick Start
+<a id="image-variants"></a>
+## Choosing an Image and Database Mode
 
-Run the container, point it at your existing LANCache logs and cache, and you're online in under a minute.
+This is one decision, not two: **where does PostgreSQL run?** LANCache Manager stores everything in PostgreSQL, and the image tag follows from your answer.
+
+| Mode | What it means | Image tag |
+|------|---------------|-----------|
+| **Embedded** (default) | PostgreSQL 17 runs *inside* the lancache-manager container over a Unix socket. One container, nothing extra to configure. | `:latest` |
+| **External** | You run PostgreSQL yourself - a sidecar container, a remote host, or a managed service (RDS, Azure DB, Cloud SQL). Standard Docker pattern, easier upgrades. | `:latest` works, or `:latest-slim` (~150 MB smaller, drops the unused embedded Postgres). Requires `POSTGRES_MODE=external`. |
+
+The same pairing applies to every tag family the CI publishes (all multi-arch, amd64 + arm64):
+
+| Tag | What it is |
+|-----|------------|
+| `latest` / `latest-slim` | Latest release. What you should run. |
+| `1.2.0` / `1.2.0-slim` | Version-pinned releases - pin one if you want explicit control over upgrades. |
+| `release` / `release-slim` | Alias of `latest`. |
+| `dev` / `dev-slim` | Latest dev build. Testing only - can break at any time. |
 
 ```bash
-docker run -d \
-  --name lancache-manager \
-  -p 8080:80 \
-  -v ./data:/data \
-  -v /path/to/lancache/logs:/logs:ro \
-  -v /path/to/lancache/cache:/cache:ro \
-  -e TZ=America/Chicago \
-  -e LanCache__LogPath=/logs/access.log \
-  -e LanCache__CachePath=/cache \
-  ghcr.io/regix1/lancache-manager:latest
+# Full - default, supports both embedded and external Postgres
+docker pull ghcr.io/regix1/lancache-manager:latest
+
+# Slim - external Postgres only
+docker pull ghcr.io/regix1/lancache-manager:latest-slim
 ```
 
-Then:
+### Example 1: Embedded (default)
 
-1. Grab your API key from the container logs:
+This is the [Quick Start](#quick-start) compose file - one container, no sidecar. Optionally add a database password:
 
-   ```bash
-   docker logs lancache-manager | grep "API Key"
-   ```
+```yaml
+    environment:
+      # ...everything from Quick Start, plus:
+      - POSTGRES_PASSWORD=your-secure-password
+```
 
-   It's also written to `/data/security/api_key.txt`.
+Leave `POSTGRES_PASSWORD` unset and the first-run UI will prompt for it. That's the entire embedded setup.
 
-2. Open `http://localhost:8080`.
-3. Head to **Management**, paste your API key, and click **Process Logs** to import your existing cache history.
+### Example 2: External (sidecar Postgres)
 
------
-
-<a id="docker-compose"></a>
-## Docker Compose
-
-For anything beyond a quick test, use Compose. Here's the minimum that gets you running:
+Two services: `lancache-manager` connects over TCP to `lancache-db`.
 
 ```yaml
 services:
   lancache-manager:
-    image: ghcr.io/regix1/lancache-manager:latest
+    image: ghcr.io/regix1/lancache-manager:latest-slim
     container_name: lancache-manager
     restart: unless-stopped
     ports:
@@ -176,18 +236,191 @@ services:
       - ./data:/data
       - /mnt/lancache/logs:/logs:ro
       - /mnt/lancache/cache:/cache:ro
-      - /var/run/docker.sock:/var/run/docker.sock  # Optional: for prefill and log rotation
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - PUID=33
       - PGID=33
       - TZ=America/Chicago
       - LanCache__LogPath=/logs/access.log
       - LanCache__CachePath=/cache
+      - POSTGRES_MODE=external
+      - POSTGRES_HOST=lancache-db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=lancache
+      - POSTGRES_USER=lancache
+      - POSTGRES_PASSWORD=change-this-password
+    depends_on:
+      - lancache-db
+
+  lancache-db:
+    image: postgres:17-alpine
+    container_name: lancache-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=lancache
+      - POSTGRES_PASSWORD=change-this-password
+      - POSTGRES_DB=lancache
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
 ```
 
-Drop `:ro` from the `/cache` mount if you want to clear cache or remove individual games from the UI. The Docker socket is optional - you only need it for nginx log rotation and prefill (Steam or Epic).
+`POSTGRES_PASSWORD` must match between the two services. Bring both up with `docker compose up -d`.
 
-A complete compose file showing every available environment variable, all commented out:
+**Pointing at a remote or managed Postgres?** Set `POSTGRES_HOST` to its hostname, drop the `lancache-db` service, drop `depends_on`, and skip the named volume.
+
+**Set `POSTGRES_MODE=external` but left the connection vars unset?** The app boots in setup-only mode and shows a UI form. Credentials submitted there are saved to `/data/config/postgres-credentials.json`; you'll be asked to restart the container so the new connection takes effect.
+
+### Upgrading from an older SQLite build
+
+The migration runs automatically on first start in either mode - your downloads, settings, and cached data carry over with no manual steps. On managed Postgres services some `ALTER SYSTEM` tuning is forbidden; the migration treats it as best-effort and continues without it.
+
+-----
+
+<a id="configuration"></a>
+## Configuration Reference
+
+Everything in this section is a lookup table - skim the headers and dig in where you need to. The two sections with real decisions behind them have their own walkthroughs: [database mode](#image-variants) above and [prefill networking](#prefill-network) below.
+
+<a id="volumes"></a>
+### Volumes
+
+| Volume | Purpose | Notes |
+|--------|---------|-------|
+| `/data` | PostgreSQL database, security, state and config, themes, cached images | Required |
+| `/logs` | LANCache access logs | Add `:ro` for read-only |
+| `/cache` | LANCache cached files | Add `:ro` to monitor without touching files |
+| `/var/run/docker.sock` | Docker API access | Optional. Needed for nginx log rotation and Steam/Epic prefill |
+
+<a id="required-settings"></a>
+### Required Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PUID` | `1000` | User ID the app runs as. Match the owner of your cache and log files. |
+| `PGID` | `1000` | Group ID the app runs as. |
+| `TZ` | `UTC` | Timezone for log timestamps (e.g., `America/Chicago`). `TimeZone` is also accepted as a fallback. |
+| `LanCache__LogPath` | - | Path inside the container to the LANCache access log. |
+| `LanCache__CachePath` | - | Path inside the container to the LANCache cache directory. |
+
+**Which PUID/PGID?** If unset, the entrypoint falls back to `1000:1000`. The common conventions are `33` (www-data - what the compose examples in this README use, since stock lancache setups are usually owned by www-data) and `99` (Unraid's default `nobody`). Choose based on the file ownership of your host bind-mounts - `ls -n /path/to/cache` shows it.
+
+<a id="postgresql"></a>
+### PostgreSQL
+
+The mode decision and full compose examples live in [Choosing an Image and Database Mode](#image-variants). The variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `POSTGRES_MODE` | `embedded` | `embedded` or `external`. |
+| `POSTGRES_USER` | `lancache` | PostgreSQL username. Both modes. |
+| `POSTGRES_PASSWORD` | - | PostgreSQL password. In embedded mode the UI shows a setup page if this is unset. In external mode it must be set (or entered via the UI fallback before the app can connect). |
+| `POSTGRES_HOST` | - | **External mode only.** Hostname or IP of the Postgres server. |
+| `POSTGRES_PORT` | `5432` | **External mode only.** |
+| `POSTGRES_DB` | `lancache` | Database name. Both modes. |
+
+<a id="security"></a>
+### Security
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `Security__EnableAuthentication` | `true` | Require an API key for admin actions. Only turn off for local dev. |
+| `Security__GuestSessionDurationHours` | `6` | Default guest session length (also configurable in the UI). |
+| `Security__RequireAuthForMetrics` | `false` | Require an API key on `/metrics`. The UI toggle in Management → Security overrides this when set. |
+| `Security__ProtectSwagger` | `true` | Require auth on Swagger docs in production. |
+| `Security__AllowedOrigins` | (empty) | Comma-separated CORS allow list. Empty allows all. |
+| `Security__AllowedBrowsePaths` | (empty) | Comma-separated allow-list of file-browser roots. Empty disables the file browser entirely (every request returns `403`). Example: `/data,/mnt`. |
+| `Security__ApiKeyPath` | `/data/security/api_key.txt` | Override the file path the admin API key is read from and written to. Useful if you bind-mount secrets from outside `/data`. |
+| `Security__KnownProxyNetworks` | (empty) | Comma-separated CIDR list of trusted proxy networks for `X-Forwarded-For` (e.g. `172.16.0.0/12,10.0.0.0/8`). Set this when nginx, Traefik, or another reverse proxy fronts the manager so client IPs are reported correctly. Loopback is always trusted. |
+| `Security__TrustAllProxies` | `false` | Trust every upstream proxy unconditionally. Convenient for local dev. **Never enable on an internet-exposed host** - anyone can spoof a client IP. |
+
+#### Access Levels
+
+| Level | What you can do | Examples |
+|-------|----------------|----------|
+| **Admin** | Everything. Requires the API key. | Clear cache, process logs, change settings |
+| **Guest** | Read-only views. Requires admin auth or a guest session. | Browse downloads, stats, events, client data |
+
+To hand out a guest link without sharing your API key, open the **Users** tab and click **Create Guest Link**. Guests can browse the dashboard but can't change anything. Nothing is public - every endpoint requires either admin auth or a valid guest session.
+
+#### File Browser (DeveLanCacheUI Import)
+
+The DeveLanCacheUI import flow uses an admin-only file browser endpoint (`/api/filebrowser/list`) to find a `.db` file on the server. For safety, the browser is **disabled by default** - without an explicit allow-list, every request returns `403` and you'll see this in the log:
+
+```
+warn: LancacheManager.Controllers.FileBrowserController[0]
+      FileBrowser: Security:AllowedBrowsePaths is not configured. All file-browse requests will be rejected (403) until paths are configured.
+```
+
+To turn it on, set `Security__AllowedBrowsePaths` to a comma-separated list of directories the browser is allowed to enter. Subdirectories of each root are fine; everything outside the list returns `403`.
+
+```yaml
+environment:
+  - Security__AllowedBrowsePaths=/data,/mnt
+```
+
+If you don't use the DeveLanCacheUI importer, leave it empty. The warning is informational - nothing else in the app cares.
+
+<a id="prefill-config"></a>
+### Prefill
+
+Prefill auto-detects the right values for almost everything in this table. The one variable worth knowing about is **`Prefill__LancacheIp`** - set it to your cache server's IP and prefill stops depending on DNS at all. Reach for the others only when auto-detection gets it wrong.
+
+For setup decisions (when do I need which override?), see [Prefill → Network setup](#prefill-network).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `Prefill__LancacheIp` | (unset) | IP or hostname of your **cache server** (the HTTP server holding cached files, port 80). Forwarded to the daemon as `LANCACHE_IP`; the daemon then connects directly with a spoofed `Host:` header and skips DNS for CDN traffic. The single most reliable override - set this whenever your DNS isn't a stock `lancache-dns`. |
+| `Prefill__LancacheDnsIp` | `auto` | IP of your **DNS server** (lancache-dns, AdGuard, Pi-hole - port 53). Written into the prefill container's `/etc/resolv.conf` so the daemon resolves CDN hostnames against it. Used in `bridge` mode only - Docker silently drops DNS overrides on `host`-network containers. `auto` reuses the IP of your detected `lancache-dns` container. |
+| `Prefill__NetworkMode` | `auto` | Docker network mode for prefill containers. Accepts `host`, `bridge`, or a Docker network name. `auto` infers the mode from your `lancache-dns` container. |
+| `Prefill__SteamDockerImage` | `ghcr.io/regix1/steam-prefill-daemon:latest` | Docker image used for Steam prefill containers. |
+| `Prefill__EpicDockerImage` | `ghcr.io/regix1/epic-prefill-daemon:latest` | Docker image used for Epic prefill containers. |
+| `Prefill__SessionTimeoutMinutes` | `120` | Minutes of inactivity before an idle prefill session is cleaned up. |
+| `Prefill__DaemonBasePath` | `/data/prefill` | Container path where prefill session state is stored. |
+| `Prefill__HostDataPath` | `auto` | Host path that maps to the manager's `/data` volume. Detected from the manager's mount config; set explicitly only when detection fails (unusual platforms, custom volume drivers). |
+| `Prefill__UseTcp` | `auto` | Communicate with the daemon over TCP instead of a Unix domain socket. `auto` resolves to `true` on Windows, `false` on Linux. *Linux users only need to set this if they want to force TCP mode.* |
+| `Prefill__TcpPort` | `45555` | TCP port the daemon listens on inside its container. *Used in TCP mode only - Windows by default, Linux only when `Prefill__UseTcp=true`.* |
+| `Prefill__HostTcpPort` | (random free port) | TCP port the daemon's container publishes on the host. *TCP mode only.* |
+| `Prefill__TcpHost` | `127.0.0.1` | Host the daemon binds to and the manager connects to over TCP. *TCP mode only.* |
+
+> [!NOTE]
+> **TCP mode is the platform divide.** On Windows, prefill containers communicate over TCP because Windows doesn't expose Unix domain sockets to Docker. On Linux, prefill uses a Unix domain socket by default - the four TCP variables above are ignored unless you set `Prefill__UseTcp=true`. Stock Linux installs can skip the TCP rows entirely.
+
+<a id="paths-and-datasources"></a>
+### Paths and Datasources
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LanCache__EnvFilePath` | (auto) | Path to the lancache `.env` file (used to read `CACHE_DISK_SIZE`). Searches common locations if unset. |
+| `LanCache__AutoDiscoverDatasources` | `false` | Auto-detect datasources from matching subdirectories under `/cache` and `/logs`. |
+
+If you run more than one cache instance or split services across drives, see [Multiple Datasources](#multiple-datasources).
+
+<a id="nginx-log-rotation"></a>
+### Nginx Log Rotation
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NginxLogRotation__Enabled` | `true` | Tell nginx to reopen its logs after the app rotates them. Requires the Docker socket. |
+| `NginxLogRotation__ContainerName` | `auto` | LANCache container name. `auto` finds containers with "lancache" in the name. |
+| `NginxLogRotation__ScheduleHours` | `24` | How often to check whether rotation is needed. |
+
+<a id="api-and-advanced"></a>
+### API and Advanced
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ApiOptions__MaxClientsPerRequest` | `1000` | Max clients returned in a single stats request. |
+| `ApiOptions__DefaultClientsLimit` | `100` | Default client limit when none is provided. |
+| `Optimizations__EnableGarbageCollectionManagement` | `false` | Show memory management controls in Management. Helpful on low-memory hosts. |
+| `ASPNETCORE_URLS` | `http://+:80` | Internal port binding. Don't change unless you know exactly why. |
+| `ConnectionStrings__DefaultConnection` | (auto) | Full PostgreSQL connection string override. For power users with complex setups not covered by individual `POSTGRES_*` variables. |
+| `CacheSnapshots__RetentionDays` | `90` | How long to keep cache snapshots. Older snapshots are automatically deleted. |
+
+<details>
+<summary><strong>Every variable in one compose file (all optional lines commented out)</strong></summary>
 
 ```yaml
 services:
@@ -247,250 +480,7 @@ services:
       # - Logging__LogLevel__LancacheManager.Infrastructure.Platform=Debug
 ```
 
------
-
-<a id="configuration"></a>
-## Configuration
-
-<a id="volumes"></a>
-### Volumes
-
-| Volume | Purpose | Notes |
-|--------|---------|-------|
-| `/data` | PostgreSQL database, security, state and config, themes, cached images | Required |
-| `/logs` | LANCache access logs | Add `:ro` for read-only |
-| `/cache` | LANCache cached files | Add `:ro` to monitor without touching files |
-| `/var/run/docker.sock` | Docker API access | Optional. Needed for nginx log rotation and Steam/Epic prefill |
-
-<a id="required-settings"></a>
-### Required Settings
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PUID` | `33` | User ID the app runs as. Match the owner of your cache and log files. |
-| `PGID` | `33` | Group ID the app runs as. |
-| `TZ` | `UTC` | Timezone for log timestamps (e.g., `America/Chicago`). `TimeZone` is also accepted as a fallback. |
-
-**PUID/PGID convention:** The three common conventions are `33` (www-data, standard Linux web-app), `99` (Unraid's default `nobody`), and `1000` (code fallback when unset). Choose based on the file ownership of your host bind-mounts. The `entrypoint.sh` script always sets them if not provided, so the code fallback is rarely used.
-| `LanCache__LogPath` | - | Path inside the container to the LANCache access log. |
-| `LanCache__CachePath` | - | Path inside the container to the LANCache cache directory. |
-
-<a id="postgresql"></a>
-### PostgreSQL
-
-LANCache Manager stores everything in PostgreSQL. Pick one of two modes:
-
-| Mode | When to use it |
-|------|----------------|
-| **Embedded** (default) | Single-container deployment, simplest setup. PostgreSQL 17 runs inside the lancache-manager container over a Unix socket. Nothing extra to configure. |
-| **External** | Standard Docker pattern, easier upgrades, lets you point at a managed Postgres (RDS, Azure DB, Cloud SQL). Requires a separate Postgres service or a remote host. |
-
-Image-tag pairing — see [Image Variants](#image-variants) at the top of this README:
-
-- **Embedded mode** → use `:latest` (or `:dev`)
-- **External mode** → either `:latest` works, or use `:latest-slim` to drop the unused embedded Postgres binary
-
-#### Environment variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `POSTGRES_MODE` | `embedded` | `embedded` or `external`. |
-| `POSTGRES_USER` | `lancache` | PostgreSQL username. Both modes. |
-| `POSTGRES_PASSWORD` | - | PostgreSQL password. In embedded mode the UI shows a setup page if this is unset. In external mode it must be set (or entered via the UI fallback before the app can connect). |
-| `POSTGRES_HOST` | - | **External mode only.** Hostname or IP of the Postgres server. |
-| `POSTGRES_PORT` | `5432` | **External mode only.** |
-| `POSTGRES_DB` | `lancache` | Database name. Both modes. |
-
-If you're upgrading from an older SQLite build, the migration runs automatically on first start in either mode — your downloads, settings, and cached data carry over with no manual steps. On managed Postgres services some `ALTER SYSTEM` tuning is forbidden; the migration treats it as best-effort and continues without it.
-
-#### Example 1: Embedded (default)
-
-Single container, no sidecar. The simplest possible setup.
-
-```yaml
-services:
-  lancache-manager:
-    image: ghcr.io/regix1/lancache-manager:latest
-    container_name: lancache-manager
-    restart: unless-stopped
-    ports:
-      - "8080:80"
-    volumes:
-      - ./data:/data
-      - /mnt/lancache/logs:/logs:ro
-      - /mnt/lancache/cache:/cache:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - PUID=33
-      - PGID=33
-      - TZ=America/Chicago
-      - LanCache__LogPath=/logs/access.log
-      - LanCache__CachePath=/cache
-      - POSTGRES_PASSWORD=your-secure-password
-```
-
-Bring it up:
-
-```bash
-docker compose up -d
-```
-
-That's it. Leave `POSTGRES_PASSWORD` unset and the first-run UI will prompt for it.
-
-#### Example 2: External (sidecar Postgres)
-
-Two services: `lancache-manager` connects over TCP to `lancache-db`. The `:latest-slim` image drops the unused embedded Postgres for a smaller footprint.
-
-```yaml
-services:
-  lancache-manager:
-    image: ghcr.io/regix1/lancache-manager:latest-slim
-    container_name: lancache-manager
-    restart: unless-stopped
-    ports:
-      - "8080:80"
-    volumes:
-      - ./data:/data
-      - /mnt/lancache/logs:/logs:ro
-      - /mnt/lancache/cache:/cache:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - PUID=33
-      - PGID=33
-      - TZ=America/Chicago
-      - LanCache__LogPath=/logs/access.log
-      - LanCache__CachePath=/cache
-      - POSTGRES_MODE=external
-      - POSTGRES_HOST=lancache-db
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=lancache
-      - POSTGRES_USER=lancache
-      - POSTGRES_PASSWORD=change-this-password
-    depends_on:
-      - lancache-db
-
-  lancache-db:
-    image: postgres:17-alpine
-    container_name: lancache-db
-    restart: unless-stopped
-    environment:
-      - POSTGRES_USER=lancache
-      - POSTGRES_PASSWORD=change-this-password
-      - POSTGRES_DB=lancache
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-volumes:
-  postgres_data:
-```
-
-`POSTGRES_PASSWORD` must match between the two services. Bring both up at once:
-
-```bash
-docker compose up -d
-```
-
-Pointing at a remote/managed Postgres? Set `POSTGRES_HOST` to its hostname, drop the `lancache-db` service, drop `depends_on`, and skip the named volume.
-
-If you set `POSTGRES_MODE=external` but leave the other connection env vars unset, the app boots in setup-only mode and shows a UI form. Credentials submitted there are saved to `/data/config/postgres-credentials.json`; you'll be asked to restart the container so the new connection takes effect.
-
-<a id="security"></a>
-### Security
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `Security__EnableAuthentication` | `true` | Require an API key for admin actions. Only turn off for local dev. |
-| `Security__GuestSessionDurationHours` | `6` | Default guest session length (also configurable in the UI). |
-| `Security__RequireAuthForMetrics` | `false` | Require an API key on `/metrics`. The UI toggle in Management → Security overrides this when set. |
-| `Security__ProtectSwagger` | `true` | Require auth on Swagger docs in production. |
-| `Security__AllowedOrigins` | (empty) | Comma-separated CORS allow list. Empty allows all. |
-| `Security__AllowedBrowsePaths` | (empty) | Comma-separated allow-list of file-browser roots. Empty disables the file browser entirely (every request returns `403`). Example: `/data,/mnt`. |
-| `Security__ApiKeyPath` | `/data/security/api_key.txt` | Override the file path the admin API key is read from and written to. Useful if you bind-mount secrets from outside `/data`. |
-| `Security__KnownProxyNetworks` | (empty) | Comma-separated CIDR list of trusted proxy networks for `X-Forwarded-For` (e.g. `172.16.0.0/12,10.0.0.0/8`). Set this when nginx, Traefik, or another reverse proxy fronts the manager so client IPs are reported correctly. Loopback is always trusted. |
-| `Security__TrustAllProxies` | `false` | Trust every upstream proxy unconditionally. Convenient for local dev. **Never enable on an internet-exposed host** - anyone can spoof a client IP. |
-
-#### Access Levels
-
-| Level | What you can do | Examples |
-|-------|----------------|----------|
-| **Admin** | Everything. Requires the API key. | Clear cache, process logs, change settings |
-| **Guest** | Read-only views. Requires admin auth or a guest session. | Browse downloads, stats, events, client data |
-
-To hand out a guest link without sharing your API key, open the **Users** tab and click **Create Guest Link**. Guests can browse the dashboard but can't change anything. Nothing is public - every endpoint requires either admin auth or a valid guest session.
-
-#### File Browser (DeveLanCacheUI Import)
-
-The DeveLanCacheUI import flow uses an admin-only file browser endpoint (`/api/filebrowser/list`) to find a `.db` file on the server. For safety, the browser is **disabled by default** - without an explicit allow-list, every request returns `403` and you'll see this in the log:
-
-```
-warn: LancacheManager.Controllers.FileBrowserController[0]
-      FileBrowser: Security:AllowedBrowsePaths is not configured. All file-browse requests will be rejected (403) until paths are configured.
-```
-
-To turn it on, set `Security__AllowedBrowsePaths` to a comma-separated list of directories the browser is allowed to enter. Subdirectories of each root are fine; everything outside the list returns `403`.
-
-```yaml
-environment:
-  - Security__AllowedBrowsePaths=/data,/mnt
-```
-
-If you don't use the DeveLanCacheUI importer, leave it empty. The warning is informational - nothing else in the app cares.
-
-<a id="prefill-config"></a>
-### Prefill
-
-Prefill auto-detects the right values for almost everything in this table. The one variable worth knowing about is **`Prefill__LancacheIp`** - set it to your cache server's IP and prefill stops depending on DNS at all. Reach for the others only when auto-detection gets it wrong.
-
-For setup decisions (when do I need which override?), see [Prefill (Steam & Epic) → Network setup](#prefill-network).
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `Prefill__LancacheIp` | (unset) | IP or hostname of your **cache server** (the HTTP server holding cached files, port 80). Forwarded to the daemon as `LANCACHE_IP`; the daemon then connects directly with a spoofed `Host:` header and skips DNS for CDN traffic. The single most reliable override - set this whenever your DNS isn't a stock `lancache-dns`. |
-| `Prefill__LancacheDnsIp` | `auto` | IP of your **DNS server** (lancache-dns, AdGuard, Pi-hole - port 53). Written into the prefill container's `/etc/resolv.conf` so the daemon resolves CDN hostnames against it. Used in `bridge` mode only - Docker silently drops DNS overrides on `host`-network containers. `auto` reuses the IP of your detected `lancache-dns` container. |
-| `Prefill__NetworkMode` | `auto` | Docker network mode for prefill containers. Accepts `host`, `bridge`, or a Docker network name. `auto` infers the mode from your `lancache-dns` container. |
-| `Prefill__SteamDockerImage` | `ghcr.io/regix1/steam-prefill-daemon:latest` | Docker image used for Steam prefill containers. |
-| `Prefill__EpicDockerImage` | `ghcr.io/regix1/epic-prefill-daemon:latest` | Docker image used for Epic prefill containers. |
-| `Prefill__SessionTimeoutMinutes` | `120` | Minutes of inactivity before an idle prefill session is cleaned up. |
-| `Prefill__DaemonBasePath` | `/data/prefill` | Container path where prefill session state is stored. |
-| `Prefill__HostDataPath` | `auto` | Host path that maps to the manager's `/data` volume. Detected from the manager's mount config; set explicitly only when detection fails (unusual platforms, custom volume drivers). |
-| `Prefill__UseTcp` | `auto` | Communicate with the daemon over TCP instead of a Unix domain socket. `auto` resolves to `true` on Windows, `false` on Linux. *Linux users only need to set this if they want to force TCP mode.* |
-| `Prefill__TcpPort` | `45555` | TCP port the daemon listens on inside its container. *Used in TCP mode only - Windows by default, Linux only when `Prefill__UseTcp=true`.* |
-| `Prefill__HostTcpPort` | (random free port) | TCP port the daemon's container publishes on the host. *TCP mode only.* |
-| `Prefill__TcpHost` | `127.0.0.1` | Host the daemon binds to and the manager connects to over TCP. *TCP mode only.* |
-
-> [!NOTE]
-> **TCP mode is the platform divide.** On Windows, prefill containers communicate over TCP because Windows doesn't expose Unix domain sockets to Docker. On Linux, prefill uses a Unix domain socket by default - the four TCP variables above are ignored unless you set `Prefill__UseTcp=true`. Stock Linux installs can skip the TCP rows entirely.
-
-<a id="paths-and-datasources"></a>
-### Paths and Datasources
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `LanCache__EnvFilePath` | (auto) | Path to the lancache `.env` file (used to read `CACHE_DISK_SIZE`). Searches common locations if unset. |
-| `LanCache__AutoDiscoverDatasources` | `false` | Auto-detect datasources from matching subdirectories under `/cache` and `/logs`. |
-
-If you run more than one cache instance or split services across drives, see [Multiple Datasources](#multiple-datasources).
-
-<a id="nginx-log-rotation"></a>
-### Nginx Log Rotation
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NginxLogRotation__Enabled` | `true` | Tell nginx to reopen its logs after the app rotates them. Requires the Docker socket. |
-| `NginxLogRotation__ContainerName` | `auto` | LANCache container name. `auto` finds containers with "lancache" in the name. |
-| `NginxLogRotation__ScheduleHours` | `24` | How often to check whether rotation is needed. |
-
-<a id="api-and-advanced"></a>
-### API and Advanced
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ApiOptions__MaxClientsPerRequest` | `1000` | Max clients returned in a single stats request. |
-| `ApiOptions__DefaultClientsLimit` | `100` | Default client limit when none is provided. |
-| `Optimizations__EnableGarbageCollectionManagement` | `false` | Show memory management controls in Management. Helpful on low-memory hosts. |
-| `ASPNETCORE_URLS` | `http://+:80` | Internal port binding. Don't change unless you know exactly why. |
-| `ConnectionStrings__DefaultConnection` | (auto) | Full PostgreSQL connection string override. For power users with complex setups not covered by individual `POSTGRES_*` variables. |
-| `CacheSnapshots__RetentionDays` | `90` | How long to keep cache snapshots. Older snapshots are automatically deleted. |
+</details>
 
 -----
 
@@ -500,6 +490,12 @@ If you run more than one cache instance or split services across drives, see [Mu
 Prefill downloads games into your cache *before* people connect. When guests show up, every install reads from your cache instead of the public internet - full LAN speed, no bandwidth bottleneck.
 
 Steam and Epic each run in their own container, so you can prefill both at the same time without them interfering. Progress streams live to the UI.
+
+### Requirements
+
+- Docker socket mounted (`/var/run/docker.sock`)
+- Logged in as admin in lancache-manager
+- Your cache server is reachable from the prefill container (see [Network setup](#prefill-network) below)
 
 ### Running a prefill
 
@@ -532,20 +528,12 @@ The dialog tells you how many games were added, how many were already selected, 
 > [!TIP]
 > **Coming from `steam-lancache-prefill`?** Open `selectedAppsToPrefill.json` and paste the contents straight into the import field - the JSON array is parsed as-is.
 
-### Requirements
-
-- Docker socket mounted (`/var/run/docker.sock`)
-- Logged in as admin in lancache-manager
-- Your cache server is reachable from the prefill container (see [Network setup](#prefill-network) below)
-
 <a id="prefill-network"></a>
 ### Network setup
 
 **Most installs need zero config.** If you run the standard `lancache` + `lancache-dns` containers, lancache-manager auto-detects them and prefill works without further setup.
 
-If your DNS isn't a stock `lancache-dns` (you use AdGuard Home, Pi-hole, public DNS, etc.) or your routing is unusual, set one env var and you're done.
-
-#### Quick recommendation
+If your DNS isn't a stock `lancache-dns` (you use AdGuard Home, Pi-hole, public DNS, etc.) or your routing is unusual, set one env var and you're done:
 
 | Your setup | What to set |
 |---|---|
@@ -562,16 +550,14 @@ If your DNS isn't a stock `lancache-dns` (you use AdGuard Home, Pi-hole, public 
 Full descriptions and defaults for `Prefill__LancacheIp`, `Prefill__LancacheDnsIp`, and `Prefill__NetworkMode` live in the [Configuration → Prefill](#prefill-config) reference table.
 
 > [!IMPORTANT]
-> **`LancacheIp` and `LancacheDnsIp` are different services, even on the same machine.** Quick mental model:
+> **`LancacheIp` and `LancacheDnsIp` are different services, even on the same machine.**
 >
 > | | What it is | Port | Job |
 > |---|---|---|---|
 > | `LancacheIp` | The **cache server** (`lancachenet/monolithic`, or any HTTP cache) | HTTP / 80 | Holds the actual cached game files |
 > | `LancacheDnsIp` | The **DNS server** (`lancachenet/lancache-dns`, AdGuard Home, Pi-hole, etc.) | DNS / 53 | Translates `lancache.steamcontent.com` into the cache's IP |
 >
-> Think of a small town. The **cache** is the library (where the books live). The **DNS server** is the information booth (where you ask "which way to the library?"). Both can sit in the same building - same IP, different ports - but they do completely different jobs. You can't borrow a book from the information booth, and the librarian doesn't give directions.
->
-> When you set `LancacheIp`, the daemon skips the information booth entirely and walks straight to the library. That's why it's the universal override: DNS becomes irrelevant for cache traffic.
+> Think of a small town. The **cache** is the library (where the books live). The **DNS server** is the information booth (where you ask "which way to the library?"). Both can sit in the same building - same IP, different ports - but they do completely different jobs. When you set `LancacheIp`, the daemon skips the information booth entirely and walks straight to the library. That's why it's the universal override: DNS becomes irrelevant for cache traffic.
 
 > [!IMPORTANT]
 > Steam (`api.steampowered.com`) and Epic (`*.epicgames.com`) auth and manifest endpoints still use normal DNS. `LANCACHE_IP` only redirects CDN chunk traffic - the only domains lancache caches. Your login and metadata traffic is unaffected.
@@ -623,9 +609,8 @@ Each prefill session runs a connectivity test on startup and writes the result t
 If the resolved IP is a public address (Steam's real CDN IPs look like `162.254.x.x`), traffic is bypassing your cache. Set `Prefill__LancacheIp` and restart the session.
 
 <a id="prefill-routing"></a>
-#### How routing works (advanced)
-
-For when you want to know exactly which path a request takes:
+<details>
+<summary><strong>How routing works (advanced)</strong> - exactly which path a request takes</summary>
 
 ```mermaid
 flowchart TD
@@ -670,6 +655,8 @@ Every combination, in one table:
 | `bridge` | unset | unset | Inconsistent. Auto-detect probes localhost/gateway. Works for some setups. |
 
 **Why `LancacheIp` always works**: with the env var set, the daemon builds requests like `GET http://192.168.1.10/depot/123/chunk/abc` with `Host: lancache.steamcontent.com`. Your cache (nginx, Caddy, or any HTTP server that routes by `Host:`) sees the right hostname and serves from cache. DNS is never consulted for the CDN domain.
+
+</details>
 
 -----
 
@@ -785,6 +772,9 @@ volumes:
 
 LANCache Manager runs fine behind nginx. HTTPS is recommended, and required if you plan to use guest sessions across origins (cross-origin image cookies need `Secure`).
 
+> [!TIP]
+> Fronting the manager with a proxy? Also set `Security__KnownProxyNetworks` (see [Security](#security)) so client IPs are reported correctly.
+
 ### Single origin (recommended)
 
 Serve the UI and API from the same hostname. Cookies stay first-party, CORS is a non-issue.
@@ -865,16 +855,24 @@ The app exposes Prometheus metrics on `/metrics`. Scrape them, build dashboards,
 
 ### Available metrics
 
+The most commonly used series:
+
 | Metric | Description |
 |--------|-------------|
 | `lancache_cache_capacity_bytes` | Total storage capacity |
-| `lancache_cache_size_bytes` | Currently used space |
+| `lancache_cache_used_bytes` | Currently used space |
+| `lancache_cache_free_bytes` | Remaining free space |
 | `lancache_cache_hit_bytes_total` | Bandwidth saved (cache hits) |
 | `lancache_cache_miss_bytes_total` | New data downloaded |
-| `lancache_active_downloads` | Current active downloads |
 | `lancache_cache_hit_ratio` | Cache effectiveness (0-1) |
-| `lancache_downloads_by_service` | Downloads per service |
-| `lancache_bytes_served_by_service` | Bandwidth per service |
+| `lancache_active_downloads` | Current active downloads |
+| `lancache_active_clients` | Clients seen recently |
+| `lancache_service_downloads_total` | Downloads per service |
+| `lancache_service_bytes_total` | Bandwidth per service |
+| `lancache_service_hit_ratio` | Hit ratio per service |
+| `lancache_client_bytes_total` | Bandwidth per client |
+
+There's more where that came from - throughput, hourly breakdowns, cache growth trend, days-until-full projection, peak-hour stats, and per-service hit/miss series. Open `/metrics` in a browser to see the full set with help text.
 
 ### Prometheus config
 
@@ -904,8 +902,8 @@ lancache_cache_hit_ratio * 100
 # Bandwidth saved in last 24 hours
 increase(lancache_cache_hit_bytes_total[24h])
 
-# Cache size in GB
-lancache_cache_size_bytes / 1024 / 1024 / 1024
+# Cache usage in GB
+lancache_cache_used_bytes / 1024 / 1024 / 1024
 ```
 
 -----
@@ -954,19 +952,16 @@ ls -n /path/to/cache
 
 ### Prefill won't run
 
-This applies to both Steam and Epic.
+This applies to both Steam and Epic. Work down the list:
 
 1. Confirm the Docker socket is mounted.
 2. Confirm you're authenticated as admin in lancache-manager.
-3. Look in the container logs for the network diagnostics block (`═══ PREFILL CONTAINER NETWORK DIAGNOSTICS ═══`).
+3. Look in the container logs for the network diagnostics block (`═══ PREFILL CONTAINER NETWORK DIAGNOSTICS ═══`) - it tells you whether the container has internet and where CDN domains resolve to.
 4. **No internet inside the prefill container.** The container can't reach Steam or Epic. Common fixes:
    - Set `Prefill__NetworkMode=bridge` (works for most setups).
    - Confirm your Docker network has outbound internet.
    - Check firewall rules for outbound traffic.
-5. **HTTP 400 errors during download.** The container can't resolve CDN domains to your cache. Try one of these:
-   - `Prefill__NetworkMode=host` if your `lancache-dns` runs on host networking.
-   - `Prefill__LancacheDnsIp` set to your DNS server IP.
-   - Or, the most reliable option: set `Prefill__LancacheIp` to your cache server's IP. This bypasses DNS entirely for CDN traffic and works with any HTTP cache that routes by `Host:` header. See the [Network setup](#prefill-network) section for details.
+5. **HTTP 400 errors during download.** The container can't resolve CDN domains to your cache. The most reliable fix is `Prefill__LancacheIp=<your-cache-ip>` - it bypasses DNS entirely for CDN traffic. The full decision table (and what `LancacheDnsIp`/`NetworkMode` do instead) is in [Network setup](#prefill-network).
 6. **IPv6 traffic bypassing DNS.** If your network has IPv6, queries can bypass `lancache-dns`. The app already disables IPv6 in prefill containers to prevent this.
 7. **Epic OAuth never connects.** Complete the OAuth flow in the browser window that pops open. The token is stored securely and persists across sessions.
 
@@ -974,34 +969,6 @@ To find the IP of your `lancache-dns`:
 
 ```bash
 docker inspect lancache-dns | grep IPAddress
-```
-
-A few configurations as a starting point:
-
-```yaml
-# Bridge mode (recommended default)
-environment:
-  - Prefill__NetworkMode=bridge
-```
-
-```yaml
-# Host networking (when lancache-dns also uses host mode)
-environment:
-  - Prefill__NetworkMode=host
-```
-
-```yaml
-# Explicit DNS IP (when auto-detection picks the wrong one)
-environment:
-  - Prefill__LancacheDnsIp=192.168.1.20
-```
-
-```yaml
-# Lancache IP injection - works in host or bridge mode
-environment:
-  - Prefill__NetworkMode=host
-  - Prefill__LancacheIp=192.168.1.10        # your cache server IP - bypasses DNS for CDN traffic
-  - Prefill__LancacheDnsIp=192.168.1.20     # optional - only used in bridge mode
 ```
 
 ### Debug logging
@@ -1030,7 +997,7 @@ This is most useful when path auto-detection fails, prefill containers won't spa
 <a id="building-from-source"></a>
 ## Building from Source
 
-You'll need .NET 8 SDK, Node.js 20+, and Rust 1.75+.
+You'll need the .NET 10 SDK, Node.js 22+, and Rust 1.94+ (matching what the Dockerfile builds with).
 
 ```bash
 git clone https://github.com/regix1/lancache-manager.git

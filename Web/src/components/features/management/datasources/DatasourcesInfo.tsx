@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileText, Logs, PlayCircle } from 'lucide-react';
+import { Logs, PlayCircle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -268,11 +268,12 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   );
 
   const headerActions = (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       <Button
         variant="filled"
         color="gray"
         size="sm"
+        className="w-full sm:w-auto"
         onClick={() => setResetModal({ datasource: null, all: true })}
         awaitPermissions
         disabled={loading || actionLoading !== null || isProcessing || mockMode || !isAdmin}
@@ -283,6 +284,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         variant="filled"
         color="green"
         size="sm"
+        className="w-full sm:w-auto"
         onClick={handleProcessAll}
         awaitPermissions
         disabled={loading || actionLoading !== null || isProcessing || mockMode || !isAdmin}
@@ -323,21 +325,16 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                     enabled={ds.enabled}
                   >
                     {/* Expanded content - Position info */}
-                    <div className="pt-3 space-y-4">
+                    <div className="space-y-3">
                       {/* Access Log Section */}
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 rounded-lg bg-themed-tertiary">
-                        <div className="flex items-center gap-3">
-                          <FileText className="w-4 h-4 text-themed-muted flex-shrink-0" />
-                          <div className="min-w-0">
-                            <div className="text-sm font-medium text-themed-primary">
-                              access.log
-                            </div>
-                            <div className="text-xs text-themed-muted truncate">
-                              {formatPosition(position)}
-                            </div>
+                      <div className="flex items-center justify-between gap-3 p-3 bg-themed-tertiary rounded-lg">
+                        <div className="min-w-0">
+                          <div className="font-mono text-sm text-themed-primary">access.log</div>
+                          <div className="text-xs text-themed-muted">
+                            {formatPosition(position)}
                           </div>
                         </div>
-                        <div className="flex gap-2 flex-shrink-0">
+                        <div className="flex items-center gap-2 flex-shrink-0">
                           <Button
                             variant="filled"
                             color="gray"
@@ -354,7 +351,6 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                               !isAdmin ||
                               !ds.enabled
                             }
-                            className="flex-1 sm:flex-initial"
                           >
                             {t('management.datasources.reposition')}
                           </Button>
@@ -377,7 +373,6 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                               position?.totalLines === 0
                             }
                             loading={actionLoading === `access-${ds.name}`}
-                            className="flex-1 sm:flex-initial"
                           >
                             {t('common.process')}
                           </Button>

@@ -21,7 +21,7 @@ import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatCount } from '@utils/formatters';
-import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
+import { LoadingState, ReadOnlyBadge } from '@components/ui/ManagerCard';
 import Badge from '@components/ui/Badge';
 import { useFormattedDateTime } from '@/hooks/useFormattedDateTime';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
@@ -476,10 +476,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     hasPermissionIssue || !isDockerAvailable
   );
 
-  // Action buttons for header
   // Cancel is handled by UniversalNotificationBar via CANCEL_CONFIGS
-  const headerActions = (
-    <div className="flex flex-wrap items-center justify-end gap-2">
+  const controlSelectors = (
+    <div className="flex flex-wrap items-end gap-3">
       <EnhancedDropdown
         variant="button"
         options={detectionModeOptions}
@@ -502,6 +501,41 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         dropdownTitle={t('management.corruption.sensitivityTitle')}
         compactMode={true}
       />
+    </div>
+  );
+
+  // Header action row (AccordionSection badge): actions stay reachable while the
+  // section is collapsed, matching every other Storage section's idiom. The count
+  // badge rides in the same row.
+  const headerActions = (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      {corruptionList.length > 0 && (
+        <Badge variant="warning">{corruptionList.reduce((sum, [, count]) => sum + count, 0)}</Badge>
+      )}
+      <Tooltip content={t('management.corruption.loadPreviousResults')} position="top">
+        <Button
+          onClick={() => loadCachedData(true)}
+          disabled={isRefreshing || isScanning || isAnyRemovalRunning}
+          variant="filled"
+          color="gray"
+          size="sm"
+          className="w-full sm:w-auto"
+        >
+          {isRefreshing ? <LoadingSpinner inline size="sm" /> : t('common.load')}
+        </Button>
+      </Tooltip>
+      <Tooltip content={t('management.corruption.scanForCorrupted')} position="top">
+        <Button
+          onClick={() => startScan()}
+          disabled={isLoading || isScanning || isAnyRemovalRunning}
+          variant="filled"
+          color="blue"
+          size="sm"
+          className="w-full sm:w-auto"
+        >
+          {isScanning ? <LoadingSpinner inline size="sm" /> : t('common.scan')}
+        </Button>
+      </Tooltip>
       <Button
         onClick={handleRemoveAll}
         awaitPermissions
@@ -520,58 +554,29 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         variant="filled"
         color="red"
         size="sm"
+        className="w-full sm:w-auto"
       >
         {startingRemoveAll
           ? t('management.corruption.removing')
           : t('management.corruption.removeAllServices')}
       </Button>
-      <Tooltip content={t('management.corruption.loadPreviousResults')} position="top">
-        <Button
-          onClick={() => loadCachedData(true)}
-          disabled={isRefreshing || isScanning || isAnyRemovalRunning}
-          variant="filled"
-          color="gray"
-          size="sm"
-        >
-          {isRefreshing ? <LoadingSpinner inline size="sm" /> : t('common.load')}
-        </Button>
-      </Tooltip>
-      <Tooltip content={t('management.corruption.scanForCorrupted')} position="top">
-        <Button
-          onClick={() => startScan()}
-          disabled={isLoading || isScanning || isAnyRemovalRunning}
-          variant="filled"
-          color="blue"
-          size="sm"
-        >
-          {isScanning ? <LoadingSpinner inline size="sm" /> : t('common.scan')}
-        </Button>
-      </Tooltip>
     </div>
   );
 
   return (
     <>
       <Card>
-        <div className="space-y-4">
+        <div className="space-y-3">
           <AccordionSection
             title={t('management.corruption.title')}
             icon={AlertTriangle}
             iconColor="var(--theme-icon-yellow)"
             isExpanded={sectionExpanded}
             onToggle={() => setSectionExpanded((prev) => !prev)}
-            badge={
-              <>
-                {corruptionList.length > 0 && (
-                  <Badge variant="warning">
-                    {corruptionList.reduce((sum, [, count]) => sum + count, 0)}
-                  </Badge>
-                )}
-                {headerActions}
-              </>
-            }
+            badge={headerActions}
           >
-            <div className="space-y-4">
+            <div className="space-y-3">
+              {controlSelectors}
               {/* Previous Results Badge */}
               {hasCachedResults && lastDetectionTime && !isScanning && !isLoading && (
                 <Alert color="blue">
@@ -689,17 +694,14 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                             <LoadingState message={t('management.corruption.loadingDetails')} />
                           ) : corruptionDetails[service] &&
                             corruptionDetails[service].length > 0 ? (
-                            <div className="space-y-2 max-h-96 overflow-y-auto">
+                            <div className="flex flex-col gap-3 max-h-96 overflow-y-auto">
                               {corruptionDetails[service].map((chunk, idx) => (
-                                <div
-                                  key={idx}
-                                  className="p-2 rounded border bg-themed-secondary border-themed-primary"
-                                >
+                                <div key={idx} className="p-3 bg-themed-tertiary rounded-lg">
                                   <div className="flex items-start gap-2">
                                     <div className="flex-1 min-w-0">
                                       <div className="mb-1">
                                         <Tooltip content={chunk.url}>
-                                          <span className="text-xs font-mono text-themed-primary truncate block">
+                                          <span className="text-sm font-medium text-themed-primary truncate block font-mono">
                                             {chunk.url}
                                           </span>
                                         </Tooltip>
@@ -731,8 +733,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                               ))}
                             </div>
                           ) : (
-                            <div className="text-center py-8 text-themed-muted">
-                              <p>{t('management.corruption.noDetailsAvailable')}</p>
+                            <div className="text-center py-6">
+                              <p className="text-sm text-themed-muted">
+                                {t('management.corruption.noDetailsAvailable')}
+                              </p>
                             </div>
                           )}
                           <div className="flex justify-end pt-3 border-t border-themed-secondary mt-3">
@@ -768,15 +772,23 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                       ))}
                     </div>
                   ) : hasCachedResults && corruptionList.length === 0 ? (
-                    <EmptyState
-                      title={t('management.corruption.emptyStates.noCorrupted.title')}
-                      subtitle={t('management.corruption.emptyStates.noCorrupted.subtitle')}
-                    />
+                    <div className="text-center py-6">
+                      <p className="text-sm text-themed-muted">
+                        {t('management.corruption.emptyStates.noCorrupted.title')}
+                      </p>
+                      <p className="text-xs text-themed-muted">
+                        {t('management.corruption.emptyStates.noCorrupted.subtitle')}
+                      </p>
+                    </div>
                   ) : !hasCachedResults && !isScanning && !isLoading ? (
-                    <EmptyState
-                      title={t('management.corruption.emptyStates.noCachedData.title')}
-                      subtitle={t('management.corruption.emptyStates.noCachedData.subtitle')}
-                    />
+                    <div className="text-center py-6">
+                      <p className="text-sm text-themed-muted">
+                        {t('management.corruption.emptyStates.noCachedData.title')}
+                      </p>
+                      <p className="text-xs text-themed-muted">
+                        {t('management.corruption.emptyStates.noCachedData.subtitle')}
+                      </p>
+                    </div>
                   ) : null}
                 </>
               )}

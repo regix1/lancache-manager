@@ -189,6 +189,9 @@ const ManagementTab: React.FC = () => {
         );
 
       case 'storage':
+        // refreshStatsAndGameCache (not plain refreshStats): StorageSection's removal flows must
+        // also bump gameCacheRefreshKey so GameCacheDetector reloads its cached detection lists —
+        // silent bulk evicted removals emit no EvictionRemovalComplete for its SignalR listener.
         return (
           <StorageSection
             isAdmin={isAdmin}
@@ -197,7 +200,7 @@ const ManagementTab: React.FC = () => {
             gameCacheRefreshKey={gameCacheRefreshKey}
             onError={addError}
             onSuccess={setSuccess}
-            onDataRefresh={refreshStats}
+            onDataRefresh={refreshStatsAndGameCache}
           />
         );
 

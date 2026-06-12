@@ -587,44 +587,21 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Help content
   // Header actions - scan buttons + expand/collapse all
   const headerActions = (
-    <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       <Button
         variant="filled"
         color="gray"
         size="sm"
         onClick={handleExpandCollapseAll}
         disabled={actionsPending}
-        className="inline-flex flex-1 basis-[120px] sm:flex-none sm:basis-auto"
+        className="w-full sm:w-auto"
       >
         {allExpanded
           ? t('management.gameDetection.collapseAll')
           : t('management.gameDetection.expandAll')}
       </Button>
 
-      {isAdmin && (
-        <Tooltip
-          content={t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
-          className="inline-flex flex-1 basis-[120px] sm:flex-none sm:basis-auto"
-        >
-          <Button
-            onClick={() => setShowRemoveAllConfirm(true)}
-            awaitPermissions
-            loading={removeAllRunning}
-            disabled={actionsPending || loading || mockMode || cacheReadOnly || isAnyRemovalRunning}
-            variant="filled"
-            color="red"
-            size="sm"
-            className="w-full sm:w-auto"
-          >
-            {t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
-          </Button>
-        </Tooltip>
-      )}
-
-      <Tooltip
-        content={t('management.gameDetection.loadPreviousResults')}
-        className="inline-flex flex-1 basis-[120px] sm:flex-none sm:basis-auto"
-      >
+      <Tooltip content={t('management.gameDetection.loadPreviousResults')}>
         <Button
           onClick={handleLoadData}
           disabled={loading || mockMode}
@@ -643,13 +620,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             ? t('management.gameDetection.processLogsFirst')
             : t('management.gameDetection.quickScan')
         }
-        className="inline-flex flex-1 basis-[120px] sm:flex-none sm:basis-auto"
       >
         <Button
           onClick={handleIncrementalScan}
           disabled={loading || mockMode || !hasProcessedLogs}
           variant="filled"
-          color="gray"
+          color="green"
           size="sm"
           className="w-full sm:w-auto"
         >
@@ -667,7 +643,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             ? t('management.gameDetection.processLogsFirst')
             : t('management.gameDetection.fullScan')
         }
-        className="inline-flex flex-1 basis-[120px] sm:flex-none sm:basis-auto"
       >
         <Button
           onClick={handleFullScan}
@@ -684,6 +659,23 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           )}
         </Button>
       </Tooltip>
+
+      {isAdmin && (
+        <Tooltip content={t('management.sections.data.gameCacheRemoveAll', 'Remove All')}>
+          <Button
+            onClick={() => setShowRemoveAllConfirm(true)}
+            awaitPermissions
+            loading={removeAllRunning}
+            disabled={actionsPending || loading || mockMode || cacheReadOnly || isAnyRemovalRunning}
+            variant="filled"
+            color="red"
+            size="sm"
+            className="w-full sm:w-auto"
+          >
+            {t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
+          </Button>
+        </Tooltip>
+      )}
     </div>
   );
 
@@ -706,7 +698,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               </>
             }
           >
-            <div className="space-y-4">
+            <div className="space-y-3">
               {/* Read-Only Warning */}
               {cacheReadOnly && (
                 <>
@@ -766,18 +758,31 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
               {!cacheReadOnly && !showBlockingLoader && (
                 <>
-                  {/* Previous Results Badge */}
+                  {/* Previous Results Summary */}
                   {lastDetectionTime && hasResults && (
-                    <Alert color="blue">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">
-                          {t('common.resultsFromPreviousScan')}
-                        </span>
-                        <span className="text-xs text-themed-muted">
-                          {formattedLastDetectionTime}
-                        </span>
+                    <div className="space-y-2">
+                      <p className="text-xs text-themed-muted">
+                        {t('common.resultsFromPreviousScan')} · {formattedLastDetectionTime}
+                      </p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="p-3 bg-themed-tertiary rounded-lg">
+                          <p className="text-xs text-themed-muted">
+                            {t('management.gameDetection.servicesSection')}
+                          </p>
+                          <p className="text-sm font-medium text-themed-primary">
+                            {filteredServices.length}
+                          </p>
+                        </div>
+                        <div className="p-3 bg-themed-tertiary rounded-lg">
+                          <p className="text-xs text-themed-muted">
+                            {t('management.gameDetection.gamesSection')}
+                          </p>
+                          <p className="text-sm font-medium text-themed-primary">
+                            {filteredGames.length}
+                          </p>
+                        </div>
                       </div>
-                    </Alert>
+                    </div>
                   )}
 
                   {/* Filter indicator */}

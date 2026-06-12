@@ -234,9 +234,14 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       onRunningChange: setRemoveAllRunning,
       onSettled: () => {
         void fetchEvictedItems();
+        // Silent bulk removals emit no EvictionRemovalComplete, so GameCacheDetector's SignalR
+        // listener never fires — refresh stats + bump gameCacheRefreshKey here instead. The
+        // backend's LAST bulk item ran the full disk-summary refresh before its op completed,
+        // so the reload sees consistent post-removal data.
+        onDataRefresh();
       }
     });
-  }, [evictedGames, evictedServices, isAdmin, runEvictedRemoval, fetchEvictedItems]);
+  }, [evictedGames, evictedServices, isAdmin, runEvictedRemoval, fetchEvictedItems, onDataRefresh]);
 
   const confirmPartialEvictedRemoval = async () => {
     if (!partialEvictedTarget) return;
@@ -649,17 +654,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                       : t('management.gameDetection.expandAll')}
                   </Button>
                   <Button
-                    onClick={handleResetEvictions}
-                    disabled={resettingEvictions || isEvictionScanRunning}
-                    loading={resettingEvictions}
-                    variant="filled"
-                    color="red"
-                    size="sm"
-                    className="w-full sm:w-auto"
-                  >
-                    {t('management.sections.data.resetEvictions')}
-                  </Button>
-                  <Button
                     onClick={handleStartEvictionScan}
                     disabled={isEvictionScanRunning || resettingEvictions}
                     variant="filled"
@@ -672,6 +666,17 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                     ) : (
                       t('management.sections.data.runEvictionScan')
                     )}
+                  </Button>
+                  <Button
+                    onClick={handleResetEvictions}
+                    disabled={resettingEvictions || isEvictionScanRunning}
+                    loading={resettingEvictions}
+                    variant="filled"
+                    color="red"
+                    size="sm"
+                    className="w-full sm:w-auto"
+                  >
+                    {t('management.sections.data.resetEvictions')}
                   </Button>
                   {isAdmin && (
                     <Button
@@ -752,7 +757,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                             {t('management.sections.clients.saveChanges')}
                           </Button>
                         </div>
-                        <p className="text-xs text-themed-muted mt-1 ml-6">
+                        <p className="text-xs text-themed-muted mt-2 ml-6">
                           {t('management.sections.data.evictionScanNotificationsDescription')}
                         </p>
                       </div>
