@@ -5,7 +5,7 @@ namespace LancacheManager.Core.Interfaces;
 /// <summary>
 /// Thin wait-queue gate in front of the existing operation start paths.
 ///
-/// Controllers keep their own <see cref="IOperationConflictChecker"/> pre-check; when it
+/// Controllers keep their own <see cref="Services.IOperationConflictChecker"/> pre-check; when it
 /// reports a conflict they call <see cref="EnqueueAsync"/> instead of returning 409. The
 /// queue re-checks under its promotion mutex (the blocker may have finished before the
 /// enqueue committed), deduplicates identical requests, or parks the operation as a
