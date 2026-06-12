@@ -460,8 +460,9 @@ public class StatsController : ControllerBase
 
         // UpdateProgress stores the current progress stage key in Message (see the scan progress
         // monitor in CacheReconciliationService), so it doubles as the i18n stageKey the frontend
-        // recovery card interpolates. There is no server-side progress context dictionary tracked on
-        // OperationInfo, so context is null (the frontend falls back to `data.context ?? {}`).
+        // recovery card interpolates. The tracker's OperationInfo carries no context dictionary, so
+        // the reconciliation service exposes the latest progress context (totalProcessed/
+        // totalEstimate) for placeholder-bearing keys like signalr.evictionScan.progress.
         var stageKey = string.IsNullOrWhiteSpace(activeScan.Message) ? null : activeScan.Message;
 
         return Ok(new
@@ -472,7 +473,7 @@ public class StatsController : ControllerBase
             percentComplete = activeScan.PercentComplete,
             message = stageKey ?? "Scanning for evictable cache entries...",
             stageKey,
-            context = (object?)null,
+            context = _reconciliationService.CurrentScanProgressContext,
             operationId = activeScan.Id
         });
     }

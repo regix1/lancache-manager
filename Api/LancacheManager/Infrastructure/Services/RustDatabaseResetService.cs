@@ -223,7 +223,8 @@ public class RustDatabaseResetService
                                 Success: false,
                                 StageKey: "signalr.dbReset.failed",
                                 Status: OperationStatus.Failed,
-                                Error: info.Error))
+                                Error: info.Error,
+                                Context: new Dictionary<string, object?> { ["errorDetail"] = info.Error }))
             );
             _currentTrackerOperationId = trackerOperationId;
 

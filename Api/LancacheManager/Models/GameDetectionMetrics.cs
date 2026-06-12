@@ -50,4 +50,12 @@ public class GameDetectionMetrics
     /// Persisted on the operation so recovery endpoints can translate stage messages.
     /// </summary>
     public Dictionary<string, object?>? CompletionContext { get; set; }
+
+    /// <summary>
+    /// i18n interpolation values for the LATEST progress stage key (e.g. processed/total for
+    /// signalr.gameDetect.services.progress). The unified tracker stores only the stage KEY in
+    /// OperationInfo.Message, so the /api/games/detect/active recovery endpoint reads this to
+    /// interpolate placeholder-bearing progress keys mid-run. Updated on every progress tick.
+    /// </summary>
+    public Dictionary<string, object?>? CurrentContext { get; set; }
 }

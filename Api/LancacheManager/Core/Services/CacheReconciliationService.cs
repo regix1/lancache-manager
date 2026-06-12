@@ -32,6 +32,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     private int _isRunning;
     private bool _currentScanIsSilent = true;
     /// <summary>
+    /// Context dictionary of the most recent eviction-scan progress tick (same shape as the
+    /// EvictionScanProgress SignalR payload's Context). The unified tracker only stores the stage
+    /// KEY in OperationInfo.Message, so the /api/stats/eviction/scan/status recovery endpoint reads
+    /// this to interpolate placeholder-bearing keys like signalr.evictionScan.progress
+    /// ({{totalProcessed}}/{{totalEstimate}}). Null when no scan is running or before the first tick.
+    /// </summary>
+    private volatile Dictionary<string, object?>? _currentScanProgressContext;
+    /// <summary>
     /// Set of EvictionRemoval operationIds that should NOT emit SignalR notifications
     /// (Remove-mode auto-cleanup). Helpers consult this before calling NotifyAllAsync so
     /// the user never sees a removal notification for an automatic Remove-mode purge.
@@ -61,6 +69,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
     public bool IsRunning => Volatile.Read(ref _isRunning) == 1;
     public bool CurrentScanIsSilent => _currentScanIsSilent;
+    public IReadOnlyDictionary<string, object?>? CurrentScanProgressContext => _currentScanProgressContext;
 
     private bool TryBeginRun() => Interlocked.CompareExchange(ref _isRunning, 1, 0) == 0;
 
@@ -253,6 +262,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         var scanSilent = silent || isRemoveMode;
 
         _currentScanIsSilent = scanSilent;
+        _currentScanProgressContext = null;
         // Mirror the silent flag onto the terminal-state holder so the registered onTerminalEmit
         // closure suppresses the EvictionScanComplete emit exactly as the old inline guards did.
         if (_evictionScanTerminalStates.TryGetValue(operationId, out var scanTerminalState))
@@ -301,6 +311,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                             ? "signalr.evictionScan.progress"
                             : progress.StageKey;
                         var context = BuildEvictionScanProgressContext(progress);
+                        _currentScanProgressContext = context;
 
                         // The Rust disk scan owns 0-85% of the bar. The C# post-processing that
                         // follows (detection-row updates, post-scan recovery, and the disk-summary
@@ -503,6 +514,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
         finally
         {
+            _currentScanProgressContext = null;
+
             // Clean up temp files
             if (datasourceConfigPath != null)
                 await _rustProcessHelper.DeleteTemporaryFileAsync(datasourceConfigPath);

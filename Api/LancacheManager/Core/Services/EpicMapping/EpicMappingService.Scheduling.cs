@@ -108,7 +108,8 @@ public partial class EpicMappingService
                             Status: OperationStatus.Completed,
                             StageKey: "signalr.epicMapping.completed",
                             PercentComplete: 100.0, GamesDiscovered: _gamesDiscovered,
-                            Message: $"Epic catalog refresh completed - {_gamesDiscovered} games"))
+                            Message: $"Epic catalog refresh completed - {_gamesDiscovered} games",
+                            Context: new Dictionary<string, object?> { ["gamesDiscovered"] = _gamesDiscovered }))
                     : _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress,
                         new EpicMappingComplete(
                             OperationId: _currentOperationId, Success: false,

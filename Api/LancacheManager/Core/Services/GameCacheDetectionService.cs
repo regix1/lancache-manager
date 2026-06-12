@@ -303,6 +303,13 @@ public class GameCacheDetectionService : IDisposable
         async Task SendProgressAsync(string status, string stageKey, int gamesDetected = 0, int servicesDetected = 0, double progressPercent = 0, Dictionary<string, object?>? context = null)
         {
             _operationTracker.UpdateProgress(operationId, progressPercent, stageKey);
+            // The tracker stores only the stage KEY; persist the interpolation context on the
+            // metrics so the /api/games/detect/active recovery endpoint can translate it.
+            _operationTracker.UpdateMetadata(operationId, (object meta) =>
+            {
+                var metrics = (GameDetectionMetrics)meta;
+                metrics.CurrentContext = context;
+            });
             await _notifications.NotifyAllAsync(SignalREvents.GameDetectionProgress, new
             {
                 OperationId = operationId,
@@ -436,6 +443,14 @@ public class GameCacheDetectionService : IDisposable
                                 // Scale Rust progress (0-100%) to the scanning phase range (1-30%)
                                 var scaledPercent = 1 + (progress.PercentComplete * 29.0 / 100.0);
                                 _operationTracker.UpdateProgress(operationId, scaledPercent, progress.StageKey ?? string.Empty);
+                                // The tracker stores only the stage KEY; persist the Rust progress
+                                // context (e.g. processed/total for services.progress) on the metrics
+                                // so the /api/games/detect/active recovery endpoint can translate it.
+                                _operationTracker.UpdateMetadata(operationId, (object meta) =>
+                                {
+                                    var metrics = (GameDetectionMetrics)meta;
+                                    metrics.CurrentContext = progress.Context;
+                                });
 
                                 // Send SignalR notification for live updates
                                 await _notifications.NotifyAllAsync(SignalREvents.GameDetectionProgress, new
@@ -1171,7 +1186,9 @@ public class GameCacheDetectionService : IDisposable
             TotalGamesDetected = metrics?.TotalGamesDetected ?? 0,
             TotalServicesDetected = metrics?.TotalServicesDetected ?? 0,
             Error = metrics?.Error,
-            Context = metrics?.CompletionContext
+            // CompletionContext wins (terminal stage); fall back to the latest progress-tick
+            // context so mid-run recovery can interpolate placeholder-bearing progress keys.
+            Context = metrics?.CompletionContext ?? metrics?.CurrentContext
         };
     }
 
