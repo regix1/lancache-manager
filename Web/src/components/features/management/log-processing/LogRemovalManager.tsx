@@ -419,7 +419,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                       }
                                       isDisabled={
                                         mockMode ||
-                                        isAnyRemovalRunning ||
                                         anyServiceRemovalPending ||
                                         authMode !== 'authenticated' ||
                                         !ds.logsWritable ||

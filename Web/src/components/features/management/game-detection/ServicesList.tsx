@@ -6,7 +6,6 @@ import type { ServiceCacheInfo, CacheEntityVariant } from '../../../../types';
 
 interface ServicesListProps {
   services: ServiceCacheInfo[];
-  isAnyRemovalRunning: boolean;
   isAdmin: boolean;
   dockerSocketAvailable: boolean;
   onRemoveService: (service: ServiceCacheInfo) => void;
@@ -26,7 +25,6 @@ const filterAndSortServices = (services: ServiceCacheInfo[], searchQuery: string
 
 const ServicesList: React.FC<ServicesListProps> = ({
   services,
-  isAnyRemovalRunning,
   isAdmin,
   dockerSocketAvailable,
   onRemoveService,
@@ -46,7 +44,6 @@ const ServicesList: React.FC<ServicesListProps> = ({
           service={service}
           isExpanded={state.isExpanded}
           isExpanding={state.isExpanding}
-          isAnyRemovalRunning={isAnyRemovalRunning}
           isAdmin={isAdmin}
           dockerSocketAvailable={dockerSocketAvailable}
           onToggleDetails={state.onToggleDetails}

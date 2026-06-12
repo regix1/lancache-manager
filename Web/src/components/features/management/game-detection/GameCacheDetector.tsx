@@ -401,7 +401,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       try {
         // Start background detection - SignalR will send GameDetectionStarted event
         const result = await ApiService.startGameCacheDetection(forceRefresh);
-        if (result.operationId) {
+        // Wait-queue model: queued/deduplicated responses must not seed a running card -
+        // the OperationWaiting event (or the already-visible card) owns the UI.
+        if (result.operationId && !result.queued && !result.alreadyRunning) {
           addNotification(
             buildSeededRunningNotification(
               'game_detection',
@@ -820,7 +822,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     >
                       <ServicesList
                         services={filteredServices}
-                        isAnyRemovalRunning={isAnyRemovalRunning}
                         isAdmin={isAdmin}
                         dockerSocketAvailable={isDockerAvailable}
                         onRemoveService={handleServiceRemoveClick}
@@ -840,7 +841,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     >
                       <GamesList
                         games={filteredGames}
-                        isAnyRemovalRunning={isAnyRemovalRunning}
                         isAdmin={isAdmin}
                         dockerSocketAvailable={isDockerAvailable}
                         onRemoveGame={handleRemoveClick}

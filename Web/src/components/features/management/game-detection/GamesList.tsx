@@ -7,7 +7,6 @@ import type { GameCacheInfo, CacheEntityVariant } from '../../../../types';
 
 interface GamesListProps {
   games: GameCacheInfo[];
-  isAnyRemovalRunning: boolean;
   isAdmin: boolean;
   dockerSocketAvailable: boolean;
   onRemoveGame: (game: GameCacheInfo) => void;
@@ -32,7 +31,6 @@ const filterAndSortGames = (games: GameCacheInfo[], searchQuery: string) => {
 
 const GamesList: React.FC<GamesListProps> = ({
   games,
-  isAnyRemovalRunning,
   isAdmin,
   dockerSocketAvailable,
   onRemoveGame,
@@ -52,7 +50,6 @@ const GamesList: React.FC<GamesListProps> = ({
           game={game}
           isExpanded={state.isExpanded}
           isExpanding={state.isExpanding}
-          isAnyRemovalRunning={isAnyRemovalRunning}
           isAdmin={isAdmin}
           dockerSocketAvailable={dockerSocketAvailable}
           onToggleDetails={state.onToggleDetails}

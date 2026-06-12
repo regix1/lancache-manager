@@ -15,7 +15,6 @@ interface GameCardProps {
   game: GameCacheInfo;
   isExpanded: boolean;
   isExpanding: boolean;
-  isAnyRemovalRunning: boolean;
   isAdmin: boolean;
   dockerSocketAvailable: boolean;
   onToggleDetails: (gameId: string) => void;
@@ -30,7 +29,6 @@ const GameCard: React.FC<GameCardProps> = ({
   game,
   isExpanded,
   isExpanding,
-  isAnyRemovalRunning,
   isAdmin,
   dockerSocketAvailable,
   onToggleDetails,
@@ -132,7 +130,6 @@ const GameCard: React.FC<GameCardProps> = ({
         isExpanded={isExpanded}
         isExpanding={isExpanding}
         isRemoving={isRemoving}
-        isAnyRemovalRunning={isAnyRemovalRunning}
         isAdmin={isAdmin}
         dockerSocketAvailable={dockerSocketAvailable}
         hasExpandableContent={hasExpandableContent}

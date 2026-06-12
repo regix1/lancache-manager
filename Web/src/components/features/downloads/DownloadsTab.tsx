@@ -90,6 +90,10 @@ type EvictedDataMode = 'show' | 'hide' | 'showClean';
 const isEvictedDataMode = (value: unknown): value is EvictedDataMode =>
   value === 'show' || value === 'hide' || value === 'showClean';
 
+// Stable empty array for RetroView's `items` prop (ignored in server mode).
+// An inline [] literal would break RetroView's memo() on every render.
+const EMPTY_RETRO_ITEMS: (Download | DownloadGroup)[] = [];
+
 // Default items per page for each view mode
 const DEFAULT_ITEMS_PER_PAGE = {
   compact: 50,
@@ -335,6 +339,13 @@ const DownloadsTab: React.FC = () => {
   const retroTimeParams = useMemo(() => getTimeRangeParams(), [getTimeRangeParams]);
   const retroEventId = selectedEventIds.length > 0 ? selectedEventIds[0] : undefined;
 
+  // Debounced search for the retro server fetch - typing fires at most one
+  // request per pause instead of one request per keystroke. Seeded from the
+  // same storage key as settings.searchQuery so the first fetch matches.
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(
+    () => storage.getItem(STORAGE_KEYS.SEARCH_QUERY) || ''
+  );
+
   // Config from context (guaranteed non-null)
   const { config } = useConfig();
 
@@ -440,6 +451,9 @@ const DownloadsTab: React.FC = () => {
   );
   const nonRetroContentRef = useRef<HTMLDivElement>(null);
   const currentPageRef = useRef(currentPage);
+  // Mirrors settings.viewMode so handlePageChange can branch without being
+  // recreated (and re-rendering memoized views) on every view-mode switch.
+  const viewModeRef = useRef<ViewMode>('normal');
   const pageChangeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressExpandScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fadeResetFrameRef = useRef<number | null>(null);
@@ -516,6 +530,14 @@ const DownloadsTab: React.FC = () => {
       )
     };
   });
+
+  viewModeRef.current = settings.viewMode;
+
+  // Keep the debounced retro search trailing the live input by 300ms.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearchQuery(settings.searchQuery), 300);
+    return () => clearTimeout(timer);
+  }, [settings.searchQuery]);
 
   // Page size synced to URL via nuqs. Supports number | 'unlimited'. URL wins on first
   // visit when present; otherwise localStorage-derived default (already in `settings`) is used.
@@ -1241,6 +1263,15 @@ const DownloadsTab: React.FC = () => {
   const handlePageChange = useCallback(
     (newPage: number) => {
       if (newPage === currentPageRef.current) return;
+
+      // Retro server mode keeps previous rows visible and fades while the next
+      // page is fetched (handled inside RetroView), so switch immediately
+      // instead of paying the artificial fade delay before the fetch starts.
+      if (viewModeRef.current === 'retro') {
+        currentPageRef.current = newPage;
+        setCurrentPage(newPage);
+        return;
+      }
 
       if (pageChangeTimeoutRef.current !== null) {
         clearTimeout(pageChangeTimeoutRef.current);
@@ -1999,7 +2030,7 @@ const DownloadsTab: React.FC = () => {
                 {retroEverMounted.current && (
                   <RetroView
                     ref={retroViewRef}
-                    items={[]}
+                    items={EMPTY_RETRO_ITEMS}
                     sortOrder={settings.sortOrder}
                     itemsPerPage={
                       typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 100
@@ -2019,7 +2050,7 @@ const DownloadsTab: React.FC = () => {
                     serverMode={settings.viewMode === 'retro'}
                     filterService={settings.selectedService}
                     filterClient={settings.selectedClient}
-                    filterSearch={settings.searchQuery}
+                    filterSearch={debouncedSearchQuery}
                     filterHideLocalhost={settings.hideLocalhost}
                     filterShowZeroBytes={settings.showZeroBytes}
                     filterHideUnknown={settings.hideUnknownGames}

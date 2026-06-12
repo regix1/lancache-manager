@@ -9,85 +9,50 @@ import React, {
   memo
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import { HardDrive, Download, Zap } from 'lucide-react';
+import { HardDrive, Download } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
 import './VirtualizedList.css';
-import type { RetroViewHandle } from './RetroView.types';
+import type { RetroViewHandle, RetroRowData } from './RetroView.types';
 import { useIsDesktop } from '@hooks/useMediaQuery';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
-import {
-  formatBytes,
-  formatPercent,
-  formatDateTime,
-  formatSpeed,
-  isFromDifferentYear
-} from '@utils/formatters';
+import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
 import {
   getDefaultColumnWidths,
   calculateColumnWidths,
   type ColumnWidths
 } from '@utils/textMeasurement';
-import { Tooltip } from '@components/ui/Tooltip';
+import { Alert } from '@components/ui/Alert';
 import { Pagination } from '@components/ui/Pagination';
-import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
-import { SteamIcon } from '@components/ui/SteamIcon';
-import { WsusIcon } from '@components/ui/WsusIcon';
-import { RiotIcon } from '@components/ui/RiotIcon';
-import { EpicIcon } from '@components/ui/EpicIcon';
-import { EAIcon } from '@components/ui/EAIcon';
-import { BlizzardIcon } from '@components/ui/BlizzardIcon';
-import { XboxIcon } from '@components/ui/XboxIcon';
-import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
-import { GameImage } from '@components/common/GameImage';
-import { getBannerImageClass, type BannerImageRendering } from './bannerImageRendering';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { resolveGameDetection } from '@utils/gameDetection';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import type { RetroDownloadDto } from '@services/api.service';
-import BadgesRow from './BadgesRow';
-import DownloadBadges from './DownloadBadges';
+import type { BannerImageRendering } from './bannerImageRendering';
+import RetroRow from './RetroRow';
 import { useRetroDownloads } from './useRetroDownloads';
+import {
+  formatTimeRange,
+  groupByDepot,
+  mapDtoToDepotGroupedData,
+  type DepotGroupedData,
+  type RetroSortOrder
+} from './retroGrouping';
+import {
+  RETRO_WIDTHS_STORAGE_KEY,
+  RESIZE_MIN_WIDTH,
+  buildGridTemplate,
+  fitWidthsToContainer,
+  measureAllRetroColumns,
+  measureRetroColumn,
+  type RetroColumnVisibility,
+  type RetroMeasureRow
+} from './retroColumnSizing';
 import type {
   Download as DownloadType,
   DownloadGroup,
   EventSummary,
   GameDetectionSummary
 } from '../../../types';
-
-type SortOrder =
-  | 'latest'
-  | 'oldest'
-  | 'largest'
-  | 'smallest'
-  | 'service'
-  | 'efficiency'
-  | 'efficiency-low'
-  | 'sessions'
-  | 'alphabetical';
-
-/**
- * Format a time range with consistent year display
- * If either date is from a different year than now, both dates show the year
- * @param startTimeUtc - Start time
- * @param endTimeUtc - End time
- * @param forceYear - If true, always include year in both dates (for measurement)
- */
-const formatTimeRange = (startTimeUtc: string, endTimeUtc: string, forceYear = false): string => {
-  // Check if either date needs the year displayed
-  const needsYear =
-    forceYear || isFromDifferentYear(startTimeUtc) || isFromDifferentYear(endTimeUtc);
-
-  const startTime = formatDateTime(startTimeUtc, needsYear);
-  const endTime = formatDateTime(endTimeUtc, needsYear);
-
-  return startTime === endTime ? startTime : `${startTime} - ${endTime}`;
-};
-
-// Helper to check if item is a DownloadGroup
-const isDownloadGroup = (item: DownloadType | DownloadGroup): item is DownloadGroup => {
-  return 'downloads' in item;
-};
 
 interface RetroViewProps {
   items: (DownloadType | DownloadGroup)[];
@@ -133,494 +98,13 @@ interface RetroViewProps {
   filterEventId?: number;
 }
 
-const STORAGE_KEY = 'retro-view-column-widths';
-
-const GRID_GAP = 8;
-const GRID_PADDING = 32;
-const GRID_FIXED_ADDITIONS = 20; // overall +20 in grid template
-const RESIZE_MIN_WIDTH = 60;
-const COLUMN_FIT_FLOOR = 40;
-
-const MIN_COLUMN_WIDTHS: ColumnWidths = {
-  timestamp: 80,
-  banner: 130,
-  app: 100,
-  datasource: 70,
-  events: 50,
-  depot: 40,
-  client: 60,
-  speed: 50,
-  cacheHit: 80,
-  cacheMiss: 0,
-  overall: 50
-};
-
-const getVisibleColumns = (
-  showDatasource: boolean,
-  showTimestamps = true,
-  showBanner = true
-): (keyof ColumnWidths)[] => {
-  const columns: (keyof ColumnWidths)[] = [];
-  if (showTimestamps) columns.push('timestamp');
-  if (showBanner) columns.push('banner');
-  columns.push('app');
-  if (showDatasource) columns.push('datasource');
-  columns.push('events', 'depot', 'client', 'speed', 'cacheHit', 'overall');
-  return columns;
-};
-
-const getAvailableGridWidth = (
-  containerWidth: number,
-  showDatasource: boolean,
-  showTimestamps = true,
-  showBanner = true
-): number => {
-  const columns = getVisibleColumns(showDatasource, showTimestamps, showBanner);
-  const columnCount = columns.length;
-  const gapCount = columnCount - 1;
-  return containerWidth - GRID_PADDING - gapCount * GRID_GAP - GRID_FIXED_ADDITIONS;
-};
-
-const fitWidthsToContainer = (
-  widths: ColumnWidths,
-  containerWidth: number,
-  showDatasource: boolean,
-  lockedMinWidths?: Partial<ColumnWidths>,
-  showTimestamps = true,
-  showBanner = true
-): ColumnWidths => {
-  const availableWidth = getAvailableGridWidth(
-    containerWidth,
-    showDatasource,
-    showTimestamps,
-    showBanner
-  );
-  if (!Number.isFinite(availableWidth) || availableWidth <= 0) {
-    return widths;
-  }
-
-  const columns = getVisibleColumns(showDatasource, showTimestamps, showBanner);
-  const minWidths: ColumnWidths = { ...MIN_COLUMN_WIDTHS };
-  if (lockedMinWidths) {
-    Object.entries(lockedMinWidths).forEach(([column, value]) => {
-      const key = column as keyof ColumnWidths;
-      minWidths[key] = Math.max(minWidths[key], value ?? 0);
-    });
-  }
-
-  const normalized: ColumnWidths = { ...widths, cacheMiss: 0 };
-  columns.forEach((column) => {
-    normalized[column] = Math.max(minWidths[column], normalized[column]);
-  });
-
-  const totalWidth = columns.reduce((sum, column) => sum + normalized[column], 0);
-  if (totalWidth <= availableWidth) {
-    return normalized;
-  }
-
-  const totalMin = columns.reduce((sum, column) => sum + minWidths[column], 0);
-  if (totalMin >= availableWidth) {
-    const scale = availableWidth / totalMin;
-    const scaled: ColumnWidths = { ...normalized, cacheMiss: 0 };
-    columns.forEach((column) => {
-      scaled[column] = Math.max(COLUMN_FIT_FLOOR, Math.floor(minWidths[column] * scale));
-    });
-    return scaled;
-  }
-
-  const extra = availableWidth - totalMin;
-  const flexTotal = columns.reduce(
-    (sum, column) => sum + Math.max(0, normalized[column] - minWidths[column]),
-    0
-  );
-  const fitted: ColumnWidths = { ...normalized, cacheMiss: 0 };
-  columns.forEach((column) => {
-    const flex = Math.max(0, normalized[column] - minWidths[column]);
-    const share = flexTotal > 0 ? (flex / flexTotal) * extra : 0;
-    fitted[column] = Math.floor(minWidths[column] + share);
-  });
-
-  return fitted;
-};
-
-const getServiceIcon = (service: string, size = 24) => {
-  const serviceLower = service.toLowerCase();
-
-  switch (serviceLower) {
-    case 'steam':
-      return <SteamIcon size={size} className="opacity-80 text-[var(--theme-steam)]" />;
-    case 'wsus':
-    case 'windows':
-      return <WsusIcon size={size} className="opacity-80 text-[var(--theme-wsus)]" />;
-    case 'riot':
-    case 'riotgames':
-      return <RiotIcon size={size} className="opacity-80 text-[var(--theme-riot)]" />;
-    case 'epic':
-    case 'epicgames':
-      return <EpicIcon size={size} className="opacity-80 text-[var(--theme-epic)]" />;
-    case 'origin':
-    case 'ea':
-      return <EAIcon size={size} className="opacity-80 text-[var(--theme-origin)]" />;
-    case 'blizzard':
-    case 'battle.net':
-    case 'battlenet':
-      return <BlizzardIcon size={size} className="opacity-80 text-[var(--theme-blizzard)]" />;
-    case 'xbox':
-    case 'xboxlive':
-      return <XboxIcon size={size} className="opacity-80 text-[var(--theme-xbox)]" />;
-    default:
-      return (
-        <UnknownServiceIcon size={size} className="opacity-80 text-[var(--theme-text-secondary)]" />
-      );
-  }
-};
-
-// Interface for grouped depot data
-interface DepotGroupedData {
-  id: string;
-  service: string;
-  gameName: string;
-  gameAppId: number | null;
-  epicAppId: string | null;
-  depotId: number | null;
-  clientIp: string;
-  startTimeUtc: string;
-  endTimeUtc: string;
-  cacheHitBytes: number;
-  cacheMissBytes: number;
-  totalBytes: number;
-  requestCount: number;
-  clientsSet: Set<string>;
-  depotsSet: Set<number>;
-  datasource?: string;
-  averageBytesPerSecond: number;
-  downloadIds: number[]; // Track original download IDs for event associations
-  isEvicted?: boolean;
-  isPartiallyEvicted?: boolean;
-}
-
-// Build the grouping key for a single download row.
-// - depot mode: one row per (depot, client) - matches historical retro behavior.
-// - game mode: one row per (service, gameAppId|epicAppId|gameName) - collapses
-//   every depot and every client for the same game into a single row.
-const buildGroupKey = (download: DownloadType, groupByGame: boolean): string => {
-  if (groupByGame) {
-    const gameId =
-      download.gameAppId != null
-        ? `app-${download.gameAppId}`
-        : download.epicAppId
-          ? `epic-${download.epicAppId}`
-          : download.gameName
-            ? `name-${download.gameName.toLowerCase()}`
-            : `unknown-${download.id}`;
-    return `game-${download.service}-${gameId}`;
-  }
-  return download.depotId
-    ? `depot-${download.depotId}-${download.clientIp}`
-    : `no-depot-${download.service}-${download.clientIp}-${download.id}`;
-};
-
-// Group items for retro view display.
-// See buildGroupKey for the two supported grouping modes.
-const groupByDepot = (
-  items: (DownloadType | DownloadGroup)[],
-  sortOrder: SortOrder = 'latest',
-  groupByGame = false
-): DepotGroupedData[] => {
-  const depotGroups: Record<
-    string,
-    DepotGroupedData & {
-      _weightedSpeedSum: number;
-      _speedBytesSum: number;
-      _downloads: DownloadType[];
-      _hasEvicted: boolean;
-      _hasNonEvicted: boolean;
-    }
-  > = {};
-
-  const ingest = (download: DownloadType) => {
-    const depotKey = buildGroupKey(download, groupByGame);
-
-    if (!depotGroups[depotKey]) {
-      depotGroups[depotKey] = {
-        id: depotKey,
-        service: download.service,
-        gameName: download.gameName || download.service,
-        gameAppId: download.gameAppId || null,
-        epicAppId: download.epicAppId || null,
-        depotId: download.depotId || null,
-        clientIp: download.clientIp,
-        startTimeUtc: download.startTimeUtc,
-        endTimeUtc: download.endTimeUtc || download.startTimeUtc,
-        cacheHitBytes: 0,
-        cacheMissBytes: 0,
-        totalBytes: 0,
-        requestCount: 0,
-        clientsSet: new Set<string>(),
-        depotsSet: new Set<number>(),
-        datasource: download.datasource,
-        averageBytesPerSecond: 0,
-        downloadIds: [],
-        isEvicted: false,
-        isPartiallyEvicted: false,
-        _hasEvicted: false,
-        _hasNonEvicted: false,
-        _weightedSpeedSum: 0,
-        _speedBytesSum: 0,
-        _downloads: []
-      };
-    }
-
-    const group = depotGroups[depotKey];
-    // Track eviction across all downloads in the group
-    if (download.isEvicted) {
-      group._hasEvicted = true;
-    } else {
-      group._hasNonEvicted = true;
-    }
-    group.downloadIds.push(download.id);
-    group._downloads.push(download);
-    group.cacheHitBytes += download.cacheHitBytes || 0;
-    group.cacheMissBytes += download.cacheMissBytes || 0;
-    group.totalBytes += download.totalBytes || 0;
-    group.requestCount += 1;
-    group.clientsSet.add(download.clientIp);
-    if (download.depotId) group.depotsSet.add(download.depotId);
-
-    const speed = download.averageBytesPerSecond;
-    const bytes = download.totalBytes || 0;
-    if (speed > 0 && bytes > 0) {
-      group._weightedSpeedSum += speed * bytes;
-      group._speedBytesSum += bytes;
-    }
-
-    if (download.startTimeUtc < group.startTimeUtc) {
-      group.startTimeUtc = download.startTimeUtc;
-    }
-    const endTime = download.endTimeUtc || download.startTimeUtc;
-    if (endTime > group.endTimeUtc) {
-      group.endTimeUtc = endTime;
-    }
-  };
-
-  items.forEach((item) => {
-    if (isDownloadGroup(item)) {
-      item.downloads.forEach((download) => ingest(download));
-    } else {
-      ingest(item);
-    }
-  });
-
-  const grouped = Object.values(depotGroups).map((group) => {
-    const {
-      _weightedSpeedSum,
-      _speedBytesSum,
-      _downloads,
-      _hasEvicted,
-      _hasNonEvicted,
-      ...cleanGroup
-    } = group;
-    cleanGroup.averageBytesPerSecond = _speedBytesSum > 0 ? _weightedSpeedSum / _speedBytesSum : 0;
-    cleanGroup.isEvicted = _hasEvicted && !_hasNonEvicted;
-    cleanGroup.isPartiallyEvicted = _hasEvicted && _hasNonEvicted;
-    return cleanGroup as DepotGroupedData;
-  });
-
-  return grouped.sort((a, b) => {
-    switch (sortOrder) {
-      case 'oldest':
-        return new Date(a.startTimeUtc).getTime() - new Date(b.startTimeUtc).getTime();
-      case 'largest':
-        return b.totalBytes - a.totalBytes;
-      case 'smallest':
-        return a.totalBytes - b.totalBytes;
-      case 'service': {
-        const serviceCompare = a.service.localeCompare(b.service);
-        if (serviceCompare !== 0) return serviceCompare;
-        return new Date(b.endTimeUtc).getTime() - new Date(a.endTimeUtc).getTime();
-      }
-      case 'efficiency': {
-        const aEff = a.totalBytes > 0 ? (a.cacheHitBytes / a.totalBytes) * 100 : 0;
-        const bEff = b.totalBytes > 0 ? (b.cacheHitBytes / b.totalBytes) * 100 : 0;
-        return bEff - aEff;
-      }
-      case 'efficiency-low': {
-        const aEffLow = a.totalBytes > 0 ? (a.cacheHitBytes / a.totalBytes) * 100 : 0;
-        const bEffLow = b.totalBytes > 0 ? (b.cacheHitBytes / b.totalBytes) * 100 : 0;
-        return aEffLow - bEffLow;
-      }
-      case 'sessions':
-        return b.requestCount - a.requestCount;
-      case 'alphabetical':
-        return a.gameName.localeCompare(b.gameName);
-      case 'latest':
-      default:
-        return new Date(b.endTimeUtc).getTime() - new Date(a.endTimeUtc).getTime();
-    }
-  });
-};
-
-/**
- * Map server-paginated RetroDownloadDto rows into the in-memory DepotGroupedData
- * shape used by the retro row renderer. The server already groups by
- * (depotId, clientIp), sorts, and paginates, so no further regrouping is
- * required when `serverMode` is active.
- */
-const mapDtoToDepotGroupedData = (dto: RetroDownloadDto): DepotGroupedData => {
-  // Prefer server-provided arrays (populated for both merged and non-merged rows).
-  // Defensive fallback to singular fields for staged-deploy safety (remove once backend ships).
-  const clientsSet = new Set<string>(dto.clientIps ?? [dto.clientIp]);
-  const depotsSet = new Set<number>(
-    (dto.depotIds ?? (dto.depotId != null ? [dto.depotId] : [])).filter((d) => d != null)
-  );
-  return {
-    id: dto.id,
-    service: dto.service,
-    gameName: dto.appName,
-    gameAppId: dto.steamAppId,
-    epicAppId: dto.epicAppId,
-    depotId: dto.depotId,
-    clientIp: dto.clientIp,
-    startTimeUtc: dto.startTimeUtc,
-    endTimeUtc: dto.endTimeUtc,
-    cacheHitBytes: dto.cacheHitBytes,
-    cacheMissBytes: dto.cacheMissBytes,
-    totalBytes: dto.totalBytes,
-    requestCount: dto.requestCount,
-    clientsSet,
-    depotsSet,
-    datasource: dto.datasource,
-    averageBytesPerSecond: dto.averageBytesPerSecond,
-    downloadIds: dto.downloadIds,
-    isEvicted: false,
-    isPartiallyEvicted: false
-  };
-};
-
-// Circular Efficiency Gauge Component
-const EfficiencyGauge: React.FC<{ percent: number; size?: number }> = ({ percent, size = 56 }) => {
-  const { t } = useTranslation();
-  const strokeWidth = 4;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (percent / 100) * circumference;
-
-  const getColor = () => {
-    if (percent >= 90) return 'var(--theme-success)';
-    if (percent >= 50) return 'var(--theme-warning)';
-    return 'var(--theme-error)';
-  };
-
-  const getLabel = () => {
-    if (percent >= 90) return t('downloads.tab.retro.gauge.excellent');
-    if (percent >= 50) return t('downloads.tab.retro.gauge.partial');
-    return t('downloads.tab.retro.gauge.miss');
-  };
-
-  return (
-    <div className="flex flex-col items-center gap-0.5">
-      <div className="relative" style={{ width: size, height: size }}>
-        <svg width={size} height={size} className="transform -rotate-90">
-          {/* Background track */}
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill="none"
-            stroke="var(--theme-progress-bg)"
-            strokeWidth={strokeWidth}
-          />
-          {/* Progress arc */}
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill="none"
-            stroke={getColor()}
-            strokeWidth={strokeWidth}
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={offset}
-            className="transition-all duration-500 ease-out"
-          />
-        </svg>
-        {/* Center percentage */}
-        <div
-          className="absolute inset-0 flex items-center justify-center font-bold text-sm"
-          style={{ color: getColor() }}
-        >
-          {Math.round(percent)}%
-        </div>
-      </div>
-      <span
-        className="text-[9px] font-medium uppercase tracking-wide"
-        style={{ color: getColor() }}
-      >
-        {getLabel()}
-      </span>
-    </div>
-  );
-};
-
-// Combined Progress Bar Component
-const CombinedProgressBar: React.FC<{
-  hitBytes: number;
-  missBytes: number;
-  totalBytes: number;
-  showLabels?: boolean;
-}> = ({ hitBytes, missBytes, totalBytes, showLabels = true }) => {
-  const hitPercent = totalBytes > 0 ? (hitBytes / totalBytes) * 100 : 0;
-  const missPercent = totalBytes > 0 ? (missBytes / totalBytes) * 100 : 0;
-
-  return (
-    <div className="flex flex-col gap-1.5 min-w-0 w-full max-w-full overflow-hidden">
-      {/* Combined bar */}
-      <div className="h-2 rounded-full overflow-hidden flex w-full bg-[var(--theme-progress-bg)]">
-        {/* Cache Hit portion */}
-        <div
-          className="h-full transition-all duration-500 ease-out"
-          style={{
-            width: `${hitPercent}%`,
-            background:
-              hitPercent > 0
-                ? 'linear-gradient(90deg, var(--theme-chart-cache-hit), var(--theme-chart-hit-highlight))'
-                : 'transparent'
-          }}
-        />
-        {/* Cache Miss portion */}
-        <div
-          className="h-full transition-all duration-500 ease-out"
-          style={{
-            width: `${missPercent}%`,
-            background:
-              missPercent > 0
-                ? 'linear-gradient(90deg, var(--theme-error), var(--theme-chart-miss-deep))'
-                : 'transparent'
-          }}
-        />
-      </div>
-      {/* Labels - with truncation support for mobile */}
-      {showLabels && (
-        <div className="flex justify-between text-[10px] min-w-0 gap-2">
-          <span className="truncate text-[var(--theme-chart-cache-hit)]">
-            {formatBytes(hitBytes)} ({formatPercent(hitPercent)})
-          </span>
-          <span className="truncate text-right text-[var(--theme-error)]">
-            {formatBytes(missBytes)} ({formatPercent(missPercent)})
-          </span>
-        </div>
-      )}
-    </div>
-  );
-};
-
 // Empty State Component
 const EmptyState: React.FC = () => {
   const { t } = useTranslation();
 
   return (
     <div className="flex flex-col items-center justify-center py-16 px-4">
-      <div className="relative mb-6 animate-[float_3s_ease-in-out_infinite]">
+      <div className="relative mb-6 retro-empty-float">
         {/* Animated icon container */}
         <div className="w-20 h-20 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[var(--theme-bg-tertiary)] to-[var(--theme-bg-secondary)] shadow-[0_8px_32px_rgba(0,0,0,0.2)]">
           <HardDrive size={36} className="text-[var(--theme-text-muted)] opacity-60" />
@@ -668,6 +152,10 @@ const ResizeHandle: React.FC<{
     <div className="absolute h-full w-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity bg-[var(--theme-primary)]" />
   </div>
 );
+
+// Virtualization: RetroView rows have heavy content (banners, columns,
+// tooltips). Threshold is lower (>100) because row cost is high.
+const RETRO_VIRTUALIZATION_THRESHOLD = 100;
 
 const RetroView = memo(
   forwardRef<RetroViewHandle, RetroViewProps>(
@@ -735,7 +223,7 @@ const RetroView = memo(
       // Client-side grouping path: only runs in non-server mode.
       const clientGroupedItems = useMemo(() => {
         if (serverMode) return [] as DepotGroupedData[];
-        return groupByDepot(items, sortOrder as SortOrder, groupByGame);
+        return groupByDepot(items, sortOrder as RetroSortOrder, groupByGame);
       }, [serverMode, items, sortOrder, groupByGame]);
 
       // Server-mode page rows: one DepotGroupedData per server DTO.
@@ -745,11 +233,6 @@ const RetroView = memo(
         if (!serverMode) return [] as DepotGroupedData[];
         return serverRetro.items.map(mapDtoToDepotGroupedData);
       }, [serverMode, serverRetro.items]);
-
-      // For widths/caches, we expose a single "all grouped items" array. In
-      // server mode, totals come from the server response so this is the
-      // current page slice only.
-      const allGroupedItems = serverMode ? serverGroupedItems : clientGroupedItems;
 
       // Calculate total pages - server response wins when available.
       const totalPages = useMemo(() => {
@@ -769,37 +252,81 @@ const RetroView = memo(
       }, [serverMode, serverGroupedItems, clientGroupedItems, currentPage, itemsPerPage]);
 
       // Total items for pagination footer label.
-      const totalItems = serverMode ? serverRetro.totalItems : allGroupedItems.length;
+      const totalItems = serverMode ? serverRetro.totalItems : clientGroupedItems.length;
+
+      // Only show datasource column when there are multiple datasources
+      const showDatasourceColumn = hasMultipleDatasources && showDatasourceLabels;
+      const visibility = useMemo<RetroColumnVisibility>(
+        () => ({
+          showDatasource: showDatasourceColumn,
+          showTimestamps,
+          showBanner: showBannerColumn
+        }),
+        [showDatasourceColumn, showTimestamps, showBannerColumn]
+      );
+      const visibilityRef = useRef(visibility);
+      visibilityRef.current = visibility;
+
+      const headerLabels = useMemo<Record<keyof ColumnWidths, string>>(
+        () => ({
+          timestamp: t('downloads.tab.retro.headers.timestamp'),
+          banner: t('downloads.tab.retro.headers.banner', 'Banner'),
+          app: t('downloads.tab.retro.headers.app'),
+          datasource: t('downloads.tab.retro.headers.source'),
+          events: t('downloads.tab.retro.headers.events'),
+          depot: t('downloads.tab.retro.headers.depot'),
+          client: t('downloads.tab.retro.headers.client'),
+          speed: t('downloads.tab.retro.headers.avgSpeed'),
+          cacheHit: t('downloads.tab.retro.headers.cachePerformance'),
+          cacheMiss: t('downloads.tab.retro.headers.cachePerformance'),
+          overall: t('downloads.tab.retro.headers.efficiency')
+        }),
+        [t]
+      );
+
+      // Pre-formatted strings for canvas-based column measurement. Measuring
+      // through the canvas API avoids the forced DOM reflows the old
+      // span-per-measurement approach caused on every data load.
+      const measureRows = useMemo<RetroMeasureRow[]>(
+        () =>
+          groupedItems.map((data) => {
+            const totalBytes = data.totalBytes || 0;
+            const hitPercent = totalBytes > 0 ? (data.cacheHitBytes / totalBytes) * 100 : 0;
+            const missPercent = totalBytes > 0 ? (data.cacheMissBytes / totalBytes) * 100 : 0;
+            return {
+              timeRangeFull: formatTimeRange(data.startTimeUtc, data.endTimeUtc, true),
+              appName: data.gameName || data.service,
+              serviceBadge: data.service.toUpperCase(),
+              evictionLabel: data.isPartiallyEvicted
+                ? 'Partially Evicted'
+                : data.isEvicted
+                  ? 'Evicted'
+                  : '',
+              datasourceLabel: data.datasource || t('downloads.tab.retro.notAvailable'),
+              depotLabel: data.depotId
+                ? String(data.depotId)
+                : t('downloads.tab.retro.notAvailable'),
+              clientLabel:
+                data.clientsSet.size > 1
+                  ? t('downloads.tab.retro.clientCount', { count: data.clientsSet.size })
+                  : data.clientIp,
+              speedLabel: formatSpeed(data.averageBytesPerSecond),
+              hitLabel: `${formatBytes(data.cacheHitBytes)} (${formatPercent(hitPercent)})`,
+              missLabel: `${formatBytes(data.cacheMissBytes)} (${formatPercent(missPercent)})`
+            };
+          }),
+        [groupedItems, t]
+      );
 
       // Calculate smart default widths based on content
       const smartDefaultWidths = useMemo(() => {
         return getDefaultColumnWidths();
       }, []);
 
-      // Generate a cache key from the data for column width caching
-      const cacheKey = useMemo(() => {
-        const ids = groupedItems
-          .map((item) => item.id)
-          .sort()
-          .join(',');
-        const colCount = getVisibleColumns(
-          hasMultipleDatasources && showDatasourceLabels,
-          showTimestamps,
-          showBannerColumn
-        ).length;
-        return `${ids.length}-${colCount}-${ids.slice(0, 100)}`;
-      }, [
-        groupedItems,
-        hasMultipleDatasources,
-        showDatasourceLabels,
-        showTimestamps,
-        showBannerColumn
-      ]);
-
       // Column widths state - load from localStorage or use smart defaults
       const [columnWidths, setColumnWidths] = useState<ColumnWidths>(() => {
         try {
-          const saved = localStorage.getItem(STORAGE_KEY);
+          const saved = localStorage.getItem(RETRO_WIDTHS_STORAGE_KEY);
           if (saved) {
             const parsed = JSON.parse(saved);
             // Merge with smart defaults to ensure all columns have valid widths
@@ -810,435 +337,118 @@ const RetroView = memo(
         }
         return smartDefaultWidths;
       });
-      // Ref that mirrors columnWidths so effects can read the current value
-      // without listing columnWidths as a dependency (which would cause loops).
+      // Ref that mirrors columnWidths so handlers can read the current value
+      // without being recreated on every width change.
       const columnWidthsRef = useRef<ColumnWidths>(columnWidths);
       columnWidthsRef.current = columnWidths;
 
       // Track whether we've auto-fitted this session
       const hasAutoFittedRef = useRef(false);
 
-      // Recalculate widths when items change (for actual data measurement)
-      useEffect(() => {
-        if (groupedItems.length > 0) {
-          // Extract actual data for measurement
-          const timestamps: string[] = [];
-          const appNames: string[] = [];
-          const clientIps: string[] = [];
-
-          groupedItems.forEach((data) => {
-            // Use forceYear=true to measure with maximum width (always includes year)
-            const timeRange = formatTimeRange(data.startTimeUtc, data.endTimeUtc, true);
-            timestamps.push(timeRange);
-            appNames.push(data.gameName || data.service);
-            clientIps.push(data.clientIp);
-          });
-
-          const calculatedWidths = calculateColumnWidths({ timestamps, appNames, clientIps });
-
-          // Only update if no saved preferences exist
-          const saved = localStorage.getItem(STORAGE_KEY);
-          if (!saved) {
-            setColumnWidths((prev) => ({
-              ...prev,
-              timestamp: Math.max(prev.timestamp, calculatedWidths.timestamp),
-              app: Math.max(prev.app, calculatedWidths.app),
-              client: Math.max(prev.client, calculatedWidths.client)
-            }));
-          }
-        }
-      }, [groupedItems, sortOrder, cacheKey, smartDefaultWidths]);
-
       // Container ref for measurements
       const containerRef = useRef<HTMLDivElement>(null);
       const fadeContainerRef = useRef<HTMLDivElement>(null);
 
-      // Save column widths to localStorage
+      // Grow timestamp/app/client columns to fit new data when the user has no
+      // saved widths yet.
+      useEffect(() => {
+        if (groupedItems.length === 0) return;
+        if (localStorage.getItem(RETRO_WIDTHS_STORAGE_KEY)) return;
+
+        const calculatedWidths = calculateColumnWidths({
+          timestamps: measureRows.map((r) => r.timeRangeFull),
+          appNames: measureRows.map((r) => r.appName),
+          clientIps: groupedItems.map((d) => d.clientIp)
+        });
+
+        setColumnWidths((prev) => ({
+          ...prev,
+          timestamp: Math.max(prev.timestamp, calculatedWidths.timestamp),
+          app: Math.max(prev.app, calculatedWidths.app),
+          client: Math.max(prev.client, calculatedWidths.client)
+        }));
+      }, [groupedItems, measureRows]);
+
+      // Save column widths to localStorage (drags only commit on mouseup, so
+      // this no longer fires per mousemove).
       useEffect(() => {
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(columnWidths));
+          localStorage.setItem(RETRO_WIDTHS_STORAGE_KEY, JSON.stringify(columnWidths));
         } catch {
           // Ignore localStorage errors
         }
       }, [columnWidths]);
 
-      // Drag handling - using document-level events for smooth dragging
-      // Reference: https://www.letsbuildui.dev/articles/resizable-tables-with-react-and-css-grid/
-      const handleMouseDown = useCallback(
-        (column: keyof ColumnWidths, e: React.MouseEvent) => {
-          e.preventDefault();
-          e.stopPropagation();
+      // Drag handling: mousemove only rewrites the --retro-grid-cols CSS
+      // variable on the container (no React re-render); state commits on
+      // mouseup so persistence and memoized rows stay cheap.
+      const handleMouseDown = useCallback((column: keyof ColumnWidths, e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
 
-          // Store initial values in refs
-          const startX = e.clientX;
-          const startWidth = columnWidths[column];
+        const startX = e.clientX;
+        const startWidth = columnWidthsRef.current[column];
+        let liveWidths = columnWidthsRef.current;
 
-          const handleMouseMove = (moveEvent: MouseEvent) => {
-            const diff = moveEvent.clientX - startX;
-            const newWidth = Math.max(RESIZE_MIN_WIDTH, startWidth + diff);
+        const handleMouseMove = (moveEvent: MouseEvent) => {
+          const diff = moveEvent.clientX - startX;
+          const newWidth = Math.max(RESIZE_MIN_WIDTH, startWidth + diff);
+          liveWidths = { ...liveWidths, [column]: newWidth };
+          containerRef.current?.style.setProperty(
+            '--retro-grid-cols',
+            buildGridTemplate(liveWidths, visibilityRef.current)
+          );
+        };
 
-            setColumnWidths((prev) => ({
-              ...prev,
-              [column]: newWidth
-            }));
-          };
+        const handleMouseUp = () => {
+          document.removeEventListener('mousemove', handleMouseMove);
+          document.removeEventListener('mouseup', handleMouseUp);
+          document.body.style.cursor = '';
+          document.body.style.userSelect = '';
+          setColumnWidths(liveWidths);
+        };
 
-          const handleMouseUp = () => {
-            document.removeEventListener('mousemove', handleMouseMove);
-            document.removeEventListener('mouseup', handleMouseUp);
-            document.body.style.cursor = '';
-            document.body.style.userSelect = '';
-          };
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+      }, []);
 
-          document.addEventListener('mousemove', handleMouseMove);
-          document.addEventListener('mouseup', handleMouseUp);
-          document.body.style.cursor = 'col-resize';
-          document.body.style.userSelect = 'none';
-        },
-        [columnWidths]
-      );
-
+      // Measure all visible columns from real content and fit to container.
       const handleResetWidths = useCallback(() => {
-        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(RETRO_WIDTHS_STORAGE_KEY);
 
-        if (!containerRef.current) {
+        const containerWidth = containerRef.current?.clientWidth;
+        if (!containerWidth) {
           setColumnWidths(smartDefaultWidths);
           return;
         }
 
-        // Measure actual content widths for each column
-        const measureSpan = document.createElement('span');
-        measureSpan.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;';
-        document.body.appendChild(measureSpan);
-
-        const grouped = groupedItems;
-        const isDatasourceShown = hasMultipleDatasources && showDatasourceLabels;
-
-        // Measure each column's required width based on actual data
-        const measuredWidths: ColumnWidths = {
-          timestamp: 80,
-          banner: 140,
-          app: 100,
-          datasource: 75,
-          events: 90,
-          depot: 50,
-          client: 70,
-          speed: 60,
-          cacheHit: 150,
-          cacheMiss: 0,
-          overall: 80
-        };
-
-        // Timestamp column - use forceYear=true to measure maximum width
-        measureSpan.style.font = '400 12px system-ui, -apple-system, sans-serif';
-        grouped.forEach((data) => {
-          const timeRange = formatTimeRange(data.startTimeUtc, data.endTimeUtc, true);
-          measureSpan.textContent = timeRange;
-          measuredWidths.timestamp = Math.max(
-            measuredWidths.timestamp,
-            measureSpan.offsetWidth + 12
-          );
-        });
-
-        // Banner column - fixed size for game images
-        measuredWidths.banner = 140;
-
-        // App column - text only (image is in banner column)
-        measureSpan.style.font = '500 14px system-ui, -apple-system, sans-serif';
-        grouped.forEach((data) => {
-          measureSpan.textContent = data.gameName || data.service;
-          const gameNameWidth = measureSpan.offsetWidth + 32;
-          // Also account for BadgesRow width: service badge + optional eviction badge + padding/gaps
-          measureSpan.style.font = '600 11px system-ui, -apple-system, sans-serif';
-          measureSpan.textContent = data.service.toUpperCase();
-          const serviceBadgeWidth = measureSpan.offsetWidth + 24; // badge text + padding
-          const evictionLabel = data.isPartiallyEvicted
-            ? 'Partially Evicted'
-            : data.isEvicted
-              ? 'Evicted'
-              : '';
-          let evictionBadgeWidth = 0;
-          if (evictionLabel) {
-            measureSpan.textContent = evictionLabel;
-            evictionBadgeWidth = measureSpan.offsetWidth + 24 + 6; // badge padding + gap
-          }
-          const badgesWidth = serviceBadgeWidth + evictionBadgeWidth + 32; // cell padding
-          measureSpan.style.font = '500 14px system-ui, -apple-system, sans-serif';
-          measuredWidths.app = Math.max(measuredWidths.app, gameNameWidth, badgesWidth);
-        });
-
-        // Datasource column
-        if (isDatasourceShown) {
-          measureSpan.style.font = '500 12px system-ui, -apple-system, sans-serif';
-          grouped.forEach((data) => {
-            measureSpan.textContent = data.datasource || t('downloads.tab.retro.notAvailable');
-            measuredWidths.datasource = Math.max(
-              measuredWidths.datasource,
-              measureSpan.offsetWidth + 32
-            );
-          });
-        }
-
-        // Depot column
-        measureSpan.style.font = '400 14px ui-monospace, monospace';
-        grouped.forEach((data) => {
-          measureSpan.textContent = data.depotId
-            ? String(data.depotId)
-            : t('downloads.tab.retro.notAvailable');
-          measuredWidths.depot = Math.max(measuredWidths.depot, measureSpan.offsetWidth + 32);
-        });
-
-        // Client column
-        measureSpan.style.font = '400 14px ui-monospace, monospace';
-        grouped.forEach((data) => {
-          if (data.clientsSet.size > 1) {
-            measureSpan.textContent = t('downloads.tab.retro.clientCount', {
-              count: data.clientsSet.size
-            });
-          } else {
-            measureSpan.textContent = data.clientIp;
-          }
-          measuredWidths.client = Math.max(measuredWidths.client, measureSpan.offsetWidth + 32);
-        });
-
-        // Speed column
-        measureSpan.style.font = '400 14px system-ui, -apple-system, sans-serif';
-        grouped.forEach((data) => {
-          measureSpan.textContent = formatSpeed(data.averageBytesPerSecond);
-          measuredWidths.speed = Math.max(measuredWidths.speed, measureSpan.offsetWidth + 32 + 16); // icon
-        });
-
-        // Cache performance column - measure the label format
-        measureSpan.style.font = '400 12px system-ui, -apple-system, sans-serif';
-        measureSpan.textContent = '999.99 GB (99.9%)';
-        const cacheValueWidth = measureSpan.offsetWidth;
-        // Two values side by side with gap
-        measuredWidths.cacheHit = Math.max(measuredWidths.cacheHit, cacheValueWidth * 2 + 16);
-
-        // Measure headers too
-        measureSpan.style.font = '600 11px system-ui, -apple-system, sans-serif';
-        measureSpan.textContent = t('downloads.tab.retro.headers.timestamp');
-        measuredWidths.timestamp = Math.max(measuredWidths.timestamp, measureSpan.offsetWidth + 32);
-        measureSpan.textContent = t('downloads.tab.retro.headers.banner', 'Banner');
-        measuredWidths.banner = Math.max(measuredWidths.banner, measureSpan.offsetWidth + 32);
-        measureSpan.textContent = t('downloads.tab.retro.headers.app');
-        measuredWidths.app = Math.max(measuredWidths.app, measureSpan.offsetWidth + 32);
-        if (isDatasourceShown) {
-          measureSpan.textContent = t('downloads.tab.retro.headers.source');
-          measuredWidths.datasource = Math.max(
-            measuredWidths.datasource,
-            measureSpan.offsetWidth + 32
-          );
-        }
-        measureSpan.textContent = t('downloads.tab.retro.headers.events');
-        measuredWidths.events = Math.max(measuredWidths.events, measureSpan.offsetWidth + 32);
-        measureSpan.textContent = t('downloads.tab.retro.headers.depot');
-        measuredWidths.depot = Math.max(measuredWidths.depot, measureSpan.offsetWidth + 32);
-        measureSpan.textContent = t('downloads.tab.retro.headers.client');
-        measuredWidths.client = Math.max(measuredWidths.client, measureSpan.offsetWidth + 32);
-        measureSpan.textContent = t('downloads.tab.retro.headers.avgSpeed');
-        measuredWidths.speed = Math.max(measuredWidths.speed, measureSpan.offsetWidth + 32);
-        measureSpan.textContent = t('downloads.tab.retro.headers.cachePerformance');
-        measuredWidths.cacheHit = Math.max(measuredWidths.cacheHit, measureSpan.offsetWidth + 16);
-        measureSpan.textContent = t('downloads.tab.retro.headers.efficiency');
-        measuredWidths.overall = Math.max(measuredWidths.overall, measureSpan.offsetWidth + 32);
-
-        document.body.removeChild(measureSpan);
-
-        const containerWidth = containerRef.current.clientWidth;
-        const fittedWidths = fitWidthsToContainer(
-          measuredWidths,
-          containerWidth,
-          isDatasourceShown,
-          undefined,
-          showTimestamps,
-          showBannerColumn
+        setColumnWidths(
+          measureAllRetroColumns(measureRows, headerLabels, visibility, containerWidth)
         );
-        setColumnWidths(fittedWidths);
-      }, [
-        groupedItems,
-        hasMultipleDatasources,
-        showDatasourceLabels,
-        smartDefaultWidths,
-        t,
-        showTimestamps,
-        showBannerColumn
-      ]);
+      }, [measureRows, headerLabels, visibility, smartDefaultWidths]);
 
       // Auto-fit a single column by measuring actual data content (not truncated DOM text)
-      // Uses data from groupedItems to get full text values
       const handleAutoFitColumn = useCallback(
         (column: keyof ColumnWidths) => {
-          // Start with the smart default as baseline
-          const defaultWidth = smartDefaultWidths[column];
-          let maxWidth = defaultWidth;
-
-          // Create a temporary span to measure text width
-          const measureSpan = document.createElement('span');
-          measureSpan.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;';
-          measureSpan.style.letterSpacing = 'normal';
-          document.body.appendChild(measureSpan);
-
-          // Use the actual data to measure full text widths (not truncated DOM)
-          const grouped = groupedItems;
-
-          // Set font based on column type
-          switch (column) {
-            case 'timestamp':
-              // Use forceYear=true to measure with maximum possible width
-              measureSpan.style.font = '400 12px system-ui, -apple-system, sans-serif';
-              grouped.forEach((data) => {
-                const timeRange = formatTimeRange(data.startTimeUtc, data.endTimeUtc, true);
-                measureSpan.textContent = timeRange;
-                maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32); // padding
-              });
-              break;
-
-            case 'banner':
-              // Banner column: fixed size for game images (120px) + padding
-              maxWidth = 140;
-              break;
-
-            case 'app':
-              measureSpan.style.font = '500 14px system-ui, -apple-system, sans-serif';
-              grouped.forEach((data) => {
-                measureSpan.textContent = data.gameName || data.service;
-                const gameNameWidth = measureSpan.offsetWidth + 32;
-                // Also account for BadgesRow width: service badge + optional eviction badge + padding/gaps
-                measureSpan.style.font = '600 11px system-ui, -apple-system, sans-serif';
-                measureSpan.textContent = data.service.toUpperCase();
-                const serviceBadgeWidth = measureSpan.offsetWidth + 24;
-                const evictionLabel = data.isPartiallyEvicted
-                  ? 'Partially Evicted'
-                  : data.isEvicted
-                    ? 'Evicted'
-                    : '';
-                let evictionBadgeWidth = 0;
-                if (evictionLabel) {
-                  measureSpan.textContent = evictionLabel;
-                  evictionBadgeWidth = measureSpan.offsetWidth + 24 + 6;
-                }
-                const badgesWidth = serviceBadgeWidth + evictionBadgeWidth + 32;
-                measureSpan.style.font = '500 14px system-ui, -apple-system, sans-serif';
-                maxWidth = Math.max(maxWidth, gameNameWidth, badgesWidth);
-              });
-              break;
-
-            case 'client':
-              measureSpan.style.font = '400 14px ui-monospace, monospace';
-              grouped.forEach((data) => {
-                if (data.clientsSet.size > 1) {
-                  measureSpan.textContent = t('downloads.tab.retro.clientCount', {
-                    count: data.clientsSet.size
-                  });
-                } else {
-                  measureSpan.textContent = data.clientIp;
-                }
-                maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32);
-              });
-              break;
-
-            case 'depot':
-              measureSpan.style.font = '400 14px ui-monospace, monospace';
-              grouped.forEach((data) => {
-                measureSpan.textContent = data.depotId
-                  ? String(data.depotId)
-                  : t('downloads.tab.retro.notAvailable');
-                maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32);
-              });
-              break;
-
-            case 'speed':
-              measureSpan.style.font = '400 14px system-ui, -apple-system, sans-serif';
-              grouped.forEach((data) => {
-                measureSpan.textContent = formatSpeed(data.averageBytesPerSecond);
-                maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32 + 16); // extra for icon
-              });
-              break;
-
-            case 'datasource':
-              measureSpan.style.font = '500 12px system-ui, -apple-system, sans-serif';
-              grouped.forEach((data) => {
-                measureSpan.textContent = data.datasource || t('downloads.tab.retro.notAvailable');
-                maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32);
-              });
-              break;
-            case 'cacheHit':
-              measureSpan.style.font = '400 10px system-ui, -apple-system, sans-serif';
-              grouped.forEach((data) => {
-                const totalBytes = data.totalBytes || 0;
-                const hitPercent = totalBytes > 0 ? (data.cacheHitBytes / totalBytes) * 100 : 0;
-                const missPercent = totalBytes > 0 ? (data.cacheMissBytes / totalBytes) * 100 : 0;
-                const hitLabel = `${formatBytes(data.cacheHitBytes)} (${formatPercent(hitPercent)})`;
-                const missLabel = `${formatBytes(data.cacheMissBytes)} (${formatPercent(missPercent)})`;
-                measureSpan.textContent = hitLabel;
-                const hitWidth = measureSpan.offsetWidth;
-                measureSpan.textContent = missLabel;
-                const missWidth = measureSpan.offsetWidth;
-                maxWidth = Math.max(maxWidth, hitWidth + missWidth + 8 + 32);
-              });
-              break;
-
-            default:
-              // For other columns, use smart defaults
-              break;
-          }
-
-          // Also measure header
-          measureSpan.style.font = '600 11px system-ui, -apple-system, sans-serif';
-          measureSpan.style.letterSpacing = '0.025em';
-          const headerLabels: Record<string, string> = {
-            timestamp: t('downloads.tab.retro.headers.timestamp'),
-            banner: t('downloads.tab.retro.headers.banner', 'Banner'),
-            app: t('downloads.tab.retro.headers.app'),
-            datasource: t('downloads.tab.retro.headers.source'),
-            events: t('downloads.tab.retro.headers.events'),
-            depot: t('downloads.tab.retro.headers.depot'),
-            client: t('downloads.tab.retro.headers.client'),
-            speed: t('downloads.tab.retro.headers.avgSpeed'),
-            cacheHit: t('downloads.tab.retro.headers.cachePerformance'),
-            cacheMiss: t('downloads.tab.retro.headers.cachePerformance'),
-            overall: t('downloads.tab.retro.headers.efficiency')
-          };
-          measureSpan.textContent = headerLabels[column] || '';
-          maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32);
-
-          document.body.removeChild(measureSpan);
-
-          const requiredWidth = Math.max(RESIZE_MIN_WIDTH, Math.ceil(maxWidth));
+          const requiredWidth = Math.max(
+            smartDefaultWidths[column],
+            measureRetroColumn(column, measureRows, headerLabels[column])
+          );
 
           setColumnWidths((prev) => {
-            const nextWidths: ColumnWidths = {
-              ...prev,
-              [column]: requiredWidth
-            };
-
+            const nextWidths: ColumnWidths = { ...prev, [column]: requiredWidth };
             const containerWidth = containerRef.current?.clientWidth;
             if (!containerWidth) {
               return nextWidths;
             }
-
-            const isDatasourceShown = hasMultipleDatasources && showDatasourceLabels;
-            const lockedMinWidths = { [column]: requiredWidth } as Partial<ColumnWidths>;
-            return fitWidthsToContainer(
-              nextWidths,
-              containerWidth,
-              isDatasourceShown,
-              lockedMinWidths,
-              showTimestamps,
-              showBannerColumn
-            );
+            return fitWidthsToContainer(nextWidths, containerWidth, visibility, {
+              [column]: requiredWidth
+            });
           });
         },
-        [
-          smartDefaultWidths,
-          groupedItems,
-          t,
-          hasMultipleDatasources,
-          showDatasourceLabels,
-          showTimestamps,
-          showBannerColumn
-        ]
+        [measureRows, headerLabels, visibility, smartDefaultWidths]
       );
 
       const setPageFading = useCallback((fading: boolean) => {
@@ -1263,9 +473,16 @@ const RetroView = memo(
         [handleResetWidths, setPageFading]
       );
 
-      const handleImageError = (gameAppId: string) => {
+      // Server mode: fade the table while a follow-up page/filter fetch is in
+      // flight (previous rows stay visible via keep-previous-data).
+      useEffect(() => {
+        if (!serverMode) return;
+        setPageFading(serverRetro.isFetching && !serverRetro.isLoading);
+      }, [serverMode, serverRetro.isFetching, serverRetro.isLoading, setPageFading]);
+
+      const handleImageError = useCallback((gameAppId: string) => {
         setImageErrors((prev) => new Set(prev).add(gameAppId));
-      };
+      }, []);
 
       // Fetch event associations for visible downloads
       // refreshVersion triggers re-fetch when cache is invalidated (e.g., DownloadTagged event)
@@ -1278,7 +495,7 @@ const RetroView = memo(
 
       // Pre-compute row data with events to avoid recalculating during render
       // This memoization prevents expensive event lookups on every render
-      const rowsWithEvents = useMemo(() => {
+      const rowsWithEvents = useMemo<RetroRowData[]>(() => {
         return groupedItems.map((data) => {
           // Aggregate events for this depot group
           const eventsMap = new Map<number, EventSummary>();
@@ -1321,7 +538,16 @@ const RetroView = memo(
             data.epicAppId &&
             availableImages.has(data.epicAppId) &&
             !imageErrors.has(`epic-${data.epicAppId}`);
-          const hasGameImage = hasSteamImage || hasEpicImage;
+          const hasGameImage = Boolean(hasSteamImage || hasEpicImage);
+
+          const detection = resolveGameDetection(
+            data.gameAppId,
+            data.gameName,
+            detectionLookup,
+            detectionByName,
+            data.service,
+            detectionByService
+          );
 
           return {
             ...data,
@@ -1332,37 +558,28 @@ const RetroView = memo(
             hitPercent,
             timeRange,
             accentColor,
-            hasGameImage
+            hasGameImage,
+            onDiskSizeBytes: detection?.total_size_bytes ?? null
           };
         });
-      }, [groupedItems, getAssociations, aestheticMode, imageErrors, availableImages]);
+      }, [
+        groupedItems,
+        getAssociations,
+        aestheticMode,
+        imageErrors,
+        availableImages,
+        detectionLookup,
+        detectionByName,
+        detectionByService
+      ]);
 
-      // Generate grid template from column widths
-      // Use pixel values for precise control during resize, with 1fr on the last column to fill remaining space
-      // Only show datasource column when there are multiple datasources
-      const showDatasourceColumn = hasMultipleDatasources && showDatasourceLabels;
+      // Grid template applied as a CSS variable on the table container; the
+      // header and every row consume it through the .retro-grid-row class.
+      const gridTemplate = useMemo(
+        () => buildGridTemplate(columnWidths, visibility),
+        [columnWidths, visibility]
+      );
 
-      // Memoize grid template to prevent recalculation
-      const gridTemplateMemo = useMemo(() => {
-        const parts: string[] = [];
-        if (showTimestamps) parts.push(`${columnWidths.timestamp}px`);
-        if (showBannerColumn) parts.push(`${columnWidths.banner}px`);
-        parts.push(`${columnWidths.app}px`);
-        if (showDatasourceColumn) parts.push(`${columnWidths.datasource}px`);
-        parts.push(
-          `${columnWidths.events}px`,
-          `${columnWidths.depot}px`,
-          `${columnWidths.client}px`,
-          `${columnWidths.speed}px`,
-          `${columnWidths.cacheHit + columnWidths.cacheMiss}px`,
-          `minmax(${columnWidths.overall + 20}px, 1fr)`
-        );
-        return parts.join(' ');
-      }, [columnWidths, showDatasourceColumn, showTimestamps, showBannerColumn]);
-
-      // Virtualization: RetroView rows have heavy content (banners, columns,
-      // tooltips). Threshold is lower (>100) because row cost is high.
-      const RETRO_VIRTUALIZATION_THRESHOLD = 100;
       const shouldVirtualize = rowsWithEvents.length > RETRO_VIRTUALIZATION_THRESHOLD;
       const virtualParentRef = useRef<HTMLDivElement | null>(null);
       const rowVirtualizer = useVirtualizer({
@@ -1372,6 +589,53 @@ const RetroView = memo(
         overscan: 5,
         measureElement: (el) => el?.getBoundingClientRect().height ?? (isDesktop ? 90 : 200)
       });
+
+      const renderRow = (
+        data: RetroRowData,
+        virtualAttrs?: {
+          dataIndex: number;
+          measureRef: (el: Element | null) => void;
+          translateY: number;
+        }
+      ) => (
+        <RetroRow
+          key={data.id}
+          data={data}
+          isDesktop={isDesktop}
+          showTimestamps={showTimestamps}
+          showBannerColumn={showBannerColumn}
+          showDatasourceColumn={showDatasourceColumn}
+          showDatasourceBadge={showDatasourceColumn}
+          bannerImageRendering={bannerImageRendering}
+          onImageError={handleImageError}
+          dataIndex={virtualAttrs?.dataIndex}
+          measureRef={virtualAttrs?.measureRef}
+          translateY={virtualAttrs?.translateY}
+        />
+      );
+
+      const headerCell = (
+        column: keyof ColumnWidths,
+        options: { centered?: boolean; resizable?: boolean } = {}
+      ) => {
+        const { centered = true, resizable = true } = options;
+        return (
+          <div
+            className={`relative px-2 flex items-center h-full min-w-0${centered ? ' justify-center text-center' : ''}`}
+            data-header
+          >
+            <span className={`min-w-0 flex-1 truncate${centered ? ' text-center' : ''}`}>
+              {headerLabels[column]}
+            </span>
+            {resizable && (
+              <ResizeHandle
+                onMouseDown={(e: React.MouseEvent) => handleMouseDown(column, e)}
+                onDoubleClick={() => handleAutoFitColumn(column)}
+              />
+            )}
+          </div>
+        );
+      };
 
       return (
         <>
@@ -1393,6 +657,11 @@ const RetroView = memo(
             </div>
           )}
 
+          {/* Surface fetch failures instead of silently showing stale rows */}
+          {serverMode && serverRetro.error && (
+            <Alert color="red">{t('downloads.tab.retro.loadError')}</Alert>
+          )}
+
           {/* First-load spinner (server mode). Subsequent page fetches keep
               previous rows visible via the keep-previous-data pattern. */}
           {serverMode && serverRetro.isLoading && groupedItems.length === 0 && (
@@ -1405,559 +674,49 @@ const RetroView = memo(
             <div
               ref={containerRef}
               className="rounded-lg border border-[var(--theme-border-primary)] overflow-x-auto retro-table-container bg-[var(--theme-card-bg)]"
+              style={{ '--retro-grid-cols': gridTemplate } as React.CSSProperties}
             >
-              {/* Keyframe styles for animations - only float animation for empty state */}
-              <style>{`
-        @keyframes float {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-8px); }
-        }
-      `}</style>
-
               <div>
                 {/* Desktop Table Header - only rendered on desktop via JS conditional */}
                 {isDesktop && (
-                  <div
-                    className="grid pl-4 pr-4 py-3 items-center text-xs leading-none font-semibold uppercase tracking-wide border-b select-none sticky top-0 z-20 bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)] text-[var(--theme-text-secondary)] min-w-fit"
-                    style={{ gridTemplateColumns: gridTemplateMemo }}
-                  >
-                    {showTimestamps && (
-                      <div className="relative px-2 flex items-center h-full min-w-0" data-header>
-                        <span className="min-w-0 flex-1 truncate">
-                          {t('downloads.tab.retro.headers.timestamp')}
-                        </span>
-                        <ResizeHandle
-                          onMouseDown={(e: React.MouseEvent) => handleMouseDown('timestamp', e)}
-                          onDoubleClick={() => handleAutoFitColumn('timestamp')}
-                        />
-                      </div>
-                    )}
-                    {showBannerColumn && (
-                      <div
-                        className="relative px-2 flex items-center justify-center h-full min-w-0"
-                        data-header
-                      >
-                        <span className="min-w-0 truncate text-center">
-                          {t('downloads.tab.retro.headers.banner', 'Banner')}
-                        </span>
-                        <ResizeHandle
-                          onMouseDown={(e: React.MouseEvent) => handleMouseDown('banner', e)}
-                          onDoubleClick={() => handleAutoFitColumn('banner')}
-                        />
-                      </div>
-                    )}
-                    <div className="relative px-2 flex items-center h-full min-w-0" data-header>
-                      <span className="min-w-0 flex-1 truncate">
-                        {t('downloads.tab.retro.headers.app')}
-                      </span>
-                      <ResizeHandle
-                        onMouseDown={(e: React.MouseEvent) => handleMouseDown('app', e)}
-                        onDoubleClick={() => handleAutoFitColumn('app')}
-                      />
-                    </div>
-                    {showDatasourceColumn && (
-                      <div
-                        className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
-                        data-header
-                      >
-                        <span className="min-w-0 flex-1 truncate text-center">
-                          {t('downloads.tab.retro.headers.source')}
-                        </span>
-                        <ResizeHandle
-                          onMouseDown={(e: React.MouseEvent) => handleMouseDown('datasource', e)}
-                          onDoubleClick={() => handleAutoFitColumn('datasource')}
-                        />
-                      </div>
-                    )}
-                    <div
-                      className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
-                      data-header
-                    >
-                      <span className="min-w-0 flex-1 truncate text-center">
-                        {t('downloads.tab.retro.headers.events')}
-                      </span>
-                      <ResizeHandle
-                        onMouseDown={(e: React.MouseEvent) => handleMouseDown('events', e)}
-                        onDoubleClick={() => handleAutoFitColumn('events')}
-                      />
-                    </div>
-                    <div
-                      className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
-                      data-header
-                    >
-                      <span className="min-w-0 flex-1 truncate text-center">
-                        {t('downloads.tab.retro.headers.depot')}
-                      </span>
-                      <ResizeHandle
-                        onMouseDown={(e: React.MouseEvent) => handleMouseDown('depot', e)}
-                        onDoubleClick={() => handleAutoFitColumn('depot')}
-                      />
-                    </div>
-                    <div
-                      className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
-                      data-header
-                    >
-                      <span className="min-w-0 flex-1 truncate text-center">
-                        {t('downloads.tab.retro.headers.client')}
-                      </span>
-                      <ResizeHandle
-                        onMouseDown={(e: React.MouseEvent) => handleMouseDown('client', e)}
-                        onDoubleClick={() => handleAutoFitColumn('client')}
-                      />
-                    </div>
-                    <div
-                      className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
-                      data-header
-                    >
-                      <span className="min-w-0 flex-1 truncate text-center">
-                        {t('downloads.tab.retro.headers.avgSpeed')}
-                      </span>
-                      <ResizeHandle
-                        onMouseDown={(e: React.MouseEvent) => handleMouseDown('speed', e)}
-                        onDoubleClick={() => handleAutoFitColumn('speed')}
-                      />
-                    </div>
-                    <div
-                      className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
-                      data-header
-                    >
-                      <span className="min-w-0 flex-1 truncate text-center">
-                        {t('downloads.tab.retro.headers.cachePerformance')}
-                      </span>
-                      <ResizeHandle
-                        onMouseDown={(e: React.MouseEvent) => handleMouseDown('cacheHit', e)}
-                        onDoubleClick={() => handleAutoFitColumn('cacheHit')}
-                      />
-                    </div>
-                    <div
-                      className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
-                      data-header
-                    >
-                      <span className="min-w-0 flex-1 truncate text-center">
-                        {t('downloads.tab.retro.headers.efficiency')}
-                      </span>
-                    </div>
+                  <div className="retro-grid-row pl-4 pr-4 py-3 items-center text-xs leading-none font-semibold uppercase tracking-wide border-b select-none sticky top-0 z-20 bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)] text-[var(--theme-text-secondary)] min-w-fit">
+                    {showTimestamps && headerCell('timestamp', { centered: false })}
+                    {showBannerColumn && headerCell('banner')}
+                    {headerCell('app', { centered: false })}
+                    {showDatasourceColumn && headerCell('datasource')}
+                    {headerCell('events')}
+                    {headerCell('depot')}
+                    {headerCell('client')}
+                    {headerCell('speed')}
+                    {headerCell('cacheHit')}
+                    {headerCell('overall', { resizable: false })}
                   </div>
                 )}
 
                 {/* Table Body */}
                 {rowsWithEvents.length > 0 ? (
-                  (() => {
-                    const renderRetroRow = (
-                      data: (typeof rowsWithEvents)[number],
-                      virtualAttrs: {
-                        dataIndex?: number;
-                        measureRef?: (el: Element | null) => void;
-                        translateY?: number;
-                      } = {}
-                    ) => {
-                      // All values are pre-computed in rowsWithEvents useMemo
-                      const {
-                        totalBytes,
-                        cacheHitBytes,
-                        cacheMissBytes,
-                        hitPercent,
-                        timeRange,
-                        accentColor,
-                        hasGameImage,
-                        events
-                      } = data;
-
-                      const { dataIndex, measureRef, translateY } = virtualAttrs;
-                      const isVirtual = translateY !== undefined;
-                      return (
-                        <div
-                          key={data.id}
-                          data-index={dataIndex}
-                          ref={measureRef as React.Ref<HTMLDivElement> | undefined}
-                          className={isVirtual ? 'virtual-row' : undefined}
-                          style={
-                            isVirtual ? { transform: `translateY(${translateY}px)` } : undefined
-                          }
-                        >
-                          <div
-                            className={`w-full hover:bg-[var(--theme-bg-tertiary)]/50 group relative border-b border-[var(--theme-border-secondary)]${data.isEvicted ? ' opacity-60' : ''}`}
-                          >
-                            {/* Left accent border based on efficiency */}
-                            <div
-                              className="absolute left-0 top-0 bottom-0 w-1 opacity-70"
-                              style={{ backgroundColor: accentColor }}
-                            />
-
-                            {/* Conditional Layout - Mobile or Desktop based on JS breakpoint detection */}
-                            {isDesktop ? (
-                              /* Desktop Layout */
-                              <div
-                                className="grid pl-4 pr-4 py-3 items-center"
-                                style={{ gridTemplateColumns: gridTemplateMemo }}
-                                data-row
-                              >
-                                {/* Timestamp */}
-                                {showTimestamps && (
-                                  <div
-                                    className="px-2 min-w-0 text-xs text-[var(--theme-text-secondary)] overflow-hidden whitespace-nowrap"
-                                    data-cell
-                                  >
-                                    <span className="block truncate" title={timeRange}>
-                                      {timeRange}
-                                    </span>
-                                  </div>
-                                )}
-
-                                {/* Banner - dedicated column for game artwork */}
-                                {showBannerColumn && (
-                                  <div
-                                    className="px-2 min-w-0 flex items-center justify-center"
-                                    data-cell
-                                  >
-                                    {hasGameImage && (data.gameAppId || data.epicAppId) ? (
-                                      <GameImage
-                                        gameAppId={data.epicAppId || data.gameAppId!}
-                                        epicAppId={data.epicAppId || undefined}
-                                        alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                                        className={`w-[120px] h-[56px] rounded object-cover ${getBannerImageClass('retro-banner-image', bannerImageRendering)}`}
-                                        onError={handleImageError}
-                                      />
-                                    ) : (
-                                      /* Service icon placeholder */
-                                      <div className="w-[120px] h-[56px] rounded flex items-center justify-center bg-[var(--theme-bg-tertiary)]">
-                                        {getServiceIcon(data.service, 32)}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-
-                                {/* App name */}
-                                <div className="px-2 min-w-0 overflow-hidden" data-cell>
-                                  <div className="flex flex-col min-w-0 overflow-hidden">
-                                    <span
-                                      className="text-sm font-medium text-[var(--theme-text-primary)] truncate"
-                                      title={data.gameName || data.service}
-                                    >
-                                      {data.gameName || data.service}
-                                    </span>
-                                    <BadgesRow
-                                      service={data.service}
-                                      showDatasource={false}
-                                      isEvicted={data.isEvicted}
-                                      isPartiallyEvicted={data.isPartiallyEvicted}
-                                    />
-                                    {resolveGameDetection(
-                                      data.gameAppId,
-                                      data.gameName,
-                                      detectionLookup,
-                                      detectionByName,
-                                      data.service,
-                                      detectionByService
-                                    )?.total_size_bytes ? (
-                                      <span className="text-themed-muted text-xs ml-2">
-                                        {t('dashboard.downloadsPanel.onDisk', {
-                                          size: formatBytes(
-                                            resolveGameDetection(
-                                              data.gameAppId,
-                                              data.gameName,
-                                              detectionLookup,
-                                              detectionByName,
-                                              data.service,
-                                              detectionByService
-                                            )!.total_size_bytes
-                                          )
-                                        })}
-                                      </span>
-                                    ) : null}
-                                    {data.requestCount > 1 && (
-                                      <span className="text-xs text-[var(--theme-text-muted)] truncate">
-                                        {t('downloads.tab.retro.clientCount', {
-                                          count: data.clientsSet.size
-                                        })}{' '}
-                                        ·{' '}
-                                        {t('downloads.tab.retro.requestCount', {
-                                          count: data.requestCount
-                                        })}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {/* Datasource - only shown when multiple datasources exist */}
-                                {showDatasourceColumn && (
-                                  <div
-                                    className="px-2 min-w-0 overflow-hidden text-center"
-                                    data-cell
-                                  >
-                                    <span
-                                      className="themed-badge status-badge-neutral inline-block truncate max-w-full"
-                                      title={data.datasource}
-                                    >
-                                      {data.datasource || t('downloads.tab.retro.notAvailable')}
-                                    </span>
-                                  </div>
-                                )}
-
-                                {/* Events - shows event badges for associated downloads */}
-                                <div
-                                  className="px-2 min-w-0 overflow-hidden flex justify-center"
-                                  data-cell
-                                >
-                                  {events.length > 0 ? (
-                                    <DownloadBadges events={events} maxVisible={2} size="sm" />
-                                  ) : (
-                                    <span className="text-xs text-[var(--theme-text-muted)]">
-                                      -
-                                    </span>
-                                  )}
-                                </div>
-
-                                {/* Depot */}
-                                <div className="px-2 min-w-0 overflow-hidden text-center" data-cell>
-                                  {data.depotsSet.size > 1 ? (
-                                    <span
-                                      className="text-xs text-[var(--theme-text-muted)] truncate block"
-                                      title={t('downloads.tab.retro.depotCount', {
-                                        count: data.depotsSet.size
-                                      })}
-                                    >
-                                      {t('downloads.tab.retro.depotCount', {
-                                        count: data.depotsSet.size
-                                      })}
-                                    </span>
-                                  ) : data.depotId ? (
-                                    <a
-                                      href={`https://steamdb.info/depot/${data.depotId}/`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-sm font-mono text-[var(--theme-primary)] hover:underline"
-                                    >
-                                      {data.depotId}
-                                    </a>
-                                  ) : (
-                                    <span className="text-sm text-[var(--theme-text-muted)]">
-                                      {t('downloads.tab.retro.notAvailable')}
-                                    </span>
-                                  )}
-                                </div>
-
-                                {/* Client IP */}
-                                <div
-                                  className="px-2 min-w-0 text-sm font-mono text-[var(--theme-text-primary)] overflow-hidden text-center"
-                                  data-cell
-                                >
-                                  {data.clientsSet.size > 1 ? (
-                                    <span
-                                      className="truncate block"
-                                      title={t('downloads.tab.retro.clientCount', {
-                                        count: data.clientsSet.size
-                                      })}
-                                    >
-                                      {t('downloads.tab.retro.clientCount', {
-                                        count: data.clientsSet.size
-                                      })}
-                                    </span>
-                                  ) : (
-                                    <span className="block truncate">
-                                      <ClientIpDisplay
-                                        clientIp={data.clientIp}
-                                        className="inline"
-                                      />
-                                    </span>
-                                  )}
-                                </div>
-
-                                {/* Avg Speed */}
-                                <div
-                                  className="px-2 min-w-0 text-sm text-[var(--theme-text-primary)] overflow-hidden flex items-center justify-center gap-1"
-                                  data-cell
-                                >
-                                  <Zap
-                                    size={12}
-                                    className="text-[var(--theme-warning)] opacity-70"
-                                  />
-                                  <span className="truncate">
-                                    {formatSpeed(data.averageBytesPerSecond)}
-                                  </span>
-                                </div>
-
-                                {/* Combined Cache Performance Bar */}
-                                <div
-                                  className="px-2 min-w-0 overflow-hidden flex justify-center"
-                                  data-cell
-                                >
-                                  <CombinedProgressBar
-                                    hitBytes={cacheHitBytes}
-                                    missBytes={cacheMissBytes}
-                                    totalBytes={totalBytes}
-                                  />
-                                </div>
-
-                                {/* Circular Efficiency Gauge */}
-                                <div className="px-2 min-w-0 flex justify-center" data-cell>
-                                  <EfficiencyGauge percent={hitPercent} />
-                                </div>
-                              </div>
-                            ) : (
-                              /* Mobile Layout - with explicit width constraints */
-                              <div className="p-3 pl-4 space-y-2 sm:space-y-3 w-full max-w-full overflow-hidden">
-                                {/* App image and name */}
-                                <div className="flex items-center gap-3 w-full min-w-0">
-                                  {hasGameImage && (data.gameAppId || data.epicAppId) ? (
-                                    <GameImage
-                                      gameAppId={data.epicAppId || data.gameAppId!}
-                                      epicAppId={data.epicAppId || undefined}
-                                      alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                                      className={`w-[120px] h-[56px] rounded object-cover flex-shrink-0 ${getBannerImageClass('retro-banner-image', bannerImageRendering)}`}
-                                      onError={handleImageError}
-                                    />
-                                  ) : (
-                                    <div className="w-[120px] h-[56px] rounded flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
-                                      {getServiceIcon(data.service, 32)}
-                                    </div>
-                                  )}
-                                  <div className="flex-1 min-w-0 overflow-hidden">
-                                    <div className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
-                                      {data.gameName || data.service}
-                                      {resolveGameDetection(
-                                        data.gameAppId,
-                                        data.gameName,
-                                        detectionLookup,
-                                        detectionByName,
-                                        data.service,
-                                        detectionByService
-                                      )?.total_size_bytes ? (
-                                        <span className="text-themed-muted text-xs ml-2">
-                                          {t('dashboard.downloadsPanel.onDisk', {
-                                            size: formatBytes(
-                                              resolveGameDetection(
-                                                data.gameAppId,
-                                                data.gameName,
-                                                detectionLookup,
-                                                detectionByName,
-                                                data.service,
-                                                detectionByService
-                                              )!.total_size_bytes
-                                            )
-                                          })}
-                                        </span>
-                                      ) : null}
-                                      {data.requestCount > 1 && (
-                                        <span className="ml-2 text-xs text-[var(--theme-text-muted)]">
-                                          (
-                                          {t('downloads.tab.retro.clientCount', {
-                                            count: data.clientsSet.size
-                                          })}{' '}
-                                          ·{' '}
-                                          {t('downloads.tab.retro.requestCount', {
-                                            count: data.requestCount
-                                          })}
-                                          )
-                                        </span>
-                                      )}
-                                    </div>
-                                    <BadgesRow
-                                      service={data.service}
-                                      showDatasource={false}
-                                      isEvicted={data.isEvicted}
-                                      isPartiallyEvicted={data.isPartiallyEvicted}
-                                    />
-                                    <div className="flex items-center gap-2 text-xs text-[var(--theme-text-muted)] min-w-0">
-                                      <span className="truncate">
-                                        <ClientIpDisplay
-                                          clientIp={data.clientIp}
-                                          className="inline"
-                                        />
-                                        {data.depotsSet.size > 1 ? (
-                                          <>
-                                            {' • '}
-                                            <span className="text-[var(--theme-text-muted)]">
-                                              {t('downloads.tab.retro.depotCount', {
-                                                count: data.depotsSet.size
-                                              })}
-                                            </span>
-                                          </>
-                                        ) : data.depotId ? (
-                                          <>
-                                            {' • '}
-                                            <a
-                                              href={`https://steamdb.info/depot/${data.depotId}/`}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
-                                              className="text-[var(--theme-primary)] hover:underline"
-                                            >
-                                              {data.depotId}
-                                            </a>
-                                          </>
-                                        ) : null}
-                                      </span>
-                                      {hasMultipleDatasources &&
-                                        showDatasourceLabels &&
-                                        data.datasource && (
-                                          <Tooltip
-                                            content={t('downloads.tab.retro.datasourceTooltip', {
-                                              datasource: data.datasource
-                                            })}
-                                          >
-                                            <span className="themed-badge status-badge-neutral">
-                                              {data.datasource}
-                                            </span>
-                                          </Tooltip>
-                                        )}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Timestamp and Speed */}
-                                <div className="flex items-center justify-between text-xs text-[var(--theme-text-secondary)] min-w-0">
-                                  <span className="truncate mr-2">{timeRange}</span>
-                                  <span className="flex items-center gap-1 text-[var(--theme-text-primary)] flex-shrink-0">
-                                    <Zap size={12} className="text-[var(--theme-warning)]" />
-                                    {formatSpeed(data.averageBytesPerSecond)}
-                                  </span>
-                                </div>
-
-                                {/* Combined Progress Bar and Efficiency */}
-                                <div className="flex items-center gap-3 w-full min-w-0">
-                                  <div className="flex-1 min-w-0 overflow-hidden">
-                                    <CombinedProgressBar
-                                      hitBytes={cacheHitBytes}
-                                      missBytes={cacheMissBytes}
-                                      totalBytes={totalBytes}
-                                    />
-                                  </div>
-                                  <div className="flex-shrink-0">
-                                    <EfficiencyGauge percent={hitPercent} size={44} />
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    };
-
-                    if (shouldVirtualize) {
-                      return (
-                        <div
-                          ref={virtualParentRef}
-                          className="virtual-list-parent virtual-list-parent-retro"
-                        >
-                          <div
-                            className="virtual-list-inner"
-                            style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-                          >
-                            {rowVirtualizer.getVirtualItems().map((virtualRow) =>
-                              renderRetroRow(rowsWithEvents[virtualRow.index], {
-                                dataIndex: virtualRow.index,
-                                measureRef: rowVirtualizer.measureElement,
-                                translateY: virtualRow.start
-                              })
-                            )}
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    return <div>{rowsWithEvents.map((data) => renderRetroRow(data))}</div>;
-                  })()
-                ) : (
+                  shouldVirtualize ? (
+                    <div
+                      ref={virtualParentRef}
+                      className="virtual-list-parent virtual-list-parent-retro"
+                    >
+                      <div
+                        className="virtual-list-inner"
+                        style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+                      >
+                        {rowVirtualizer.getVirtualItems().map((virtualRow) =>
+                          renderRow(rowsWithEvents[virtualRow.index], {
+                            dataIndex: virtualRow.index,
+                            measureRef: rowVirtualizer.measureElement,
+                            translateY: virtualRow.start
+                          })
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div>{rowsWithEvents.map((data) => renderRow(data))}</div>
+                  )
+                ) : serverMode && (serverRetro.isLoading || serverRetro.isFetching) ? null : (
                   <EmptyState />
                 )}
               </div>

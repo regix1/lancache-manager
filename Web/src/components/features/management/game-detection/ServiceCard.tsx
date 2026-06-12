@@ -12,7 +12,6 @@ interface ServiceCardProps {
   service: ServiceCacheInfo;
   isExpanded: boolean;
   isExpanding: boolean;
-  isAnyRemovalRunning: boolean;
   isAdmin: boolean;
   dockerSocketAvailable: boolean;
   onToggleDetails: (serviceName: string) => void;
@@ -27,7 +26,6 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   service,
   isExpanded,
   isExpanding,
-  isAnyRemovalRunning,
   isAdmin,
   dockerSocketAvailable,
   onToggleDetails,
@@ -86,7 +84,6 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
       isExpanded={isExpanded}
       isExpanding={isExpanding}
       isRemoving={isRemoving}
-      isAnyRemovalRunning={isAnyRemovalRunning}
       isAdmin={isAdmin}
       dockerSocketAvailable={dockerSocketAvailable}
       hasExpandableContent={hasExpandableContent}

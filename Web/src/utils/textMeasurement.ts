@@ -30,7 +30,7 @@ function getCanvasContext(): CanvasRenderingContext2D | null {
  * @param font - CSS font string (e.g., "14px Inter, sans-serif")
  * @returns Width in pixels, or 0 if measurement fails
  */
-function measureTextWidth(text: string, font: string): number {
+export function measureTextWidth(text: string, font: string): number {
   const ctx = getCanvasContext();
   if (!ctx) return 0;
 
@@ -68,13 +68,17 @@ function measureMaxTextWidth(texts: string[], font: string, padding = 16): numbe
 /**
  * Font definitions matching the RetroView component styles
  */
-const RETRO_VIEW_FONTS = {
+export const RETRO_VIEW_FONTS = {
   // Header font (uppercase, semibold, tracking-wide)
   header: '600 11px system-ui, -apple-system, sans-serif',
   // Timestamp cell (text-xs)
   timestamp: '400 12px system-ui, -apple-system, sans-serif',
   // App name (text-sm font-medium)
   appName: '500 14px system-ui, -apple-system, sans-serif',
+  // Badge text inside the app cell (text-[11px] font-semibold)
+  badge: '600 11px system-ui, -apple-system, sans-serif',
+  // Datasource badge (text-xs font-medium)
+  datasource: '500 12px system-ui, -apple-system, sans-serif',
   // Depot ID (text-sm font-mono)
   depot: '400 14px ui-monospace, monospace',
   // Client IP (text-sm font-mono)

@@ -83,9 +83,10 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   // Derive cache clearing state from notifications (standardized pattern)
   const isCacheClearing = useOperationBusy({ types: ['cache_clearing'] });
 
-  // A running cache file scan blocks cache clearing server-side (OperationConflictChecker
-  // returns 409 errors.conflict.cacheFileScanActive); mirror that here so the buttons
-  // explain the wait instead of failing on click.
+  // Wait-queue model: a running cache file scan no longer disables the Clear buttons
+  // (clicking enqueues; the purple waiting card is the feedback). This flag now only
+  // (a) gates the Refresh button - refresh triggers the SAME scan, a meaningless
+  // re-click - and (b) drives the "will start after..." tooltip on the Clear buttons.
   const isCacheSizeScanRunning = useOperationBusy({ types: ['cache_size_scan'] });
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -241,7 +242,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       const result = clearingDatasource
         ? await ApiService.clearDatasourceCache(clearingDatasource)
         : await ApiService.clearAllCache();
-      if (result.operationId) {
+      // Wait-queue model: queued/deduplicated responses must not seed a running card -
+      // the OperationWaiting event (or the already-visible card) owns the UI.
+      if (result.operationId && !result.queued && !result.alreadyRunning) {
         addNotification(
           buildSeededRunningNotification(
             'cache_clearing',
@@ -285,7 +288,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       <Tooltip content={t('management.cache.refreshCacheSize')} position="top">
         <Button
           onClick={handleRefreshCacheSize}
-          disabled={cacheSizeLoading || isAnyRemovalRunning}
+          disabled={cacheSizeLoading || isAnyRemovalRunning || isCacheSizeScanRunning}
           variant="filled"
           color="gray"
           size="sm"
@@ -303,19 +306,12 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           onClick={() => handleClearCache(null)}
           awaitPermissions
           loading={actionLoading && !clearingDatasource}
-          disabled={
-            actionLoading ||
-            mockMode ||
-            isAnyRemovalRunning ||
-            isCacheSizeScanRunning ||
-            authMode !== 'authenticated' ||
-            cacheReadOnly
-          }
+          disabled={actionLoading || mockMode || authMode !== 'authenticated' || cacheReadOnly}
           title={
             cacheReadOnly
               ? t('management.cache.alerts.readOnly.title')
-              : isCacheSizeScanRunning
-                ? t('errors.conflict.cacheFileScanActive')
+              : isAnyRemovalRunning || isCacheSizeScanRunning
+                ? t('common.notifications.willQueueBehindCurrent')
                 : undefined
           }
         >
@@ -368,7 +364,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                         size="sm"
                         className="w-full sm:w-auto"
                         onClick={handleRefreshCacheSize}
-                        disabled={cacheSizeLoading || isAnyRemovalRunning}
+                        disabled={cacheSizeLoading || isAnyRemovalRunning || isCacheSizeScanRunning}
                       >
                         {cacheSizeLoading ? (
                           <LoadingSpinner inline size="sm" />
@@ -547,8 +543,6 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                           disabled={
                             actionLoading ||
                             mockMode ||
-                            isAnyRemovalRunning ||
-                            isCacheSizeScanRunning ||
                             authMode !== 'authenticated' ||
                             cacheReadOnly ||
                             !ds.cacheWritable
@@ -556,8 +550,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                           title={
                             !ds.cacheWritable
                               ? t('management.cache.alerts.readOnly.title')
-                              : isCacheSizeScanRunning
-                                ? t('errors.conflict.cacheFileScanActive')
+                              : isAnyRemovalRunning || isCacheSizeScanRunning
+                                ? t('common.notifications.willQueueBehindCurrent')
                                 : t('management.cache.clearDatasourceCache', {
                                     datasource: ds.name
                                   })

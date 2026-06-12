@@ -386,7 +386,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         compareToCacheLogs,
         detectionMode
       );
-      if (result.operationId) {
+      // Wait-queue model: queued/deduplicated responses must not seed a running card -
+      // the OperationWaiting event (or the already-visible card) owns the UI.
+      if (result.operationId && !result.queued && !result.alreadyRunning) {
         addNotification(
           buildSeededRunningNotification(
             'corruption_removal',
@@ -544,13 +546,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           (isLoading && !hasInitiallyLoaded) ||
           corruptionList.length === 0 ||
           mockMode ||
-          isAnyRemovalRunning ||
           anyCorruptionRemovalPending ||
           authMode !== 'authenticated' ||
           logsReadOnly ||
           cacheReadOnly ||
           !isDockerAvailable
         }
+        title={isAnyRemovalRunning ? t('common.notifications.willQueueBehindCurrent') : undefined}
         variant="filled"
         color="red"
         size="sm"
@@ -750,7 +752,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                 }
                                 disabled={
                                   mockMode ||
-                                  isAnyRemovalRunning ||
                                   anyCorruptionRemovalPending ||
                                   authMode !== 'authenticated' ||
                                   logsReadOnly ||

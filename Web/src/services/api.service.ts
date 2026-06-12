@@ -89,6 +89,11 @@ interface OperationResponse {
    */
   status?: OperationStatus;
   operationId?: string;
+  // Wait-queue model (QueuedOperationResponse): present when the request was parked
+  // behind a conflicting op (queued) or deduplicated against an identical one
+  // (alreadyRunning). Callers must NOT seed a running card in either case.
+  queued?: boolean;
+  alreadyRunning?: boolean;
   // Log processing specific
   logSizeMB?: number;
   remainingMB?: number;
@@ -1335,7 +1340,14 @@ class ApiService {
     threshold = 3,
     compareToCacheLogs = true,
     detectionMode = 'miss_count'
-  ): Promise<{ message: string; service: string; operationId?: string; status?: OperationStatus }> {
+  ): Promise<{
+    message: string;
+    service: string;
+    operationId?: string;
+    status?: OperationStatus;
+    queued?: boolean;
+    alreadyRunning?: boolean;
+  }> {
     try {
       const res = await fetch(
         `${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}&detectionMode=${detectionMode}`,
@@ -1401,7 +1413,9 @@ class ApiService {
   }
 
   // Start game cache detection as background operation
-  static async startGameCacheDetection(forceRefresh = false): Promise<{ operationId: string }> {
+  static async startGameCacheDetection(
+    forceRefresh = false
+  ): Promise<{ operationId: string; queued?: boolean; alreadyRunning?: boolean }> {
     try {
       const url = `${API_BASE}/games/detect${forceRefresh ? '?forceRefresh=true' : ''}`;
       const res = await fetch(
@@ -1532,7 +1546,11 @@ class ApiService {
   // Remove ALL evicted downloads, log entries, and detection rows in one batched backend
   // operation (single log rewrite pass + single DB transaction + single disk-summary refresh).
   // Progress/cancel flow through the standard eviction_removal notification (bulk scope).
-  static async removeAllEvicted(): Promise<{ operationId: string }> {
+  static async removeAllEvicted(): Promise<{
+    operationId: string;
+    queued?: boolean;
+    alreadyRunning?: boolean;
+  }> {
     try {
       const res = await fetch(
         `${API_BASE}/cache/evicted`,

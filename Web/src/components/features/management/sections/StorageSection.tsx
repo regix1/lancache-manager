@@ -227,7 +227,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       // Seed the eviction_removal card with the 202's operationId so busy-tracking
       // and the cancel button work immediately instead of racing the SignalR
       // Started event (same pattern as the eviction-scan seed below).
-      if (result.operationId) {
+      // Wait-queue model: queued/deduplicated responses must not seed a running card.
+      if (result.operationId && !result.queued && !result.alreadyRunning) {
         addNotification(
           buildSeededRunningNotification(
             'eviction_removal',
@@ -333,8 +334,10 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
 
   const isEvictionScanNotificationRunning = useOperationBusy({ types: ['eviction_scan'] });
   const isEvictionRemovalRunning = useOperationBusy({ types: ['eviction_removal'] });
-  const isEvictionScanRunning =
-    isEvictionScanNotificationRunning || isStartingEvictionScan || isEvictionRemovalRunning;
+  // Wait-queue model: an eviction REMOVAL no longer disables the scan button (the scan
+  // queues behind it - purple card feedback). Same-op only: scan already running or the
+  // kick-off request in flight.
+  const isEvictionScanRunning = isEvictionScanNotificationRunning || isStartingEvictionScan;
 
   const [evictedDataExpanded, setEvictedDataExpanded] = useState(() => {
     const saved = localStorage.getItem(MANAGEMENT_STORAGE_KEYS.EVICTED_DATA_EXPANDED);
@@ -671,7 +674,9 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                   </Button>
                   <Button
                     onClick={handleResetEvictions}
-                    disabled={resettingEvictions || isEvictionScanRunning}
+                    disabled={
+                      resettingEvictions || isEvictionScanRunning || isEvictionRemovalRunning
+                    }
                     loading={resettingEvictions}
                     variant="filled"
                     color="red"
@@ -691,8 +696,12 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                       disabled={
                         evictedGames.length + evictedServices.length === 0 ||
                         removeAllRunning ||
-                        isAnyEvictedRemovalRunning ||
                         cacheReadOnly
+                      }
+                      title={
+                        isAnyEvictedRemovalRunning
+                          ? t('common.notifications.willQueueBehindCurrent')
+                          : undefined
                       }
                       className="w-full sm:w-auto"
                     >
@@ -785,7 +794,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                     services={evictedServices}
                     isAdmin={isAdmin}
                     dockerSocketAvailable={isDockerAvailable}
-                    isAnyRemovalRunning={isAnyEvictedRemovalRunning || removeAllRunning}
                     onRemoveGame={handleEvictedGameRemoveClick}
                     onRemoveService={handleEvictedServiceRemoveClick}
                   />

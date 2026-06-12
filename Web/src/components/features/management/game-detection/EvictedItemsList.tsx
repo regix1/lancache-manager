@@ -10,7 +10,6 @@ import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
 interface EvictedItemsListProps {
   games: GameCacheInfo[];
   services: ServiceCacheInfo[];
-  isAnyRemovalRunning: boolean;
   isAdmin: boolean;
   dockerSocketAvailable: boolean;
   onRemoveGame: (game: GameCacheInfo) => void;
@@ -21,7 +20,6 @@ interface EvictedItemsListProps {
 const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
   games,
   services,
-  isAnyRemovalRunning,
   isAdmin,
   dockerSocketAvailable,
   onRemoveGame,
@@ -47,7 +45,6 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
       {evictedServices.length > 0 && (
         <ServicesList
           services={evictedServices}
-          isAnyRemovalRunning={isAnyRemovalRunning}
           isAdmin={isAdmin}
           dockerSocketAvailable={dockerSocketAvailable}
           onRemoveService={onRemoveService}
@@ -57,7 +54,6 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
       {evictedGames.length > 0 && (
         <GamesList
           games={evictedGames}
-          isAnyRemovalRunning={isAnyRemovalRunning}
           isAdmin={isAdmin}
           dockerSocketAvailable={dockerSocketAvailable}
           onRemoveGame={onRemoveGame}

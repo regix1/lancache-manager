@@ -44,17 +44,17 @@ const shouldAutoDismiss = (): boolean => {
 const TERMINAL_SEED_GUARD_MS = 5000;
 
 // Removal/clearing operation types that share the backend _cacheLock.
-// cache_size_scan is enrolled because the cache file scan conflicts server-side with
-// every op in this group (OperationConflictChecker returns 409
-// errors.conflict.cacheFileScanActive) - enrollment here is what disables the heavy-op
-// buttons app-wide (isAnyRemovalRunning), the established Group-A busy mechanism.
+// NOTE (wait-queue model): isAnyRemovalRunning must NOT gate buttons whose actions now
+// ENQUEUE on conflict - clicking during another op is a supported action whose feedback
+// is the purple waiting card. Remaining legitimate consumers are: sync reads that would
+// block on _cacheLock (cache-size/log-count refresh), the kept-409 sync corruption scan,
+// the client-side bulk-removal loop (not queue-aware), and data-refresh suppression.
 const REMOVAL_TYPES = [
   'log_removal',
   'game_removal',
   'service_removal',
   'corruption_removal',
-  'cache_clearing',
-  'cache_size_scan'
+  'cache_clearing'
 ] as const;
 
 export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ children }) => {

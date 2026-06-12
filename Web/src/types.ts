@@ -235,6 +235,10 @@ export interface ProcessingStatus {
 export interface ClearCacheResponse {
   operationId: string;
   message: string;
+  /** Wait-queue model: request was parked behind a conflicting op (purple card owns the UI). */
+  queued?: boolean;
+  /** Wait-queue model: identical op already active/queued - response carries its id. */
+  alreadyRunning?: boolean;
 }
 
 export interface MessageResponse {

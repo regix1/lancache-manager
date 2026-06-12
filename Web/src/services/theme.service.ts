@@ -271,14 +271,14 @@ class ThemeService {
         colors: complete({})
       },
       // Modern, clean light theme inspired by Linear/Stripe
-      // Uses subtle off-white background with white cards and shadows for depth
+      // White page with soft grey cards/surfaces so large areas aren't blinding white
       {
         meta: {
           id: 'light-default',
           name: 'Light Default',
           description: 'Clean modern light theme with subtle depth',
           author: 'System',
-          version: '3.0.1',
+          version: '4.0.0',
           isDark: false,
           sharpCorners: false,
           disableFocusOutlines: true,
@@ -290,17 +290,17 @@ class ThemeService {
           secondaryColor: '#7c3aed',
           accentColor: '#0891b2',
 
-          // Backgrounds - Subtle off-white, not heavy grey
-          // Key: Very light background, white cards with shadows for separation
-          bgPrimary: '#f8fafc', // slate-50 - very subtle off-white
-          bgSecondary: '#ffffff', // Pure white for cards
-          bgTertiary: '#f1f5f9', // slate-100 - subtle grey for nested elements
-          bgHover: '#e2e8f0', // slate-200 - hover state
-          bgElevated: '#ffffff', // Drawer/modal/floating panel background
-          bgSurface: '#f8fafc', // Sections within elevated surfaces
-          bgSurfaceHover: '#f1f5f9', // Hover on surface elements
-          bgSurfaceActive: '#e2e8f0', // Active/pressed surface elements
-          bgOverlay: 'rgba(0,0,0,0.4)', // Backdrop overlay
+          // Backgrounds - White page, soft grey surfaces
+          // Key: grey cards on a white page so the big visual areas aren't pure white
+          bgPrimary: '#ffffff', // White page background
+          bgSecondary: '#f1f5f9', // slate-100 - grey cards/sidebar/dropdowns
+          bgTertiary: '#e2e8f0', // slate-200 - nested elements, table headers
+          bgHover: '#cbd5e1', // slate-300 - hover state
+          bgElevated: '#f8fafc', // slate-50 - drawer/modal/floating panel background
+          bgSurface: '#f1f5f9', // slate-100 - sections within elevated surfaces
+          bgSurfaceHover: '#e2e8f0', // slate-200 - hover on surface elements
+          bgSurfaceActive: '#cbd5e1', // slate-300 - active/pressed surface elements
+          bgOverlay: 'rgba(15,23,42,0.45)', // Slate-tinted backdrop overlay
 
           // Text - Rich, crisp colors (not washed out)
           textPrimary: '#0f172a', // slate-900 - near black for crisp readability
@@ -313,38 +313,39 @@ class ThemeService {
           dragHandleColor: '#94a3b8',
           dragHandleHover: '#2563eb',
 
-          // Borders - Subtle but defined
-          borderPrimary: '#e2e8f0', // slate-200 - subtle border
-          borderSecondary: '#cbd5e1', // slate-300 - slightly stronger
+          // Borders - Strong enough to read on grey surfaces
+          borderPrimary: '#cbd5e1', // slate-300 - visible on slate-100 cards
+          borderSecondary: '#94a3b8', // slate-400 - slightly stronger
           borderFocus: '#2563eb',
-          borderElevated: '#d1d5db', // Borders within elevated panels
-          borderHover: '#9ca3af', // Border hover state
+          borderElevated: '#cbd5e1', // slate-300 - borders within elevated panels
+          borderHover: '#64748b', // slate-500 - border hover state
 
-          // Navigation - Clean white with subtle border
+          // Navigation - Clean white bar with a defined border
           navBg: '#ffffff',
-          navBorder: '#e2e8f0',
+          navBorder: '#cbd5e1',
           navTabActive: '#2563eb',
           navTabInactive: '#64748b',
           navTabHover: '#1e293b',
           navTabActiveBorder: '#2563eb',
           navMobileMenuBg: '#ffffff',
-          navMobileItemHover: '#f1f5f9',
+          navMobileItemHover: '#e2e8f0',
 
           // Status colors - Vibrant and accessible
+          // Badge backgrounds use -100 shades; -50 shades disappear on grey cards
           success: '#059669', // emerald-600
-          successBg: '#ecfdf5', // emerald-50
+          successBg: '#d1fae5', // emerald-100
           successText: '#047857', // emerald-700
           warning: '#d97706', // amber-600
-          warningBg: '#fffbeb', // amber-50
+          warningBg: '#fef3c7', // amber-100
           warningText: '#b45309', // amber-700
           error: '#dc2626', // red-600
-          errorBg: '#fef2f2', // red-50
+          errorBg: '#fee2e2', // red-100
           errorText: '#b91c1c', // red-700
           info: '#2563eb', // blue-600
-          infoBg: '#eff6ff', // blue-50
+          infoBg: '#dbeafe', // blue-100
           infoText: '#1d4ed8', // blue-700
           waiting: '#9333ea', // purple-600
-          waitingBg: '#faf5ff', // purple-50
+          waitingBg: '#f3e8ff', // purple-100
           waitingText: '#7e22ce', // purple-700
 
           // Service colors - Vibrant
@@ -363,37 +364,37 @@ class ThemeService {
           xboxColor: '#107C10', // Xbox Green
           ubisoftColor: '#db2777', // Pink
 
-          // Components - Clean styling with emphasis on shadows
-          cardBg: '#ffffff',
-          cardBorder: '#e2e8f0',
+          // Components - Grey card surfaces; white inputs pop against them
+          cardBg: '#f1f5f9', // slate-100 - grey card surface
+          cardBorder: '#cbd5e1', // slate-300
           cardOutline: '#2563eb',
           buttonBg: '#2563eb',
           buttonHover: '#1d4ed8',
           buttonText: '#ffffff',
           inputBg: '#ffffff',
-          inputBorder: '#e2e8f0',
+          inputBorder: '#cbd5e1', // slate-300 - visible input edges
           inputFocus: '#2563eb',
           checkboxAccent: '#2563eb',
-          checkboxBorder: '#cbd5e1',
+          checkboxBorder: '#94a3b8', // slate-400
           checkboxBg: '#ffffff',
           checkboxCheckmark: '#ffffff',
           checkboxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
           checkboxHoverShadow: '0 0 0 3px rgba(37, 99, 235, 0.12)',
-          checkboxHoverBg: '#f8fafc',
+          checkboxHoverBg: '#e2e8f0',
           checkboxFocus: '#2563eb',
           sliderAccent: '#2563eb',
           sliderThumb: '#2563eb',
-          sliderTrack: '#e2e8f0',
-          progressBg: '#e2e8f0',
+          sliderTrack: '#cbd5e1', // slate-300 - visible track on grey cards
+          progressBg: '#cbd5e1', // slate-300 - visible track on grey cards
 
-          // Hit rate specific - Softer backgrounds
-          hitRateHighBg: '#ecfdf5',
+          // Hit rate specific - -100 shades so badges read on grey cards
+          hitRateHighBg: '#d1fae5',
           hitRateHighText: '#047857',
-          hitRateMediumBg: '#eff6ff',
+          hitRateMediumBg: '#dbeafe',
           hitRateMediumText: '#1d4ed8',
-          hitRateLowBg: '#fffbeb',
+          hitRateLowBg: '#fef3c7',
           hitRateLowText: '#b45309',
-          hitRateWarningBg: '#fef2f2',
+          hitRateWarningBg: '#fee2e2',
           hitRateWarningText: '#b91c1c',
 
           // Action buttons
@@ -425,32 +426,57 @@ class ThemeService {
           chartColor6: '#0891b2',
           chartColor7: '#ea580c',
           chartColor8: '#db2777',
-          chartBorderColor: '#f1f5f9',
-          chartGridColor: '#e2e8f0',
+
+          // Game chart colors - 600-shade equivalents of the dark defaults,
+          // which are 400/500 shades that wash out on light surfaces
+          gameColor1: '#2563eb',
+          gameColor2: '#059669',
+          gameColor3: '#d97706',
+          gameColor4: '#dc2626',
+          gameColor5: '#7c3aed',
+          gameColor6: '#0891b2',
+          gameColor7: '#ea580c',
+          gameColor8: '#db2777',
+          gameColor9: '#0d9488',
+          gameColor10: '#9333ea',
+          gameColor11: '#ca8a04',
+          gameColor12: '#4f46e5',
+          gameColor13: '#65a30d',
+          gameColor14: '#be123c',
+          gameColor15: '#0284c7',
+          gameColor16: '#c026d3',
+          gameColor17: '#16a34a',
+          gameColor18: '#e11d48',
+          gameColor19: '#0e7490',
+          gameColor20: '#7e22ce',
+          gameColorOther: '#64748b',
+
+          chartBorderColor: '#f1f5f9', // Matches card bg for segment separation
+          chartGridColor: '#cbd5e1', // slate-300 - visible gridlines on grey cards
           chartTextColor: '#475569', // Darker for readability
           chartCacheHitColor: '#059669',
           chartCacheMissColor: '#d97706',
 
           // Scrollbar colors
-          scrollbarTrack: '#f1f5f9',
-          scrollbarThumb: '#cbd5e1',
-          scrollbarHover: '#94a3b8',
+          scrollbarTrack: '#e2e8f0',
+          scrollbarThumb: '#94a3b8',
+          scrollbarHover: '#64748b',
 
           // Access indicator colors
-          publicAccessBg: '#ecfdf5',
+          publicAccessBg: '#d1fae5',
           publicAccessText: '#047857',
-          publicAccessBorder: '#a7f3d0',
-          securedAccessBg: '#fffbeb',
+          publicAccessBorder: '#6ee7b7',
+          securedAccessBg: '#fef3c7',
           securedAccessText: '#b45309',
-          securedAccessBorder: '#fde68a',
+          securedAccessBorder: '#fcd34d',
 
           // Session colors
           userSessionColor: '#2563eb',
-          userSessionBg: '#eff6ff',
+          userSessionBg: '#dbeafe',
           guestSessionColor: '#0891b2',
-          guestSessionBg: '#ecfeff',
+          guestSessionBg: '#cffafe',
           activeSessionColor: '#ea580c',
-          activeSessionBg: '#fff7ed',
+          activeSessionBg: '#ffedd5',
 
           // Event colors (for calendar events)
           eventColor1: '#2563eb', // Blue
@@ -470,7 +496,7 @@ class ThemeService {
           fireworkColor5: '#06b6d4', // Bright cyan
           fireworkColor6: '#8b5cf6', // Light purple
           fireworkColor7: '#0ea5e9', // Sky blue
-          fireworkColor8: '#ffffff', // White
+          fireworkColor8: '#1e40af', // Deep blue (white is invisible on light backgrounds)
           fireworkRocketColor: '#2563eb', // Blue (uses primaryColor)
           fireworkGlowColor: '#3b82f6' // Blue glow
         })

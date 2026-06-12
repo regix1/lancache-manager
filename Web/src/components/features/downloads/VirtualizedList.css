@@ -78,6 +78,28 @@
   padding-bottom: 1rem;
 }
 
+.retro-grid-row {
+  /* Retro table rows and header share one grid template via a CSS variable
+   * set on .retro-table-container. Column resize drags update only that
+   * variable, so rows re-layout without any React re-render. */
+  display: grid;
+  grid-template-columns: var(--retro-grid-cols);
+}
+
+@keyframes retro-empty-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.retro-empty-float {
+  animation: retro-empty-float 3s ease-in-out infinite;
+}
+
 .ip-session-pagination {
   /* Inline pagination rendered below the sessions of a single IP group.
    * Nudges the chevrons away from the last session row without adding a

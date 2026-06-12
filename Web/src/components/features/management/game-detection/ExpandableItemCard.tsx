@@ -28,7 +28,6 @@ interface ExpandableItemCardProps {
   isExpanded: boolean;
   isExpanding: boolean;
   isRemoving: boolean;
-  isAnyRemovalRunning: boolean;
   isAdmin: boolean;
   dockerSocketAvailable: boolean;
   hasExpandableContent?: boolean;
@@ -51,7 +50,6 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   isExpanded,
   isExpanding,
   isRemoving,
-  isAnyRemovalRunning,
   isAdmin,
   dockerSocketAvailable,
   hasExpandableContent = true,
@@ -151,7 +149,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
             onClick={onRemove}
             awaitPermissions
             loading={isRemoving}
-            disabled={isAnyRemovalRunning || !isAdmin || cacheReadOnly || !dockerSocketAvailable}
+            disabled={!isAdmin || cacheReadOnly || !dockerSocketAvailable}
             variant="filled"
             color="red"
             size="sm"

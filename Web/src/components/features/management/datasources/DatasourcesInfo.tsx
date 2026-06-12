@@ -118,7 +118,8 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     setActionLoading('all');
     try {
       const result = await ApiService.processAllLogs();
-      if (result.operationId) {
+      // Wait-queue model: queued/deduplicated responses must not seed a running card.
+      if (result.operationId && !result.queued && !result.alreadyRunning) {
         addNotification(
           buildSeededRunningNotification(
             'log_processing',
@@ -144,7 +145,8 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     setActionLoading(`access-${datasourceName}`);
     try {
       const result = await ApiService.processDatasourceLogs(datasourceName);
-      if (result.operationId) {
+      // Wait-queue model: queued/deduplicated responses must not seed a running card.
+      if (result.operationId && !result.queued && !result.alreadyRunning) {
         addNotification(
           buildSeededRunningNotification(
             'log_processing',

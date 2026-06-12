@@ -324,284 +324,245 @@ public class DownloadsController : ControllerBase
 
         try
         {
-                var excludedClientIps = _stateRepository.GetExcludedClientIps();
-
-                // Base query: filter prefill sessions
-                var baseQuery = _context.Downloads
-                    .AsNoTracking()
-                    .ApplyPrefillFilter()
-                    .Where(d => !d.IsActive); // Only completed downloads for retro view
-
-                // Exclude hidden client IPs
-                if (excludedClientIps.Count > 0)
+            // Aggregate per (DepotId, ClientIp) in SQL so only group-level scalars cross the
+            // wire. No-depot rows keep one group per row via RowKey = Id (matches the historical
+            // "no-depot-{service}-{ip}-{id}" key). Raw download rows are never materialized here.
+            var groupedRows = await BuildRetroBaseQuery(query)
+                .GroupBy(d => new
                 {
-                    baseQuery = baseQuery.Where(d => !excludedClientIps.Contains(d.ClientIp));
-                }
-
-                // Apply eviction filter (hide/remove modes exclude evicted downloads)
-                var evictedMode = _stateRepository.GetEvictedDataMode();
-                baseQuery = baseQuery.ApplyEvictedFilter(evictedMode);
-
-                // Filter: time range (matches GetLatestAsync behavior)
-                if (query.StartTime.HasValue || query.EndTime.HasValue)
-                {
-                    var startDate = query.StartTime.HasValue
-                        ? query.StartTime.Value.FromUnixSeconds()
-                        : DateTime.MinValue;
-                    var endDate = query.EndTime.HasValue
-                        ? query.EndTime.Value.FromUnixSeconds()
-                        : DateTime.UtcNow;
-                    baseQuery = baseQuery.Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate);
-                }
-
-                // Filter: event tag (only downloads associated with the event)
-                if (query.EventId.HasValue)
-                {
-                    var eventId = query.EventId.Value;
-                    baseQuery = baseQuery.Where(d => _context.EventDownloads
-                        .Where(ed => ed.EventId == eventId)
-                        .Select(ed => ed.DownloadId)
-                        .Contains(d.Id));
-                }
-
-                // Filter: hide localhost
-                if (query.HideLocalhost)
-                {
-                    baseQuery = baseQuery.Where(d => d.ClientIp != "127.0.0.1" && d.ClientIp != "::1");
-                }
-
-                // Filter: service
-                if (!string.IsNullOrEmpty(query.Service) && query.Service != "all")
-                {
-                    baseQuery = baseQuery.Where(d => d.Service == query.Service);
-                }
-
-                // Filter: client IP
-                if (!string.IsNullOrEmpty(query.Client) && query.Client != "all")
-                {
-                    baseQuery = baseQuery.Where(d => d.ClientIp == query.Client);
-                }
-
-                // Filter: hide zero-byte downloads
-                if (!query.ShowZeroBytes)
-                {
-                    baseQuery = baseQuery.Where(d => (d.CacheHitBytes + d.CacheMissBytes) > 0);
-                }
-
-                // Materialize downloads to memory for grouping
-                var allDownloads = await baseQuery.ToListAsync();
-
-                // Resolve game names via shared method (Steam depot mappings + Epic lookup)
-                await ResolveGameNamesAsync(allDownloads);
-
-                // Project to flat structure for grouping
-                var resolved = allDownloads.Select(d => new
-                {
-                    d.Id,
                     d.DepotId,
-                    d.EpicAppId,
                     d.ClientIp,
-                    d.Service,
-                    d.Datasource,
-                    d.StartTimeUtc,
-                    d.EndTimeUtc,
-                    d.CacheHitBytes,
-                    d.CacheMissBytes,
-                    TotalBytes = d.CacheHitBytes + d.CacheMissBytes,
-                    GameName = d.GameName ?? d.Service,
-                    GameAppId = d.GameAppId,
-                    AverageBytesPerSecond = d.AverageBytesPerSecond
-                }).ToList();
-
-                // Filter: search by game name
-                if (!string.IsNullOrEmpty(query.Search))
+                    RowKey = d.DepotId == null ? d.Id : 0L
+                })
+                .Select(g => new RetroGroupRow
                 {
-                    var searchLower = query.Search.ToLower();
-                    resolved = resolved
-                        .Where(r => r.GameName.ToLower().Contains(searchLower)
-                                 || r.Service.ToLower().Contains(searchLower)
-                                 || (r.DepotId.HasValue && r.DepotId.Value.ToString().Contains(searchLower))
-                                 || r.ClientIp.Contains(searchLower))
-                        .ToList();
-                }
+                    DepotId = g.Key.DepotId,
+                    ClientIp = g.Key.ClientIp,
+                    RowKey = g.Key.RowKey,
+                    Service = g.Max(d => d.Service)!,
+                    Datasource = g.Max(d => d.Datasource)!,
+                    GameName = g.Max(d => d.GameName),
+                    GameAppId = g.Max(d => d.GameAppId),
+                    EpicAppId = g.Max(d => d.EpicAppId),
+                    CacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                    CacheMissBytes = g.Sum(d => d.CacheMissBytes),
+                    StartTimeUtc = g.Min(d => d.StartTimeUtc),
+                    EndTimeUtc = g.Max(d => d.EndTimeUtc),
+                    RequestCount = g.Count(),
+                    // Per-row speed is TotalBytes / (EndTime - StartTime); weight it by bytes the
+                    // same way the previous in-memory grouping did.
+                    WeightedSpeedSum = g.Sum(d =>
+                        (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds > 0
+                            ? ((d.CacheHitBytes + d.CacheMissBytes)
+                               / (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds)
+                              * (d.CacheHitBytes + d.CacheMissBytes)
+                            : 0),
+                    SpeedBytesSum = g.Sum(d =>
+                        (d.EndTimeUtc - d.StartTimeUtc).TotalSeconds > 0
+                        && (d.CacheHitBytes + d.CacheMissBytes) > 0
+                            ? (double)(d.CacheHitBytes + d.CacheMissBytes)
+                            : 0)
+                })
+                .ToListAsync();
 
-                // Filter: hide unknown games
-                if (query.HideUnknown)
+            // Resolve game names at group level (a depot maps to exactly one app, so this is
+            // equivalent to the previous per-row resolution but over far fewer items).
+            await ResolveGroupGameNamesAsync(groupedRows);
+
+            var grouped = groupedRows.Select(r =>
+            {
+                var totalBytes = r.CacheHitBytes + r.CacheMissBytes;
+                return new RetroDownloadDto
                 {
-                    resolved = resolved
-                        .Where(r => !string.IsNullOrEmpty(r.GameName)
-                                 && r.GameName != r.Service
-                                 && !r.GameName.StartsWith("Unknown", StringComparison.OrdinalIgnoreCase))
-                        .ToList();
-                }
+                    Id = r.DepotId.HasValue
+                        ? $"depot-{r.DepotId.Value}-{r.ClientIp}"
+                        : $"no-depot-{r.Service}-{r.ClientIp}-{r.RowKey}",
+                    DepotId = r.DepotId,
+                    EpicAppId = r.EpicAppId,
+                    ClientIp = r.ClientIp,
+                    Service = r.Service,
+                    Datasource = r.Datasource,
+                    AppName = r.GameName ?? r.Service,
+                    SteamAppId = r.GameAppId,
+                    StartTimeUtc = r.StartTimeUtc,
+                    EndTimeUtc = r.EndTimeUtc,
+                    CacheHitBytes = r.CacheHitBytes,
+                    CacheMissBytes = r.CacheMissBytes,
+                    CacheHitPercent = totalBytes > 0
+                        ? Math.Round((r.CacheHitBytes * 100.0) / totalBytes, 1)
+                        : 0,
+                    TotalBytes = totalBytes,
+                    AverageBytesPerSecond = r.SpeedBytesSum > 0 ? r.WeightedSpeedSum / r.SpeedBytesSum : 0,
+                    RequestCount = r.RequestCount,
+                    // Depot groups get their DownloadIds filled after pagination (page rows only);
+                    // no-depot groups are single downloads whose id IS the row key.
+                    DownloadIds = r.RowKey != 0 ? new List<long> { r.RowKey } : new List<long>(),
+                    ClientIps = new List<string> { r.ClientIp },
+                    DepotIds = r.DepotId.HasValue && r.DepotId.Value != 0
+                        ? new List<uint> { (uint)r.DepotId.Value }
+                        : new List<uint>()
+                };
+            }).ToList();
 
-                // Group by DepotId + ClientIp (same logic as frontend groupByDepot)
-                var grouped = resolved
-                    .GroupBy(r => r.DepotId.HasValue
-                        ? $"depot-{r.DepotId}-{r.ClientIp}"
-                        : $"no-depot-{r.Service}-{r.ClientIp}-{r.Id}")
-                    .Select(g =>
-                    {
-                        var first = g.First();
-                        var totalBytes = g.Sum(r => r.TotalBytes);
-                        var cacheHitBytes = g.Sum(r => r.CacheHitBytes);
-                        var cacheMissBytes = g.Sum(r => r.CacheMissBytes);
-                        var cacheHitPercent = totalBytes > 0 ? (cacheHitBytes * 100.0) / totalBytes : 0;
-
-                        // Weighted average speed (weight by bytes downloaded)
-                        var weightedSpeedSum = g.Sum(r => r.AverageBytesPerSecond * r.TotalBytes);
-                        var speedBytesSum = g.Where(r => r.AverageBytesPerSecond > 0 && r.TotalBytes > 0)
-                            .Sum(r => (double)r.TotalBytes);
-                        var avgSpeed = speedBytesSum > 0 ? weightedSpeedSum / speedBytesSum : 0;
-
-                        var depotIdsForRow = new List<uint>();
-                        if (first.DepotId.HasValue && first.DepotId.Value != 0)
-                        {
-                            depotIdsForRow.Add((uint)first.DepotId.Value);
-                        }
-
-                        return new RetroDownloadDto
-                        {
-                            Id = g.Key,
-                            DepotId = first.DepotId,
-                            EpicAppId = first.EpicAppId,
-                            ClientIp = first.ClientIp,
-                            Service = first.Service,
-                            Datasource = first.Datasource,
-                            AppName = first.GameName,
-                            SteamAppId = first.GameAppId,
-                            StartTimeUtc = g.Min(r => r.StartTimeUtc),
-                            EndTimeUtc = g.Max(r => r.EndTimeUtc),
-                            CacheHitBytes = cacheHitBytes,
-                            CacheMissBytes = cacheMissBytes,
-                            CacheHitPercent = Math.Round(cacheHitPercent, 1),
-                            TotalBytes = totalBytes,
-                            AverageBytesPerSecond = avgSpeed,
-                            RequestCount = g.Count(),
-                            DownloadIds = g.Select(r => r.Id).ToList(),
-                            ClientIps = new List<string> { first.ClientIp },
-                            DepotIds = depotIdsForRow
-                        };
-                    })
+            // Filter: search by game name / service / depot / client (all group-level fields)
+            if (!string.IsNullOrEmpty(query.Search))
+            {
+                var searchLower = query.Search.ToLower();
+                grouped = grouped
+                    .Where(r => r.AppName.ToLower().Contains(searchLower)
+                             || r.Service.ToLower().Contains(searchLower)
+                             || (r.DepotId.HasValue && r.DepotId.Value.ToString().Contains(searchLower))
+                             || r.ClientIp.Contains(searchLower))
                     .ToList();
+            }
 
-                // Merge by game when GroupByGame=true (in-memory over the depot-group list)
-                List<RetroDownloadDto> effectiveList;
-                if (query.GroupByGame)
+            // Filter: hide unknown games
+            if (query.HideUnknown)
+            {
+                grouped = grouped
+                    .Where(r => !string.IsNullOrEmpty(r.AppName)
+                             && r.AppName != r.Service
+                             && !r.AppName.StartsWith("Unknown", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
+
+            // Track which (DepotId, ClientIp) pairs make up each row so the page's DownloadIds
+            // can be fetched after pagination. Game-merged rows span multiple pairs.
+            var pairsByRowId = grouped
+                .Where(r => r.DepotId.HasValue)
+                .ToDictionary(
+                    r => r.Id,
+                    r => new List<(long DepotId, string ClientIp)> { (r.DepotId!.Value, r.ClientIp) },
+                    StringComparer.Ordinal);
+
+            // Merge by game when GroupByGame=true (in-memory over the depot-group list)
+            List<RetroDownloadDto> effectiveList;
+            if (query.GroupByGame)
+            {
+                var mergedBuckets = new Dictionary<string, List<RetroDownloadDto>>(StringComparer.Ordinal);
+                var bucketOrder = new List<string>();
+
+                foreach (var row in grouped)
                 {
-                    var mergedBuckets = new Dictionary<string, List<RetroDownloadDto>>(StringComparer.Ordinal);
-                    var bucketOrder = new List<string>();
-
-                    foreach (var row in grouped)
+                    string mergeKey;
+                    if (row.SteamAppId.HasValue && row.SteamAppId.Value != 0)
                     {
-                        string mergeKey;
-                        if (row.SteamAppId.HasValue && row.SteamAppId.Value != 0)
-                        {
-                            mergeKey = $"{row.Service}-app-{row.SteamAppId.Value}";
-                        }
-                        else if (!string.IsNullOrEmpty(row.EpicAppId))
-                        {
-                            mergeKey = $"{row.Service}-epic-{row.EpicAppId}";
-                        }
-                        else if (!string.IsNullOrEmpty(row.AppName) && row.AppName != row.Service)
-                        {
-                            mergeKey = $"{row.Service}-name-{row.AppName.ToLowerInvariant()}";
-                        }
-                        else
-                        {
-                            // Stable per-row key - never merges with other rows
-                            var depotPart = row.DepotId.HasValue ? row.DepotId.Value.ToString() : "0";
-                            mergeKey = $"{row.Service}-unknown-{depotPart}-{row.ClientIp}";
-                        }
-
-                        if (!mergedBuckets.TryGetValue(mergeKey, out var bucket))
-                        {
-                            bucket = new List<RetroDownloadDto>();
-                            mergedBuckets[mergeKey] = bucket;
-                            bucketOrder.Add(mergeKey);
-                        }
-                        bucket.Add(row);
+                        mergeKey = $"{row.Service}-app-{row.SteamAppId.Value}";
+                    }
+                    else if (!string.IsNullOrEmpty(row.EpicAppId))
+                    {
+                        mergeKey = $"{row.Service}-epic-{row.EpicAppId}";
+                    }
+                    else if (!string.IsNullOrEmpty(row.AppName) && row.AppName != row.Service)
+                    {
+                        mergeKey = $"{row.Service}-name-{row.AppName.ToLowerInvariant()}";
+                    }
+                    else
+                    {
+                        // Stable per-row key - never merges with other rows
+                        var depotPart = row.DepotId.HasValue ? row.DepotId.Value.ToString() : "0";
+                        mergeKey = $"{row.Service}-unknown-{depotPart}-{row.ClientIp}";
                     }
 
-                    effectiveList = bucketOrder.Select(key =>
+                    if (!mergedBuckets.TryGetValue(mergeKey, out var bucket))
                     {
-                        var bucket = mergedBuckets[key];
-                        var first = bucket[0];
-                        var mergedHitBytes = bucket.Sum(r => r.CacheHitBytes);
-                        var mergedMissBytes = bucket.Sum(r => r.CacheMissBytes);
-                        var mergedTotalBytes = bucket.Sum(r => r.TotalBytes);
-                        var mergedCacheHitPercent = mergedTotalBytes > 0 ? (mergedHitBytes * 100.0) / mergedTotalBytes : 0;
+                        bucket = new List<RetroDownloadDto>();
+                        mergedBuckets[mergeKey] = bucket;
+                        bucketOrder.Add(mergeKey);
+                    }
+                    bucket.Add(row);
+                }
 
-                        var clientIpsSet = new HashSet<string>(StringComparer.Ordinal);
-                        var depotIdsSet = new HashSet<uint>();
-                        var allDownloadIds = new List<long>();
-                        foreach (var row in bucket)
+                effectiveList = bucketOrder.Select(key =>
+                {
+                    var bucket = mergedBuckets[key];
+                    var first = bucket[0];
+                    var mergedHitBytes = bucket.Sum(r => r.CacheHitBytes);
+                    var mergedMissBytes = bucket.Sum(r => r.CacheMissBytes);
+                    var mergedTotalBytes = bucket.Sum(r => r.TotalBytes);
+                    var mergedCacheHitPercent = mergedTotalBytes > 0 ? (mergedHitBytes * 100.0) / mergedTotalBytes : 0;
+
+                    var clientIpsSet = new HashSet<string>(StringComparer.Ordinal);
+                    var depotIdsSet = new HashSet<uint>();
+                    var allDownloadIds = new List<long>();
+                    var mergedPairs = new List<(long DepotId, string ClientIp)>();
+                    foreach (var row in bucket)
+                    {
+                        foreach (var ip in row.ClientIps) clientIpsSet.Add(ip);
+                        foreach (var did in row.DepotIds) depotIdsSet.Add(did);
+                        allDownloadIds.AddRange(row.DownloadIds);
+                        if (pairsByRowId.TryGetValue(row.Id, out var rowPairs))
                         {
-                            foreach (var ip in row.ClientIps) clientIpsSet.Add(ip);
-                            foreach (var did in row.DepotIds) depotIdsSet.Add(did);
-                            allDownloadIds.AddRange(row.DownloadIds);
+                            mergedPairs.AddRange(rowPairs);
                         }
+                    }
+                    if (mergedPairs.Count > 0)
+                    {
+                        pairsByRowId[key] = mergedPairs;
+                    }
 
-                        return new RetroDownloadDto
-                        {
-                            Id = key,
-                            DepotId = first.DepotId,
-                            EpicAppId = first.EpicAppId,
-                            ClientIp = first.ClientIp,
-                            Service = first.Service,
-                            Datasource = first.Datasource,
-                            AppName = first.AppName,
-                            SteamAppId = first.SteamAppId,
-                            StartTimeUtc = bucket.Min(r => r.StartTimeUtc),
-                            EndTimeUtc = bucket.Max(r => r.EndTimeUtc),
-                            CacheHitBytes = mergedHitBytes,
-                            CacheMissBytes = mergedMissBytes,
-                            CacheHitPercent = Math.Round(mergedCacheHitPercent, 1),
-                            TotalBytes = mergedTotalBytes,
-                            AverageBytesPerSecond = first.AverageBytesPerSecond,
-                            RequestCount = bucket.Sum(r => r.RequestCount),
-                            DownloadIds = allDownloadIds,
-                            ClientIps = clientIpsSet.ToList(),
-                            DepotIds = depotIdsSet.ToList()
-                        };
-                    }).ToList();
-                }
-                else
-                {
-                    effectiveList = grouped;
-                }
-
-                // Sort (applied to whichever list is effective)
-                effectiveList = query.Sort switch
-                {
-                    "oldest" => effectiveList.OrderBy(g => g.StartTimeUtc).ToList(),
-                    "largest" => effectiveList.OrderByDescending(g => g.TotalBytes).ToList(),
-                    "smallest" => effectiveList.OrderBy(g => g.TotalBytes).ToList(),
-                    "efficiency" => effectiveList.OrderByDescending(g => g.CacheHitPercent).ToList(),
-                    "efficiency-low" => effectiveList.OrderBy(g => g.CacheHitPercent).ToList(),
-                    "sessions" => effectiveList.OrderByDescending(g => g.RequestCount).ToList(),
-                    "alphabetical" => effectiveList.OrderBy(g => g.AppName, StringComparer.OrdinalIgnoreCase).ToList(),
-                    "service" => effectiveList.OrderBy(g => g.Service).ThenByDescending(g => g.EndTimeUtc).ToList(),
-                    _ => effectiveList.OrderByDescending(g => g.EndTimeUtc).ToList(), // "latest" default
-                };
-
-                // Paginate from the post-merge list
-                var totalItems = effectiveList.Count;
-                var totalPages = Math.Max(1, (int)Math.Ceiling(totalItems / (double)query.PageSize));
-                var items = effectiveList
-                    .Skip((query.Page - 1) * query.PageSize)
-                    .Take(query.PageSize)
-                    .ToList();
-
-                return Ok(new RetroDownloadResponse
-                {
-                    Items = items,
-                    TotalItems = totalItems,
-                    TotalPages = totalPages,
-                    CurrentPage = query.Page,
-                    PageSize = query.PageSize
-                });
+                    return new RetroDownloadDto
+                    {
+                        Id = key,
+                        DepotId = first.DepotId,
+                        EpicAppId = first.EpicAppId,
+                        ClientIp = first.ClientIp,
+                        Service = first.Service,
+                        Datasource = first.Datasource,
+                        AppName = first.AppName,
+                        SteamAppId = first.SteamAppId,
+                        StartTimeUtc = bucket.Min(r => r.StartTimeUtc),
+                        EndTimeUtc = bucket.Max(r => r.EndTimeUtc),
+                        CacheHitBytes = mergedHitBytes,
+                        CacheMissBytes = mergedMissBytes,
+                        CacheHitPercent = Math.Round(mergedCacheHitPercent, 1),
+                        TotalBytes = mergedTotalBytes,
+                        AverageBytesPerSecond = first.AverageBytesPerSecond,
+                        RequestCount = bucket.Sum(r => r.RequestCount),
+                        DownloadIds = allDownloadIds,
+                        ClientIps = clientIpsSet.ToList(),
+                        DepotIds = depotIdsSet.ToList()
+                    };
+                }).ToList();
             }
+            else
+            {
+                effectiveList = grouped;
+            }
+
+            // Sort (applied to whichever list is effective)
+            effectiveList = query.Sort switch
+            {
+                "oldest" => effectiveList.OrderBy(g => g.StartTimeUtc).ToList(),
+                "largest" => effectiveList.OrderByDescending(g => g.TotalBytes).ToList(),
+                "smallest" => effectiveList.OrderBy(g => g.TotalBytes).ToList(),
+                "efficiency" => effectiveList.OrderByDescending(g => g.CacheHitPercent).ToList(),
+                "efficiency-low" => effectiveList.OrderBy(g => g.CacheHitPercent).ToList(),
+                "sessions" => effectiveList.OrderByDescending(g => g.RequestCount).ToList(),
+                "alphabetical" => effectiveList.OrderBy(g => g.AppName, StringComparer.OrdinalIgnoreCase).ToList(),
+                "service" => effectiveList.OrderBy(g => g.Service).ThenByDescending(g => g.EndTimeUtc).ToList(),
+                _ => effectiveList.OrderByDescending(g => g.EndTimeUtc).ToList(), // "latest" default
+            };
+
+            // Paginate from the post-merge list
+            var totalItems = effectiveList.Count;
+            var totalPages = Math.Max(1, (int)Math.Ceiling(totalItems / (double)query.PageSize));
+            var items = effectiveList
+                .Skip((query.Page - 1) * query.PageSize)
+                .Take(query.PageSize)
+                .ToList();
+
+            await FillPageDownloadIdsAsync(query, items, pairsByRowId);
+
+            return Ok(new RetroDownloadResponse
+            {
+                Items = items,
+                TotalItems = totalItems,
+                TotalPages = totalPages,
+                CurrentPage = query.Page,
+                PageSize = query.PageSize
+            });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting retro downloads");
@@ -614,6 +575,215 @@ public class DownloadsController : ControllerBase
     /// Priority: existing GameName → Steam AppName → Epic Name → fallback to Service.
     /// Mutates the download objects in-place.
     /// </summary>
+    /// <summary>
+    /// SQL-side aggregate projection for one retro group (DepotId + ClientIp, or a single
+    /// no-depot download identified by RowKey).
+    /// </summary>
+    private sealed class RetroGroupRow
+    {
+        public long? DepotId { get; set; }
+        public string ClientIp { get; set; } = string.Empty;
+        public long RowKey { get; set; }
+        public string Service { get; set; } = string.Empty;
+        public string Datasource { get; set; } = string.Empty;
+        public string? GameName { get; set; }
+        public long? GameAppId { get; set; }
+        public string? EpicAppId { get; set; }
+        public long CacheHitBytes { get; set; }
+        public long CacheMissBytes { get; set; }
+        public DateTime StartTimeUtc { get; set; }
+        public DateTime EndTimeUtc { get; set; }
+        public int RequestCount { get; set; }
+        public double WeightedSpeedSum { get; set; }
+        public double SpeedBytesSum { get; set; }
+    }
+
+    /// <summary>
+    /// Builds the filtered (row-level) retro query. Shared by the aggregate query and the
+    /// page-level DownloadIds detail query so both see exactly the same rows.
+    /// </summary>
+    private IQueryable<Download> BuildRetroBaseQuery(RetroDownloadQuery query)
+    {
+        var excludedClientIps = _stateRepository.GetExcludedClientIps();
+
+        // Base query: filter prefill sessions
+        var baseQuery = _context.Downloads
+            .AsNoTracking()
+            .ApplyPrefillFilter()
+            .Where(d => !d.IsActive); // Only completed downloads for retro view
+
+        // Exclude hidden client IPs
+        if (excludedClientIps.Count > 0)
+        {
+            baseQuery = baseQuery.Where(d => !excludedClientIps.Contains(d.ClientIp));
+        }
+
+        // Apply eviction filter (hide/remove modes exclude evicted downloads)
+        var evictedMode = _stateRepository.GetEvictedDataMode();
+        baseQuery = baseQuery.ApplyEvictedFilter(evictedMode);
+
+        // Filter: time range (matches GetLatestAsync behavior)
+        if (query.StartTime.HasValue || query.EndTime.HasValue)
+        {
+            var startDate = query.StartTime.HasValue
+                ? query.StartTime.Value.FromUnixSeconds()
+                : DateTime.MinValue;
+            var endDate = query.EndTime.HasValue
+                ? query.EndTime.Value.FromUnixSeconds()
+                : DateTime.UtcNow;
+            baseQuery = baseQuery.Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate);
+        }
+
+        // Filter: event tag (only downloads associated with the event)
+        if (query.EventId.HasValue)
+        {
+            var eventId = query.EventId.Value;
+            baseQuery = baseQuery.Where(d => _context.EventDownloads
+                .Where(ed => ed.EventId == eventId)
+                .Select(ed => ed.DownloadId)
+                .Contains(d.Id));
+        }
+
+        // Filter: hide localhost
+        if (query.HideLocalhost)
+        {
+            baseQuery = baseQuery.Where(d => d.ClientIp != "127.0.0.1" && d.ClientIp != "::1");
+        }
+
+        // Filter: service
+        if (!string.IsNullOrEmpty(query.Service) && query.Service != "all")
+        {
+            baseQuery = baseQuery.Where(d => d.Service == query.Service);
+        }
+
+        // Filter: client IP
+        if (!string.IsNullOrEmpty(query.Client) && query.Client != "all")
+        {
+            baseQuery = baseQuery.Where(d => d.ClientIp == query.Client);
+        }
+
+        // Filter: hide zero-byte downloads
+        if (!query.ShowZeroBytes)
+        {
+            baseQuery = baseQuery.Where(d => (d.CacheHitBytes + d.CacheMissBytes) > 0);
+        }
+
+        return baseQuery;
+    }
+
+    /// <summary>
+    /// Group-level variant of ResolveGameNamesAsync: fills missing game names on aggregated
+    /// retro rows from Steam depot mappings and Epic game mappings.
+    /// </summary>
+    private async Task ResolveGroupGameNamesAsync(List<RetroGroupRow> rows)
+    {
+        if (rows.Count == 0) return;
+
+        var depotIds = rows
+            .Where(r => string.IsNullOrEmpty(r.GameName) && r.DepotId.HasValue)
+            .Select(r => r.DepotId!.Value)
+            .Distinct()
+            .ToList();
+
+        var steamMappings = depotIds.Count > 0
+            ? await _context.SteamDepotMappings
+                .AsNoTracking()
+                .Where(m => m.IsOwner && depotIds.Contains(m.DepotId))
+                .ToDictionaryAsync(m => m.DepotId, m => m)
+            : new Dictionary<long, SteamDepotMapping>();
+
+        var epicAppIds = rows
+            .Where(r => string.IsNullOrEmpty(r.GameName) && !string.IsNullOrEmpty(r.EpicAppId))
+            .Select(r => r.EpicAppId!)
+            .Distinct()
+            .ToList();
+
+        var epicMappings = epicAppIds.Count > 0
+            ? await _context.EpicGameMappings
+                .AsNoTracking()
+                .Where(m => epicAppIds.Contains(m.AppId))
+                .ToDictionaryAsync(m => m.AppId, m => m.Name)
+            : new Dictionary<string, string>();
+
+        foreach (var r in rows)
+        {
+            if (string.IsNullOrEmpty(r.GameName) && r.DepotId.HasValue
+                && steamMappings.TryGetValue(r.DepotId.Value, out var steamMapping))
+            {
+                r.GameName = steamMapping.AppName;
+                r.GameAppId = steamMapping.AppId;
+            }
+
+            if (string.IsNullOrEmpty(r.GameName) && !string.IsNullOrEmpty(r.EpicAppId)
+                && epicMappings.TryGetValue(r.EpicAppId, out var epicName))
+            {
+                r.GameName = epicName;
+            }
+
+            if (string.IsNullOrEmpty(r.GameName))
+            {
+                r.GameName = r.Service;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Fetches the underlying download IDs for the current page's depot-backed rows only.
+    /// No-depot rows already carry their single download id from the aggregate query.
+    /// </summary>
+    private async Task FillPageDownloadIdsAsync(
+        RetroDownloadQuery query,
+        List<RetroDownloadDto> pageItems,
+        Dictionary<string, List<(long DepotId, string ClientIp)>> pairsByRowId)
+    {
+        var neededPairs = new HashSet<(long DepotId, string ClientIp)>();
+        foreach (var item in pageItems)
+        {
+            if (pairsByRowId.TryGetValue(item.Id, out var pairs))
+            {
+                foreach (var pair in pairs) neededPairs.Add(pair);
+            }
+        }
+        if (neededPairs.Count == 0) return;
+
+        // Over-fetch by depot list + ip list (pair-exact filtering happens in memory below);
+        // both lists are bounded by the page size, so this stays a small indexed query.
+        var depotIdList = neededPairs.Select(p => p.DepotId).Distinct().ToList();
+        var clientIpList = neededPairs.Select(p => p.ClientIp).Distinct().ToList();
+
+        var detailRows = await BuildRetroBaseQuery(query)
+            .Where(d => d.DepotId != null
+                     && depotIdList.Contains(d.DepotId.Value)
+                     && clientIpList.Contains(d.ClientIp))
+            .Select(d => new { d.Id, DepotId = d.DepotId!.Value, d.ClientIp })
+            .ToListAsync();
+
+        var idsByPair = new Dictionary<(long DepotId, string ClientIp), List<long>>();
+        foreach (var row in detailRows)
+        {
+            var pair = (row.DepotId, row.ClientIp);
+            if (!neededPairs.Contains(pair)) continue;
+            if (!idsByPair.TryGetValue(pair, out var ids))
+            {
+                ids = new List<long>();
+                idsByPair[pair] = ids;
+            }
+            ids.Add(row.Id);
+        }
+
+        foreach (var item in pageItems)
+        {
+            if (!pairsByRowId.TryGetValue(item.Id, out var pairs)) continue;
+            foreach (var pair in pairs)
+            {
+                if (idsByPair.TryGetValue(pair, out var ids))
+                {
+                    item.DownloadIds.AddRange(ids);
+                }
+            }
+        }
+    }
+
     private async Task ResolveGameNamesAsync(List<Download> downloads)
     {
         if (downloads.Count == 0) return;
