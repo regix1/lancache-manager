@@ -166,6 +166,7 @@
       "cancelDataImport": "Cancel data import",
       "cancelEpicGameMapping": "Cancel Epic game mapping",
       "cancelEvictionScan": "Cancel eviction scan",
+      "cancelCacheSizeScan": "Cancel cache file scan",
       "cancelEvictionRemoval": "Cancel eviction removal",
       "cancelBulkRemoval": "Cancel bulk removal",
       "cancelOperationAria": "Cancel operation",
@@ -5475,6 +5476,14 @@
       "refreshingSummary": "Refreshing detection summary (this can take a few minutes)...",
       "complete": "Scan complete: {{totalProcessed}} processed, {{totalEvicted}} evicted, {{totalUnEvicted}} un-evicted"
     },
+    "cacheSizeScan": {
+      "starting": "Starting cache file scan...",
+      "scanning": "Scanning cache files... ({{directoriesScanned}}/{{totalDirectories}} directories, {{totalFiles}} files found)",
+      "sizing": "Measuring total cache size (network filesystem - this can take several minutes)...",
+      "counting": "Counting cache files...",
+      "calibrating": "Measuring deletion speed (test {{step}} of {{totalSteps}})...",
+      "complete": "Cache file scan completed: {{totalFiles}} files, {{totalSize}}"
+    },
     "gameDetect": {
       "starting": {
         "default": "Starting game cache detection...",
@@ -5631,7 +5640,8 @@
       "overlappingEntity": "Another operation is touching the same cache files. Wait for it to finish.",
       "serviceWideActive": "A service-wide operation is running. Per-entity operations are blocked until it completes.",
       "bulkActive": "A bulk operation is in flight. Wait for it to complete.",
-      "globalOperationActive": "A global operation (cache clear or database reset) is in progress. All other operations are blocked."
+      "globalOperationActive": "A global operation (cache clear or database reset) is in progress. All other operations are blocked.",
+      "cacheFileScanActive": "A cache file scan is in progress. Wait for it to finish before starting cache operations."
     }
   }
 }

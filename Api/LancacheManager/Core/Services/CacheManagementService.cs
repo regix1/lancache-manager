@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
@@ -22,6 +23,8 @@ public class CacheManagementService
     private readonly DatasourceService _datasourceService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly GameCacheDetectionService _gameCacheDetectionService;
+    private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly ISignalRNotificationService _notifications;
     private readonly DockerClient? _dockerClient;
 
     // Legacy single-path fields (for backward compatibility)
@@ -43,6 +46,15 @@ public class CacheManagementService
     private readonly string _cachedScanFilePath;
     private readonly SemaphoreSlim _scanCacheLock = new SemaphoreSlim(1, 1);
 
+    /// <summary>
+    /// Context dictionary of the most recent cache-file-scan progress tick (same shape as the
+    /// CacheSizeScanProgress SignalR payload's Context). The unified tracker only stores the stage
+    /// key string, so the recovery endpoint (GET /api/cache/size/scan/status) reads this to
+    /// interpolate placeholder-bearing keys like signalr.cacheSizeScan.scanning after a page refresh.
+    /// Only one tracked full scan runs at a time (_scanCacheLock serializes them).
+    /// </summary>
+    public Dictionary<string, object?>? CurrentCacheSizeScanProgressContext { get; private set; }
+
     public CacheManagementService(
         IConfiguration configuration,
         ILogger<CacheManagementService> logger,
@@ -51,7 +63,9 @@ public class CacheManagementService
         NginxLogRotationService nginxLogRotationService,
         DatasourceService datasourceService,
         IDbContextFactory<AppDbContext> dbContextFactory,
-        GameCacheDetectionService gameCacheDetectionService)
+        GameCacheDetectionService gameCacheDetectionService,
+        IUnifiedOperationTracker operationTracker,
+        ISignalRNotificationService notifications)
     {
         _configuration = configuration;
         _logger = logger;
@@ -61,6 +75,8 @@ public class CacheManagementService
         _datasourceService = datasourceService;
         _dbContextFactory = dbContextFactory;
         _gameCacheDetectionService = gameCacheDetectionService;
+        _operationTracker = operationTracker;
+        _notifications = notifications;
 
         // Use DatasourceService for paths (with backward compatibility)
         var defaultDatasource = _datasourceService.GetDefaultDatasource();
@@ -1644,8 +1660,16 @@ public class CacheManagementService
     /// <summary>
     /// Runs the Rust cache-size binary against the given cache path and returns the parsed result,
     /// or null if the binary is not found or the scan fails.
+    /// When <paramref name="operationId"/> is set the spawned process is associated with the
+    /// tracked operation (universal cancel / force-kill) and, when <paramref name="onProgress"/>
+    /// is provided, the binary's progress JSON (written to the output file during the scan and
+    /// calibration phases) is polled and relayed to the callback.
     /// </summary>
-    private async Task<CacheSizeResponse?> RunCacheSizeScanAsync(string cachePath, CancellationToken cancellationToken = default)
+    private async Task<CacheSizeResponse?> RunCacheSizeScanAsync(
+        string cachePath,
+        CancellationToken cancellationToken = default,
+        Guid? operationId = null,
+        Func<CacheSizeScanProgressData, Task>? onProgress = null)
     {
         var rustBinaryPath = _pathResolver.GetRustCacheSizePath();
 
@@ -1687,7 +1711,16 @@ public class CacheManagementService
 
             var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, $"\"{cachePath}\" \"{outputFile}\"");
 
-            var processResult = await _rustProcessHelper.ExecuteProcessAsync(startInfo, cancellationToken);
+            // The Rust binary writes ProgressData ticks to the output file while scanning and
+            // calibrating, then overwrites it with the final CacheSizeResult. Progress ticks carry
+            // a stageKey; the final result does not, so the relay callback can tell them apart.
+            var processResult = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync(
+                startInfo,
+                operationId,
+                cancellationToken,
+                progressFilePath: onProgress != null ? outputFile : null,
+                onProgress: onProgress,
+                processLabel: "cache_size");
 
             if (!string.IsNullOrWhiteSpace(processResult.Error))
                 _logger.LogInformation("Cache size calculation output:\n{Output}", processResult.Error);
@@ -1738,6 +1771,153 @@ public class CacheManagementService
     }
 
     /// <summary>
+    /// Relays one Rust progress tick to the tracker + SignalR. Ticks without a stageKey are
+    /// skipped: the Rust binary overwrites the progress file with the final result JSON (no
+    /// stageKey) when it finishes, and the poller may read that before it stops.
+    /// </summary>
+    private async Task RelayCacheSizeScanProgressAsync(Guid operationId, CacheSizeScanProgressData progress)
+    {
+        if (string.IsNullOrEmpty(progress.StageKey))
+        {
+            return;
+        }
+
+        var context = new Dictionary<string, object?>
+        {
+            ["directoriesScanned"] = progress.DirectoriesScanned,
+            ["totalDirectories"] = progress.TotalDirectories,
+            ["totalFiles"] = progress.TotalFiles,
+            ["step"] = progress.CalibrationStep,
+            ["totalSteps"] = progress.CalibrationTotalSteps
+        };
+        CurrentCacheSizeScanProgressContext = context;
+
+        _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.StageKey);
+        await _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanProgress, new CacheSizeScanProgress(
+            OperationId: operationId,
+            Status: OperationStatus.Running.ToWireString(),
+            StageKey: progress.StageKey,
+            PercentComplete: progress.PercentComplete,
+            DirectoriesScanned: progress.DirectoriesScanned,
+            TotalDirectories: progress.TotalDirectories,
+            TotalFiles: progress.TotalFiles,
+            TotalBytes: progress.TotalBytes,
+            Context: context));
+    }
+
+    /// <summary>
+    /// Runs the full (all-datasources) cache size scan as a VISIBLE tracked operation:
+    /// registers a CacheSizeScan operation with the unified tracker (operation registration
+    /// happens BEFORE any Started/Progress emit), emits CacheSizeScanStarted/Progress/Complete
+    /// SignalR events, and runs the Rust binary on the registered operation's token so the
+    /// universal cancel path (/api/operations/{id}/cancel + /force-kill, stdin CANCEL) works.
+    /// Deliberately non-silent: the running card explains why other heavy cache operations
+    /// are blocked by <see cref="OperationConflictChecker"/> while the scan runs.
+    /// Callers must hold _scanCacheLock so at most one tracked scan is registered at a time.
+    /// </summary>
+    private async Task<CacheSizeResponse?> RunTrackedFullScanAsync(string cachePath, CancellationToken callerToken)
+    {
+        var terminalFiles = 0L;
+        var terminalBytes = 0L;
+        string? terminalFormattedSize = null;
+
+        // CTS ownership: handed to the tracker, which disposes it in CompleteOperation.
+        var cts = new CancellationTokenSource();
+        Guid operationId = default;
+        operationId = _operationTracker.RegisterOperation(
+            OperationType.CacheSizeScan,
+            "Cache File Scan",
+            cts,
+            onTerminalCleanup: () => CurrentCacheSizeScanProgressContext = null,
+            onTerminalEmit: info =>
+            {
+                if (info.Cancelled)
+                {
+                    return _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanComplete, new CacheSizeScanComplete(
+                        Success: false,
+                        OperationId: operationId,
+                        StageKey: "signalr.cacheSizeScan.complete",
+                        TotalFiles: 0,
+                        TotalBytes: 0,
+                        Error: "Cancelled by user"));
+                }
+
+                if (info.Success)
+                {
+                    return _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanComplete, new CacheSizeScanComplete(
+                        Success: true,
+                        OperationId: operationId,
+                        StageKey: "signalr.cacheSizeScan.complete",
+                        TotalFiles: terminalFiles,
+                        TotalBytes: terminalBytes,
+                        FormattedSize: terminalFormattedSize,
+                        Context: new Dictionary<string, object?>
+                        {
+                            ["totalFiles"] = terminalFiles,
+                            ["totalSize"] = terminalFormattedSize ?? FormatBytes(terminalBytes)
+                        }));
+                }
+
+                return _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanComplete, new CacheSizeScanComplete(
+                    Success: false,
+                    OperationId: operationId,
+                    StageKey: "signalr.cacheSizeScan.complete",
+                    TotalFiles: 0,
+                    TotalBytes: 0,
+                    Error: info.Error ?? "Rust cache size binary returned failure"));
+            });
+
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(callerToken, cts.Token);
+
+        try
+        {
+            await _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanStarted, new CacheSizeScanStarted(
+                StageKey: "signalr.cacheSizeScan.starting",
+                OperationId: operationId));
+
+            var result = await RunCacheSizeScanAsync(
+                cachePath,
+                linked.Token,
+                operationId,
+                onProgress: progress => RelayCacheSizeScanProgressAsync(operationId, progress));
+
+            linked.Token.ThrowIfCancellationRequested();
+
+            if (result == null)
+            {
+                // Terminal CacheSizeScanComplete(error) is emitted by the registered onTerminalEmit closure.
+                _operationTracker.CompleteOperation(operationId, success: false, error: "Cache size scan failed - see server logs");
+                return null;
+            }
+
+            // Capture the totals BY VALUE before completing so the onTerminalEmit closure
+            // builds the success payload from real metrics.
+            terminalFiles = result.TotalFiles;
+            terminalBytes = result.TotalBytes;
+            terminalFormattedSize = result.FormattedSize;
+            _operationTracker.CompleteOperation(operationId, success: true);
+            return result;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("[CacheSizeScan] Operation {OperationId} was cancelled", operationId);
+            // Terminal CacheSizeScanComplete(cancelled) is emitted by the registered onTerminalEmit closure.
+            _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+            if (callerToken.IsCancellationRequested)
+            {
+                throw; // preserve the pre-existing contract for host-shutdown / aborted callers
+            }
+            return null; // user-initiated cancel: surface "no result" instead of an unhandled OCE
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[CacheSizeScan] Cache file scan failed");
+            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Returns a cache size result, using the server-side cache when possible.
     /// Per-datasource scans are always live (not cached).
     /// The "all datasources" scan is cached and only re-run when:
@@ -1766,7 +1946,7 @@ public class CacheManagementService
             if (force)
             {
                 _logger.LogInformation("Force rescan requested - running fresh cache size scan");
-                var freshResult = await RunCacheSizeScanAsync(allCachePath, cancellationToken);
+                var freshResult = await RunTrackedFullScanAsync(allCachePath, cancellationToken);
                 if (freshResult != null)
                 {
                     var cacheInfo = await GetCacheInfoAsync();
@@ -1783,7 +1963,7 @@ public class CacheManagementService
             if (_cachedCacheScan == null)
             {
                 _logger.LogInformation("No cached cache scan found - running fresh scan");
-                var freshResult = await RunCacheSizeScanAsync(allCachePath, cancellationToken);
+                var freshResult = await RunTrackedFullScanAsync(allCachePath, cancellationToken);
                 if (freshResult != null)
                 {
                     var cacheInfo = await GetCacheInfoAsync();
@@ -1804,7 +1984,7 @@ public class CacheManagementService
                 _logger.LogInformation(
                     "Cache usage changed by {DeltaGb:F1} GB since last scan - running fresh scan",
                     delta / (1024.0 * 1024.0 * 1024.0));
-                var freshResult = await RunCacheSizeScanAsync(allCachePath, cancellationToken);
+                var freshResult = await RunTrackedFullScanAsync(allCachePath, cancellationToken);
                 if (freshResult != null)
                 {
                     await SaveCachedScanAsync(freshResult, currentInfo.UsedCacheSize);
@@ -1825,6 +2005,38 @@ public class CacheManagementService
         {
             _scanCacheLock.Release();
         }
+    }
+
+    /// <summary>
+    /// Progress tick written by the Rust cache_size binary to the output file while the scan
+    /// and calibration phases run. The final result JSON has no stageKey, which is how the
+    /// relay distinguishes ticks from the terminal payload.
+    /// </summary>
+    private class CacheSizeScanProgressData
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("stageKey")]
+        public string? StageKey { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
+        public double PercentComplete { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("directoriesScanned")]
+        public long DirectoriesScanned { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("totalDirectories")]
+        public long TotalDirectories { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("totalBytes")]
+        public long TotalBytes { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("totalFiles")]
+        public long TotalFiles { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("calibrationStep")]
+        public int CalibrationStep { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("calibrationTotalSteps")]
+        public int CalibrationTotalSteps { get; set; }
     }
 
     // Helper class for deserializing the Rust cache-size binary output

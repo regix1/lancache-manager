@@ -3,6 +3,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services;
 
@@ -15,6 +16,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
     private readonly CacheManagementService _cacheService;
     private readonly IPathResolver _pathResolver;
     private readonly ISignalRNotificationService _notifications;
+    private readonly IOperationConflictChecker _conflictChecker;
     private readonly TimeSpan _defaultInterval;
 
     protected override string ServiceName => "CacheSizeScan";
@@ -28,6 +30,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
         CacheManagementService cacheService,
         IPathResolver pathResolver,
         ISignalRNotificationService notifications,
+        IOperationConflictChecker conflictChecker,
         IStateService stateService,
         ILogger<CacheSizeScanScheduledService> logger,
         IConfiguration configuration)
@@ -36,6 +39,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
         _cacheService = cacheService;
         _pathResolver = pathResolver;
         _notifications = notifications;
+        _conflictChecker = conflictChecker;
         _defaultInterval = TimeSpan.FromHours(configuration.GetValue("CacheSizeScan:IntervalHours", 24));
         LoadStateOverrides(stateService);
     }
@@ -60,6 +64,23 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
             _logger.LogWarning(
                 "[CacheSizeScan] Rust cache-size binary not found at {Path} - scan skipped",
                 rustBinaryPath);
+            return;
+        }
+
+        // Defer to heavy cache operations already in flight (removals, eviction scan, cache
+        // clear): scanning while they mutate the cache would skew the result and thrash the
+        // disk. The reverse direction (new heavy ops blocked while the scan runs) is enforced
+        // by OperationConflictChecker at the controllers.
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.CacheSizeScan,
+            ConflictScope.Bulk(),
+            stoppingToken);
+        if (conflict != null)
+        {
+            _logger.LogInformation(
+                "[CacheSizeScan] Skipping cache file scan (trigger: {Trigger}) - blocked by active {ActiveType}",
+                trigger,
+                conflict.ActiveOperationType);
             return;
         }
 

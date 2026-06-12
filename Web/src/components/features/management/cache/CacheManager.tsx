@@ -83,6 +83,11 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   // Derive cache clearing state from notifications (standardized pattern)
   const isCacheClearing = useOperationBusy({ types: ['cache_clearing'] });
 
+  // A running cache file scan blocks cache clearing server-side (OperationConflictChecker
+  // returns 409 errors.conflict.cacheFileScanActive); mirror that here so the buttons
+  // explain the wait instead of failing on click.
+  const isCacheSizeScanRunning = useOperationBusy({ types: ['cache_size_scan'] });
+
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [deleteMode, setDeleteMode] = useState<'preserve' | 'full' | 'rsync'>(
@@ -302,10 +307,17 @@ const CacheManager: React.FC<CacheManagerProps> = ({
             actionLoading ||
             mockMode ||
             isAnyRemovalRunning ||
+            isCacheSizeScanRunning ||
             authMode !== 'authenticated' ||
             cacheReadOnly
           }
-          title={cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined}
+          title={
+            cacheReadOnly
+              ? t('management.cache.alerts.readOnly.title')
+              : isCacheSizeScanRunning
+                ? t('errors.conflict.cacheFileScanActive')
+                : undefined
+          }
         >
           {isCacheClearing && !clearingDatasource ? t('common.clearing') : t('common.clearAll')}
         </Button>
@@ -536,6 +548,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                             actionLoading ||
                             mockMode ||
                             isAnyRemovalRunning ||
+                            isCacheSizeScanRunning ||
                             authMode !== 'authenticated' ||
                             cacheReadOnly ||
                             !ds.cacheWritable
@@ -543,9 +556,11 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                           title={
                             !ds.cacheWritable
                               ? t('management.cache.alerts.readOnly.title')
-                              : t('management.cache.clearDatasourceCache', {
-                                  datasource: ds.name
-                                })
+                              : isCacheSizeScanRunning
+                                ? t('errors.conflict.cacheFileScanActive')
+                                : t('management.cache.clearDatasourceCache', {
+                                    datasource: ds.name
+                                  })
                           }
                         >
                           {isCacheClearing && clearingDatasource === ds.name

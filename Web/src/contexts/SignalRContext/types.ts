@@ -165,6 +165,11 @@ export const SIGNALR_EVENTS = [
   'EvictionScanProgress',
   'EvictionScanComplete',
 
+  // Cache File Scan (cache_size binary)
+  'CacheSizeScanStarted',
+  'CacheSizeScanProgress',
+  'CacheSizeScanComplete',
+
   // Eviction Removal
   'EvictionRemovalStarted',
   'EvictionRemovalProgress',
@@ -837,6 +842,35 @@ export interface EvictionScanCompleteEvent {
   processed: number;
   evicted: number;
   unEvicted: number;
+  error?: string;
+}
+
+export interface CacheSizeScanStartedEvent {
+  stageKey?: string;
+  context?: Record<string, string | number | boolean>;
+  operationId: string;
+}
+
+export interface CacheSizeScanProgressEvent {
+  operationId: string;
+  status: OperationStatus;
+  stageKey?: string;
+  context?: Record<string, string | number | boolean>;
+  percentComplete: number;
+  directoriesScanned: number;
+  totalDirectories: number;
+  totalFiles: number;
+  totalBytes: number;
+}
+
+export interface CacheSizeScanCompleteEvent {
+  success: boolean;
+  operationId: string;
+  stageKey?: string;
+  context?: Record<string, string | number | boolean>;
+  totalFiles: number;
+  totalBytes: number;
+  formattedSize?: string;
   error?: string;
 }
 

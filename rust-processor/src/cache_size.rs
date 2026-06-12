@@ -22,6 +22,11 @@ struct ProgressData {
     percent_complete: f64,
     status: String,
     message: String,
+    /// i18n stage key relayed verbatim by C# to the CacheSizeScanProgress SignalR event.
+    /// The final CacheSizeResult JSON has no stageKey, which is how the C# poller tells
+    /// progress ticks apart from the terminal payload (both share the same output file).
+    #[serde(rename = "stageKey")]
+    stage_key: String,
     #[serde(rename = "directoriesScanned")]
     directories_scanned: usize,
     #[serde(rename = "totalDirectories")]
@@ -30,6 +35,11 @@ struct ProgressData {
     total_bytes: u64,
     #[serde(rename = "totalFiles")]
     total_files: u64,
+    /// 1-based calibration test number (0 outside the calibration phase).
+    #[serde(rename = "calibrationStep")]
+    calibration_step: usize,
+    #[serde(rename = "calibrationTotalSteps")]
+    calibration_total_steps: usize,
     timestamp: String,
 }
 
@@ -394,9 +404,28 @@ fn measure_rsync_mode(base_dir: &Path, scenario: &TestScenario) -> f64 {
     }
 }
 
+/// Live-progress settings for the calibration phase: where to write ticks, which slice of
+/// the overall percent budget calibration owns, and the already-scanned totals to carry
+/// through so the UI keeps showing real numbers during calibration.
+struct CalibrationProgress<'a> {
+    progress_path: &'a Path,
+    base_percent: f64,
+    span_percent: f64,
+    total_bytes: u64,
+    total_files: u64,
+    total_hex_dirs: usize,
+}
+
 /// Run comprehensive dynamic calibration with multiple test scenarios
-/// Each scenario tests a different cache structure pattern
-fn run_dynamic_calibration(cache_dir: &Path, is_network_fs: bool) -> Option<DynamicCalibrationResult> {
+/// Each scenario tests a different cache structure pattern.
+/// Emits one progress tick per test scenario (honest step-level granularity - the
+/// individual measurements inside a scenario have no measurable sub-progress).
+/// Returns None when calibration could not run or was cancelled mid-way.
+fn run_dynamic_calibration(
+    cache_dir: &Path,
+    is_network_fs: bool,
+    progress: Option<&CalibrationProgress>,
+) -> Option<DynamicCalibrationResult> {
     let calibration_dir = cache_dir.join(".lancache_calibration_temp");
 
     // Clean up any previous calibration directory
@@ -440,8 +469,44 @@ fn run_dynamic_calibration(cache_dir: &Path, is_network_fs: bool) -> Option<Dyna
     ];
 
     let mut measurements = Vec::new();
+    let total_steps = scenarios.len();
 
-    for scenario in &scenarios {
+    for (step_index, scenario) in scenarios.iter().enumerate() {
+        // Cooperative stdin-CANCEL: stop between tests, clean up, and report no result so
+        // the caller can bail out instead of writing a half-calibrated final payload.
+        if cancel::is_cancelled() {
+            eprintln!("Calibration cancelled - cleaning up");
+            let _ = fs::remove_dir_all(&calibration_dir);
+            return None;
+        }
+
+        if let Some(p) = progress {
+            let percent =
+                p.base_percent + (step_index as f64 / total_steps as f64) * p.span_percent;
+            let tick = ProgressData {
+                is_processing: true,
+                percent_complete: percent,
+                status: "calibrating".to_string(),
+                message: format!(
+                    "Calibration test {}/{}: {}",
+                    step_index + 1,
+                    total_steps,
+                    scenario.name
+                ),
+                stage_key: "signalr.cacheSizeScan.calibrating".to_string(),
+                directories_scanned: p.total_hex_dirs,
+                total_directories: p.total_hex_dirs,
+                total_bytes: p.total_bytes,
+                total_files: p.total_files,
+                calibration_step: step_index + 1,
+                calibration_total_steps: total_steps,
+                timestamp: progress_utils::current_timestamp(),
+            };
+            if let Err(e) = write_progress(p.progress_path, &tick) {
+                eprintln!("Warning: Failed to write calibration progress: {}", e);
+            }
+        }
+
         eprintln!("  Testing: {} ({} dirs × {} files, depth {})",
             scenario.name, scenario.num_dirs, scenario.files_per_dir, scenario.depth);
 
@@ -855,7 +920,20 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
         // Empty cache - still run calibration to measure filesystem performance
         eprintln!("Cache is empty, but running calibration to measure filesystem speeds...");
 
-        let calibration = run_dynamic_calibration(cache_dir, is_network_fs);
+        let calibration_progress = CalibrationProgress {
+            progress_path,
+            base_percent: 5.0,
+            span_percent: 90.0,
+            total_bytes: 0,
+            total_files: 0,
+            total_hex_dirs: 0,
+        };
+        let calibration =
+            run_dynamic_calibration(cache_dir, is_network_fs, Some(&calibration_progress));
+
+        if cancel::is_cancelled() {
+            anyhow::bail!("Cache size scan cancelled");
+        }
 
         // Build estimates info even for empty cache (shows filesystem capability)
         let estimates = if let Some(ref cal) = calibration {
@@ -925,10 +1003,13 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
         percent_complete: 0.0,
         status: "scanning".to_string(),
         message: "Starting cache size scan...".to_string(),
+        stage_key: "signalr.cacheSizeScan.starting".to_string(),
         directories_scanned: 0,
         total_directories: total_hex_dirs,
         total_bytes: 0,
         total_files: 0,
+        calibration_step: 0,
+        calibration_total_steps: 0,
         timestamp: progress_utils::current_timestamp(),
     };
     write_progress(progress_path, &progress)?;
@@ -951,17 +1032,22 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
             
             let bytes = bytes_for_monitor.load(Ordering::Relaxed);
             let files = files_for_monitor.load(Ordering::Relaxed);
-            let percent = (scanned as f64 / total_hex_dirs as f64) * 100.0;
-            
+            // The directory walk owns 0-80% of the bar; the deletion-speed calibration that
+            // follows owns 80-99% (one tick per test). Complete jumps to 100 on the C# side.
+            let percent = (scanned as f64 / total_hex_dirs as f64) * 80.0;
+
             let progress = ProgressData {
                 is_processing: true,
                 percent_complete: percent,
                 status: "scanning".to_string(),
                 message: format!("Scanning directories ({}/{})...", scanned, total_hex_dirs),
+                stage_key: "signalr.cacheSizeScan.scanning".to_string(),
                 directories_scanned: scanned,
                 total_directories: total_hex_dirs,
                 total_bytes: bytes,
                 total_files: files,
+                calibration_step: 0,
+                calibration_total_steps: 0,
                 timestamp: progress_utils::current_timestamp(),
             };
             
@@ -979,6 +1065,11 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
     // Process hex directories in parallel, but use serial walking within each
     // to reduce concurrent NFS operations which can cause stale file handles
     hex_dirs.par_iter().for_each(|hex_dir| {
+        // Cooperative stdin-CANCEL: skip remaining directories so the binary exits quickly.
+        if cancel::is_cancelled() {
+            return;
+        }
+
         // Use jwalk with serial mode for more reliable NFS handling
         for result in WalkDir::new(hex_dir)
             .skip_hidden(false)
@@ -1025,6 +1116,10 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
     // Wait for monitor to finish
     let _ = monitor_handle.join();
 
+    if cancel::is_cancelled() {
+        anyhow::bail!("Cache size scan cancelled");
+    }
+
     let scan_duration = start_time.elapsed();
     let final_bytes = total_bytes.load(Ordering::Relaxed);
     let final_files = total_files.load(Ordering::Relaxed);
@@ -1053,7 +1148,17 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
 
     // Run dynamic calibration to measure actual filesystem performance
     eprintln!("\nRunning deletion speed calibration...");
-    let estimates = if let Some(calibration) = run_dynamic_calibration(cache_dir, is_network_fs) {
+    let calibration_progress = CalibrationProgress {
+        progress_path,
+        base_percent: 80.0,
+        span_percent: 19.0,
+        total_bytes: final_bytes,
+        total_files: final_files,
+        total_hex_dirs,
+    };
+    let estimates = if let Some(calibration) =
+        run_dynamic_calibration(cache_dir, is_network_fs, Some(&calibration_progress))
+    {
         estimate_deletion_times_dynamic(
             final_files,
             total_hex_dirs,
@@ -1071,6 +1176,10 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
             rsync_formatted: "Unknown (calibration failed)".to_string(),
         }
     };
+
+    if cancel::is_cancelled() {
+        anyhow::bail!("Cache size scan cancelled");
+    }
 
     print_deletion_time_recommendations(&estimates, false);
 
@@ -1103,16 +1212,21 @@ fn calculate_cache_size_network(
 
     eprintln!("Using du command to calculate total size (optimized for network filesystems)...");
 
-    // Write initial progress
+    // Write initial progress. Network filesystems offer no per-directory progress (du/find
+    // are single opaque commands), so the ticks here are honest phase markers only:
+    // sizing (du) → counting (find) → calibrating (per-test ticks).
     let progress = ProgressData {
         is_processing: true,
-        percent_complete: 10.0,
+        percent_complete: 5.0,
         status: "scanning".to_string(),
         message: "Calculating cache size using du (optimized for network storage)...".to_string(),
+        stage_key: "signalr.cacheSizeScan.sizing".to_string(),
         directories_scanned: 0,
         total_directories: hex_dir_count,
         total_bytes: 0,
         total_files: 0,
+        calibration_step: 0,
+        calibration_total_steps: 0,
         timestamp: progress_utils::current_timestamp(),
     };
     write_progress(progress_path, &progress)?;
@@ -1164,16 +1278,23 @@ fn calculate_cache_size_network(
 
     eprintln!("Total size from du: {} ({} bytes)", format_bytes(total_bytes), total_bytes);
 
+    if cancel::is_cancelled() {
+        anyhow::bail!("Cache size scan cancelled");
+    }
+
     // Update progress
     let progress = ProgressData {
         is_processing: true,
         percent_complete: 50.0,
         status: "scanning".to_string(),
         message: "Counting files...".to_string(),
+        stage_key: "signalr.cacheSizeScan.counting".to_string(),
         directories_scanned: hex_dir_count / 2,
         total_directories: hex_dir_count,
         total_bytes,
         total_files: 0,
+        calibration_step: 0,
+        calibration_total_steps: 0,
         timestamp: progress_utils::current_timestamp(),
     };
     write_progress(progress_path, &progress)?;
@@ -1216,6 +1337,10 @@ fn calculate_cache_size_network(
         _ => hex_dir_count as u64 * 257, // Estimate: 256 subdirs per hex dir + 1
     };
 
+    if cancel::is_cancelled() {
+        anyhow::bail!("Cache size scan cancelled");
+    }
+
     let scan_duration = start_time.elapsed();
 
     eprintln!("\nNetwork filesystem scan completed!");
@@ -1227,7 +1352,17 @@ fn calculate_cache_size_network(
 
     // Run dynamic calibration to measure actual network filesystem performance
     eprintln!("\nRunning deletion speed calibration on network filesystem...");
-    let estimates = if let Some(calibration) = run_dynamic_calibration(cache_dir, true) {
+    let calibration_progress = CalibrationProgress {
+        progress_path,
+        base_percent: 75.0,
+        span_percent: 24.0,
+        total_bytes,
+        total_files,
+        total_hex_dirs: hex_dir_count,
+    };
+    let estimates = if let Some(calibration) =
+        run_dynamic_calibration(cache_dir, true, Some(&calibration_progress))
+    {
         estimate_deletion_times_dynamic(
             total_files,
             hex_dir_count,
@@ -1245,6 +1380,10 @@ fn calculate_cache_size_network(
             rsync_formatted: "Unknown (calibration failed)".to_string(),
         }
     };
+
+    if cancel::is_cancelled() {
+        anyhow::bail!("Cache size scan cancelled");
+    }
 
     print_deletion_time_recommendations(&estimates, true);
 
@@ -1265,8 +1404,8 @@ fn calculate_cache_size_network(
 }
 
 fn main() {
-    // Install cancel listener for hang-safety: if this binary is ever made cooperative,
-    // the monitor thread's cancel check below will already prevent join() deadlock.
+    // Cooperative stdin-CANCEL: the scan loop, calibration loop, and progress monitor all
+    // poll cancel::is_cancelled() and bail out cleanly between items.
     cancel::install();
 
     let args: Vec<String> = env::args().collect();

@@ -86,6 +86,9 @@ import type {
   DataImportProgressEvent,
   DataImportCompleteEvent,
   EvictionScanStartedEvent,
+  CacheSizeScanStartedEvent,
+  CacheSizeScanProgressEvent,
+  CacheSizeScanCompleteEvent,
   EvictionScanProgressEvent,
   EvictionScanCompleteEvent,
   EvictionRemovalStartedEvent,
@@ -268,6 +271,16 @@ interface EvictionScanStatusResponse {
   context?: StageContext;
 }
 
+interface CacheSizeScanStatusResponse {
+  isProcessing: boolean;
+  status: string;
+  percentComplete: number;
+  message: string;
+  operationId: string | null;
+  stageKey?: string;
+  context?: StageContext;
+}
+
 // ============================================================================
 // Cancel tooltip keys (single source — UniversalNotificationBar derives from this)
 // ============================================================================
@@ -283,6 +296,7 @@ const CANCEL_TOOLTIP = {
   cacheClearing: 'common.notifications.cancelCacheClearing',
   dataImport: 'common.notifications.cancelDataImport',
   evictionScan: 'common.notifications.cancelEvictionScan',
+  cacheSizeScan: 'common.notifications.cancelCacheSizeScan',
   evictionRemoval: 'common.notifications.cancelEvictionRemoval',
   depotMapping: 'common.notifications.cancelDepotMapping',
   databaseReset: 'common.notifications.cancelDatabaseReset',
@@ -904,6 +918,63 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getSuccessMessage: (event: EvictionScanCompleteEvent) =>
         i18n.t(event.stageKey ?? 'signalr.evictionScan.complete', event.context ?? {}),
       getFailureMessage: (event: EvictionScanCompleteEvent) =>
+        event.error ??
+        (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
+        i18n.t('signalr.generic.failed')
+    }
+  },
+
+  // ========== Cache File Scan (cache_size binary) ==========
+  // Deliberately VISIBLE (never silent): the running card is what tells users why
+  // other heavy cache operations are blocked while the minutes-long scan runs.
+  {
+    type: 'cache_size_scan',
+    id: NOTIFICATION_IDS.CACHE_SIZE_SCAN,
+    storageKey: NOTIFICATION_STORAGE_KEYS.CACHE_SIZE_SCAN,
+    wiring: 'standard',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.cacheSizeScan,
+    recovery: {
+      kind: 'simple',
+      apiEndpoint: '/api/cache/size/scan/status',
+      isProcessing: (data: CacheSizeScanStatusResponse) => data.isProcessing,
+      createNotification: (data: CacheSizeScanStatusResponse) => ({
+        message: data.stageKey
+          ? i18n.t(data.stageKey, data.context ?? {})
+          : i18n.t('signalr.cacheSizeScan.starting'),
+        progress: data.percentComplete,
+        details: {
+          operationId: data.operationId ?? undefined
+        }
+      }),
+      staleMessage: 'Cache file scan completed'
+    } satisfies SimpleRecoveryConfig<CacheSizeScanStatusResponse>,
+    events: {
+      started: 'CacheSizeScanStarted',
+      progress: 'CacheSizeScanProgress',
+      complete: 'CacheSizeScanComplete'
+    },
+    started: {
+      defaultMessage: 'Starting cache file scan...',
+      getMessage: (event: CacheSizeScanStartedEvent) =>
+        i18n.t(event.stageKey ?? 'signalr.cacheSizeScan.starting', event.context ?? {}),
+      getDetails: (event: CacheSizeScanStartedEvent) => ({ operationId: event.operationId })
+    },
+    progress: {
+      getMessage: (event: CacheSizeScanProgressEvent) =>
+        i18n.t(event.stageKey ?? 'signalr.cacheSizeScan.scanning', event.context ?? {}),
+      getProgress: (event: CacheSizeScanProgressEvent) => Math.min(99.9, event.percentComplete),
+      getStatus: (event: CacheSizeScanProgressEvent) => standardGetStatus(event),
+      getCompletedMessage: (event: CacheSizeScanProgressEvent) =>
+        i18n.t(event.stageKey ?? 'signalr.cacheSizeScan.complete', event.context ?? {}),
+      getErrorMessage: (event: CacheSizeScanProgressEvent) =>
+        i18n.t(event.stageKey ?? 'signalr.generic.failed', event.context ?? {}),
+      getDetails: (event: CacheSizeScanProgressEvent) => ({ operationId: event.operationId })
+    },
+    complete: {
+      getSuccessMessage: (event: CacheSizeScanCompleteEvent) =>
+        i18n.t(event.stageKey ?? 'signalr.cacheSizeScan.complete', event.context ?? {}),
+      getFailureMessage: (event: CacheSizeScanCompleteEvent) =>
         event.error ??
         (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
         i18n.t('signalr.generic.failed')

@@ -27,7 +27,8 @@ public enum OperationType
     LogRemoval,
     EpicMapping,
     EvictionScan,
-    EvictionRemoval
+    EvictionRemoval,
+    CacheSizeScan
 }
 
 /// <summary>
@@ -85,6 +86,7 @@ public static class OperationTypeExtensions
         OperationType.EpicMapping => "epicMapping",
         OperationType.EvictionScan => "evictionScan",
         OperationType.EvictionRemoval => "evictionRemoval",
+        OperationType.CacheSizeScan => "cacheSizeScan",
         _ => JsonNamingPolicy.CamelCase.ConvertName(type.ToString())
     };
 

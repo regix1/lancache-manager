@@ -129,6 +129,47 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
             return null;
         }
 
+        // ---- 1c. CacheSizeScan (cache file scan) ----
+        // The cache file scan walks every cache file on disk (minutes-long du/find on network
+        // filesystems) and then runs a deletion-speed calibration that hammers the cache disk.
+        // Cache-mutating ops would race the walker and skew its results, and the eviction scan
+        // is a second full-disk walk that should not run concurrently. Read-only detections are
+        // tolerated (they were never blocked before and don't mutate cache files).
+        // CacheClearing/DatabaseReset pairings are already handled by section 1 above.
+        if (newType == OperationType.CacheSizeScan)
+        {
+            if (activeOp.Type == OperationType.CacheSizeScan)
+            {
+                return BuildResponse(activeOp, activeScope,
+                    stageKey: "errors.conflict.duplicate",
+                    englishError: "A cache file scan is already running.",
+                    context: new Dictionary<string, object?> { ["activeType"] = activeOp.Type.ToString() });
+            }
+
+            if (ConflictsWithCacheSizeScan(activeOp.Type))
+            {
+                return BuildResponse(activeOp, activeScope,
+                    stageKey: "errors.conflict.overlappingEntity",
+                    englishError: $"Cannot start cache file scan: an active {activeOp.Type} is touching the cache.",
+                    context: new Dictionary<string, object?> { ["activeType"] = activeOp.Type.ToString() });
+            }
+
+            return null; // tolerate detections / mappings / imports
+        }
+
+        if (activeOp.Type == OperationType.CacheSizeScan)
+        {
+            if (ConflictsWithCacheSizeScan(newType))
+            {
+                return BuildResponse(activeOp, activeScope,
+                    stageKey: "errors.conflict.cacheFileScanActive",
+                    englishError: $"Cannot start {newType}: a cache file scan is in progress.",
+                    context: new Dictionary<string, object?> { ["activeType"] = activeOp.Type.ToString() });
+            }
+
+            return null;
+        }
+
         // ---- 2. Scan × Scan / Scan × matching-removal rules ----
         // GameDetection + CorruptionDetection are read-only → tolerate unrelated removals (fall through).
         // Duplicate scans always block.
@@ -403,6 +444,18 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
 
     private static bool IsEntityScoped(ConflictScope scope) =>
         scope.Kind == "steam" || scope.Kind == "epic";
+
+    /// <summary>
+    /// Operation types that may not overlap a CacheSizeScan (in either direction):
+    /// everything that deletes cache files plus the eviction scan's full-disk walk.
+    /// CacheClearing/DatabaseReset are excluded only because section 1 blocks them earlier.
+    /// </summary>
+    private static bool ConflictsWithCacheSizeScan(OperationType type) =>
+        type is OperationType.GameRemoval
+            or OperationType.ServiceRemoval
+            or OperationType.CorruptionRemoval
+            or OperationType.EvictionRemoval
+            or OperationType.EvictionScan;
 
     private static string? GetGameName(OperationInfo op) => op.Metadata switch
     {

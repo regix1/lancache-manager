@@ -64,7 +64,9 @@ export const NOTIFICATION_STORAGE_KEYS = {
   /** Key for eviction scan operation state */
   EVICTION_SCAN: 'eviction-scan-storage',
   /** Key for eviction removal operation state */
-  EVICTION_REMOVAL: 'eviction-removal-storage'
+  EVICTION_REMOVAL: 'eviction-removal-storage',
+  /** Key for cache file scan operation state */
+  CACHE_SIZE_SCAN: 'cache-size-scan-storage'
 } as const;
 
 // ============================================================================
@@ -106,5 +108,7 @@ export const NOTIFICATION_IDS = {
   /** ID for eviction scan operations */
   EVICTION_SCAN: 'eviction-scan-notification',
   /** ID for eviction removal operations */
-  EVICTION_REMOVAL: 'eviction-removal-notification'
+  EVICTION_REMOVAL: 'eviction-removal-notification',
+  /** ID for cache file scan operations */
+  CACHE_SIZE_SCAN: 'cache-size-scan-notification'
 } as const;

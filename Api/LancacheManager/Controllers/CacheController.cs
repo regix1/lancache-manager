@@ -98,6 +98,48 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
+    /// GET /api/cache/size/scan/status - recovery endpoint for the cache file scan
+    /// notification card (page-refresh recovery polls this, mirroring
+    /// GET /api/stats/eviction/scan/status for the eviction scan).
+    /// </summary>
+    [HttpGet("size/scan/status")]
+    public IActionResult GetCacheSizeScanStatus()
+    {
+        var activeScan = _operationTracker.GetActiveOperations(OperationType.CacheSizeScan).FirstOrDefault();
+        if (activeScan == null)
+        {
+            return Ok(new
+            {
+                isProcessing = false,
+                status = OperationStatus.Completed,
+                percentComplete = 0.0,
+                message = string.Empty,
+                stageKey = (string?)null,
+                context = (object?)null,
+                operationId = (string?)null
+            });
+        }
+
+        // UpdateProgress stores the current progress stage key in Message (see
+        // RelayCacheSizeScanProgressAsync), so it doubles as the i18n stageKey the frontend
+        // recovery card interpolates. The tracker's OperationInfo carries no context dictionary,
+        // so CacheManagementService exposes the latest progress context for placeholder-bearing
+        // keys like signalr.cacheSizeScan.scanning.
+        var stageKey = string.IsNullOrWhiteSpace(activeScan.Message) ? null : activeScan.Message;
+
+        return Ok(new
+        {
+            isProcessing = true,
+            status = activeScan.Status,
+            percentComplete = activeScan.PercentComplete,
+            message = stageKey ?? "Scanning cache files...",
+            stageKey,
+            context = _cacheService.CurrentCacheSizeScanProgressContext,
+            operationId = activeScan.Id
+        });
+    }
+
+    /// <summary>
     /// GET /api/cache/permissions - Check cache directory permissions
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
