@@ -20,7 +20,6 @@ import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import { useBulkRemoval, type BulkQueueEntry } from '@contexts/BulkRemovalContext';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
 import EvictedItemsList from '../game-detection/EvictedItemsList';
@@ -209,39 +208,49 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     }
   };
 
-  // Sequential per-item eviction-removal queue. The app-root BulkRemovalProvider
-  // owns the run loop, cascade cancel wiring, AbortController plumbing, and the
-  // per-item API/i18n pipeline; this component only builds the item list and
-  // supplies the per-run refresh + inline running flag. The run survives an
-  // in-app tab switch because the provider never unmounts.
-  const { runEvictedRemoval } = useBulkRemoval();
-
+  // "Remove All evicted" is ONE batched backend operation (single access.log
+  // rewrite covering every evicted entity + one DB transaction + one disk-summary
+  // refresh) — not a per-entity loop. Progress, cancel, and page-refresh recovery
+  // flow through the standard eviction_removal notification (bulk scope), so this
+  // component only kicks the operation off. Post-run refreshes are event-driven:
+  // EvictionRemovalComplete fires GameCacheDetector's listener (stats +
+  // gameCacheRefreshKey bump), and the busy-flip of isAnyEvictedRemovalRunning
+  // re-runs the fetchEvictedItems effect above.
   const handleRemoveAllEvicted = useCallback(async () => {
     setShowRemoveAllConfirm(false);
     if (!isAdmin) return;
+    if (evictedServices.length + evictedGames.length === 0) return;
 
-    const services = [...evictedServices];
-    const games = [...evictedGames];
-    const total = services.length + games.length;
-    if (total === 0) return;
-
-    const items: BulkQueueEntry[] = [
-      ...services.map((service) => ({ kind: 'service' as const, service })),
-      ...games.map((game) => ({ kind: 'game' as const, game }))
-    ];
-
-    await runEvictedRemoval(items, {
-      onRunningChange: setRemoveAllRunning,
-      onSettled: () => {
-        void fetchEvictedItems();
-        // Silent bulk removals emit no EvictionRemovalComplete, so GameCacheDetector's SignalR
-        // listener never fires — refresh stats + bump gameCacheRefreshKey here instead. The
-        // backend's LAST bulk item ran the full disk-summary refresh before its op completed,
-        // so the reload sees consistent post-removal data.
-        onDataRefresh();
+    setRemoveAllRunning(true);
+    try {
+      const result = await ApiService.removeAllEvicted();
+      // Seed the eviction_removal card with the 202's operationId so busy-tracking
+      // and the cancel button work immediately instead of racing the SignalR
+      // Started event (same pattern as the eviction-scan seed below).
+      if (result.operationId) {
+        addNotification(
+          buildSeededRunningNotification(
+            'eviction_removal',
+            result.operationId,
+            t('signalr.evictionRemove.starting.bulk')
+          )
+        );
       }
-    });
-  }, [evictedGames, evictedServices, isAdmin, runEvictedRemoval, fetchEvictedItems, onDataRefresh]);
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error('Bulk evicted removal failed to start:', errorMsg);
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: errorMsg,
+        details: { notificationType: 'error' }
+      });
+    } finally {
+      // The eviction_removal notification owns busy-tracking from here
+      // (isAnyEvictedRemovalRunning); the local flag only covers the kick-off.
+      setRemoveAllRunning(false);
+    }
+  }, [evictedGames.length, evictedServices.length, isAdmin, addNotification, t]);
 
   const confirmPartialEvictedRemoval = async () => {
     if (!partialEvictedTarget) return;

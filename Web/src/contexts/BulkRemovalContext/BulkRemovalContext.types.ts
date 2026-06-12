@@ -2,11 +2,9 @@ import { createContext } from 'react';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../types';
 
 /**
- * Queue entry for a bulk-removal queue. One entry per game or service; the
- * provider selects the per-item ApiService call from `kind`. Used by both the
- * evicted-items removal queue (StorageSection) and the full cache-removal queue
- * (GameCacheDetector) — they share the same entry shape; only the per-item
- * ApiService selection inside the provider differs.
+ * Queue entry for the full cache-removal queue (GameCacheDetector). One entry
+ * per game or service; the provider selects the per-item ApiService call from
+ * `kind`.
  */
 export type BulkQueueEntry =
   | { kind: 'service'; service: ServiceCacheInfo }
@@ -14,10 +12,10 @@ export type BulkQueueEntry =
 
 /**
  * Per-run options threaded into a bulk-removal entry point. `onSettled` is the
- * caller-supplied post-settle refresh (StorageSection's `fetchEvictedItems`,
- * GameCacheDetector's `onDataRefresh`). It must survive the provider hoist —
- * the provider lives at app root and never unmounts, so the refresh callback is
- * captured per-run rather than at provider instantiation time.
+ * caller-supplied post-settle refresh (GameCacheDetector's `onDataRefresh`).
+ * It must survive the provider hoist — the provider lives at app root and
+ * never unmounts, so the refresh callback is captured per-run rather than at
+ * provider instantiation time.
  */
 export interface BulkRemovalRunOptions {
   /** Called once the queue settles (success, cancel, or error). */
@@ -33,15 +31,17 @@ export interface BulkRemovalRunOptions {
 }
 
 /**
- * Context surface for the app-root bulk-removal provider. Both queues are
+ * Context surface for the app-root bulk-removal provider. The cache queue is
  * pre-baked inside the provider (i18n + ApiService selection +
  * waitForSignalRCompletion live there); callers only pass the item list and the
  * per-run options. The run loop survives in-app tab switches because the
  * provider never unmounts.
+ *
+ * The evicted-items "Remove All" no longer lives here: it calls the batched
+ * DELETE /api/cache/evicted endpoint and flows through the standard
+ * eviction_removal notification (progress, cancel, page-refresh recovery).
  */
 interface BulkRemovalContextType {
-  runEvictedRemoval: (items: BulkQueueEntry[], options: BulkRemovalRunOptions) => Promise<void>;
-  isEvictedRemovalRunning: boolean;
   runCacheRemoval: (items: BulkQueueEntry[], options: BulkRemovalRunOptions) => Promise<void>;
   isCacheRemovalRunning: boolean;
 }

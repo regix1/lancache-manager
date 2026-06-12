@@ -983,6 +983,31 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
+    /// Checks cache and logs directory write permissions (mirrors GamesController's helper).
+    /// Returns a BadRequest IActionResult with the PUID/PGID error message if either directory
+    /// is read-only, or null when both are writable. Logs a warning with the given context.
+    /// </summary>
+    private BadRequestObjectResult? EnsureDirectoriesWritable(string operationDescription, string logContext)
+    {
+        var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
+        var logsWritable = _pathResolver.IsLogsDirectoryWritable();
+
+        if (cacheWritable && logsWritable)
+            return null;
+
+        var errors = new List<string>();
+        if (!cacheWritable) errors.Add("cache directory is read-only");
+        if (!logsWritable) errors.Add("logs directory is read-only");
+
+        var errorMessage = $"Cannot {operationDescription}: {string.Join(" and ", errors)}. " +
+            "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
+            $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
+
+        _logger.LogWarning("{Context} Permission check failed: {Error}", logContext, errorMessage);
+        return BadRequest(new ErrorResponse { Error = errorMessage });
+    }
+
+    /// <summary>
     /// DELETE /api/cache/services/{name} - Remove specific service from cache
     /// RESTful: DELETE is proper method for removing resources
     /// </summary>
@@ -992,21 +1017,11 @@ public class CacheController : ControllerBase
     {
         // CRITICAL: Check write permissions BEFORE starting the operation
         // This prevents operations from failing partway through due to permission issues
-        var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
-        var logsWritable = _pathResolver.IsLogsDirectoryWritable();
-
-        if (!cacheWritable || !logsWritable)
+        var permissionError = EnsureDirectoriesWritable(
+            "remove service from cache", $"[ClearServiceCache] service '{name}':");
+        if (permissionError != null)
         {
-            var errors = new List<string>();
-            if (!cacheWritable) errors.Add("cache directory is read-only");
-            if (!logsWritable) errors.Add("logs directory is read-only");
-
-            var errorMessage = $"Cannot remove service from cache: {string.Join(" and ", errors)}. " +
-                "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-                $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
-
-            _logger.LogWarning("[ClearServiceCache] Permission check failed for service {Service}: {Error}", name, errorMessage);
-            return BadRequest(new ErrorResponse { Error = errorMessage });
+            return permissionError;
         }
 
         // Central concurrency check.
@@ -1307,6 +1322,44 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
+    /// DELETE /api/cache/evicted
+    ///
+    /// Removes ALL evicted Downloads, their LogEntries, and the evicted detection rows in a
+    /// single batched operation: one access.log rewrite pass covering every evicted entity,
+    /// one transaction of DB deletes, and one disk-summary refresh. Replaces the old frontend
+    /// loop of silent per-entity removals, which rewrote the logs once per entity and emitted
+    /// no SignalR events.
+    ///
+    /// Progress/cancel/recovery flow through the standard eviction_removal notification
+    /// (EvictionRemovalStarted with the bulk stage key, Progress ticks, terminal Complete).
+    ///
+    /// Returns 202 Accepted with { operationId }.
+    /// Returns 409 Conflict if another eviction removal is already in progress.
+    /// </summary>
+    [Authorize(Policy = "AdminOnly")]
+    [HttpDelete("evicted")]
+    public async Task<IActionResult> RemoveAllEvictedAsync(CancellationToken cancellationToken = default)
+    {
+        var permissionError = EnsureDirectoriesWritable("remove evicted data", "[EvictedRemoval] bulk:");
+        if (permissionError != null)
+        {
+            return permissionError;
+        }
+
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.EvictionRemoval,
+            ConflictScope.Bulk(),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Conflict(conflict);
+        }
+
+        var operationId = await _reconciliationService.StartBulkEvictionRemovalAsync(cancellationToken);
+        return Accepted(new { operationId });
+    }
+
+    /// <summary>
     /// DELETE /api/cache/evicted/{scope}?key={value}
     ///
     /// Removes only the evicted Downloads and their LogEntries for a single entity,
@@ -1317,11 +1370,10 @@ public class CacheController : ControllerBase
     ///
     /// Returns 202 Accepted with { operationId, scope, key }.
     /// Returns 409 Conflict if a global eviction removal is already in progress.
-    /// Optional: silent=true suppresses per-item SignalR notifications (bulk loop); deferRefresh=true skips the slow disk-summary refresh (bulk loop runs it on the last item only).
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("evicted/{scope}")]
-    public async Task<IActionResult> RemoveEvictedForEntityAsync(string scope, [FromQuery] string? key, [FromQuery] bool silent = false, [FromQuery] bool deferRefresh = false, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> RemoveEvictedForEntityAsync(string scope, [FromQuery] string? key, CancellationToken cancellationToken = default)
     {
         // Validate key parameter.
         if (string.IsNullOrWhiteSpace(key))
@@ -1352,22 +1404,11 @@ public class CacheController : ControllerBase
             key = key.ToLowerInvariant();
         }
 
-        // Permission check - mirror ClearServiceCacheAsync.
-        var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
-        var logsWritable = _pathResolver.IsLogsDirectoryWritable();
-
-        if (!cacheWritable || !logsWritable)
+        var permissionError = EnsureDirectoriesWritable(
+            "remove evicted data", $"[EvictedRemoval] {scope} '{key}':");
+        if (permissionError != null)
         {
-            var errors = new List<string>();
-            if (!cacheWritable) errors.Add("cache directory is read-only");
-            if (!logsWritable) errors.Add("logs directory is read-only");
-
-            var errorMessage = $"Cannot remove evicted data: {string.Join(" and ", errors)}. " +
-                "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-                $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
-
-            _logger.LogWarning("[EvictedRemoval] Permission check failed for {Scope} '{Key}': {Error}", scope, key, errorMessage);
-            return BadRequest(new ErrorResponse { Error = errorMessage });
+            return permissionError;
         }
 
         // Central concurrency check - scope-aware (replaces the global eviction lock bug).
@@ -1433,9 +1474,7 @@ public class CacheController : ControllerBase
             resolvedGameName,
             resolvedGameAppId,
             cancellationToken,
-            resolvedEpicAppId: evictionScope == EvictionScope.Epic ? key : null,
-            silent: silent,
-            deferDetectionRefresh: deferRefresh);
+            resolvedEpicAppId: evictionScope == EvictionScope.Epic ? key : null);
 
         return Accepted(new { operationId, scope = scopeLower, key });
     }

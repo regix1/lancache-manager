@@ -762,7 +762,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
-    /// Starts scoped eviction removal for a single game, service, or bulk target.
+    /// Starts scoped eviction removal for a single game or service.
     /// </summary>
     /// <param name="cancellationToken">
     /// Unused for cancellation control — eviction removals are cancelled via the tracker
@@ -775,9 +775,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         string? resolvedGameName,
         string? resolvedGameAppId,
         CancellationToken cancellationToken,
-        string? resolvedEpicAppId = null,
-        bool silent = false,
-        bool deferDetectionRefresh = false)
+        string? resolvedEpicAppId = null)
     {
         var cts = new CancellationTokenSource();
         var metadata = new EvictionRemovalMetadata
@@ -803,29 +801,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
             onTerminalEmit: CreateEvictionRemovalTerminalEmit(() => operationId, terminalState));
         _evictionRemovalTerminalStates[operationId] = terminalState;
-        if (silent)
-        {
-            // Bulk "Remove All" runs each entity silently: the frontend shows ONE bulk
-            // notification and polls operation status instead of consuming per-item
-            // Started/Progress/Complete SignalR events. terminalState.Silent gates the
-            // terminal emit; _silentRemovalOperationIds gates progress events and the
-            // /api/cache/removals/active recovery listing.
-            _silentRemovalOperationIds.TryAdd(operationId, 0);
-            terminalState.Silent = true;
-        }
 
-        if (!silent)
-        {
-            await _notifications.NotifyAllAsync(
-                SignalREvents.EvictionRemovalStarted,
-                new EvictionRemovalStarted(
-                    "signalr.evictionRemove.starting.entity",
-                    operationId,
-                    new Dictionary<string, object?> { ["scope"] = scope.ToString(), ["key"] = key },
-                    resolvedGameName,
-                    resolvedGameAppId,
-                    resolvedEpicAppId));
-        }
+        await _notifications.NotifyAllAsync(
+            SignalREvents.EvictionRemovalStarted,
+            new EvictionRemovalStarted(
+                "signalr.evictionRemove.starting.entity",
+                operationId,
+                new Dictionary<string, object?> { ["scope"] = scope.ToString(), ["key"] = key },
+                resolvedGameName,
+                resolvedGameAppId,
+                resolvedEpicAppId));
 
         _ = Task.Run(async () =>
         {
@@ -835,7 +820,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             {
                 using var scopeLifetime = _serviceProvider.CreateScope();
                 var context = scopeLifetime.ServiceProvider.GetRequiredService<AppDbContext>();
-                await RemoveEvictedRecordsForEntityAsync(context, scope, key, cts.Token, operationId, deferDetectionRefresh);
+                await RemoveEvictedRecordsForEntityAsync(context, scope, key, cts.Token, operationId);
             }
             catch (Exception ex)
             {
@@ -1313,6 +1298,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     detectionGamesDeleted, detectionServicesDeleted, downloadsDeleted, logEntriesDeleted);
             }
 
+            // The disk-summary refresh can take a while on large caches; surface it as its own
+            // progress stage so the notification doesn't sit frozen after the last delete step.
+            await ReportEvictionRemovalProgressAsync(
+                opId,
+                90,
+                "refreshing_detection",
+                "signalr.evictionRemove.refreshingDetection",
+                downloadsRemoved: downloadsDeleted,
+                logEntriesRemoved: logEntriesDeleted);
+
             // Refresh persisted disk-summary totals so dashboard reads reflect post-removal state
             await _gameCacheDetectionService.RefreshAndInvalidateDetectionCacheAsync(stoppingToken);
             _logger.LogDebug("[EvictedRemoval] Detection cache refreshed after bulk removal");
@@ -1581,8 +1576,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         EvictionScope scope,
         string key,
         CancellationToken stoppingToken,
-        Guid? operationId = null,
-        bool deferDetectionRefresh = false)
+        Guid? operationId = null)
     {
         // Npgsql cannot translate string.Equals(..., StringComparison.OrdinalIgnoreCase);
         // service names are already stored lowercase, so lowercasing `key` once here lets
@@ -1843,17 +1837,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             var detectionService = _serviceProvider.GetService<GameCacheDetectionService>();
             if (detectionService != null)
             {
-                if (deferDetectionRefresh)
-                {
-                    // Bulk per-item path: the full disk-summary recompute takes minutes on large
-                    // databases and was serializing every item in a bulk Remove All. Invalidate the
-                    // cache only; the bulk loop requests one full refresh on its LAST item.
-                    detectionService.InvalidateDetectionCache();
-                }
-                else
-                {
-                    await detectionService.RefreshAndInvalidateDetectionCacheAsync(stoppingToken);
-                }
+                await detectionService.RefreshAndInvalidateDetectionCacheAsync(stoppingToken);
             }
 
             await CompleteEvictionRemovalAsync(

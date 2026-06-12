@@ -79,6 +79,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
   const refreshDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Separate timer for dedicated always-refresh events (eviction scan/removal):
+  // they bypass the live-only gate but still coalesce bursts into one fetch.
+  const forcedRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const applyDetectionFromBatch = useCallback((detection: CachedDetectionResponse) => {
     setGameDetectionData(detection);
@@ -345,29 +348,55 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       fetchAllData({ forceRefresh: true, trigger: 'signalr:GameDetectionComplete' });
     };
 
-    // Exclude events with dedicated handlers from the debounced refresh list
-    const throttledEvents = SIGNALR_REFRESH_EVENTS.filter(
-      (event) => event !== 'GameDetectionComplete' && event !== 'CacheClearingComplete'
-    );
+    // Eviction scan/removal completions change detection + evicted data, which
+    // (like game detection) is not time-range dependent — they must refresh even
+    // outside the 'live' range, so they bypass handleRefreshEvent's live-only
+    // gate. They still coalesce through their own debounce timer: per-entity
+    // removals fired in quick succession and scheduled automatic scans must not
+    // each trigger an undebounced full batch fetch (heavy on small hosts).
+    const handleForcedRefreshEvent = (eventName: string) => {
+      if (forcedRefreshTimerRef.current) clearTimeout(forcedRefreshTimerRef.current);
+      forcedRefreshTimerRef.current = setTimeout(
+        () => fetchAllData({ forceRefresh: true, trigger: `signalr:${eventName}` }),
+        1000
+      );
+    };
+
+    // Events with dedicated handlers — the keys of this map drive both the
+    // registration below and their exclusion from the debounced live-only list,
+    // so adding an entry here is the single edit site.
+    const dedicatedHandlers: Record<string, () => void> = {
+      GameDetectionComplete: handleGameDetectionComplete,
+      CacheClearingComplete: handleCacheClearingComplete,
+      EvictionScanComplete: () => handleForcedRefreshEvent('EvictionScanComplete'),
+      EvictionRemovalComplete: () => handleForcedRefreshEvent('EvictionRemovalComplete')
+    };
+    const throttledEvents = SIGNALR_REFRESH_EVENTS.filter((event) => !(event in dedicatedHandlers));
     const eventHandlers: Record<string, () => void> = {};
     throttledEvents.forEach((event) => {
       eventHandlers[event] = () => handleRefreshEvent(event);
       signalR.on(event, eventHandlers[event]);
     });
+    Object.entries(dedicatedHandlers).forEach(([event, handler]) => {
+      signalR.on(event, handler);
+    });
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
     signalR.on('GameDetectionStarted', handleGameDetectionStarted);
-    signalR.on('GameDetectionComplete', handleGameDetectionComplete);
-    signalR.on('CacheClearingComplete', handleCacheClearingComplete);
 
     return () => {
       // Use the same handler references for cleanup
       throttledEvents.forEach((event) => {
         signalR.off(event, eventHandlers[event]);
       });
+      Object.entries(dedicatedHandlers).forEach(([event, handler]) => {
+        signalR.off(event, handler);
+      });
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
       signalR.off('GameDetectionStarted', handleGameDetectionStarted);
-      signalR.off('GameDetectionComplete', handleGameDetectionComplete);
-      signalR.off('CacheClearingComplete', handleCacheClearingComplete);
+      if (forcedRefreshTimerRef.current) {
+        clearTimeout(forcedRefreshTimerRef.current);
+        forcedRefreshTimerRef.current = null;
+      }
       // Clear any pending debounce timer on unmount
       if (refreshDebounceTimerRef.current) {
         clearTimeout(refreshDebounceTimerRef.current);

@@ -1481,12 +1481,8 @@
         "evictionRemoveConfirmButton": "启用移除模式",
         "evictionRemoveConfirmCancel": "取消",
         "evictionRemoveAll": "全部移除",
-        "evictionRemoveAllStarting": "正在移除 0 / {{total}} 个已淘汰项目...",
-        "evictionRemoveAllProgress": "正在移除 {{current}} / {{total}} - {{label}}",
-        "evictionRemoveAllComplete": "已移除 {{count}} 个已淘汰项目",
-        "evictionRemoveAllCancelled": "批量移除在 {{count}} 个项目后被取消",
         "evictionRemoveAllConfirmTitle": "移除所有已淘汰项目？",
-        "evictionRemoveAllConfirmMessage": "这将逐个移除全部 {{count}} 个已淘汰项目。每个项目都经过各自的移除流程（日志重写 + 数据库清理），且操作无法撤销。",
+        "evictionRemoveAllConfirmMessage": "这将通过一次批量操作移除全部 {{count}} 个已淘汰项目（一次日志重写加数据库清理）。此操作无法撤销。",
         "evictionRemoveAllConfirmWarning": "仅移除已淘汰的仓库 - 部分缓存的游戏保留其磁盘文件。",
         "gameCacheRemoveAll": "全部移除",
         "gameCacheRemoveAllStarting": "正在移除 0 / {{total}} 个缓存项目...",
@@ -5527,7 +5523,8 @@
       "finalizingRemoval": "正在完成移除...",
       "complete": "淘汰移除完成。",
       "cancelled": "淘汰移除已取消。",
-      "failed": "淘汰移除失败。"
+      "failed": "淘汰移除失败。",
+      "refreshingDetection": "正在刷新缓存检测数据..."
     },
     "evictionScan": {
       "scanning": "正在扫描缓存文件...",

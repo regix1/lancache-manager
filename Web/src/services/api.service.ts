@@ -1521,14 +1521,29 @@ class ApiService {
     }
   }
 
+  // Remove ALL evicted downloads, log entries, and detection rows in one batched backend
+  // operation (single log rewrite pass + single DB transaction + single disk-summary refresh).
+  // Progress/cancel flow through the standard eviction_removal notification (bulk scope).
+  static async removeAllEvicted(): Promise<{ operationId: string }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/cache/evicted`,
+        this.getFetchOptions({ method: 'DELETE' })
+      );
+      return await this.handleResponse<{ operationId: string }>(res);
+    } catch (error) {
+      console.error('removeAllEvicted error:', error);
+      throw error;
+    }
+  }
+
   // Remove only the evicted downloads (and their log entries) for a Steam game (fire-and-forget, requires auth)
   static async removeEvictedForGame(
-    gameAppId: number,
-    opts?: { silent?: boolean; deferRefresh?: boolean }
+    gameAppId: number
   ): Promise<{ operationId: string; scope: string; key: string }> {
     try {
       const res = await fetch(
-        `${API_BASE}/cache/evicted/steam?key=${gameAppId}${opts?.silent ? '&silent=true' : ''}${opts?.deferRefresh ? '&deferRefresh=true' : ''}`,
+        `${API_BASE}/cache/evicted/steam?key=${gameAppId}`,
         this.getFetchOptions({ method: 'DELETE' })
       );
       return await this.handleResponse<{ operationId: string; scope: string; key: string }>(res);
@@ -1540,12 +1555,11 @@ class ApiService {
 
   // Remove only the evicted downloads (and their log entries) for an Epic game (fire-and-forget, requires auth)
   static async removeEvictedForEpicGame(
-    epicAppId: string,
-    opts?: { silent?: boolean; deferRefresh?: boolean }
+    epicAppId: string
   ): Promise<{ operationId: string; scope: string; key: string }> {
     try {
       const res = await fetch(
-        `${API_BASE}/cache/evicted/epic?key=${encodeURIComponent(epicAppId)}${opts?.silent ? '&silent=true' : ''}${opts?.deferRefresh ? '&deferRefresh=true' : ''}`,
+        `${API_BASE}/cache/evicted/epic?key=${encodeURIComponent(epicAppId)}`,
         this.getFetchOptions({ method: 'DELETE' })
       );
       return await this.handleResponse<{ operationId: string; scope: string; key: string }>(res);
@@ -1557,12 +1571,11 @@ class ApiService {
 
   // Remove only the evicted downloads (and their log entries) for a non-game service (fire-and-forget, requires auth)
   static async removeEvictedForService(
-    serviceName: string,
-    opts?: { silent?: boolean; deferRefresh?: boolean }
+    serviceName: string
   ): Promise<{ operationId: string; scope: string; key: string }> {
     try {
       const res = await fetch(
-        `${API_BASE}/cache/evicted/service?key=${encodeURIComponent(serviceName)}${opts?.silent ? '&silent=true' : ''}${opts?.deferRefresh ? '&deferRefresh=true' : ''}`,
+        `${API_BASE}/cache/evicted/service?key=${encodeURIComponent(serviceName)}`,
         this.getFetchOptions({ method: 'DELETE' })
       );
       return await this.handleResponse<{ operationId: string; scope: string; key: string }>(res);
@@ -1900,28 +1913,6 @@ class ApiService {
   // =====================================================
   // Universal Operation Cancellation APIs
   // =====================================================
-
-  /**
-   * Lightweight liveness/progress probe for a tracked operation. Used by the bulk
-   * Remove All loop to await SILENT per-entity removals (which emit no SignalR events).
-   * active=false means the operation finished (completed/failed/cancelled) or never existed.
-   */
-  static async getOperationStatus(
-    operationId: string
-  ): Promise<{ id: string; active: boolean; percentComplete: number; message: string | null }> {
-    try {
-      const res = await fetch(`${API_BASE}/operations/${operationId}`, this.getFetchOptions());
-      return await this.handleResponse<{
-        id: string;
-        active: boolean;
-        percentComplete: number;
-        message: string | null;
-      }>(res);
-    } catch (error: unknown) {
-      console.error('getOperationStatus error:', error);
-      throw error;
-    }
-  }
 
   // Cancel any operation by ID
   static async cancelOperation(operationId: string): Promise<{ message: string }> {

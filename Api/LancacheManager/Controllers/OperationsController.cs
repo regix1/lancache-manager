@@ -29,9 +29,8 @@ public class OperationsController : ControllerBase
     /// <summary>
     /// GET /api/operations/{id}
     ///
-    /// Lightweight liveness/progress probe for a single tracked operation. Used by the frontend
-    /// bulk Remove All loop to await completion of SILENT per-entity removals, which emit no
-    /// SignalR events by design.
+    /// Lightweight liveness/progress probe for a single tracked operation, usable by API
+    /// consumers that cannot subscribe to SignalR.
     ///
     /// Returns 200 with { id, active, percentComplete, message }. active=false means the
     /// operation is no longer tracked (completed, failed, cancelled, or never existed).

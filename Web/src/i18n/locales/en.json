@@ -1481,12 +1481,8 @@
         "evictionRemoveConfirmButton": "Enable Remove Mode",
         "evictionRemoveConfirmCancel": "Cancel",
         "evictionRemoveAll": "Remove All",
-        "evictionRemoveAllStarting": "Removing 0 of {{total}} evicted items...",
-        "evictionRemoveAllProgress": "Removing {{current}} of {{total}} - {{label}}",
-        "evictionRemoveAllComplete": "Removed {{count}} evicted items",
-        "evictionRemoveAllCancelled": "Bulk removal cancelled after {{count}} items",
         "evictionRemoveAllConfirmTitle": "Remove all evicted items?",
-        "evictionRemoveAllConfirmMessage": "This will remove all {{count}} evicted items one at a time. Each item runs through its own removal flow (log rewrite + database cleanup) and the operation cannot be undone.",
+        "evictionRemoveAllConfirmMessage": "This will remove all {{count}} evicted items in a single batched operation (one log rewrite plus database cleanup). The operation cannot be undone.",
         "evictionRemoveAllConfirmWarning": "Only the evicted depots are removed - partially-cached games keep their on-disk files.",
         "gameCacheRemoveAll": "Remove All",
         "gameCacheRemoveAllStarting": "Removing 0 of {{total}} cached items...",
@@ -5557,7 +5553,8 @@
       "finalizingRemoval": "Finalizing removal...",
       "complete": "Eviction removal complete.",
       "cancelled": "Eviction removal cancelled.",
-      "failed": "Eviction removal failed."
+      "failed": "Eviction removal failed.",
+      "refreshingDetection": "Refreshing cache detection data..."
     },
     "evictionScan": {
       "scanning": "Scanning cache files...",
