@@ -13,6 +13,32 @@ import type {
 } from './types';
 import type { DepotMappingCompleteEvent } from '../SignalRContext/types';
 import i18n from '@/i18n';
+
+/**
+ * Merges incoming event details over existing card details. When the incoming details
+ * carry a DIFFERENT operationId (a re-spawned or queue-promoted operation reusing the same
+ * per-type singleton card), stale per-operation cancel flags are dropped first - otherwise
+ * a leftover cancelRequested/cancelSent from the PREVIOUS op makes the deferred-cancel
+ * watchdog in UniversalNotificationBar auto-cancel the brand-new operation (the
+ * phantom-cancel half of the cancel->respawn loop).
+ */
+function mergeEventDetails(
+  existing: UnifiedNotification['details'],
+  incoming: UnifiedNotification['details']
+): UnifiedNotification['details'] {
+  if (!incoming) return existing;
+  const base: NonNullable<UnifiedNotification['details']> = { ...existing };
+  if (
+    typeof incoming.operationId === 'string' &&
+    typeof base.operationId === 'string' &&
+    incoming.operationId !== base.operationId
+  ) {
+    delete base.cancelRequested;
+    delete base.cancelSent;
+    delete base.cancelling;
+  }
+  return { ...base, ...incoming };
+}
 import {
   NOTIFICATION_STORAGE_KEYS,
   NOTIFICATION_IDS,
@@ -93,7 +119,7 @@ export function createStartedHandler<T>(
             const merged: UnifiedNotification = {
               ...existing,
               message: config.getMessage?.(event) ?? existing.message,
-              details: { ...existing.details, ...eventDetails }
+              details: mergeEventDetails(existing.details, eventDetails)
             };
             localStorage.setItem(config.storageKey, JSON.stringify(merged));
             return prev.map((n) => (n.id === notificationId ? merged : n));
@@ -537,8 +563,9 @@ export function createStatusAwareProgressHandler<T>(
                 ...n,
                 message: config.getMessage(event),
                 progress: config.getProgress(event),
-                // Merge event details (e.g., operationId) into existing details
-                ...(eventDetails ? { details: { ...n.details, ...eventDetails } } : {})
+                // Merge event details (e.g., operationId) into existing details; stale
+                // cancel flags are dropped when the operationId changed (see mergeEventDetails).
+                ...(eventDetails ? { details: mergeEventDetails(n.details, eventDetails) } : {})
               };
             }
             return n;

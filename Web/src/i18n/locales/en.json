@@ -173,6 +173,7 @@
       "forceKillOperation": "Click again to force kill",
       "cancelling": "Cancelling...",
       "operationWaiting": "Waiting for another process to complete...",
+      "operationWaitingNamed": "{{name}} — waiting for another process to complete...",
       "operationWaitingCancelled": "Cancelled while waiting in queue",
       "willQueueBehindCurrent": "Will start after the current operation finishes",
       "corruptedChunksRemoved": "Corrupted chunks successfully removed",

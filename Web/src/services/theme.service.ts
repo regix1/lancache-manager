@@ -270,15 +270,17 @@ class ThemeService {
         },
         colors: complete({})
       },
-      // Modern, clean light theme inspired by Linear/Stripe
-      // White page with soft grey cards/surfaces so large areas aren't blinding white
+      // Modern, clean light theme (GitHub Primer / Radix pattern):
+      // clearly-grey page canvas, crisp white cards with subtle borders + shadows.
+      // Radix scale: cards = steps 1-2 (near-white), card borders = step 6 (subtle),
+      // interactive borders = step 7 (slate-300). Grey canvas kills the glare.
       {
         meta: {
           id: 'light-default',
           name: 'Light Default',
           description: 'Clean modern light theme with subtle depth',
           author: 'System',
-          version: '4.0.0',
+          version: '5.0.0',
           isDark: false,
           sharpCorners: false,
           disableFocusOutlines: true,
@@ -290,45 +292,54 @@ class ThemeService {
           secondaryColor: '#7c3aed',
           accentColor: '#0891b2',
 
-          // Backgrounds - White page, soft grey surfaces
-          // Key: grey cards on a white page so the big visual areas aren't pure white
-          bgPrimary: '#ffffff', // White page background
-          bgSecondary: '#f1f5f9', // slate-100 - grey cards/sidebar/dropdowns
-          bgTertiary: '#e2e8f0', // slate-200 - nested elements, table headers
-          bgHover: '#cbd5e1', // slate-300 - hover state
-          bgElevated: '#f8fafc', // slate-50 - drawer/modal/floating panel background
-          bgSurface: '#f1f5f9', // slate-100 - sections within elevated surfaces
-          bgSurfaceHover: '#e2e8f0', // slate-200 - hover on surface elements
-          bgSurfaceActive: '#cbd5e1', // slate-300 - active/pressed surface elements
-          bgOverlay: 'rgba(15,23,42,0.45)', // Slate-tinted backdrop overlay
+          // Backgrounds - Grey canvas, white surfaces
+          // Key: the page itself is visibly grey; cards/modals/nav are white and pop
+          bgPrimary: '#eef1f6', // Cool grey page canvas - kills the white glare
+          bgSecondary: '#ffffff', // White panels: sidebar/dropdowns/list rows
+          bgTertiary: '#eff3f8', // Nested elements, table headers (on white cards)
+          bgHover: '#e2e8f0', // slate-200 - hover state
+          bgElevated: '#ffffff', // Drawer/modal/floating panel background
+          bgSurface: '#f6f8fb', // Sections within elevated surfaces
+          bgSurfaceHover: '#eef1f6', // Hover on surface elements
+          bgSurfaceActive: '#e2e8f0', // Active/pressed surface elements
+          bgOverlay: 'rgba(15,23,42,0.5)', // Slate-tinted backdrop overlay
 
-          // Text - Rich, crisp colors (not washed out)
+          // Derived-var overrides: the computed defaults are white-alpha tints
+          // (rgba of the white surfaces above), which are invisible on light
+          // backgrounds. Replace with slate-alpha tints that darken instead.
+          skeletonBase: 'rgba(15, 23, 42, 0.06)', // Loading shimmer base
+          skeletonHighlight: 'rgba(15, 23, 42, 0.12)', // Loading shimmer sweep
+          bgSecondaryStrong: 'rgba(148, 163, 184, 0.2)', // Hover tint on white pills/tabs
+          bgTertiaryMuted: 'rgba(148, 163, 184, 0.1)', // Striped table rows
+          bgTertiaryStrong: 'rgba(148, 163, 184, 0.16)', // Table row hover
+
+          // Text - Crisp primary with a real hierarchy step-down
           textPrimary: '#0f172a', // slate-900 - near black for crisp readability
-          textSecondary: '#1e293b', // slate-800 - strong secondary
-          textMuted: '#475569', // slate-600 - visible muted text
+          textSecondary: '#334155', // slate-700 - clearly secondary, still strong
+          textMuted: '#64748b', // slate-500 - muted but AA on white
           textAccent: '#1d4ed8', // blue-700 - rich blue for links
-          textPlaceholder: '#64748b', // slate-500 - visible placeholders
+          textPlaceholder: '#94a3b8', // slate-400 - placeholders recede
 
           // Drag handle
           dragHandleColor: '#94a3b8',
           dragHandleHover: '#2563eb',
 
-          // Borders - Strong enough to read on grey surfaces
-          borderPrimary: '#cbd5e1', // slate-300 - visible on slate-100 cards
-          borderSecondary: '#94a3b8', // slate-400 - slightly stronger
+          // Borders - Subtle on cards (Radix step 6), stronger on interactive bits
+          borderPrimary: '#dde3ec', // Soft card/divider border
+          borderSecondary: '#cbd5e1', // slate-300 - stronger separators
           borderFocus: '#2563eb',
-          borderElevated: '#cbd5e1', // slate-300 - borders within elevated panels
-          borderHover: '#64748b', // slate-500 - border hover state
+          borderElevated: '#dde3ec', // Borders within elevated panels
+          borderHover: '#94a3b8', // slate-400 - border hover state
 
-          // Navigation - Clean white bar with a defined border
+          // Navigation - White bar over the grey canvas, subtle border
           navBg: '#ffffff',
-          navBorder: '#cbd5e1',
+          navBorder: '#dde3ec',
           navTabActive: '#2563eb',
           navTabInactive: '#64748b',
           navTabHover: '#1e293b',
           navTabActiveBorder: '#2563eb',
           navMobileMenuBg: '#ffffff',
-          navMobileItemHover: '#e2e8f0',
+          navMobileItemHover: '#eef1f6',
 
           // Status colors - Vibrant and accessible
           // Badge backgrounds use -100 shades; -50 shades disappear on grey cards
@@ -364,15 +375,15 @@ class ThemeService {
           xboxColor: '#107C10', // Xbox Green
           ubisoftColor: '#db2777', // Pink
 
-          // Components - Grey card surfaces; white inputs pop against them
-          cardBg: '#f1f5f9', // slate-100 - grey card surface
-          cardBorder: '#cbd5e1', // slate-300
+          // Components - White cards with soft borders; shadows give the depth
+          cardBg: '#ffffff',
+          cardBorder: '#dde3ec', // Subtle card edge; shadow does the separation
           cardOutline: '#2563eb',
           buttonBg: '#2563eb',
           buttonHover: '#1d4ed8',
           buttonText: '#ffffff',
           inputBg: '#ffffff',
-          inputBorder: '#cbd5e1', // slate-300 - visible input edges
+          inputBorder: '#cbd5e1', // slate-300 - interactive edges stay visible
           inputFocus: '#2563eb',
           checkboxAccent: '#2563eb',
           checkboxBorder: '#94a3b8', // slate-400
@@ -380,12 +391,12 @@ class ThemeService {
           checkboxCheckmark: '#ffffff',
           checkboxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
           checkboxHoverShadow: '0 0 0 3px rgba(37, 99, 235, 0.12)',
-          checkboxHoverBg: '#e2e8f0',
+          checkboxHoverBg: '#eef1f6',
           checkboxFocus: '#2563eb',
           sliderAccent: '#2563eb',
           sliderThumb: '#2563eb',
-          sliderTrack: '#cbd5e1', // slate-300 - visible track on grey cards
-          progressBg: '#cbd5e1', // slate-300 - visible track on grey cards
+          sliderTrack: '#cbd5e1', // slate-300 - visible track on white cards
+          progressBg: '#cbd5e1', // slate-300 - visible track on white cards
 
           // Hit rate specific - -100 shades so badges read on grey cards
           hitRateHighBg: '#d1fae5',
@@ -451,8 +462,8 @@ class ThemeService {
           gameColor20: '#7e22ce',
           gameColorOther: '#64748b',
 
-          chartBorderColor: '#f1f5f9', // Matches card bg for segment separation
-          chartGridColor: '#cbd5e1', // slate-300 - visible gridlines on grey cards
+          chartBorderColor: '#ffffff', // Matches card bg for segment separation
+          chartGridColor: '#d8e0ea', // Visible but quiet gridlines on white
           chartTextColor: '#475569', // Darker for readability
           chartCacheHitColor: '#059669',
           chartCacheMissColor: '#d97706',
@@ -718,6 +729,8 @@ class ThemeService {
 
       /* Fixed Colors */
       --theme-shadow-black: ${v('shadowBlack', 'rgba(0, 0, 0, 0.08)')};
+      --theme-skeleton-base: ${v('skeletonBase', 'rgba(255, 255, 255, 0.06)')};
+      --theme-skeleton-highlight: ${v('skeletonHighlight', 'rgba(255, 255, 255, 0.12)')};
       --theme-badge-white-subtle: ${v('badgeWhiteSubtle', 'rgba(255, 255, 255, 0.20)')};
       --theme-glint-white: ${v('glintWhite', 'rgba(255, 255, 255, 0.05)')};
 

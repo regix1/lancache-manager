@@ -173,6 +173,7 @@
       "forceKillOperation": "再次点击以强制终止",
       "cancelling": "取消中...",
       "operationWaiting": "正在等待其他进程完成...",
+      "operationWaitingNamed": "{{name}}：正在等待其他进程完成...",
       "operationWaitingCancelled": "已在等待队列中取消",
       "willQueueBehindCurrent": "将在当前操作完成后开始",
       "corruptedChunksRemoved": "损坏块已成功移除",

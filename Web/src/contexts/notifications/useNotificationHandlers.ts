@@ -220,7 +220,10 @@ export function useNotificationHandlers(
           id: entry.id,
           type: entry.type,
           status: 'waiting',
-          message: i18n.t('common.notifications.operationWaiting'),
+          // Prefix the op's display name so several FIFO-queued cards stay distinguishable.
+          message: event.name
+            ? i18n.t('common.notifications.operationWaitingNamed', { name: event.name })
+            : i18n.t('common.notifications.operationWaiting'),
           startedAt: new Date(),
           details: { operationId: event.operationId }
         };

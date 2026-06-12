@@ -56,6 +56,15 @@ public class CacheManagementService
     private readonly string _cachedScanFilePath;
     private readonly SemaphoreSlim _scanCacheLock = new SemaphoreSlim(1, 1);
 
+    // Set when a tracked full scan is cancelled by the USER (not by host shutdown). While
+    // set, the AUTOMATIC rescan triggers inside GetCachedCacheSizeAsync (no-cache and
+    // usage-drift branches - i.e. force:false read paths like the dashboard GET and
+    // CacheSnapshotService) are suppressed, so a user cancel STICKS instead of being
+    // instantly relaunched in a cancel->kill->respawn loop. Cleared by the next explicit
+    // or scheduled force scan (Run Now / CacheSizeScanScheduledService) and by any
+    // successfully completed tracked scan.
+    private volatile bool _autoRescanSuppressed;
+
     /// <summary>
     /// Context dictionary of the most recent cache-file-scan progress tick (same shape as the
     /// CacheSizeScanProgress SignalR payload's Context). The unified tracker only stores the stage
@@ -1734,6 +1743,17 @@ public class CacheManagementService
                 onProgress: onProgress,
                 processLabel: "cache_size");
 
+            // Cancel-vs-exit race: tracker cancel kills the process tree BEFORE cancelling the
+            // CTS, so the child can die (exit 137 / SIGKILL) and WaitForExit return normally
+            // before the token observes cancellation. Classify that as CANCELLED - never as a
+            // "Failed to calculate cache size" error (mirrors the eviction scan's
+            // ThrowIfCancellationRequested immediately after the Rust run).
+            if (cancellationToken.IsCancellationRequested)
+            {
+                await _rustProcessHelper.DeleteTemporaryFileAsync(outputFile);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
             if (!string.IsNullOrWhiteSpace(processResult.Error))
                 _logger.LogInformation("Cache size calculation output:\n{Output}", processResult.Error);
             if (!string.IsNullOrWhiteSpace(processResult.Output))
@@ -1911,6 +1931,7 @@ public class CacheManagementService
             terminalFiles = result.TotalFiles;
             terminalBytes = result.TotalBytes;
             terminalFormattedSize = result.FormattedSize;
+            _autoRescanSuppressed = false; // a completed scan re-arms the automatic triggers
             _operationTracker.CompleteOperation(operationId, success: true);
             return result;
         }
@@ -1923,6 +1944,9 @@ public class CacheManagementService
             {
                 throw; // preserve the pre-existing contract for host-shutdown / aborted callers
             }
+            // USER cancel must stick: suppress the automatic (force:false) rescan triggers so
+            // read paths don't instantly respawn the scan the user just killed.
+            _autoRescanSuppressed = true;
             return null; // user-initiated cancel: surface "no result" instead of an unhandled OCE
         }
         catch (Exception ex)
@@ -1958,9 +1982,11 @@ public class CacheManagementService
         await _scanCacheLock.WaitAsync();
         try
         {
-            // Force rescan - bypass cache entirely
+            // Force rescan - bypass cache entirely. An EXPLICIT trigger (Run Now / scheduled
+            // service) re-arms the automatic triggers a prior user cancel suppressed.
             if (force)
             {
+                _autoRescanSuppressed = false;
                 _logger.LogInformation("Force rescan requested - running fresh cache size scan");
                 var freshResult = await RunTrackedFullScanAsync(allCachePath, cancellationToken);
                 if (freshResult != null)
@@ -1968,16 +1994,26 @@ public class CacheManagementService
                     var cacheInfo = await GetCacheInfoAsync();
                     await SaveCachedScanAsync(freshResult, cacheInfo.UsedCacheSize);
                     freshResult.IsCached = false;
+                    return freshResult;
                 }
-                return freshResult;
+                // Cancelled/failed force scan: fall back to the last good result (stale is
+                // fine) so the dashboard keeps showing data instead of erroring.
+                await LoadCachedScanAsync();
+                return BuildStaleCachedResult();
             }
 
             // Load cached scan from disk if not in memory
             await LoadCachedScanAsync();
 
-            // No cached scan - run fresh
+            // No cached scan - run fresh (unless a user cancel suppressed auto-rescans:
+            // read paths must never respawn a scan the user just killed).
             if (_cachedCacheScan == null)
             {
+                if (_autoRescanSuppressed)
+                {
+                    _logger.LogDebug("No cached cache scan, but auto-rescan is suppressed after a user cancel - returning no result");
+                    return null;
+                }
                 _logger.LogInformation("No cached cache scan found - running fresh scan");
                 var freshResult = await RunTrackedFullScanAsync(allCachePath, cancellationToken);
                 if (freshResult != null)
@@ -1993,7 +2029,8 @@ public class CacheManagementService
             var currentInfo = await GetCacheInfoAsync();
             var delta = Math.Abs(currentInfo.UsedCacheSize - _cachedCacheScan.UsedCacheSizeAtScan);
 
-            if (CacheScanStaleCalculator.IsAnyScanStale(
+            if (!_autoRescanSuppressed
+                && CacheScanStaleCalculator.IsAnyScanStale(
                     currentInfo.UsedCacheSize,
                     usedBytesAtScan: _cachedCacheScan.UsedCacheSizeAtScan))
             {
@@ -2005,8 +2042,10 @@ public class CacheManagementService
                 {
                     await SaveCachedScanAsync(freshResult, currentInfo.UsedCacheSize);
                     freshResult.IsCached = false;
+                    return freshResult;
                 }
-                return freshResult;
+                // Cancelled/failed drift rescan: serve the previous result (graceful staleness).
+                return BuildStaleCachedResult();
             }
 
             // Return cached result
@@ -2021,6 +2060,25 @@ public class CacheManagementService
         {
             _scanCacheLock.Release();
         }
+    }
+
+    /// <summary>
+    /// Returns the last good cached scan as a stale (IsCached=true) response, or null when no
+    /// cached scan exists. Used when a fresh scan was cancelled or failed so dashboards keep
+    /// showing the previous scan's data + timestamp (graceful staleness) instead of an error.
+    /// Cancellation never deletes the cached scan file; only cache clear/removals invalidate it.
+    /// </summary>
+    private CacheSizeResponse? BuildStaleCachedResult()
+    {
+        if (_cachedCacheScan == null)
+        {
+            return null;
+        }
+
+        var cachedResult = _cachedCacheScan.ScanResult;
+        SyncScanTimestamp(cachedResult, _cachedCacheScan.ScannedAtUtc);
+        cachedResult.IsCached = true;
+        return cachedResult;
     }
 
     /// <summary>

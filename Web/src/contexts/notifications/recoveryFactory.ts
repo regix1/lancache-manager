@@ -59,7 +59,9 @@ function createWaitingOperationsRecoveryFunction(
             id: entry.id,
             type: entry.type,
             status: 'waiting' as NotificationStatus,
-            message: i18n.t('common.notifications.operationWaiting'),
+            message: row.name
+              ? i18n.t('common.notifications.operationWaitingNamed', { name: row.name })
+              : i18n.t('common.notifications.operationWaiting'),
             startedAt: new Date(),
             details: { operationId: row.operationId }
           });

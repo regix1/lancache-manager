@@ -419,11 +419,7 @@ const UnifiedNotificationItem = ({
 
   return (
     <div
-      className={`flex items-center gap-3 p-2 rounded-lg transition-opacity duration-300 ease-out ${
-        notification.status === 'waiting'
-          ? 'bg-[var(--theme-waiting-bg)] text-[var(--theme-waiting-text)]'
-          : 'bg-[var(--theme-bg-secondary)]'
-      }`}
+      className="flex items-center gap-3 p-2 rounded-lg bg-[var(--theme-bg-secondary)] transition-opacity duration-300 ease-out"
       style={{
         borderLeft: `3px solid ${color}`,
         opacity: isAnimatingOut ? 0 : 1
@@ -453,9 +449,11 @@ const UnifiedNotificationItem = ({
 
       {/* Action buttons */}
       <div className="flex items-center gap-2 flex-shrink-0">
-        {/* Cancel button for operations that support cancellation */}
+        {/* Cancel button for operations that support cancellation. 'waiting' is cancellable
+            too: the queued op is a real tracker registration, so the universal cancel path
+            dequeues it (-> OperationWaitingComplete{cancelled} -> card terminal). */}
         {notification.type in CANCEL_CONFIG_BY_TYPE &&
-          notification.status === 'running' &&
+          (notification.status === 'running' || notification.status === 'waiting') &&
           onCancel && (
             <Tooltip
               content={t(

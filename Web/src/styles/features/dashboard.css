@@ -317,7 +317,7 @@
   display: flex;
   gap: 0.75rem;
   padding-top: 0.75rem;
-  border-top: 1px solid var(--border-primary, rgba(255, 255, 255, 0.1));
+  border-top: 1px solid var(--theme-border-primary);
 }
 
 .peak-usage-skeleton-legend-item {
