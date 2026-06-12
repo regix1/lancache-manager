@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { Github, ExternalLink, Heart, ChevronRight } from 'lucide-react';
 import { Tooltip } from '@components/ui/Tooltip';
 
@@ -413,7 +414,7 @@ const Firework: React.FC<FireworkProps> = ({ startX, startY, direction, onComple
 interface GitHubRepo {
   name: string;
   url: string;
-  description: string;
+  descriptionKey: string;
   shortName: string;
   type: 'installable' | 'dependency';
   isFork?: boolean;
@@ -424,15 +425,14 @@ const INSTALLABLE_REPOS: GitHubRepo[] = [
     name: 'LANcache Manager',
     shortName: 'lancache-manager',
     url: 'https://github.com/regix1/lancache-manager',
-    description:
-      'A powerful GUI for managing your gaming LAN cache with real-time monitoring and analytics',
+    descriptionKey: 'nav.githubProjects.repos.lancacheManager',
     type: 'installable'
   },
   {
     name: 'Monolithic',
     shortName: 'monolithic',
     url: 'https://github.com/regix1/monolithic',
-    description: 'Enhanced fork with improved performance and additional features for LAN caching',
+    descriptionKey: 'nav.githubProjects.repos.monolithic',
     type: 'installable',
     isFork: true
   }
@@ -443,14 +443,14 @@ const DEPENDENCY_REPOS: GitHubRepo[] = [
     name: 'LANcache Pics',
     shortName: 'lancache-pics',
     url: 'https://github.com/regix1/lancache-pics',
-    description: 'Game artwork repository for mapping Steam depot downloads to game icons',
+    descriptionKey: 'nav.githubProjects.repos.lancachePics',
     type: 'dependency'
   },
   {
     name: 'Steam Prefill Daemon',
     shortName: 'steam-prefill-daemon',
     url: 'https://github.com/regix1/steam-prefill-daemon',
-    description: 'Background daemon for scheduled Steam game prefilling and cache warming',
+    descriptionKey: 'nav.githubProjects.repos.steamPrefillDaemon',
     type: 'dependency',
     isFork: true
   },
@@ -458,7 +458,7 @@ const DEPENDENCY_REPOS: GitHubRepo[] = [
     name: 'Epic Prefill Daemon',
     shortName: 'epic-prefill-daemon',
     url: 'https://github.com/regix1/epic-prefill-daemon',
-    description: 'Background daemon for scheduled Epic Games prefilling and cache warming',
+    descriptionKey: 'nav.githubProjects.repos.epicPrefillDaemon',
     type: 'dependency',
     isFork: true
   }
@@ -472,6 +472,7 @@ interface GitHubProjectsDropdownProps {
 }
 
 const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnly = false }) => {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(
@@ -682,7 +683,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
       >
         <Github size={16} className="github-icon-spin flex-shrink-0 text-[var(--theme-primary)]" />
       </div>
-      <span className="hidden sm:inline">Projects</span>
+      <span className="hidden sm:inline">{t('nav.githubProjects.trigger')}</span>
     </>
   );
 
@@ -707,7 +708,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
           <div className="github-dropdown-header">
             <div className="github-dropdown-header-content">
               <Github size={18} />
-              <span>My Projects</span>
+              <span>{t('nav.githubProjects.header')}</span>
             </div>
             <a
               href={GITHUB_PROFILE}
@@ -724,8 +725,10 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
           {/* Installable Projects */}
           <div className="github-dropdown-section">
             <div className="github-section-header">
-              <span className="github-section-label installable">Installable</span>
-              <span className="github-section-hint">Ready to use</span>
+              <span className="github-section-label installable">
+                {t('nav.githubProjects.installable')}
+              </span>
+              <span className="github-section-hint">{t('nav.githubProjects.installableHint')}</span>
             </div>
             <div className="github-dropdown-repos">
               {INSTALLABLE_REPOS.map((repo, index) => (
@@ -751,7 +754,9 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
                     <div className="github-repo-info">
                       <div className="github-repo-name-row">
                         <span className="github-repo-name">{repo.name}</span>
-                        {repo.isFork && <span className="github-fork-pill">Fork</span>}
+                        {repo.isFork && (
+                          <span className="github-fork-pill">{t('nav.githubProjects.fork')}</span>
+                        )}
                       </div>
                       <span className="github-repo-short">/{repo.shortName}</span>
                     </div>
@@ -762,7 +767,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
 
                   {/* Description - slides in on hover */}
                   <div className="github-repo-description">
-                    <p>{repo.description}</p>
+                    <p>{t(repo.descriptionKey)}</p>
                   </div>
                 </div>
               ))}
@@ -772,8 +777,12 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
           {/* Dependencies */}
           <div className="github-dropdown-section">
             <div className="github-section-header">
-              <span className="github-section-label dependency">Dependencies</span>
-              <span className="github-section-hint">Used by LANcache Manager</span>
+              <span className="github-section-label dependency">
+                {t('nav.githubProjects.dependencies')}
+              </span>
+              <span className="github-section-hint">
+                {t('nav.githubProjects.dependenciesHint')}
+              </span>
             </div>
             <div className="github-dropdown-repos">
               {DEPENDENCY_REPOS.map((repo, index) => (
@@ -799,7 +808,9 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
                     <div className="github-repo-info">
                       <div className="github-repo-name-row">
                         <span className="github-repo-name">{repo.name}</span>
-                        {repo.isFork && <span className="github-fork-pill">Fork</span>}
+                        {repo.isFork && (
+                          <span className="github-fork-pill">{t('nav.githubProjects.fork')}</span>
+                        )}
                       </div>
                       <span className="github-repo-short">/{repo.shortName}</span>
                     </div>
@@ -810,7 +821,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
 
                   {/* Description - slides in on hover */}
                   <div className="github-repo-description">
-                    <p>{repo.description}</p>
+                    <p>{t(repo.descriptionKey)}</p>
                   </div>
                 </div>
               ))}
@@ -832,8 +843,10 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
               <Heart size={16} className="heart-pulse" />
             </div>
             <div className="github-donation-text">
-              <span className="github-donation-title">Support Development</span>
-              <span className="github-donation-subtitle">Buy me a coffee</span>
+              <span className="github-donation-title">{t('nav.githubProjects.supportTitle')}</span>
+              <span className="github-donation-subtitle">
+                {t('nav.githubProjects.supportSubtitle')}
+              </span>
             </div>
             <ExternalLink size={14} className="github-donation-external" />
           </a>
@@ -862,14 +875,14 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
 
   return (
     <>
-      <Tooltip content="GitHub Projects & Support - Click for a surprise!">
+      <Tooltip content={t('nav.githubProjects.tooltip')}>
         <button
           ref={triggerRef}
           onClick={handleButtonClick}
           className={`ed-trigger github-trigger ${isBouncing ? 'bouncing' : ''} px-3 py-2 themed-border-radius border text-left flex items-center text-sm themed-card text-themed-primary ${
             isOpen ? 'border-themed-focus' : 'border-themed-primary'
           } ${iconOnly ? 'justify-center' : 'gap-1.5'} cursor-pointer`}
-          aria-label="GitHub Projects"
+          aria-label={t('nav.githubProjects.ariaLabel')}
           aria-expanded={isOpen}
           aria-haspopup="true"
         >

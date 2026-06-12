@@ -8,7 +8,8 @@ export type OperationStatus =
   | 'cancelling'
   | 'completed'
   | 'failed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'waiting';
 
 /**
  * Variant used by transient system toast/banner events (ShowToast).

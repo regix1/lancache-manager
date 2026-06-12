@@ -25,9 +25,13 @@ public interface IUnifiedOperationTracker
     /// emits its terminal SignalR event from a single place regardless of which path completed the op
     /// (worker success, worker OCE-catch, or universal force-kill). Receives a strongly-typed
     /// <see cref="OperationTerminalInfo"/>. Must not throw (exceptions are swallowed/logged).</param>
+    /// <param name="initialStatus">Initial status for the registered operation. Defaults to
+    /// <see cref="OperationStatus.Running"/>; the operation wait-queue registers parked ops as
+    /// <see cref="OperationStatus.Waiting"/> (excluded from <see cref="GetActiveOperations"/>).</param>
     Guid RegisterOperation(OperationType type, string name, CancellationTokenSource cts,
                            object? metadata = null, Action? onTerminalCleanup = null,
-                           Func<OperationTerminalInfo, Task>? onTerminalEmit = null);
+                           Func<OperationTerminalInfo, Task>? onTerminalEmit = null,
+                           OperationStatus initialStatus = OperationStatus.Running);
 
     /// <summary>
     /// Re-registers a previously-persisted operation by its original ID (recovery after restart).
@@ -76,8 +80,25 @@ public interface IUnifiedOperationTracker
 
     /// <summary>
     /// Gets all active operations, optionally filtered by type.
+    /// Excludes <see cref="OperationStatus.Waiting"/> operations: queued ops have not started
+    /// any work, must not block conflict checks, and must stay invisible to the per-type
+    /// recovery/status endpoints that treat "active" as "actually running".
     /// </summary>
     IEnumerable<OperationInfo> GetActiveOperations(OperationType? filterType = null);
+
+    /// <summary>
+    /// Gets all operations currently parked in <see cref="OperationStatus.Waiting"/> state
+    /// (the operation wait-queue). Used by the waiting-card recovery endpoint.
+    /// </summary>
+    IEnumerable<OperationInfo> GetWaitingOperations();
+
+    /// <summary>
+    /// Raised exactly once per operation when it reaches a terminal state (fired from
+    /// <see cref="CompleteOperation"/> after the CompletedFlag gate, fire-and-forget).
+    /// The operation wait-queue subscribes to promote the next eligible queued operation.
+    /// Handlers must not throw; invocation is wrapped defensively.
+    /// </summary>
+    event Action<OperationInfo>? OperationTerminal;
 
     /// <summary>
     /// Marks an operation as complete and cleans up resources.

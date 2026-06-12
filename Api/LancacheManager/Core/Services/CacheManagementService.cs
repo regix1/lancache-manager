@@ -32,6 +32,16 @@ public class CacheManagementService
 
     // Lock for thread safety during Rust binary execution
     private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
+
+    // Dedicated lock for the cache_size Rust binary. The size scan is read-only over the
+    // cache directories and never touches nginx log files, so it must NOT hold _cacheLock:
+    // the scan runs for minutes (du/find + deletion-speed calibration) and holding the
+    // shared lock that long silently starves every _cacheLock user (log removal via
+    // ExecuteWithLockAsync, log counts, corruption details, db reset) even though the
+    // conflict matrix deliberately ALLOWS log ops to run alongside the scan. Overlap with
+    // cache-MUTATING ops is prevented by OperationConflictChecker for tracked scans; the
+    // read-only walker tolerates concurrently-deleted files (failed-entry counters).
+    private readonly SemaphoreSlim _sizeScanProcessLock = new SemaphoreSlim(1, 1);
     private DateTime? _lastLogWarningTime; // Track last time we logged a warning
     private readonly TimeSpan _logWarningThrottle = TimeSpan.FromMinutes(5); // Only log warnings every 5 minutes
     
@@ -1703,7 +1713,9 @@ public class CacheManagementService
             };
         }
 
-        await _cacheLock.WaitAsync();
+        // NOT _cacheLock (see _sizeScanProcessLock declaration): only one cache_size process
+        // at a time, without starving the log-file ops that share _cacheLock for minutes.
+        await _sizeScanProcessLock.WaitAsync(cancellationToken);
         try
         {
             var operationsDir = _pathResolver.GetOperationsDirectory();
@@ -1766,7 +1778,7 @@ public class CacheManagementService
         }
         finally
         {
-            _cacheLock.Release();
+            _sizeScanProcessLock.Release();
         }
     }
 

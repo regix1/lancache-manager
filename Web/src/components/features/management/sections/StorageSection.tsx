@@ -463,45 +463,38 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     };
   }, []);
 
-  const EVICTION_ALREADY_RUNNING_MSG =
-    'Eviction scan is already running. Please wait a moment and try again.';
-
   const handleStartEvictionScan = async () => {
     if (evictionScanInFlightRef.current) return;
     evictionScanInFlightRef.current = true;
     setIsStartingEvictionScan(true);
 
-    const attemptScan = async (): Promise<boolean> => {
-      try {
-        const result = await ApiService.startEvictionScan();
-        // Seed the scan card from the PERSISTED mode (savedEvictionMode), not the local radio
-        // selection: the backend silences the scan phase based on its saved EvictedDataMode, so
-        // seeding from an unsaved local 'show' while the server runs silent 'remove' would leave
-        // a stuck running card (and vice versa would merely delay the bar by one SignalR event).
-        if (result.operationId && savedEvictionMode !== 'remove') {
-          addNotification(
-            buildSeededRunningNotification(
-              'eviction_scan',
-              result.operationId,
-              t('signalr.evictionScan.scanning')
-            )
-          );
-        }
-        return true;
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg === EVICTION_ALREADY_RUNNING_MSG) {
-          return false;
-        }
-        throw err;
+    const attemptScan = async (): Promise<void> => {
+      const result = await ApiService.startEvictionScan();
+      // Wait-queue model: a queued/already-running response means the backend parked or
+      // deduplicated the request - the OperationWaiting SignalR event (or the existing
+      // card) owns the UI, so do NOT seed a running card over it.
+      // Seed the scan card from the PERSISTED mode (savedEvictionMode), not the local radio
+      // selection: the backend silences the scan phase based on its saved EvictedDataMode, so
+      // seeding from an unsaved local 'show' while the server runs silent 'remove' would leave
+      // a stuck running card (and vice versa would merely delay the bar by one SignalR event).
+      if (
+        result.operationId &&
+        !result.queued &&
+        !result.alreadyRunning &&
+        savedEvictionMode !== 'remove'
+      ) {
+        addNotification(
+          buildSeededRunningNotification(
+            'eviction_scan',
+            result.operationId,
+            t('signalr.evictionScan.scanning')
+          )
+        );
       }
     };
 
     try {
-      const succeeded = await attemptScan();
-      if (!succeeded) {
-        onError(t('management.sections.data.evictionScanWaiting'));
-      }
+      await attemptScan();
     } catch (err: unknown) {
       onError(err instanceof Error ? err.message : String(err));
     } finally {

@@ -16,7 +16,14 @@ public enum OperationStatus
     Cancelling,
     Completed,
     Failed,
-    Cancelled
+    Cancelled,
+
+    /// <summary>
+    /// Registered with the tracker but parked in the operation wait-queue behind a
+    /// conflicting operation (see <c>OperationQueueService</c>). Waiting ops are excluded
+    /// from <c>GetActiveOperations</c> so they never block other operations themselves.
+    /// </summary>
+    Waiting
 }
 
 /// <summary>
@@ -49,6 +56,7 @@ public static class OperationStatusExtensions
         OperationStatus.Completed => "completed",
         OperationStatus.Failed => "failed",
         OperationStatus.Cancelled => "cancelled",
+        OperationStatus.Waiting => "waiting",
         _ => status.ToString().ToLowerInvariant()
     };
 

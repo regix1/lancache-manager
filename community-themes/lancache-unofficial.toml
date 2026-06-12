@@ -3,7 +3,7 @@ name = "LANCache Unofficial"
 id = "lancache-unofficial"
 description = "Lava-inspired theme - bold reds and warm ambers on deep charcoal"
 author = "Regix"
-version = "2.4.1"
+version = "2.4.2"
 isDark = true
 sharpCorners = false
 
@@ -62,6 +62,9 @@ errorText = "#f1948a"
 info = "#bdc3c7"
 infoBg = "#2d2d30"
 infoText = "#ecf0f1"
+waiting = "#9b59b6"
+waitingBg = "#322a38"
+waitingText = "#d2b4de"
 
 # Service colors - Warm reds/oranges/yellows only
 steamColor = "#f39c12"

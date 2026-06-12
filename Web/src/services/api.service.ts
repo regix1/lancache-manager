@@ -501,13 +501,21 @@ class ApiService {
     }
   }
 
-  static async startEvictionScan(): Promise<{ operationId: string }> {
+  static async startEvictionScan(): Promise<{
+    operationId: string;
+    queued?: boolean;
+    alreadyRunning?: boolean;
+  }> {
     try {
       const res = await fetch(
         `${API_BASE}/stats/eviction/reconcile`,
         this.getFetchOptions({ method: 'POST' })
       );
-      return await this.handleResponse<{ operationId: string }>(res);
+      return await this.handleResponse<{
+        operationId: string;
+        queued?: boolean;
+        alreadyRunning?: boolean;
+      }>(res);
     } catch (error: unknown) {
       console.error('startEvictionScan error:', error);
       throw error;

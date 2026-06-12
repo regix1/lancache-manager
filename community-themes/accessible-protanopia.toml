@@ -3,7 +3,7 @@ name = "Accessible - Protanopia"
 id = "accessible-protanopia"
 description = "Protanopia-accessible theme with neutral dark backgrounds and sapphire-amber accents"
 author = "System"
-version = "2.3.1"
+version = "2.3.2"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
@@ -67,6 +67,9 @@ errorText = "#e8a4c8"          # Light pink
 info = "#0891b2"               # Teal
 infoBg = "#0a2a35"             # Dark teal bg
 infoText = "#67e8f9"           # Light cyan
+waiting = "#b3a7d6"            # Light dusty violet - much lighter/less saturated than the mauve error (protanopia-safe via luminance)
+waitingBg = "#262138"            # Dark violet-slate background
+waitingText = "#d6cdf0"          # Pale violet text
 
 # Service colors - 7 ALL distinct, Okabe-Ito inspired
 steamColor = "#0072B2"         # Deep ocean blue

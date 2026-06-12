@@ -22,17 +22,20 @@ public class EpicGameMappingController : ControllerBase
     private readonly ILogger<EpicGameMappingController> _logger;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IOperationConflictChecker _conflictChecker;
+    private readonly IOperationQueue _operationQueue;
 
     public EpicGameMappingController(
         EpicMappingService epicMappingService,
         ILogger<EpicGameMappingController> logger,
         IUnifiedOperationTracker operationTracker,
-        IOperationConflictChecker conflictChecker)
+        IOperationConflictChecker conflictChecker,
+        IOperationQueue operationQueue)
     {
         _epicMappingService = epicMappingService;
         _logger = logger;
         _operationTracker = operationTracker;
         _conflictChecker = conflictChecker;
+        _operationQueue = operationQueue;
     }
 
     /// <summary>
@@ -153,13 +156,29 @@ public class EpicGameMappingController : ControllerBase
     [HttpPost("refresh")]
     public async Task<ActionResult> StartRefreshAsync(CancellationToken ct = default)
     {
+        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        // CancellationToken.None in the closure: at promotion the HTTP request is long gone.
+        Task<Guid?> StartRefreshCoreAsync()
+        {
+            var ok = _epicMappingService.TryStartRefresh(CancellationToken.None);
+            if (!ok)
+            {
+                return Task.FromResult<Guid?>(null);
+            }
+            var id = _epicMappingService.GetScheduleStatus().OperationId
+                ?? _operationTracker.GetActiveOperations(OperationType.EpicMapping).FirstOrDefault()?.Id;
+            return Task.FromResult(id);
+        }
+
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.EpicMapping,
             ConflictScope.Bulk(),
             ct);
         if (conflict != null)
         {
-            return Conflict(conflict);
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.EpicMapping, ConflictScope.Bulk(), "Epic Catalog Refresh",
+                StartRefreshCoreAsync, ct));
         }
 
         var started = _epicMappingService.TryStartRefresh(ct);
@@ -171,7 +190,10 @@ public class EpicGameMappingController : ControllerBase
                 ct);
             if (raceConflict != null)
             {
-                return Conflict(raceConflict);
+                // Race: refresh began between our check and TryStartRefresh - park it.
+                return Accepted(await _operationQueue.EnqueueAsync(
+                    OperationType.EpicMapping, ConflictScope.Bulk(), "Epic Catalog Refresh",
+                    StartRefreshCoreAsync, ct));
             }
 
             if (!_epicMappingService.GetAuthStatus().IsAuthenticated)

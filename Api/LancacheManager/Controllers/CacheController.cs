@@ -34,6 +34,7 @@ public class CacheController : ControllerBase
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly CacheReconciliationService _reconciliationService;
     private readonly IOperationConflictChecker _conflictChecker;
+    private readonly IOperationQueue _operationQueue;
 
     public CacheController(
         CacheManagementService cacheService,
@@ -48,7 +49,8 @@ public class CacheController : ControllerBase
         DatasourceService datasourceService,
         IDbContextFactory<AppDbContext> dbContextFactory,
         CacheReconciliationService reconciliationService,
-        IOperationConflictChecker conflictChecker)
+        IOperationConflictChecker conflictChecker,
+        IOperationQueue operationQueue)
     {
         _cacheService = cacheService;
         _cacheClearingService = cacheClearingService;
@@ -63,6 +65,7 @@ public class CacheController : ControllerBase
         _dbContextFactory = dbContextFactory;
         _reconciliationService = reconciliationService;
         _conflictChecker = conflictChecker;
+        _operationQueue = operationQueue;
     }
 
     /// <summary>
@@ -179,37 +182,32 @@ public class CacheController : ControllerBase
             return BadRequest(new ErrorResponse { Error = errorMessage });
         }
 
-        // Central concurrency check - CacheClearing is global, blocks everything.
+        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        async Task<Guid?> StartClearAllAsync()
+        {
+            _cacheService.InvalidateCachedScan();
+            return await _cacheClearingService.StartCacheClearAsync();
+        }
+
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.CacheClearing,
             ConflictScope.Bulk(),
             cancellationToken);
         if (conflict != null)
         {
-            return Conflict(conflict);
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.CacheClearing, ConflictScope.Bulk(), "Cache Clear (All)",
+                StartClearAllAsync, cancellationToken));
         }
 
-        _cacheService.InvalidateCachedScan();
-
-        var operationId = await _cacheClearingService.StartCacheClearAsync();
+        var operationId = await StartClearAllAsync();
 
         if (operationId == null)
         {
-            // Race: clearing began between our check and StartCacheClearAsync.
-            var raceConflict = await _conflictChecker.CheckAsync(
-                OperationType.CacheClearing,
-                ConflictScope.Bulk(),
-                cancellationToken);
-            if (raceConflict != null)
-            {
-                return Conflict(raceConflict);
-            }
-            return Conflict(new OperationConflictResponse
-            {
-                Code = "OPERATION_CONFLICT",
-                StageKey = "errors.conflict.duplicate",
-                Error = "Cache clearing is already running"
-            });
+            // Race: clearing began between our check and StartCacheClearAsync - park it.
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.CacheClearing, ConflictScope.Bulk(), "Cache Clear (All)",
+                StartClearAllAsync, cancellationToken));
         }
 
         _logger.LogInformation("Started cache clear operation for all datasources: {OperationId}", operationId);
@@ -249,37 +247,32 @@ public class CacheController : ControllerBase
             return BadRequest(new ErrorResponse { Error = errorMessage });
         }
 
-        // Central concurrency check - CacheClearing is global, blocks everything.
+        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        async Task<Guid?> StartClearDatasourceAsync()
+        {
+            _cacheService.InvalidateCachedScan();
+            return await _cacheClearingService.StartCacheClearAsync(name);
+        }
+
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.CacheClearing,
             ConflictScope.Bulk(),
             cancellationToken);
         if (conflict != null)
         {
-            return Conflict(conflict);
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.CacheClearing, ConflictScope.Bulk(), $"Cache Clear ({name})",
+                StartClearDatasourceAsync, cancellationToken));
         }
 
-        _cacheService.InvalidateCachedScan();
-
-        var operationId = await _cacheClearingService.StartCacheClearAsync(name);
+        var operationId = await StartClearDatasourceAsync();
 
         if (operationId == null)
         {
-            // Race: clearing began between our check and StartCacheClearAsync.
-            var raceConflict = await _conflictChecker.CheckAsync(
-                OperationType.CacheClearing,
-                ConflictScope.Bulk(),
-                cancellationToken);
-            if (raceConflict != null)
-            {
-                return Conflict(raceConflict);
-            }
-            return Conflict(new OperationConflictResponse
-            {
-                Code = "OPERATION_CONFLICT",
-                StageKey = "errors.conflict.duplicate",
-                Error = "Cache clearing is already running"
-            });
+            // Race: clearing began between our check and StartCacheClearAsync - park it.
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.CacheClearing, ConflictScope.Bulk(), $"Cache Clear ({name})",
+                StartClearDatasourceAsync, cancellationToken));
         }
 
         _logger.LogInformation("Started cache clear operation for datasource {Datasource}: {OperationId}", name, operationId);
@@ -453,28 +446,21 @@ public class CacheController : ControllerBase
     [HttpDelete("services/{service}/corruption")]
     public async Task<IActionResult> RemoveCorruptedChunksAsync(string service, CancellationToken cancellationToken, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
     {
-        // Central concurrency check - service-scoped corruption removal.
-        // Replaces the over-broad lock that blocked unrelated services.
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.CorruptionRemoval,
-            ConflictScope.Service(service),
-            cancellationToken);
-        if (conflict != null)
-        {
-            return Conflict(conflict);
-        }
-
-        _cacheService.InvalidateCachedScan();
-
         var datasources = _datasourceService.GetDatasources();
 
-        // CRITICAL: Check write permissions BEFORE starting the operation for ALL datasources
+        // CRITICAL: Check write permissions BEFORE starting (or queueing) the operation
         // This prevents the DB/filesystem state mismatch when PUID/PGID is wrong
         var permissionError = CheckDatasourcesWritableForCorruption(datasources, service);
         if (permissionError != null)
         {
             return BadRequest(new ErrorResponse { Error = permissionError });
         }
+
+        // The whole start path lives in this local function so the wait-queue can run it
+        // verbatim at promotion time (captures only singleton services + this controller).
+        async Task<Guid?> StartCorruptionRemovalAsync()
+        {
+        _cacheService.InvalidateCachedScan();
 
         // Optimistically delete the cached detection row immediately so app restarts don't resurface stale data
         await _corruptionDetectionService.RemoveCachedServiceAsync(service);
@@ -513,7 +499,30 @@ public class CacheController : ControllerBase
             }
         });
 
-        var operationId = await operationIdReady.Task;
+        var startedId = await operationIdReady.Task;
+        return startedId == Guid.Empty ? null : startedId;
+        }
+
+        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.CorruptionRemoval,
+            ConflictScope.Service(service),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.CorruptionRemoval, ConflictScope.Service(service),
+                $"Corruption Removal ({service})", StartCorruptionRemovalAsync, cancellationToken));
+        }
+
+        var operationId = await StartCorruptionRemovalAsync();
+        if (operationId == null)
+        {
+            // Race: the core refused to start - park it.
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.CorruptionRemoval, ConflictScope.Service(service),
+                $"Corruption Removal ({service})", StartCorruptionRemovalAsync, cancellationToken));
+        }
 
         return Accepted(new CacheOperationResponse
         {
@@ -541,34 +550,24 @@ public class CacheController : ControllerBase
 
         var servicesWithCorruption = cachedDetection.CorruptionCounts.Keys.ToList();
 
-        // Per-service conflict check: if any service is blocked, return 409 with the blocking op.
-        foreach (var svc in servicesWithCorruption)
-        {
-            var conflict = await _conflictChecker.CheckAsync(
-                OperationType.CorruptionRemoval,
-                ConflictScope.Service(svc),
-                cancellationToken);
-            if (conflict != null)
-            {
-                _logger.LogWarning("[CorruptionRemoval] All-services removal blocked: service '{Service}' conflicts with active {ActiveType}",
-                    svc, conflict.ActiveOperationType);
-                return Conflict(conflict);
-            }
-        }
-
-        _logger.LogInformation("[CorruptionRemoval] Starting all-services corruption removal for {Count} service(s): {Services}",
-            servicesWithCorruption.Count, string.Join(", ", servicesWithCorruption));
-
-        _cacheService.InvalidateCachedScan();
-
         var datasources = _datasourceService.GetDatasources();
 
-        // CRITICAL: Check write permissions BEFORE starting the operation for ALL datasources
+        // CRITICAL: Check write permissions BEFORE starting (or queueing) the operation
         var permissionError = CheckDatasourcesWritableForCorruption(datasources, service: null);
         if (permissionError != null)
         {
             return BadRequest(new ErrorResponse { Error = permissionError });
         }
+
+        // The whole start path lives in this local function so the wait-queue can run it
+        // verbatim at promotion time. Returns a synthetic handle (the per-service cores
+        // register their own per-service operations once running).
+        async Task<Guid?> StartAllCorruptionRemovalAsync()
+        {
+        _logger.LogInformation("[CorruptionRemoval] Starting all-services corruption removal for {Count} service(s): {Services}",
+            servicesWithCorruption.Count, string.Join(", ", servicesWithCorruption));
+
+        _cacheService.InvalidateCachedScan();
 
         // Delete cached detection rows per-service and activate grace period to prevent immediate reappearance
         foreach (var service in servicesWithCorruption)
@@ -612,6 +611,30 @@ public class CacheController : ControllerBase
                 _logger.LogInformation("Resumed LiveLogMonitorService after all-services corruption removal");
             }
         });
+
+        return Guid.NewGuid();
+        }
+
+        // Wait-queue model: if any service is blocked, park the whole all-services run behind
+        // the FIRST conflicting service's scope (promotion re-checks that scope; see report -
+        // other services' conflicts are handled per-service by the cores once running).
+        foreach (var svc in servicesWithCorruption)
+        {
+            var conflict = await _conflictChecker.CheckAsync(
+                OperationType.CorruptionRemoval,
+                ConflictScope.Service(svc),
+                cancellationToken);
+            if (conflict != null)
+            {
+                _logger.LogInformation("[CorruptionRemoval] All-services removal queued: service '{Service}' conflicts with active {ActiveType}",
+                    svc, conflict.ActiveOperationType);
+                return Accepted(await _operationQueue.EnqueueAsync(
+                    OperationType.CorruptionRemoval, ConflictScope.Service(svc),
+                    "Corruption Removal (all services)", StartAllCorruptionRemovalAsync, cancellationToken));
+            }
+        }
+
+        await StartAllCorruptionRemovalAsync();
 
         return Accepted(new { Message = "Corruption removal started for all services" });
     }
@@ -954,22 +977,16 @@ public class CacheController : ControllerBase
             return permissionError;
         }
 
-        // Central concurrency check.
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.ServiceRemoval,
-            ConflictScope.Service(name),
-            requestCt);
-        if (conflict != null)
+        // The whole start path lives in this local function so the wait-queue can run it
+        // verbatim at promotion time.
+        async Task<Guid?> StartServiceRemovalAsync()
         {
-            return Conflict(conflict);
-        }
-
         _cacheService.InvalidateCachedScan();
 
         _logger.LogInformation("Starting background service removal for: {Service}", name);
 
         var metadata = new RemovalMetrics { EntityKey = name.ToLowerInvariant(), EntityName = name };
-        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+        return await TrackedRemovalOperationRunner.StartAsync(
             _operationTracker,
             _notifications,
             new TrackedRemovalOperationRunner.RemovalOperationConfig<CacheManagementService.ServiceCacheRemovalReport>(
@@ -1079,6 +1096,21 @@ public class CacheController : ControllerBase
                 {
                     _logger.LogError(ex, "Error during service removal for: {Service}", name);
                 }));
+        }
+
+        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.ServiceRemoval,
+            ConflictScope.Service(name),
+            requestCt);
+        if (conflict != null)
+        {
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.ServiceRemoval, ConflictScope.Service(name),
+                $"Service Removal ({name})", StartServiceRemovalAsync, requestCt));
+        }
+
+        var operationId = await StartServiceRemovalAsync();
 
         return Accepted(new CacheOperationResponse
         {
@@ -1276,13 +1308,21 @@ public class CacheController : ControllerBase
             return permissionError;
         }
 
+        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        // The closure uses CancellationToken.None: at promotion time the originating HTTP
+        // request is long gone; the started op runs on its own registered CTS.
+        async Task<Guid?> StartBulkEvictedRemovalAsync() =>
+            await _reconciliationService.StartBulkEvictionRemovalAsync(CancellationToken.None);
+
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.EvictionRemoval,
             ConflictScope.Bulk(),
             cancellationToken);
         if (conflict != null)
         {
-            return Conflict(conflict);
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.EvictionRemoval, ConflictScope.Bulk(),
+                "Evicted Data Removal (all)", StartBulkEvictedRemovalAsync, cancellationToken));
         }
 
         var operationId = await _reconciliationService.StartBulkEvictionRemovalAsync(cancellationToken);
@@ -1354,10 +1394,6 @@ public class CacheController : ControllerBase
             OperationType.EvictionRemoval,
             conflictScope,
             cancellationToken);
-        if (conflict != null)
-        {
-            return Conflict(conflict);
-        }
 
         var evictionScope = scopeLower switch
         {
@@ -1398,13 +1434,26 @@ public class CacheController : ControllerBase
             }
         }
 
-        var operationId = await _reconciliationService.StartScopedEvictionRemovalAsync(
-            evictionScope,
-            key,
-            resolvedGameName,
-            resolvedGameAppId,
-            cancellationToken,
-            resolvedEpicAppId: evictionScope == EvictionScope.Epic ? key : null);
+        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        // CancellationToken.None in the closure: at promotion the HTTP request is long gone;
+        // the started op runs on its own registered CTS.
+        async Task<Guid?> StartScopedEvictedRemovalAsync() =>
+            await _reconciliationService.StartScopedEvictionRemovalAsync(
+                evictionScope,
+                key,
+                resolvedGameName,
+                resolvedGameAppId,
+                CancellationToken.None,
+                resolvedEpicAppId: evictionScope == EvictionScope.Epic ? key : null);
+
+        if (conflict != null)
+        {
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.EvictionRemoval, conflictScope,
+                $"Evicted Data Removal ({scopeLower}: {key})", StartScopedEvictedRemovalAsync, cancellationToken));
+        }
+
+        var operationId = await StartScopedEvictedRemovalAsync();
 
         return Accepted(new { operationId, scope = scopeLower, key });
     }

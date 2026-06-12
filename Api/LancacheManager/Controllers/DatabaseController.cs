@@ -1,4 +1,5 @@
 using LancacheManager.Models;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -19,17 +20,20 @@ public class DatabaseController : ControllerBase
     private readonly RustDatabaseResetService _rustDatabaseResetService;
     private readonly ILogger<DatabaseController> _logger;
     private readonly IOperationConflictChecker _conflictChecker;
+    private readonly IOperationQueue _operationQueue;
 
     public DatabaseController(
         DatabaseService dbService,
         RustDatabaseResetService rustDatabaseResetService,
         ILogger<DatabaseController> logger,
-        IOperationConflictChecker conflictChecker)
+        IOperationConflictChecker conflictChecker,
+        IOperationQueue operationQueue)
     {
         _dbService = dbService;
         _rustDatabaseResetService = rustDatabaseResetService;
         _logger = logger;
         _conflictChecker = conflictChecker;
+        _operationQueue = operationQueue;
     }
 
     /// <summary>
@@ -39,37 +43,34 @@ public class DatabaseController : ControllerBase
     [HttpDelete]
     public async Task<IActionResult> ResetDatabaseAsync(CancellationToken cancellationToken)
     {
-        // Central concurrency check - DatabaseReset is globally catastrophic.
+        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        async Task<Guid?> StartDatabaseResetAsync()
+        {
+            var ok = await _rustDatabaseResetService.StartDatabaseResetAsync();
+            return ok ? _rustDatabaseResetService.CurrentOperationId ?? Guid.NewGuid() : null;
+        }
+
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.DatabaseReset,
             ConflictScope.Bulk(),
             cancellationToken);
         if (conflict != null)
         {
-            return Conflict(conflict);
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.DatabaseReset, ConflictScope.Bulk(), "Database Reset",
+                StartDatabaseResetAsync, cancellationToken));
         }
 
-        var started = await _rustDatabaseResetService.StartDatabaseResetAsync();
-        if (!started)
+        var startedId = await StartDatabaseResetAsync();
+        if (startedId == null)
         {
-            // Race: reset began between our check and StartDatabaseResetAsync.
-            var raceConflict = await _conflictChecker.CheckAsync(
-                OperationType.DatabaseReset,
-                ConflictScope.Bulk(),
-                cancellationToken);
-            if (raceConflict != null)
-            {
-                return Conflict(raceConflict);
-            }
-            return Conflict(new OperationConflictResponse
-            {
-                Code = "OPERATION_CONFLICT",
-                StageKey = "errors.conflict.duplicate",
-                Error = "Database reset is already running"
-            });
+            // Race: reset began between our check and StartDatabaseResetAsync - park it.
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.DatabaseReset, ConflictScope.Bulk(), "Database Reset",
+                StartDatabaseResetAsync, cancellationToken));
         }
 
-        var operationId = _rustDatabaseResetService.CurrentOperationId ?? Guid.NewGuid();
+        var operationId = startedId.Value;
         _logger.LogInformation("Started full database reset operation: {OperationId}, Started: {Started}", operationId, true);
 
         return Accepted(new DatabaseResetStartResponse

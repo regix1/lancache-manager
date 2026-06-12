@@ -31,6 +31,7 @@ public class StatsController : ControllerBase
     private readonly CacheReconciliationService _reconciliationService;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IOperationConflictChecker _conflictChecker;
+    private readonly IOperationQueue _operationQueue;
 
     public StatsController(
         AppDbContext context,
@@ -41,7 +42,8 @@ public class StatsController : ControllerBase
         ISignalRNotificationService notifications,
         CacheReconciliationService reconciliationService,
         IUnifiedOperationTracker operationTracker,
-        IOperationConflictChecker conflictChecker)
+        IOperationConflictChecker conflictChecker,
+        IOperationQueue operationQueue)
     {
         _context = context;
         _clientGroupsRepository = clientGroupsRepository;
@@ -52,6 +54,7 @@ public class StatsController : ControllerBase
         _reconciliationService = reconciliationService;
         _operationTracker = operationTracker;
         _conflictChecker = conflictChecker;
+        _operationQueue = operationQueue;
     }
 
     /// <summary>
@@ -368,14 +371,27 @@ public class StatsController : ControllerBase
 
         if (request.EvictedDataMode == EvictedDataMode.Remove.ToWireString())
         {
-            // Central concurrency check - bulk eviction removal.
+            // Wait-queue model: a conflicting bulk eviction removal is parked, never 409'd.
+            // CancellationToken.None in the closure: at promotion the HTTP request is gone.
+            async Task<Guid?> StartBulkRemovalAsync() =>
+                await _reconciliationService.StartBulkEvictionRemovalAsync(CancellationToken.None);
+
             var conflict = await _conflictChecker.CheckAsync(
                 OperationType.EvictionRemoval,
                 ConflictScope.Bulk(),
                 HttpContext.RequestAborted);
             if (conflict != null)
             {
-                return Conflict(conflict);
+                var queuedOutcome = await _operationQueue.EnqueueAsync(
+                    OperationType.EvictionRemoval, ConflictScope.Bulk(), "Evicted Data Removal (all)",
+                    StartBulkRemovalAsync, HttpContext.RequestAborted);
+                return Accepted(new
+                {
+                    evictedDataMode = request.EvictedDataMode,
+                    evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(),
+                    operationId = (Guid?)queuedOutcome.OperationId,
+                    queued = queuedOutcome.Queued
+                });
             }
 
             var operationId = await _reconciliationService.StartBulkEvictionRemovalAsync(HttpContext.RequestAborted);
@@ -390,34 +406,27 @@ public class StatsController : ControllerBase
     [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> RunReconciliationAsync(CancellationToken cancellationToken)
     {
-        // Central concurrency check - EvictionScan is global.
+        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        Task<Guid?> StartManualScanAsync() => Task.FromResult(_reconciliationService.RunManualAsync());
+
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.EvictionScan,
             ConflictScope.Bulk(),
             cancellationToken);
         if (conflict != null)
         {
-            return Conflict(conflict);
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
+                StartManualScanAsync, cancellationToken));
         }
 
         var operationId = _reconciliationService.RunManualAsync();
         if (operationId == null)
         {
-            // Race: scan started between our check and RunManualAsync.
-            var raceConflict = await _conflictChecker.CheckAsync(
-                OperationType.EvictionScan,
-                ConflictScope.Bulk(),
-                cancellationToken);
-            if (raceConflict != null)
-            {
-                return Conflict(raceConflict);
-            }
-            return Conflict(new OperationConflictResponse
-            {
-                Code = "OPERATION_CONFLICT",
-                StageKey = "errors.conflict.duplicate",
-                Error = "Eviction scan is already running. Please wait a moment and try again."
-            });
+            // Race: scan started between our check and RunManualAsync - park it.
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
+                StartManualScanAsync, cancellationToken));
         }
 
         return Ok(new { operationId });

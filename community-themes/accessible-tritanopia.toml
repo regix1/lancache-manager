@@ -3,7 +3,7 @@ name = "Accessible - Tritanopia"
 id = "accessible-tritanopia"
 description = "Tritanopia-accessible theme with neutral dark backgrounds and crimson-green contrast"
 author = "System"
-version = "2.3.1"
+version = "2.3.2"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
@@ -68,6 +68,9 @@ errorText = "#fca5a5"          # Light red
 info = "#db2777"               # Deep pink/magenta
 infoBg = "#2d0f20"
 infoText = "#f9a8d4"           # Light pink
+waiting = "#94a3b8"            # Neutral slate - tritanopia-safe "queued" tone (violet would read reddish like error/info here)
+waitingBg = "#262b33"            # Dark slate background
+waitingText = "#cbd5e1"          # Light slate text
 
 # Service colors - 7 distinct colors, NO blue/yellow
 steamColor = "#16a34a"         # Forest green

@@ -26,6 +26,7 @@ public class GamesController : ControllerBase
     private readonly IPathResolver _pathResolver;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IOperationConflictChecker _conflictChecker;
+    private readonly IOperationQueue _operationQueue;
 
     public GamesController(
         GameCacheDetectionService gameCacheDetectionService,
@@ -34,7 +35,8 @@ public class GamesController : ControllerBase
         ILogger<GamesController> logger,
         IPathResolver pathResolver,
         IUnifiedOperationTracker operationTracker,
-        IOperationConflictChecker conflictChecker)
+        IOperationConflictChecker conflictChecker,
+        IOperationQueue operationQueue)
     {
         _gameCacheDetectionService = gameCacheDetectionService;
         _cacheManagementService = cacheManagementService;
@@ -43,6 +45,7 @@ public class GamesController : ControllerBase
         _pathResolver = pathResolver;
         _operationTracker = operationTracker;
         _conflictChecker = conflictChecker;
+        _operationQueue = operationQueue;
     }
 
     /// <summary>
@@ -131,23 +134,14 @@ public class GamesController : ControllerBase
             return permissionError;
         }
 
-        // Central concurrency check - replaces ad-hoc conflict logic.
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.GameRemoval,
-            ConflictScope.SteamGame(appId),
-            cancellationToken);
-        if (conflict != null)
-        {
-            return Conflict(conflict);
-        }
-
         _logger.LogInformation("Starting background game removal for AppId: {AppId}", appId);
 
         // Get game name for tracking
         var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
         var gameName = cachedResults?.Games?.FirstOrDefault(g => g.GameAppId == appId)?.GameName ?? $"Game {appId}";
 
-        return await StartRemovalOperationAsync(
+        // Shared start path so the wait-queue can run it verbatim at promotion time.
+        Task<Guid> StartCoreAsync() => StartRemovalCoreAsync(
             entityKey: appId.ToString(),
             displayName: gameName,
             operationLabel: $"Game Removal: {gameName}",
@@ -156,8 +150,30 @@ public class GamesController : ControllerBase
             epicAppId: null,
             removeFunc: (Guid opId, CancellationToken ct, Func<double, string, Dictionary<string, object?>?, int, long, Task> onProgress) =>
                 _cacheManagementService.RemoveGameFromCacheAsync(appId, ct, onProgress, opId),
-            onSuccess: async (long _) => await _gameCacheDetectionService.RemoveGameFromCacheAsync(appId),
-            responseMessage: $"Started removal of game {appId} from cache");
+            onSuccess: async (long _) => await _gameCacheDetectionService.RemoveGameFromCacheAsync(appId));
+
+        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.GameRemoval,
+            ConflictScope.SteamGame(appId),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.GameRemoval, ConflictScope.SteamGame(appId), $"Game Removal ({gameName})",
+                async () => await StartCoreAsync(), cancellationToken));
+        }
+
+        var operationId = await StartCoreAsync();
+
+        return Accepted(new GameRemovalStartResponse
+        {
+            Message = $"Started removal of game {appId} from cache",
+            OperationId = operationId,
+            AppId = appId.ToString(),
+            GameName = gameName,
+            Status = OperationStatus.Running
+        });
     }
 
     /// <summary>
@@ -184,17 +200,8 @@ public class GamesController : ControllerBase
             string.Equals(g.Service, "epicgames", StringComparison.OrdinalIgnoreCase));
         var epicAppId = epicGame?.EpicAppId;
 
-        // Central concurrency check.
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.GameRemoval,
-            ConflictScope.EpicGame(epicAppId, gameName),
-            cancellationToken);
-        if (conflict != null)
-        {
-            return Conflict(conflict);
-        }
-
-        return await StartRemovalOperationAsync(
+        // Shared start path so the wait-queue can run it verbatim at promotion time.
+        Task<Guid> StartCoreAsync() => StartRemovalCoreAsync(
             entityKey: epicAppId ?? gameName,
             displayName: gameName,
             operationLabel: $"Epic Game Removal: {gameName}",
@@ -203,8 +210,31 @@ public class GamesController : ControllerBase
             epicAppId: epicAppId,
             removeFunc: (Guid opId, CancellationToken ct, Func<double, string, Dictionary<string, object?>?, int, long, Task> onProgress) =>
                 _cacheManagementService.RemoveEpicGameFromCacheAsync(gameName, ct, onProgress, opId),
-            onSuccess: null,
-            responseMessage: $"Started removal of Epic game {gameName} from cache");
+            onSuccess: null);
+
+        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.GameRemoval,
+            ConflictScope.EpicGame(epicAppId, gameName),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.GameRemoval, ConflictScope.EpicGame(epicAppId, gameName),
+                $"Epic Game Removal ({gameName})",
+                async () => await StartCoreAsync(), cancellationToken));
+        }
+
+        var operationId = await StartCoreAsync();
+
+        return Accepted(new GameRemovalStartResponse
+        {
+            Message = $"Started removal of Epic game {gameName} from cache",
+            OperationId = operationId,
+            AppId = string.Empty,
+            GameName = gameName,
+            Status = OperationStatus.Running
+        });
     }
 
     /// <summary>
@@ -217,8 +247,7 @@ public class GamesController : ControllerBase
     /// <param name="appId">Steam AppId (0 for Epic games)</param>
     /// <param name="removeFunc">The actual removal function that accepts cancellation token and progress callback</param>
     /// <param name="onSuccess">Optional callback after successful removal (e.g., Steam removes from detection cache)</param>
-    /// <param name="responseMessage">Message for the HTTP Accepted response</param>
-    private async Task<IActionResult> StartRemovalOperationAsync(
+    private async Task<Guid> StartRemovalCoreAsync(
         string entityKey,
         string displayName,
         string operationLabel,
@@ -226,8 +255,7 @@ public class GamesController : ControllerBase
         string entityKind,
         string? epicAppId,
         Func<Guid, CancellationToken, Func<double, string, Dictionary<string, object?>?, int, long, Task>, Task<CacheManagementService.GameCacheRemovalReport>> removeFunc,
-        Func<long, Task>? onSuccess,
-        string responseMessage)
+        Func<long, Task>? onSuccess)
     {
         var isEpic = entityKind == "epic";
         var startingStageKey = isEpic ? "signalr.epicRemove.starting" : "signalr.gameRemove.starting";
@@ -384,14 +412,7 @@ public class GamesController : ControllerBase
                     _logger.LogError(ex, "Error during game removal for {EntityKey}", entityKey);
                 }));
 
-        return Accepted(new GameRemovalStartResponse
-        {
-            Message = responseMessage,
-            OperationId = operationId,
-            AppId = appId?.ToString() ?? string.Empty,
-            GameName = displayName,
-            Status = OperationStatus.Running
-        });
+        return operationId;
     }
 
     /// <summary>
@@ -492,73 +513,55 @@ public class GamesController : ControllerBase
     [HttpPost("detect")]
     public async Task<IActionResult> DetectGamesAsync([FromQuery] bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
-        // Central concurrency check - canonical 409 shape for GameDetection duplicates.
+        // forceRefresh=true means full scan (incremental=false)
+        // forceRefresh=false means quick scan (incremental=true)
+        var incremental = !forceRefresh;
+
+        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        // The service throws InvalidOperationException on its internal already-running race;
+        // map that to null so the queue treats it as "already running" instead of faulting.
+        async Task<Guid?> StartDetectionCoreAsync()
+        {
+            try
+            {
+                return await _gameCacheDetectionService.StartDetectionAsync(incremental);
+            }
+            catch (InvalidOperationException)
+            {
+                return null;
+            }
+        }
+
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.GameDetection,
             ConflictScope.Bulk(),
             cancellationToken);
         if (conflict != null)
         {
-            return Conflict(conflict);
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
+                StartDetectionCoreAsync, cancellationToken));
         }
 
-        try
+        var operationId = await StartDetectionCoreAsync();
+
+        if (operationId == null)
         {
-            // forceRefresh=true means full scan (incremental=false)
-            // forceRefresh=false means quick scan (incremental=true)
-            var incremental = !forceRefresh;
-            var operationId = await _gameCacheDetectionService.StartDetectionAsync(incremental);
-
-            if (operationId == null)
-            {
-                // Race: detection started between our checker call and StartDetectionAsync.
-                // Re-run the checker so we return the canonical 409 with the blocking op.
-                var raceConflict = await _conflictChecker.CheckAsync(
-                    OperationType.GameDetection,
-                    ConflictScope.Bulk(),
-                    cancellationToken);
-                if (raceConflict != null)
-                {
-                    return Conflict(raceConflict);
-                }
-
-                // Extremely unlikely: service returned null but tracker shows no active op.
-                return Conflict(new OperationConflictResponse
-                {
-                    Code = "OPERATION_CONFLICT",
-                    StageKey = "errors.conflict.duplicate",
-                    Error = "Game detection is already running"
-                });
-            }
-
-            _logger.LogInformation("Started game detection operation: {OperationId} (forceRefresh={ForceRefresh}, incremental={Incremental})", operationId, forceRefresh, incremental);
-
-            return Accepted(new GameDetectionStartResponse
-            {
-                Message = forceRefresh ? "Full scan started" : "Incremental scan started",
-                OperationId = operationId.Value,
-                Status = OperationStatus.Running
-            });
+            // Race: detection started between our checker call and StartDetectionAsync - park it
+            // (the queue re-checks under its gate and deduplicates against the now-active op).
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
+                StartDetectionCoreAsync, cancellationToken));
         }
-        catch (InvalidOperationException ex)
+
+        _logger.LogInformation("Started game detection operation: {OperationId} (forceRefresh={ForceRefresh}, incremental={Incremental})", operationId, forceRefresh, incremental);
+
+        return Accepted(new GameDetectionStartResponse
         {
-            // Race-window fallback: service threw after our checker allowed.
-            _logger.LogWarning(ex, "Cannot start game detection - already running");
-            var raceConflict = await _conflictChecker.CheckAsync(
-                OperationType.GameDetection,
-                ConflictScope.Bulk(),
-                cancellationToken);
-            if (raceConflict != null)
-            {
-                return Conflict(raceConflict);
-            }
-            return Conflict(new OperationConflictResponse
-            {
-                Code = "OPERATION_CONFLICT",
-                StageKey = "errors.conflict.duplicate",
-                Error = ex.Message
-            });
-        }
+            Message = forceRefresh ? "Full scan started" : "Incremental scan started",
+            OperationId = operationId.Value,
+            Status = OperationStatus.Running
+        });
     }
 
     /// <summary>

@@ -29,6 +29,7 @@ public class LogsController : ControllerBase
     private readonly StateService _stateRepository;
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly IOperationConflictChecker _conflictChecker;
+    private readonly IOperationQueue _operationQueue;
 
     public LogsController(
         RustLogProcessorService rustLogProcessorService,
@@ -39,7 +40,8 @@ public class LogsController : ControllerBase
         DatasourceService datasourceService,
         StateService stateRepository,
         NginxLogRotationService nginxLogRotationService,
-        IOperationConflictChecker conflictChecker)
+        IOperationConflictChecker conflictChecker,
+        IOperationQueue operationQueue)
     {
         _rustLogProcessorService = rustLogProcessorService;
         _rustLogRemovalService = rustLogRemovalService;
@@ -50,6 +52,7 @@ public class LogsController : ControllerBase
         _stateRepository = stateRepository;
         _nginxLogRotationService = nginxLogRotationService;
         _conflictChecker = conflictChecker;
+        _operationQueue = operationQueue;
     }
 
     /// <summary>
@@ -322,16 +325,21 @@ public class LogsController : ControllerBase
         await _logProcessingStartLock.WaitAsync(cancellationToken);
         try
         {
+            // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+            Task<Guid?> StartAllProcessingAsync() => _rustLogProcessorService.StartProcessingAllInBackgroundAsync();
+
             var conflict = await _conflictChecker.CheckAsync(
                 OperationType.LogProcessing,
                 ConflictScope.Bulk(),
                 cancellationToken);
             if (conflict != null)
             {
-                return Conflict(conflict);
+                return Accepted(await _operationQueue.EnqueueAsync(
+                    OperationType.LogProcessing, ConflictScope.Bulk(), "Log Processing",
+                    StartAllProcessingAsync, cancellationToken));
             }
 
-            var operationId = await _rustLogProcessorService.StartProcessingAllInBackgroundAsync();
+            var operationId = await StartAllProcessingAsync();
             if (!operationId.HasValue)
             {
                 var raceConflict = await _conflictChecker.CheckAsync(
@@ -340,7 +348,10 @@ public class LogsController : ControllerBase
                     cancellationToken);
                 if (raceConflict != null)
                 {
-                    return Conflict(raceConflict);
+                    // Race: processing began between our check and the start - park it.
+                    return Accepted(await _operationQueue.EnqueueAsync(
+                        OperationType.LogProcessing, ConflictScope.Bulk(), "Log Processing",
+                        StartAllProcessingAsync, cancellationToken));
                 }
 
                 _logger.LogWarning("Failed to start log processing for all datasources");
@@ -377,21 +388,29 @@ public class LogsController : ControllerBase
         await _logProcessingStartLock.WaitAsync(cancellationToken);
         try
         {
+            // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+            async Task<Guid?> StartDatasourceProcessingAsync()
+            {
+                var position = _stateRepository.GetLogPosition(datasourceName);
+                return await _rustLogProcessorService.StartProcessingInBackgroundAsync(
+                    datasource.LogPath,
+                    position,
+                    silentMode: false,
+                    datasourceName: datasourceName);
+            }
+
             var conflict = await _conflictChecker.CheckAsync(
                 OperationType.LogProcessing,
                 ConflictScope.Bulk(),
                 cancellationToken);
             if (conflict != null)
             {
-                return Conflict(conflict);
+                return Accepted(await _operationQueue.EnqueueAsync(
+                    OperationType.LogProcessing, ConflictScope.Bulk(), $"Log Processing ({datasourceName})",
+                    StartDatasourceProcessingAsync, cancellationToken));
             }
 
-            var position = _stateRepository.GetLogPosition(datasourceName);
-            var operationId = await _rustLogProcessorService.StartProcessingInBackgroundAsync(
-                datasource.LogPath,
-                position,
-                silentMode: false,
-                datasourceName: datasourceName);
+            var operationId = await StartDatasourceProcessingAsync();
             if (!operationId.HasValue)
             {
                 var raceConflict = await _conflictChecker.CheckAsync(
@@ -400,7 +419,10 @@ public class LogsController : ControllerBase
                     cancellationToken);
                 if (raceConflict != null)
                 {
-                    return Conflict(raceConflict);
+                    // Race: processing began between our check and the start - park it.
+                    return Accepted(await _operationQueue.EnqueueAsync(
+                        OperationType.LogProcessing, ConflictScope.Bulk(), $"Log Processing ({datasourceName})",
+                        StartDatasourceProcessingAsync, cancellationToken));
                 }
 
                 _logger.LogWarning("Failed to start log processing for datasource '{Name}'", datasourceName);
@@ -561,16 +583,21 @@ public class LogsController : ControllerBase
         if (permissionError != null)
             return permissionError;
 
+        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        Task<Guid?> StartLogRemovalAsync() => _rustLogRemovalService.StartServiceRemovalInBackgroundAsync(service);
+
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.LogRemoval,
             ConflictScope.Service(service),
             cancellationToken);
         if (conflict != null)
         {
-            return Conflict(conflict);
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.LogRemoval, ConflictScope.Service(service), $"Log Removal ({service})",
+                StartLogRemovalAsync, cancellationToken));
         }
 
-        var operationId = await _rustLogRemovalService.StartServiceRemovalInBackgroundAsync(service);
+        var operationId = await StartLogRemovalAsync();
 
         if (!operationId.HasValue)
         {
@@ -580,7 +607,10 @@ public class LogsController : ControllerBase
                 cancellationToken);
             if (raceConflict != null)
             {
-                return Conflict(raceConflict);
+                // Race: removal began between our check and the start - park it.
+                return Accepted(await _operationQueue.EnqueueAsync(
+                    OperationType.LogRemoval, ConflictScope.Service(service), $"Log Removal ({service})",
+                    StartLogRemovalAsync, cancellationToken));
             }
 
             return StatusCode(500, new ErrorResponse { Error = $"Failed to remove logs for service '{service}'" });
@@ -619,16 +649,22 @@ public class LogsController : ControllerBase
             return BadRequest(new ConflictResponse { Error = $"Logs directory is read-only for datasource '{datasourceName}'" });
         }
 
+        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        Task<Guid?> StartDatasourceLogRemovalAsync() =>
+            _rustLogRemovalService.StartServiceRemovalForDatasourceInBackgroundAsync(service, datasourceName);
+
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.LogRemoval,
             ConflictScope.Service(service),
             cancellationToken);
         if (conflict != null)
         {
-            return Conflict(conflict);
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.LogRemoval, ConflictScope.Service(service),
+                $"Log Removal ({service} @ {datasourceName})", StartDatasourceLogRemovalAsync, cancellationToken));
         }
 
-        var operationId = await _rustLogRemovalService.StartServiceRemovalForDatasourceInBackgroundAsync(service, datasourceName);
+        var operationId = await StartDatasourceLogRemovalAsync();
 
         if (!operationId.HasValue)
         {
@@ -638,7 +674,10 @@ public class LogsController : ControllerBase
                 cancellationToken);
             if (raceConflict != null)
             {
-                return Conflict(raceConflict);
+                // Race: removal began between our check and the start - park it.
+                return Accepted(await _operationQueue.EnqueueAsync(
+                    OperationType.LogRemoval, ConflictScope.Service(service),
+                    $"Log Removal ({service} @ {datasourceName})", StartDatasourceLogRemovalAsync, cancellationToken));
             }
 
             return StatusCode(500, new ErrorResponse { Error = $"Failed to remove logs for service '{service}' from datasource '{datasourceName}'" });

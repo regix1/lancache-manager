@@ -3,6 +3,32 @@
  * Includes timing values, storage keys, and ID generators.
  */
 
+import type { NotificationType } from './types';
+
+/**
+ * Backend OperationType wire string (camelCase) -> notification type.
+ * Used by the operation wait-queue plumbing (OperationWaiting/OperationWaitingComplete
+ * SignalR events and the /api/operations/waiting recovery endpoint) to attach the purple
+ * waiting card to the same per-type singleton card the running operation will use.
+ */
+export const OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE: Record<string, NotificationType> = {
+  cacheClearing: 'cache_clearing',
+  corruptionRemoval: 'corruption_removal',
+  corruptionDetection: 'corruption_detection',
+  gameDetection: 'game_detection',
+  logProcessing: 'log_processing',
+  gameRemoval: 'game_removal',
+  serviceRemoval: 'service_removal',
+  depotMapping: 'depot_mapping',
+  dataImport: 'data_import',
+  databaseReset: 'database_reset',
+  logRemoval: 'log_removal',
+  epicMapping: 'epic_game_mapping',
+  evictionScan: 'eviction_scan',
+  evictionRemoval: 'eviction_removal',
+  cacheSizeScan: 'cache_size_scan'
+};
+
 // ============================================================================
 // Timing Constants
 // ============================================================================

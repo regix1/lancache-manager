@@ -473,6 +473,7 @@ builder.Services.AddSingleton<EvictedDetectionPreservationService>();
 builder.Services.AddSingleton<IUnifiedOperationTracker, UnifiedOperationTracker>();
 builder.Services.AddSingleton<OperationCancellationService>();
 builder.Services.AddSingleton<IOperationConflictChecker, OperationConflictChecker>();
+builder.Services.AddSingleton<IOperationQueue, OperationQueueService>();
 builder.Services.AddSingleton<PicsDataService>();
 
 // Register cache snapshot service for historical cache size tracking

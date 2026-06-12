@@ -1,6 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle, AlertCircle, X, User, UserX, Trash2, XCircle, Info, Key } from 'lucide-react';
+import {
+  CheckCircle,
+  AlertCircle,
+  X,
+  User,
+  UserX,
+  Trash2,
+  XCircle,
+  Info,
+  Key,
+  Clock
+} from 'lucide-react';
 import ApiService from '@services/api.service';
 import {
   useNotifications,
@@ -142,6 +153,8 @@ const getNotificationColor = (notification: UnifiedNotification): string => {
       return 'var(--theme-success)';
     case 'failed':
       return 'var(--theme-error)';
+    case 'waiting':
+      return 'var(--theme-waiting)';
     case 'running':
     default:
       return 'var(--theme-info)';
@@ -156,6 +169,11 @@ const getNotificationIcon = (notification: UnifiedNotification): React.ReactNode
 
   if (notification.status === 'running') {
     return <LoadingSpinner inline size="sm" className="flex-shrink-0" style={{ color }} />;
+  }
+
+  if (notification.status === 'waiting') {
+    // Queued behind a conflicting operation - clock, not spinner (nothing is running yet).
+    return <Clock className="w-4 h-4 flex-shrink-0 text-[var(--theme-waiting)]" />;
   }
 
   if (notification.status === 'completed') {
@@ -401,7 +419,11 @@ const UnifiedNotificationItem = ({
 
   return (
     <div
-      className="flex items-center gap-3 p-2 rounded-lg bg-[var(--theme-bg-secondary)] transition-opacity duration-300 ease-out"
+      className={`flex items-center gap-3 p-2 rounded-lg transition-opacity duration-300 ease-out ${
+        notification.status === 'waiting'
+          ? 'bg-[var(--theme-waiting-bg)] text-[var(--theme-waiting-text)]'
+          : 'bg-[var(--theme-bg-secondary)]'
+      }`}
       style={{
         borderLeft: `3px solid ${color}`,
         opacity: isAnimatingOut ? 0 : 1
@@ -621,7 +643,8 @@ const UniversalNotificationBar: React.FC = () => {
                 cancelled: 1,
                 running: 2,
                 cancelling: 2,
-                pending: 3
+                waiting: 3,
+                pending: 4
               };
               return (statusOrder[a.status] ?? 4) - (statusOrder[b.status] ?? 4);
             })

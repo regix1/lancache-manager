@@ -43,13 +43,18 @@ const shouldAutoDismiss = (): boolean => {
 // post-202 REST seed; older terminal cards (a genuine re-run) are still replaced.
 const TERMINAL_SEED_GUARD_MS = 5000;
 
-// Removal/clearing operation types that share the backend _cacheLock
+// Removal/clearing operation types that share the backend _cacheLock.
+// cache_size_scan is enrolled because the cache file scan conflicts server-side with
+// every op in this group (OperationConflictChecker returns 409
+// errors.conflict.cacheFileScanActive) - enrollment here is what disables the heavy-op
+// buttons app-wide (isAnyRemovalRunning), the established Group-A busy mechanism.
 const REMOVAL_TYPES = [
   'log_removal',
   'game_removal',
   'service_removal',
   'corruption_removal',
-  'cache_clearing'
+  'cache_clearing',
+  'cache_size_scan'
 ] as const;
 
 export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ children }) => {

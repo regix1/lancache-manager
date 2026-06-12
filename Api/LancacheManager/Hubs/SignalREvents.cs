@@ -51,6 +51,8 @@ public static class SignalREvents
     public const string CacheSizeScanStarted = "CacheSizeScanStarted";
     public const string CacheSizeScanProgress = "CacheSizeScanProgress";
     public const string CacheSizeScanComplete = "CacheSizeScanComplete";
+    public const string OperationWaiting = "OperationWaiting";
+    public const string OperationWaitingComplete = "OperationWaitingComplete";
     public const string ServiceRemovalStarted = "ServiceRemovalStarted";
     public const string ServiceRemovalProgress = "ServiceRemovalProgress";
     public const string ServiceRemovalComplete = "ServiceRemovalComplete";

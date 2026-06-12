@@ -48,6 +48,29 @@ public class OperationsController : ControllerBase
     }
 
     /// <summary>
+    /// GET /api/operations/waiting
+    ///
+    /// Lists operations parked in the wait-queue (status Waiting). Recovery endpoint for the
+    /// purple waiting cards: page refresh re-creates them from this list. Queued ops do not
+    /// survive an app restart (in-memory queue), so after a restart this list is empty by design.
+    /// </summary>
+    [HttpGet("waiting")]
+    public IActionResult GetWaitingOperations()
+    {
+        var waiting = _operationTracker.GetWaitingOperations()
+            .OrderBy(op => op.StartedAt)
+            .Select(op => new
+            {
+                operationId = op.Id,
+                operationType = op.Type.ToWireString(),
+                name = op.Name
+            })
+            .ToList();
+
+        return Ok(waiting);
+    }
+
+    /// <summary>
     /// Aggressively cancels a running operation: kills any associated process tree, then cancels the token.
     /// Idempotent — returns 200 OK if already cancelling (re-attempts process kill).
     /// </summary>

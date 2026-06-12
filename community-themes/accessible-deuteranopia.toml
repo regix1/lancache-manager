@@ -3,7 +3,7 @@ name = "Accessible - Deuteranopia"
 id = "accessible-deuteranopia"
 description = "Deuteranopia-accessible theme with neutral dark backgrounds and vibrant orange-blue contrast"
 author = "System"
-version = "2.3.1"
+version = "2.3.2"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
@@ -63,6 +63,9 @@ errorText = "#fda4af"           # Light pink text
 info = "#0ea5e9"                # Sky blue
 infoBg = "#0a2535"              # Dark sky background
 infoText = "#7dd3fc"            # Light sky text
+waiting = "#c4b5fd"               # Pale lavender - luminance-separated from the saturated blues (deuteranopia-safe via lightness, not hue)
+waitingBg = "#27203f"             # Dark violet-slate background
+waitingText = "#ddd6fe"           # Very light lavender text
 
 # Service colors - 7 distinct hues, all deuteranopia-safe
 steamColor = "#1d4ed8"          # Cobalt blue

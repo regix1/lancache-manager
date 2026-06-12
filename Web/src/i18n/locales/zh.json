@@ -172,6 +172,8 @@
       "cancelOperationAria": "取消操作",
       "forceKillOperation": "再次点击以强制终止",
       "cancelling": "取消中...",
+      "operationWaiting": "正在等待其他进程完成...",
+      "operationWaitingCancelled": "已在等待队列中取消",
       "corruptedChunksRemoved": "损坏块已成功移除",
       "filesDeleted": "已删除 {{formattedCount}} 个文件",
       "filesDeleted_plural": "已删除 {{formattedCount}} 个文件",
@@ -362,7 +364,27 @@
     "authenticate": "验证身份",
     "users": "用户",
     "events": "事件",
-    "management": "管理"
+    "management": "管理",
+    "githubProjects": {
+      "trigger": "项目",
+      "tooltip": "GitHub 项目与支持 - 点击有惊喜！",
+      "ariaLabel": "GitHub 项目",
+      "header": "我的项目",
+      "installable": "可安装",
+      "installableHint": "开箱即用",
+      "dependencies": "依赖项目",
+      "dependenciesHint": "供 LANcache Manager 使用",
+      "fork": "复刻",
+      "supportTitle": "支持开发",
+      "supportSubtitle": "请我喝杯咖啡",
+      "repos": {
+        "lancacheManager": "功能强大的游戏 LAN 缓存管理界面，支持实时监控与分析",
+        "monolithic": "增强版复刻，为 LAN 缓存提供更高的性能和更多功能",
+        "lancachePics": "游戏图片资源库，用于将 Steam 仓库下载映射到游戏图标",
+        "steamPrefillDaemon": "用于定时预填充 Steam 游戏和预热缓存的后台守护进程",
+        "epicPrefillDaemon": "用于定时预填充 Epic 游戏和预热缓存的后台守护进程"
+      }
+    }
   },
   "footer": {
     "version": "LANCache 管理器 v{{version}}"
@@ -3290,6 +3312,22 @@
     "title": "Steam 预填充",
     "subtitle": "预下载游戏到缓存",
     "endSession": "结束会话",
+    "home": {
+      "title": "游戏预填充",
+      "subtitle": "在活动开始前将游戏内容预下载到您的 lancache。选择一个平台以开始预填充会话。",
+      "ready": "就绪",
+      "startSession": "开始会话",
+      "steamDescription": "预填充您的 Steam 库，包括最近游玩的游戏、热门游戏或您账户中手动挑选的游戏。",
+      "steamFeature1": "预填充整个库或选择特定游戏",
+      "steamFeature2": "最近游戏和热门游戏预设",
+      "steamFeature3": "强制重新下载和缓存管理",
+      "requiresSteamLogin": "用户名、密码和 Steam 令牌",
+      "epicDescription": "预填充您的 Epic Games 库，包括最近游玩的游戏、热门游戏或您账户中手动挑选的游戏。",
+      "epicFeature1": "预填充整个库或选择特定游戏",
+      "epicFeature2": "最近游戏和热门游戏预设",
+      "epicFeature3": "强制重新下载和缓存管理",
+      "requiresEpicLogin": "基于浏览器的授权码登录"
+    },
     "startScreen": {
       "description": "将 Steam 游戏预下载到缓存，以加快 LAN 聚会下载速度。连接您的 Steam 库，在活动之前预填充游戏。",
       "connecting": "连接中...",

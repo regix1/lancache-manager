@@ -172,6 +172,8 @@
       "cancelOperationAria": "Cancel operation",
       "forceKillOperation": "Click again to force kill",
       "cancelling": "Cancelling...",
+      "operationWaiting": "Waiting for another process to complete...",
+      "operationWaitingCancelled": "Cancelled while waiting in queue",
       "corruptedChunksRemoved": "Corrupted chunks successfully removed",
       "filesDeleted": "{{formattedCount}} file deleted",
       "filesDeleted_plural": "{{formattedCount}} files deleted",
@@ -362,7 +364,27 @@
     "authenticate": "Authenticate",
     "users": "Users",
     "events": "Events",
-    "management": "Management"
+    "management": "Management",
+    "githubProjects": {
+      "trigger": "Projects",
+      "tooltip": "GitHub Projects & Support - Click for a surprise!",
+      "ariaLabel": "GitHub Projects",
+      "header": "My Projects",
+      "installable": "Installable",
+      "installableHint": "Ready to use",
+      "dependencies": "Dependencies",
+      "dependenciesHint": "Used by LANcache Manager",
+      "fork": "Fork",
+      "supportTitle": "Support Development",
+      "supportSubtitle": "Buy me a coffee",
+      "repos": {
+        "lancacheManager": "A powerful GUI for managing your gaming LAN cache with real-time monitoring and analytics",
+        "monolithic": "Enhanced fork with improved performance and additional features for LAN caching",
+        "lancachePics": "Game artwork repository for mapping Steam depot downloads to game icons",
+        "steamPrefillDaemon": "Background daemon for scheduled Steam game prefilling and cache warming",
+        "epicPrefillDaemon": "Background daemon for scheduled Epic Games prefilling and cache warming"
+      }
+    }
   },
   "footer": {
     "version": "LANCache Manager v{{version}}"
@@ -3290,6 +3312,22 @@
     "title": "Steam Prefill",
     "subtitle": "Pre-download games to your cache",
     "endSession": "End Session",
+    "home": {
+      "title": "Game Prefill",
+      "subtitle": "Pre-download game content to your lancache before the event. Choose a platform to start a prefill session.",
+      "ready": "Ready",
+      "startSession": "Start Session",
+      "steamDescription": "Prefill your Steam library including recent games, top titles, or hand-picked selections from your account.",
+      "steamFeature1": "Prefill entire library or select specific games",
+      "steamFeature2": "Recent and top games presets",
+      "steamFeature3": "Force re-download and cache management",
+      "requiresSteamLogin": "Username, password & Steam Guard",
+      "epicDescription": "Prefill your Epic Games library including recent games, top titles, or hand-picked selections from your account.",
+      "epicFeature1": "Prefill entire library or select specific games",
+      "epicFeature2": "Recent and top games presets",
+      "epicFeature3": "Force re-download and cache management",
+      "requiresEpicLogin": "Browser-based authorization code login"
+    },
     "startScreen": {
       "description": "Pre-download Steam games to your cache for faster LAN party downloads. Connect to your Steam library and prefill games before the event.",
       "connecting": "Connecting...",

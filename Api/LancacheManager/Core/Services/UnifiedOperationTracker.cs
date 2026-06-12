@@ -23,9 +23,13 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         _logger = logger;
     }
 
+    /// <inheritdoc />
+    public event Action<OperationInfo>? OperationTerminal;
+
     public Guid RegisterOperation(OperationType type, string name, CancellationTokenSource cts,
                                   object? metadata = null, Action? onTerminalCleanup = null,
-                                  Func<OperationTerminalInfo, Task>? onTerminalEmit = null)
+                                  Func<OperationTerminalInfo, Task>? onTerminalEmit = null,
+                                  OperationStatus initialStatus = OperationStatus.Running)
     {
         var operationId = Guid.NewGuid();
         var operation = new OperationInfo
@@ -33,7 +37,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             Id = operationId,
             Type = type,
             Name = name,
-            Status = OperationStatus.Running,
+            Status = initialStatus,
             Message = $"Starting {name}...",
             StartedAt = DateTime.UtcNow,
             CancellationTokenSource = cts,
@@ -241,7 +245,10 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
     public IEnumerable<OperationInfo> GetActiveOperations(OperationType? filterType = null)
     {
-        var operations = _operations.Values.Where(op => !op.Status.IsTerminal());
+        // Waiting ops are queued, not running: they must not block conflict checks and must
+        // stay invisible to the per-type status/recovery endpoints (see IUnifiedOperationTracker).
+        var operations = _operations.Values.Where(op =>
+            !op.Status.IsTerminal() && op.Status != OperationStatus.Waiting);
 
         if (filterType.HasValue)
         {
@@ -249,6 +256,11 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         }
 
         return operations.ToList();
+    }
+
+    public IEnumerable<OperationInfo> GetWaitingOperations()
+    {
+        return _operations.Values.Where(op => op.Status == OperationStatus.Waiting).ToList();
     }
 
     public void CompleteOperation(Guid operationId, bool success, string? error = null)
@@ -303,6 +315,18 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
         _logger.LogInformation("Completed operation {Id} ({Type}: {Name}), Success: {Success}",
             operationId, operation.Type, operation.Name, success);
+
+        // Notify queue/listeners that an operation reached terminal state (exactly once via the
+        // CompletedFlag gate above). Fire-and-forget off this stack; handler faults are contained.
+        var terminalSubscribers = OperationTerminal;
+        if (terminalSubscribers != null)
+        {
+            _ = Task.Run(() =>
+            {
+                try { terminalSubscribers(operation); }
+                catch (Exception ex) { _logger.LogWarning(ex, "OperationTerminal handler threw for {Id}", operationId); }
+            });
+        }
 
         ScheduleReaper(operationId); // core-2: delayed cleanup, see ScheduleReaper
     }

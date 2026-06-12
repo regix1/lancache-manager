@@ -262,7 +262,7 @@ class ThemeService {
           name: 'Dark Default',
           description: 'Default dark theme with blue accents',
           author: 'System',
-          version: '1.0.0',
+          version: '1.0.1',
           isDark: true,
           sharpCorners: false,
           disableFocusOutlines: true,
@@ -278,7 +278,7 @@ class ThemeService {
           name: 'Light Default',
           description: 'Clean modern light theme with subtle depth',
           author: 'System',
-          version: '3.0.0',
+          version: '3.0.1',
           isDark: false,
           sharpCorners: false,
           disableFocusOutlines: true,
@@ -343,6 +343,9 @@ class ThemeService {
           info: '#2563eb', // blue-600
           infoBg: '#eff6ff', // blue-50
           infoText: '#1d4ed8', // blue-700
+          waiting: '#9333ea', // purple-600
+          waitingBg: '#faf5ff', // purple-50
+          waitingText: '#7e22ce', // purple-700
 
           // Service colors - Vibrant
           steamColor: '#059669',
@@ -846,6 +849,9 @@ class ThemeService {
       --theme-error: ${colors.error};
       --theme-error-bg: ${colors.errorBg};
       --theme-error-text: ${colors.errorText};
+      --theme-waiting: ${colors.waiting};
+      --theme-waiting-bg: ${colors.waitingBg};
+      --theme-waiting-text: ${colors.waitingText};
       --theme-info: ${colors.info};
       --theme-info-bg: ${colors.infoBg};
       --theme-info-text: ${colors.infoText};

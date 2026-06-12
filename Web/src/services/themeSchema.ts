@@ -60,6 +60,11 @@ const themeColorDefaults: Record<string, string> = {
   info: '#3b82f6',
   infoBg: '#1e3a8a',
   infoText: '#93c5fd',
+  // Waiting/queued state (operation wait-queue cards). Purple on the default palette;
+  // themes whose palettes clash with purple override with a distinct in-palette hue.
+  waiting: '#a855f7',
+  waitingBg: '#3b0764',
+  waitingText: '#d8b4fe',
 
   // ── Service / platform colors ────────────────────────────────────────
   steamColor: '#10b981',

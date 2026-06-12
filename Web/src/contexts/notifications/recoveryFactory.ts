@@ -7,11 +7,71 @@ import type {
   NotificationRegistryEntry,
   SimpleRecoveryConfig
 } from './types';
-import { NOTIFICATION_STORAGE_KEYS, NOTIFICATION_IDS } from './constants';
+import {
+  NOTIFICATION_STORAGE_KEYS,
+  NOTIFICATION_IDS,
+  OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE
+} from './constants';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
 import i18n from '@/i18n';
 
 export type FetchWithAuth = (url: string) => Promise<Response>;
+
+/** Row shape of GET /api/operations/waiting (wait-queue recovery endpoint). */
+interface WaitingOperationRow {
+  operationId: string;
+  operationType: string;
+  name: string;
+}
+
+/**
+ * Builds the wait-queue recovery function: synchronizes purple "waiting" cards with the
+ * backend queue. Creates missing waiting cards (with details.operationId so cancel works)
+ * and removes waiting cards whose queued op no longer exists.
+ */
+function createWaitingOperationsRecoveryFunction(
+  fetchWithAuth: FetchWithAuth,
+  setNotifications: SetNotifications
+): () => Promise<void> {
+  return async () => {
+    try {
+      const response = await fetchWithAuth('/api/operations/waiting');
+      if (!response.ok) return;
+
+      const rows = (await response.json()) as WaitingOperationRow[];
+      const waitingByType = new Map<NotificationType, WaitingOperationRow>();
+      for (const row of rows) {
+        const type = OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE[row.operationType];
+        if (type) waitingByType.set(type, row);
+      }
+
+      setNotifications((prev: UnifiedNotification[]) => {
+        // Drop stale waiting cards (op promoted or cancelled while we weren't listening).
+        const next = prev.filter((n) => n.status !== 'waiting' || waitingByType.has(n.type));
+
+        // Create cards for queued ops that have none (and whose slot isn't already a
+        // running card - a promoted op's card must not be downgraded back to waiting).
+        for (const entry of NOTIFICATION_REGISTRY as NotificationRegistryEntry[]) {
+          const row = waitingByType.get(entry.type);
+          if (!row) continue;
+          if (next.some((n) => n.id === entry.id)) continue;
+          next.push({
+            id: entry.id,
+            type: entry.type,
+            status: 'waiting' as NotificationStatus,
+            message: i18n.t('common.notifications.operationWaiting'),
+            startedAt: new Date(),
+            details: { operationId: row.operationId }
+          });
+        }
+
+        return next;
+      });
+    } catch {
+      // Silently fail - recovery is best-effort
+    }
+  };
+}
 
 // ============================================================================
 // Simple Recovery Engine (for fixed-ID operations)
@@ -495,6 +555,13 @@ export function createRecoveryRunner(
       createCacheRemovalsRecoveryFunction(fetchWithAuth, setNotifications, scheduleAutoDismiss)
     );
   }
+
+  // Operation wait-queue: recreate purple waiting cards from /api/operations/waiting on
+  // page load / reconnect / tab-revisible, and drop stale waiting cards whose op vanished
+  // (promoted ops are re-created as running cards by the per-type engines above; cancelled
+  // ones are simply gone). Queued ops do NOT survive an app restart - after a restart the
+  // endpoint returns [] and no cards are created, by design.
+  recoveryFns.push(createWaitingOperationsRecoveryFunction(fetchWithAuth, setNotifications));
 
   return async (): Promise<void> => {
     try {

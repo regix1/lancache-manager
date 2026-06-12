@@ -170,6 +170,10 @@ export const SIGNALR_EVENTS = [
   'CacheSizeScanProgress',
   'CacheSizeScanComplete',
 
+  // Operation wait-queue (purple waiting cards)
+  'OperationWaiting',
+  'OperationWaitingComplete',
+
   // Eviction Removal
   'EvictionRemovalStarted',
   'EvictionRemovalProgress',
@@ -871,6 +875,28 @@ export interface CacheSizeScanCompleteEvent {
   totalFiles: number;
   totalBytes: number;
   formattedSize?: string;
+  error?: string;
+}
+
+/**
+ * Emitted when an operation is parked in the backend wait-queue behind a conflicting
+ * operation. operationType is the backend OperationType wire string (camelCase).
+ */
+export interface OperationWaitingEvent {
+  operationId: string;
+  operationType: string;
+  name: string;
+}
+
+/**
+ * Emitted when a WAITING operation terminates without being promoted (cancelled from
+ * the card, or its start failed at promotion). Promotion itself emits nothing - the
+ * promoted operation's own Started event replaces the waiting card.
+ */
+export interface OperationWaitingCompleteEvent {
+  operationId: string;
+  operationType: string;
+  cancelled: boolean;
   error?: string;
 }
 

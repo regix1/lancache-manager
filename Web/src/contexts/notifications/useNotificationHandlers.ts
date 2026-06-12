@@ -10,7 +10,8 @@ import type {
   ScheduleAutoDismiss,
   CancelAutoDismissTimer,
   RemoveNotification,
-  NotificationRegistryEntry
+  NotificationRegistryEntry,
+  UnifiedNotification
 } from './types';
 import {
   createStartedHandler,
@@ -18,6 +19,22 @@ import {
   createCompletionHandler
 } from './handlerFactories';
 import { useSignalR } from '../SignalRContext/useSignalR';
+import type { OperationWaitingEvent, OperationWaitingCompleteEvent } from '../SignalRContext/types';
+import { OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE } from './constants';
+import i18n from '@/i18n';
+
+/**
+ * Resolves the registry entry whose per-type singleton card a wait-queue event targets.
+ * Returns undefined for wire types without a standard notification card.
+ */
+function findEntryForWireType(
+  registry: NotificationRegistryEntry[],
+  wireType: string
+): NotificationRegistryEntry | undefined {
+  const notificationType = OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE[wireType];
+  if (!notificationType) return undefined;
+  return registry.find((entry) => entry.type === notificationType);
+}
 
 /**
  * Creates a started handler for a registry entry and returns the bound handler function.
@@ -187,6 +204,58 @@ export function useNotificationHandlers(
         subscribe(entry.events.complete, completeHandler);
       }
     }
+
+    // ───── Operation wait-queue (purple waiting cards) ─────
+    // A queued op is a REAL tracker registration (status Waiting) so this card is never a
+    // ghost: cancel works via details.operationId, and /api/operations/waiting recovers it
+    // on refresh. On promotion the promoted op's own Started event replaces this card
+    // (same per-type singleton id) - no handler needed for the promotion case.
+    const waitingHandler = (event: OperationWaitingEvent): void => {
+      const entry = findEntryForWireType(registry, event.operationType);
+      if (!entry) return;
+      cancelAutoDismissTimer(entry.id);
+      setNotifications((prev: UnifiedNotification[]) => {
+        const filtered = prev.filter((n) => n.id !== entry.id);
+        const waitingNotification: UnifiedNotification = {
+          id: entry.id,
+          type: entry.type,
+          status: 'waiting',
+          message: i18n.t('common.notifications.operationWaiting'),
+          startedAt: new Date(),
+          details: { operationId: event.operationId }
+        };
+        return [...filtered, waitingNotification];
+      });
+    };
+
+    const waitingCompleteHandler = (event: OperationWaitingCompleteEvent): void => {
+      const entry = findEntryForWireType(registry, event.operationType);
+      if (!entry) return;
+      setNotifications((prev: UnifiedNotification[]) =>
+        prev.map((n) => {
+          // Guard: only terminate cards STILL waiting - if promotion already replaced the
+          // card with a running one, a late cancel/failure event must not clobber it.
+          if (n.id !== entry.id || n.status !== 'waiting') return n;
+          return event.cancelled
+            ? {
+                ...n,
+                status: 'completed' as const,
+                message: i18n.t('common.notifications.operationWaitingCancelled'),
+                details: { ...n.details, cancelled: true }
+              }
+            : {
+                ...n,
+                status: 'failed' as const,
+                message: event.error ?? i18n.t('signalr.generic.failed'),
+                error: event.error
+              };
+        })
+      );
+      scheduleAutoDismiss(entry.id);
+    };
+
+    subscribe('OperationWaiting', waitingHandler as (...args: unknown[]) => void);
+    subscribe('OperationWaitingComplete', waitingCompleteHandler as (...args: unknown[]) => void);
 
     return () => {
       for (const { eventName, handler } of subscriptions) {
