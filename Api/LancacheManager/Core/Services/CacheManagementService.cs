@@ -1874,6 +1874,10 @@ public class CacheManagementService
             await _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanStarted, new CacheSizeScanStarted(
                 StageKey: "signalr.cacheSizeScan.starting",
                 OperationId: operationId));
+            // Info-level on purpose: NotifyAllAsync logs success only at Debug, so without this
+            // line production logs cannot distinguish "Started was emitted but the browser runs a
+            // stale bundle" from "Started was never emitted".
+            _logger.LogInformation("[CacheSizeScan] Emitted CacheSizeScanStarted for operation {OperationId}", operationId);
 
             var result = await RunCacheSizeScanAsync(
                 cachePath,
