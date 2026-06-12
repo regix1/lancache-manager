@@ -30,15 +30,6 @@ public class LogRemovalStartResponse
 }
 
 /// <summary>
-/// Response for cancellation operations
-/// </summary>
-public class CancellationResponse
-{
-    public string Message { get; set; } = string.Empty;
-    public bool Cancelled { get; set; }
-}
-
-/// <summary>
 /// Response for log entries count
 /// </summary>
 public class LogEntriesCountResponse

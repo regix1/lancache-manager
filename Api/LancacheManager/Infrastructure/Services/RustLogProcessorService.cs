@@ -50,8 +50,7 @@ public class RustLogProcessorService
         string? StageKey);
 
     public bool IsProcessing { get; private set; }
-    public bool IsSilentMode { get; private set; }
-    public bool IsCancelling { get; private set; }
+    private bool IsSilentMode { get; set; }
     public Guid? CurrentOperationId => _currentOperationId;
 
     public Task<Guid?> StartProcessingAllInBackgroundAsync()
@@ -87,7 +86,6 @@ public class RustLogProcessorService
                 // blocks the next StartProcessing (guard at the IsProcessing check).
                 IsProcessing = false;
                 IsSilentMode = false;
-                IsCancelling = false;
             },
             // Batch path is always interactive (RunAllDatasourcesAsync is only ever invoked with
             // silentMode:false), so the terminal SignalR emitter is always wired here.
@@ -168,7 +166,6 @@ public class RustLogProcessorService
     {
         IsProcessing = false;
         IsSilentMode = false;
-        IsCancelling = false;
         _currentOperationId = null;
         _currentDatasourceName = null;
         _currentProgressPath = null;
@@ -238,46 +235,6 @@ public class RustLogProcessorService
             $"processing datasource '{datasourceName ?? "default"}'");
     }
 
-    /// <summary>
-    /// Cancels any ongoing log processing operation
-    /// </summary>
-    /// <returns>True if cancellation was requested, false if no operation was running</returns>
-    public bool CancelProcessing()
-    {
-        if (_currentOperationId.HasValue)
-        {
-            return _operationTracker.CancelOperation(_currentOperationId.Value);
-        }
-
-        if (!IsProcessing || _cancellationTokenSource == null)
-        {
-            _logger.LogWarning("No log processing operation to cancel");
-            return false;
-        }
-
-        // If cancellation is already in progress, return true (idempotent)
-        // This prevents 404 errors when user clicks cancel button multiple times
-        if (IsCancelling)
-        {
-            _logger.LogDebug("Cancellation already in progress for log processing");
-            return true;
-        }
-
-        IsCancelling = true;
-        _logger.LogInformation("Cancellation requested for log processing");
-
-        try
-        {
-            _cancellationTokenSource.Cancel();
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during log processing cancellation");
-            return false;
-        }
-    }
-
     private async Task<Guid?> StartBackgroundProcessingAsync(Func<Task<bool>> processor, string description)
     {
         var registered = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -337,7 +294,6 @@ public class RustLogProcessorService
             await Task.Delay(500);
 
             IsProcessing = false;
-            IsCancelling = false;
 
             return true;
         }
@@ -575,7 +531,6 @@ public class RustLogProcessorService
                         // and blocks the next StartProcessing (guard at the IsProcessing check).
                         IsProcessing = false;
                         IsSilentMode = false;
-                        IsCancelling = false;
                     },
                     // Silent ops emit no terminal SignalR (preserves the old !silentMode guard), so
                     // only wire the emitter for interactive ops. The single terminal event then fires
@@ -998,7 +953,6 @@ public class RustLogProcessorService
             }
             else
             {
-                IsCancelling = false;
                 _currentDatasourceName = null;
                 _currentProgressPath = null;
             }

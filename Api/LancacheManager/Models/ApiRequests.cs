@@ -4,32 +4,6 @@ using LancacheManager.Core.Services.SteamPrefill;
 
 namespace LancacheManager.Models;
 
-#region Auth Requests
-
-public class SetGuestDurationRequest
-{
-    public int DurationHours { get; set; }
-}
-
-public class SetGuestLockRequest
-{
-    public bool IsLocked { get; set; }
-}
-
-public class SetGuestPrefillConfigRequest
-{
-    public bool EnabledByDefault { get; set; }
-    public int DurationHours { get; set; } = 2;
-}
-
-public class ToggleGuestPrefillRequest
-{
-    public bool Enabled { get; set; }
-    public int? DurationHours { get; set; }
-}
-
-#endregion
-
 #region Database Requests
 
 public class ResetTablesRequest
@@ -249,14 +223,6 @@ public class SetAllowedTimeFormatsRequest
 public class SetBoolPreferenceRequest
 {
     public bool Value { get; set; }
-}
-
-public class UpdateSetupRequest
-{
-    public bool? Completed { get; set; }
-    public JsonElement? CurrentSetupStep { get; set; }
-    public JsonElement? DataSourceChoice { get; set; }
-    public JsonElement? CompletedPlatforms { get; set; }
 }
 
 public class SetCacheDeleteModeRequest

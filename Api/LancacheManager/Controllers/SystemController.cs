@@ -408,17 +408,6 @@ public class SystemController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/system/migrations/sessions - Run session migration
-    /// Note: POST is acceptable as this is a one-time operation/action
-    /// </summary>
-    [Authorize(Policy = "AdminOnly")]
-    [HttpPost("migrations/sessions")]
-    public IActionResult MigrateSessions()
-    {
-        return Ok(MessageResponse.Ok("Session migration completed successfully"));
-    }
-
-    /// <summary>
     /// PATCH /api/system/cache-delete-mode - Set cache clearing delete mode
     /// RESTful: PATCH is proper method for configuration updates
     /// Request body: { "deleteMode": "preserve" | "full" | "rsync" }

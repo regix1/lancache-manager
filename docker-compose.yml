@@ -112,10 +112,6 @@ services:
       # Example: http://localhost:3000,https://mysite.com
       # - Security__AllowedOrigins=
 
-      # Allowed file browser root paths (comma-separated)
-      # Example: /data,/mnt
-      # - Security__AllowedBrowsePaths=
-
       #---------------------------------------------------------------------------
       # API Options
       #---------------------------------------------------------------------------

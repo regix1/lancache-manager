@@ -333,7 +333,6 @@ The mode decision and full compose examples live in [Choosing an Image and Datab
 | `Security__RequireAuthForMetrics` | `false` | Require an API key on `/metrics`. The UI toggle in Management → Security overrides this when set. |
 | `Security__ProtectSwagger` | `true` | Require auth on Swagger docs in production. |
 | `Security__AllowedOrigins` | (empty) | Comma-separated CORS allow list. Empty allows all. |
-| `Security__AllowedBrowsePaths` | (empty) | Comma-separated allow-list of file-browser roots. Empty disables the file browser entirely (every request returns `403`). Example: `/data,/mnt`. |
 | `Security__ApiKeyPath` | `/data/security/api_key.txt` | Override the file path the admin API key is read from and written to. Useful if you bind-mount secrets from outside `/data`. |
 | `Security__KnownProxyNetworks` | (empty) | Comma-separated CIDR list of trusted proxy networks for `X-Forwarded-For` (e.g. `172.16.0.0/12,10.0.0.0/8`). Set this when nginx, Traefik, or another reverse proxy fronts the manager so client IPs are reported correctly. Loopback is always trusted. |
 | `Security__TrustAllProxies` | `false` | Trust every upstream proxy unconditionally. Convenient for local dev. **Never enable on an internet-exposed host** - anyone can spoof a client IP. |
@@ -346,24 +345,6 @@ The mode decision and full compose examples live in [Choosing an Image and Datab
 | **Guest** | Read-only views. Requires admin auth or a guest session. | Browse downloads, stats, events, client data |
 
 To hand out a guest link without sharing your API key, open the **Users** tab and click **Create Guest Link**. Guests can browse the dashboard but can't change anything. Nothing is public - every endpoint requires either admin auth or a valid guest session.
-
-#### File Browser (DeveLanCacheUI Import)
-
-The DeveLanCacheUI import flow uses an admin-only file browser endpoint (`/api/filebrowser/list`) to find a `.db` file on the server. For safety, the browser is **disabled by default** - without an explicit allow-list, every request returns `403` and you'll see this in the log:
-
-```
-warn: LancacheManager.Controllers.FileBrowserController[0]
-      FileBrowser: Security:AllowedBrowsePaths is not configured. All file-browse requests will be rejected (403) until paths are configured.
-```
-
-To turn it on, set `Security__AllowedBrowsePaths` to a comma-separated list of directories the browser is allowed to enter. Subdirectories of each root are fine; everything outside the list returns `403`.
-
-```yaml
-environment:
-  - Security__AllowedBrowsePaths=/data,/mnt
-```
-
-If you don't use the DeveLanCacheUI importer, leave it empty. The warning is informational - nothing else in the app cares.
 
 <a id="prefill-config"></a>
 ### Prefill
@@ -452,7 +433,6 @@ services:
       # - Security__RequireAuthForMetrics=false
       # - Security__ProtectSwagger=true
       # - Security__AllowedOrigins=
-      # - Security__AllowedBrowsePaths=
 
       # Prefill (Steam & Epic) - see Configuration > Prefill for the full reference
       # Most installs need none of these; auto-detection covers the common cases.

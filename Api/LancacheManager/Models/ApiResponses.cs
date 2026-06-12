@@ -8,7 +8,6 @@ namespace LancacheManager.Models;
 // - CacheResponses.cs     : Cache operations responses
 // - DatabaseResponses.cs  : Database reset and migration responses
 // - DepotResponses.cs     : Depot/PICS responses
-// - FileBrowserResponses.cs : File browser responses
 // - GameResponses.cs      : Game detection/removal responses
 // - LogResponses.cs       : Log controller responses
 // - OperationResponses.cs : Generic operation responses
@@ -145,18 +144,4 @@ public static class ApiResponse
         Error = $"A {entityType.ToLower()} with this {fieldName.ToLower()} already exists"
     };
 
-    // ==================== Internal Error Responses ====================
-
-    /// <summary>Creates an internal server error response.</summary>
-    public static ErrorResponse InternalError(string operation) => new()
-    {
-        Error = $"An error occurred while {operation}. Check server logs for details."
-    };
-
-    /// <summary>Creates an internal server error response with details.</summary>
-    public static ErrorResponse InternalError(string operation, string details) => new()
-    {
-        Error = $"An error occurred while {operation}",
-        Details = details
-    };
 }

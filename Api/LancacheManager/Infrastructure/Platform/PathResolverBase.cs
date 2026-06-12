@@ -203,9 +203,6 @@ public abstract class PathResolverBase : IPathResolver
     public string GetRustCachePurgeLogEntriesPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", $"cache_purge_log_entries{RustExecutableExtension}");
 
-    public string GetRustDataMigratorPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", $"db_migrate{RustExecutableExtension}");
-
     public string GetRustSpeedTrackerPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", $"speed_tracker{RustExecutableExtension}");
 

@@ -151,7 +151,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
 
         _daemonService.AddSubscriber(sessionId, Context.ConnectionId);
 
-        await Clients.Caller.SendAsync("SessionSubscribed", DaemonSessionDto.FromSession(session));
+        await Clients.Caller.SendAsync(SignalREvents.SessionSubscribed, DaemonSessionDto.FromSession(session));
     }
 
     /// <summary>

@@ -87,16 +87,6 @@ public class SystemStateResponse
 }
 
 /// <summary>
-/// Response for directory permissions
-/// </summary>
-public class PermissionsResponse
-{
-    public string Path { get; set; } = string.Empty;
-    public bool Writable { get; set; }
-    public bool ReadOnly { get; set; }
-}
-
-/// <summary>
 /// Response for system permissions check
 /// </summary>
 public class SystemPermissionsResponse

@@ -353,21 +353,6 @@ public class SessionService
         return newRawToken;
     }
 
-    public async Task<int> CleanupExpiredSessionsAsync()
-    {
-        var cutoff = DateTime.UtcNow.AddDays(-7);
-        using var context = _dbContextFactory.CreateDbContext();
-        var count = await context.UserSessions
-            .Where(s => s.ExpiresAtUtc < cutoff || (s.IsRevoked && s.RevokedAtUtc < cutoff))
-            .ExecuteDeleteAsync();
-
-        if (count > 0)
-        {
-            _logger.LogInformation("Cleaned up {Count} expired/revoked sessions", count);
-        }
-        return count;
-    }
-
     public void SetSessionCookie(HttpContext httpContext, string rawToken, DateTime expiresAtUtc)
     {
         httpContext.Response.Cookies.Append(CookieName, rawToken, new CookieOptions

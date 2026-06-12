@@ -2,7 +2,6 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Models;
-using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Core.Services;
 
@@ -24,12 +23,12 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     private readonly Dictionary<string, ScheduledBackgroundService> _scheduledServices = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ConfigurableScheduledService> _configurableServices = new(StringComparer.OrdinalIgnoreCase);
     private readonly IStateService _stateService;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
 
-    public ServiceScheduleRegistry(IEnumerable<IHostedService> hostedServices, IStateService stateService, IHubContext<DownloadHub> hubContext)
+    public ServiceScheduleRegistry(IEnumerable<IHostedService> hostedServices, IStateService stateService, ISignalRNotificationService notifications)
     {
         _stateService = stateService;
-        _hubContext = hubContext;
+        _notifications = notifications;
         foreach (var service in hostedServices)
         {
             if (service is ScheduledBackgroundService scheduledService)
@@ -56,7 +55,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     {
         try
         {
-            await _hubContext.Clients.All.SendAsync("SchedulesUpdated", GetAll());
+            await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, GetAll());
         }
         catch
         {
@@ -76,7 +75,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     {
         try
         {
-            await _hubContext.Clients.All.SendAsync("SchedulesUpdated", GetAll());
+            await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, GetAll());
         }
         catch
         {

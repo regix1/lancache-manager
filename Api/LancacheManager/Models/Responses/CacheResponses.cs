@@ -1,17 +1,6 @@
 namespace LancacheManager.Models;
 
 /// <summary>
-/// Response for cache information
-/// </summary>
-public class CacheInfoResponse
-{
-    public string Path { get; set; } = string.Empty;
-    public bool Exists { get; set; }
-    public bool Writable { get; set; }
-    public long? TotalBytes { get; set; }
-}
-
-/// <summary>
 /// Response for cache operations (clear, removal)
 /// </summary>
 public class CacheOperationResponse
@@ -88,43 +77,12 @@ public class EstimatedDeletionTimes
 }
 
 /// <summary>
-/// Response for cache clear operation start
-/// </summary>
-public class CacheClearStartResponse
-{
-    public string Message { get; set; } = string.Empty;
-    public Guid OperationId { get; set; }
-    public OperationStatus Status { get; set; } = OperationStatus.Running;
-}
-
-/// <summary>
 /// Response for cache delete mode update
 /// </summary>
 public class CacheDeleteModeResponse
 {
     public string Message { get; set; } = string.Empty;
     public CacheDeleteMode DeleteMode { get; set; } = CacheDeleteMode.Preserve;
-}
-
-/// <summary>
-/// Response for service removal operation start
-/// </summary>
-public class ServiceRemovalStartResponse
-{
-    public string Message { get; set; } = string.Empty;
-    public string ServiceName { get; set; } = string.Empty;
-    public OperationStatus Status { get; set; } = OperationStatus.Running;
-}
-
-/// <summary>
-/// Response for corruption removal operation start
-/// </summary>
-public class CorruptionRemovalStartResponse
-{
-    public string Message { get; set; } = string.Empty;
-    public string Service { get; set; } = string.Empty;
-    public Guid OperationId { get; set; }
-    public OperationStatus Status { get; set; } = OperationStatus.Running;
 }
 
 /// <summary>

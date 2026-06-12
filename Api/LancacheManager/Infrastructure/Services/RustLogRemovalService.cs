@@ -41,14 +41,6 @@ public class RustLogRemovalService
     public string? CurrentDatasource { get; private set; }
 
     /// <summary>
-    /// Starts service removal operation (wrapper for StartRemovalAsync)
-    /// </summary>
-    public Task<bool> StartServiceRemovalAsync(string service)
-    {
-        return StartRemovalAsync(service);
-    }
-
-    /// <summary>
     /// Starts service removal in the background and returns the operation id as soon as it is registered.
     /// </summary>
     public Task<Guid?> StartServiceRemovalInBackgroundAsync(string service)
@@ -97,14 +89,6 @@ public class RustLogRemovalService
             CurrentOperationId = _currentTrackerOperationId;
             _operationRegisteredTcs?.TrySetResult(_currentTrackerOperationId.Value);
         }
-    }
-
-    /// <summary>
-    /// Starts service removal operation for a specific datasource
-    /// </summary>
-    public Task<bool> StartServiceRemovalForDatasourceAsync(string service, string datasourceName)
-    {
-        return StartRemovalForDatasourceAsync(service, datasourceName);
     }
 
     /// <summary>
@@ -260,7 +244,7 @@ public class RustLogRemovalService
         public Dictionary<string, object?> Context { get; set; } = new();
     }
 
-    public async Task<bool> StartRemovalAsync(string service)
+    private async Task<bool> StartRemovalAsync(string service)
     {
         // Sanitize user-provided service name to prevent process argument injection
         service = RustProcessHelper.SanitizeProcessArgument(service);
@@ -680,7 +664,7 @@ public class RustLogRemovalService
     /// <summary>
     /// Starts service removal for a specific datasource only
     /// </summary>
-    public async Task<bool> StartRemovalForDatasourceAsync(string service, string datasourceName)
+    private async Task<bool> StartRemovalForDatasourceAsync(string service, string datasourceName)
     {
         // Sanitize user-provided inputs to prevent process argument injection
         service = RustProcessHelper.SanitizeProcessArgument(service);

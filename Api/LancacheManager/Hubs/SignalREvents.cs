@@ -65,6 +65,7 @@ public static class SignalREvents
     public const string GameRemovalStarted = "GameRemovalStarted";
     public const string GameRemovalProgress = "GameRemovalProgress";
     public const string GameRemovalComplete = "GameRemovalComplete";
+    public const string GameImagesUpdated = "GameImagesUpdated";
 
     // Log Processing
     public const string LogProcessingStarted = "LogProcessingStarted";
@@ -86,6 +87,9 @@ public static class SignalREvents
 
     // Metrics Security
     public const string MetricsSecurityUpdated = "MetricsSecurityUpdated";
+
+    // Schedules
+    public const string SchedulesUpdated = "SchedulesUpdated";
 
     // System / Config
     public const string DefaultGuestRefreshRateChanged = "DefaultGuestRefreshRateChanged";

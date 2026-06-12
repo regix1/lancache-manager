@@ -381,39 +381,43 @@ public class StateService : IStateService
         });
     }
 
+    /// <summary>
+    /// Generic load-from-JSON helper shared by both operation-list getters.
+    /// Must be called <em>inside</em> the caller's lock — it does not acquire any lock itself.
+    /// Returns the cached list (populating it on first call) and invokes <paramref name="cleanup"/>
+    /// after a successful deserialisation.
+    /// </summary>
+    private List<T> LoadOperationList<T>(ref List<T>? cache, string filePath, Action cleanup)
+    {
+        if (cache != null)
+        {
+            return cache;
+        }
+
+        try
+        {
+            cache = File.Exists(filePath)
+                ? JsonSerializer.Deserialize<List<T>>(File.ReadAllText(filePath)) ?? new List<T>()
+                : new List<T>();
+
+            cleanup();
+
+            return cache;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load operation list from {Path}", filePath);
+            cache = new List<T>();
+            return cache;
+        }
+    }
+
     // Cache Clear Operations Methods - now use separate file (data/operations/cache_operations.json)
     public List<CacheClearOperation> GetCacheClearOperations()
     {
         lock (_cacheClearLock)
         {
-            if (_cachedCacheClearOperations != null)
-            {
-                return _cachedCacheClearOperations;
-            }
-
-            try
-            {
-                if (File.Exists(_cacheOperationsFilePath))
-                {
-                    var json = File.ReadAllText(_cacheOperationsFilePath);
-                    _cachedCacheClearOperations = JsonSerializer.Deserialize<List<CacheClearOperation>>(json) ?? new List<CacheClearOperation>();
-                }
-                else
-                {
-                    _cachedCacheClearOperations = new List<CacheClearOperation>();
-                }
-
-                // Clean up old completed operations (older than 24 hours)
-                CleanupOldCacheClearOperations();
-
-                return _cachedCacheClearOperations;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to load cache clear operations from {Path}", _cacheOperationsFilePath);
-                _cachedCacheClearOperations = new List<CacheClearOperation>();
-                return _cachedCacheClearOperations;
-            }
+            return LoadOperationList(ref _cachedCacheClearOperations, _cacheOperationsFilePath, CleanupOldCacheClearOperations);
         }
     }
 
@@ -495,34 +499,7 @@ public class StateService : IStateService
     {
         lock (_operationLock)
         {
-            if (_cachedOperationStates != null)
-            {
-                return _cachedOperationStates;
-            }
-
-            try
-            {
-                if (File.Exists(_operationHistoryFilePath))
-                {
-                    var json = File.ReadAllText(_operationHistoryFilePath);
-                    _cachedOperationStates = JsonSerializer.Deserialize<List<OperationState>>(json) ?? new List<OperationState>();
-                }
-                else
-                {
-                    _cachedOperationStates = new List<OperationState>();
-                }
-
-                // Clean up old completed operations (older than 48 hours)
-                CleanupOldOperationStates();
-
-                return _cachedOperationStates;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to load operation states from {Path}", _operationHistoryFilePath);
-                _cachedOperationStates = new List<OperationState>();
-                return _cachedOperationStates;
-            }
+            return LoadOperationList(ref _cachedOperationStates, _operationHistoryFilePath, CleanupOldOperationStates);
         }
     }
 

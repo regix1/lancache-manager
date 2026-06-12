@@ -2166,30 +2166,7 @@
     },
     "dataImporter": {
       "title": "导入历史数据",
-      "subtitle": "从外部 SQLite 数据库导入",
-      "databaseType": "数据库类型",
-      "importTypes": {
-        "deveLanCache": {
-          "description": "从 DeveLanCacheUI_Backend SQLite 数据库导入"
-        },
-        "lancacheManager": {
-          "description": "从 LancacheManager 数据库备份导入"
-        },
-        "unknown": "未知"
-      },
-      "modes": {
-        "auto": "自动",
-        "browse": "浏览",
-        "manual": "手动"
-      },
-      "auto": {
-        "searching": "正在搜索数据库...",
-        "found": "找到 {{count}} 个数据库"
-      },
-      "manual": {
-        "label": "数据库文件路径",
-        "example": "示例："
-      },
+      "subtitle": "从另一个 LancacheManager 数据库导入",
       "options": {
         "batchSize": "批处理大小",
         "batchSizeHint": "每次处理的记录数（100-10000）",
@@ -2201,7 +2178,6 @@
         "valid": "连接有效",
         "failed": "验证失败",
         "foundRecords": "找到 {{formattedCount}} 条准备导入的记录",
-        "hintDeveLanCache": "请确保为此导入类型选择了 DeveLanCacheUI_Backend 数据库。",
         "hintLancacheManager": "请确保为此导入类型选择了 LancacheManager 数据库。"
       },
       "progress": {
@@ -2234,8 +2210,7 @@
       },
       "messages": {
         "connectionValidated": "连接已验证！找到 {{formattedCount}} 条记录。",
-        "importCompleted": "导入完成！已导入 {{imported}}，跳过 {{skipped}}，错误 {{errors}}",
-        "selectedDatabase": "已选择数据库：{{path}}"
+        "importCompleted": "导入完成！已导入 {{imported}}，跳过 {{skipped}}，错误 {{errors}}"
       },
       "errors": {
         "enterConnectionString": "请输入连接字符串",
@@ -2246,24 +2221,9 @@
       "help": {
         "importTypes": {
           "title": "选项",
-          "deveLanCache": {
-            "term": "DeveLanCache",
-            "description": "从 DeveLanCacheUI_Backend 数据库导入下载历史"
-          },
           "lancacheManager": {
             "term": "Lancache Manager",
             "description": "从 Lancache Manager 数据库备份恢复"
-          }
-        },
-        "inputMethods": {
-          "title": "如何选择数据库",
-          "browse": {
-            "term": "浏览",
-            "description": "从文件浏览器中选择一个 .db 文件"
-          },
-          "manual": {
-            "term": "手动路径",
-            "description": "输入或粘贴数据库文件的完整路径"
           }
         },
         "compatibility": {
@@ -2276,13 +2236,6 @@
         "mockMode": "模拟模式已启用 - 导入功能已禁用",
         "skipInfo": "大多数用户可以跳过此功能。仅当您有现有数据库需要导入时才使用。",
         "authRequired": "导入数据需要身份验证"
-      },
-      "emptyState": {
-        "title": "未找到数据库文件",
-        "subtitle": "尝试使用浏览或手动模式"
-      },
-      "placeholders": {
-        "manualPath": "/mnt/import/lancache.db"
       },
       "aria": {
         "increaseBatchSize": "增加批处理大小",
@@ -2868,19 +2821,6 @@
       "freed": "已释放",
       "cooldown": "冷却",
       "remaining": "剩余"
-    },
-    "fileBrowser": {
-      "home": "首页",
-      "goBack": "返回",
-      "searchForDb": "搜索 .db 文件",
-      "accessDenied": "无权访问此位置",
-      "noDatabaseFiles": "此位置未找到数据库文件",
-      "searchFailed": "搜索失败",
-      "noFilesFound": "未找到目录或 .db 文件",
-      "selectedDatabase": "已选择的数据库",
-      "useFile": "使用此文件",
-      "foundFiles": "找到 <strong>{{count}}</strong> 个数据库文件",
-      "failedToLoadDirectory": "加载目录失败"
     },
     "schedules": {
       "title": "服务计划",
@@ -5133,20 +5073,6 @@
       "title": "导入历史数据",
       "subtitle": "从外部数据库系统导入下载历史",
       "skipNotice": "大多数用户可以跳过此步骤。仅当您有先前安装的现有数据库时才使用。",
-      "databaseType": "数据库类型",
-      "deveLanCache": "DeveLanCacheUI",
-      "lancacheManager": "Lancache Manager",
-      "deveLanCacheDesc": "从 DeveLanCacheUI_Backend SQLite 数据库导入",
-      "lancacheManagerDesc": "从 Lancache Manager PostgreSQL 数据库导入",
-      "auto": "自动",
-      "browse": "浏览",
-      "manualPath": "手动路径",
-      "searching": "正在搜索数据库...",
-      "foundDatabases": "找到 {{count}} 个数据库",
-      "searchingStatus": "正在搜索数据库...",
-      "noDatabasesFound": "未找到数据库文件",
-      "tryOtherModes": "请尝试使用浏览或手动模式",
-      "databasePath": "数据库文件路径",
       "host": "主机",
       "port": "端口",
       "database": "数据库",
@@ -5169,22 +5095,13 @@
       "pleaseEnter": "请输入数据库路径或连接详情",
       "failedToValidate": "验证连接失败",
       "foundRecords": "找到 {{formattedCount}} 条记录。",
-      "checkDeveLanCache": "请确保为此导入类型选择 DeveLanCacheUI_Backend 数据库。",
       "checkLancacheManager": "请确保为此导入类型选择 LancacheManager 数据库。",
       "importSuccess": "{{message}}",
       "total": "总计：{{formattedCount}}",
       "imported": "已导入：{{formattedCount}}",
       "skipped": "已跳过：{{formattedCount}}",
       "errors": "错误：{{formattedCount}}",
-      "importFailed": "导入失败：{{error}}",
-      "fileBrowserDisabled": {
-        "title": "文件浏览器已禁用",
-        "description": "自动检测和浏览模式使用服务器文件浏览器在磁盘上查找旧的 DeveLanCacheUI SQLite 数据库。出于安全考虑，该功能默认关闭，因此在您允许特定目录之前，这些模式无法进行搜索。",
-        "manualHint": "您仍然可以在手动模式下输入完整路径进行导入，或跳过此步骤、不导入直接继续。",
-        "envVarInstructions": "将以下环境变量添加到您的 docker-compose.yml 中，然后重启容器。请包含所有可能存放旧 .db 文件的目录：",
-        "envVarExample": "- Security__AllowedBrowsePaths=/data,/mnt",
-        "envVarNote": "只有此列表中的路径（及其子目录）可读，其余路径均返回 403。如果您的数据库位于主机挂载点上，请包含该挂载点（例如 /mnt/old-lancache）。"
-      }
+      "importFailed": "导入失败：{{error}}"
     },
     "platformSetup": {
       "title": "平台设置",
@@ -5399,8 +5316,6 @@
     "corruptionDetect": {
       "starting": "开始损坏检测扫描...",
       "scanningLogs": "正在扫描日志文件...",
-      "found": "在 {{serviceCount}} 个服务中发现 {{totalCorrupted}} 个损坏块",
-      "reportSaved": "报告已保存至: {{outputJson}}",
       "complete": "检测完成。发现 {{count}} 个服务存在损坏。",
       "cancelled": "用户已取消检测",
       "failed": "损坏检测失败: {{errorDetail}}"
@@ -5416,7 +5331,6 @@
       "deletingDb": "正在删除损坏块的数据库记录",
       "scanningFiles": "正在扫描 {{totalFiles}} 个日志文件查找损坏块...",
       "scanningFile": "正在扫描文件 {{fileIndex}}/{{totalFiles}}...",
-      "foundUrls": "在 {{service}} 中发现 {{count}} 个损坏URL",
       "complete": "已为 {{service}} 移除 {{count}} 个损坏URL（删除了 {{files}} 个缓存文件、{{logLines}} 行日志、{{downloads}} 条下载记录、{{logEntries}} 条日志条目）",
       "success": "已成功移除 {{service}} 的损坏块",
       "cancelled": "操作已被取消。",
@@ -5429,10 +5343,6 @@
       "failed": {
         "generic": "操作失败。请查看服务器日志了解详情。"
       }
-    },
-    "corruptionSummary": {
-      "scanningLogs": "正在扫描日志文件...",
-      "complete": "损坏摘要已生成"
     },
     "dbReset": {
       "starting": "开始数据库重置...",

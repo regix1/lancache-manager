@@ -2170,42 +2170,15 @@ class ApiService {
   // Migration / Import APIs
   // =====================================================
 
-  // Search filesystem for previous install databases
-  static async searchForDatabases(): Promise<{ results: MigrationFileSystemItem[] }> {
-    const res = await fetch(
-      `${API_BASE}/filebrowser/search?searchPath=/`,
-      this.getFetchOptions({ method: 'GET' })
-    );
-    return this.handleResponse<{ results: MigrationFileSystemItem[] }>(res);
-  }
-
   // Validate a connection string for migration
   static async validateMigrationConnection(
-    connectionString: string,
-    importType: 'develancache' | 'lancache-manager'
+    connectionString: string
   ): Promise<MigrationValidationResult> {
     const res = await fetch(
-      `${API_BASE}/migration/validate-connection?connectionString=${encodeURIComponent(connectionString)}&importType=${importType}`,
+      `${API_BASE}/migration/validate-connection?connectionString=${encodeURIComponent(connectionString)}`,
       this.getFetchOptions({ method: 'GET' })
     );
     return this.handleResponse<MigrationValidationResult>(res);
-  }
-
-  // Import from DeveLanCacheUI_Backend database
-  static async importFromDevelancache(
-    connectionString: string,
-    batchSize: number,
-    overwriteExisting: boolean
-  ): Promise<MigrationImportResult> {
-    const res = await fetch(
-      `${API_BASE}/migration/import-develancache`,
-      this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ connectionString, batchSize, overwriteExisting })
-      })
-    );
-    return this.handleResponse<MigrationImportResult>(res);
   }
 
   // Import from LancacheManager database
@@ -2335,30 +2308,6 @@ class ApiService {
   static async getGcManagementStatus(): Promise<unknown> {
     const response = await fetch(`${API_BASE}/system/gc-management/status`, this.getFetchOptions());
     return ApiService.handleResponse<unknown>(response);
-  }
-
-  // ── File Browser ──────────────────────────────────────────────────────────
-
-  static async getFileBrowserStatus(): Promise<{ configured: boolean; allowedPaths: string[] }> {
-    const response = await fetch(`${API_BASE}/filebrowser/status`, this.getFetchOptions());
-    return ApiService.handleResponse<{ configured: boolean; allowedPaths: string[] }>(response);
-  }
-
-  static async fileBrowserList<T>(path: string | null): Promise<T> {
-    const queryParam = path ? `?path=${encodeURIComponent(path)}` : '';
-    const response = await fetch(
-      `${API_BASE}/filebrowser/list${queryParam}`,
-      this.getFetchOptions({ method: 'GET' })
-    );
-    return ApiService.handleResponse<T>(response);
-  }
-
-  static async fileBrowserSearch<T>(searchPath: string): Promise<T> {
-    const response = await fetch(
-      `${API_BASE}/filebrowser/search?searchPath=${encodeURIComponent(searchPath)}`,
-      this.getFetchOptions({ method: 'GET' })
-    );
-    return ApiService.handleResponse<T>(response);
   }
 
   // ── Events ────────────────────────────────────────────────────────────────
@@ -2976,15 +2925,6 @@ interface PrefillCacheStatusDto {
   upToDateAppIds: string[];
   outdatedAppIds: string[];
   message?: string;
-}
-
-interface MigrationFileSystemItem {
-  name: string;
-  path: string;
-  isDirectory: boolean;
-  size: number;
-  lastModified: string;
-  isAccessible: boolean;
 }
 
 interface MigrationValidationResult {

@@ -341,7 +341,6 @@ volumes:
 | `Security__RequireAuthForMetrics` | `false` | 在 `/metrics` 上要求 API 密钥。UI 中管理 → 安全的开关设置后会覆盖此值。 |
 | `Security__ProtectSwagger` | `true` | 在生产环境中对 Swagger 文档要求认证。 |
 | `Security__AllowedOrigins` | （空） | 逗号分隔的 CORS 允许列表。为空则允许所有来源。 |
-| `Security__AllowedBrowsePaths` | （空） | 逗号分隔的文件浏览器根目录允许列表。为空则完全禁用文件浏览器（每次请求返回 `403`）。示例：`/data,/mnt`。 |
 | `Security__ApiKeyPath` | `/data/security/api_key.txt` | 覆盖管理员 API 密钥读写的文件路径。当从 `/data` 外部绑定挂载密钥时很有用。 |
 | `Security__KnownProxyNetworks` | （空） | 逗号分隔的可信代理网络 CIDR 列表，用于 `X-Forwarded-For`（例如 `172.16.0.0/12,10.0.0.0/8`）。当 nginx、Traefik 或其他反向代理前置时设置此项，以便正确报告客户端 IP。回环地址始终受信任。 |
 | `Security__TrustAllProxies` | `false` | 无条件信任所有上游代理。方便本地开发。**切勿在暴露于 Internet 的主机上启用**——任何人都可以伪造客户端 IP。 |
@@ -354,24 +353,6 @@ volumes:
 | **访客** | 只读视图。需要管理员认证或访客会话。 | 浏览下载、统计、事件、客户端数据 |
 
 要分享访客链接而不泄露你的 API 密钥，打开**用户**标签页，点击**创建访客链接**。访客可以浏览仪表盘但无法更改任何内容。没有什么是公开的——每个端点都需要管理员认证或有效的访客会话。
-
-#### 文件浏览器（DeveLanCacheUI 导入）
-
-DeveLanCacheUI 导入流程使用仅管理员可用的文件浏览器端点（`/api/filebrowser/list`）在服务器上查找 `.db` 文件。出于安全考虑，浏览器**默认禁用**——如果没有显式的允许列表，每个请求都会返回 `403`，并且你会在日志中看到：
-
-```
-warn: LancacheManager.Controllers.FileBrowserController[0]
-      FileBrowser: Security:AllowedBrowsePaths is not configured. All file-browse requests will be rejected (403) until paths are configured.
-```
-
-要开启它，将 `Security__AllowedBrowsePaths` 设置为逗号分隔的目录列表，允许浏览器进入。每个根目录的子目录都可以访问；列表之外的所有内容返回 `403`。
-
-```yaml
-environment:
-  - Security__AllowedBrowsePaths=/data,/mnt
-```
-
-如果你不使用 DeveLanCacheUI 导入器，请将其留空。该警告仅供参考——应用中的其他功能不受影响。
 
 <a id="prefill-config"></a>
 ### 预填充
@@ -460,7 +441,6 @@ services:
       # - Security__RequireAuthForMetrics=false
       # - Security__ProtectSwagger=true
       # - Security__AllowedOrigins=
-      # - Security__AllowedBrowsePaths=
 
       # 预填充（Steam & Epic） - 参见 配置 > 预填充 获取完整参考
       # 大多数安装无需任何设置；自动检测已覆盖常见场景。

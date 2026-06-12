@@ -87,7 +87,7 @@ impl ProbeKey {
     ) -> Self {
         Self {
             root: roots.resolve(datasource).to_path_buf(),
-            service: cache_utils::normalize_service_name(service),
+            service: cache_utils::service_name_lowercase(service),
             url,
         }
     }

@@ -161,11 +161,6 @@ public interface IPathResolver
     string GetRustCachePurgeLogEntriesPath();
 
     /// <summary>
-    /// Gets the path to the Rust data migrator executable
-    /// </summary>
-    string GetRustDataMigratorPath();
-
-    /// <summary>
     /// Gets the path to the Rust speed tracker executable
     /// </summary>
     string GetRustSpeedTrackerPath();

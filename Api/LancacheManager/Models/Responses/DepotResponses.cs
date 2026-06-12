@@ -1,21 +1,6 @@
 namespace LancacheManager.Models;
 
 /// <summary>
-/// Response for depot/PICS status
-/// </summary>
-public class DepotStatusResponse
-{
-    public bool IsRebuilding { get; set; }
-    public string Status { get; set; } = string.Empty;
-    public int? Progress { get; set; }
-    public string? Message { get; set; }
-    public DateTime? LastRebuildTime { get; set; }
-    public int TotalDepots { get; set; }
-    public double CrawlIntervalHours { get; set; }
-    public object? CrawlIncrementalMode { get; set; }
-}
-
-/// <summary>
 /// Response for depot status including JSON file and database info
 /// </summary>
 public class DepotFullStatusResponse

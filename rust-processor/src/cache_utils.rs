@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -35,19 +36,19 @@ pub fn safe_path_under_root(root: &Path, candidate: &Path) -> io::Result<PathBuf
 // Filesystem type magic numbers from statfs (Unix only)
 #[cfg(unix)]
 #[allow(dead_code)]
-pub const NFS_SUPER_MAGIC: i64 = 0x6969;
+const NFS_SUPER_MAGIC: i64 = 0x6969;
 #[cfg(unix)]
 #[allow(dead_code)]
-pub const NFS_V4_MAGIC: i64 = 0x6E667364; // "nfsd" in hex
+const NFS_V4_MAGIC: i64 = 0x6E667364; // "nfsd" in hex
 #[cfg(unix)]
 #[allow(dead_code)]
-pub const CIFS_MAGIC_NUMBER: i64 = 0xFF534D42;
+const CIFS_MAGIC_NUMBER: i64 = 0xFF534D42;
 #[cfg(unix)]
 #[allow(dead_code)]
-pub const SMB_SUPER_MAGIC: i64 = 0x517B;
+const SMB_SUPER_MAGIC: i64 = 0x517B;
 #[cfg(unix)]
 #[allow(dead_code)]
-pub const SMB2_MAGIC_NUMBER: i64 = 0xFE534D42;
+const SMB2_MAGIC_NUMBER: i64 = 0xFE534D42;
 
 /// Filesystem type enumeration for optimizing operations
 /// Used on Linux to detect NFS/SMB and adjust parallelism accordingly
@@ -195,8 +196,13 @@ pub fn calculate_cache_path_no_range(
     cache_dir.join(last_2).join(middle_2).join(&hash)
 }
 
+/// Lowercase service name for cache-path MD5 hashing.
+///
+/// Feeds MD5 cache-path hashing and must NOT canonicalize IPs/localhost.
+/// This is deliberately different from `service_utils::normalize_service_name`,
+/// which canonicalizes IPs and localhost for log parsing. Do not merge these.
 #[allow(dead_code)]
-pub fn normalize_service_name(service: &str) -> String {
+pub fn service_name_lowercase(service: &str) -> String {
     service.to_lowercase()
 }
 
@@ -226,7 +232,7 @@ pub fn cache_hash_candidates_iter(
     url: &str,
     max_chunks: usize,
 ) -> impl Iterator<Item = String> {
-    let service = normalize_service_name(service);
+    let service = service_name_lowercase(service);
     let url = url.to_owned();
     let no_range_hash = calculate_md5(&format!("{}{}", service, url));
 
@@ -247,7 +253,7 @@ pub fn cache_path_candidates_for_probe(
     url: &str,
     max_chunks: usize,
 ) -> Vec<PathBuf> {
-    let service = normalize_service_name(service);
+    let service = service_name_lowercase(service);
     let mut paths = Vec::with_capacity(max_chunks + 1);
     paths.push(calculate_cache_path_no_range(cache_dir, &service, url));
 
@@ -265,7 +271,7 @@ pub fn cache_path_candidates_for_bytes(
     url: &str,
     total_bytes: i64,
 ) -> Vec<PathBuf> {
-    let service = normalize_service_name(service);
+    let service = service_name_lowercase(service);
     let chunk_ranges = chunk_ranges_for_total_bytes(total_bytes);
     let mut paths = Vec::with_capacity(chunk_ranges.len() + 1);
     paths.push(calculate_cache_path_no_range(cache_dir, &service, url));
@@ -304,6 +310,53 @@ fn chunk_ranges_for_total_bytes(total_bytes: i64) -> Vec<(u64, u64)> {
 
 fn chunk_end(start: u64) -> u64 {
     start + DEFAULT_SLICE_SIZE - 1
+}
+
+/// Removes empty directories from the given set, deepest-first, also pruning empty parents
+/// one level up (stopping at `cache_dir`). Uses `safe_path_under_root` as a guard before
+/// any removal. Returns the count of directories successfully removed.
+#[allow(dead_code)]
+pub(crate) fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet<PathBuf>) -> usize {
+    let mut removed_count = 0;
+
+    let mut sorted_dirs: Vec<PathBuf> = dirs_to_check.into_iter().collect();
+    sorted_dirs.sort_by(|a, b| b.components().count().cmp(&a.components().count()));
+
+    for dir in sorted_dirs {
+        // Canonical-under-root guard: refuses symlinks, paths outside root.
+        if let Err(e) = safe_path_under_root(cache_dir, &dir) {
+            eprintln!("  skipping unsafe dir {}: {}", dir.display(), e);
+            continue;
+        }
+
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            if entries.count() == 0 {
+                if std::fs::remove_dir(&dir).is_ok() {
+                    removed_count += 1;
+
+                    if let Some(parent) = dir.parent() {
+                        if parent != cache_dir {
+                            match safe_path_under_root(cache_dir, parent) {
+                                Ok(_) => {
+                                    if let Ok(parent_entries) = std::fs::read_dir(parent) {
+                                        if parent_entries.count() == 0 {
+                                            std::fs::remove_dir(parent).ok();
+                                            removed_count += 1;
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("  skipping unsafe parent {}: {}", parent.display(), e);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    removed_count
 }
 
 #[cfg(test)]

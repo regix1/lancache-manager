@@ -85,9 +85,3 @@ public class GuestDurationResponse
     public bool CanEdit { get; set; } = true;
     public int EnvVarValue { get; set; }
 }
-
-public class GuestPrefillConfigResponse
-{
-    public bool EnabledByDefault { get; set; }
-    public int DurationHours { get; set; } = 2;
-}

@@ -62,7 +62,7 @@ fn collect_steam_game_inputs(records: &[DownloadRecord]) -> Result<SteamGameInpu
     for record in records {
         unique_urls.insert(record.url.clone());
         service_urls.push((
-            cache_utils::normalize_service_name(&record.service),
+            cache_utils::service_name_lowercase(&record.service),
             record.url.clone(),
         ));
 

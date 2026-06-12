@@ -428,226 +428,50 @@ public class CacheController : ControllerBase
 
         // CRITICAL: Check write permissions BEFORE starting the operation for ALL datasources
         // This prevents the DB/filesystem state mismatch when PUID/PGID is wrong
-        foreach (ResolvedDatasource datasource in datasources)
+        var permissionError = CheckDatasourcesWritableForCorruption(datasources, service);
+        if (permissionError != null)
         {
-            var cacheWritable = datasource.CacheWritable;
-            var logsWritable = datasource.LogsWritable;
-
-            if (!cacheWritable || !logsWritable)
-            {
-                var errors = new List<string>();
-                if (!cacheWritable) errors.Add($"cache directory is read-only ({datasource.CachePath})");
-                if (!logsWritable) errors.Add($"logs directory is read-only ({datasource.LogPath})");
-
-                var errorMessage = $"Cannot remove corrupted chunks for datasource '{datasource.Name}': {string.Join(" and ", errors)}. " +
-                    "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-                    $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
-
-                _logger.LogWarning("[CorruptionRemoval] Permission check failed for service {Service} on datasource {Datasource}: {Error}",
-                    service, datasource.Name, errorMessage);
-
-                return BadRequest(new ErrorResponse { Error = errorMessage });
-            }
+            return BadRequest(new ErrorResponse { Error = permissionError });
         }
-
-        // Create CancellationTokenSource and register with unified operation tracker for cancel support
-        var cts = new CancellationTokenSource();
-        var metadata = new RemovalMetrics { EntityKey = service.ToLowerInvariant(), EntityName = service };
-        Guid operationId = Guid.Empty;
-        operationId = _operationTracker.RegisterOperation(
-            OperationType.CorruptionRemoval,
-            $"Corruption removal: {service}",
-            cts,
-            metadata,
-            onTerminalEmit: info => info.Cancelled
-                ? _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                    new CorruptionRemovalComplete(false, service,
-                        StageKey: "signalr.corruptionRemove.cancelled",
-                        OperationId: operationId))
-                : info.Success
-                    ? _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                        new CorruptionRemovalComplete(true, service,
-                            StageKey: "signalr.corruptionRemove.success",
-                            OperationId: operationId,
-                            Context: new Dictionary<string, object?> { ["service"] = service }))
-                    : _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                        new CorruptionRemovalComplete(false, service,
-                            StageKey: "signalr.corruptionRemove.failed.generic",
-                            OperationId: operationId,
-                            Error: info.Error)));
-
-        // Send start notification via SignalR
-        _notifications.NotifyAllFireAndForget(SignalREvents.CorruptionRemovalStarted,
-            new CorruptionRemovalStarted(
-                service,
-                operationId,
-                "signalr.corruptionRemove.starting",
-                DateTime.UtcNow,
-                new Dictionary<string, object?> { ["service"] = service }));
 
         // Optimistically delete the cached detection row immediately so app restarts don't resurface stale data
         await _corruptionDetectionService.RemoveCachedServiceAsync(service);
+
+        // Register synchronously (inside the core) but surface the operationId to this
+        // request thread so it can be returned in the HTTP response.
+        var operationIdReady = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         _ = Task.Run(async () =>
         {
             try
             {
+                // Pause LiveLogMonitorService to prevent file locking issues.
+                // Pause MUST be inside this try so the finally below always resumes,
+                // even if a cancel/throw happens between Pause and the work loop.
+                await LiveLogMonitorService.PauseAsync();
+                _logger.LogInformation("Paused LiveLogMonitorService for corruption removal");
+
                 try
                 {
-                    // Pause LiveLogMonitorService to prevent file locking issues.
-                    // Pause MUST be inside this try so the finally below always resumes,
-                    // even if a cancel/throw happens between Pause and the work loop.
-                    await LiveLogMonitorService.PauseAsync();
-                    _logger.LogInformation("Paused LiveLogMonitorService for corruption removal");
-
-                    // Update tracking
-                    _operationTracker.UpdateProgress(operationId, 0, "signalr.corruptionRemove.starting");
-
-                    _logger.LogInformation("[CorruptionRemoval] Processing {Count} datasource(s) for service {Service}",
-                        datasources.Count, service);
-                    bool allSucceeded = true;
-                    string? lastError = null;
-
-                    foreach (ResolvedDatasource datasource in datasources)
-                    {
-                        cts.Token.ThrowIfCancellationRequested();
-
-                        var logsPath = datasource.LogPath;
-                        var cachePath = datasource.CachePath;
-                        var progressFilePath = Path.Combine(_pathResolver.GetOperationsDirectory(),
-                            $"corruption_removal_{operationId}_{datasource.Name}.json");
-
-                        _logger.LogInformation("[CorruptionRemoval] Processing datasource '{Datasource}' (logs: {LogsPath}, cache: {CachePath})",
-                            datasource.Name, logsPath, cachePath);
-
-                        // Start progress monitoring task for this datasource
-                        using var dsProgressCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
-                        var dsProgressToken = dsProgressCts.Token;
-
-                        var progressMonitorTask = Task.Run(async () =>
-                        {
-                            try
-                            {
-                                while (!dsProgressToken.IsCancellationRequested)
-                                {
-                                    await Task.Delay(500, dsProgressToken);
-
-                                    var progress = await _rustProcessHelper.ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
-                                    if (progress != null)
-                                    {
-                                        _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.StageKey ?? "");
-                                        _operationTracker.UpdateMetadata(operationId, (object meta) =>
-                                        {
-                                            var m = (RemovalMetrics)meta;
-                                            m.FilesProcessed = progress.FilesProcessed;
-                                            m.TotalFiles = progress.TotalFiles;
-                                        });
-
-                                        // Send progress notification via SignalR
-                                        await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalProgress,
-                                            new CorruptionRemovalProgress(
-                                                service,
-                                                operationId,
-                                                progress.Status,
-                                                progress.StageKey ?? string.Empty,
-                                                DateTime.UtcNow,
-                                                progress.FilesProcessed,
-                                                progress.TotalFiles,
-                                                progress.PercentComplete,
-                                                progress.Context));
-                                    }
-                                }
-                            }
-                            catch (OperationCanceledException)
-                            {
-                                // Expected when datasource processing completes or is cancelled
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogDebug(ex, "Progress monitoring ended for corruption removal: {Service} datasource: {Datasource}",
-                                    service, datasource.Name);
-                            }
-                        }, dsProgressToken);
-
-                        try
-                        {
-                            var result = await _rustProcessHelper.RunCorruptionManagerAsync(
-                                "remove",
-                                logsPath,
-                                cachePath,
-                                service: service,
-                                progressFile: progressFilePath,
-                                cancellationToken: cts.Token,
-                                threshold: threshold,
-                                compareToCacheLogs: compareToCacheLogs,
-                                detectRedownloads: detectionMode == "redownload",
-                                operationId: operationId);
-
-                            // Stop progress monitoring for this datasource
-                            await dsProgressCts.CancelAsync();
-                            try { await progressMonitorTask; } catch { /* ignore cancellation */ }
-
-                            if (result.Success)
-                            {
-                                _logger.LogInformation("[CorruptionRemoval] Completed for service {Service} on datasource '{Datasource}'",
-                                    service, datasource.Name);
-                            }
-                            else
-                            {
-                                _logger.LogError("[CorruptionRemoval] Failed for service {Service} on datasource '{Datasource}': {Error}",
-                                    service, datasource.Name, result.Error);
-                                allSucceeded = false;
-                                lastError = result.Error;
-                            }
-                        }
-                        finally
-                        {
-                            // Clean up progress file for this datasource
-                            try { if (System.IO.File.Exists(progressFilePath)) System.IO.File.Delete(progressFilePath); } catch (Exception ex) { _logger.LogDebug(ex, "Failed to clean up progress file"); }
-                        }
-                    }
-
-                    if (allSucceeded)
-                    {
-                        _logger.LogInformation("Corruption removal completed for service: {Service} across all datasources", service);
-
-                        // Signal nginx to reopen log files (prevents monolithic container from losing log access)
-                        await _nginxLogRotationService.ReopenNginxLogsAsync();
-
-                        // Invalidate service count cache since corruption removal affects counts
-                        await _cacheService.InvalidateServiceCountsCacheAsync();
-
-                        // Terminal SignalR emit is centralized in the onTerminalEmit closure
-                        // registered with RegisterOperation (fires exactly once from CompleteOperation).
-                        _operationTracker.CompleteOperation(operationId, success: true);
-                    }
-                    else
-                    {
-                        _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, lastError);
-                        _operationTracker.CompleteOperation(operationId, success: false, error: lastError);
-                    }
+                    await RunCorruptionRemovalForServiceCoreAsync(
+                        service, threshold, compareToCacheLogs, detectionMode, datasources,
+                        onRegistered: id => operationIdReady.TrySetResult(id));
                 }
-                finally
+                catch (OperationCanceledException)
                 {
-                    // Always resume LiveLogMonitorService
-                    await LiveLogMonitorService.ResumeAsync();
-                    _logger.LogInformation("Resumed LiveLogMonitorService after corruption removal");
+                    // The core already completed the operation as cancelled.
                 }
             }
-            catch (OperationCanceledException)
+            finally
             {
-                _logger.LogInformation("Corruption removal cancelled for service: {Service}", service);
-                _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
-
-                // NOTE: LiveLogMonitorService is already resumed by the inner finally above;
-                // no redundant resume here (csharp-services-7).
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
-                _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+                // Always resume LiveLogMonitorService
+                await LiveLogMonitorService.ResumeAsync();
+                _logger.LogInformation("Resumed LiveLogMonitorService after corruption removal");
+                operationIdReady.TrySetResult(Guid.Empty);
             }
         });
+
+        var operationId = await operationIdReady.Task;
 
         return Accepted(new CacheOperationResponse
         {
@@ -698,6 +522,66 @@ public class CacheController : ControllerBase
         var datasources = _datasourceService.GetDatasources();
 
         // CRITICAL: Check write permissions BEFORE starting the operation for ALL datasources
+        var permissionError = CheckDatasourcesWritableForCorruption(datasources, service: null);
+        if (permissionError != null)
+        {
+            return BadRequest(new ErrorResponse { Error = permissionError });
+        }
+
+        // Delete cached detection rows per-service and activate grace period to prevent immediate reappearance
+        foreach (var service in servicesWithCorruption)
+        {
+            await _corruptionDetectionService.RemoveCachedServiceAsync(service);
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                // Pause LiveLogMonitorService ONCE to prevent file locking issues across all services.
+                // Pause MUST be inside this try so the finally below always resumes,
+                // even if a cancel/throw happens between Pause and the work loop.
+                await LiveLogMonitorService.PauseAsync();
+                _logger.LogInformation("Paused LiveLogMonitorService for all-services corruption removal");
+
+                foreach (var service in servicesWithCorruption)
+                {
+                    try
+                    {
+                        await RunCorruptionRemovalForServiceCoreAsync(
+                            service, threshold, compareToCacheLogs, detectionMode, datasources);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // The core already completed this service's operation as cancelled.
+                        // Stop processing further services on cancellation.
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unhandled error during all-services corruption removal");
+            }
+            finally
+            {
+                // Always resume LiveLogMonitorService
+                await LiveLogMonitorService.ResumeAsync();
+                _logger.LogInformation("Resumed LiveLogMonitorService after all-services corruption removal");
+            }
+        });
+
+        return Accepted(new { Message = "Corruption removal started for all services" });
+    }
+
+    /// <summary>
+    /// Verifies every datasource's cache and log directories are writable before a corruption
+    /// removal starts. Returns a user-facing error string when a directory is read-only, or
+    /// null when all datasources are writable. <paramref name="service"/> is included in the
+    /// log line for the single-service path; pass null for the all-services path.
+    /// </summary>
+    private string? CheckDatasourcesWritableForCorruption(IReadOnlyList<ResolvedDatasource> datasources, string? service)
+    {
         foreach (ResolvedDatasource datasource in datasources)
         {
             var cacheWritable = datasource.CacheWritable;
@@ -713,220 +597,224 @@ public class CacheController : ControllerBase
                     "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
                     $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
 
-                _logger.LogWarning("[CorruptionRemoval] Permission check failed on datasource {Datasource}: {Error}",
-                    datasource.Name, errorMessage);
+                if (service != null)
+                {
+                    _logger.LogWarning("[CorruptionRemoval] Permission check failed for service {Service} on datasource {Datasource}: {Error}",
+                        service, datasource.Name, errorMessage);
+                }
+                else
+                {
+                    _logger.LogWarning("[CorruptionRemoval] Permission check failed on datasource {Datasource}: {Error}",
+                        datasource.Name, errorMessage);
+                }
 
-                return BadRequest(new ErrorResponse { Error = errorMessage });
+                return errorMessage;
             }
         }
 
-        // Delete cached detection rows per-service and activate grace period to prevent immediate reappearance
-        foreach (var service in servicesWithCorruption)
-        {
-            await _corruptionDetectionService.RemoveCachedServiceAsync(service);
-        }
+        return null;
+    }
 
-        _ = Task.Run(async () =>
+    /// <summary>
+    /// Shared per-service corruption-removal core: registers a tracked operation, emits the
+    /// start notification, runs the corruption-remove Rust binary across every datasource with
+    /// progress monitoring, and completes the operation. Caller responsibilities (NOT done here):
+    /// conflict/permission checks, the optimistic <c>RemoveCachedServiceAsync</c> row delete,
+    /// LiveLogMonitorService Pause/Resume (the all-services path pauses ONCE around its loop),
+    /// and the HTTP response. On cancellation the operation is completed as cancelled and an
+    /// <see cref="OperationCanceledException"/> is rethrown so the all-services loop can break;
+    /// non-cancellation failures complete the operation as failed and are swallowed so the
+    /// all-services loop continues with the next service. <paramref name="onRegistered"/> fires
+    /// synchronously with the operationId the moment the operation is registered.
+    /// </summary>
+    private async Task RunCorruptionRemovalForServiceCoreAsync(
+        string service,
+        int threshold,
+        bool compareToCacheLogs,
+        string detectionMode,
+        IReadOnlyList<ResolvedDatasource> datasources,
+        Action<Guid>? onRegistered = null)
+    {
+        // Create CancellationTokenSource and register with unified operation tracker for cancel support
+        var cts = new CancellationTokenSource();
+        var metadata = new RemovalMetrics { EntityKey = service.ToLowerInvariant(), EntityName = service };
+        var serviceName = service;
+        Guid operationId = Guid.Empty;
+        operationId = _operationTracker.RegisterOperation(
+            OperationType.CorruptionRemoval,
+            $"Corruption removal: {service}",
+            cts,
+            metadata,
+            onTerminalEmit: info => info.Cancelled
+                ? _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                    new CorruptionRemovalComplete(false, serviceName,
+                        StageKey: "signalr.corruptionRemove.cancelled",
+                        OperationId: operationId))
+                : info.Success
+                    ? _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                        new CorruptionRemovalComplete(true, serviceName,
+                            StageKey: "signalr.corruptionRemove.success",
+                            OperationId: operationId,
+                            Context: new Dictionary<string, object?> { ["service"] = serviceName }))
+                    : _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                        new CorruptionRemovalComplete(false, serviceName,
+                            StageKey: "signalr.corruptionRemove.failed.generic",
+                            OperationId: operationId,
+                            Error: info.Error)));
+
+        onRegistered?.Invoke(operationId);
+
+        // Send start notification via SignalR
+        _notifications.NotifyAllFireAndForget(SignalREvents.CorruptionRemovalStarted,
+            new CorruptionRemovalStarted(
+                service,
+                operationId,
+                "signalr.corruptionRemove.starting",
+                DateTime.UtcNow,
+                new Dictionary<string, object?> { ["service"] = service }));
+
+        try
         {
-            try
+            // Update tracking
+            _operationTracker.UpdateProgress(operationId, 0, "signalr.corruptionRemove.starting");
+
+            _logger.LogInformation("[CorruptionRemoval] Processing {Count} datasource(s) for service {Service}",
+                datasources.Count, service);
+            bool allSucceeded = true;
+            string? lastError = null;
+
+            foreach (ResolvedDatasource datasource in datasources)
             {
+                cts.Token.ThrowIfCancellationRequested();
+
+                var logsPath = datasource.LogPath;
+                var cachePath = datasource.CachePath;
+                var progressFilePath = Path.Combine(_pathResolver.GetOperationsDirectory(),
+                    $"corruption_removal_{operationId}_{datasource.Name}.json");
+
+                _logger.LogInformation("[CorruptionRemoval] Processing datasource '{Datasource}' (logs: {LogsPath}, cache: {CachePath})",
+                    datasource.Name, logsPath, cachePath);
+
+                // Start progress monitoring task for this datasource
+                using var dsProgressCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+                var dsProgressToken = dsProgressCts.Token;
+
+                var progressMonitorTask = Task.Run(async () =>
+                {
+                    try
+                    {
+                        while (!dsProgressToken.IsCancellationRequested)
+                        {
+                            await Task.Delay(500, dsProgressToken);
+
+                            var progress = await _rustProcessHelper.ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
+                            if (progress != null)
+                            {
+                                _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.StageKey ?? "");
+                                _operationTracker.UpdateMetadata(operationId, (object meta) =>
+                                {
+                                    var m = (RemovalMetrics)meta;
+                                    m.FilesProcessed = progress.FilesProcessed;
+                                    m.TotalFiles = progress.TotalFiles;
+                                });
+
+                                // Send progress notification via SignalR
+                                await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalProgress,
+                                    new CorruptionRemovalProgress(
+                                        service,
+                                        operationId,
+                                        progress.Status,
+                                        progress.StageKey ?? string.Empty,
+                                        DateTime.UtcNow,
+                                        progress.FilesProcessed,
+                                        progress.TotalFiles,
+                                        progress.PercentComplete,
+                                        progress.Context));
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected when datasource processing completes or is cancelled
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Progress monitoring ended for corruption removal: {Service} datasource: {Datasource}",
+                            service, datasource.Name);
+                    }
+                }, dsProgressToken);
+
                 try
                 {
-                    // Pause LiveLogMonitorService to prevent file locking issues across all services.
-                    // Pause MUST be inside this try so the finally below always resumes,
-                    // even if a cancel/throw happens between Pause and the work loop.
-                    await LiveLogMonitorService.PauseAsync();
-                    _logger.LogInformation("Paused LiveLogMonitorService for all-services corruption removal");
+                    var result = await _rustProcessHelper.RunCorruptionManagerAsync(
+                        "remove",
+                        logsPath,
+                        cachePath,
+                        service: service,
+                        progressFile: progressFilePath,
+                        cancellationToken: cts.Token,
+                        threshold: threshold,
+                        compareToCacheLogs: compareToCacheLogs,
+                        detectRedownloads: detectionMode == "redownload",
+                        operationId: operationId);
 
-                    foreach (var service in servicesWithCorruption)
+                    // Stop progress monitoring for this datasource
+                    await dsProgressCts.CancelAsync();
+                    try { await progressMonitorTask; } catch { /* ignore cancellation */ }
+
+                    if (result.Success)
                     {
-                        // Register a fresh operation per service
-                        var cts = new CancellationTokenSource();
-                        var metadata = new RemovalMetrics { EntityKey = service.ToLowerInvariant(), EntityName = service };
-                        var serviceName = service;
-                        Guid operationId = Guid.Empty;
-                        operationId = _operationTracker.RegisterOperation(
-                            OperationType.CorruptionRemoval,
-                            $"Corruption removal: {service}",
-                            cts,
-                            metadata,
-                            onTerminalEmit: info => info.Cancelled
-                                ? _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                                    new CorruptionRemovalComplete(false, serviceName,
-                                        StageKey: "signalr.corruptionRemove.cancelled",
-                                        OperationId: operationId))
-                                : info.Success
-                                    ? _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                                        new CorruptionRemovalComplete(true, serviceName,
-                                            StageKey: "signalr.corruptionRemove.success",
-                                            OperationId: operationId,
-                                            Context: new Dictionary<string, object?> { ["service"] = serviceName }))
-                                    : _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                                        new CorruptionRemovalComplete(false, serviceName,
-                                            StageKey: "signalr.corruptionRemove.failed.generic",
-                                            OperationId: operationId,
-                                            Error: info.Error)));
-
-                        // Send start notification via SignalR
-                        _notifications.NotifyAllFireAndForget(SignalREvents.CorruptionRemovalStarted,
-                            new CorruptionRemovalStarted(
-                                service,
-                                operationId,
-                                "signalr.corruptionRemove.starting",
-                                DateTime.UtcNow,
-                                new Dictionary<string, object?> { ["service"] = service }));
-
-                        _operationTracker.UpdateProgress(operationId, 0, "signalr.corruptionRemove.starting");
-
-                        _logger.LogInformation("[CorruptionRemoval] Processing {Count} datasource(s) for service {Service}",
-                            datasources.Count, service);
-
-                        try
-                        {
-                            bool allSucceeded = true;
-                            string? lastError = null;
-
-                            foreach (ResolvedDatasource datasource in datasources)
-                            {
-                                cts.Token.ThrowIfCancellationRequested();
-
-                                var logsPath = datasource.LogPath;
-                                var cachePath = datasource.CachePath;
-                                var progressFilePath = Path.Combine(_pathResolver.GetOperationsDirectory(),
-                                    $"corruption_removal_{operationId}_{datasource.Name}.json");
-
-                                _logger.LogInformation("[CorruptionRemoval] Processing datasource '{Datasource}' (logs: {LogsPath}, cache: {CachePath})",
-                                    datasource.Name, logsPath, cachePath);
-
-                                using var dsProgressCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
-                                var dsProgressToken = dsProgressCts.Token;
-
-                                var progressMonitorTask = Task.Run(async () =>
-                                {
-                                    try
-                                    {
-                                        while (!dsProgressToken.IsCancellationRequested)
-                                        {
-                                            await Task.Delay(500, dsProgressToken);
-
-                                            var progress = await _rustProcessHelper.ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
-                                            if (progress != null)
-                                            {
-                                                _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.StageKey ?? "");
-                                                _operationTracker.UpdateMetadata(operationId, (object meta) =>
-                                                {
-                                                    var m = (RemovalMetrics)meta;
-                                                    m.FilesProcessed = progress.FilesProcessed;
-                                                    m.TotalFiles = progress.TotalFiles;
-                                                });
-
-                                                await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalProgress,
-                                                    new CorruptionRemovalProgress(
-                                                        service,
-                                                        operationId,
-                                                        progress.Status,
-                                                        progress.StageKey ?? string.Empty,
-                                                        DateTime.UtcNow,
-                                                        progress.FilesProcessed,
-                                                        progress.TotalFiles,
-                                                        progress.PercentComplete,
-                                                        progress.Context));
-                                            }
-                                        }
-                                    }
-                                    catch (OperationCanceledException)
-                                    {
-                                        // Expected when datasource processing completes or is cancelled
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        _logger.LogDebug(ex, "Progress monitoring ended for corruption removal: {Service} datasource: {Datasource}",
-                                            service, datasource.Name);
-                                    }
-                                }, dsProgressToken);
-
-                                try
-                                {
-                                    var result = await _rustProcessHelper.RunCorruptionManagerAsync(
-                                        "remove",
-                                        logsPath,
-                                        cachePath,
-                                        service: service,
-                                        progressFile: progressFilePath,
-                                        cancellationToken: cts.Token,
-                                        threshold: threshold,
-                                        compareToCacheLogs: compareToCacheLogs,
-                                        detectRedownloads: detectionMode == "redownload",
-                                        operationId: operationId);
-
-                                    await dsProgressCts.CancelAsync();
-                                    try { await progressMonitorTask; } catch { /* ignore cancellation */ }
-
-                                    if (result.Success)
-                                    {
-                                        _logger.LogInformation("[CorruptionRemoval] Completed for service {Service} on datasource '{Datasource}'",
-                                            service, datasource.Name);
-                                    }
-                                    else
-                                    {
-                                        _logger.LogError("[CorruptionRemoval] Failed for service {Service} on datasource '{Datasource}': {Error}",
-                                            service, datasource.Name, result.Error);
-                                        allSucceeded = false;
-                                        lastError = result.Error;
-                                    }
-                                }
-                                finally
-                                {
-                                    try { if (System.IO.File.Exists(progressFilePath)) System.IO.File.Delete(progressFilePath); } catch (Exception ex) { _logger.LogDebug(ex, "Failed to clean up progress file"); }
-                                }
-                            }
-
-                            if (allSucceeded)
-                            {
-                                _logger.LogInformation("Corruption removal completed for service: {Service} across all datasources", service);
-
-                                await _nginxLogRotationService.ReopenNginxLogsAsync();
-                                await _cacheService.InvalidateServiceCountsCacheAsync();
-
-                                // Terminal SignalR emit is centralized in the onTerminalEmit closure
-                                // registered with RegisterOperation (fires exactly once from CompleteOperation).
-                                _operationTracker.CompleteOperation(operationId, success: true);
-                            }
-                            else
-                            {
-                                _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, lastError);
-                                _operationTracker.CompleteOperation(operationId, success: false, error: lastError);
-                            }
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            _logger.LogInformation("Corruption removal cancelled for service: {Service}", service);
-                            _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
-                            // Stop processing further services on cancellation
-                            break;
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
-                            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
-                        }
+                        _logger.LogInformation("[CorruptionRemoval] Completed for service {Service} on datasource '{Datasource}'",
+                            service, datasource.Name);
+                    }
+                    else
+                    {
+                        _logger.LogError("[CorruptionRemoval] Failed for service {Service} on datasource '{Datasource}': {Error}",
+                            service, datasource.Name, result.Error);
+                        allSucceeded = false;
+                        lastError = result.Error;
                     }
                 }
                 finally
                 {
-                    // Always resume LiveLogMonitorService
-                    await LiveLogMonitorService.ResumeAsync();
-                    _logger.LogInformation("Resumed LiveLogMonitorService after all-services corruption removal");
+                    // Clean up progress file for this datasource
+                    try { if (System.IO.File.Exists(progressFilePath)) System.IO.File.Delete(progressFilePath); } catch (Exception ex) { _logger.LogDebug(ex, "Failed to clean up progress file"); }
                 }
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Unhandled error during all-services corruption removal");
-                await LiveLogMonitorService.ResumeAsync();
-            }
-        });
 
-        return Accepted(new { Message = "Corruption removal started for all services" });
+            if (allSucceeded)
+            {
+                _logger.LogInformation("Corruption removal completed for service: {Service} across all datasources", service);
+
+                // Signal nginx to reopen log files (prevents monolithic container from losing log access)
+                await _nginxLogRotationService.ReopenNginxLogsAsync();
+
+                // Invalidate service count cache since corruption removal affects counts
+                await _cacheService.InvalidateServiceCountsCacheAsync();
+
+                // Terminal SignalR emit is centralized in the onTerminalEmit closure
+                // registered with RegisterOperation (fires exactly once from CompleteOperation).
+                _operationTracker.CompleteOperation(operationId, success: true);
+            }
+            else
+            {
+                _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, lastError);
+                _operationTracker.CompleteOperation(operationId, success: false, error: lastError);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Corruption removal cancelled for service: {Service}", service);
+            _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+            // Rethrow so the all-services loop can stop processing further services;
+            // the single-service caller swallows this (its operation is already completed).
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
+            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+        }
     }
 
     /// <summary>

@@ -22,12 +22,6 @@ public class SetExternalDbCredentialsResponse
     public bool RestartRequired { get; set; } = true;
 }
 
-public class SetupInitStatusResponse
-{
-    public bool NeedsSetup { get; set; }
-    public bool Configured { get; set; }
-}
-
 public class SetupCredentialsResponse
 {
     public bool Success { get; set; }

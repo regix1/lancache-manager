@@ -423,49 +423,6 @@ fn remove_cache_files_for_game(
     Ok((final_deleted, final_bytes, final_dirs, final_permission_errors))
 }
 
-fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet<PathBuf>) -> usize {
-    let mut removed_count = 0;
-
-    let mut sorted_dirs: Vec<PathBuf> = dirs_to_check.into_iter().collect();
-    sorted_dirs.sort_by(|a, b| b.components().count().cmp(&a.components().count()));
-
-    for dir in sorted_dirs {
-        // Canonical-under-root guard: refuses symlinks, paths outside root.
-        if let Err(e) = cache_utils::safe_path_under_root(cache_dir, &dir) {
-            eprintln!("  skipping unsafe dir {}: {}", dir.display(), e);
-            continue;
-        }
-
-        if let Ok(entries) = fs::read_dir(&dir) {
-            if entries.count() == 0 {
-                if fs::remove_dir(&dir).is_ok() {
-                    removed_count += 1;
-
-                    if let Some(parent) = dir.parent() {
-                        if parent != cache_dir {
-                            match cache_utils::safe_path_under_root(cache_dir, parent) {
-                                Ok(_) => {
-                                    if let Ok(parent_entries) = fs::read_dir(parent) {
-                                        if parent_entries.count() == 0 {
-                                            fs::remove_dir(parent).ok();
-                                            removed_count += 1;
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    eprintln!("  skipping unsafe parent {}: {}", parent.display(), e);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    removed_count
-}
-
 // `remove_log_entries_for_game` now lives in `log_purge.rs` and is shared with
 // `cache_purge_log_entries`. See the top-of-file `use log_purge::...` import.
 
@@ -554,13 +511,13 @@ async fn main() -> Result<()> {
         // already collected, then exit 0.  Log/DB work is skipped — C# re-runs detection.
         if cancel::is_cancelled() {
             eprintln!("Cancellation confirmed — cleaning up partial directories and exiting.");
-            cleanup_empty_directories(&cache_dir, parent_dirs);
+            cache_utils::cleanup_empty_directories(&cache_dir, parent_dirs);
             return Ok(());
         }
 
         write_progress(&progress_path, "cleaning_directories", "signalr.gameRemove.dirs.cleaning", json!({}), 70.0, 0, 0)?;
         eprintln!("\nCleaning up empty directories...");
-        let empty_dirs = cleanup_empty_directories(&cache_dir, parent_dirs);
+        let empty_dirs = cache_utils::cleanup_empty_directories(&cache_dir, parent_dirs);
         (deleted, bytes, empty_dirs, cache_errs)
     };
 

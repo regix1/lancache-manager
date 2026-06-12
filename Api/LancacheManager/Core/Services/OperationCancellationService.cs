@@ -29,7 +29,10 @@ public class OperationCancellationService
 
     /// <summary>
     /// Aggressive cancel — terminates any associated process tree, then cancels the token.
-    /// Matches log-processor <c>CancelProcessingAsync</c> (kill + cancel).
+    /// Delegates to <see cref="IUnifiedOperationTracker.CancelOperation"/>, which writes
+    /// <c>CANCEL</c> to the Rust child's stdin (graceful exit) and then cancels the managed
+    /// <see cref="System.Threading.CancellationToken"/> — the universal cancel path exposed via
+    /// <c>POST /operations/{id}/cancel</c>.
     /// </summary>
     public bool Cancel(Guid operationId)
     {

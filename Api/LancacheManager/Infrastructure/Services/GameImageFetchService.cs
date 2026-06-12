@@ -1,6 +1,7 @@
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Models;
@@ -236,7 +237,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         {
             GameImagesController.IncrementCacheGeneration();
             _imageCacheService.EvictMemoryCache();
-            await _notifications.NotifyAllAsync("GameImagesUpdated", new
+            await _notifications.NotifyAllAsync(SignalREvents.GameImagesUpdated, new
             {
                 newSteamImages = missingSteamIds.Count,
                 newEpicImages = missingEpicMappings.Count,

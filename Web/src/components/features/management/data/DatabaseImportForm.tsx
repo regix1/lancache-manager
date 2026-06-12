@@ -1,32 +1,14 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  Database,
-  CheckCircle,
-  XCircle,
-  FolderOpen,
-  RefreshCw,
-  Search,
-  ChevronDown,
-  ChevronUp
-} from 'lucide-react';
+import { useState } from 'react';
+import { CheckCircle, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Alert } from '@components/ui/Alert';
-import { SegmentedControl } from '@components/ui/SegmentedControl';
 import ApiService from '@services/api.service';
-import { formatBytes, formatCount } from '@utils/formatters';
-import FileBrowser from '@components/features/management/file-browser/FileBrowser';
+import { formatCount } from '@utils/formatters';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { getErrorMessage } from '@utils/error';
-import type {
-  ImportType,
-  InputMode,
-  ImportResult,
-  ValidationResult,
-  FileSystemItem,
-  PostgresConnectionConfig
-} from '@/types/migration';
+import type { ImportResult, ValidationResult, PostgresConnectionConfig } from '@/types/migration';
 import './DatabaseImportForm.css';
 
 interface DatabaseImportFormProps {
@@ -44,9 +26,6 @@ export function DatabaseImportForm({
 }: DatabaseImportFormProps) {
   const { t } = useTranslation();
 
-  const [importType, setImportType] = useState<ImportType>('develancache');
-  const [inputMode, setInputMode] = useState<InputMode>('auto');
-  const [connectionString, setConnectionString] = useState('');
   const [pgConfig, setPgConfig] = useState<PostgresConnectionConfig>({
     host: 'localhost',
     port: 5432,
@@ -63,95 +42,11 @@ export function DatabaseImportForm({
   const [importing, setImporting] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [autoSearching, setAutoSearching] = useState(false);
-  const [foundDatabases, setFoundDatabases] = useState<FileSystemItem[]>([]);
-  const [fileBrowserConfigured, setFileBrowserConfigured] = useState<boolean | null>(null);
-  const fileBrowserStatusChecked = useRef(false);
 
-  const importTypeOptions = [
-    { value: 'develancache', label: t('initialization.importHistorical.deveLanCache') },
-    { value: 'lancache-manager', label: t('initialization.importHistorical.lancacheManager') }
-  ];
-
-  const getEffectiveConnectionString = useCallback((): string => {
-    if (importType === 'lancache-manager') {
-      if (showRawConnectionString) return rawConnectionString;
-      const { host, port, database, username, password } = pgConfig;
-      return `Host=${host};Port=${port};Database=${database};Username=${username};Password=${password}`;
-    }
-    return connectionString;
-  }, [importType, showRawConnectionString, rawConnectionString, pgConfig, connectionString]);
-
-  const searchForDatabases = useCallback(async () => {
-    setAutoSearching(true);
-    try {
-      const result = await ApiService.searchForDatabases();
-      setFoundDatabases(result.results);
-    } catch (error) {
-      console.error('Failed to search for databases:', error);
-      setFoundDatabases([]);
-    } finally {
-      setAutoSearching(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (fileBrowserStatusChecked.current) {
-      return;
-    }
-    fileBrowserStatusChecked.current = true;
-
-    const loadFileBrowserStatus = async (): Promise<void> => {
-      try {
-        const status = await ApiService.getFileBrowserStatus();
-        setFileBrowserConfigured(status.configured);
-        if (!status.configured) {
-          setInputMode('manual');
-        }
-      } catch (error) {
-        console.error('Failed to load file browser status:', error);
-        setFileBrowserConfigured(false);
-        setInputMode('manual');
-      }
-    };
-
-    void loadFileBrowserStatus();
-  }, []);
-
-  useEffect(() => {
-    if (
-      importType === 'develancache' &&
-      inputMode === 'auto' &&
-      foundDatabases.length === 0 &&
-      fileBrowserConfigured
-    ) {
-      searchForDatabases();
-    }
-  }, [importType, inputMode, foundDatabases.length, fileBrowserConfigured, searchForDatabases]);
-
-  const handleImportTypeChange = (value: string) => {
-    setImportType(value as ImportType);
-    setValidationResult(null);
-    setImportResult(null);
-  };
-
-  const handleInputModeChange = (value: string) => {
-    if (!fileBrowserConfigured && (value === 'auto' || value === 'browse')) {
-      return;
-    }
-    setInputMode(value as InputMode);
-    setValidationResult(null);
-  };
-
-  const handleFileSelect = (path: string) => {
-    setConnectionString(path);
-    setValidationResult(null);
-    setInputMode('manual');
-  };
-
-  const handleAutoSelect = (item: FileSystemItem) => {
-    setConnectionString(item.path);
-    setValidationResult(null);
+  const getEffectiveConnectionString = (): string => {
+    if (showRawConnectionString) return rawConnectionString;
+    const { host, port, database, username, password } = pgConfig;
+    return `Host=${host};Port=${port};Database=${database};Username=${username};Password=${password}`;
   };
 
   const handleValidate = async () => {
@@ -168,7 +63,7 @@ export function DatabaseImportForm({
     setValidationResult(null);
 
     try {
-      const result = await ApiService.validateMigrationConnection(cs, importType);
+      const result = await ApiService.validateMigrationConnection(cs);
       setValidationResult(result);
     } catch (error: unknown) {
       setValidationResult({
@@ -189,10 +84,7 @@ export function DatabaseImportForm({
     const cs = getEffectiveConnectionString();
 
     try {
-      const result =
-        importType === 'lancache-manager'
-          ? await ApiService.importFromLancacheManager(cs, batchSize, overwriteExisting)
-          : await ApiService.importFromDevelancache(cs, batchSize, overwriteExisting);
+      const result = await ApiService.importFromLancacheManager(cs, batchSize, overwriteExisting);
       setImportResult(result);
       onImportComplete(result);
     } catch (error: unknown) {
@@ -212,311 +104,129 @@ export function DatabaseImportForm({
 
   return (
     <div className={`database-import-form ${className}`}>
-      {/* Import Type Selector */}
-      <div>
-        <label className="block text-sm font-medium text-themed-secondary mb-1.5">
-          {t('initialization.importHistorical.databaseType')}
-        </label>
-        <SegmentedControl
-          options={importTypeOptions}
-          value={importType}
-          onChange={handleImportTypeChange}
-          fullWidth
-        />
-      </div>
-
-      {/* DeveLanCacheUI form */}
-      {importType === 'develancache' && (
-        <>
-          {fileBrowserConfigured === false && (
-            <Alert color="yellow">
-              <div className="min-w-0">
-                <p className="font-medium">
-                  {t('initialization.importHistorical.fileBrowserDisabled.title')}
-                </p>
-                <p className="text-sm mt-1">
-                  {t('initialization.importHistorical.fileBrowserDisabled.description')}
-                </p>
-                <p className="text-sm mt-1">
-                  {t('initialization.importHistorical.fileBrowserDisabled.manualHint')}
-                </p>
-                <p className="text-sm mt-2 mb-2">
-                  {t('initialization.importHistorical.fileBrowserDisabled.envVarInstructions')}
-                </p>
-                <pre className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap bg-themed-tertiary">
-                  {t('initialization.importHistorical.fileBrowserDisabled.envVarExample')}
-                </pre>
-                <p className="text-xs mt-2 text-themed-muted">
-                  {t('initialization.importHistorical.fileBrowserDisabled.envVarNote')}
-                </p>
-              </div>
-            </Alert>
-          )}
-
-          {/* Input Mode Tabs */}
-          <div className="database-import-form__mode-tabs bg-themed-tertiary">
-            <button
-              onClick={() => handleInputModeChange('auto')}
-              disabled={isDisabled || fileBrowserConfigured === false}
-              className={`database-import-form__mode-tab ${inputMode === 'auto' ? 'bg-themed-secondary text-themed-primary' : 'text-themed-secondary hover:text-themed-primary'} ${fileBrowserConfigured === false ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              <Search className="w-4 h-4" />
-              {t('initialization.importHistorical.auto')}
-            </button>
-            <button
-              onClick={() => handleInputModeChange('browse')}
-              disabled={isDisabled || fileBrowserConfigured === false}
-              className={`database-import-form__mode-tab ${inputMode === 'browse' ? 'bg-themed-secondary text-themed-primary' : 'text-themed-secondary hover:text-themed-primary'} ${fileBrowserConfigured === false ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              <FolderOpen className="w-4 h-4" />
-              {t('initialization.importHistorical.browse')}
-            </button>
-            <button
-              onClick={() => handleInputModeChange('manual')}
-              disabled={isDisabled}
-              className={`database-import-form__mode-tab ${inputMode === 'manual' ? 'bg-themed-secondary text-themed-primary' : 'text-themed-secondary hover:text-themed-primary'}`}
-            >
-              {t('initialization.importHistorical.manualPath')}
-            </button>
-          </div>
-
-          {/* Auto Mode */}
-          {inputMode === 'auto' && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-themed-secondary">
-                  {autoSearching
-                    ? t('initialization.importHistorical.searching')
-                    : t('initialization.importHistorical.foundDatabases', {
-                        count: foundDatabases.length
-                      })}
-                </p>
-                <Button
-                  onClick={searchForDatabases}
-                  disabled={autoSearching || isDisabled}
-                  variant="filled"
-                  color="gray"
-                  size="xs"
-                >
-                  {autoSearching ? (
-                    <LoadingSpinner inline size="sm" />
-                  ) : (
-                    <RefreshCw className="w-4 h-4" />
-                  )}
-                </Button>
-              </div>
-
-              {autoSearching ? (
-                <div className="flex items-center justify-center py-8 rounded-lg bg-themed-tertiary">
-                  <LoadingSpinner inline size="md" className="text-themed-secondary mr-2" />
-                  <span className="text-sm text-themed-secondary">
-                    {t('initialization.importHistorical.searchingStatus')}
-                  </span>
-                </div>
-              ) : foundDatabases.length > 0 ? (
-                <div className="database-import-form__found-list border border-themed-secondary">
-                  <div className="database-import-form__found-list-scroll custom-scrollbar">
-                    {foundDatabases.map((item, index) => (
-                      <button
-                        key={index}
-                        onClick={() => handleAutoSelect(item)}
-                        disabled={isDisabled}
-                        className={`database-import-form__found-item border-themed-secondary hover:bg-themed-hover ${connectionString === item.path ? 'bg-themed-accent-subtle ring-1 ring-inset ring-themed-accent' : ''}`}
-                      >
-                        <div className="database-import-form__found-item-icon icon-bg-green">
-                          <Database className="w-4 h-4 icon-green" />
-                        </div>
-                        <div className="database-import-form__found-item-info">
-                          <div className="database-import-form__found-item-name text-themed-primary">
-                            {item.name}
-                          </div>
-                          <div className="database-import-form__found-item-path text-themed-muted">
-                            {item.path}
-                          </div>
-                        </div>
-                        <div className="database-import-form__found-item-size text-themed-muted">
-                          {formatBytes(item.size, 1, '-')}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-6 rounded-lg bg-themed-tertiary">
-                  <Search className="w-8 h-8 text-themed-muted mb-2" />
-                  <p className="text-sm text-themed-secondary font-medium">
-                    {t('initialization.importHistorical.noDatabasesFound')}
-                  </p>
-                  <p className="text-xs text-themed-muted mt-1">
-                    {t('initialization.importHistorical.tryOtherModes')}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Browse Mode */}
-          {inputMode === 'browse' && (
-            <FileBrowser onSelectFile={handleFileSelect} isAdmin={true} mockMode={false} />
-          )}
-
-          {/* Manual Mode */}
-          {inputMode === 'manual' && (
-            <div>
-              <label className="block text-sm font-medium text-themed-secondary mb-1.5">
-                {t('initialization.importHistorical.databasePath')}
-              </label>
-              <input
-                type="text"
-                value={connectionString}
-                onChange={(e) => {
-                  setConnectionString(e.target.value);
-                  setValidationResult(null);
-                }}
-                placeholder="/path/to/lancache.db"
-                className="w-full px-3 py-2.5 themed-input"
-                disabled={isDisabled}
-              />
-            </div>
-          )}
-
-          {/* Selected Database Display */}
-          {inputMode === 'auto' && connectionString && (
-            <div className="p-3 rounded-lg flex items-center gap-2 bg-themed-tertiary">
-              <Database className="w-4 h-4 text-themed-secondary flex-shrink-0" />
-              <span className="text-sm text-themed-primary font-medium truncate flex-1">
-                {connectionString}
-              </span>
-            </div>
-          )}
-        </>
-      )}
-
       {/* Lancache Manager form */}
-      {importType === 'lancache-manager' && (
-        <div className="database-import-form__postgres-fields">
-          {!showRawConnectionString && (
-            <>
-              <div className="database-import-form__field-row">
-                <div className="database-import-form__field">
-                  <label className="block text-sm font-medium text-themed-secondary">
-                    {t('initialization.importHistorical.host')}
-                  </label>
-                  <input
-                    type="text"
-                    value={pgConfig.host}
-                    onChange={(e) => {
-                      setPgConfig((prev) => ({ ...prev, host: e.target.value }));
-                      setValidationResult(null);
-                    }}
-                    placeholder="localhost"
-                    className="w-full px-3 py-2.5 themed-input"
-                    disabled={isDisabled}
-                  />
-                </div>
-                <div className="database-import-form__field">
-                  <label className="block text-sm font-medium text-themed-secondary">
-                    {t('initialization.importHistorical.port')}
-                  </label>
-                  <input
-                    type="number"
-                    value={pgConfig.port}
-                    onChange={(e) => {
-                      setPgConfig((prev) => ({ ...prev, port: parseInt(e.target.value) || 5432 }));
-                      setValidationResult(null);
-                    }}
-                    placeholder="5432"
-                    className="w-full px-3 py-2.5 themed-input"
-                    disabled={isDisabled}
-                  />
-                </div>
-              </div>
-
+      <div className="database-import-form__postgres-fields">
+        {!showRawConnectionString && (
+          <>
+            <div className="database-import-form__field-row">
               <div className="database-import-form__field">
                 <label className="block text-sm font-medium text-themed-secondary">
-                  {t('initialization.importHistorical.database')}
+                  {t('initialization.importHistorical.host')}
                 </label>
                 <input
                   type="text"
-                  value={pgConfig.database}
+                  value={pgConfig.host}
                   onChange={(e) => {
-                    setPgConfig((prev) => ({ ...prev, database: e.target.value }));
+                    setPgConfig((prev) => ({ ...prev, host: e.target.value }));
                     setValidationResult(null);
                   }}
-                  placeholder="lancache"
+                  placeholder="localhost"
                   className="w-full px-3 py-2.5 themed-input"
                   disabled={isDisabled}
                 />
               </div>
-
-              <div className="database-import-form__field-row">
-                <div className="database-import-form__field">
-                  <label className="block text-sm font-medium text-themed-secondary">
-                    {t('initialization.importHistorical.username')}
-                  </label>
-                  <input
-                    type="text"
-                    value={pgConfig.username}
-                    onChange={(e) => {
-                      setPgConfig((prev) => ({ ...prev, username: e.target.value }));
-                      setValidationResult(null);
-                    }}
-                    placeholder="postgres"
-                    className="w-full px-3 py-2.5 themed-input"
-                    disabled={isDisabled}
-                  />
-                </div>
-                <div className="database-import-form__field">
-                  <label className="block text-sm font-medium text-themed-secondary">
-                    {t('initialization.importHistorical.password')}
-                  </label>
-                  <input
-                    type="password"
-                    value={pgConfig.password}
-                    onChange={(e) => {
-                      setPgConfig((prev) => ({ ...prev, password: e.target.value }));
-                      setValidationResult(null);
-                    }}
-                    placeholder="••••••••"
-                    className="w-full px-3 py-2.5 themed-input"
-                    disabled={isDisabled}
-                  />
-                </div>
+              <div className="database-import-form__field">
+                <label className="block text-sm font-medium text-themed-secondary">
+                  {t('initialization.importHistorical.port')}
+                </label>
+                <input
+                  type="number"
+                  value={pgConfig.port}
+                  onChange={(e) => {
+                    setPgConfig((prev) => ({ ...prev, port: parseInt(e.target.value) || 5432 }));
+                    setValidationResult(null);
+                  }}
+                  placeholder="5432"
+                  className="w-full px-3 py-2.5 themed-input"
+                  disabled={isDisabled}
+                />
               </div>
-            </>
-          )}
+            </div>
 
-          {showRawConnectionString && (
             <div className="database-import-form__field">
               <label className="block text-sm font-medium text-themed-secondary">
-                {t('initialization.importHistorical.connectionString')}
+                {t('initialization.importHistorical.database')}
               </label>
               <input
                 type="text"
-                value={rawConnectionString}
+                value={pgConfig.database}
                 onChange={(e) => {
-                  setRawConnectionString(e.target.value);
+                  setPgConfig((prev) => ({ ...prev, database: e.target.value }));
                   setValidationResult(null);
                 }}
-                placeholder="Host=localhost;Port=5432;Database=lancache;Username=postgres;Password=..."
+                placeholder="lancache"
                 className="w-full px-3 py-2.5 themed-input"
                 disabled={isDisabled}
               />
             </div>
-          )}
 
-          <button
-            type="button"
-            onClick={() => setShowRawConnectionString((prev) => !prev)}
-            className="text-xs text-themed-muted hover:text-themed-secondary transition-colors text-left"
-            disabled={isDisabled}
-          >
-            {showRawConnectionString
-              ? t('initialization.importHistorical.useFields')
-              : t('initialization.importHistorical.useConnectionString')}
-          </button>
-        </div>
-      )}
+            <div className="database-import-form__field-row">
+              <div className="database-import-form__field">
+                <label className="block text-sm font-medium text-themed-secondary">
+                  {t('initialization.importHistorical.username')}
+                </label>
+                <input
+                  type="text"
+                  value={pgConfig.username}
+                  onChange={(e) => {
+                    setPgConfig((prev) => ({ ...prev, username: e.target.value }));
+                    setValidationResult(null);
+                  }}
+                  placeholder="postgres"
+                  className="w-full px-3 py-2.5 themed-input"
+                  disabled={isDisabled}
+                />
+              </div>
+              <div className="database-import-form__field">
+                <label className="block text-sm font-medium text-themed-secondary">
+                  {t('initialization.importHistorical.password')}
+                </label>
+                <input
+                  type="password"
+                  value={pgConfig.password}
+                  onChange={(e) => {
+                    setPgConfig((prev) => ({ ...prev, password: e.target.value }));
+                    setValidationResult(null);
+                  }}
+                  placeholder="••••••••"
+                  className="w-full px-3 py-2.5 themed-input"
+                  disabled={isDisabled}
+                />
+              </div>
+            </div>
+          </>
+        )}
+
+        {showRawConnectionString && (
+          <div className="database-import-form__field">
+            <label className="block text-sm font-medium text-themed-secondary">
+              {t('initialization.importHistorical.connectionString')}
+            </label>
+            <input
+              type="text"
+              value={rawConnectionString}
+              onChange={(e) => {
+                setRawConnectionString(e.target.value);
+                setValidationResult(null);
+              }}
+              placeholder="Host=localhost;Port=5432;Database=lancache;Username=postgres;Password=..."
+              className="w-full px-3 py-2.5 themed-input"
+              disabled={isDisabled}
+            />
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setShowRawConnectionString((prev) => !prev)}
+          className="text-xs text-themed-muted hover:text-themed-secondary transition-colors text-left"
+          disabled={isDisabled}
+        >
+          {showRawConnectionString
+            ? t('initialization.importHistorical.useFields')
+            : t('initialization.importHistorical.useConnectionString')}
+        </button>
+      </div>
 
       {/* Advanced Options */}
       <div className="database-import-form__advanced-toggle border border-themed-secondary">

@@ -4,7 +4,6 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
 
@@ -20,18 +19,18 @@ public class MetricsController : ControllerBase
     private readonly IConfiguration _configuration;
     private readonly LancacheMetricsService _metricsService;
     private readonly IStateService _stateRepository;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
 
     public MetricsController(
         IConfiguration configuration,
         LancacheMetricsService metricsService,
         IStateService stateRepository,
-        IHubContext<DownloadHub> hubContext)
+        ISignalRNotificationService notifications)
     {
         _configuration = configuration;
         _metricsService = metricsService;
         _stateRepository = stateRepository;
-        _hubContext = hubContext;
+        _notifications = notifications;
     }
 
     /// <summary>
@@ -107,7 +106,7 @@ public class MetricsController : ControllerBase
         var effectiveValue = stateValue ?? configValue;
         var source = stateValue.HasValue ? "ui" : "config";
 
-        await _hubContext.Clients.All.SendAsync(SignalREvents.MetricsSecurityUpdated, new
+        await _notifications.NotifyAllAsync(SignalREvents.MetricsSecurityUpdated, new
         {
             requiresAuthentication = effectiveValue,
             source,

@@ -70,39 +70,3 @@ public class ConnectionValidationResponse
     public string Message { get; set; } = string.Empty;
     public int? RecordCount { get; set; }
 }
-
-/// <summary>
-/// Progress tracking for data migration operations
-/// </summary>
-public class MigrationProgress
-{
-    [System.Text.Json.Serialization.JsonPropertyName("is_processing")]
-    public bool IsProcessing { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("percent_complete")]
-    public double PercentComplete { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("status")]
-    public string Status { get; set; } = string.Empty;
-
-    [System.Text.Json.Serialization.JsonPropertyName("message")]
-    public string Message { get; set; } = string.Empty;
-
-    [System.Text.Json.Serialization.JsonPropertyName("records_processed")]
-    public ulong RecordsProcessed { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("records_imported")]
-    public ulong RecordsImported { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("records_skipped")]
-    public ulong RecordsSkipped { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("records_errors")]
-    public ulong RecordsErrors { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("backup_path")]
-    public string? BackupPath { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("timestamp")]
-    public string Timestamp { get; set; } = string.Empty;
-}

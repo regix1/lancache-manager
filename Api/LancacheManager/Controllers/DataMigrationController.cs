@@ -2,7 +2,6 @@ using LancacheManager.Models;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Utilities;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,8 +10,7 @@ using Npgsql;
 namespace LancacheManager.Controllers;
 
 /// <summary>
-/// Controller for importing data from DeveLanCacheUI_Backend
-/// Allows migration of historical download data using Rust data_migrator binary
+/// Controller for importing historical download data from another LancacheManager database.
 /// </summary>
 [ApiController]
 [Route("api/migration")]
@@ -40,8 +38,6 @@ public class DataMigrationController : ControllerBase
     }
 
     private readonly ILogger<DataMigrationController> _logger;
-    private readonly IPathResolver _pathResolver;
-    private readonly RustProcessHelper _rustProcessHelper;
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IOperationConflictChecker _conflictChecker;
@@ -49,162 +45,16 @@ public class DataMigrationController : ControllerBase
 
     public DataMigrationController(
         ILogger<DataMigrationController> logger,
-        IPathResolver pathResolver,
-        RustProcessHelper rustProcessHelper,
         ISignalRNotificationService notifications,
         IUnifiedOperationTracker operationTracker,
         IOperationConflictChecker conflictChecker,
         IConfiguration configuration)
     {
         _logger = logger;
-        _pathResolver = pathResolver;
-        _rustProcessHelper = rustProcessHelper;
         _notifications = notifications;
         _operationTracker = operationTracker;
         _conflictChecker = conflictChecker;
         _configuration = configuration;
-    }
-
-    /// <summary>
-    /// POST /api/migration/import-develancache - Import data from DeveLanCacheUI_Backend database
-    /// Request body: { "connectionString": "Data Source=path/to/develancache.db", "batchSize": 1000, "overwriteExisting": false }
-    /// </summary>
-    [HttpPost("import-develancache")]
-    public async Task<IActionResult> ImportFromDeveLanCacheAsync([FromBody] DataMigrationImportRequest request, CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(request.ConnectionString))
-        {
-            return BadRequest(new ErrorResponse { Error = "Connection string is required" });
-        }
-
-        var start = await BeginDataImportAsync("DeveLanCacheUI Import", cancellationToken);
-        if (start.Conflict != null)
-        {
-            return Conflict(start.Conflict);
-        }
-
-        _logger.LogInformation("Starting import from DeveLanCacheUI_Backend database");
-
-        var cts = start.CancellationTokenSource!;
-        var operationId = start.OperationId!.Value;
-        var result = start.Result!;
-
-        // Extract the database path - supports both raw paths and connection strings
-        var sourceDatabasePath = ExtractDatabasePath(request.ConnectionString);
-        if (string.IsNullOrWhiteSpace(sourceDatabasePath) || !System.IO.File.Exists(sourceDatabasePath))
-        {
-            _operationTracker.CompleteOperation(operationId, false, "Source database file not found");
-            return BadRequest(new ErrorResponse { Error = "Source database file not found at specified path" });
-        }
-
-        // Get target PostgreSQL connection string from app configuration
-        var targetConnectionString = _configuration.GetConnectionString("DefaultConnection");
-        if (string.IsNullOrWhiteSpace(targetConnectionString))
-        {
-            _operationTracker.CompleteOperation(operationId, false, "Target database connection string not configured");
-            return StatusCode(500, new ErrorResponse { Error = "Target database connection string not configured" });
-        }
-
-        // Create temporary progress file
-        var progressPath = Path.GetTempFileName();
-
-        // Send started notification
-        _operationTracker.UpdateProgress(operationId, 0, "Starting DeveLanCacheUI_Backend import...");
-        await _notifications.NotifyAllAsync(SignalREvents.DataImportStarted, new
-        {
-            OperationId = operationId,
-            Message = "Starting DeveLanCacheUI_Backend import...",
-            ImportType = ImportType.Develancache
-        });
-
-        try
-        {
-            // Get data migrator binary path
-            var dataMigratorPath = _pathResolver.GetRustDataMigratorPath();
-            _rustProcessHelper.ValidateRustBinaryExists(dataMigratorPath, "data_migrator");
-
-            // Build arguments for data_migrator
-            // Sanitize the user-provided database path to prevent process argument injection
-            var sanitizedSourcePath = RustProcessHelper.SanitizeProcessArgument(sourceDatabasePath);
-            var sanitizedTargetConnStr = RustProcessHelper.SanitizeProcessArgument(targetConnectionString);
-            var batchSize = request.BatchSize ?? 1000;
-            var overwriteFlag = request.OverwriteExisting ? "1" : "0";
-            var arguments = $"\"{sanitizedSourcePath}\" \"{sanitizedTargetConnStr}\" \"{progressPath}\" {overwriteFlag} {batchSize}";
-
-            _logger.LogInformation("[data_migrator] Executing: {Binary} {Args}", dataMigratorPath, arguments);
-
-            // Start the process with operation-tracker association for universal cancel/force-kill
-            var startInfo = _rustProcessHelper.CreateProcessStartInfo(dataMigratorPath, arguments);
-            var execResult = await _rustProcessHelper.ExecuteTrackedProcessAsync(
-                startInfo, operationId, cts.Token, "data_migrator");
-
-            if (execResult.ExitCode != 0)
-            {
-                var errorMessage = $"Data migration failed with exit code {execResult.ExitCode}";
-                // Terminal DataImportComplete is emitted once from the onTerminalEmit closure
-                // (fail branch uses info.Error == errorMessage).
-                _operationTracker.CompleteOperation(operationId, false, errorMessage);
-                return StatusCode(500, new ErrorResponse
-                {
-                    Error = "Data migration failed",
-                    Details = $"Process exited with code {execResult.ExitCode}"
-                });
-            }
-
-            // Read final progress to get statistics
-            var progress = await _rustProcessHelper.ReadProgressFileAsync<MigrationProgress>(progressPath);
-
-            if (progress == null)
-            {
-                _logger.LogWarning("Progress file not found after migration");
-                // Success-no-progress: leave Records* null; closure emits the single terminal event.
-                result.Message = "Import completed but progress data unavailable";
-                _operationTracker.CompleteOperation(operationId, true);
-                return Ok(new MessageResponse { Message = "Import completed but progress data unavailable" });
-            }
-
-            _logger.LogInformation(
-                "Import completed: {Imported} imported, {Skipped} skipped, {Errors} errors. Backup: {BackupPath}",
-                progress.RecordsImported, progress.RecordsSkipped, progress.RecordsErrors, progress.BackupPath ?? "none");
-
-            // Send completion notification
-            _operationTracker.UpdateProgress(operationId, 100, $"Import completed: {progress.RecordsImported} imported, {progress.RecordsSkipped} skipped");
-            // Fill the per-op holder so the onTerminalEmit closure reproduces the old success wire shape.
-            result.Message = $"Import completed: {progress.RecordsImported} imported, {progress.RecordsSkipped} skipped";
-            result.RecordsImported = progress.RecordsImported;
-            result.RecordsSkipped = progress.RecordsSkipped;
-            result.RecordsErrors = progress.RecordsErrors;
-            result.TotalRecords = progress.RecordsProcessed;
-            _operationTracker.CompleteOperation(operationId, true);
-
-            return Ok(new MigrationImportResponse
-            {
-                Message = progress.Message,
-                TotalRecords = progress.RecordsProcessed,
-                Imported = progress.RecordsImported,
-                Skipped = progress.RecordsSkipped,
-                Errors = progress.RecordsErrors,
-                BackupPath = progress.BackupPath
-            });
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.LogWarning("DeveLanCacheUI import was cancelled (Operation: {OperationId})", operationId);
-            // Cancel branch of the closure defaults Message to "Import was cancelled by user" (Records* null).
-            _operationTracker.CompleteOperation(operationId, false, "Import was cancelled by user");
-            return StatusCode(499, new ErrorResponse { Error = "Import was cancelled by user" });
-        }
-        catch (Exception ex)
-        {
-            // Fail branch uses info.Error == ex.Message (matches the old wire message).
-            _operationTracker.CompleteOperation(operationId, false, ex.Message);
-            throw;
-        }
-        finally
-        {
-            // Clean up progress file
-            await _rustProcessHelper.DeleteTemporaryFileAsync(progressPath);
-        }
     }
 
     /// <summary>
@@ -269,7 +119,8 @@ public class DataMigrationController : ControllerBase
         {
             OperationId = operationId,
             Message = "Starting LancacheManager import...",
-            ImportType = ImportType.LancacheManager
+            // Wire value matches the old ImportType enum's JSON converter output exactly.
+            ImportType = "lancache-manager"
         });
 
         try
@@ -542,65 +393,26 @@ public class DataMigrationController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/migration/validate-connection - Test connection to external database
-    /// Query params: connectionString (supports raw path or "Data Source=..." format), importType (develancache or lancache-manager)
+    /// GET /api/migration/validate-connection - Test connection to a source LancacheManager PostgreSQL database
+    /// Query params: connectionString (PostgreSQL connection string)
     /// </summary>
     [HttpGet("validate-connection")]
-    public async Task<IActionResult> ValidateConnectionAsync([FromQuery] string connectionString, [FromQuery] ImportType importType = ImportType.Develancache)
+    public async Task<IActionResult> ValidateConnectionAsync([FromQuery] string connectionString)
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {
-            return BadRequest(new ErrorResponse { Error = "Database path is required" });
+            return BadRequest(new ErrorResponse { Error = "Connection string is required" });
         }
 
         try
         {
-            if (importType == ImportType.Develancache)
-            {
-                var sourcePath = ExtractDatabasePath(connectionString);
-                if (string.IsNullOrWhiteSpace(sourcePath) || !System.IO.File.Exists(sourcePath))
-                {
-                    return Ok(new ConnectionValidationResponse
-                    {
-                        Valid = false,
-                        Message = "Source database file not found"
-                    });
-                }
-
-                await using var stream = System.IO.File.OpenRead(sourcePath);
-                var header = new byte[16];
-                var bytesRead = await stream.ReadAsync(header.AsMemory(0, header.Length));
-                var isSqliteFile = bytesRead >= 16 &&
-                                   System.Text.Encoding.ASCII.GetString(header, 0, 16) == "SQLite format 3\0";
-
-                if (!isSqliteFile)
-                {
-                    return Ok(new ConnectionValidationResponse
-                    {
-                        Valid = false,
-                        Message = "Source file exists but is not a valid SQLite database"
-                    });
-                }
-
-                var fileInfo = new System.IO.FileInfo(sourcePath);
-                return Ok(new ConnectionValidationResponse
-                {
-                    Valid = true,
-                    Message = "SQLite source database file found",
-                    RecordCount = (int)(fileInfo.Length / 1024)
-                });
-            }
-
             using var connection = new NpgsqlConnection(connectionString);
             await connection.OpenAsync();
 
-            // Determine which table to check based on import type
-            var tableName = importType == ImportType.LancacheManager ? "Downloads" : "DownloadEvents";
-
-            // Check for the appropriate table
+            // Check for the Downloads table
             var cmd = connection.CreateCommand();
             cmd.CommandText = "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND LOWER(table_name)=LOWER(@tableName)";
-            cmd.Parameters.AddWithValue("@tableName", tableName);
+            cmd.Parameters.AddWithValue("@tableName", "Downloads");
             var tableExists = await cmd.ExecuteScalarAsync();
 
             if (tableExists == null)
@@ -608,15 +420,12 @@ public class DataMigrationController : ControllerBase
                 return Ok(new ConnectionValidationResponse
                 {
                     Valid = false,
-                    Message = $"Connection successful, but {tableName} table not found"
+                    Message = "Connection successful, but Downloads table not found"
                 });
             }
 
-            // Get record count - tableName is safe (ternary-controlled: "Downloads" or "DownloadEvents" only)
             var countCmd = connection.CreateCommand();
-            countCmd.CommandText = tableName == "Downloads"
-                ? "SELECT COUNT(*) FROM \"Downloads\""
-                : "SELECT COUNT(*) FROM \"DownloadEvents\"";
+            countCmd.CommandText = "SELECT COUNT(*) FROM \"Downloads\"";
             var recordCount = Convert.ToInt32(await countCmd.ExecuteScalarAsync());
 
             return Ok(new ConnectionValidationResponse
@@ -635,35 +444,6 @@ public class DataMigrationController : ControllerBase
                 Message = ex.Message
             });
         }
-    }
-
-    /// <summary>
-    /// Extracts the database path from either a raw path or SQLite connection string
-    /// Supports: "/path/to/database.db" or "Data Source=/path/to/database.db"
-    /// </summary>
-    private string ExtractDatabasePath(string input)
-    {
-        var trimmed = input.Trim();
-
-        // Check if it's a connection string format
-        if (trimmed.Contains("Data Source", StringComparison.OrdinalIgnoreCase))
-        {
-            // Parse connection string to extract Data Source value
-            var parts = trimmed.Split(';', StringSplitOptions.RemoveEmptyEntries);
-            foreach (var part in parts)
-            {
-                var keyValue = part.Split('=', 2, StringSplitOptions.TrimEntries);
-                if (keyValue.Length == 2 &&
-                    keyValue[0].Equals("Data Source", StringComparison.OrdinalIgnoreCase))
-                {
-                    return keyValue[1].Trim();
-                }
-            }
-            return string.Empty;
-        }
-
-        // Treat as raw file path
-        return trimmed;
     }
 
     private async Task<(Guid? OperationId, CancellationTokenSource? CancellationTokenSource, DataImportResultHolder? Result, OperationConflictResponse? Conflict)> BeginDataImportAsync(

@@ -26,9 +26,7 @@ public class AuthenticationHelper
     public enum AuthMethod
     {
         None,
-        ApiKey,
-        DeviceSession,
-        GuestSession
+        ApiKey
     }
 
     /// <summary>
@@ -62,18 +60,10 @@ public class AuthenticationHelper
     }
 
     /// <summary>
-    /// Checks if request has any valid authentication without failing.
-    /// </summary>
-    public bool IsAuthenticated(HttpContext context)
-    {
-        return ValidateAnyMethod(context).IsAuthenticated;
-    }
-
-    /// <summary>
     /// Gets the API key from request headers.
     /// Accepts X-Api-Key header (primary) or Authorization: Bearer &lt;key&gt; (Prometheus convention).
     /// </summary>
-    public static string? GetApiKeyFromHeader(HttpContext context)
+    private static string? GetApiKeyFromHeader(HttpContext context)
     {
         var apiKey = context.Request.Headers["X-Api-Key"].FirstOrDefault();
         if (apiKey != null)

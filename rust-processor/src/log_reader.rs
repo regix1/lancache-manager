@@ -108,11 +108,6 @@ impl LogFileReader {
             .context("Failed to read line bytes from log file")
     }
 
-    /// Get the underlying BufRead trait object for generic operations
-    #[allow(dead_code)]
-    pub fn as_buf_read(&mut self) -> &mut dyn BufRead {
-        &mut *self.inner
-    }
 }
 
 /// Opens a file for reading with proper sharing on Windows

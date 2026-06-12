@@ -20,7 +20,7 @@ public static class SessionMiddlewareExtensions
     /// indicates a server misconfiguration (policy bypass, handler not registered, etc.) rather than a
     /// legitimate user state.
     /// </summary>
-    public static UserSession GetRequiredUserSession(this HttpContext context)
+    private static UserSession GetRequiredUserSession(this HttpContext context)
         => context.GetUserSession()
            ?? throw new UnauthorizedAccessException(
                   "Request reached controller without an authenticated session. " +

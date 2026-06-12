@@ -3,7 +3,6 @@ using LancacheManager.Hubs;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
 
@@ -13,12 +12,12 @@ namespace LancacheManager.Controllers;
 public class ScheduleController : ControllerBase
 {
     private readonly IServiceScheduleRegistry _registry;
-    private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly ISignalRNotificationService _notifications;
 
-    public ScheduleController(IServiceScheduleRegistry registry, IHubContext<DownloadHub> hubContext)
+    public ScheduleController(IServiceScheduleRegistry registry, ISignalRNotificationService notifications)
     {
         _registry = registry;
-        _hubContext = hubContext;
+        _notifications = notifications;
     }
 
     /// <summary>
@@ -57,7 +56,7 @@ public class ScheduleController : ControllerBase
         }
 
         _registry.SetInterval(serviceKey, request.IntervalHours);
-        await _hubContext.Clients.All.SendAsync("SchedulesUpdated", _registry.GetAll());
+        await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, _registry.GetAll());
         return NoContent();
     }
 
@@ -74,7 +73,7 @@ public class ScheduleController : ControllerBase
         }
 
         _registry.SetRunOnStartup(serviceKey, request.RunOnStartup);
-        await _hubContext.Clients.All.SendAsync("SchedulesUpdated", _registry.GetAll());
+        await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, _registry.GetAll());
         return NoContent();
     }
 
@@ -91,7 +90,7 @@ public class ScheduleController : ControllerBase
         }
 
         await _registry.TriggerRunAsync(serviceKey);
-        await _hubContext.Clients.All.SendAsync("SchedulesUpdated", _registry.GetAll());
+        await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, _registry.GetAll());
         return Accepted();
     }
 
@@ -102,7 +101,7 @@ public class ScheduleController : ControllerBase
     public async Task<ActionResult> ResetToDefaultsAsync()
     {
         _registry.ResetToDefaults();
-        await _hubContext.Clients.All.SendAsync("SchedulesUpdated", _registry.GetAll());
+        await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, _registry.GetAll());
         return Ok();
     }
 
@@ -113,7 +112,7 @@ public class ScheduleController : ControllerBase
     public async Task<ActionResult<TriggerAllResponse>> TriggerAllAsync()
     {
         var triggered = await _registry.TriggerAllAsync();
-        await _hubContext.Clients.All.SendAsync("SchedulesUpdated", _registry.GetAll());
+        await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, _registry.GetAll());
         return Accepted(new TriggerAllResponse { TriggeredCount = triggered });
     }
 }

@@ -2166,30 +2166,7 @@
     },
     "dataImporter": {
       "title": "Import Historical Data",
-      "subtitle": "Import from external SQLite databases",
-      "databaseType": "Database Type",
-      "importTypes": {
-        "deveLanCache": {
-          "description": "Import from DeveLanCacheUI_Backend SQLite database"
-        },
-        "lancacheManager": {
-          "description": "Import from LancacheManager database backup"
-        },
-        "unknown": "Unknown"
-      },
-      "modes": {
-        "auto": "Auto",
-        "browse": "Browse",
-        "manual": "Manual"
-      },
-      "auto": {
-        "searching": "Searching for databases...",
-        "found": "Found {{count}} database(s)"
-      },
-      "manual": {
-        "label": "Database File Path",
-        "example": "Example:"
-      },
+      "subtitle": "Import from another LancacheManager database",
       "options": {
         "batchSize": "Batch Size",
         "batchSizeHint": "Number of records to process at once (100-10000)",
@@ -2201,7 +2178,6 @@
         "valid": "Connection Valid",
         "failed": "Validation Failed",
         "foundRecords": "Found {{formattedCount}} records ready to import",
-        "hintDeveLanCache": "Make sure to select a DeveLanCacheUI_Backend database for this import type.",
         "hintLancacheManager": "Make sure to select a LancacheManager database for this import type."
       },
       "progress": {
@@ -2234,8 +2210,7 @@
       },
       "messages": {
         "connectionValidated": "Connection validated! Found {{formattedCount}} records.",
-        "importCompleted": "Import completed! {{imported}} imported, {{skipped}} skipped, {{errors}} errors",
-        "selectedDatabase": "Selected database: {{path}}"
+        "importCompleted": "Import completed! {{imported}} imported, {{skipped}} skipped, {{errors}} errors"
       },
       "errors": {
         "enterConnectionString": "Please enter a connection string",
@@ -2246,24 +2221,9 @@
       "help": {
         "importTypes": {
           "title": "Options",
-          "deveLanCache": {
-            "term": "DeveLanCache",
-            "description": "Import download history from a DeveLanCacheUI_Backend database"
-          },
           "lancacheManager": {
             "term": "Lancache Manager",
             "description": "Restore from a Lancache Manager database backup"
-          }
-        },
-        "inputMethods": {
-          "title": "How to Select a Database",
-          "browse": {
-            "term": "Browse",
-            "description": "Pick a .db file from the file browser"
-          },
-          "manual": {
-            "term": "Manual Path",
-            "description": "Type or paste the full path to your database file"
           }
         },
         "compatibility": {
@@ -2276,13 +2236,6 @@
         "mockMode": "Mock mode is enabled - import functionality is disabled",
         "skipInfo": "Most users can skip this feature. Only use if you have an existing database from a previous installation that you want to import.",
         "authRequired": "Authentication required to import data"
-      },
-      "emptyState": {
-        "title": "No database files found",
-        "subtitle": "Try using Browse or Manual mode"
-      },
-      "placeholders": {
-        "manualPath": "/mnt/import/lancache.db"
       },
       "aria": {
         "increaseBatchSize": "Increase batch size",
@@ -2868,19 +2821,6 @@
       "freed": "Freed",
       "cooldown": "Cooldown",
       "remaining": "remaining"
-    },
-    "fileBrowser": {
-      "home": "Home",
-      "goBack": "Go back",
-      "searchForDb": "Search for .db files",
-      "accessDenied": "Access denied to this location",
-      "noDatabaseFiles": "No database files found in this location",
-      "searchFailed": "Search failed",
-      "noFilesFound": "No directories or .db files found",
-      "selectedDatabase": "Selected database",
-      "useFile": "Use File",
-      "foundFiles": "Found <strong>{{count}}</strong> database file(s)",
-      "failedToLoadDirectory": "Failed to load directory"
     },
     "schedules": {
       "title": "Service Schedules",
@@ -5163,20 +5103,6 @@
       "title": "Import Historical Data",
       "subtitle": "Import download history from external database systems",
       "skipNotice": "Most users can skip this step. Only use if you have an existing database from a previous installation.",
-      "databaseType": "Database Type",
-      "deveLanCache": "DeveLanCacheUI",
-      "lancacheManager": "Lancache Manager",
-      "deveLanCacheDesc": "Import from DeveLanCacheUI_Backend SQLite database",
-      "lancacheManagerDesc": "Import from Lancache Manager PostgreSQL database",
-      "auto": "Auto",
-      "browse": "Browse",
-      "manualPath": "Manual Path",
-      "searching": "Searching for databases...",
-      "foundDatabases": "Found {{count}} database(s)",
-      "searchingStatus": "Searching for databases...",
-      "noDatabasesFound": "No database files found",
-      "tryOtherModes": "Try using Browse or Manual mode",
-      "databasePath": "Database File Path",
       "host": "Host",
       "port": "Port",
       "database": "Database",
@@ -5199,22 +5125,13 @@
       "pleaseEnter": "Please enter a database path or connection details",
       "failedToValidate": "Failed to validate connection",
       "foundRecords": "Found {{formattedCount}} records.",
-      "checkDeveLanCache": "Make sure to select a DeveLanCacheUI_Backend database for this import type.",
       "checkLancacheManager": "Make sure to select a LancacheManager database for this import type.",
       "importSuccess": "{{message}}",
       "total": "Total: {{formattedCount}}",
       "imported": "Imported: {{formattedCount}}",
       "skipped": "Skipped: {{formattedCount}}",
       "errors": "Errors: {{formattedCount}}",
-      "importFailed": "Import failed: {{error}}",
-      "fileBrowserDisabled": {
-        "title": "File browser is disabled",
-        "description": "Auto-detect and Browse use the server file browser to locate an old DeveLanCacheUI SQLite database on disk. For security it is off by default, so those modes cannot search until you allow specific directories.",
-        "manualHint": "You can still import by typing the full path in Manual mode, or skip this step and continue without importing.",
-        "envVarInstructions": "Add the following environment variable to your docker-compose.yml, then restart the container. Include every directory that may contain your old .db file:",
-        "envVarExample": "- Security__AllowedBrowsePaths=/data,/mnt",
-        "envVarNote": "Only paths in this list (and their subdirectories) are readable. Everything else returns 403. If your database lives on a host mount, include that mount point (for example /mnt/old-lancache)."
-      }
+      "importFailed": "Import failed: {{error}}"
     },
     "platformSetup": {
       "title": "Platform Setup",
@@ -5429,8 +5346,6 @@
     "corruptionDetect": {
       "starting": "Starting corruption detection scan...",
       "scanningLogs": "Scanning log files...",
-      "found": "Found {{totalCorrupted}} corrupted chunks across {{serviceCount}} services",
-      "reportSaved": "Report saved to: {{outputJson}}",
       "complete": "Detection complete. Found {{count}} services with corruption.",
       "cancelled": "Detection cancelled by user",
       "failed": "Corruption detection failed: {{errorDetail}}"
@@ -5446,7 +5361,6 @@
       "deletingDb": "Deleting database records for corrupted chunks",
       "scanningFiles": "Scanning {{totalFiles}} log files for corrupted chunks...",
       "scanningFile": "Scanning file {{fileIndex}}/{{totalFiles}}...",
-      "foundUrls": "Found {{count}} corrupted URLs for {{service}}",
       "complete": "Removed {{count}} corrupted URLs for {{service}} ({{files}} cache files deleted, {{logLines}} log lines removed, {{downloads}} downloads deleted, {{logEntries}} log entries deleted)",
       "success": "Successfully removed corrupted chunks for {{service}}",
       "cancelled": "Operation was cancelled.",
@@ -5459,10 +5373,6 @@
       "failed": {
         "generic": "Operation failed. Check server logs for details."
       }
-    },
-    "corruptionSummary": {
-      "scanningLogs": "Scanning log files...",
-      "complete": "Corruption summary generated"
     },
     "dbReset": {
       "starting": "Starting database reset...",

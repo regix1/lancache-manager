@@ -72,6 +72,7 @@ export const SIGNALR_EVENTS = [
   'CorruptionRemovalStarted',
   'CorruptionRemovalProgress',
   'CorruptionRemovalComplete',
+  'EvictionRemovalComplete',
 
   // Games
   'GameDetectionStarted',

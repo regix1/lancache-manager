@@ -18,18 +18,6 @@ public class OperationResponse
 }
 
 /// <summary>
-/// Response for operation status checks
-/// </summary>
-public class OperationStatusResponse
-{
-    public bool IsProcessing { get; set; }
-    public OperationStatus? Status { get; set; }
-    public string? Message { get; set; }
-    public int? PercentComplete { get; set; }
-    public string? Error { get; set; }
-}
-
-/// <summary>
 /// Response for save state operation
 /// </summary>
 public class SaveStateResponse
@@ -53,14 +41,4 @@ public class StateCleanupResponse
 {
     public bool Success { get; set; }
     public int ActiveStates { get; set; }
-}
-
-/// <summary>
-/// Service unavailable response with retry info
-/// </summary>
-public class ServiceUnavailableResponse
-{
-    public string Error { get; set; } = string.Empty;
-    public string Message { get; set; } = string.Empty;
-    public int RetryAfter { get; set; }
 }

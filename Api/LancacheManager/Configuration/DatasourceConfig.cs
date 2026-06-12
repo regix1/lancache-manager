@@ -25,36 +25,3 @@ public class DatasourceConfig
     /// </summary>
     public bool Enabled { get; set; } = true;
 }
-
-/// <summary>
-/// Root configuration for LANCache settings, supporting multiple datasources.
-/// </summary>
-public class LanCacheSettings
-{
-    /// <summary>
-    /// List of configured datasources. If empty, falls back to legacy CachePath/LogPath.
-    /// </summary>
-    public List<DatasourceConfig> DataSources { get; set; } = new();
-
-    /// <summary>
-    /// Legacy single cache path (for backward compatibility).
-    /// </summary>
-    public string? CachePath { get; set; }
-
-    /// <summary>
-    /// Legacy single log path (for backward compatibility).
-    /// </summary>
-    public string? LogPath { get; set; }
-
-    /// <summary>
-    /// Whether to start processing from end of log file (skip existing entries).
-    /// </summary>
-    public bool StartFromEndOfLog { get; set; } = false;
-
-    /// <summary>
-    /// Enable auto-discovery of datasources by scanning for matching subdirectories
-    /// in the cache and logs folders. When enabled, subdirectories that exist in both
-    /// locations will be automatically configured as datasources.
-    /// </summary>
-    public bool AutoDiscoverDatasources { get; set; } = false;
-}

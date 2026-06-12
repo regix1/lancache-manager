@@ -239,7 +239,7 @@ pub(crate) async fn query_service_downloads(
     for row in rows {
         let service: String = row.get(0);
         let url: String = row.get(1);
-        let service_lower = cache_utils::normalize_service_name(&service);
+        let service_lower = cache_utils::service_name_lowercase(&service);
         services
             .entry(service_lower.clone())
             .or_default()
