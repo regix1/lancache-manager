@@ -28,7 +28,6 @@ public class RustLogProcessorService
     private Guid? _currentOperationId;
     private string? _currentDatasourceName;
     private string? _currentProgressPath;
-    private string? _currentLogDirectory;
     private Task? _progressMonitorTask;
     private readonly SemaphoreSlim _startLock = new(1, 1);
 
@@ -81,7 +80,6 @@ public class RustLogProcessorService
                 _currentOperationId = null;
                 _currentDatasourceName = null;
                 _currentProgressPath = null;
-                _currentLogDirectory = null;
                 _cancellationTokenSource?.Dispose();
                 _cancellationTokenSource = null;
                 // Reset the busy/state gates too: the universal force-kill path bypasses
@@ -174,7 +172,6 @@ public class RustLogProcessorService
         _currentOperationId = null;
         _currentDatasourceName = null;
         _currentProgressPath = null;
-        _currentLogDirectory = null;
         _cancellationTokenSource?.Dispose();
         _cancellationTokenSource = null;
     }
@@ -435,11 +432,10 @@ public class RustLogProcessorService
             };
         }
 
-        // Get log file size for MB calculations using the active datasource log directory.
-        var logPath = Path.Combine(_currentLogDirectory ?? _pathResolver.GetLogsDirectory(), "access.log");
-        var logFileInfo = new FileInfo(logPath);
-        var mbTotal = logFileInfo.Exists ? logFileInfo.Length / (1024.0 * 1024.0) : 0;
-        var mbProcessed = mbTotal * (progress.PercentComplete / 100.0);
+        // The Rust processor reports real byte counts across ALL discovered log files
+        // (access.log + rotated + compressed), replacing the old single-file estimate.
+        var mbTotal = progress.TotalBytes / (1024.0 * 1024.0);
+        var mbProcessed = progress.BytesProcessed / (1024.0 * 1024.0);
 
         return new
         {
@@ -478,6 +474,10 @@ public class RustLogProcessorService
 
     public class ProgressData
     {
+        /// <summary>
+        /// Only meaningful on the final "completed" write: the Rust processor no longer
+        /// runs a line-counting pre-pass, so the total is unknown (0) while running.
+        /// </summary>
         [System.Text.Json.Serialization.JsonPropertyName("total_lines")]
         public long TotalLines { get; set; }
 
@@ -486,6 +486,14 @@ public class RustLogProcessorService
 
         [System.Text.Json.Serialization.JsonPropertyName("entries_saved")]
         public long EntriesSaved { get; set; }
+
+        /// <summary>Raw (compressed) log bytes consumed so far across all files.</summary>
+        [System.Text.Json.Serialization.JsonPropertyName("bytes_processed")]
+        public long BytesProcessed { get; set; }
+
+        /// <summary>Sum of on-disk sizes of every discovered log file.</summary>
+        [System.Text.Json.Serialization.JsonPropertyName("total_bytes")]
+        public long TotalBytes { get; set; }
 
         [System.Text.Json.Serialization.JsonPropertyName("percent_complete")]
         public double PercentComplete { get; set; }
@@ -560,7 +568,6 @@ public class RustLogProcessorService
                         _currentOperationId = null;
                         _currentDatasourceName = null;
                         _currentProgressPath = null;
-                        _currentLogDirectory = null;
                         _cancellationTokenSource?.Dispose();
                         _cancellationTokenSource = null;
                         // Reset the busy/state gates too: the universal force-kill path bypasses
@@ -593,7 +600,6 @@ public class RustLogProcessorService
 
             _currentDatasourceName = datasourceName;
             _currentProgressPath = progressPath;
-            _currentLogDirectory = logDirectory;
 
             // Delete old progress file
             if (File.Exists(progressPath))
@@ -775,10 +781,8 @@ public class RustLogProcessorService
                     // Only send SignalR notifications if not in silent mode
                     if (!silentMode)
                     {
-                        // Get log file size for MB calculation
-                        var logPath = Path.Combine(_currentLogDirectory ?? _pathResolver.GetLogsDirectory(), "access.log");
-                        var logFileInfo = new FileInfo(logPath);
-                        var mbTotal = logFileInfo.Exists ? logFileInfo.Length / (1024.0 * 1024.0) : 0;
+                        // Real total byte count from the Rust processor (all discovered log files)
+                        var mbTotal = finalProgress.TotalBytes / (1024.0 * 1024.0);
 
                         // Send final progress update with 100% and complete status
                         await _notifications.NotifyAllAsync(SignalREvents.LogProcessingProgress, new
@@ -997,18 +1001,12 @@ public class RustLogProcessorService
                 IsCancelling = false;
                 _currentDatasourceName = null;
                 _currentProgressPath = null;
-                _currentLogDirectory = null;
             }
         }
     }
 
     private Task MonitorProgressAsync(string progressPath, CancellationToken cancellationToken)
     {
-        // Get log file size once for MB calculations
-        var logPath = Path.Combine(_currentLogDirectory ?? _pathResolver.GetLogsDirectory(), "access.log");
-        var logFileInfo = new FileInfo(logPath);
-        var mbTotal = logFileInfo.Exists ? logFileInfo.Length / (1024.0 * 1024.0) : 0;
-
         var loggedWarnings = new HashSet<string>();
         var loggedErrors = new HashSet<string>();
 
@@ -1033,8 +1031,9 @@ public class RustLogProcessorService
                 }
             }
 
-            // Calculate MB processed based on percentage
-            var mbProcessed = mbTotal * (progress.PercentComplete / 100.0);
+            // Real byte counts from the Rust processor (all files, compressed sizes)
+            var mbTotal = progress.TotalBytes / (1024.0 * 1024.0);
+            var mbProcessed = progress.BytesProcessed / (1024.0 * 1024.0);
 
             // Update the unified operation tracker with progress
             if (_currentOperationId.HasValue)

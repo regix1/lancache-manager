@@ -1471,6 +1471,16 @@ public class CacheManagementService
                 serviceName, datasourcesProcessed, executionPlan.DatasourcesSkipped,
                 aggregatedReport.CacheFilesDeleted, aggregatedReport.TotalBytesFreed);
 
+            // The Rust phase is done but the operation is not: the detection-row delete, the
+            // disk-summary refresh (minutes on large databases), the service-counts invalidation,
+            // and the nginx log reopen below can dwarf the Rust runtime. Surface this phase instead
+            // of leaving the notification on its last per-datasource message. (Same fix as game
+            // removal's finalizing emit.)
+            if (onProgress != null)
+            {
+                await onProgress(100.0, "signalr.serviceRemove.finalizing", null, aggregatedReport.CacheFilesDeleted, (long)aggregatedReport.TotalBytesFreed);
+            }
+
             // Remove this service from cached service detection results so page reload shows correct data
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
             // Direct DbContext delete is deliberate: removal drops the detection row outright instead of the load/upsert flow GameCacheDetectionDataService owns.

@@ -144,17 +144,14 @@ export const formatLogProcessingRecoveryMessage = (
 
 /**
  * Formats the log processing recovery detail message.
+ * The total line count is no longer known mid-run (the Rust processor's
+ * line-counting pre-pass was removed), so only entries are shown.
  * @param entriesProcessed - Entries processed so far
- * @param totalLines - Total lines to process
  * @returns Formatted detail message string
  */
-export const formatLogProcessingRecoveryDetailMessage = (
-  entriesProcessed?: number,
-  totalLines?: number
-): string => {
+export const formatLogProcessingRecoveryDetailMessage = (entriesProcessed?: number): string => {
   return i18n.t('signalr.logProcessing.recoveryDetail', {
-    entriesProcessed: entriesProcessed?.toLocaleString() || '0',
-    totalLines: totalLines?.toLocaleString() || '0'
+    entriesProcessed: entriesProcessed?.toLocaleString() || '0'
   });
 };
 

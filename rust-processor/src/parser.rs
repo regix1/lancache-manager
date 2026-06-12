@@ -28,6 +28,12 @@ impl LogParser {
     }
 
     fn normalize_url(url: &str) -> String {
+        // Fast path: the overwhelming majority of URLs contain no consecutive
+        // slashes, so skip the char-walk entirely when no "//" pair exists.
+        if !url.as_bytes().windows(2).any(|pair| pair == b"//") {
+            return url.to_string();
+        }
+
         // Collapse consecutive slashes to a single slash
         // This handles cases where nginx logs record the same URL with double slashes
         // e.g., /filestreamingservice//files/... vs /filestreamingservice/files/...
@@ -217,5 +223,39 @@ impl LogParser {
             .captures(url)
             .and_then(|cap| cap.get(1))
             .and_then(|m| m.as_str().parse::<u32>().ok())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_url_fast_path_returns_input_unchanged() {
+        let url = "/depot/123456/chunk/abcdef0123456789";
+        assert_eq!(LogParser::normalize_url(url), url);
+    }
+
+    #[test]
+    fn normalize_url_collapses_double_slashes() {
+        assert_eq!(
+            LogParser::normalize_url("/filestreamingservice//files/abc"),
+            "/filestreamingservice/files/abc"
+        );
+    }
+
+    #[test]
+    fn normalize_url_collapses_runs_of_slashes() {
+        assert_eq!(LogParser::normalize_url("///a//b////c/"), "/a/b/c/");
+    }
+
+    #[test]
+    fn parse_line_normalizes_doubled_slash_url() {
+        let parser = LogParser::new(chrono_tz::UTC);
+        let line = "[steam] 192.168.1.50 / - - - [01/Jan/2024:00:00:00 +0000] \"GET /depot/123456//chunk/abcdef HTTP/1.1\" 200 1024 \"-\" \"Valve/Steam\" \"HIT\" \"-\" \"-\"";
+        let entry = parser.parse_line(line).expect("line should parse");
+        assert_eq!(entry.url, "/depot/123456/chunk/abcdef");
+        assert_eq!(entry.service, "steam");
+        assert_eq!(entry.cache_status, "HIT");
     }
 }

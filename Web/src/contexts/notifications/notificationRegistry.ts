@@ -121,6 +121,7 @@ interface LogProcessingStatusResponse {
   mbProcessed: number;
   mbTotal: number;
   entriesProcessed: number;
+  /** Final line count; 0 while running (the Rust line-count pre-pass was removed). */
   totalLines: number;
   stageKey?: string;
   context?: StageContext;
@@ -305,17 +306,13 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       shouldSkip: (data: LogProcessingStatusResponse) => data.isProcessing && data.silentMode,
       createNotification: (data: LogProcessingStatusResponse) => ({
         message: formatLogProcessingRecoveryMessage(data.mbProcessed, data.mbTotal),
-        detailMessage: formatLogProcessingRecoveryDetailMessage(
-          data.entriesProcessed,
-          data.totalLines
-        ),
+        detailMessage: formatLogProcessingRecoveryDetailMessage(data.entriesProcessed),
         progress: Math.min(99.9, data.percentComplete),
         details: {
           operationId: data.operationId,
           mbProcessed: data.mbProcessed,
           mbTotal: data.mbTotal,
-          entriesProcessed: data.entriesProcessed,
-          totalLines: data.totalLines
+          entriesProcessed: data.entriesProcessed
         }
       }),
       staleMessage: 'Log processing completed'

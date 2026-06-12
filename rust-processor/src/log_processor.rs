@@ -7,9 +7,9 @@ use sqlx::Row;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::env;
-use std::io::BufRead;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 mod cancel;
@@ -78,9 +78,16 @@ struct PendingLogEntry {
 
 #[derive(Serialize)]
 struct Progress {
+    /// Total line count is only known once processing finishes (the expensive
+    /// line-counting pre-pass was removed). 0 while running; set to the real
+    /// count on the final "completed" write so the host can persist it.
     total_lines: u64,
     lines_parsed: u64,
     entries_saved: u64,
+    /// Raw (compressed) bytes consumed so far across all files.
+    bytes_processed: u64,
+    /// Sum of on-disk file sizes for every discovered log file.
+    total_bytes: u64,
     percent_complete: f64,
     status: String,
     message: String,
@@ -101,6 +108,14 @@ struct Processor {
     total_lines: AtomicU64,
     lines_parsed: AtomicU64,
     entries_saved: AtomicU64,
+    /// Sum of on-disk file sizes for all discovered log files (the progress denominator).
+    total_bytes: u64,
+    /// Raw bytes of fully-processed (or skipped-with-error) files.
+    bytes_completed: AtomicU64,
+    /// Raw bytes consumed from the file currently being read (shared with LogFileReader).
+    current_file_bytes: Arc<AtomicU64>,
+    /// On-disk size of the file currently being read (clamps read-ahead overshoot).
+    current_file_size: AtomicU64,
     local_tz: Tz,
     auto_map_depots: bool,
     last_logged_percent: AtomicU64, // Store as integer (0-100) for atomic operations
@@ -139,6 +154,10 @@ impl Processor {
             total_lines: AtomicU64::new(0),
             lines_parsed: AtomicU64::new(0),
             entries_saved: AtomicU64::new(0),
+            total_bytes: 0,
+            bytes_completed: AtomicU64::new(0),
+            current_file_bytes: Arc::new(AtomicU64::new(0)),
+            current_file_size: AtomicU64::new(0),
             local_tz,
             auto_map_depots,
             last_logged_percent: AtomicU64::new(0),
@@ -163,50 +182,37 @@ impl Processor {
         NaiveDateTime::new(local_datetime.date_naive(), local_datetime.time())
     }
 
-    /// Count total lines across all discovered log files
-    fn count_lines_all_files(&self, log_files: &[LogFile]) -> Result<u64> {
-        let mut total = 0u64;
-        for log_file in log_files {
-            // Try to count lines, but skip if file is corrupted
-            let file_result = (|| -> Result<u64> {
-                let mut reader = LogFileReader::open(&log_file.path)?;
-                // Count lines using BufRead trait
-                let lines = reader.as_buf_read().lines().count() as u64;
-                Ok(lines)
-            })();
+    /// Raw (compressed) bytes consumed so far: completed files contribute their
+    /// full on-disk size; the in-flight file contributes its underlying stream
+    /// position, clamped to its size to absorb BufReader read-ahead overshoot.
+    fn bytes_processed(&self) -> u64 {
+        let current = self
+            .current_file_bytes
+            .load(Ordering::Relaxed)
+            .min(self.current_file_size.load(Ordering::Relaxed));
+        self.bytes_completed.load(Ordering::Relaxed) + current
+    }
 
-            match file_result {
-                Ok(lines) => {
-                    total += lines;
-                    println!("  {} has {} lines", log_file.path.display(), lines);
-                }
-                Err(e) => {
-                    // Log to stderr - C# captures this for logging
-                    eprintln!("WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
-                    eprintln!("  Continuing with remaining files...");
-                    continue;
-                }
-            }
+    /// Byte-based progress percent (replaces the deleted line-count pre-pass).
+    fn percent_complete(&self) -> f64 {
+        if self.total_bytes > 0 {
+            ((self.bytes_processed() as f64 / self.total_bytes as f64) * 100.0).min(100.0)
+        } else {
+            0.0
         }
-        Ok(total)
     }
 
     fn write_progress(&self, status: &str, message: &str) -> Result<()> {
-        let total = self.total_lines.load(Ordering::Relaxed);
         let parsed = self.lines_parsed.load(Ordering::Relaxed);
         let saved = self.entries_saved.load(Ordering::Relaxed);
 
-        let percent = if total > 0 {
-            (parsed as f64 / total as f64) * 100.0
-        } else {
-            0.0
-        };
-
         let progress = Progress {
-            total_lines: total,
+            total_lines: self.total_lines.load(Ordering::Relaxed),
             lines_parsed: parsed,
             entries_saved: saved,
-            percent_complete: percent,
+            bytes_processed: self.bytes_processed(),
+            total_bytes: self.total_bytes,
+            percent_complete: self.percent_complete(),
             status: status.to_string(),
             message: message.to_string(),
             timestamp: progress_utils::current_timestamp(),
@@ -244,13 +250,34 @@ impl Processor {
             println!("  - {}{}{}", log_file.path.display(), rotation_info, compression_info);
         }
 
-        // Count total lines across all files
-        println!("Counting lines in all log files...");
-        let total_lines = self.count_lines_all_files(&log_files)?;
-        self.total_lines.store(total_lines, Ordering::Relaxed);
-        println!("Total lines across all files: {}", total_lines);
+        // Progress denominator: sum of on-disk file sizes (instant). This replaces
+        // the old line-counting pre-pass that read and decompressed every file twice.
+        let file_sizes: Vec<u64> = log_files
+            .iter()
+            .map(|log_file| {
+                std::fs::metadata(&log_file.path)
+                    .map(|m| m.len())
+                    .unwrap_or_else(|e| {
+                        eprintln!(
+                            "WARNING: Failed to read size of {}: {} (treating as 0 bytes)",
+                            log_file.path.display(),
+                            e
+                        );
+                        0
+                    })
+            })
+            .collect();
+        self.total_bytes = file_sizes.iter().sum();
+        println!("Total size across all files: {} bytes", self.total_bytes);
 
-        self.write_progress("counting", &format!("Counted {} lines across {} file(s)", total_lines, log_files.len()))?;
+        self.write_progress(
+            "starting",
+            &format!(
+                "Processing {} file(s), {} bytes total",
+                log_files.len(),
+                self.total_bytes
+            ),
+        )?;
 
         // Check if this is a fresh database - skip dedup for maximum speed
         if self.start_position == 0 {
@@ -280,7 +307,14 @@ impl Processor {
         for (file_index, log_file) in log_files.iter().enumerate() {
             println!("\nProcessing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
 
-            let file_result = self.process_single_file(log_file, &mut lines_to_skip, total_lines).await;
+            let file_size = file_sizes[file_index];
+            let file_result = self.process_single_file(log_file, file_size, &mut lines_to_skip).await;
+
+            // Whether the file completed or was skipped with an error, its bytes are
+            // consumed work: fold them into the completed total so percent stays monotone.
+            self.bytes_completed.fetch_add(file_size, Ordering::Relaxed);
+            self.current_file_bytes.store(0, Ordering::Relaxed);
+            self.current_file_size.store(0, Ordering::Relaxed);
 
             if let Err(e) = file_result {
                 let error_str = format!("{}", e);
@@ -307,15 +341,21 @@ impl Processor {
 
         let entries_saved = self.entries_saved.load(Ordering::Relaxed);
 
+        // The full line count is only known now that every file has been read;
+        // publish it so the final progress write (and the C# host, which persists
+        // it via SetLogTotalLines) sees the real total.
+        let final_line_count = self.lines_parsed.load(Ordering::Relaxed);
+        self.total_lines.store(final_line_count, Ordering::Relaxed);
+
         // If we had errors and processed zero entries, this is a failure
-        if !files_with_errors.is_empty() && entries_saved == 0 && total_lines > 0 {
+        if !files_with_errors.is_empty() && entries_saved == 0 && self.total_bytes > 0 {
             let error_summary: Vec<String> = files_with_errors
                 .iter()
                 .map(|(path, err)| format!("{}: {}", path, err))
                 .collect();
             let msg = format!(
-                "Log processing failed - 0 entries processed from {} lines. Errors: {}",
-                total_lines,
+                "Log processing failed - 0 entries processed from {} parsed lines. Errors: {}",
+                final_line_count,
                 error_summary.join("; ")
             );
             eprintln!("{}", msg);
@@ -342,11 +382,16 @@ impl Processor {
     async fn process_single_file(
         &mut self,
         log_file: &LogFile,
+        file_size: u64,
         lines_to_skip: &mut u64,
-        total_lines: u64,
     ) -> Result<()> {
+        // Track raw (compressed) bytes consumed from this file for byte-based progress.
+        let byte_counter = Arc::new(AtomicU64::new(0));
+        self.current_file_bytes = byte_counter.clone();
+        self.current_file_size.store(file_size, Ordering::Relaxed);
+
         // Open log file with automatic compression detection
-        let mut reader = LogFileReader::open(&log_file.path)?;
+        let mut reader = LogFileReader::open_with_byte_counter(&log_file.path, byte_counter)?;
 
         // Skip lines if we haven't reached the start position yet
         if *lines_to_skip > 0 {
@@ -408,7 +453,7 @@ impl Processor {
 
                     let parsed = self.lines_parsed.load(Ordering::Relaxed);
                     let saved = self.entries_saved.load(Ordering::Relaxed);
-                    let percent = (parsed as f64 / total_lines as f64) * 100.0;
+                    let percent = self.percent_complete();
                     let current_percent_bucket = (percent / 5.0).floor() as u64 * 5; // Round down to nearest 5%
                     let last_logged = self.last_logged_percent.load(Ordering::Relaxed);
 
@@ -416,8 +461,8 @@ impl Processor {
                     if current_percent_bucket > last_logged {
                         self.last_logged_percent.store(current_percent_bucket, Ordering::Relaxed);
                         println!(
-                            "Progress: {}/{} lines ({:.1}%), {} entries saved",
-                            parsed, total_lines, percent, saved
+                            "Progress: {} lines ({:.1}%), {} entries saved",
+                            parsed, percent, saved
                         );
                     }
 

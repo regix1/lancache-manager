@@ -1,9 +1,10 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Postgres, Transaction, Row};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 mod cache_utils;
@@ -57,13 +58,6 @@ struct ScanResult {
     files_on_disk: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
-}
-
-/// Represents a download's log entry data needed for cache path computation
-struct DownloadEntry {
-    service: String,
-    url: String,
-    datasource: Option<String>,
 }
 
 #[tokio::main]
@@ -192,11 +186,16 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
     let total_estimate = total_estimate as usize;
 
     // Step 4: Process downloads in batches
-    let batch_size: i64 = 500;
+    let batch_size: i64 = 2000;
     let mut total_evicted: usize = 0;
     let mut total_un_evicted: usize = 0;
     let mut total_processed: usize = 0;
     let mut last_processed_id: i64 = 0;
+
+    // Scan-wide probe memo: many downloads share the same (service, url, datasource)
+    // tuple, and the on-disk file-name index is immutable for the whole scan, so each
+    // unique tuple is hashed and probed exactly once.
+    let mut probe_memo: HashMap<cache_eviction_paths::ProbeKey, bool> = HashMap::new();
 
     loop {
         // Step A: Fetch a batch of distinct inactive download IDs
@@ -230,45 +229,55 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
         last_processed_id = last_download_id;
         let batch_count = download_ids.len();
 
-        // Step B: Fetch log entries for these downloads
-        // Build parameterized IN clause
-        let placeholders: Vec<String> = download_ids.iter()
-            .enumerate()
-            .map(|(i, _)| format!("${}", i + 1))
-            .collect();
-        let log_query = format!(
+        // Step B: Fetch log entries for these downloads (single int8[] array bind)
+        let log_rows = sqlx::query(
             r#"
             SELECT "DownloadId" as download_id, "Service" as service, "Url" as url, "Datasource" as datasource
             FROM "LogEntries"
-            WHERE "DownloadId" IN ({})
+            WHERE "DownloadId" = ANY($1)
             AND "Service" IS NOT NULL AND "Url" IS NOT NULL
-            "#,
-            placeholders.join(", ")
-        );
-        let mut query = sqlx::query(&log_query);
-        for id in &download_ids {
-            query = query.bind(id);
-        }
-        let log_rows = query.fetch_all(&pool).await
-            .with_context(|| "Failed to fetch log entries")?;
+            "#
+        )
+        .bind(&download_ids)
+        .fetch_all(&pool)
+        .await
+        .with_context(|| "Failed to fetch log entries")?;
 
-        // Group log entries by download_id
-        let mut download_entries: HashMap<i64, Vec<DownloadEntry>> = HashMap::new();
+        // Group probe keys by download_id
+        let mut download_keys: HashMap<i64, Vec<cache_eviction_paths::ProbeKey>> = HashMap::new();
         for row in &log_rows {
             let download_id: i64 = row.get("download_id");
             let service: String = row.get("service");
             let url: String = row.get("url");
             let datasource: Option<String> = row.get("datasource");
 
-            download_entries
+            download_keys
                 .entry(download_id)
-                .or_insert_with(Vec::new)
-                .push(DownloadEntry {
-                    service,
+                .or_default()
+                .push(cache_eviction_paths::ProbeKey::new(
+                    &service,
                     url,
-                    datasource,
-                });
+                    datasource.as_deref(),
+                    &datasource_roots,
+                ));
         }
+
+        // Probe each not-yet-memoized unique key once, in parallel (pure CPU over the
+        // immutable on-disk index), then fold the results into the scan-wide memo.
+        let unprobed: HashSet<cache_eviction_paths::ProbeKey> = download_keys
+            .values()
+            .flatten()
+            .filter(|key| !probe_memo.contains_key(*key))
+            .cloned()
+            .collect();
+        let probe_results: Vec<(cache_eviction_paths::ProbeKey, bool)> = unprobed
+            .into_par_iter()
+            .map(|key| {
+                let has_file = key.has_cache_file(&files_on_disk);
+                (key, has_file)
+            })
+            .collect();
+        probe_memo.extend(probe_results);
 
         // Check each download's cache files against disk
         let mut ids_to_evict: Vec<i64> = Vec::new();
@@ -277,18 +286,19 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
         // Downloads without any log entries can't be verified - mark them as evicted
         for download_id in &download_ids {
             let is_evicted = download_evicted.get(download_id).copied().unwrap_or(false);
-            if !download_entries.contains_key(download_id) && !is_evicted {
+            if !download_keys.contains_key(download_id) && !is_evicted {
                 ids_to_evict.push(*download_id);
             }
         }
 
-        for (download_id, entries) in &download_entries {
+        for (download_id, keys) in &download_keys {
             let is_evicted = download_evicted.get(download_id).copied().unwrap_or(false);
-            let has_cache_file = cache_eviction_paths::download_has_cache_file(
-                entries,
-                &datasource_roots,
-                &files_on_disk,
-            );
+            let has_cache_file = keys.iter().any(|key| {
+                probe_memo
+                    .get(key)
+                    .copied()
+                    .expect("probe memo must contain every key collected this batch")
+            });
 
             if !has_cache_file && !is_evicted {
                 ids_to_evict.push(*download_id);
@@ -388,33 +398,18 @@ async fn update_download_eviction_state_tx(
     ids: &[i64],
     is_evicted: bool,
 ) -> Result<()> {
-    let target_state = if is_evicted { "true" } else { "false" };
     let error_context = if is_evicted {
         "Failed to update evicted downloads (tx)"
     } else {
         "Failed to update un-evicted downloads (tx)"
     };
 
-    for chunk in ids.chunks(400) {
-        let placeholders: Vec<String> = chunk
-            .iter()
-            .enumerate()
-            .map(|(i, _)| format!("${}", i + 1))
-            .collect();
-        let query_str = format!(
-            r#"UPDATE "Downloads" SET "IsEvicted" = {} WHERE "Id" IN ({})"#,
-            target_state,
-            placeholders.join(", ")
-        );
-        let mut query = sqlx::query(&query_str);
-        for id in chunk {
-            query = query.bind(id);
-        }
-        query
-            .execute(&mut **tx)
-            .await
-            .with_context(|| error_context)?;
-    }
+    sqlx::query(r#"UPDATE "Downloads" SET "IsEvicted" = $1 WHERE "Id" = ANY($2)"#)
+        .bind(is_evicted)
+        .bind(ids)
+        .execute(&mut **tx)
+        .await
+        .with_context(|| error_context)?;
 
     Ok(())
 }

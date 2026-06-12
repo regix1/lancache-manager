@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use sqlx::PgPool;
 use sqlx::Row;
@@ -7,15 +7,13 @@ use serde_json::json;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use tempfile::NamedTempFile;
-use flate2::write::GzEncoder;
-use flate2::Compression;
 
 mod cache_utils;
 mod cache_corruption_detector;
 mod cancel;
 mod db;
 mod log_discovery;
+mod log_purge;
 mod log_reader;
 mod models;
 mod parser;
@@ -404,7 +402,6 @@ async fn main() -> Result<()> {
             write_progress(&progress_path, "starting", "signalr.corruptionRemove.starting", json!({ "service": service }), 0.0, 0, 0)?;
 
             use log_reader::LogFileReader;
-            use std::io::Write as IoWrite;
             use parser::LogParser;
             use std::collections::HashMap;
 
@@ -438,122 +435,44 @@ async fn main() -> Result<()> {
                 let corrupted_urls: std::collections::HashSet<String> = service_urls_with_sizes.keys().cloned().collect();
                 eprintln!("Found {} re-download corrupted URLs for {}", corrupted_urls.len(), service);
 
-                // PASS 2: Filter log files, removing HIT lines for corrupted URLs
+                // PASS 2: Filter log files, removing HIT lines for corrupted URLs.
+                // Uses the shared scan-then-rewrite helper (Aho-Corasick prefilter,
+                // untouched files skip recompression entirely).
                 eprintln!("Step 2: Filtering log files to remove HIT entries for corrupted URLs...");
 
-                let parser = LogParser::new(chrono_tz::UTC);
                 let log_files = crate::log_discovery::discover_log_files(&log_dir, "access.log")?;
                 let total_files = log_files.len();
-                let mut total_lines_removed: u64 = 0;
 
                 write_progress(&progress_path, "filtering", "signalr.corruptionRemove.filteringLogs", json!({ "totalFiles": total_files }), 30.0, 0, total_files)?;
 
-                for (file_index, log_file) in log_files.iter().enumerate() {
-                    let filter_percent = 30.0 + (file_index as f64 / total_files as f64) * 20.0;
-                    write_progress(&progress_path, "filtering", "signalr.corruptionRemove.filteringFile", json!({ "fileIndex": file_index + 1, "totalFiles": total_files }), filter_percent, file_index, total_files)?;
-                    eprintln!("  Processing file {}/{}: {}", file_index + 1, total_files, log_file.path.display());
-
-                    let file_result = (|| -> Result<u64> {
-                        use std::io::BufWriter;
-
-                        let file_dir = log_file.path.parent().context("Failed to get file directory")?;
-                        let temp_file = NamedTempFile::new_in(file_dir)?;
-
-                        let mut lines_removed: u64 = 0;
-                        let mut lines_processed: u64 = 0;
-
-                        {
-                            let mut log_reader = LogFileReader::open(&log_file.path)?;
-
-                            let mut writer: Box<dyn std::io::Write> = if log_file.is_compressed {
-                                let path_str = log_file.path.to_string_lossy();
-                                if path_str.ends_with(".gz") {
-                                    Box::new(BufWriter::with_capacity(
-                                        1024 * 1024,
-                                        GzEncoder::new(temp_file.as_file().try_clone()?, Compression::default())
-                                    ))
-                                } else if path_str.ends_with(".zst") {
-                                    Box::new(BufWriter::with_capacity(
-                                        1024 * 1024,
-                                        zstd::Encoder::new(temp_file.as_file().try_clone()?, 3)?
-                                    ))
-                                } else {
-                                    Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
-                                }
-                            } else {
-                                Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
-                            };
-
-                            let mut line = String::new();
-
-                            loop {
-                                line.clear();
-                                let bytes_read = log_reader.read_line(&mut line)?;
-                                if bytes_read == 0 {
-                                    break;
-                                }
-
-                                lines_processed += 1;
-                                let mut should_remove = false;
-
-                                if let Some(entry) = parser.parse_line(line.trim()) {
-                                    // Remove HIT lines for corrupted URLs (re-download corruption serves bad HITs)
-                                    if entry.service == service_lower
-                                        && corrupted_urls.contains(&entry.url)
-                                        && entry.cache_status == "HIT"
-                                    {
-                                        should_remove = true;
-                                    }
-                                }
-
-                                if !should_remove {
-                                    write!(writer, "{}", line)?;
-                                } else {
-                                    lines_removed += 1;
-                                }
-                            }
-
-                            writer.flush()?;
-                            drop(writer);
-                        }
-
-                        if lines_processed > 0 && lines_removed == lines_processed {
-                            eprintln!("  INFO: All {} lines from this file are corrupted, deleting file entirely", lines_processed);
-                            match cache_utils::safe_path_under_root(&log_dir, &log_file.path) {
-                                Ok(_) => { std::fs::remove_file(&log_file.path).ok(); }
-                                Err(e) => eprintln!("skipping unsafe path {}: {}", log_file.path.display(), e),
-                            }
-                            return Ok(lines_removed);
-                        }
-
-                        let temp_path = temp_file.into_temp_path();
-
-                        if let Err(persist_err) = temp_path.persist(&log_file.path) {
-                            eprintln!("    persist() failed ({}), using copy fallback...", persist_err);
-                            std::fs::copy(&persist_err.path, &log_file.path)
-                                .with_context(|| format!("Failed to copy temp file to {}", log_file.path.display()))?;
-                            // persist_err.path is a tempfile beneath file_dir (a subdir of log_dir),
-                            // so enforce canonical-under-root.
-                            match cache_utils::safe_path_under_root(&log_dir, &persist_err.path) {
-                                Ok(_) => { std::fs::remove_file(&persist_err.path).ok(); }
-                                Err(e) => eprintln!("skipping unsafe path {}: {}", persist_err.path.display(), e),
-                            }
-                        }
-
-                        Ok(lines_removed)
-                    })();
-
-                    match file_result {
-                        Ok(lines_removed) => {
-                            eprintln!("    Removed {} log lines from this file", lines_removed);
-                            total_lines_removed += lines_removed;
-                        }
-                        Err(e) => {
-                            eprintln!("  WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
-                            continue;
-                        }
-                    }
-                }
+                let prefilter = log_purge::RemovalPrefilter::new(
+                    corrupted_urls.iter().map(|url| url.as_bytes().to_vec()).collect::<Vec<_>>(),
+                )?;
+                let filter_progress_cb = |files_done: usize, total: usize| {
+                    let filter_percent = 30.0 + (files_done as f64 / total.max(1) as f64) * 20.0;
+                    let _ = write_progress(
+                        &progress_path,
+                        "filtering",
+                        "signalr.corruptionRemove.filteringFile",
+                        json!({ "fileIndex": files_done, "totalFiles": total }),
+                        filter_percent,
+                        files_done,
+                        total,
+                    );
+                };
+                // Remove HIT lines for corrupted URLs (re-download corruption serves bad HITs)
+                let (total_lines_removed, _log_filter_permission_errors) =
+                    log_purge::rewrite_matching_log_entries(
+                        &log_dir,
+                        "re-download corrupted",
+                        &prefilter,
+                        |entry| {
+                            entry.service == service_lower
+                                && corrupted_urls.contains(&entry.url)
+                                && entry.cache_status == "HIT"
+                        },
+                        Some(&filter_progress_cb),
+                    )?;
 
                 // Step 3: Delete ALL cache file chunks from disk (multi-slice aware)
                 let total_urls = service_urls_with_sizes.len();
@@ -841,134 +760,43 @@ async fn main() -> Result<()> {
             // Use all candidates for log/DB cleanup (includes stale entries where cache files are gone)
             let corrupted_urls: std::collections::HashSet<String> = all_candidate_urls;
 
-            // PASS 2: Filter log files, removing MISS/UNKNOWN lines for corrupted URLs
+            // PASS 2: Filter log files, removing MISS/UNKNOWN lines for corrupted URLs.
+            // Uses the shared scan-then-rewrite helper (Aho-Corasick prefilter,
+            // untouched files skip recompression entirely).
             eprintln!("Step 2: Filtering log files to remove corrupted chunks...");
-
-            let mut total_lines_removed: u64 = 0;
 
             write_progress(&progress_path, "filtering", "signalr.corruptionRemove.filteringLogs", json!({ "totalFiles": total_files }), 30.0, 0, total_files)?;
 
-            for (file_index, log_file) in log_files.iter().enumerate() {
+            let prefilter = log_purge::RemovalPrefilter::new(
+                corrupted_urls.iter().map(|url| url.as_bytes().to_vec()).collect::<Vec<_>>(),
+            )?;
+            let filter_progress_cb = |files_done: usize, total: usize| {
                 // Update progress during filtering (30-70%)
-                let filter_percent = 30.0 + (file_index as f64 / total_files as f64) * 40.0;
-                write_progress(&progress_path, "filtering", "signalr.corruptionRemove.filteringFile", json!({ "fileIndex": file_index + 1, "totalFiles": total_files }), filter_percent, file_index, total_files)?;
-                eprintln!("  Processing file {}/{}: {}", file_index + 1, total_files, log_file.path.display());
-
-                let file_result = (|| -> Result<u64> {
-                    use std::io::BufWriter;
-
-                    // Create temp file for filtered output with automatic cleanup
-                    let file_dir = log_file.path.parent().context("Failed to get file directory")?;
-                    let temp_file = NamedTempFile::new_in(file_dir)?;
-
-                    let mut lines_removed: u64 = 0;
-                    let mut lines_processed: u64 = 0;
-
-                    {
-                        let mut log_reader = LogFileReader::open(&log_file.path)?;
-
-                        // Create writer that matches the compression of the original file
-                        let mut writer: Box<dyn std::io::Write> = if log_file.is_compressed {
-                            // Check extension to determine compression type
-                            let path_str = log_file.path.to_string_lossy();
-                            if path_str.ends_with(".gz") {
-                                // Gzip compression
-                                Box::new(BufWriter::with_capacity(
-                                    1024 * 1024,
-                                    GzEncoder::new(temp_file.as_file().try_clone()?, Compression::default())
-                                ))
-                            } else if path_str.ends_with(".zst") {
-                                // Zstd compression
-                                Box::new(BufWriter::with_capacity(
-                                    1024 * 1024,
-                                    zstd::Encoder::new(temp_file.as_file().try_clone()?, 3)?
-                                ))
-                            } else {
-                                // Unknown compression, treat as plain
-                                Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
-                            }
-                        } else {
-                            // Plain text
-                            Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
-                        };
-
-                        let mut line = String::new();
-
-                        loop {
-                            line.clear();
-                            let bytes_read = log_reader.read_line(&mut line)?;
-                            if bytes_read == 0 {
-                                break; // EOF
-                            }
-
-                            lines_processed += 1;
-                            let mut should_remove = false;
-
-                            // Parse the line and check if URL is in corrupted set
-                            if let Some(entry) = parser.parse_line(line.trim()) {
-                                // Only remove MISS/UNKNOWN lines for corrupted URLs
-                                if entry.service == service_lower
-                                    && corrupted_urls.contains(&entry.url)
-                                    && (entry.cache_status == "MISS" || entry.cache_status == "UNKNOWN")
-                                {
-                                    should_remove = true;
-                                }
-                            }
-
-                            if !should_remove {
-                                write!(writer, "{}", line)?;
-                            } else {
-                                lines_removed += 1;
-                            }
-                        }
-
-                        writer.flush()?;
-                        // Ensure compression is finalized for zstd
-                        drop(writer);
-                    }
-
-                    // If all lines would be removed, delete the entire file instead
-                    if lines_processed > 0 && lines_removed == lines_processed {
-                        eprintln!("  INFO: All {} lines from this file are corrupted, deleting file entirely", lines_processed);
-                        // temp_file automatically deleted when it goes out of scope
-                        // Delete the original log file
-                        match cache_utils::safe_path_under_root(&log_dir, &log_file.path) {
-                            Ok(_) => { std::fs::remove_file(&log_file.path).ok(); }
-                            Err(e) => eprintln!("skipping unsafe path {}: {}", log_file.path.display(), e),
-                        }
-                        return Ok(lines_removed);
-                    }
-
-                    // Atomically replace original with filtered version
-                    let temp_path = temp_file.into_temp_path();
-
-                    if let Err(persist_err) = temp_path.persist(&log_file.path) {
-                        // Fallback: copy + delete
-                        eprintln!("    persist() failed ({}), using copy fallback...", persist_err);
-
-                        std::fs::copy(&persist_err.path, &log_file.path)
-                            .with_context(|| format!("Failed to copy temp file to {}", log_file.path.display()))?;
-
-                        match cache_utils::safe_path_under_root(&log_dir, &persist_err.path) {
-                            Ok(_) => { std::fs::remove_file(&persist_err.path).ok(); }
-                            Err(e) => eprintln!("skipping unsafe path {}: {}", persist_err.path.display(), e),
-                        }
-                    }
-
-                    Ok(lines_removed)
-                })();
-
-                match file_result {
-                    Ok(lines_removed) => {
-                        eprintln!("    Removed {} log lines from this file", lines_removed);
-                        total_lines_removed += lines_removed;
-                    }
-                    Err(e) => {
-                        eprintln!("  WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
-                        continue;
-                    }
-                }
-            }
+                let filter_percent = 30.0 + (files_done as f64 / total.max(1) as f64) * 40.0;
+                let _ = write_progress(
+                    &progress_path,
+                    "filtering",
+                    "signalr.corruptionRemove.filteringFile",
+                    json!({ "fileIndex": files_done, "totalFiles": total }),
+                    filter_percent,
+                    files_done,
+                    total,
+                );
+            };
+            // Only remove MISS/UNKNOWN lines for corrupted URLs (HIT lines are kept
+            // intact to prevent snowball corruption detection)
+            let (total_lines_removed, _log_filter_permission_errors) =
+                log_purge::rewrite_matching_log_entries(
+                    &log_dir,
+                    "corrupted",
+                    &prefilter,
+                    |entry| {
+                        entry.service == service_lower
+                            && corrupted_urls.contains(&entry.url)
+                            && (entry.cache_status == "MISS" || entry.cache_status == "UNKNOWN")
+                    },
+                    Some(&filter_progress_cb),
+                )?;
 
             let total_urls = corrupted_urls_with_sizes.len();
             write_progress(&progress_path, "removing_cache", "signalr.corruptionRemove.removingCacheFiles", json!({ "totalUrls": total_urls }), 70.0, 0, total_urls)?;

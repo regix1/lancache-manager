@@ -85,6 +85,28 @@ fn extract_service_from_line(line: &str) -> Option<String> {
     service_utils::extract_service_from_line(line)
 }
 
+/// Byte-level equivalent of `extract_service_from_line(line.trim()) == Some(service_lower)`.
+/// Only the `[service]` tag is UTF-8 decoded, so the hot rewrite loop can work on raw
+/// line bytes without validating the whole line. A line that is not valid UTF-8 in its
+/// tag (or has no tag) can never match a service and is passed through unchanged.
+fn line_matches_service(raw_line: &[u8], service_lower: &str) -> bool {
+    let mut start = 0;
+    while start < raw_line.len() && raw_line[start].is_ascii_whitespace() {
+        start += 1;
+    }
+    let trimmed = &raw_line[start..];
+    if trimmed.first() != Some(&b'[') {
+        return false;
+    }
+    let Some(end) = trimmed.iter().position(|&b| b == b']') else {
+        return false;
+    };
+    match std::str::from_utf8(&trimmed[1..end]) {
+        Ok(tag) => service_utils::normalize_service_name(tag) == service_lower,
+        Err(_) => false,
+    }
+}
+
 fn count_services(log_path: &str, progress_path: &Path, datasource_name: Option<&str>) -> Result<HashMap<String, u64>> {
     let start_time = Instant::now();
     let ds_name = datasource_name.map(|s| s.to_string());
@@ -293,6 +315,7 @@ fn remove_service_from_logs(
     let mut total_lines_processed: u64 = 0;
     let mut total_lines_removed: u64 = 0;
     let mut permission_errors: usize = 0;
+    let service_lower = service_to_remove.to_lowercase();
 
     // Process each log file
     for (file_index, log_file) in log_files.iter().enumerate() {
@@ -323,6 +346,104 @@ fn remove_service_from_logs(
 
         // Try to process the file, but skip if it's corrupted (e.g., invalid gzip header)
         let file_result = (|| -> Result<(u64, u64)> {
+            let file_size = std::fs::metadata(&log_file.path)?.len();
+
+            // Progress update for this file
+            let progress = ProgressData::new(
+                true,
+                0.0,
+                "removing".to_string(),
+                format!("Processing file {}/{}: removing {} entries...", file_index + 1, log_files.len(), service_to_remove),
+                total_lines_processed,
+                total_lines_removed,
+                file_index + 1,
+                None,
+                ds_name.clone(),
+            ).with_stage_key("signalr.logRemoval.removing");
+            write_progress(progress_path, &progress)?;
+
+            // Builds the 500ms-throttled progress payload shared by both passes.
+            let build_progress = |percent: f64, current_processed: u64, current_removed: u64| {
+                let message = if current_removed > 0 {
+                    format!(
+                        "File {}/{}: {} lines processed, {} removed",
+                        file_index + 1, log_files.len(), current_processed, current_removed
+                    )
+                } else {
+                    format!(
+                        "File {}/{}: {} lines processed",
+                        file_index + 1, log_files.len(), current_processed
+                    )
+                };
+                ProgressData::new(
+                    true,
+                    percent,
+                    "removing".to_string(),
+                    message,
+                    current_processed,
+                    current_removed,
+                    file_index + 1,
+                    None,
+                    ds_name.clone(),
+                ).with_stage_key("signalr.logRemoval.removing")
+            };
+
+            // PASS 1: read-only scan. If the file contains no entries for this
+            // service it is left completely untouched (no temp file, no recompression).
+            let mut scan_lines: u64 = 0;
+            let mut scan_matches: u64 = 0;
+            {
+                let mut log_reader = LogFileReader::open(&log_file.path)?;
+                let mut bytes_scanned: u64 = 0;
+                let mut last_progress_update = Instant::now();
+                let mut line: Vec<u8> = Vec::with_capacity(1024);
+
+                loop {
+                    line.clear();
+                    let bytes_read = log_reader.read_until_newline(&mut line)?;
+                    if bytes_read == 0 {
+                        break; // EOF
+                    }
+
+                    bytes_scanned += line.len() as u64;
+                    scan_lines += 1;
+                    if line_matches_service(&line, &service_lower) {
+                        scan_matches += 1;
+                    }
+
+                    // Update progress every 500ms
+                    if last_progress_update.elapsed().as_millis() > 500 {
+                        let percent = if file_size > 0 {
+                            ((bytes_scanned as f64 / file_size as f64) * 100.0).min(100.0)
+                        } else {
+                            0.0
+                        };
+                        let progress = build_progress(
+                            percent,
+                            total_lines_processed + scan_lines,
+                            total_lines_removed + scan_matches,
+                        );
+                        write_progress(progress_path, &progress)?;
+                        last_progress_update = Instant::now();
+                    }
+                }
+            }
+
+            if scan_matches == 0 {
+                eprintln!("  No {} entries in this file - leaving it untouched", service_to_remove);
+                return Ok((scan_lines, 0));
+            }
+
+            // Allow removing all lines - user may want to clear all entries for a service
+            // If file would be empty, just delete it instead of leaving an empty file
+            if scan_lines > 0 && scan_matches == scan_lines {
+                eprintln!("  INFO: All {} lines from this file will be removed", scan_lines);
+                eprintln!("    Deleting the log file entirely");
+                fs::remove_file(&log_file.path).ok();
+                return Ok((scan_lines, scan_matches));
+            }
+
+            // PASS 2: rewrite the file without this service's lines.
             // Create temp file for filtered output with automatic cleanup
             // Try the log directory first (enables atomic rename), fall back to system temp
             // if the directory doesn't allow file creation (common in Docker volume mounts)
@@ -335,13 +456,11 @@ fn remove_service_from_logs(
 
             let mut lines_processed: u64 = 0;
             let mut lines_removed: u64 = 0;
-            let service_lower = service_to_remove.to_lowercase();
 
             // Scope the file operations so handles are closed before deletion
             {
                 // Use LogFileReader for automatic compression support (.gz, .zst)
                 let mut log_reader = LogFileReader::open(&log_file.path)?;
-                let file_size = std::fs::metadata(&log_file.path)?.len();
 
                 // Create writer that matches the compression of the original file
                 let mut writer: Box<dyn std::io::Write> = if log_file.is_compressed {
@@ -349,7 +468,7 @@ fn remove_service_from_logs(
                     if path_str.ends_with(".gz") {
                         Box::new(BufWriter::with_capacity(
                             1024 * 1024,
-                            GzEncoder::new(temp_file.as_file().try_clone()?, Compression::default())
+                            GzEncoder::new(temp_file.as_file().try_clone()?, Compression::fast())
                         ))
                     } else if path_str.ends_with(".zst") {
                         Box::new(BufWriter::with_capacity(
@@ -365,25 +484,11 @@ fn remove_service_from_logs(
 
                 let mut bytes_processed: u64 = 0;
                 let mut last_progress_update = Instant::now();
-                let mut line = String::new();
-
-                // Progress update for this file
-                let progress = ProgressData::new(
-                    true,
-                    0.0,
-                    "removing".to_string(),
-                    format!("Processing file {}/{}: removing {} entries...", file_index + 1, log_files.len(), service_to_remove),
-                    total_lines_processed,
-                    total_lines_removed,
-                    file_index + 1,
-                    None,
-                    ds_name.clone(),
-                ).with_stage_key("signalr.logRemoval.removing");
-                write_progress(progress_path, &progress)?;
+                let mut line: Vec<u8> = Vec::with_capacity(1024);
 
                 loop {
                     line.clear();
-                    let bytes_read = log_reader.read_line(&mut line)?;
+                    let bytes_read = log_reader.read_until_newline(&mut line)?;
                     if bytes_read == 0 {
                         break; // EOF
                     }
@@ -391,22 +496,13 @@ fn remove_service_from_logs(
                     bytes_processed += line.len() as u64;
                     lines_processed += 1;
 
-                    let mut should_remove = false;
-
-                    if let Some(line_service) = extract_service_from_line(line.trim()) {
-                        // Exact match - remove entries for this service
-                        if line_service == service_lower {
-                            should_remove = true;
-                        }
-                    }
-
-                    if !should_remove {
-                        write!(writer, "{}", line)?;
-                    } else {
+                    if line_matches_service(&line, &service_lower) {
                         lines_removed += 1;
-                        if lines_removed % 10000 == 0 {
+                        if lines_removed.is_multiple_of(10000) {
                             eprintln!("Removed {} {} entries from this file", lines_removed, service_to_remove);
                         }
+                    } else {
+                        writer.write_all(&line)?;
                     }
 
                     // Update progress every 500ms
@@ -416,32 +512,11 @@ fn remove_service_from_logs(
                         } else {
                             0.0
                         };
-
-                        let current_removed = total_lines_removed + lines_removed;
-                        let current_processed = total_lines_processed + lines_processed;
-                        let message = if current_removed > 0 {
-                            format!(
-                                "File {}/{}: {} lines processed, {} removed",
-                                file_index + 1, log_files.len(), current_processed, current_removed
-                            )
-                        } else {
-                            format!(
-                                "File {}/{}: {} lines processed",
-                                file_index + 1, log_files.len(), current_processed
-                            )
-                        };
-
-                        let progress = ProgressData::new(
-                            true,
+                        let progress = build_progress(
                             percent,
-                            "removing".to_string(),
-                            message,
-                            current_processed,
-                            current_removed,
-                            file_index + 1,
-                            None,
-                            ds_name.clone(),
-                        ).with_stage_key("signalr.logRemoval.removing");
+                            total_lines_processed + lines_processed,
+                            total_lines_removed + lines_removed,
+                        );
                         write_progress(progress_path, &progress)?;
                         last_progress_update = Instant::now();
                     }
@@ -454,8 +529,9 @@ fn remove_service_from_logs(
                 // reader and file are automatically dropped here when scope ends
             }
 
-            // Allow removing all lines - user may want to clear all entries for a service
-            // If file would be empty, just delete it instead of leaving an empty file
+            // Safety net: the live access.log may have changed between the scan and
+            // rewrite passes — if the rewrite saw only matching lines, delete the file
+            // instead of persisting an empty one (same semantics as before).
             if lines_processed > 0 && lines_removed == lines_processed {
                 eprintln!("  INFO: All {} lines from this file will be removed", lines_processed);
                 eprintln!("    Deleting the log file entirely");
@@ -725,5 +801,25 @@ fn main() {
             eprintln!("Valid commands: count, remove");
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn line_matches_service_agrees_with_string_extraction() {
+        let line = b"[steam] 192.168.1.50 / - - - [01/Jan/2024:00:00:00 +0000] \"GET /depot/1/chunk/a HTTP/1.1\" 200 10 \"-\" \"agent\" \"HIT\" \"-\" \"-\"\n";
+        assert!(line_matches_service(line, "steam"));
+        assert!(!line_matches_service(line, "epic"));
+
+        // Tag normalization must match the String-based path (uppercase tag, IP grouping)
+        assert!(line_matches_service(b"[Steam] 1.2.3.4 / - ...", "steam"));
+        assert!(line_matches_service(b"[127.0.0.1] 1.2.3.4 / - ...", "localhost"));
+
+        // No tag / unterminated tag -> never matches
+        assert!(!line_matches_service(b"no tag here", "steam"));
+        assert!(!line_matches_service(b"[unterminated", "steam"));
     }
 }

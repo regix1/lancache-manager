@@ -695,6 +695,11 @@ public class GameCacheDetectionService : IDisposable
                 _logger.LogInformation("[GameDetection] Services saved to database - {Count} services total", aggregatedServices.Count);
             }
 
+            // The summary recompute is the long pole of the whole scan on large databases
+            // (minutes). Give it its own labeled stage at 97% so the bar honestly shows
+            // substantial remaining work instead of sitting on the last scan message.
+            _operationTracker.UpdateProgress(operationId, 97, "signalr.gameDetect.refreshingSummary");
+
             await _detectionDataService.RefreshDetectionSummaryFromDatabaseAsync(cancellationToken);
 
             _logger.LogInformation("[GameDetection] Completed: {Count} games detected across {DatasourceCount} datasource(s)",

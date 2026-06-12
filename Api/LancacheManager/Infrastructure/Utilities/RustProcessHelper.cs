@@ -301,62 +301,6 @@ public partial class RustProcessHelper
         catch { /* read may fault when the child was killed */ }
     }
 
-    /// <summary>
-    /// Runs a tracked Rust process that emits newline-delimited JSON progress on stdout.
-    /// </summary>
-    public Task<ProcessExecutionResult> ExecuteTrackedProcessWithStdoutLinesAsync(
-        ProcessStartInfo startInfo,
-        Guid? operationId,
-        CancellationToken cancellationToken,
-        Func<string, Task> onStdoutLine,
-        string processLabel = "rust") =>
-        RunTrackedProcessAsync(
-            startInfo,
-            operationId,
-            cancellationToken,
-            async process =>
-            {
-                var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-
-                try
-                {
-                    string? line;
-                    while ((line = await process.StandardOutput.ReadLineAsync(cancellationToken)) != null)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        if (!string.IsNullOrWhiteSpace(line))
-                        {
-                            await onStdoutLine(line);
-                        }
-                    }
-
-                    await _processManager.WaitForExitAsync(process, cancellationToken);
-
-                    return new ProcessExecutionResult
-                    {
-                        ExitCode = process.ExitCode,
-                        Output = string.Empty,
-                        Error = await stderrTask
-                    };
-                }
-                catch (OperationCanceledException)
-                {
-                    // rust-7: observe stderrTask so a cancelled/killed binary's diagnostics are not lost.
-                    try
-                    {
-                        var stderr = await stderrTask;
-                        if (!string.IsNullOrWhiteSpace(stderr))
-                        {
-                            _logger.LogDebug("Cancelled stdout-lines process stderr: {Stderr}", stderr);
-                        }
-                    }
-                    catch { /* read may fault when the child was killed */ }
-
-                    throw;
-                }
-            },
-            processLabel: processLabel);
-
     private async Task PollProgressFileLoopAsync<T>(
         string progressFilePath,
         Func<T, Task> onProgress,

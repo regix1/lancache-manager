@@ -850,6 +850,7 @@ dependencies = [
 name = "lancache_processor"
 version = "1.0.0"
 dependencies = [
+ "aho-corasick",
  "anyhow",
  "chrono",
  "chrono-tz",

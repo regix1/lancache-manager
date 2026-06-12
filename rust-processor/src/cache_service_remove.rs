@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use sqlx::Row;
 use serde::Serialize;
 use serde_json::json;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -81,25 +81,32 @@ fn write_progress(
     progress_utils::write_progress_json(progress_path, &progress)
 }
 
-async fn get_service_urls_from_db(pool: &PgPool, service: &str) -> Result<HashSet<String>> {
+/// Returns each unique URL for the service along with the max BytesServed observed for it,
+/// mirroring cache_game_remove's (url, total_bytes) shape so the cache probe can derive a
+/// real chunk count instead of always probing DEFAULT_MAX_CHUNKS candidates per URL.
+async fn get_service_urls_from_db(pool: &PgPool, service: &str) -> Result<HashMap<String, i64>> {
     eprintln!("Querying database for {} URLs...", service);
 
     let service_lower = service.to_lowercase();
 
     let rows = sqlx::query(
-        "SELECT DISTINCT \"Url\"
+        "SELECT \"Url\", MAX(\"BytesServed\") as max_bytes
         FROM \"LogEntries\"
         WHERE LOWER(\"Service\") = $1
-        AND \"Url\" IS NOT NULL"
+        AND \"Url\" IS NOT NULL
+        GROUP BY \"Url\""
     )
     .bind(&service_lower)
     .fetch_all(pool)
     .await?;
 
-    let mut urls = HashSet::new();
+    let mut urls = HashMap::new();
     for row in rows {
         let url: String = row.get("Url");
-        urls.insert(url);
+        // MAX() is typed nullable; a NULL aggregate means no usable size for this URL,
+        // which the probe phase handles explicitly by falling back to the full probe list.
+        let max_bytes: Option<i64> = row.get("max_bytes");
+        urls.insert(url, max_bytes.unwrap_or(0));
     }
 
     eprintln!("Found {} unique URLs for service '{}'", urls.len(), service);
@@ -110,54 +117,73 @@ async fn get_service_urls_from_db(pool: &PgPool, service: &str) -> Result<HashSe
 fn remove_cache_files_for_service(
     cache_dir: &Path,
     service: &str,
-    urls: &HashSet<String>,
+    urls: &HashMap<String, i64>,
     progress_path: &Path,
 ) -> Result<(usize, u64, usize)> {  // Returns (deleted_count, bytes_freed, permission_errors)
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
     eprintln!("Removing cache files for service '{}'...", service);
+    eprintln!("Collecting cache file paths for deletion...");
 
-    let mut deleted_count = 0;
-    let mut bytes_freed: u64 = 0;
-    let mut permission_errors = 0;
-    let total_urls = urls.len();
-    let mut urls_processed: usize = 0;
-    let mut last_reported_percent: usize = 0;
+    // Candidate paths per URL: chunk count derived from the URL's real max BytesServed
+    // (a handful of candidates), exactly like cache_game_remove. URLs without a usable
+    // size fall back to the full DEFAULT_MAX_CHUNKS probe list — no functionality loss.
+    let paths_to_check: Vec<PathBuf> = urls
+        .par_iter()
+        .flat_map(|(url, total_bytes)| {
+            if *total_bytes > 0 {
+                cache_utils::cache_path_candidates_for_bytes(cache_dir, service, url, *total_bytes)
+            } else {
+                cache_utils::cache_path_candidates_for_probe(
+                    cache_dir,
+                    service,
+                    url,
+                    cache_utils::DEFAULT_MAX_CHUNKS,
+                )
+            }
+        })
+        .collect();
 
-    for url in urls {
-        // Cooperative cancellation: finish the current URL's in-flight deletes, then stop.
+    let total_paths = paths_to_check.len();
+    eprintln!("Checking {} potential cache file locations...", total_paths);
+
+    let deleted_files = AtomicUsize::new(0);
+    let bytes_freed = AtomicU64::new(0);
+    let permission_errors = AtomicUsize::new(0);
+    // Track how many paths have been checked for progress (not just deleted)
+    let paths_checked = AtomicUsize::new(0);
+    // Track last reported percent to avoid writing progress too frequently
+    let last_reported_percent = AtomicUsize::new(0);
+
+    paths_to_check.par_iter().for_each(|cache_path| {
+        // Cooperative cancellation: skip remaining files if cancel was requested.
+        // Already-deleted files stay deleted — consistent partial state that C# reconciles.
         if cancel::is_cancelled() {
-            break;
+            return;
         }
 
-        urls_processed += 1;
+        let checked = paths_checked.fetch_add(1, Ordering::Relaxed) + 1;
 
-        for cache_path in cache_utils::cache_path_candidates_for_probe(
-            cache_dir,
-            service,
-            url,
-            cache_utils::DEFAULT_MAX_CHUNKS,
-        ) {
-            if !cache_path.exists() {
-                continue;
-            }
-
-            match cache_utils::safe_path_under_root(cache_dir, &cache_path) {
+        if cache_path.exists() {
+            match cache_utils::safe_path_under_root(cache_dir, cache_path) {
                 Ok(_) => {
-                    if let Ok(metadata) = fs::metadata(&cache_path) {
-                        bytes_freed += metadata.len();
+                    if let Ok(metadata) = fs::metadata(cache_path) {
+                        bytes_freed.fetch_add(metadata.len(), Ordering::Relaxed);
                     }
 
-                    match fs::remove_file(&cache_path) {
+                    match fs::remove_file(cache_path) {
                         Ok(_) => {
-                            deleted_count += 1;
-                            if deleted_count % 100 == 0 {
+                            let count = deleted_files.fetch_add(1, Ordering::Relaxed) + 1;
+                            if count.is_multiple_of(100) {
                                 eprintln!("  Deleted {} cache files ({:.2} MB freed)...",
-                                    deleted_count, bytes_freed as f64 / 1_048_576.0);
+                                    count, bytes_freed.load(Ordering::Relaxed) as f64 / 1_048_576.0);
                             }
                         }
                         Err(e) => {
                             if e.kind() == std::io::ErrorKind::PermissionDenied {
-                                permission_errors += 1;
-                                if permission_errors <= 5 {
+                                let err_count = permission_errors.fetch_add(1, Ordering::Relaxed) + 1;
+                                if err_count <= 5 {
                                     eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
                                 }
                             } else {
@@ -172,24 +198,42 @@ fn remove_cache_files_for_service(
             }
         }
 
-        // Report granular progress during the removal phase (10% - 70%)
-        if total_urls > 0 {
-            let current_pct = (urls_processed * 100) / total_urls;
-            if current_pct > last_reported_percent {
-                last_reported_percent = current_pct;
-                let overall_percent = 10.0 + (urls_processed as f64 / total_urls as f64) * 60.0;
-                let _ = write_progress(progress_path, "removing_cache", "signalr.serviceRemove.cache.file.progress", json!({ "n": deleted_count, "total": total_urls }), overall_percent, deleted_count, total_urls);
+        // Report granular progress during the removal phase (10% - 70%).
+        // Write on EITHER an integer-percent advance OR every 8th path probed, so small
+        // removals still emit motion while the C# poller / SignalR can observe updates.
+        if total_paths > 0 {
+            let current_pct = (checked * 100) / total_paths;
+            let prev_pct = last_reported_percent.load(Ordering::Relaxed);
+            let advanced_percent = current_pct > prev_pct;
+            let every_n_files = checked & 0x7 == 0; // every 8 paths
+            if advanced_percent || every_n_files {
+                let should_write = if advanced_percent {
+                    last_reported_percent
+                        .compare_exchange(prev_pct, current_pct, Ordering::SeqCst, Ordering::Relaxed)
+                        .is_ok()
+                } else {
+                    true
+                };
+                if should_write {
+                    let overall_percent = 10.0 + (checked as f64 / total_paths as f64) * 60.0;
+                    let del_count = deleted_files.load(Ordering::Relaxed);
+                    let _ = write_progress(progress_path, "removing_cache", "signalr.serviceRemove.cache.file.progress", json!({ "n": del_count, "total": total_paths }), overall_percent, del_count, total_paths);
+                }
             }
         }
-    }
+    });
 
-    if permission_errors > 5 {
-        eprintln!("  ... and {} more permission errors", permission_errors - 5);
+    let final_deleted = deleted_files.load(Ordering::Relaxed);
+    let final_bytes = bytes_freed.load(Ordering::Relaxed);
+    let final_permission_errors = permission_errors.load(Ordering::Relaxed);
+
+    if final_permission_errors > 5 {
+        eprintln!("  ... and {} more permission errors", final_permission_errors - 5);
     }
     eprintln!("Deleted {} cache files ({:.2} GB freed), {} permission errors",
-        deleted_count, bytes_freed as f64 / 1_073_741_824.0, permission_errors);
+        final_deleted, final_bytes as f64 / 1_073_741_824.0, final_permission_errors);
 
-    Ok((deleted_count, bytes_freed, permission_errors))
+    Ok((final_deleted, final_bytes, final_permission_errors))
 }
 
 async fn delete_service_from_database(pool: &PgPool, service: &str) -> Result<u64> {
@@ -268,7 +312,8 @@ async fn main() -> Result<()> {
 
     // Step 3: Remove log entries
     write_progress(&progress_path, "removing_logs", "signalr.serviceRemove.logs.removing", json!({}), 70.0, cache_files_deleted, url_count)?;
-    let (log_entries_removed, log_permission_errors) = remove_log_entries_for_service(&log_dir, service, &urls)?;
+    let url_set: HashSet<String> = urls.keys().cloned().collect();
+    let (log_entries_removed, log_permission_errors) = remove_log_entries_for_service(&log_dir, service, &url_set)?;
 
     // CRITICAL: Check for permission errors before deleting database records
     let total_permission_errors = cache_permission_errors + log_permission_errors;

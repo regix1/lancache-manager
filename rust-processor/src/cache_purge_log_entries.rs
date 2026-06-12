@@ -27,11 +27,10 @@ mod log_purge;
 mod log_reader;
 mod models;
 mod parser;
-mod progress_events;
+mod progress_utils;
 mod service_utils;
 
 use log_purge::remove_log_entries_for_game;
-use progress_events::ProgressReporter;
 
 /// Bulk purge log entries for a set of evicted games, given their URL + depot_id union.
 #[derive(clap::Parser, Debug)]
@@ -47,9 +46,10 @@ struct Args {
     /// Path to output JSON file: { "lines_removed": u64, "permission_errors": usize }
     output_json: String,
 
-    /// Emit ProgressReporter events to stdout (optional)
+    /// Path to a progress JSON file the host polls (optional). Same mechanism and
+    /// camelCase schema as every other cache_* binary; omit for silent runs.
     #[arg(long)]
-    progress: bool,
+    progress_json: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -71,14 +71,60 @@ struct PurgeReport {
     error: Option<String>,
 }
 
+/// Progress-file schema. Identical shape to the other cache_* binaries so the C#
+/// host reads every binary through the same progress-file polling path (this
+/// binary previously emitted stdout JSON lines - the lone outlier).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProgressData {
+    status: String,
+    stage_key: String,
+    context: serde_json::Value,
+    #[serde(rename = "percentComplete")]
+    percent_complete: f64,
+    #[serde(rename = "filesProcessed")]
+    files_processed: usize,
+    #[serde(rename = "totalFiles")]
+    total_files: usize,
+    timestamp: String,
+}
+
+/// No-op when no progress path was supplied (silent runs).
+fn write_progress(
+    progress_path: Option<&Path>,
+    status: &str,
+    stage_key: &str,
+    context: serde_json::Value,
+    percent_complete: f64,
+    files_processed: usize,
+    total_files: usize,
+) -> Result<()> {
+    let Some(path) = progress_path else {
+        return Ok(());
+    };
+
+    let progress = ProgressData {
+        status: status.to_string(),
+        stage_key: stage_key.to_string(),
+        context,
+        percent_complete,
+        files_processed,
+        total_files,
+        timestamp: progress_utils::current_timestamp(),
+    };
+
+    progress_utils::write_progress_json(path, &progress)
+}
+
 fn main() -> Result<()> {
     cancel::install();
     let args = Args::parse();
 
-    let reporter = ProgressReporter::new(args.progress);
-    reporter.emit_started("signalr.logPurge.reading", json!({}));
+    let progress_path_buf = args.progress_json.clone().map(std::path::PathBuf::from);
+    let progress_path = progress_path_buf.as_deref();
+    let _ = write_progress(progress_path, "starting", "signalr.logPurge.reading", json!({}), 0.0, 0, 0);
 
-    let result = run_purge(&args, &reporter);
+    let result = run_purge(&args, progress_path);
 
     match &result {
         Ok(report) => {
@@ -87,7 +133,15 @@ fn main() -> Result<()> {
             fs::write(&args.output_json, payload)
                 .with_context(|| format!("Failed to write output JSON to {}", args.output_json))?;
 
-            reporter.emit_complete("signalr.logPurge.complete", json!({ "linesRemoved": report.lines_removed, "permissionErrors": report.permission_errors }));
+            let _ = write_progress(
+                progress_path,
+                "completed",
+                "signalr.logPurge.complete",
+                json!({ "linesRemoved": report.lines_removed, "permissionErrors": report.permission_errors }),
+                100.0,
+                0,
+                0,
+            );
             eprintln!("Purged {} log lines across access.log files ({} permission errors)", report.lines_removed, report.permission_errors);
         }
         Err(e) => {
@@ -108,7 +162,15 @@ fn main() -> Result<()> {
                 serde_json::to_string_pretty(&failure).unwrap_or_else(|_| "{}".to_string()),
             );
 
-            reporter.emit_failed("signalr.logPurge.error.fatal", json!({ "errorDetail": err_msg }));
+            let _ = write_progress(
+                progress_path,
+                "failed",
+                "signalr.logPurge.error.fatal",
+                json!({ "errorDetail": err_msg }),
+                100.0,
+                0,
+                0,
+            );
             std::process::exit(1);
         }
     }
@@ -116,9 +178,9 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_purge(args: &Args, reporter: &ProgressReporter) -> Result<PurgeReport> {
+fn run_purge(args: &Args, progress_path: Option<&Path>) -> Result<PurgeReport> {
     // Read input JSON
-    reporter.emit_progress(5.0, "signalr.logPurge.reading", json!({}));
+    let _ = write_progress(progress_path, "purging", "signalr.logPurge.reading", json!({}), 5.0, 0, 0);
     let input_bytes = fs::read(&args.input_json)
         .with_context(|| format!("Failed to read input JSON {}", args.input_json))?;
     let request: PurgeRequest = serde_json::from_slice(&input_bytes)
@@ -148,10 +210,14 @@ fn run_purge(args: &Args, reporter: &ProgressReporter) -> Result<PurgeReport> {
         depot_ids.len(),
         args.log_dir
     );
-    reporter.emit_progress(
-        15.0,
+    let _ = write_progress(
+        progress_path,
+        "purging",
         "signalr.logPurge.purging",
         json!({ "urlCount": urls.len(), "depotCount": depot_ids.len() }),
+        15.0,
+        0,
+        0,
     );
 
     // Validate log_dir exists
@@ -162,16 +228,20 @@ fn run_purge(args: &Args, reporter: &ProgressReporter) -> Result<PurgeReport> {
 
     // Call the shared helper (same function used by cache_game_remove).
     // Pass a progress callback that maps per-file completion into the 15%-95% range
-    // so the C# stdout reader sees granular progress between the existing ticks.
+    // so the host's progress-file poller sees granular progress between the existing ticks.
     let progress_cb = |files_done: usize, total_files: usize| {
         if total_files > 0 {
             let fraction = files_done as f64 / total_files as f64;
             // Map into [15, 95) - the gap between the "purging" and "rewrote" ticks
             let mapped = 15.0 + fraction * 80.0;
-            reporter.emit_progress(
-                mapped,
+            let _ = write_progress(
+                progress_path,
+                "purging",
                 "signalr.logPurge.purging",
                 json!({ "urlCount": url_count, "depotCount": depot_count, "filesProcessed": files_done, "totalFiles": total_files }),
+                mapped,
+                files_done,
+                total_files,
             );
         }
     };
@@ -180,13 +250,17 @@ fn run_purge(args: &Args, reporter: &ProgressReporter) -> Result<PurgeReport> {
             .context("remove_log_entries_for_game failed")?;
 
     // Cooperative cancellation: if cancel arrived during the purge, flush partial progress
-    // with real counts and return Ok so main() exits 0 without emitting a failed event.
+    // with real counts and return Ok so main() exits 0 without writing a failed status.
     if cancel::is_cancelled() {
         eprintln!("Cancellation confirmed — flushing partial progress ({} lines removed so far).", lines_removed);
-        reporter.emit_progress(
-            95.0,
+        let _ = write_progress(
+            progress_path,
+            "purging",
             "signalr.logPurge.purging",
             json!({ "urlCount": url_count, "depotCount": depot_count, "linesRemoved": lines_removed }),
+            95.0,
+            0,
+            0,
         );
         return Ok(PurgeReport {
             success: true,
@@ -198,10 +272,14 @@ fn run_purge(args: &Args, reporter: &ProgressReporter) -> Result<PurgeReport> {
         });
     }
 
-    reporter.emit_progress(
-        95.0,
+    let _ = write_progress(
+        progress_path,
+        "purging",
         "signalr.logPurge.rewrote",
         json!({ "linesRemoved": lines_removed }),
+        95.0,
+        0,
+        0,
     );
 
     Ok(PurgeReport {

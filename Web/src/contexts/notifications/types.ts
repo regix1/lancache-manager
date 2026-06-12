@@ -69,7 +69,6 @@ export interface UnifiedNotification {
     mbProcessed?: number;
     mbTotal?: number;
     entriesProcessed?: number;
-    totalLines?: number;
     estimatedTime?: string;
 
     // For cache_clearing

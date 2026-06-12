@@ -216,17 +216,28 @@ where
     sample_urls
 }
 
+/// Lazily yields the md5-hex cache-key hashes probed for (service, url) — exactly the
+/// file-name components of `cache_path_candidates_for_probe`, in the same order, without
+/// constructing any paths. Lazy so callers doing set-membership checks can early-exit
+/// on the first hit instead of always hashing all `max_chunks + 1` candidates.
+#[allow(dead_code)]
+pub fn cache_hash_candidates_iter(
+    service: &str,
+    url: &str,
+    max_chunks: usize,
+) -> impl Iterator<Item = String> {
+    let service = normalize_service_name(service);
+    let url = url.to_owned();
+    let no_range_hash = calculate_md5(&format!("{}{}", service, url));
+
+    std::iter::once(no_range_hash).chain(chunk_ranges_for_probe(max_chunks).into_iter().map(
+        move |(start, end)| calculate_md5(&format!("{}{}bytes={}-{}", service, url, start, end)),
+    ))
+}
+
 #[allow(dead_code)]
 pub fn cache_hash_candidates_for_probe(service: &str, url: &str, max_chunks: usize) -> Vec<String> {
-    let service = normalize_service_name(service);
-    let mut hashes = Vec::with_capacity(max_chunks + 1);
-    hashes.push(calculate_md5(&format!("{}{}", service, url)));
-
-    for (start, end) in chunk_ranges_for_probe(max_chunks) {
-        hashes.push(calculate_md5(&format!("{}{}bytes={}-{}", service, url, start, end)));
-    }
-
-    hashes
+    cache_hash_candidates_iter(service, url, max_chunks).collect()
 }
 
 #[allow(dead_code)]
@@ -293,4 +304,73 @@ fn chunk_ranges_for_total_bytes(total_bytes: i64) -> Vec<(u64, u64)> {
 
 fn chunk_end(start: u64) -> u64 {
     start + DEFAULT_SLICE_SIZE - 1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    /// Equivalence guarantee for the filename-keyed eviction probe: the hash candidates
+    /// produced by `cache_hash_candidates_for_probe` must equal, element-for-element, the
+    /// file_name components of the path candidates from `cache_path_candidates_for_probe`.
+    #[test]
+    fn hash_candidates_match_probe_path_file_names() {
+        let cases: [(&str, &str); 4] = [
+            ("steam", "/depot/881100/chunk/9b5af6c1d3e8a2f4b7c0d9e8f1a2b3c4d5e6f708"),
+            ("Epic", "/Builds/Org/CloudDir/ChunksV4/12/ABCD_0123456789abcdef.chunk"),
+            ("blizzard", "/tpr/bnt001/data/05/d6/05d6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"),
+            ("wsus", "/c/upgr/2021/01/windows10-kb5000802-x64_abc123.psf?range=1"),
+        ];
+        let cache_dir = Path::new("/cache");
+
+        for (service, url) in cases {
+            let paths = cache_path_candidates_for_probe(cache_dir, service, url, DEFAULT_MAX_CHUNKS);
+            let hashes = cache_hash_candidates_for_probe(service, url, DEFAULT_MAX_CHUNKS);
+
+            assert_eq!(
+                paths.len(),
+                hashes.len(),
+                "candidate count diverged for ({}, {})",
+                service,
+                url
+            );
+
+            for (index, (path, hash)) in paths.iter().zip(hashes.iter()).enumerate() {
+                let file_name = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .expect("probe path candidate must end in a UTF-8 file name");
+                assert_eq!(
+                    file_name, hash,
+                    "candidate {} diverged for ({}, {})",
+                    index, service, url
+                );
+            }
+        }
+    }
+
+    /// The on-disk filename index relies on `calculate_md5` emitting 32-char lowercase hex.
+    #[test]
+    fn calculate_md5_is_lowercase_hex() {
+        let hash = calculate_md5("steam/depot/881100/chunk/ABCDEF");
+        assert_eq!(hash.len(), 32);
+        assert!(
+            hash.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            "md5 hex must be lowercase: {}",
+            hash
+        );
+    }
+
+    /// The probe-list iterator and the eager Vec form must agree (the scan probes via the
+    /// lazy iterator while the equivalence test above exercises the Vec form).
+    #[test]
+    fn hash_candidates_iter_matches_vec_form() {
+        let collected: Vec<String> =
+            cache_hash_candidates_iter("steam", "/depot/1/chunk/aa", DEFAULT_MAX_CHUNKS).collect();
+        let eager = cache_hash_candidates_for_probe("steam", "/depot/1/chunk/aa", DEFAULT_MAX_CHUNKS);
+        assert_eq!(collected, eager);
+        assert_eq!(collected.len(), DEFAULT_MAX_CHUNKS + 1);
+    }
 }

@@ -302,12 +302,19 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                             : progress.StageKey;
                         var context = BuildEvictionScanProgressContext(progress);
 
-                        _operationTracker.UpdateProgress(operationId, progress.PercentComplete, stageKey);
+                        // The Rust disk scan owns 0-85% of the bar. The C# post-processing that
+                        // follows (detection-row updates, post-scan recovery, and the disk-summary
+                        // refresh - minutes on large databases) owns 85-100%. Forwarding the raw
+                        // Rust percent left the bar at 99.5% while most of the wall-clock tail was
+                        // still ahead.
+                        var scaledPercent = progress.PercentComplete * 0.85;
+
+                        _operationTracker.UpdateProgress(operationId, scaledPercent, stageKey);
                         await _notifications.NotifyAllAsync(SignalREvents.EvictionScanProgress, new EvictionScanProgress(
                             OperationId: operationId,
                             Status: progress.Status.ToWireString(),
                             StageKey: stageKey,
-                            PercentComplete: progress.PercentComplete,
+                            PercentComplete: scaledPercent,
                             Processed: progress.Processed,
                             TotalEstimate: progress.TotalEstimate,
                             Evicted: progress.Evicted,
@@ -347,7 +354,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 {
                     await NotifyEvictionScanPostRustProgressAsync(
                         operationId,
-                        99.5,
+                        86.0,
                         "signalr.evictionScan.postProcessing",
                         scanResult);
                 }
@@ -417,6 +424,18 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "[EvictionScan] Post-scan recovery failed - newly-evicted entities may remain hidden until next full scan");
+                    }
+
+                    // The disk-summary recompute is the long pole of the whole scan on large
+                    // databases (minutes). Give it its own labeled stage at 92% so the bar
+                    // honestly shows substantial remaining work instead of sitting at ~100%.
+                    if (!scanSilent)
+                    {
+                        await NotifyEvictionScanPostRustProgressAsync(
+                            operationId,
+                            92.0,
+                            "signalr.evictionScan.refreshingSummary",
+                            scanResult);
                     }
 
                     await _gameCacheDetectionService.RefreshAndInvalidateDetectionCacheAsync(stoppingToken);
@@ -996,7 +1015,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 }
 
                 var outputJsonPath = Path.Combine(operationsDir, $"{options.OutputFilePrefix}_{datasource.Name}_{timestamp}.json");
-                var args = $"\"{dsLogPath}\" \"{inputJsonPath}\" \"{outputJsonPath}\" --progress";
+                var progressJsonPath = Path.Combine(operationsDir, $"{options.OutputFilePrefix}_progress_{datasource.Name}_{timestamp}.json");
+                var args = $"\"{dsLogPath}\" \"{inputJsonPath}\" \"{outputJsonPath}\" --progress-json \"{progressJsonPath}\"";
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, args);
 
                 _logger.LogInformation(
@@ -1008,42 +1028,43 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                 try
                 {
-                    var progressOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                    var purgeResult = await _rustProcessHelper.ExecuteTrackedProcessWithStdoutLinesAsync(
+                    // Same per-datasource slice mapping as before, fed from the standard
+                    // progress-file poller instead of stdout JSON lines - cache_purge_log_entries
+                    // now uses the same progress mechanism as every other cache_* binary.
+                    var dsSliceStart = options.ProgressStartPercent +
+                        (options.ProgressSpanPercent * dsIndex / totalDatasources);
+                    var dsSliceSize = options.ProgressSpanPercent / totalDatasources;
+
+                    var purgeResult = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync<PurgeLogProgressData>(
                         startInfo,
                         operationId,
                         stoppingToken,
-                        async line =>
+                        progressJsonPath,
+                        async progress =>
                         {
-                            try
+                            // Failure is surfaced via the non-zero exit code below.
+                            if (string.Equals(progress.Status, "failed", StringComparison.OrdinalIgnoreCase))
                             {
-                                var progressEvent = JsonSerializer.Deserialize<PurgeLogProgressEvent>(line, progressOptions);
-                                if (progressEvent?.Event == RustProgressEventKind.Progress && progressEvent.PercentComplete.HasValue)
-                                {
-                                    var dsSliceStart = options.ProgressStartPercent +
-                                        (options.ProgressSpanPercent * dsIndex / totalDatasources);
-                                    var dsSliceSize = options.ProgressSpanPercent / totalDatasources;
-                                    var mappedPercent = dsSliceStart +
-                                        (progressEvent.PercentComplete.Value / 100.0) * dsSliceSize;
+                                return;
+                            }
 
-                                    await ReportEvictionRemovalProgressAsync(
-                                        operationId,
-                                        mappedPercent,
-                                        "purging_log_entries",
-                                        "signalr.evictionRemove.purgingLogs",
-                                        context: new Dictionary<string, object?>
-                                        {
-                                            ["count"] = targets.Urls.Count + targets.DepotIds.Count,
-                                            ["datasource"] = datasource.Name
-                                        });
-                                }
-                            }
-                            catch (JsonException)
-                            {
-                                // Ignore non-JSON stdout lines.
-                            }
+                            var mappedPercent = dsSliceStart +
+                                (progress.PercentComplete / 100.0) * dsSliceSize;
+
+                            await ReportEvictionRemovalProgressAsync(
+                                operationId,
+                                mappedPercent,
+                                "purging_log_entries",
+                                "signalr.evictionRemove.purgingLogs",
+                                context: new Dictionary<string, object?>
+                                {
+                                    ["count"] = targets.Urls.Count + targets.DepotIds.Count,
+                                    ["datasource"] = datasource.Name
+                                });
                         },
                         "cache_purge_log_entries");
+
+                    await _rustProcessHelper.DeleteTemporaryFileAsync(progressJsonPath);
 
                     if (purgeResult.ExitCode != 0)
                     {
@@ -2043,22 +2064,19 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
-    /// Deserialized progress event from the `cache_purge_log_entries` Rust binary's stdout JSON lines.
-    /// Matches the ProgressEvent struct emitted by the Rust ProgressReporter when --progress is passed.
+    /// Progress-file schema written by the `cache_purge_log_entries` Rust binary - the same
+    /// camelCase shape every other cache_* binary writes for the progress-file poller.
     /// </summary>
-    private sealed class PurgeLogProgressEvent
+    private sealed class PurgeLogProgressData
     {
-        [System.Text.Json.Serialization.JsonPropertyName("event")]
-        public RustProgressEventKind Event { get; set; } = RustProgressEventKind.Unknown;
-
-        [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
-        public double? PercentComplete { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("status")]
+        public string Status { get; set; } = "";
 
         [System.Text.Json.Serialization.JsonPropertyName("stageKey")]
         public string? StageKey { get; set; }
 
-        [System.Text.Json.Serialization.JsonPropertyName("status")]
-        public OperationStatus? Status { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
+        public double PercentComplete { get; set; }
     }
 
     /// <summary>
