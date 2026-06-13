@@ -1,0 +1,37 @@
+{
+  "_comment": "SINGLE-SOURCE Blizzard/Battle.net TACT catalog. Consumed by BOTH the Rust log_processor (include_str! in src/tact_products.rs) AND the C# BattleNetMappingService (embedded resource linked in LancacheManager.csproj). Do NOT duplicate this data anywhere else. Resolution for a /tpr/<seg>/ segment (lowercased): products[seg] -> game; else aliases[seg] -> game; else if seg in shared -> sharedLabel; else unresolved (NULL GameName).",
+  "sharedLabel": "Battle.net (shared)",
+  "products": {
+    "rtro": "Blizzard Arcade Collection",
+    "anbs": "Diablo Immortal",
+    "osi": "Diablo II: Resurrected",
+    "d3": "Diablo III",
+    "fenris": "Diablo IV",
+    "hsb": "Hearthstone",
+    "hero": "Heroes of the Storm",
+    "s1": "StarCraft: Remastered",
+    "s2": "StarCraft II",
+    "pro": "Overwatch 2",
+    "w1r": "Warcraft I: Remastered",
+    "w2r": "Warcraft II: Remastered",
+    "w3": "Warcraft III: Reforged",
+    "wow": "World of Warcraft",
+    "viper": "Call of Duty: Black Ops 4",
+    "zeus": "Call of Duty: Black Ops Cold War",
+    "odin": "Call of Duty: Modern Warfare (2019)",
+    "auks": "Call of Duty",
+    "lazr": "Call of Duty: Modern Warfare 2 Remastered",
+    "fore": "Call of Duty: Vanguard",
+    "wlby": "Crash Bandicoot 4",
+    "aqua": "Avowed",
+    "scor": "Sea of Thieves"
+  },
+  "aliases": {},
+  "shared": [
+    "configs",
+    "agent",
+    "catalogs",
+    "bna",
+    "bts"
+  ]
+}

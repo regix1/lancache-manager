@@ -160,6 +160,9 @@ public static class SignalREvents
     public const string EpicGameMappingsUpdated = "EpicGameMappingsUpdated";
     public const string EpicMappingProgress = "EpicMappingProgress";
 
+    // Battle.net Game Mapping
+    public const string BlizzardGameMappingsUpdated = "BlizzardGameMappingsUpdated";
+
     // Directory Permissions
     public const string DirectoryPermissionsChanged = "DirectoryPermissionsChanged";
 

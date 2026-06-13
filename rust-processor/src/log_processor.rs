@@ -528,10 +528,17 @@ impl Processor {
                     .map(|prefix| format!("_epic:{}", prefix))
                     .unwrap_or_else(|| "_nodepot".to_string())
             } else if let Some(product) = entry.tact_product.as_deref() {
-                // For Blizzard entries, use the TACT product code (e.g. wow, fenris)
-                // as the session discriminator so each game gets its own session
-                // instead of collapsing into one {ip}_blizzard_nodepot session
-                format!("_tact:{}", product)
+                // For Blizzard entries, key the session on the RESOLVED game so a
+                // title's multiple CDN paths (e.g. configs + data) canonicalize into
+                // ONE session instead of splitting into several `_tact:<raw-seg>`
+                // sessions. Shared product-agnostic paths collapse together under the
+                // shared label; genuinely unknown segments keep the raw segment so
+                // distinct unknown games still get distinct sessions.
+                match tact_products::resolve_tact_segment(product) {
+                    tact_products::TactResolution::Game(name) => format!("_tactgame:{}", name),
+                    tact_products::TactResolution::Shared(label) => format!("_tactgame:{}", label),
+                    tact_products::TactResolution::Unknown => format!("_tact:{}", product),
+                }
             } else {
                 "_nodepot".to_string()
             };
@@ -715,19 +722,42 @@ impl Processor {
                 (None, None)
             }
         } else if self.auto_map_depots && service.to_lowercase() == "blizzard" {
-            // Blizzard has no integer app id; map the TACT product code -> display name.
-            // GameAppId stays None (only GameName is set), mirroring an unmapped depot
-            // leaving GameName NULL when the product code is unknown.
+            // Blizzard has no integer app id; resolve the TACT CDN-path / product
+            // segment -> game name (products/aliases) or the shared label (shared
+            // product-agnostic paths like configs/agent/catalogs). GameAppId stays
+            // None (only GameName is set). Genuinely unknown segments leave GameName
+            // NULL (mirroring an unmapped depot) and are LOGGED once per run so a
+            // 1-line aliases/shared entry can close the gap later.
             if let Some(product) = primary_tact_product.as_deref() {
-                match tact_products::tact_display_name(product) {
-                    Some(name) => {
+                match tact_products::resolve_tact_segment(product) {
+                    tact_products::TactResolution::Game(name) => {
                         if !self.logged_tact_products.contains(product) {
                             println!("Mapped Blizzard product {} -> {}", product, name);
                             self.logged_tact_products.insert(product.to_string());
                         }
-                        (None, Some(name.to_string()))
+                        (None, Some(name))
                     }
-                    None => (None, None),
+                    tact_products::TactResolution::Shared(label) => {
+                        if !self.logged_tact_products.contains(product) {
+                            println!("Mapped Blizzard shared path {} -> {}", product, label);
+                            self.logged_tact_products.insert(product.to_string());
+                        }
+                        (None, Some(label))
+                    }
+                    tact_products::TactResolution::Unknown => {
+                        if !self.logged_tact_products.contains(product) {
+                            let req_count = new_entries
+                                .iter()
+                                .filter(|e| e.tact_product.as_deref() == Some(product))
+                                .count();
+                            println!(
+                                "Unmapped Blizzard CDN path: {} ({} req)",
+                                product, req_count
+                            );
+                            self.logged_tact_products.insert(product.to_string());
+                        }
+                        (None, None)
+                    }
                 }
             } else {
                 (None, None)
@@ -859,9 +889,24 @@ impl Processor {
                     .await?
                     .map(|r| r.get::<i64, _>("Id"))
                 }
+            } else if let Some(resolved_name) = game_name.as_deref() {
+                // For Blizzard services whose segment RESOLVED to a game (or the shared
+                // label), match the existing session by the resolved GameName so a
+                // title's multiple CDN paths (configs + data + patch) attach to ONE
+                // session instead of splitting per CDN path.
+                sqlx::query(
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"GameName\" = $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
+                )
+                .bind(client_ip)
+                .bind(service)
+                .bind(resolved_name)
+                .fetch_optional(&mut **tx)
+                .await?
+                .map(|r| r.get::<i64, _>("Id"))
             } else if let Some(product) = primary_tact_product.as_deref() {
-                // For Blizzard services, match by TACT product (e.g. /tpr/wow/) to find
-                // the correct game session instead of merging all Blizzard games together
+                // Blizzard segment that did NOT resolve to a known game (GameName NULL):
+                // match by the raw `/tpr/<seg>/` path so distinct unknown segments still
+                // map to distinct sessions instead of collapsing into one generic session.
                 let like_pattern = format!("%/tpr/{}/%", product);
                 sqlx::query(
                     "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"LastUrl\" LIKE $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
