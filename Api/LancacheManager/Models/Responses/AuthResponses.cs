@@ -48,12 +48,14 @@ public class SessionDto
     public bool IsCurrentSession { get; set; }
     public bool IsExpired { get; set; }
     public DateTime? RevokedAt { get; set; }
-    /// <summary>Backward-compatible: true if either Steam or Epic prefill is active, or session is admin.</summary>
+    /// <summary>Backward-compatible: true if Steam, Epic, or Battle.net prefill is active, or session is admin.</summary>
     public bool PrefillEnabled { get; set; }
     public bool SteamPrefillEnabled { get; set; }
     public DateTime? SteamPrefillExpiresAt { get; set; }
     public bool EpicPrefillEnabled { get; set; }
     public DateTime? EpicPrefillExpiresAt { get; set; }
+    public bool BattlenetPrefillEnabled { get; set; }
+    public DateTime? BattlenetPrefillExpiresAt { get; set; }
 
     // Client-reported + GeoIP-enriched metadata. All optional.
     public string? PublicIpAddress { get; set; }

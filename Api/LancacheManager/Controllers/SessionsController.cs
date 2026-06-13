@@ -75,6 +75,7 @@ public class SessionsController : ControllerBase
         var isAdmin = s.SessionType == SessionType.Admin;
         var steamPrefillEnabled = isAdmin || (s.SteamPrefillExpiresAtUtc != null && s.SteamPrefillExpiresAtUtc > now);
         var epicPrefillEnabled = isAdmin || (s.EpicPrefillExpiresAtUtc != null && s.EpicPrefillExpiresAtUtc > now);
+        var battlenetPrefillEnabled = isAdmin || (s.BattleNetPrefillExpiresAtUtc != null && s.BattleNetPrefillExpiresAtUtc > now);
 
         return new SessionDto
         {
@@ -89,13 +90,16 @@ public class SessionsController : ControllerBase
             IsCurrentSession = s.Id == currentSessionId,
             IsExpired = !s.IsRevoked && s.ExpiresAtUtc <= now,
             RevokedAt = s.RevokedAtUtc.HasValue ? DateTime.SpecifyKind(s.RevokedAtUtc.Value, DateTimeKind.Utc) : (DateTime?)null,
-            PrefillEnabled = steamPrefillEnabled || epicPrefillEnabled,
+            PrefillEnabled = steamPrefillEnabled || epicPrefillEnabled || battlenetPrefillEnabled,
             SteamPrefillEnabled = steamPrefillEnabled,
             SteamPrefillExpiresAt = !isAdmin && s.SteamPrefillExpiresAtUtc > now
                 ? DateTime.SpecifyKind(s.SteamPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null,
             EpicPrefillEnabled = epicPrefillEnabled,
             EpicPrefillExpiresAt = !isAdmin && s.EpicPrefillExpiresAtUtc > now
                 ? DateTime.SpecifyKind(s.EpicPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null,
+            BattlenetPrefillEnabled = battlenetPrefillEnabled,
+            BattlenetPrefillExpiresAt = !isAdmin && s.BattleNetPrefillExpiresAtUtc > now
+                ? DateTime.SpecifyKind(s.BattleNetPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null,
             PublicIpAddress = s.PublicIpAddress,
             CountryCode = s.CountryCode,
             CountryName = s.CountryName,

@@ -464,6 +464,47 @@ public class AuthController : ControllerBase
         });
     }
 
+    // --- Battle.net Guest Prefill Endpoints (anonymous - no account login, no thread limit) ---
+
+    [AllowAnonymous]
+    [HttpGet("guest/battlenet-prefill/config")]
+    public IActionResult GetBattleNetGuestPrefillConfig()
+    {
+        return Ok(new
+        {
+            enabledByDefault = _stateService.GetBattleNetGuestPrefillEnabledByDefault(),
+            durationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
+        });
+    }
+
+    [Authorize(Policy = "AdminOnly")]
+    [HttpPost("guest/battlenet-prefill/config")]
+    public async Task<IActionResult> SetBattleNetGuestPrefillConfigAsync([FromBody] BattleNetGuestPrefillConfigRequest request)
+    {
+        if (request.DurationHours != 1 && request.DurationHours != 2)
+        {
+            return BadRequest(new { error = "Duration must be 1 or 2 hours" });
+        }
+
+        _stateService.SetBattleNetGuestPrefillEnabledByDefault(request.EnabledByDefault);
+        _stateService.SetBattleNetGuestPrefillDurationHours(request.DurationHours);
+
+        _logger.LogInformation("Default Battle.net guest prefill config updated: enabled={Enabled}, duration={Hours}h (existing sessions unchanged)",
+            request.EnabledByDefault, request.DurationHours);
+
+        await _signalR.NotifyAllAsync(SignalREvents.BattleNetGuestPrefillConfigChanged, new
+        {
+            enabledByDefault = _stateService.GetBattleNetGuestPrefillEnabledByDefault(),
+            durationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
+        });
+
+        return Ok(new {
+            success = true,
+            enabledByDefault = _stateService.GetBattleNetGuestPrefillEnabledByDefault(),
+            durationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
+        });
+    }
+
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/prefill/toggle/{sessionId:guid}")]
     public async Task<IActionResult> ToggleGuestPrefillAsync(Guid sessionId, [FromBody] GuestPrefillToggleRequest request, [FromQuery] string service = "steam")
@@ -560,4 +601,10 @@ public class EpicGuestPrefillConfigRequest
     public bool EnabledByDefault { get; set; }
     public int DurationHours { get; set; } = 2;
     public int? MaxThreadCount { get; set; }
+}
+
+public class BattleNetGuestPrefillConfigRequest
+{
+    public bool EnabledByDefault { get; set; }
+    public int DurationHours { get; set; } = 2;
 }

@@ -20,6 +20,8 @@ export interface Session {
   steamPrefillExpiresAt?: string | null;
   epicPrefillEnabled: boolean;
   epicPrefillExpiresAt?: string | null;
+  battlenetPrefillEnabled: boolean;
+  battlenetPrefillExpiresAt?: string | null;
   publicIpAddress?: string | null;
   countryCode?: string | null;
   countryName?: string | null;

@@ -5,10 +5,14 @@ import { Card } from '@components/ui/Card';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import type { EpicGuestPrefillConfigChangedEvent } from '@contexts/SignalRContext/types';
+import type {
+  EpicGuestPrefillConfigChangedEvent,
+  BattleNetGuestPrefillConfigChangedEvent
+} from '@contexts/SignalRContext/types';
 import { useAuth } from '@contexts/useAuth';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
+import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { type ThemeOption, durationOptions, refreshRateOptions, showToast } from './types';
 import AccessSecurityCard from './AccessSecurityCard';
 import PrefillServicePanel from './PrefillServicePanel';
@@ -106,6 +110,15 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   });
   const [loadingEpicPrefillConfig, setLoadingEpicPrefillConfig] = useState(false);
   const [updatingEpicPrefillConfig, setUpdatingEpicPrefillConfig] = useState(false);
+
+  // Battle.net Prefill permission state (anonymous - no thread limit)
+  const [battlenetPrefillConfig, setBattlenetPrefillConfig] = useState({
+    enabledByDefault: false,
+    durationHours: 2,
+    maxThreadCount: null as number | null
+  });
+  const [loadingBattlenetPrefillConfig, setLoadingBattlenetPrefillConfig] = useState(false);
+  const [updatingBattlenetPrefillConfig, setUpdatingBattlenetPrefillConfig] = useState(false);
 
   // Helper to update default time format based on a format value
   const updateDefaultTimeFormat = async (format: TimeSettingValue) => {
@@ -295,6 +308,17 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     });
   }, []);
 
+  const handleBattlenetPrefillConfigChanged = useCallback(
+    (data: BattleNetGuestPrefillConfigChangedEvent) => {
+      setBattlenetPrefillConfig({
+        enabledByDefault: data.enabledByDefault,
+        durationHours: data.durationHours,
+        maxThreadCount: null
+      });
+    },
+    []
+  );
+
   const handleAllowedFormatsChange = async (formats: string[]) => {
     if (authMode !== 'authenticated') return;
     try {
@@ -466,6 +490,63 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     }
   };
 
+  // Battle.net Prefill config functions (anonymous - enabled + duration only)
+  const loadBattlenetPrefillConfig = async () => {
+    try {
+      setLoadingBattlenetPrefillConfig(true);
+      const configResponse = await fetch(
+        '/api/auth/guest/battlenet-prefill/config',
+        ApiService.getFetchOptions()
+      );
+      if (configResponse.ok) {
+        const data = (await configResponse.json()) as GuestPrefillConfigResponse;
+        setBattlenetPrefillConfig({
+          enabledByDefault: data.enabledByDefault,
+          durationHours: data.durationHours,
+          maxThreadCount: null
+        });
+      }
+    } catch (err) {
+      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.loadConfig'));
+    } finally {
+      setLoadingBattlenetPrefillConfig(false);
+    }
+  };
+
+  const updateBattlenetPrefillConfig = async (enabledByDefault: boolean, durationHours: number) => {
+    if (authMode !== 'authenticated') return;
+    try {
+      setUpdatingBattlenetPrefillConfig(true);
+      const response = await fetch(
+        '/api/auth/guest/battlenet-prefill/config',
+        ApiService.getFetchOptions({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ enabledByDefault, durationHours })
+        })
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setBattlenetPrefillConfig({
+          enabledByDefault: data.enabledByDefault,
+          durationHours: data.durationHours,
+          maxThreadCount: null
+        });
+        showToast('success', t('user.guest.prefill.updated'));
+      } else {
+        const errorData = await response.json();
+        showToast('error', errorData.error || t('user.guest.prefill.errors.update'));
+      }
+    } catch (err: unknown) {
+      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.update'));
+    } finally {
+      setUpdatingBattlenetPrefillConfig(false);
+    }
+  };
+
   // Handler callbacks for PrefillServicePanel
   const handleSteamToggleEnabled = () => {
     updatePrefillConfig(!prefillConfig.enabledByDefault, prefillConfig.durationHours);
@@ -495,21 +576,41 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     );
   };
 
+  const handleBattlenetToggleEnabled = () => {
+    updateBattlenetPrefillConfig(
+      !battlenetPrefillConfig.enabledByDefault,
+      battlenetPrefillConfig.durationHours
+    );
+  };
+
+  const handleBattlenetDurationChange = (hours: number) => {
+    updateBattlenetPrefillConfig(battlenetPrefillConfig.enabledByDefault, hours);
+  };
+
+  // Battle.net is anonymous; it has no per-download thread limit, so the
+  // PrefillServicePanel max-threads control is hidden and this handler is a no-op.
+  const handleBattlenetMaxThreadsNoop = useCallback((threads: number | null): void => {
+    void threads;
+  }, []);
+
   useEffect(() => {
     loadDefaultGuestPreferences();
     loadPrefillConfig();
     loadEpicPrefillConfig();
+    loadBattlenetPrefillConfig();
 
     on('DefaultGuestPreferencesChanged', handleDefaultGuestPreferencesChanged);
     on('AllowedTimeFormatsChanged', handleAllowedTimeFormatsChanged);
     on('GuestPrefillConfigChanged', handlePrefillConfigChanged);
     on('EpicGuestPrefillConfigChanged', handleEpicPrefillConfigChanged);
+    on('BattleNetGuestPrefillConfigChanged', handleBattlenetPrefillConfigChanged);
 
     return () => {
       off('DefaultGuestPreferencesChanged', handleDefaultGuestPreferencesChanged);
       off('AllowedTimeFormatsChanged', handleAllowedTimeFormatsChanged);
       off('GuestPrefillConfigChanged', handlePrefillConfigChanged);
       off('EpicGuestPrefillConfigChanged', handleEpicPrefillConfigChanged);
+      off('BattleNetGuestPrefillConfigChanged', handleBattlenetPrefillConfigChanged);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -518,7 +619,8 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     handleDefaultGuestPreferencesChanged,
     handleAllowedTimeFormatsChanged,
     handlePrefillConfigChanged,
-    handleEpicPrefillConfigChanged
+    handleEpicPrefillConfigChanged,
+    handleBattlenetPrefillConfigChanged
   ]);
 
   return (
@@ -580,6 +682,24 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
             enableDescription={t('user.guest.prefill.enableByDefault.description')}
             prefillDurationOptions={prefillDurationOptions}
             maxThreadOptions={maxThreadOptions}
+          />
+          <PrefillServicePanel
+            serviceName="Battle.net"
+            serviceNameClass="text-blizzard"
+            serviceIcon={<BlizzardIcon size={14} />}
+            accentClass="settings-group--battlenet"
+            config={battlenetPrefillConfig}
+            onToggleEnabled={handleBattlenetToggleEnabled}
+            onDurationChange={handleBattlenetDurationChange}
+            onMaxThreadsChange={handleBattlenetMaxThreadsNoop}
+            loading={loadingBattlenetPrefillConfig}
+            updating={updatingBattlenetPrefillConfig}
+            warningText={t('user.guest.prefill.warning')}
+            durationLabel={t('user.guest.prefill.duration.label')}
+            enableLabel={t('user.guest.prefill.enableByDefault.label')}
+            enableDescription={t('user.guest.prefill.enableByDefault.description')}
+            prefillDurationOptions={prefillDurationOptions}
+            showMaxThreads={false}
           />
         </div>
       </Card>

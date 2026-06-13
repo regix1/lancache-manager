@@ -168,6 +168,9 @@ export const SIGNALR_EVENTS = [
   // Epic Guest Prefill Config
   'EpicGuestPrefillConfigChanged',
 
+  // Battle.net Guest Prefill Config
+  'BattleNetGuestPrefillConfigChanged',
+
   // Epic Game Mappings
   'EpicMappingProgress',
   'EpicGameMappingsUpdated',
@@ -801,6 +804,15 @@ export interface EpicGuestPrefillConfigChangedEvent {
   enabledByDefault: boolean;
   durationHours: number;
   epicMaxThreadCount: number;
+}
+
+/**
+ * Battle.net guest prefill config changed (anonymous service - no thread limit).
+ * Handled by GuestConfiguration.tsx and ActiveSessions.tsx for local state updates.
+ */
+export interface BattleNetGuestPrefillConfigChangedEvent {
+  enabledByDefault: boolean;
+  durationHours: number;
 }
 
 // ============================================================================

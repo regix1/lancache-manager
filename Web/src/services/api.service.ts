@@ -2468,7 +2468,9 @@ class ApiService {
     return ApiService.handleResponse<T>(response);
   }
 
-  static async getGuestPrefillConfig<T>(service: 'prefill' | 'epic-prefill'): Promise<T> {
+  static async getGuestPrefillConfig<T>(
+    service: 'prefill' | 'epic-prefill' | 'battlenet-prefill'
+  ): Promise<T> {
     const response = await fetch(
       `${API_BASE}/auth/guest/${service}/config`,
       this.getFetchOptions()
@@ -2609,7 +2611,7 @@ class ApiService {
   }
 
   static async updateGuestPrefillConfig<T>(
-    service: 'prefill' | 'epic-prefill',
+    service: 'prefill' | 'epic-prefill' | 'battlenet-prefill',
     body: Record<string, unknown>
   ): Promise<T> {
     const response = await fetch(

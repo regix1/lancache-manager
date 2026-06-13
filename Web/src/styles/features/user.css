@@ -455,6 +455,10 @@
   border-left-color: var(--theme-epic);
 }
 
+.settings-group--battlenet {
+  border-left-color: var(--theme-blizzard);
+}
+
 .settings-group--look {
   border-left-color: var(--theme-icon-blue);
 }

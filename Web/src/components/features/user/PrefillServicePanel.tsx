@@ -21,11 +21,13 @@ interface PrefillServicePanelProps {
   updating: boolean;
   warningText: string;
   durationLabel: string;
-  maxThreadsLabel: string;
   enableLabel: string;
   enableDescription: string;
   prefillDurationOptions: { value: string; label: string }[];
-  maxThreadOptions: { value: string; label: string }[];
+  /** When false, the max download threads control is hidden (e.g. anonymous Battle.net). Defaults to true. */
+  showMaxThreads?: boolean;
+  maxThreadsLabel?: string;
+  maxThreadOptions?: { value: string; label: string }[];
 }
 
 const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
@@ -41,10 +43,11 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
   updating,
   warningText,
   durationLabel,
-  maxThreadsLabel,
   enableLabel,
   enableDescription,
   prefillDurationOptions,
+  showMaxThreads = true,
+  maxThreadsLabel,
   maxThreadOptions
 }) => {
   const handleToggleClick = () => {
@@ -100,28 +103,30 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
       </div>
 
       {/* Max Download Threads dropdown */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-        <div className="toggle-row-label whitespace-nowrap flex items-center gap-1.5">
-          <Network className="w-3.5 h-3.5 text-themed-accent" />
-          {maxThreadsLabel}
-        </div>
-        <div className="relative">
-          <EnhancedDropdown
-            options={maxThreadOptions}
-            value={config.maxThreadCount != null ? String(config.maxThreadCount) : ''}
-            onChange={handleMaxThreadsChange}
-            disabled={updating || loading}
-            className="w-48"
-          />
-          {updating && (
-            <LoadingSpinner
-              inline
-              size="sm"
-              className="absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent"
+      {showMaxThreads && maxThreadOptions && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+          <div className="toggle-row-label whitespace-nowrap flex items-center gap-1.5">
+            <Network className="w-3.5 h-3.5 text-themed-accent" />
+            {maxThreadsLabel}
+          </div>
+          <div className="relative">
+            <EnhancedDropdown
+              options={maxThreadOptions}
+              value={config.maxThreadCount != null ? String(config.maxThreadCount) : ''}
+              onChange={handleMaxThreadsChange}
+              disabled={updating || loading}
+              className="w-48"
             />
-          )}
+            {updating && (
+              <LoadingSpinner
+                inline
+                size="sm"
+                className="absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent"
+              />
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
