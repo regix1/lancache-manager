@@ -69,6 +69,8 @@ public class AuthController : ControllerBase
         DateTime? steamPrefillExpiresAt = null;
         var epicPrefillEnabled = false;
         DateTime? epicPrefillExpiresAt = null;
+        var battlenetPrefillEnabled = false;
+        DateTime? battlenetPrefillExpiresAt = null;
 
         if (session != null)
         {
@@ -76,6 +78,7 @@ public class AuthController : ControllerBase
             {
                 steamPrefillEnabled = true;
                 epicPrefillEnabled = true;
+                battlenetPrefillEnabled = true;
             }
             else if (session.SessionType == SessionType.Guest)
             {
@@ -86,11 +89,15 @@ public class AuthController : ControllerBase
                 epicPrefillEnabled = session.EpicPrefillExpiresAtUtc != null && session.EpicPrefillExpiresAtUtc > DateTime.UtcNow;
                 epicPrefillExpiresAt = epicPrefillEnabled
                     ? DateTime.SpecifyKind(session.EpicPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null;
+
+                battlenetPrefillEnabled = session.BattleNetPrefillExpiresAtUtc != null && session.BattleNetPrefillExpiresAtUtc > DateTime.UtcNow;
+                battlenetPrefillExpiresAt = battlenetPrefillEnabled
+                    ? DateTime.SpecifyKind(session.BattleNetPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null;
             }
         }
 
-        // Backward-compat: prefillEnabled is true if either service is active
-        var prefillEnabled = steamPrefillEnabled || epicPrefillEnabled;
+        // Backward-compat: prefillEnabled is true if any service is active
+        var prefillEnabled = steamPrefillEnabled || epicPrefillEnabled || battlenetPrefillEnabled;
 
         // Token rotation: provide a fresh token for SignalR accessTokenFactory (mobile support)
         string? token = null;
@@ -116,6 +123,8 @@ public class AuthController : ControllerBase
             SteamPrefillExpiresAt = steamPrefillExpiresAt,
             EpicPrefillEnabled = epicPrefillEnabled,
             EpicPrefillExpiresAt = epicPrefillExpiresAt,
+            BattlenetPrefillEnabled = battlenetPrefillEnabled,
+            BattlenetPrefillExpiresAt = battlenetPrefillExpiresAt,
             Token = token
         });
     }
@@ -455,6 +464,14 @@ public class AuthController : ControllerBase
             else
                 await _sessionService.RevokeEpicPrefillAccessAsync(sessionId);
         }
+        else if (normalizedService == "battlenet")
+        {
+            // Battle.net is anonymous; this grant only gates feature access (not an account login)
+            if (request.Enabled)
+                await _sessionService.GrantBattleNetPrefillAccessAsync(sessionId, _sessionService.GetGuestPrefillDurationHours());
+            else
+                await _sessionService.RevokeBattleNetPrefillAccessAsync(sessionId);
+        }
         else
         {
             // Default to steam for backward compatibility
@@ -471,6 +488,12 @@ public class AuthController : ControllerBase
         {
             prefillExpiresAt = updatedSession?.EpicPrefillExpiresAtUtc != null
                 ? DateTime.SpecifyKind(updatedSession.EpicPrefillExpiresAtUtc.Value, DateTimeKind.Utc)
+                : (DateTime?)null;
+        }
+        else if (normalizedService == "battlenet")
+        {
+            prefillExpiresAt = updatedSession?.BattleNetPrefillExpiresAtUtc != null
+                ? DateTime.SpecifyKind(updatedSession.BattleNetPrefillExpiresAtUtc.Value, DateTimeKind.Utc)
                 : (DateTime?)null;
         }
         else

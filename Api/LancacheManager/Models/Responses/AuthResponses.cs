@@ -11,12 +11,14 @@ public class AuthStatusResponse
     public bool HasDataLoaded { get; set; }
     public bool GuestAccessEnabled { get; set; }
     public int GuestDurationHours { get; set; }
-    /// <summary>Backward-compatible: true if either Steam or Epic prefill is active.</summary>
+    /// <summary>Backward-compatible: true if any prefill service (Steam, Epic, or Battle.net) is active.</summary>
     public bool PrefillEnabled { get; set; }
     public bool SteamPrefillEnabled { get; set; }
     public DateTime? SteamPrefillExpiresAt { get; set; }
     public bool EpicPrefillEnabled { get; set; }
     public DateTime? EpicPrefillExpiresAt { get; set; }
+    public bool BattlenetPrefillEnabled { get; set; }
+    public DateTime? BattlenetPrefillExpiresAt { get; set; }
     public string? Token { get; set; }
 }
 

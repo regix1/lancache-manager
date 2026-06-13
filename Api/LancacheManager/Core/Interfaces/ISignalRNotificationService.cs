@@ -70,6 +70,26 @@ public interface ISignalRNotificationService
     /// </summary>
     Task NotifyAllDownloadsAndEpicHubAsync(string eventName, object? data = null);
 
+    // ===== Battle.net Prefill Hub Methods =====
+
+    /// <summary>
+    /// Send a notification to a specific client on the BattleNetDaemonHub.
+    /// Errors are caught and logged; does not throw.
+    /// </summary>
+    Task NotifyBattleNetPrefillClientAsync(string connectionId, string eventName, object? data = null);
+
+    /// <summary>
+    /// Send a notification to a specific client on the BattleNetDaemonHub.
+    /// Throws exceptions on failure so caller can handle them.
+    /// </summary>
+    Task SendToBattleNetPrefillClientRawAsync(string connectionId, string eventName, object? data = null);
+
+    /// <summary>
+    /// Send a notification to all clients on the DownloadHub and the Battle.net daemon hub only.
+    /// Used for Battle.net-specific daemon events that should not be sent to the Steam/Epic hubs.
+    /// </summary>
+    Task NotifyAllDownloadsAndBattleNetHubAsync(string eventName, object? data = null);
+
     // ===== DownloadHub Group Methods =====
 
     /// <summary>

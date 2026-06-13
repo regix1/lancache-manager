@@ -517,6 +517,30 @@ public class SessionService
         }
     }
 
+    public async Task GrantBattleNetPrefillAccessAsync(Guid sessionId, int durationHours)
+    {
+        using var context = _dbContextFactory.CreateDbContext();
+        var session = await context.UserSessions.FindAsync(sessionId);
+        if (session != null)
+        {
+            session.BattleNetPrefillExpiresAtUtc = DateTime.UtcNow.AddHours(durationHours);
+            await context.SaveChangesAsync();
+            _logger.LogInformation("Granted Battle.net prefill access to session {SessionId}, expires at {ExpiresAt}", sessionId, session.BattleNetPrefillExpiresAtUtc);
+        }
+    }
+
+    public async Task RevokeBattleNetPrefillAccessAsync(Guid sessionId)
+    {
+        using var context = _dbContextFactory.CreateDbContext();
+        var session = await context.UserSessions.FindAsync(sessionId);
+        if (session != null)
+        {
+            session.BattleNetPrefillExpiresAtUtc = null;
+            await context.SaveChangesAsync();
+            _logger.LogInformation("Revoked Battle.net prefill access for session {SessionId}", sessionId);
+        }
+    }
+
     private static (string RawToken, string TokenHash) GenerateSessionToken()
     {
         var tokenBytes = new byte[64];

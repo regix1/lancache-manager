@@ -55,6 +55,10 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
             || (session.EpicPrefillExpiresAtUtc != null && session.EpicPrefillExpiresAtUtc > DateTime.UtcNow))
             claims.Add(new Claim("EpicPrefillActive", "true"));
 
+        if (session.SessionType == SessionType.Admin
+            || (session.BattleNetPrefillExpiresAtUtc != null && session.BattleNetPrefillExpiresAtUtc > DateTime.UtcNow))
+            claims.Add(new Claim("BattleNetPrefillActive", "true"));
+
         var identity = new ClaimsIdentity(claims, SchemeName);
         var principal = new ClaimsPrincipal(identity);
         var ticket = new AuthenticationTicket(principal, SchemeName);

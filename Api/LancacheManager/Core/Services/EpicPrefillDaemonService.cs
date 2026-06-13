@@ -32,8 +32,8 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
         _mappingService = mappingService;
     }
 
-    // Use Epic hub for per-connection notifications
-    protected override bool UseEpicHub => true;
+    // Route per-connection and broadcast notifications to the Epic prefill hub
+    protected override string HubRoutingTarget => "epic";
 
     // Service identity
     protected override string ServiceName => "Epic";

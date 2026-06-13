@@ -136,10 +136,12 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     protected virtual Task OnPostAuthenticationAsync() => Task.CompletedTask;
 
     /// <summary>
-    /// If true, use Epic hub context for per-connection notifications.
-    /// If false, use Steam hub context.
+    /// Identifies which prefill daemon hub this service routes per-connection and broadcast
+    /// notifications to. Steam inherits "steam"; concrete services override for their hub
+    /// ("epic", "battlenet"). Used by <see cref="SendToServiceClientRawAsync"/> and
+    /// <see cref="NotifyAllDownloadsAndServiceHubAsync"/> to avoid cross-hub event leakage.
     /// </summary>
-    protected virtual bool UseEpicHub => false;
+    protected virtual string HubRoutingTarget => "steam";
 
     /// <summary>
     /// HKDF info string for credential encryption. Must match the daemon's SecureCredentialExchange implementation.
@@ -158,26 +160,42 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     protected abstract string[] DiagnosticsDnsDomains { get; }
 
     /// <summary>
-    /// Sends a notification to a specific client on the appropriate hub (Steam or Epic).
+    /// Sends a notification to a specific client on the appropriate hub (Steam, Epic, or Battle.net).
     /// </summary>
     protected async Task SendToServiceClientRawAsync(string connectionId, string eventName, object? data = null)
     {
-        if (UseEpicHub)
-            await _notifications.SendToEpicPrefillClientRawAsync(connectionId, eventName, data);
-        else
-            await _notifications.SendToPrefillClientRawAsync(connectionId, eventName, data);
+        switch (HubRoutingTarget)
+        {
+            case "epic":
+                await _notifications.SendToEpicPrefillClientRawAsync(connectionId, eventName, data);
+                break;
+            case "battlenet":
+                await _notifications.SendToBattleNetPrefillClientRawAsync(connectionId, eventName, data);
+                break;
+            default:
+                await _notifications.SendToPrefillClientRawAsync(connectionId, eventName, data);
+                break;
+        }
     }
 
     /// <summary>
-    /// Broadcasts a notification to the downloads hub and the correct daemon hub (Steam or Epic).
+    /// Broadcasts a notification to the downloads hub and the correct daemon hub (Steam, Epic, or Battle.net).
     /// Avoids sending service-specific events to the wrong daemon hub.
     /// </summary>
     protected async Task NotifyAllDownloadsAndServiceHubAsync(string eventName, object? data = null)
     {
-        if (UseEpicHub)
-            await _notifications.NotifyAllDownloadsAndEpicHubAsync(eventName, data);
-        else
-            await _notifications.NotifyAllDownloadsAndSteamHubAsync(eventName, data);
+        switch (HubRoutingTarget)
+        {
+            case "epic":
+                await _notifications.NotifyAllDownloadsAndEpicHubAsync(eventName, data);
+                break;
+            case "battlenet":
+                await _notifications.NotifyAllDownloadsAndBattleNetHubAsync(eventName, data);
+                break;
+            default:
+                await _notifications.NotifyAllDownloadsAndSteamHubAsync(eventName, data);
+                break;
+        }
     }
 
     /// <summary>

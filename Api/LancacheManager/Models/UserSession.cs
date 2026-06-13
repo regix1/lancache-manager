@@ -46,6 +46,7 @@ public class UserSession
     // Prefill access - when set and in the future, guest has prefill tab access for the given service
     public DateTime? SteamPrefillExpiresAtUtc { get; set; }
     public DateTime? EpicPrefillExpiresAtUtc { get; set; }
+    public DateTime? BattleNetPrefillExpiresAtUtc { get; set; }
 
     // Token rotation - previous token remains valid during grace period
     public string? PreviousSessionTokenHash { get; set; }
