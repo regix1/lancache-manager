@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import { useRefreshRate } from '@contexts/useRefreshRate';
 import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
 import type { DownloadSpeedSnapshot, GameSpeedInfo, ClientSpeedInfo } from '../../types';
@@ -9,7 +8,6 @@ import { SpeedContext } from './SpeedContext.types';
 
 export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedProviderProps) => {
   const signalR = useSignalR();
-  const { getRefreshInterval } = useRefreshRate();
   const { hasSession, isLoading: authLoading } = useAuth();
   const hasAccess = !authLoading && hasSession;
   const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
@@ -20,10 +18,6 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
   const lastActiveCountRef = useRef<number | null>(null);
   // Grace period ref to prevent flicker when transitioning TO zero (depot switches)
   const zeroGracePeriodRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Keep getRefreshInterval in a ref to avoid stale closure issues
-  const getRefreshIntervalRef = useRef(getRefreshInterval);
-  getRefreshIntervalRef.current = getRefreshInterval;
 
   // Calculate derived values from the speed snapshot
   const gameSpeeds: GameSpeedInfo[] = useMemo(() => {
@@ -194,14 +188,13 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
         return;
       }
 
-      // Throttle check - apply update if enough time has passed
-      const maxRefreshRate = getRefreshIntervalRef.current();
+      // Throttle same-count (speed-value-only) updates to the server's broadcast cadence so
+      // Live is instant regardless of the refresh-rate setting (mirrors DashboardDataContext).
+      // The server already throttles DownloadSpeedUpdate to ~500ms, so this only caps client
+      // re-renders — it adds no latency and no server load.
       const now = Date.now();
       const timeSinceLastUpdate = now - lastSpeedUpdateRef.current;
-
-      // User's setting controls max refresh rate
-      // LIVE mode (0) = 500ms minimum to prevent UI thrashing
-      const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
+      const minInterval = 500;
 
       if (timeSinceLastUpdate >= minInterval) {
         lastSpeedUpdateRef.current = now;
