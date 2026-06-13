@@ -206,6 +206,11 @@ public class AuthController : ControllerBase
             await _sessionService.GrantEpicPrefillAccessAsync(session.Id, _stateService.GetEpicGuestPrefillDurationHours());
         }
 
+        if (_sessionService.IsBattleNetPrefillEnabled())
+        {
+            await _sessionService.GrantBattleNetPrefillAccessAsync(session.Id, _stateService.GetBattleNetGuestPrefillDurationHours());
+        }
+
         // Broadcast session created
         await _signalR.NotifyAllAsync(SignalREvents.UserSessionCreated, new
         {
@@ -371,7 +376,9 @@ public class AuthController : ControllerBase
             maxThreadCount = _stateService.GetDefaultGuestMaxThreadCount(),
             epicEnabledByDefault = _stateService.GetEpicGuestPrefillEnabledByDefault(),
             epicDurationHours = _stateService.GetEpicGuestPrefillDurationHours(),
-            epicMaxThreadCount = _stateService.GetEpicDefaultGuestMaxThreadCount()
+            epicMaxThreadCount = _stateService.GetEpicDefaultGuestMaxThreadCount(),
+            battlenetEnabledByDefault = _stateService.GetBattleNetGuestPrefillEnabledByDefault(),
+            battlenetDurationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
         });
     }
 
@@ -387,6 +394,12 @@ public class AuthController : ControllerBase
         _sessionService.SetSteamGuestPrefillEnabled(request.EnabledByDefault);
         _sessionService.SetGuestPrefillDurationHours(request.DurationHours);
         _stateService.SetDefaultGuestMaxThreadCount(request.MaxThreadCount);
+
+        // Battle.net is an optional, anonymous service; only update when the caller supplies values.
+        if (request.BattleNetEnabledByDefault.HasValue)
+            _stateService.SetBattleNetGuestPrefillEnabledByDefault(request.BattleNetEnabledByDefault.Value);
+        if (request.BattleNetDurationHours.HasValue)
+            _stateService.SetBattleNetGuestPrefillDurationHours(request.BattleNetDurationHours.Value);
 
         _logger.LogInformation("Default guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads} (existing sessions unchanged)",
             request.EnabledByDefault, request.DurationHours, request.MaxThreadCount);
@@ -468,7 +481,7 @@ public class AuthController : ControllerBase
         {
             // Battle.net is anonymous; this grant only gates feature access (not an account login)
             if (request.Enabled)
-                await _sessionService.GrantBattleNetPrefillAccessAsync(sessionId, _sessionService.GetGuestPrefillDurationHours());
+                await _sessionService.GrantBattleNetPrefillAccessAsync(sessionId, _stateService.GetBattleNetGuestPrefillDurationHours());
             else
                 await _sessionService.RevokeBattleNetPrefillAccessAsync(sessionId);
         }
@@ -532,6 +545,9 @@ public class GuestPrefillConfigRequest
     public bool EnabledByDefault { get; set; }
     public int DurationHours { get; set; } = 2;
     public int? MaxThreadCount { get; set; }
+    // Optional Battle.net defaults (anonymous service); omitted by Steam-only callers.
+    public bool? BattleNetEnabledByDefault { get; set; }
+    public int? BattleNetDurationHours { get; set; }
 }
 
 public class GuestPrefillToggleRequest

@@ -58,6 +58,10 @@ public class AppState
     public int? EpicDefaultGuestMaxThreadCount { get; set; } = null;
     public string EpicDefaultPrefillMaxConcurrency { get; set; } = "default";
 
+    // Battle.net prefill settings (anonymous service - default-grant flag only gates feature access)
+    public bool BattleNetGuestPrefillEnabledByDefault { get; set; } = false;
+    public int BattleNetGuestPrefillDurationHours { get; set; } = 2;
+
     // PICS viability check caching (prevents repeated Steam API calls)
     public bool RequiresFullScan { get; set; } = false; // True if Steam requires full scan due to large change gap
     public DateTime? LastViabilityCheck { get; set; } // When we last checked with Steam

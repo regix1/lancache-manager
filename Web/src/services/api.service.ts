@@ -2235,6 +2235,14 @@ class ApiService {
     return ApiService.handleResponse<EpicDaemonStatusDto>(response);
   }
 
+  // Battle.net daemon exposes the same service-agnostic status shape as Epic.
+  static async getBattleNetDaemonStatus(): Promise<EpicDaemonStatusDto> {
+    const response = await fetch(`${API_BASE}/battlenet-daemon/status`, {
+      credentials: 'include'
+    });
+    return ApiService.handleResponse<EpicDaemonStatusDto>(response);
+  }
+
   static async getEpicGameMappings(): Promise<EpicGameMappingDto[]> {
     const response = await fetch(`${API_BASE}/epic/game-mappings`, {
       credentials: 'include'

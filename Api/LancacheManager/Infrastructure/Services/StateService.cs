@@ -106,6 +106,10 @@ public class StateService : IStateService
         public int? EpicDefaultGuestMaxThreadCount { get; set; } = null;
         public string EpicDefaultPrefillMaxConcurrency { get; set; } = "default";
 
+        // Battle.net prefill settings (anonymous service)
+        public bool BattleNetGuestPrefillEnabledByDefault { get; set; } = false;
+        public int BattleNetGuestPrefillDurationHours { get; set; } = 2;
+
         // PICS viability check caching
         public bool RequiresFullScan { get; set; } = false;
         public DateTime? LastViabilityCheck { get; set; }
@@ -888,6 +892,9 @@ public class StateService : IStateService
             EpicGuestPrefillDurationHours = persisted.EpicGuestPrefillDurationHours,
             EpicDefaultGuestMaxThreadCount = persisted.EpicDefaultGuestMaxThreadCount,
             EpicDefaultPrefillMaxConcurrency = persisted.EpicDefaultPrefillMaxConcurrency ?? "default",
+            // Battle.net prefill settings
+            BattleNetGuestPrefillEnabledByDefault = persisted.BattleNetGuestPrefillEnabledByDefault,
+            BattleNetGuestPrefillDurationHours = persisted.BattleNetGuestPrefillDurationHours,
             // PICS viability check caching
             RequiresFullScan = persisted.RequiresFullScan,
             LastViabilityCheck = persisted.LastViabilityCheck,
@@ -967,6 +974,9 @@ public class StateService : IStateService
             EpicGuestPrefillDurationHours = state.EpicGuestPrefillDurationHours,
             EpicDefaultGuestMaxThreadCount = state.EpicDefaultGuestMaxThreadCount,
             EpicDefaultPrefillMaxConcurrency = state.EpicDefaultPrefillMaxConcurrency ?? "default",
+            // Battle.net prefill settings
+            BattleNetGuestPrefillEnabledByDefault = state.BattleNetGuestPrefillEnabledByDefault,
+            BattleNetGuestPrefillDurationHours = state.BattleNetGuestPrefillDurationHours,
             // PICS viability check caching
             RequiresFullScan = state.RequiresFullScan,
             LastViabilityCheck = state.LastViabilityCheck,
@@ -1442,6 +1452,32 @@ public class StateService : IStateService
             hours = 2; // Default to 2 hours
         }
         UpdateState(state => state.EpicGuestPrefillDurationHours = hours);
+    }
+
+    // Battle.net Guest Prefill Permission Methods
+    public bool GetBattleNetGuestPrefillEnabledByDefault()
+    {
+        return GetState().BattleNetGuestPrefillEnabledByDefault;
+    }
+
+    public void SetBattleNetGuestPrefillEnabledByDefault(bool enabled)
+    {
+        UpdateState(state => state.BattleNetGuestPrefillEnabledByDefault = enabled);
+    }
+
+    public int GetBattleNetGuestPrefillDurationHours()
+    {
+        return GetState().BattleNetGuestPrefillDurationHours;
+    }
+
+    public void SetBattleNetGuestPrefillDurationHours(int hours)
+    {
+        // Validate hours (1 or 2)
+        if (hours != 1 && hours != 2)
+        {
+            hours = 2; // Default to 2 hours
+        }
+        UpdateState(state => state.BattleNetGuestPrefillDurationHours = hours);
     }
 
     public int? GetEpicDefaultGuestMaxThreadCount()

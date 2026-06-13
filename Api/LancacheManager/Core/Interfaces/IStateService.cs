@@ -152,4 +152,10 @@ public interface IStateService
     void SetEpicDefaultGuestMaxThreadCount(int? value);
     string GetEpicDefaultPrefillMaxConcurrency();
     void SetEpicDefaultPrefillMaxConcurrency(string value);
+
+    // Battle.net Guest Prefill Permission Methods
+    bool GetBattleNetGuestPrefillEnabledByDefault();
+    void SetBattleNetGuestPrefillEnabledByDefault(bool enabled);
+    int GetBattleNetGuestPrefillDurationHours();
+    void SetBattleNetGuestPrefillDurationHours(int hours);
 }

@@ -450,6 +450,11 @@ public class SessionService
         return _stateService.GetEpicGuestPrefillEnabledByDefault();
     }
 
+    public bool IsBattleNetPrefillEnabled()
+    {
+        return _stateService.GetBattleNetGuestPrefillEnabledByDefault();
+    }
+
     public void SetSteamGuestPrefillEnabled(bool enabled)
     {
         _stateService.SetGuestPrefillEnabledByDefault(enabled);

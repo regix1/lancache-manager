@@ -5,7 +5,7 @@ import { Card } from '@components/ui/Card';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import { API_BASE } from '@utils/constants';
+import ApiService from '@services/api.service';
 import type { EpicDaemonStatusDto } from '../../../../types';
 
 // Battle.net prefill is fully anonymous (no account login). This card only reports
@@ -25,13 +25,7 @@ const BattleNetDaemonStatus: React.FC<BattleNetDaemonStatusProps> = ({ onError }
 
   const loadStatus = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/battlenet-daemon/status`, {
-        credentials: 'include'
-      });
-      if (!response.ok) {
-        throw new Error(`Status ${response.status}`);
-      }
-      const data = (await response.json()) as EpicDaemonStatusDto;
+      const data = await ApiService.getBattleNetDaemonStatus();
       setStatus(data);
       setHasError(false);
     } catch {
