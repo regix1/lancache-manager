@@ -20,6 +20,7 @@ mod parser;
 mod progress_events;
 mod progress_utils;
 mod service_utils;
+mod tact_products;
 
 use cache_corruption_detector::CorruptionDetector;
 

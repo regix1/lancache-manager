@@ -19,6 +19,7 @@ mod parser;
 mod progress_events;
 mod progress_utils;
 mod service_utils;
+mod tact_products;
 
 use log_purge::remove_log_entries_for_game;
 
