@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '../../ui/Button';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
+import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { ArrowRight, Shield, AlertCircle } from 'lucide-react';
 import type { GameServiceId } from '@/types/gameService';
 import './PrefillHomePage.css';
@@ -14,6 +15,7 @@ interface PrefillHomePageProps {
   isAdmin: boolean;
   steamPrefillEnabled: boolean;
   epicPrefillEnabled: boolean;
+  battlenetPrefillEnabled: boolean;
 }
 
 export function PrefillHomePage({
@@ -22,12 +24,18 @@ export function PrefillHomePage({
   errorService,
   isAdmin,
   steamPrefillEnabled,
-  epicPrefillEnabled
+  epicPrefillEnabled,
+  battlenetPrefillEnabled
 }: PrefillHomePageProps) {
   const { t } = useTranslation();
 
   const showSteam = isAdmin || steamPrefillEnabled;
   const showEpic = isAdmin || epicPrefillEnabled;
+  const showBattlenet = isAdmin || battlenetPrefillEnabled;
+
+  // Number of services a guest has access to (admins always see all cards).
+  const enabledServiceCount =
+    Number(steamPrefillEnabled) + Number(epicPrefillEnabled) + Number(battlenetPrefillEnabled);
 
   // If the user is a guest with access to exactly one service, skip the home page
   // and go directly to that service's panel.
@@ -36,17 +44,28 @@ export function PrefillHomePage({
   useEffect(() => {
     if (isAdmin) return;
     if (error) return;
-    if (steamPrefillEnabled && !epicPrefillEnabled) {
+    if (enabledServiceCount !== 1) return;
+    if (steamPrefillEnabled) {
       onServiceStart('steam');
-    } else if (epicPrefillEnabled && !steamPrefillEnabled) {
+    } else if (epicPrefillEnabled) {
       onServiceStart('epic');
+    } else if (battlenetPrefillEnabled) {
+      onServiceStart('battlenet');
     }
-  }, [isAdmin, steamPrefillEnabled, epicPrefillEnabled, onServiceStart, error]);
+  }, [
+    isAdmin,
+    steamPrefillEnabled,
+    epicPrefillEnabled,
+    battlenetPrefillEnabled,
+    enabledServiceCount,
+    onServiceStart,
+    error
+  ]);
 
   // If a guest only has one service, the effect above fires immediately, so
   // we render nothing to avoid a flash of the home page.
   // Show the home page if there's an error so the user can see it.
-  if (!isAdmin && steamPrefillEnabled !== epicPrefillEnabled && !error) {
+  if (!isAdmin && enabledServiceCount === 1 && !error) {
     return null;
   }
 
@@ -158,6 +177,62 @@ export function PrefillHomePage({
                 {t('prefill.home.requiresEpicLogin', 'Browser-based authorization code login')}
               </span>
               <Button variant="filled" size="md" onClick={() => onServiceStart('epic')}>
+                <ArrowRight size={16} />
+                {t('prefill.home.startSession', 'Start Session')}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Battle.net Card */}
+        {showBattlenet && (
+          <div className="prefill-service-card prefill-service-card--battlenet">
+            <div className="prefill-service-card-top">
+              <div className="prefill-service-icon">
+                <BlizzardIcon size={28} className="text-white" />
+              </div>
+              <div className="prefill-service-meta">
+                <h2 className="prefill-service-name">Battle.net</h2>
+                <div className="prefill-service-status">
+                  <span className="prefill-service-status-dot prefill-service-status-dot--ready" />
+                  <span>{t('prefill.home.ready', 'Ready')}</span>
+                </div>
+              </div>
+            </div>
+
+            <p className="prefill-service-description">
+              {t(
+                'prefill.home.battlenetDescription',
+                'Prefill public Blizzard CDN content for Battle.net titles such as World of Warcraft, Diablo, and Overwatch.'
+              )}
+            </p>
+
+            <ul className="prefill-service-features">
+              <li>
+                {t(
+                  'prefill.home.battlenetFeature1',
+                  'Prefill all products or select specific titles'
+                )}
+              </li>
+              <li>{t('prefill.home.battlenetFeature2', 'No account or login required')}</li>
+              <li>
+                {t('prefill.home.battlenetFeature3', 'Force re-download and cache management')}
+              </li>
+            </ul>
+
+            {error && errorService === 'battlenet' && (
+              <div className="prefill-service-error">
+                <AlertCircle size={16} />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <div className="prefill-service-action">
+              <span className="prefill-service-note">
+                <Shield size={14} />
+                {t('prefill.home.battlenetNoLogin', 'No account login required')}
+              </span>
+              <Button variant="filled" size="md" onClick={() => onServiceStart('battlenet')}>
                 <ArrowRight size={16} />
                 {t('prefill.home.startSession', 'Start Session')}
               </Button>

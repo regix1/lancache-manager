@@ -17,6 +17,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [steamPrefillExpiresAt, setSteamPrefillExpiresAt] = useState<string | null>(null);
   const [epicPrefillEnabled, setEpicPrefillEnabled] = useState(false);
   const [epicPrefillExpiresAt, setEpicPrefillExpiresAt] = useState<string | null>(null);
+  const [battlenetPrefillEnabled, setBattlenetPrefillEnabled] = useState(false);
+  const [battlenetPrefillExpiresAt, setBattlenetPrefillExpiresAt] = useState<string | null>(null);
   const signalR = useSignalR();
 
   // Derive isAdmin and hasSession from authMode
@@ -50,6 +52,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setSteamPrefillExpiresAt(data.steamPrefillExpiresAt ?? data.prefillExpiresAt);
       setEpicPrefillEnabled(data.epicPrefillEnabled);
       setEpicPrefillExpiresAt(data.epicPrefillExpiresAt ?? null);
+      setBattlenetPrefillEnabled(data.battlenetPrefillEnabled);
+      setBattlenetPrefillExpiresAt(data.battlenetPrefillExpiresAt ?? null);
 
       if (data.isAuthenticated && data.sessionType === 'admin') {
         setAuthMode('authenticated');
@@ -68,6 +72,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setSteamPrefillExpiresAt(null);
       setEpicPrefillEnabled(false);
       setEpicPrefillExpiresAt(null);
+      setBattlenetPrefillEnabled(false);
+      setBattlenetPrefillExpiresAt(null);
     } finally {
       setIsLoading(false);
       notifyAuthSessionUpdated();
@@ -107,6 +113,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setSteamPrefillExpiresAt(null);
     setEpicPrefillEnabled(false);
     setEpicPrefillExpiresAt(null);
+    setBattlenetPrefillEnabled(false);
+    setBattlenetPrefillExpiresAt(null);
     notifyAuthSessionUpdated();
   }, [notifyAuthSessionUpdated]);
 
@@ -146,6 +154,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setSteamPrefillExpiresAt(null);
       setEpicPrefillEnabled(false);
       setEpicPrefillExpiresAt(null);
+      setBattlenetPrefillEnabled(false);
+      setBattlenetPrefillExpiresAt(null);
     };
 
     const handleSessionRevoked = (data: { sessionId: string; sessionType: string }) => {
@@ -178,6 +188,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (data.service === 'epic') {
           setEpicPrefillEnabled(isEnabled);
           setEpicPrefillExpiresAt(expiresAt);
+        } else if (data.service === 'battlenet') {
+          setBattlenetPrefillEnabled(isEnabled);
+          setBattlenetPrefillExpiresAt(expiresAt);
         } else {
           // 'steam' or legacy (no service field) - default to steam
           setSteamPrefillEnabled(isEnabled);
@@ -212,8 +225,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signalR.isConnected, signalR.invoke, hasSession]);
 
-  // Derive combined prefillEnabled as OR of both services (for backward compat - nav tab visibility)
-  const prefillEnabled = steamPrefillEnabled || epicPrefillEnabled;
+  // Derive combined prefillEnabled as OR of all services (for backward compat - nav tab visibility)
+  const prefillEnabled = steamPrefillEnabled || epicPrefillEnabled || battlenetPrefillEnabled;
 
   // Calculate time remaining - use the earliest expiring active service
   const calcTimeRemaining = (expiresAt: string | null): number | null => {
@@ -225,10 +238,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const steamTimeRemaining = steamPrefillEnabled ? calcTimeRemaining(steamPrefillExpiresAt) : null;
   const epicTimeRemaining = epicPrefillEnabled ? calcTimeRemaining(epicPrefillExpiresAt) : null;
+  const battlenetTimeRemaining = battlenetPrefillEnabled
+    ? calcTimeRemaining(battlenetPrefillExpiresAt)
+    : null;
 
   // prefillTimeRemaining: minimum non-null remaining time across active services
   const prefillTimeRemaining = (() => {
-    const values = [steamTimeRemaining, epicTimeRemaining].filter((v): v is number => v !== null);
+    const values = [steamTimeRemaining, epicTimeRemaining, battlenetTimeRemaining].filter(
+      (v): v is number => v !== null
+    );
     return values.length > 0 ? Math.min(...values) : null;
   })();
 
@@ -251,6 +269,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         prefillTimeRemaining,
         steamPrefillEnabled,
         epicPrefillEnabled,
+        battlenetPrefillEnabled,
         isBanned: false
       }}
     >

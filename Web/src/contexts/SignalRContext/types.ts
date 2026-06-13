@@ -153,6 +153,18 @@ export const SIGNALR_EVENTS = [
   'EpicPrefillHistoryUpdated',
   'EpicSessionEnded',
 
+  // Battle.net Prefill Daemon Events
+  'BattleNetDaemonSessionCreated',
+  'BattleNetDaemonSessionUpdated',
+  'BattleNetDaemonSessionTerminated',
+  'BattleNetAuthStateChanged',
+  'BattleNetCredentialChallenge',
+  'BattleNetStatusChanged',
+  'BattleNetPrefillStateChanged',
+  'BattleNetPrefillProgress',
+  'BattleNetPrefillHistoryUpdated',
+  'BattleNetSessionEnded',
+
   // Epic Guest Prefill Config
   'EpicGuestPrefillConfigChanged',
 

@@ -294,7 +294,8 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
         if (activeSession.authState === 'Authenticated') {
           addLog('info', t('prefill.log.alreadyLoggedIn'));
-        } else {
+        } else if (serviceId !== 'battlenet') {
+          // Battle.net is anonymous - no login prompt needed
           addLog(
             'info',
             serviceId === 'epic'
@@ -437,15 +438,18 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
             t('prefill.log.sessionCreated'),
             t('prefill.log.containerDetail', { name: sessionDto.containerName })
           );
-          addLog(
-            'info',
-            serviceId === 'epic'
-              ? t(
-                  'prefill.log.loginToEpicBeforePrefill',
-                  'Please log in to Epic Games before starting prefill'
-                )
-              : t('prefill.log.loginToSteamBeforePrefill')
-          );
+          if (serviceId !== 'battlenet') {
+            // Battle.net is anonymous - no login required before prefill
+            addLog(
+              'info',
+              serviceId === 'epic'
+                ? t(
+                    'prefill.log.loginToEpicBeforePrefill',
+                    'Please log in to Epic Games before starting prefill'
+                  )
+                : t('prefill.log.loginToSteamBeforePrefill')
+            );
+          }
         }
         addLog(
           'info',

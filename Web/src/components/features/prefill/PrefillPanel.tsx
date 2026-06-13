@@ -14,6 +14,7 @@ import { useAuth } from '@contexts/useAuth';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
+import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { API_BASE } from '@utils/constants';
 
 import { ScrollText, X, Timer, LogIn, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -36,7 +37,12 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const { selectedService, setSelectedService } = useGameService();
   const [pendingService, setPendingService] = useState<GameServiceId | null>(null);
 
-  const hubPath = selectedService === 'epic' ? '/epic-prefill-daemon' : '/steam-daemon';
+  const hubPath =
+    selectedService === 'epic'
+      ? '/epic-prefill-daemon'
+      : selectedService === 'battlenet'
+        ? '/battlenet-prefill-daemon'
+        : '/steam-daemon';
 
   const handleServiceStart = useCallback(
     (serviceId: GameServiceId) => {
@@ -82,7 +88,12 @@ function ServicePrefillPanel({
   onServiceStart
 }: ServicePrefillPanelProps) {
   const { t } = useTranslation();
-  const serviceBasePath = serviceId === 'epic' ? 'epic-daemon' : 'steam-daemon';
+  const serviceBasePath =
+    serviceId === 'epic'
+      ? 'epic-daemon'
+      : serviceId === 'battlenet'
+        ? 'battlenet-daemon'
+        : 'steam-daemon';
   const hasExpiredRef = useRef(false);
   const gamesCacheRef = useRef<{
     sessionId: string | null;
@@ -105,7 +116,7 @@ function ServicePrefillPanel({
     clearAllPrefillStorage
   } = usePrefillContext();
 
-  const { isAdmin, steamPrefillEnabled, epicPrefillEnabled } = useAuth();
+  const { isAdmin, steamPrefillEnabled, epicPrefillEnabled, battlenetPrefillEnabled } = useAuth();
 
   // Main SignalR hub for system-level events (PrefillDefaultsChanged)
   const { on: onSignalR, off: offSignalR } = useSignalR();
@@ -861,7 +872,8 @@ function ServicePrefillPanel({
   if (!signalR.session && !isLoadingSession && !pendingService) {
     return (
       <>
-        {serviceId === 'epic' ? (
+        {/* Battle.net is anonymous - no auth modal */}
+        {serviceId === 'battlenet' ? null : serviceId === 'epic' ? (
           <EpicAuthModal
             opened={showAuthModal}
             onClose={() => setShowAuthModal(false)}
@@ -886,6 +898,7 @@ function ServicePrefillPanel({
           isAdmin={isAdmin}
           steamPrefillEnabled={steamPrefillEnabled}
           epicPrefillEnabled={epicPrefillEnabled}
+          battlenetPrefillEnabled={battlenetPrefillEnabled}
         />
       </>
     );
@@ -900,8 +913,8 @@ function ServicePrefillPanel({
   // Active session - full interface
   return (
     <div className="space-y-4 animate-fade-in">
-      {/* Auth Modal */}
-      {serviceId === 'epic' ? (
+      {/* Auth Modal - Battle.net is anonymous, so no modal */}
+      {serviceId === 'battlenet' ? null : serviceId === 'epic' ? (
         <EpicAuthModal
           opened={showAuthModal}
           onClose={() => setShowAuthModal(false)}
@@ -970,11 +983,17 @@ function ServicePrefillPanel({
         <div className="flex items-center gap-4">
           <div
             className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
-              serviceId === 'epic' ? 'bg-[var(--theme-epic)]' : 'bg-[var(--theme-steam)]'
+              serviceId === 'epic'
+                ? 'bg-[var(--theme-epic)]'
+                : serviceId === 'battlenet'
+                  ? 'bg-[var(--theme-blizzard)]'
+                  : 'bg-[var(--theme-steam)]'
             }`}
           >
             {serviceId === 'epic' ? (
               <EpicIcon size={24} className="text-white" />
+            ) : serviceId === 'battlenet' ? (
+              <BlizzardIcon size={24} className="text-white" />
             ) : (
               <SteamIcon size={24} className="text-white" />
             )}
@@ -1040,55 +1059,57 @@ function ServicePrefillPanel({
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         {/* Left Column - Controls */}
         <div className="xl:col-span-2 space-y-4">
-          {/* Authentication Card */}
-          <Card padding="md">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                    signalR.isLoggedIn
-                      ? 'bg-[var(--theme-success-subtle)]'
-                      : 'bg-[var(--theme-warning-subtle)]'
-                  }`}
-                >
-                  {signalR.isLoggedIn ? (
-                    <CheckCircle2 className="h-5 w-5 text-[var(--theme-success)]" />
-                  ) : (
-                    <LogIn className="h-5 w-5 text-[var(--theme-warning)]" />
-                  )}
+          {/* Authentication Card - Battle.net is anonymous (no login), so this is hidden */}
+          {serviceId !== 'battlenet' && (
+            <Card padding="md">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                      signalR.isLoggedIn
+                        ? 'bg-[var(--theme-success-subtle)]'
+                        : 'bg-[var(--theme-warning-subtle)]'
+                    }`}
+                  >
+                    {signalR.isLoggedIn ? (
+                      <CheckCircle2 className="h-5 w-5 text-[var(--theme-success)]" />
+                    ) : (
+                      <LogIn className="h-5 w-5 text-[var(--theme-warning)]" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-medium text-themed-primary">
+                      {signalR.isLoggedIn
+                        ? t('prefill.auth.loggedIn')
+                        : t('prefill.auth.loginRequired')}
+                    </p>
+                    <p className="text-sm text-themed-muted">
+                      {signalR.isLoggedIn
+                        ? t('prefill.auth.canUsePrefill')
+                        : t('prefill.auth.authenticateToAccess')}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-medium text-themed-primary">
-                    {signalR.isLoggedIn
-                      ? t('prefill.auth.loggedIn')
-                      : t('prefill.auth.loginRequired')}
-                  </p>
-                  <p className="text-sm text-themed-muted">
-                    {signalR.isLoggedIn
-                      ? t('prefill.auth.canUsePrefill')
-                      : t('prefill.auth.authenticateToAccess')}
-                  </p>
-                </div>
-              </div>
 
-              {!signalR.isLoggedIn && !isSessionExpired && (
-                <Button
-                  variant="filled"
-                  onClick={handleOpenAuthModal}
-                  className="flex-shrink-0 w-full sm:w-auto"
-                >
-                  {serviceId === 'epic' ? (
-                    <EpicIcon size={18} className="text-[var(--theme-button-text)]" />
-                  ) : (
-                    <SteamIcon size={18} />
-                  )}
-                  {serviceId === 'epic'
-                    ? t('prefill.auth.loginToEpic', 'Login to Epic')
-                    : t('prefill.auth.loginToSteam')}
-                </Button>
-              )}
-            </div>
-          </Card>
+                {!signalR.isLoggedIn && !isSessionExpired && (
+                  <Button
+                    variant="filled"
+                    onClick={handleOpenAuthModal}
+                    className="flex-shrink-0 w-full sm:w-auto"
+                  >
+                    {serviceId === 'epic' ? (
+                      <EpicIcon size={18} className="text-[var(--theme-button-text)]" />
+                    ) : (
+                      <SteamIcon size={18} />
+                    )}
+                    {serviceId === 'epic'
+                      ? t('prefill.auth.loginToEpic', 'Login to Epic')
+                      : t('prefill.auth.loginToSteam')}
+                  </Button>
+                )}
+              </div>
+            </Card>
+          )}
 
           {/* Network Status Card */}
           <NetworkStatusSection diagnostics={signalR.session?.networkDiagnostics} />
