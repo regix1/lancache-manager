@@ -35,6 +35,8 @@ RUN mkdir src && \
 
 # Now copy real source and build (only this layer rebuilds on code changes)
 COPY rust-processor/src ./src
+# tact_products.json is embedded at compile time via include_str!("../tact_products.json") in tact_products.rs
+COPY rust-processor/tact_products.json ./tact_products.json
 
 # Build for native platform
 # Binary naming: log_* (log ops), cache_* (cache ops), db_* (database ops)
@@ -82,6 +84,9 @@ RUN dotnet restore LancacheManager.csproj
 
 # Now copy source code (only this rebuilds on code changes)
 COPY Api/LancacheManager/ ./
+# csproj embeds <EmbeddedResource Include="..\..\rust-processor\tact_products.json">; the csproj sits at /src here,
+# so that relative path resolves to /rust-processor/tact_products.json — provide it there.
+COPY rust-processor/tact_products.json /rust-processor/tact_products.json
 
 # Determine runtime identifier based on target platform
 RUN case "$TARGETPLATFORM" in \
