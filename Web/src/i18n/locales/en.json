@@ -3139,12 +3139,12 @@
         "gamesPrefilled": "{{count}} game prefilled",
         "gamesPrefilled_plural": "{{count}} games prefilled",
         "totalDataDownloaded": "Total data downloaded",
-        "banUser": "Ban this Steam user",
+        "banUser": "Ban this user",
         "terminateSession": "Terminate session",
         "liftBan": "Lift this ban"
       },
       "bannedUsers": {
-        "title": "Banned Steam Users",
+        "title": "Banned Users",
         "showLifted": "Show lifted bans",
         "loadingBans": "Loading bans...",
         "noBannedUsers": "No banned users",
@@ -3166,11 +3166,11 @@
           "confirm": "Terminate All"
         },
         "ban": {
-          "title": "Ban Steam User",
-          "message": "This will ban the Steam user associated with this session. They will not be able to log in to prefill in the future.",
+          "title": "Ban User",
+          "message": "This will ban the user associated with this session. They will not be able to prefill in the future. For sessions with a game account (Steam/Epic) the ban applies to that username; for anonymous sessions (Battle.net) it applies to this device's session.",
           "reasonLabel": "Reason (optional)",
           "reasonPlaceholder": "Enter ban reason...",
-          "warning": "The ban is based on the Steam username. The same user cannot create a new session.",
+          "warning": "The same user cannot create a new prefill session while banned.",
           "cancel": "Cancel",
           "confirm": "Ban User"
         },

@@ -214,13 +214,6 @@ const SessionCard: React.FC<{
   const isDaemonSession = 'id' in session && !('sessionId' in session);
   const status = session.status;
   const isPrefilling = isDaemonSession ? (session as DaemonSessionDto).isPrefilling : false;
-  const steamUsername = isDaemonSession
-    ? (session as DaemonSessionDto).steamUsername
-    : (session as PrefillSessionDto).steamUsername;
-
-  const username = isDaemonSession
-    ? (session as DaemonSessionDto).username
-    : (session as PrefillSessionDto).username;
 
   const platform = isDaemonSession
     ? (session as DaemonSessionDto).platform || 'Steam'
@@ -422,7 +415,7 @@ const SessionCard: React.FC<{
 
               {isAdmin && isLive && (
                 <>
-                  {(steamUsername || username) && onBan && (
+                  {onBan && (
                     <Tooltip content={t('management.prefillSessions.tooltips.banUser')}>
                       <Button
                         variant="filled"
@@ -843,6 +836,15 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       }
     };
 
+    const handleBattleNetPrefillHistoryUpdated = async (event: PrefillHistoryUpdatedEvent) => {
+      try {
+        const history = await ApiService.getPrefillSessionHistory(event.sessionId);
+        setHistoryData((prev) => ({ ...prev, [event.sessionId]: history }));
+      } catch {
+        // Ignore errors in SignalR handler
+      }
+    };
+
     on('DaemonSessionCreated', handleSessionCreated);
     on('DaemonSessionUpdated', handleSessionUpdated);
     on('DaemonSessionTerminated', handleSessionTerminated);
@@ -851,6 +853,10 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     on('EpicDaemonSessionUpdated', handleSessionUpdated);
     on('EpicDaemonSessionTerminated', handleSessionTerminated);
     on('EpicPrefillHistoryUpdated', handleEpicPrefillHistoryUpdated);
+    on('BattleNetDaemonSessionCreated', handleSessionCreated);
+    on('BattleNetDaemonSessionUpdated', handleSessionUpdated);
+    on('BattleNetDaemonSessionTerminated', handleSessionTerminated);
+    on('BattleNetPrefillHistoryUpdated', handleBattleNetPrefillHistoryUpdated);
 
     return () => {
       off('DaemonSessionCreated', handleSessionCreated);
@@ -861,6 +867,10 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       off('EpicDaemonSessionUpdated', handleSessionUpdated);
       off('EpicDaemonSessionTerminated', handleSessionTerminated);
       off('EpicPrefillHistoryUpdated', handleEpicPrefillHistoryUpdated);
+      off('BattleNetDaemonSessionCreated', handleSessionCreated);
+      off('BattleNetDaemonSessionUpdated', handleSessionUpdated);
+      off('BattleNetDaemonSessionTerminated', handleSessionTerminated);
+      off('BattleNetPrefillHistoryUpdated', handleBattleNetPrefillHistoryUpdated);
     };
   }, [on, off]);
 
@@ -1036,7 +1046,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 onToggleHistory={() => toggleHistory(session.id)}
                 onTerminate={() => handleTerminateSession(session.id)}
                 onBan={
-                  session.steamUsername || session.username
+                  session.id
                     ? () => setBanConfirm({ sessionId: session.id, reason: '' })
                     : undefined
                 }
@@ -1137,7 +1147,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                     session.isLive ? () => handleTerminateSession(session.sessionId) : undefined
                   }
                   onBan={
-                    session.isLive && (session.steamUsername || session.username)
+                    session.isLive && session.sessionId
                       ? () => setBanConfirm({ sessionId: session.sessionId, reason: '' })
                       : undefined
                   }

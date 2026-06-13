@@ -3139,12 +3139,12 @@
         "gamesPrefilled": "已预填充 {{count}} 个游戏",
         "gamesPrefilled_plural": "已预填充 {{count}} 个游戏",
         "totalDataDownloaded": "总下载数据量",
-        "banUser": "封禁此 Steam 用户",
+        "banUser": "封禁此用户",
         "terminateSession": "终止会话",
         "liftBan": "解除此封禁"
       },
       "bannedUsers": {
-        "title": "被封禁的 Steam 用户",
+        "title": "被封禁的用户",
         "showLifted": "显示已解除的封禁",
         "loadingBans": "正在加载封禁...",
         "noBannedUsers": "没有被封禁的用户",
@@ -3166,11 +3166,11 @@
           "confirm": "全部终止"
         },
         "ban": {
-          "title": "封禁 Steam 用户",
-          "message": "这将封禁与此会话关联的 Steam 用户。他们将无法再登录预填充。",
+          "title": "封禁用户",
+          "message": "这将封禁与此会话关联的用户。他们将无法再进行预填充。对于拥有游戏账户的会话（Steam/Epic），封禁将应用于该用户名；对于匿名会话（Battle.net），封禁将应用于此设备的会话。",
           "reasonLabel": "原因（可选）",
           "reasonPlaceholder": "输入封禁原因...",
-          "warning": "封禁基于 Steam 用户名。同一用户无法创建新会话。",
+          "warning": "被封禁期间，同一用户无法创建新的预填充会话。",
           "cancel": "取消",
           "confirm": "封禁用户"
         },
