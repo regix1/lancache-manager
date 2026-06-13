@@ -907,9 +907,12 @@ impl Processor {
                 // Blizzard segment that did NOT resolve to a known game (GameName NULL):
                 // match by the raw `/tpr/<seg>/` path so distinct unknown segments still
                 // map to distinct sessions instead of collapsing into one generic session.
+                // `product` is already lowercased (extract_tact_product), but LastUrl keeps
+                // its original case (e.g. /tpr/WoW/...), so match case-insensitively via
+                // LOWER(LastUrl) LIKE <lowercased-pattern> to avoid spawning a duplicate session.
                 let like_pattern = format!("%/tpr/{}/%", product);
                 sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"LastUrl\" LIKE $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND LOWER(\"LastUrl\") LIKE $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                 )
                 .bind(client_ip)
                 .bind(service)
