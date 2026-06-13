@@ -7,6 +7,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { GameImage } from '../../../common/GameImage';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
+import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
 
 export interface ExpandableItemStat {
   icon: React.ComponentType<{ className?: string }>;
@@ -60,6 +61,9 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const { cacheReadOnly } = useDirectoryPermissionsContext();
+  // Any running/queued removal in the game-cache domain disables every per-item
+  // Remove button - single removes and Remove All gate together.
+  const isCacheRemovalActive = useCacheRemovalActive();
   const [imageError, setImageError] = useState(false);
   const availableImages = useAvailableGameImages();
 
@@ -149,7 +153,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
             onClick={onRemove}
             awaitPermissions
             loading={isRemoving}
-            disabled={!isAdmin || cacheReadOnly || !dockerSocketAvailable}
+            disabled={!isAdmin || cacheReadOnly || !dockerSocketAvailable || isCacheRemovalActive}
             variant="filled"
             color="red"
             size="sm"

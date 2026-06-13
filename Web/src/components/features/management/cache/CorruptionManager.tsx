@@ -149,10 +149,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   );
   const removingCorruption =
     (activeCorruptionRemovalNotification?.details?.service as string | null) ?? null;
-  // Own-run gate: corruption removals (per-service and Remove All) share one
-  // notification slot, so any running corruption_removal disables the Remove All
-  // button. Other cards' removals must NOT disable it - clicking enqueues.
-  const isCorruptionRemovalRunning = activeCorruptionRemovalNotification !== undefined;
+  // Own-card gate: any running OR queued corruption removal disables every
+  // corruption remove button (per-service rows and Remove All gate together).
+  // Other cards' removals must NOT disable them - clicking enqueues.
+  const isCorruptionRemovalActive = useOperationBusy({
+    types: ['corruption_removal'],
+    status: ['running', 'waiting']
+  });
 
   // Load cached data from database
   const loadCachedData = useCallback(
@@ -551,14 +554,14 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           corruptionList.length === 0 ||
           mockMode ||
           anyCorruptionRemovalPending ||
-          isCorruptionRemovalRunning ||
+          isCorruptionRemovalActive ||
           authMode !== 'authenticated' ||
           logsReadOnly ||
           cacheReadOnly ||
           !isDockerAvailable
         }
         title={
-          isAnyRemovalRunning && !isCorruptionRemovalRunning
+          isAnyRemovalRunning && !isCorruptionRemovalActive
             ? t('common.notifications.willQueueBehindCurrent')
             : undefined
         }
@@ -762,6 +765,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                 disabled={
                                   mockMode ||
                                   anyCorruptionRemovalPending ||
+                                  isCorruptionRemovalActive ||
                                   authMode !== 'authenticated' ||
                                   logsReadOnly ||
                                   cacheReadOnly ||

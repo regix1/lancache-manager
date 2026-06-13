@@ -55,8 +55,11 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   const { addNotification } = useNotifications();
   const signalR = useSignalR();
 
-  // Check if processing is running
-  const isProcessing = useOperationBusy({ types: ['log_processing'] });
+  // Check if processing is running or queued behind another operation
+  const isProcessing = useOperationBusy({
+    types: ['log_processing'],
+    status: ['running', 'waiting']
+  });
 
   // Load log positions
   useEffect(() => {

@@ -21,6 +21,7 @@ import { useNotifications } from '@contexts/notifications';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
+import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
 import EvictedItemsList from '../game-detection/EvictedItemsList';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
@@ -93,7 +94,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     evictionMode !== savedEvictionMode ||
     evictionScanNotifications !== savedEvictionScanNotifications;
 
-  const { notifications, addNotification, updateNotification } = useNotifications();
+  const { notifications, addNotification, updateNotification, isAnyRemovalRunning } =
+    useNotifications();
 
   // Local state for evicted items - same pattern as GameCacheDetector's games/services.
   // Items only disappear when explicitly filtered by notification completion.
@@ -103,9 +105,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const [evictedGames, setEvictedGames] = useState<GameCacheInfo[]>([]);
   const [evictedServices, setEvictedServices] = useState<ServiceCacheInfo[]>([]);
 
-  const isAnyEvictedRemovalRunning = useOperationBusy({
-    types: ['game_removal', 'service_removal', 'eviction_removal']
-  });
+  const isAnyEvictedRemovalRunning = useCacheRemovalActive();
 
   // Managed setTimeout for post-SignalR eviction refetch; cancels on unmount.
   const scheduleEvictedItemsRefresh = useTimeoutCallback(CACHED_DETECTION_RELOAD_DELAY_MS);
@@ -332,8 +332,14 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     });
   };
 
-  const isEvictionScanNotificationRunning = useOperationBusy({ types: ['eviction_scan'] });
-  const isEvictionRemovalRunning = useOperationBusy({ types: ['eviction_removal'] });
+  const isEvictionScanNotificationRunning = useOperationBusy({
+    types: ['eviction_scan'],
+    status: ['running', 'waiting']
+  });
+  const isEvictionRemovalRunning = useOperationBusy({
+    types: ['eviction_removal'],
+    status: ['running', 'waiting']
+  });
   // Wait-queue model: an eviction REMOVAL no longer disables the scan button (the scan
   // queues behind it - purple card feedback). Same-op only: scan already running or the
   // kick-off request in flight.
@@ -692,15 +698,15 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                       size="sm"
                       onClick={() => setShowRemoveAllConfirm(true)}
                       awaitPermissions
-                      loading={removeAllRunning}
+                      loading={removeAllRunning || isEvictionRemovalRunning}
                       disabled={
                         evictedGames.length + evictedServices.length === 0 ||
                         removeAllRunning ||
-                        isEvictionRemovalRunning ||
+                        isAnyEvictedRemovalRunning ||
                         cacheReadOnly
                       }
                       title={
-                        isAnyEvictedRemovalRunning && !isEvictionRemovalRunning
+                        isAnyRemovalRunning && !isAnyEvictedRemovalRunning
                           ? t('common.notifications.willQueueBehindCurrent')
                           : undefined
                       }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useOptimisticPending } from '@/hooks/useOptimisticPending';
+import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useTranslation } from 'react-i18next';
 import { FileText, AlertTriangle, Trash2 } from 'lucide-react';
 import ApiService from '@services/api.service';
@@ -130,6 +131,12 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   );
   const activeLogRemoval =
     (activeLogRemovalNotification?.details?.service as string | null) ?? null;
+  // Own-card gate: any running OR queued log removal disables every remove button
+  // in this card (per-service rows and log-file deletion gate together).
+  const isLogRemovalActive = useOperationBusy({
+    types: ['log_removal'],
+    status: ['running', 'waiting']
+  });
 
   useEffect(() => {
     if (!hasInitiallyLoaded) {
@@ -420,6 +427,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                       isDisabled={
                                         mockMode ||
                                         anyServiceRemovalPending ||
+                                        isLogRemovalActive ||
                                         authMode !== 'authenticated' ||
                                         !ds.logsWritable ||
                                         !isDockerAvailable
@@ -484,6 +492,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                   disabled={
                                     mockMode ||
                                     isAnyRemovalRunning ||
+                                    isLogRemovalActive ||
                                     anyServiceRemovalPending ||
                                     !!deletingLogFile ||
                                     authMode !== 'authenticated' ||

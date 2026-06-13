@@ -14,6 +14,7 @@ import { buildSeededRunningNotification } from '@contexts/notifications/seedOper
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useBulkRemoval, type BulkQueueEntry } from '@contexts/BulkRemovalContext';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
+import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 import { useConfig } from '@contexts/useConfig';
 import { useDockerSocket } from '@contexts/useDockerSocket';
@@ -68,11 +69,21 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
   // Derive game detection state from notifications (standardized pattern)
   const isDetectionFromNotification = useOperationBusy({ types: ['game_detection'] });
+  // A QUEUED detection scan also disables the scan buttons (re-click would only
+  // queue a duplicate), without flipping the blocking body loader that the
+  // running flag drives.
+  const isDetectionQueued = useOperationBusy({ types: ['game_detection'], status: 'waiting' });
 
-  // Own-run gate for the Remove All button: the bulk_removal card survives remounts,
-  // unlike the local removeAllRunning flag. Other cards' removals must NOT disable
-  // this button - clicking during them enqueues (wait-queue model).
-  const isBulkRemovalRunning = useOperationBusy({ types: ['bulk_removal'] });
+  // Spinner gate for the Remove All button: the bulk_removal card survives remounts,
+  // unlike the local removeAllRunning flag.
+  const isBulkRemovalRunning = useOperationBusy({
+    types: ['bulk_removal'],
+    status: ['running', 'waiting']
+  });
+  // Any running/queued removal in the game-cache domain (single, evicted, or bulk)
+  // disables Remove All - single removes and Remove All gate together. Removals
+  // from unrelated cards (corruption/logs/cache) still enqueue.
+  const isCacheRemovalActive = useCacheRemovalActive();
 
   // Track local starting state for immediate UI feedback before SignalR events arrive
   const [isStartingDetection, setIsStartingDetection] = useState(false);
@@ -629,7 +640,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       >
         <Button
           onClick={handleIncrementalScan}
-          disabled={loading || mockMode || !hasProcessedLogs}
+          disabled={loading || isDetectionQueued || mockMode || !hasProcessedLogs}
           variant="filled"
           color="green"
           size="sm"
@@ -652,7 +663,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       >
         <Button
           onClick={handleFullScan}
-          disabled={loading || mockMode || !hasProcessedLogs}
+          disabled={loading || isDetectionQueued || mockMode || !hasProcessedLogs}
           variant="filled"
           color="blue"
           size="sm"
@@ -672,7 +683,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             onClick={() => setShowRemoveAllConfirm(true)}
             awaitPermissions
             loading={removeAllRunning || isBulkRemovalRunning}
-            disabled={actionsPending || loading || mockMode || cacheReadOnly}
+            disabled={
+              actionsPending || loading || mockMode || cacheReadOnly || isCacheRemovalActive
+            }
             variant="filled"
             color="red"
             size="sm"

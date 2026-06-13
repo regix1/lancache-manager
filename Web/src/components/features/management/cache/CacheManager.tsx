@@ -82,12 +82,21 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
   // Derive cache clearing state from notifications (standardized pattern)
   const isCacheClearing = useOperationBusy({ types: ['cache_clearing'] });
+  // Own-card gate: any running OR queued cache clear (all or per-datasource)
+  // disables every Clear button in this card; other cards' removals still enqueue.
+  const isCacheClearActive = useOperationBusy({
+    types: ['cache_clearing'],
+    status: ['running', 'waiting']
+  });
 
   // Wait-queue model: a running cache file scan no longer disables the Clear buttons
   // (clicking enqueues; the purple waiting card is the feedback). This flag now only
   // (a) gates the Refresh button - refresh triggers the SAME scan, a meaningless
   // re-click - and (b) drives the "will start after..." tooltip on the Clear buttons.
-  const isCacheSizeScanRunning = useOperationBusy({ types: ['cache_size_scan'] });
+  const isCacheSizeScanRunning = useOperationBusy({
+    types: ['cache_size_scan'],
+    status: ['running', 'waiting']
+  });
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -309,11 +318,17 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           onClick={() => handleClearCache(null)}
           awaitPermissions
           loading={(actionLoading && !clearingDatasource) || isClearAllRunning}
-          disabled={actionLoading || mockMode || authMode !== 'authenticated' || cacheReadOnly}
+          disabled={
+            actionLoading ||
+            isCacheClearActive ||
+            mockMode ||
+            authMode !== 'authenticated' ||
+            cacheReadOnly
+          }
           title={
             cacheReadOnly
               ? t('management.cache.alerts.readOnly.title')
-              : !isClearAllRunning && (isAnyRemovalRunning || isCacheSizeScanRunning)
+              : !isCacheClearActive && (isAnyRemovalRunning || isCacheSizeScanRunning)
                 ? t('common.notifications.willQueueBehindCurrent')
                 : undefined
           }
@@ -545,6 +560,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                           loading={isCacheClearing && clearingDatasource === ds.name}
                           disabled={
                             actionLoading ||
+                            isCacheClearActive ||
                             mockMode ||
                             authMode !== 'authenticated' ||
                             cacheReadOnly ||
@@ -553,7 +569,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                           title={
                             !ds.cacheWritable
                               ? t('management.cache.alerts.readOnly.title')
-                              : isAnyRemovalRunning || isCacheSizeScanRunning
+                              : !isCacheClearActive &&
+                                  (isAnyRemovalRunning || isCacheSizeScanRunning)
                                 ? t('common.notifications.willQueueBehindCurrent')
                                 : t('management.cache.clearDatasourceCache', {
                                     datasource: ds.name
