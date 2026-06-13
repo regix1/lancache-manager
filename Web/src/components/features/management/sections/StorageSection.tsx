@@ -696,10 +696,11 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                       disabled={
                         evictedGames.length + evictedServices.length === 0 ||
                         removeAllRunning ||
+                        isEvictionRemovalRunning ||
                         cacheReadOnly
                       }
                       title={
-                        isAnyEvictedRemovalRunning
+                        isAnyEvictedRemovalRunning && !isEvictionRemovalRunning
                           ? t('common.notifications.willQueueBehindCurrent')
                           : undefined
                       }

@@ -96,6 +96,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   );
   const [deleteModeLoading, setDeleteModeLoading] = useState(false);
   const [clearingDatasource, setClearingDatasource] = useState<string | null>(null); // null = all, string = specific
+  // Own-run gate: a running clear-all disables the Clear All button (a re-click is a
+  // no-op); a per-datasource clear leaves it clickable so the click can enqueue.
+  const isClearAllRunning = isCacheClearing && !clearingDatasource;
   const [expandedDatasources, setExpandedDatasources] = useState<Set<string>>(new Set());
   const [sectionExpanded, setSectionExpanded] = useState(() => {
     const saved = localStorage.getItem('management-disk-cache-expanded');
@@ -305,17 +308,17 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           className="w-full sm:w-auto"
           onClick={() => handleClearCache(null)}
           awaitPermissions
-          loading={actionLoading && !clearingDatasource}
+          loading={(actionLoading && !clearingDatasource) || isClearAllRunning}
           disabled={actionLoading || mockMode || authMode !== 'authenticated' || cacheReadOnly}
           title={
             cacheReadOnly
               ? t('management.cache.alerts.readOnly.title')
-              : isAnyRemovalRunning || isCacheSizeScanRunning
+              : !isClearAllRunning && (isAnyRemovalRunning || isCacheSizeScanRunning)
                 ? t('common.notifications.willQueueBehindCurrent')
                 : undefined
           }
         >
-          {isCacheClearing && !clearingDatasource ? t('common.clearing') : t('common.clearAll')}
+          {isClearAllRunning ? t('common.clearing') : t('common.clearAll')}
         </Button>
       )}
     </div>

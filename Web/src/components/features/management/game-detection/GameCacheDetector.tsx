@@ -57,8 +57,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   refreshKey = 0
 }) => {
   const { t } = useTranslation();
-  const { addNotification, updateNotification, notifications, isAnyRemovalRunning } =
-    useNotifications();
+  const { addNotification, updateNotification, notifications } = useNotifications();
   const { on, off } = useSignalR();
   const { config } = useConfig();
   const { isDockerAvailable } = useDockerSocket();
@@ -69,6 +68,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
   // Derive game detection state from notifications (standardized pattern)
   const isDetectionFromNotification = useOperationBusy({ types: ['game_detection'] });
+
+  // Own-run gate for the Remove All button: the bulk_removal card survives remounts,
+  // unlike the local removeAllRunning flag. Other cards' removals must NOT disable
+  // this button - clicking during them enqueues (wait-queue model).
+  const isBulkRemovalRunning = useOperationBusy({ types: ['bulk_removal'] });
 
   // Track local starting state for immediate UI feedback before SignalR events arrive
   const [isStartingDetection, setIsStartingDetection] = useState(false);
@@ -667,8 +671,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           <Button
             onClick={() => setShowRemoveAllConfirm(true)}
             awaitPermissions
-            loading={removeAllRunning}
-            disabled={actionsPending || loading || mockMode || cacheReadOnly || isAnyRemovalRunning}
+            loading={removeAllRunning || isBulkRemovalRunning}
+            disabled={actionsPending || loading || mockMode || cacheReadOnly}
             variant="filled"
             color="red"
             size="sm"

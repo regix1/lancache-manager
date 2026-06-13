@@ -190,9 +190,11 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
   const formattedTime = useFormattedDateTime(display.startTime);
 
   const handleClick = useCallback(() => {
-    storage.setItem('lancache_downloads_search', display.name);
+    // Service buckets use a synthesized display name ("Wsus Downloads") that the
+    // downloads search can't match — search by the raw service instead.
+    storage.setItem('lancache_downloads_search', isServiceBucket ? display.service : display.name);
     window.dispatchEvent(new CustomEvent('navigate-to-tab', { detail: { tab: 'downloads' } }));
-  }, [display.name]);
+  }, [isServiceBucket, display.service, display.name]);
 
   return (
     <div
@@ -703,6 +705,12 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           opacity: 0.9;
         }
 
+        /* CustomScrollbar clips content at its rounded-xl corners, which shaves the
+           rounded border of the first/last item; square the clip for this list. */
+        .downloads-panel-redesign .downloads-scroll-area {
+          border-radius: 0;
+        }
+
         .downloads-list {
           display: flex;
           flex-direction: column;
@@ -1168,7 +1176,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       </div>
 
       {/* Downloads List */}
-      <CustomScrollbar maxHeight="380px" paddingMode="default">
+      <CustomScrollbar maxHeight="380px" paddingMode="default" className="downloads-scroll-area">
         <div className="downloads-list">
           {viewMode === 'active' ? (
             speedLoading ? (
