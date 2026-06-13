@@ -1478,6 +1478,7 @@
         "depotMapping": "Depot Mapping",
         "steamDepotMapping": "Steam Depot Mapping",
         "epicGameMapping": "Epic Games Mapping",
+        "blizzardGameMapping": "Blizzard / Battle.net Mapping",
         "epicResolve": {
           "applyNow": "Apply Now",
           "resolving": "Resolving...",
@@ -2524,6 +2525,35 @@
           "description": "Re-fetches your owned games and CDN patterns from Epic, then resolves unmatched download URLs to game names."
         },
         "note": "Epic has no public game database like Steam's PICS. Game discovery requires at least one Epic account login."
+      }
+    },
+    "blizzardMapping": {
+      "title": "Blizzard / Battle.net Mapping",
+      "subtitle": "Identifies Blizzard games from TACT product codes",
+      "noLogin": "No account or login required. Blizzard games are identified from the public TACT product codes in Battle.net CDN download paths.",
+      "noUnresolved": "All Blizzard downloads are already mapped to games",
+      "status": {
+        "mappedProducts": "Mapped products:",
+        "unnamedDownloads": "Unnamed downloads:",
+        "lastApplied": "Last applied:"
+      },
+      "buttons": {
+        "applyNow": "Apply Now",
+        "resolving": "Resolving..."
+      },
+      "errors": {
+        "applyFailed": "Failed to apply Blizzard mappings"
+      },
+      "help": {
+        "howItWorks": {
+          "title": "How It Works",
+          "description": "Battle.net downloads carry a TACT product code in their CDN path (such as wow or d3). These codes are matched against a built-in catalog to name each download, with product-agnostic content grouped under a shared label."
+        },
+        "applyNow": {
+          "title": "Apply Now",
+          "description": "Re-applies the product catalog to existing unnamed Blizzard downloads, naming them from their CDN paths without re-processing logs."
+        },
+        "note": "This mapping uses a public, static catalog only — no Battle.net account or login is required."
       }
     },
     "depotMapping": {

@@ -12,6 +12,7 @@ import { type AuthMode } from '@services/auth.service';
 import ApiService from '@services/api.service';
 import DepotMappingManager from '../depot/DepotMappingManager';
 import EpicMappingManager from '../epic/EpicMappingManager';
+import BlizzardMappingManager from '../battlenet/BlizzardMappingManager';
 import DataImporter from '../data/DataImporter';
 interface DataSectionProps {
   isAdmin: boolean;
@@ -325,6 +326,18 @@ const DataSection: React.FC<DataSectionProps> = ({
             onNavigateToSchedule ? () => onNavigateToSchedule('epicMapping') : undefined
           }
         />
+      </div>
+
+      {/* Subsection: Blizzard / Battle.net Mapping */}
+      <div className="mb-8">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-blizzard)]" />
+          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            {t('management.sections.data.blizzardGameMapping')}
+          </h3>
+        </div>
+
+        <BlizzardMappingManager isAdmin={isAdmin} mockMode={mockMode} onError={onError} />
       </div>
 
       {/* Subsection: Data Import */}

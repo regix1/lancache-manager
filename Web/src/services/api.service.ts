@@ -40,6 +40,7 @@ import type {
   EpicDaemonStatusDto,
   EpicMappingAuthStatus,
   EpicScheduleStatus,
+  BlizzardMappingStats,
   PicsStatus
 } from '../types';
 import type { DashboardBatchResponse } from '../contexts/DashboardDataContext/types';
@@ -2286,6 +2287,21 @@ class ApiService {
       credentials: 'include'
     });
     return ApiService.handleResponse<EpicMappingAuthStatus>(response);
+  }
+
+  static async getBlizzardMappingStats(): Promise<BlizzardMappingStats> {
+    const response = await fetch(`${API_BASE}/blizzard/game-mappings/stats`, {
+      credentials: 'include'
+    });
+    return ApiService.handleResponse<BlizzardMappingStats>(response);
+  }
+
+  static async resolveBlizzardDownloads(): Promise<{ resolved: number; message: string }> {
+    const response = await fetch(`${API_BASE}/blizzard/game-mappings/resolve`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    return ApiService.handleResponse<{ resolved: number; message: string }>(response);
   }
 
   static async getEpicScheduleStatus(): Promise<EpicScheduleStatus> {

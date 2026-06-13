@@ -1478,6 +1478,7 @@
         "depotMapping": "仓库映射",
         "steamDepotMapping": "Steam 仓库映射",
         "epicGameMapping": "Epic Games 映射",
+        "blizzardGameMapping": "暴雪 / Battle.net 映射",
         "epicResolve": {
           "applyNow": "立即应用",
           "resolving": "解析中...",
@@ -2524,6 +2525,35 @@
           "description": "重新从 Epic 获取您拥有的游戏和 CDN 模式，然后将未匹配的下载 URL 解析为游戏名称。"
         },
         "note": "Epic 没有像 Steam 的 PICS 那样的公开游戏数据库。游戏发现至少需要一个 Epic 账户登录。"
+      }
+    },
+    "blizzardMapping": {
+      "title": "暴雪 / Battle.net 映射",
+      "subtitle": "从 TACT 产品代码识别暴雪游戏",
+      "noLogin": "无需账户或登录。暴雪游戏通过 Battle.net CDN 下载路径中的公开 TACT 产品代码进行识别。",
+      "noUnresolved": "所有暴雪下载已映射到游戏",
+      "status": {
+        "mappedProducts": "已映射产品：",
+        "unnamedDownloads": "未命名下载：",
+        "lastApplied": "上次应用："
+      },
+      "buttons": {
+        "applyNow": "立即应用",
+        "resolving": "解析中..."
+      },
+      "errors": {
+        "applyFailed": "应用暴雪映射失败"
+      },
+      "help": {
+        "howItWorks": {
+          "title": "工作原理",
+          "description": "Battle.net 下载在其 CDN 路径中携带 TACT 产品代码（例如 wow 或 d3）。这些代码与内置目录匹配以命名每个下载，与产品无关的内容则归入共享标签下。"
+        },
+        "applyNow": {
+          "title": "立即应用",
+          "description": "将产品目录重新应用于现有的未命名暴雪下载，根据其 CDN 路径命名，无需重新处理日志。"
+        },
+        "note": "此映射仅使用公开的静态目录，无需 Battle.net 账户或登录。"
       }
     },
     "depotMapping": {
