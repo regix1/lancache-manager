@@ -119,15 +119,19 @@ const BlizzardMappingManager: React.FC<BlizzardMappingManagerProps> = ({
         <div className="text-xs text-themed-muted space-y-1.5">
           <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
             <span className="opacity-60 text-left whitespace-nowrap">
-              {t('management.blizzardMapping.status.mappedProducts')}
+              {t('management.blizzardMapping.status.namedDownloads')}
             </span>
-            <span className="font-medium text-themed-primary">{stats?.mappedProducts ?? 0}</span>
+            <span className="font-medium text-themed-primary">
+              {stats?.namedBlizzardDownloads ?? 0}
+            </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
             <span className="opacity-60 text-left whitespace-nowrap">
               {t('management.blizzardMapping.status.unnamedDownloads')}
             </span>
-            <span className="font-medium text-themed-primary">{stats?.unnamedDownloads ?? 0}</span>
+            <span className="font-medium text-themed-primary">
+              {stats?.unnamedBlizzardDownloads ?? 0}
+            </span>
           </div>
           {formattedLastApplied && (
             <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">

@@ -2533,7 +2533,7 @@
       "noLogin": "No account or login required. Blizzard games are identified from the public TACT product codes in Battle.net CDN download paths.",
       "noUnresolved": "All Blizzard downloads are already mapped to games",
       "status": {
-        "mappedProducts": "Mapped products:",
+        "namedDownloads": "Named downloads:",
         "unnamedDownloads": "Unnamed downloads:",
         "lastApplied": "Last applied:"
       },

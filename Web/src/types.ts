@@ -497,8 +497,10 @@ export interface EpicMappingStats {
 
 // Blizzard / Battle.net Mapping (static TACT product catalog — no login)
 export interface BlizzardMappingStats {
-  mappedProducts: number;
-  unnamedDownloads: number;
+  catalogProducts: number;
+  totalBlizzardDownloads: number;
+  namedBlizzardDownloads: number;
+  unnamedBlizzardDownloads: number;
   lastAppliedUtc: string | null;
 }
 

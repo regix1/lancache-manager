@@ -26,7 +26,19 @@
     "aqua": "Avowed",
     "scor": "Sea of Thieves"
   },
-  "aliases": {},
+  "aliases": {
+    "diablo3": "Diablo III",
+    "hs": "Hearthstone",
+    "hero-live-a": "Heroes of the Storm",
+    "sc1live": "StarCraft: Remastered",
+    "sc2": "StarCraft II",
+    "ovw": "Overwatch 2",
+    "w1r-live": "Warcraft I: Remastered",
+    "w2r-live": "Warcraft II: Remastered",
+    "war3": "Warcraft III: Reforged",
+    "b04": "Call of Duty: Black Ops 4",
+    "wallaby": "Crash Bandicoot 4"
+  },
   "shared": [
     "configs",
     "agent",
