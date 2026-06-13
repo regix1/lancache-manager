@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 
 mod db;
 mod service_utils;
+mod tact_products;
 
 // Configuration
 const WINDOW_SECONDS: i64 = 2;
@@ -377,6 +378,25 @@ impl SpeedTracker {
                 let mut sub_groups: HashMap<String, Vec<SpeedLogEntry>> = HashMap::new();
                 for entry in entries {
                     let game_name = self.lookup_epic_game(&entry.request_url).await
+                        .unwrap_or_else(|| get_service_display_name(&service));
+                    sub_groups.entry(game_name).or_default().push(entry);
+                }
+                for (game_name, sub_entries) in sub_groups {
+                    resolved_groups.entry((game_name, client_ip.clone())).or_default().extend(sub_entries);
+                }
+            } else if service.contains("blizzard") || service.contains("battle") {
+                // Resolve each entry's TACT CDN-path segment (/tpr/<seg>/) to a game name,
+                // then sub-group — mirrors the Epic branch above and the log_processor's
+                // catalog resolution, so live Blizzard rows show the real game (e.g.
+                // "Call of Duty: Black Ops 4") instead of the generic placeholder.
+                let mut sub_groups: HashMap<String, Vec<SpeedLogEntry>> = HashMap::new();
+                for entry in entries {
+                    let game_name = tact_products::extract_tact_product(&entry.request_url)
+                        .map(|seg| match tact_products::resolve_tact_segment(&seg) {
+                            tact_products::TactResolution::Game(name) => name,
+                            tact_products::TactResolution::Shared(label) => label,
+                            tact_products::TactResolution::Unknown => get_service_display_name(&service),
+                        })
                         .unwrap_or_else(|| get_service_display_name(&service));
                     sub_groups.entry(game_name).or_default().push(entry);
                 }
