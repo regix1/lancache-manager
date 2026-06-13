@@ -33,4 +33,12 @@ export interface CachedAnimationItem {
   appId: string;
   appName?: string;
   totalBytes: number;
+  /**
+   * Snapshot of the running job counts at enqueue time so the cached-game animation can keep the
+   * two-tier "Game X of N" overall bar advancing (the animation builds a fresh PrefillProgress and
+   * would otherwise starve those fields back to 0). V11.
+   */
+  expectedAppCount?: number;
+  updatedApps?: number;
+  alreadyUpToDate?: number;
 }

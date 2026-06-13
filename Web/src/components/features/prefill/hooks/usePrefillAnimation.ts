@@ -103,7 +103,12 @@ export function usePrefillAnimation(): UsePrefillAnimationReturn {
           bytesDownloaded: Math.floor((percent / 100) * item.totalBytes),
           totalBytes: item.totalBytes,
           bytesPerSecond: 0,
-          elapsedSeconds: 0
+          elapsedSeconds: 0,
+          // V11: carry the enqueue-time running counts so the two-tier overall bar keeps advancing
+          // through cached-game animations instead of resetting to "Game 1 of N".
+          expectedAppCount: item.expectedAppCount,
+          updatedApps: item.updatedApps,
+          alreadyUpToDate: item.alreadyUpToDate
         });
 
         if (elapsed < ANIMATION_DURATION_MS) {

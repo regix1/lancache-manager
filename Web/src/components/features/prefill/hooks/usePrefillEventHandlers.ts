@@ -227,7 +227,12 @@ export function registerPrefillEventHandlers(
         ) {
           setPrefillProgress({
             ...progress,
-            expectedAppCount: expectedAppCountRef.current || progress.totalApps || undefined
+            expectedAppCount: expectedAppCountRef.current || progress.totalApps || undefined,
+            // V11: plumb the client-tracked running counts so "Game X of N" + the overall bar
+            // advance live. The daemon only sends real counters in the FINAL completed summary,
+            // so without this processedApps stays 0 and the position freezes at "Game 1 of N".
+            updatedApps: downloadedGamesCountRef.current,
+            alreadyUpToDate: cachedGamesCountRef.current
           });
         }
       } else if (progress.state === 'app_completed') {
@@ -248,7 +253,11 @@ export function registerPrefillEventHandlers(
                 ...prev,
                 state: 'app_completed',
                 percentComplete: 100,
-                currentAppName: progress.currentAppName || prev.currentAppName
+                currentAppName: progress.currentAppName || prev.currentAppName,
+                // V11: the count was just incremented above, so processedApps now includes this
+                // finished app and "Game X of N" advances instead of sticking at 1.
+                updatedApps: downloadedGamesCountRef.current,
+                alreadyUpToDate: cachedGamesCountRef.current
               }
             : null
         );
@@ -268,7 +277,12 @@ export function registerPrefillEventHandlers(
           {
             appId: progress.currentAppId,
             appName: progress.currentAppName,
-            totalBytes: progress.totalBytes || 0
+            totalBytes: progress.totalBytes || 0,
+            // V11: snapshot the running counts (the cached count was just incremented above) so the
+            // animation's fresh PrefillProgress keeps "Game X of N" + the overall bar advancing.
+            expectedAppCount: expectedAppCountRef.current || progress.totalApps || undefined,
+            updatedApps: downloadedGamesCountRef.current,
+            alreadyUpToDate: cachedGamesCountRef.current
           },
           setPrefillProgress
         );
