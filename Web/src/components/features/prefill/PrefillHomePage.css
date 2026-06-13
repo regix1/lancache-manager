@@ -38,16 +38,20 @@
 /* --- Service Cards Grid --- */
 .prefill-home-grid {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 1.25rem;
   width: 100%;
-  max-width: 62rem;
+  max-width: 84rem;
   position: relative;
   z-index: 1;
 }
 
+/* Comfortable basis keeps each card wide (~24-28rem) whether 2 or 3 services are
+   shown; max-width stops a lone card from stretching too far. flex-wrap lets a third
+   card drop to a new row on narrower viewports before the mobile stack kicks in. */
 .prefill-home-grid > .prefill-service-card {
-  flex: 1 1 0;
+  flex: 1 1 24rem;
   max-width: 30rem;
 }
 

@@ -7,9 +7,26 @@ interface PrefillLoadingStateProps {
   serviceId: string;
 }
 
+// Full literal class names so Tailwind's content scanner keeps these @layer components
+// rules in the production build. Building them dynamically (e.g. `prefill-loading-spinner--${x}`)
+// hides the class strings from the scanner, which then purges the color/background rules and
+// the spinner renders with no accent color (white).
+const LOADING_ICON_CLASS: Record<'steam' | 'epic' | 'battlenet', string> = {
+  steam: 'prefill-loading-icon--steam',
+  epic: 'prefill-loading-icon--epic',
+  battlenet: 'prefill-loading-icon--battlenet'
+};
+
+const LOADING_SPINNER_CLASS: Record<'steam' | 'epic' | 'battlenet', string> = {
+  steam: 'prefill-loading-spinner--steam',
+  epic: 'prefill-loading-spinner--epic',
+  battlenet: 'prefill-loading-spinner--battlenet'
+};
+
 export function PrefillLoadingState({ status, serviceId }: PrefillLoadingStateProps) {
   const { t } = useTranslation();
-  const accent = serviceId === 'epic' ? 'epic' : serviceId === 'battlenet' ? 'battlenet' : 'steam';
+  const accent: 'steam' | 'epic' | 'battlenet' =
+    serviceId === 'epic' ? 'epic' : serviceId === 'battlenet' ? 'battlenet' : 'steam';
 
   const title =
     status === 'creating'
@@ -22,9 +39,9 @@ export function PrefillLoadingState({ status, serviceId }: PrefillLoadingStatePr
         <CardContent className="py-12">
           <div className="flex flex-col items-center justify-center gap-4">
             <div
-              className={`w-16 h-16 rounded-xl flex items-center justify-center prefill-loading-icon--${accent}`}
+              className={`w-16 h-16 rounded-xl flex items-center justify-center ${LOADING_ICON_CLASS[accent]}`}
             >
-              <LoadingSpinner inline size="xl" className={`prefill-loading-spinner--${accent}`} />
+              <LoadingSpinner inline size="xl" className={LOADING_SPINNER_CLASS[accent]} />
             </div>
             <div className="text-center">
               <p className="text-lg font-medium text-themed-primary">{title}</p>

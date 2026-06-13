@@ -3349,6 +3349,8 @@
   },
   "prefill": {
     "title": "Steam Prefill",
+    "titleEpic": "Epic Prefill",
+    "titleBattlenet": "Battle.net Prefill",
     "subtitle": "Pre-download games to your cache",
     "endSession": "End Session",
     "home": {

@@ -78,6 +78,16 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     protected abstract string EventSessionEnded { get; }
 
     /// <summary>
+    /// Auth state a freshly-created session starts in. Steam/Epic begin
+    /// <see cref="DaemonAuthState.NotAuthenticated"/> and require a login step. Anonymous
+    /// services (Battle.net) override this to <see cref="DaemonAuthState.Authenticated"/> so the
+    /// session is immediately usable and the client never shows a login prompt - the returned DTO
+    /// and reconnect/GetMySessions paths report the correct state without waiting on the daemon's
+    /// async status update.
+    /// </summary>
+    protected virtual DaemonAuthState InitialAuthState => DaemonAuthState.NotAuthenticated;
+
+    /// <summary>
     /// Event raised when any prefill daemon session becomes authenticated.
     /// External services subscribe to this to react to daemon auth state changes.
     /// </summary>
@@ -672,6 +682,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         {
             Id = sessionId,
             UserId = userId,
+            AuthState = InitialAuthState,
             ContainerId = containerId,
             ContainerName = containerName,
             CommandsDir = commandsDir,

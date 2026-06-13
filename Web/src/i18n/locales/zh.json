@@ -3349,6 +3349,8 @@
   },
   "prefill": {
     "title": "Steam 预填充",
+    "titleEpic": "Epic 预填充",
+    "titleBattlenet": "Battle.net 预填充",
     "subtitle": "预下载游戏到缓存",
     "endSession": "结束会话",
     "home": {

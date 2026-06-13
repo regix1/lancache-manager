@@ -43,6 +43,11 @@ public class BattleNetDaemonService : PrefillDaemonServiceBase
     protected override string ContainerPrefix => "battlenet-prefill-";
     protected override string DefaultDockerImage => BattleNetDockerImage;
 
+    // Battle.net is fully anonymous - a session is authenticated/ready the moment it is created,
+    // with no login step or credential challenge. This drives the returned session DTO straight to
+    // Authenticated so the client unlocks prefill commands immediately.
+    protected override DaemonAuthState InitialAuthState => DaemonAuthState.Authenticated;
+
     protected override string GetImageName()
         => _configuration["Prefill:BattlenetDockerImage"] ?? BattleNetDockerImage;
 

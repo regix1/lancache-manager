@@ -853,6 +853,12 @@ function ServicePrefillPanel({
     !!signalR.session && signalR.session.status === 'Active' && signalR.timeRemaining > 0;
   const isSessionExpired = !!signalR.session && !isSessionActive;
 
+  // Battle.net prefill is fully anonymous - no account login ever. Treat the client as
+  // always "logged in"/ready so the auth login card stays hidden, the "Login Required"
+  // notice never shows, and prefill commands are enabled the moment a session is active.
+  const isBattlenet = serviceId === 'battlenet';
+  const isReadyForCommands = isBattlenet || signalR.isLoggedIn;
+
   const handleStartNewSession = useCallback(() => {
     setShowAuthModal(false);
     setShowGameSelection(false);
@@ -999,7 +1005,13 @@ function ServicePrefillPanel({
             )}
           </div>
           <div>
-            <h1 className="text-xl font-bold text-themed-primary">{t('prefill.title')}</h1>
+            <h1 className="text-xl font-bold text-themed-primary">
+              {serviceId === 'epic'
+                ? t('prefill.titleEpic')
+                : serviceId === 'battlenet'
+                  ? t('prefill.titleBattlenet')
+                  : t('prefill.title')}
+            </h1>
             <p className="text-sm text-themed-muted">{t('prefill.subtitle')}</p>
           </div>
         </div>
@@ -1132,7 +1144,7 @@ function ServicePrefillPanel({
 
           {/* Command Buttons */}
           <PrefillCommandButtons
-            isLoggedIn={signalR.isLoggedIn}
+            isLoggedIn={isReadyForCommands}
             isExecuting={isExecuting}
             isPrefillActive={signalR.isPrefillActive}
             isSessionActive={isSessionActive}
