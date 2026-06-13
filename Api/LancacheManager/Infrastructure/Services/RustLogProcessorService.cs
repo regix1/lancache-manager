@@ -794,7 +794,11 @@ public class RustLogProcessorService
                 // Image fetching can run in background as it's not critical for the UI refresh
                 _ = Task.Run(async () =>
                 {
-                    await InvalidateCacheAsync(silentMode);
+                    // Brief settle delay so any final DB writes from the Rust process are durable
+                    // before we fetch images. (The live dashboard-batch cache is invalidated
+                    // synchronously in the finalize step below, before the UI refresh signal —
+                    // see InvalidateLiveCache.)
+                    await Task.Delay(500);
 
                     // Rust mapped the depot IDs to game names during processing, but we still need to fetch images
                     // Only fetch Steam images when new entries were saved (requires Steam API calls)
@@ -812,6 +816,15 @@ public class RustLogProcessorService
                     // We do NOT trigger it here to avoid fetching images mid-pipeline before
                     // game detection (GameDetectionService) has finished.
                 });
+
+                // Invalidate the live dashboard-batch cache BEFORE signalling the frontend, so the
+                // refetch triggered by DownloadsRefresh (silent) / LogProcessingComplete (full) reads
+                // the freshly-written rows instead of the up-to-15s-stale cached snapshot. Resolved
+                // lazily from the provider (singleton) to avoid a constructor DI cycle.
+                if (shouldFinalizeOperation)
+                {
+                    _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateLiveCache();
+                }
 
                 if (!silentMode && shouldFinalizeOperation)
                 {
@@ -1015,29 +1028,6 @@ public class RustLogProcessorService
     private async Task<ProgressData?> ReadProgressFileAsync(string progressPath)
     {
         return await _rustProcessHelper.ReadProgressFileAsync<ProgressData>(progressPath);
-    }
-
-    /// <summary>
-    /// Invalidate cache after log processing
-    /// NOTE: This method no longer sends DownloadsRefresh events to avoid duplicates.
-    /// The main completion handler (StartProcessingAsync) sends the single DownloadsRefresh event.
-    /// </summary>
-    private async Task InvalidateCacheAsync(bool silentMode)
-    {
-        try
-        {
-            // Wait a moment to ensure all database writes are complete
-            await Task.Delay(500);
-
-            // NOTE: We no longer send DownloadsRefresh here to avoid duplicate events.
-            // The main completion handler already sends DownloadsRefresh for silent mode (line 604)
-            // or LogProcessingComplete for non-silent mode which triggers UI refresh.
-            _logger.LogDebug("Cache invalidation complete (silentMode={SilentMode})", silentMode);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during cache invalidation after log processing");
-        }
     }
 
         /// <summary>

@@ -8,6 +8,7 @@ using LancacheManager.Models.Responses;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Primitives;
 
 namespace LancacheManager.Core.Services;
 
@@ -28,6 +29,11 @@ public class DashboardBatchService : IDashboardBatchService
     private readonly ILogger<DashboardBatchService> _logger;
     private readonly CacheSnapshotService _cacheSnapshotService;
     private readonly IMemoryCache _memoryCache;
+
+    // Live (unbounded time-range) batch entries are linked to this token so a download write can
+    // expire ALL of them at once — every evicted-mode key variant — via InvalidateLiveCache,
+    // instead of waiting out their 15s TTL. Swapped + cancelled atomically on invalidation.
+    private CancellationTokenSource _liveCacheCts = new();
 
     public DashboardBatchService(
         CacheManagementService cacheService,
@@ -120,9 +126,27 @@ public class DashboardBatchService : IDashboardBatchService
             .SetAbsoluteExpiration(TimeSpan.FromSeconds(isLive ? 15 : 60))
             .SetSize(50_000)
             .SetPriority(CacheItemPriority.High);
+        if (isLive)
+        {
+            // Link live entries to the invalidation token so a download write expires them
+            // immediately (see InvalidateLiveCache), guaranteeing a SignalR-triggered refetch
+            // reads fresh data rather than this snapshot.
+            cacheOptions.AddExpirationToken(new CancellationChangeToken(_liveCacheCts.Token));
+        }
         _memoryCache.Set(cacheKey, response, cacheOptions);
 
         return response;
+    }
+
+    /// <inheritdoc />
+    public void InvalidateLiveCache()
+    {
+        // Atomically swap in a fresh token source and cancel the old one, so every live batch
+        // entry linked to it expires now regardless of its 15s TTL. Thread-safe under the
+        // singleton lifetime + concurrent batch requests.
+        var previous = Interlocked.Exchange(ref _liveCacheCts, new CancellationTokenSource());
+        previous.Cancel();
+        previous.Dispose();
     }
 
     // ───────────────────── Sub-query implementations ─────────────────────
