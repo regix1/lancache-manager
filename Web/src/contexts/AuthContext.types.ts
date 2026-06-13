@@ -18,6 +18,7 @@ interface AuthContextType {
   prefillTimeRemaining: number | null;
   steamPrefillEnabled: boolean;
   epicPrefillEnabled: boolean;
+  battlenetPrefillEnabled: boolean;
   isBanned: boolean;
 }
 

@@ -37,10 +37,28 @@ const EPIC_EVENT_MAP: Record<string, string> = {
   CredentialChallenge: 'EpicCredentialChallenge'
 };
 
+/** Maps generic event names to service-specific event names for Battle.net */
+const BATTLENET_EVENT_MAP: Record<string, string> = {
+  AuthStateChanged: 'BattleNetAuthStateChanged',
+  SessionSubscribed: 'SessionSubscribed',
+  SessionEnded: 'BattleNetSessionEnded',
+  DaemonSessionTerminated: 'BattleNetDaemonSessionTerminated',
+  PrefillProgress: 'BattleNetPrefillProgress',
+  StatusChanged: 'BattleNetStatusChanged',
+  PrefillStateChanged: 'BattleNetPrefillStateChanged',
+  DaemonSessionCreated: 'BattleNetDaemonSessionCreated',
+  DaemonSessionUpdated: 'BattleNetDaemonSessionUpdated',
+  PrefillHistoryUpdated: 'BattleNetPrefillHistoryUpdated',
+  CredentialChallenge: 'BattleNetCredentialChallenge'
+};
+
 /** Resolves a generic SignalR event name to a service-specific name */
 export function getEventName(base: string, serviceId: string): string {
   if (serviceId === 'epic') {
     return EPIC_EVENT_MAP[base] ?? base;
+  }
+  if (serviceId === 'battlenet') {
+    return BATTLENET_EVENT_MAP[base] ?? base;
   }
   return base;
 }
