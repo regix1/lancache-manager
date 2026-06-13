@@ -1,5 +1,6 @@
 use crate::models::LogEntry;
 use crate::service_utils;
+use crate::tact_products;
 use chrono::{FixedOffset, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use regex::Regex;
@@ -88,8 +89,17 @@ impl LogParser {
         let http_range = self.extract_quoted_field(rest, 5);
 
         // Extract depot ID for Steam service
-        let depot_id = if service.to_lowercase() == "steam" {
+        let service_lower = service.to_lowercase();
+        let depot_id = if service_lower == "steam" {
             self.extract_depot_id(&url)
+        } else {
+            None
+        };
+
+        // Extract Blizzard TACT product code (segment after /tpr/) for the blizzard service.
+        // Blizzard has no integer app id; the product code is the game discriminator.
+        let tact_product = if service_lower == "blizzard" {
+            tact_products::extract_tact_product(&url)
         } else {
             None
         };
@@ -103,6 +113,7 @@ impl LogParser {
             bytes_served,
             cache_status,
             depot_id,
+            tact_product,
             http_range,
         })
     }

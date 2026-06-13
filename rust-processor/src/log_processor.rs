@@ -22,6 +22,7 @@ mod progress_events;
 mod progress_utils;
 mod service_utils;
 mod session;
+mod tact_products;
 
 use progress_events::ProgressReporter;
 
@@ -120,6 +121,7 @@ struct Processor {
     auto_map_depots: bool,
     last_logged_percent: AtomicU64, // Store as integer (0-100) for atomic operations
     logged_depots: HashSet<u32>, // Track depots that have already been logged
+    logged_tact_products: HashSet<String>, // Track Blizzard TACT products already logged
     datasource_name: String,
     depot_map: HashMap<u32, (u32, Option<String>)>,
     skip_dedup: bool, // True when table is empty - skip duplicate checks for max speed
@@ -162,6 +164,7 @@ impl Processor {
             auto_map_depots,
             last_logged_percent: AtomicU64::new(0),
             logged_depots: HashSet::new(),
+            logged_tact_products: HashSet::new(),
             datasource_name,
             depot_map,
             skip_dedup: false,
@@ -524,6 +527,11 @@ impl Processor {
                 Self::extract_epic_path_prefix(&entry.url)
                     .map(|prefix| format!("_epic:{}", prefix))
                     .unwrap_or_else(|| "_nodepot".to_string())
+            } else if let Some(product) = entry.tact_product.as_deref() {
+                // For Blizzard entries, use the TACT product code (e.g. wow, fenris)
+                // as the session discriminator so each game gets its own session
+                // instead of collapsing into one {ip}_blizzard_nodepot session
+                format!("_tact:{}", product)
             } else {
                 "_nodepot".to_string()
             };
@@ -671,6 +679,18 @@ impl Processor {
             .max_by_key(|(_, count)| *count)
             .map(|(depot, _)| depot);
 
+        // Extract primary Blizzard TACT product (most common) for game naming/grouping
+        let primary_tact_product: Option<String> = new_entries
+            .iter()
+            .filter_map(|e| e.tact_product.clone())
+            .fold(HashMap::new(), |mut map, product| {
+                *map.entry(product).or_insert(0) += 1;
+                map
+            })
+            .into_iter()
+            .max_by_key(|(_, count)| *count)
+            .map(|(product, _)| product);
+
         let last_url = new_entries.last().map(|e| e.url.as_str());
 
         // Lookup depot mappings during log processing (auto_map_depots = true)
@@ -690,6 +710,24 @@ impl Processor {
                     None => {
                         (None, None)
                     },
+                }
+            } else {
+                (None, None)
+            }
+        } else if self.auto_map_depots && service.to_lowercase() == "blizzard" {
+            // Blizzard has no integer app id; map the TACT product code -> display name.
+            // GameAppId stays None (only GameName is set), mirroring an unmapped depot
+            // leaving GameName NULL when the product code is unknown.
+            if let Some(product) = primary_tact_product.as_deref() {
+                match tact_products::tact_display_name(product) {
+                    Some(name) => {
+                        if !self.logged_tact_products.contains(product) {
+                            println!("Mapped Blizzard product {} -> {}", product, name);
+                            self.logged_tact_products.insert(product.to_string());
+                        }
+                        (None, Some(name.to_string()))
+                    }
+                    None => (None, None),
                 }
             } else {
                 (None, None)
@@ -821,6 +859,19 @@ impl Processor {
                     .await?
                     .map(|r| r.get::<i64, _>("Id"))
                 }
+            } else if let Some(product) = primary_tact_product.as_deref() {
+                // For Blizzard services, match by TACT product (e.g. /tpr/wow/) to find
+                // the correct game session instead of merging all Blizzard games together
+                let like_pattern = format!("%/tpr/{}/%", product);
+                sqlx::query(
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"LastUrl\" LIKE $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
+                )
+                .bind(client_ip)
+                .bind(service)
+                .bind(&like_pattern)
+                .fetch_optional(&mut **tx)
+                .await?
+                .map(|r| r.get::<i64, _>("Id"))
             } else {
                 sqlx::query(
                     "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
