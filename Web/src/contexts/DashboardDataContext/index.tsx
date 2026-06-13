@@ -4,6 +4,7 @@ import { isAbortError } from '@utils/error';
 import { EMPTY_CACHED_DETECTION, buildDetectionLookupMaps } from '@utils/gameDetection';
 import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../useTimeFilter';
+import { useRefreshRate } from '../useRefreshRate';
 import { useSignalR } from '../SignalRContext/useSignalR';
 import { useAuth } from '../useAuth';
 import { SIGNALR_REFRESH_EVENTS } from '../SignalRContext/types';
@@ -32,6 +33,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 }) => {
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventIds } =
     useTimeFilter();
+  const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
   const { hasSession, isLoading: authLoading } = useAuth();
   const hasAccess = hasSession;
@@ -77,6 +79,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
   const refreshDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRefreshFetchRef = useRef<number>(0);
   // Separate timer for dedicated always-refresh events (eviction scan/removal):
   // they bypass the live-only gate but still coalesce bursts into one fetch.
   const forcedRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -99,6 +102,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   // This ensures that any function reading from these refs gets the current value
   const currentTimeRangeRef = useRef<string>(timeRange);
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
+  const getRefreshIntervalRef = useRef(getRefreshInterval);
   const mockModeRef = useRef(mockMode);
   const selectedEventIdsRef = useRef<number[]>(selectedEventIds);
   const authLoadingRef = useRef(authLoading);
@@ -107,6 +111,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   // Update refs synchronously on every render
   currentTimeRangeRef.current = timeRange;
   getTimeRangeParamsRef.current = getTimeRangeParams;
+  getRefreshIntervalRef.current = getRefreshInterval;
   mockModeRef.current = mockMode;
   selectedEventIdsRef.current = selectedEventIds;
   authLoadingRef.current = authLoading;
@@ -290,20 +295,26 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   useEffect(() => {
     if (mockMode) return;
 
-    // Trailing debounce on SignalR push events, fixed at 500ms and DECOUPLED from the user's
-    // refresh-rate setting (that setting still governs the speed panel's polling, just not this).
-    // A push means "data is ready now", so the debounce only coalesces bursts and must stay BELOW
-    // the live monitor's ~1s emit cadence: tying it to the 10s STANDARD interval made the trailing
-    // timer reset on every tick and never fire during a continuous download (looked like "never live").
+    // The refresh-rate setting IS the live update interval: LIVE (0) -> 500ms (instant), otherwise
+    // the chosen interval (e.g. 10s). Leading+trailing THROTTLE — fire immediately if the interval
+    // has elapsed since the last fetch, else schedule one trailing fetch for the remainder. Unlike a
+    // plain trailing debounce this fires ON SCHEDULE during a continuous download (the old debounce
+    // reset on every ~1s tick and starved at 10s, looking frozen) AND still catches the final update.
     // For historical ranges (not 'live'), skip SignalR refreshes to prevent flickering.
     const handleRefreshEvent = (eventName?: string) => {
       if (currentTimeRangeRef.current !== 'live') return;
-      const delay = 500;
+      const interval = getRefreshIntervalRef.current() || 500;
+      const runFetch = () => {
+        lastRefreshFetchRef.current = Date.now();
+        fetchAllData({ trigger: `signalr:${eventName || 'unknown'}` });
+      };
+      const elapsed = Date.now() - lastRefreshFetchRef.current;
       if (refreshDebounceTimerRef.current) clearTimeout(refreshDebounceTimerRef.current);
-      refreshDebounceTimerRef.current = setTimeout(
-        () => fetchAllData({ trigger: `signalr:${eventName || 'unknown'}` }),
-        delay
-      );
+      if (elapsed >= interval) {
+        runFetch();
+      } else {
+        refreshDebounceTimerRef.current = setTimeout(runFetch, interval - elapsed);
+      }
     };
 
     // Handler for database reset — clear stale dashboard slices as tables are wiped

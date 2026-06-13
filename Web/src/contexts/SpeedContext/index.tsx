@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useRefreshRate } from '@contexts/useRefreshRate';
 import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
 import type { DownloadSpeedSnapshot, GameSpeedInfo, ClientSpeedInfo } from '../../types';
@@ -8,6 +9,7 @@ import { SpeedContext } from './SpeedContext.types';
 
 export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedProviderProps) => {
   const signalR = useSignalR();
+  const { getRefreshInterval } = useRefreshRate();
   const { hasSession, isLoading: authLoading } = useAuth();
   const hasAccess = !authLoading && hasSession;
   const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
@@ -18,6 +20,10 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
   const lastActiveCountRef = useRef<number | null>(null);
   // Grace period ref to prevent flicker when transitioning TO zero (depot switches)
   const zeroGracePeriodRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Keep getRefreshInterval in a ref to avoid stale closure issues
+  const getRefreshIntervalRef = useRef(getRefreshInterval);
+  getRefreshIntervalRef.current = getRefreshInterval;
 
   // Calculate derived values from the speed snapshot
   const gameSpeeds: GameSpeedInfo[] = useMemo(() => {
@@ -188,13 +194,15 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
         return;
       }
 
-      // Throttle same-count (speed-value-only) updates to the server's broadcast cadence so
-      // Live is instant regardless of the refresh-rate setting (mirrors DashboardDataContext).
-      // The server already throttles DownloadSpeedUpdate to ~500ms, so this only caps client
-      // re-renders — it adds no latency and no server load.
+      // Throttle same-count (speed-value-only) updates to the user's refresh-rate setting:
+      // LIVE (0) -> 500ms (instant), otherwise the chosen interval (e.g. 10s -> one update / 10s).
+      // Leading throttle (fires once the interval has elapsed). Count CHANGES and the zero-grace
+      // are handled above and bypass this, so new downloads / completion still appear promptly
+      // regardless of the setting.
+      const maxRefreshRate = getRefreshIntervalRef.current();
       const now = Date.now();
       const timeSinceLastUpdate = now - lastSpeedUpdateRef.current;
-      const minInterval = 500;
+      const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
 
       if (timeSinceLastUpdate >= minInterval) {
         lastSpeedUpdateRef.current = now;
