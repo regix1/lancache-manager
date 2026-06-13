@@ -186,6 +186,14 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
         return;
       }
 
+      // A zero-grace period is pending (the count just dipped to 0): keep showing the prior
+      // snapshot and let the grace timer decide. Without this guard the throttle below commits
+      // consecutive 0-count broadcasts ~500ms apart, defeating the 1.5s grace and producing the
+      // 1 → 0 → 1 flicker during brief gaps in an active download's logged requests.
+      if (zeroGracePeriodRef.current) {
+        return;
+      }
+
       // Throttle check - apply update if enough time has passed
       const maxRefreshRate = getRefreshIntervalRef.current();
       const now = Date.now();

@@ -385,24 +385,37 @@ impl SpeedTracker {
                     resolved_groups.entry((game_name, client_ip.clone())).or_default().extend(sub_entries);
                 }
             } else if service.contains("blizzard") || service.contains("battle") {
-                // Resolve each entry's TACT CDN-path segment (/tpr/<seg>/) to a game name,
-                // then sub-group — mirrors the Epic branch above and the log_processor's
-                // catalog resolution, so live Blizzard rows show the real game (e.g.
-                // "Call of Duty: Black Ops 4") instead of the generic placeholder.
-                let mut sub_groups: HashMap<String, Vec<SpeedLogEntry>> = HashMap::new();
-                for entry in entries {
-                    let game_name = tact_products::extract_tact_product(&entry.request_url)
-                        .map(|seg| match tact_products::resolve_tact_segment(&seg) {
-                            tact_products::TactResolution::Game(name) => name,
-                            tact_products::TactResolution::Shared(label) => label,
-                            tact_products::TactResolution::Unknown => get_service_display_name(&service),
-                        })
-                        .unwrap_or_else(|| get_service_display_name(&service));
-                    sub_groups.entry(game_name).or_default().push(entry);
+                // Collapse a client's Blizzard traffic into ONE group named by the dominant
+                // resolved game, so live rows show the real game (e.g. "Call of Duty: Black
+                // Ops 4") without flickering. A single game download interleaves game-specific
+                // /tpr/<game>/ paths with shared /tpr/configs|agent/ paths, so per-segment
+                // sub-grouping (like Epic) splits one download into a flapping Game + "Battle.net
+                // (shared)" pair as the 2s window's membership shifts. Pick the most-frequent
+                // resolved Game when present; else the shared label; else the placeholder. (A
+                // client downloading two Blizzard titles at once — rare — shows under the
+                // dominant one in this transient live view.)
+                let mut game_counts: HashMap<String, usize> = HashMap::new();
+                let mut shared_label: Option<String> = None;
+                for entry in &entries {
+                    if let Some(seg) = tact_products::extract_tact_product(&entry.request_url) {
+                        match tact_products::resolve_tact_segment(&seg) {
+                            tact_products::TactResolution::Game(name) => {
+                                *game_counts.entry(name).or_insert(0) += 1;
+                            }
+                            tact_products::TactResolution::Shared(label) => {
+                                shared_label = Some(label);
+                            }
+                            tact_products::TactResolution::Unknown => {}
+                        }
+                    }
                 }
-                for (game_name, sub_entries) in sub_groups {
-                    resolved_groups.entry((game_name, client_ip.clone())).or_default().extend(sub_entries);
-                }
+                let group_name = game_counts
+                    .into_iter()
+                    .max_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)))
+                    .map(|(name, _)| name)
+                    .or(shared_label)
+                    .unwrap_or_else(|| get_service_display_name(&service));
+                resolved_groups.entry((group_name, client_ip)).or_default().extend(entries);
             } else {
                 let display_name = get_service_display_name(&service);
                 resolved_groups.entry((display_name, client_ip)).or_default().extend(entries);
