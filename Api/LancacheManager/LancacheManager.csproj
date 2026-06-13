@@ -17,6 +17,18 @@
     <RustTarget Condition="'$(RuntimeIdentifier)' == 'linux-arm64'">linux-arm64</RustTarget>
   </PropertyGroup>
 
+  <!--
+    Single-source Blizzard/Battle.net TACT catalog. Embedded from the SAME file the Rust
+    log_processor compiles in via include_str!, so the two backends never drift. Read at
+    runtime by BattleNetMappingService via Assembly.GetManifestResourceStream with the
+    LogicalName below. Do NOT copy the catalog data into a second file.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\rust-processor\tact_products.json">
+      <LogicalName>LancacheManager.tact_products.json</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Docker.DotNet" Version="3.125.15" />
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="11.4.0" />

@@ -1,76 +1,130 @@
-/// Blizzard / Battle.net TACT product code -> game display name mapping.
+/// Blizzard / Battle.net TACT product / CDN-path -> game display name mapping.
 ///
 /// Blizzard lancache traffic arrives with `Service = "blizzard"` (resolved by
 /// nginx upstream config), but unlike Steam (depot id) or Epic (CDN path) there
-/// is no integer app id. Instead the TACT product code is embedded in the CDN
-/// request path as the segment after `/tpr/` (e.g. `/tpr/wow/data/...`).
+/// is no integer app id. Instead the CDN request path carries a product/CDN-path
+/// segment after `/tpr/` (e.g. `/tpr/wow/data/...`, `/tpr/configs/...`).
 ///
-/// This module parses that product code from the URL and looks it up in a
-/// static table to produce a human-readable game name. There is no integer app
-/// id, so `Downloads.GameAppId`/`DepotId` stay NULL for Blizzard rows.
+/// The catalog is single-sourced from `tact_products.json` (sibling of this file)
+/// and embedded at compile time via `include_str!`. The SAME JSON is read by the
+/// C# `BattleNetMappingService` (embedded resource) so the two backends never
+/// drift. Do NOT duplicate the catalog data anywhere else.
+///
+/// Resolution for a `/tpr/<seg>/` segment (lowercased):
+///   1. `products[seg]`  -> game display name
+///   2. `aliases[seg]`   -> game display name (extension point for CDN paths
+///                          that diverge from the Ribbit product slug)
+///   3. `seg ∈ shared`   -> the shared label ("Battle.net (shared)") for
+///                          product-agnostic paths (configs/agent/catalogs/...)
+///   4. otherwise        -> unresolved (caller leaves `GameName` NULL)
+///
+/// There is no integer app id, so `Downloads.GameAppId`/`DepotId` stay NULL for
+/// Blizzard rows.
+use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 
-/// Static TACT product code -> display name table (Blizzard / Activision /
-/// Microsoft products served over Blizzard's TACT CDN).
-const TACT_PRODUCTS: &[(&str, &str)] = &[
-    // Blizzard
-    ("wow", "World of Warcraft"),
-    ("fenris", "Diablo IV"),
-    ("pro", "Overwatch 2"),
-    ("hsb", "Hearthstone"),
-    ("d3", "Diablo III"),
-    ("osi", "Diablo II: Resurrected"),
-    ("anbs", "Diablo Immortal"),
-    ("hero", "Heroes of the Storm"),
-    ("s1", "StarCraft: Remastered"),
-    ("s2", "StarCraft II"),
-    ("w3", "Warcraft III: Reforged"),
-    ("w1r", "Warcraft I: Remastered"),
-    ("w2r", "Warcraft II: Remastered"),
-    ("rtro", "Blizzard Arcade Collection"),
-    // Activision
-    ("viper", "Call of Duty: Black Ops 4"),
-    ("zeus", "Call of Duty: Black Ops Cold War"),
-    ("odin", "Call of Duty: Modern Warfare (2019)"),
-    ("auks", "Call of Duty"),
-    ("lazr", "Call of Duty: Modern Warfare 2 Remastered"),
-    ("fore", "Call of Duty: Vanguard"),
-    ("wlby", "Crash Bandicoot 4"),
-    // Microsoft
-    ("aqua", "Avowed"),
-    ("scor", "Sea of Thieves"),
-];
+use serde::Deserialize;
 
-/// Parse the TACT product code from a Blizzard CDN request URL.
+/// Embedded single-source catalog JSON (sibling `tact_products.json`).
+const TACT_PRODUCTS_JSON: &str = include_str!("../tact_products.json");
+
+/// Raw deserialization shape matching `tact_products.json`.
+#[derive(Deserialize)]
+struct RawCatalog {
+    #[serde(rename = "sharedLabel")]
+    shared_label: String,
+    products: HashMap<String, String>,
+    #[serde(default)]
+    aliases: HashMap<String, String>,
+    #[serde(default)]
+    shared: Vec<String>,
+}
+
+/// Parsed, lowercase-normalized catalog used for lookups.
+struct Catalog {
+    shared_label: String,
+    /// Merged product + alias map (lowercased keys) -> game display name.
+    /// Products take precedence over aliases on key collision.
+    games: HashMap<String, String>,
+    /// Lowercased product-agnostic shared segments.
+    shared: HashSet<String>,
+}
+
+/// The resolution outcome for a `/tpr/<seg>/` segment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TactResolution {
+    /// Resolved to a concrete game display name (products or aliases).
+    Game(String),
+    /// A product-agnostic shared path (configs/agent/catalogs/...) -> shared label.
+    Shared(String),
+    /// Unknown segment - caller leaves the row generic / GameName NULL.
+    Unknown,
+}
+
+/// Parse the embedded JSON exactly once (lazy, thread-safe).
+fn catalog() -> &'static Catalog {
+    static CATALOG: OnceLock<Catalog> = OnceLock::new();
+    CATALOG.get_or_init(|| {
+        let raw: RawCatalog = serde_json::from_str(TACT_PRODUCTS_JSON)
+            .expect("embedded tact_products.json is malformed");
+
+        // Aliases first, then products, so a product slug always wins on collision.
+        let mut games: HashMap<String, String> = HashMap::new();
+        for (code, name) in raw.aliases {
+            games.insert(code.to_lowercase(), name);
+        }
+        for (code, name) in raw.products {
+            games.insert(code.to_lowercase(), name);
+        }
+
+        let shared: HashSet<String> =
+            raw.shared.into_iter().map(|s| s.to_lowercase()).collect();
+
+        Catalog {
+            shared_label: raw.shared_label,
+            games,
+            shared,
+        }
+    })
+}
+
+/// Parse the TACT CDN-path / product segment from a Blizzard CDN request URL.
 ///
-/// Blizzard lancache URLs follow the pattern `/tpr/<product>/...` where
-/// `<product>` is the TACT product code. Returns the lowercased product code,
-/// or `None` if the URL does not contain a `/tpr/<segment>/` path.
+/// Blizzard lancache URLs follow the pattern `/tpr/<seg>/...` where `<seg>` is the
+/// CDN path (usually the TACT product code). Returns the lowercased segment, or
+/// `None` if the URL does not contain a `/tpr/<segment>/` path.
 ///
-/// The `configs` segment (`/tpr/configs/...`) is a shared, product-agnostic
-/// config path and is intentionally not treated as a product code.
+/// Unlike the old implementation this does NOT special-case `configs`: the shared
+/// segments are now resolved (to the shared label) rather than dropped, so the
+/// segment must be returned for the resolver to classify it.
 #[allow(dead_code)] // Only used by the log_processor binary, not the cache_* binaries that share parser.rs
 pub(crate) fn extract_tact_product(url: &str) -> Option<String> {
     let segments: Vec<&str> = url.split('/').filter(|s| !s.is_empty()).collect();
-    // Find the "tpr" segment and take the following segment as the product code.
+    // Find the "tpr" segment and take the following segment as the CDN path / product code.
     let tpr_idx = segments.iter().position(|&s| s == "tpr")?;
     let product = segments.get(tpr_idx + 1)?;
-    if product.is_empty() || *product == "configs" {
+    if product.is_empty() {
         return None;
     }
     Some(product.to_lowercase())
 }
 
-/// Look up the display name for a TACT product code.
+/// Resolve a TACT CDN-path / product segment to a game name, shared label, or unknown.
 ///
-/// Returns `None` for unknown product codes (no fallback default), mirroring how
-/// an unmapped Steam depot leaves `GameName` NULL.
+/// Returns `TactResolution::Unknown` for genuinely unrecognized segments (no
+/// fallback default), mirroring how an unmapped Steam depot leaves `GameName` NULL.
 #[allow(dead_code)] // Only used by the log_processor binary, not the cache_* binaries that share parser.rs
-pub(crate) fn tact_display_name(code: &str) -> Option<&'static str> {
-    let code_lower = code.to_lowercase();
-    TACT_PRODUCTS
-        .iter()
-        .find(|(c, _)| *c == code_lower)
-        .map(|(_, name)| *name)
+pub(crate) fn resolve_tact_segment(segment: &str) -> TactResolution {
+    let seg = segment.to_lowercase();
+    let cat = catalog();
+
+    if let Some(name) = cat.games.get(&seg) {
+        return TactResolution::Game(name.clone());
+    }
+    if cat.shared.contains(&seg) {
+        return TactResolution::Shared(cat.shared_label.clone());
+    }
+    TactResolution::Unknown
 }
 
 #[cfg(test)]
@@ -98,8 +152,13 @@ mod tests {
     }
 
     #[test]
-    fn extract_tact_product_skips_configs() {
-        assert_eq!(extract_tact_product("/tpr/configs/data/ab/cd/ef"), None);
+    fn extract_tact_product_returns_shared_segment() {
+        // configs is now returned (it is classified as shared by the resolver),
+        // no longer dropped at extraction time.
+        assert_eq!(
+            extract_tact_product("/tpr/configs/data/ab/cd/ef").as_deref(),
+            Some("configs")
+        );
     }
 
     #[test]
@@ -110,15 +169,52 @@ mod tests {
     }
 
     #[test]
-    fn tact_display_name_known_codes() {
-        assert_eq!(tact_display_name("wow"), Some("World of Warcraft"));
-        assert_eq!(tact_display_name("fenris"), Some("Diablo IV"));
-        assert_eq!(tact_display_name("pro"), Some("Overwatch 2"));
-        assert_eq!(tact_display_name("S2"), Some("StarCraft II"));
+    fn resolve_known_products() {
+        assert_eq!(
+            resolve_tact_segment("wow"),
+            TactResolution::Game("World of Warcraft".to_string())
+        );
+        assert_eq!(
+            resolve_tact_segment("fenris"),
+            TactResolution::Game("Diablo IV".to_string())
+        );
+        assert_eq!(
+            resolve_tact_segment("pro"),
+            TactResolution::Game("Overwatch 2".to_string())
+        );
+        // case-insensitive
+        assert_eq!(
+            resolve_tact_segment("S2"),
+            TactResolution::Game("StarCraft II".to_string())
+        );
+        assert_eq!(
+            resolve_tact_segment("odin"),
+            TactResolution::Game("Call of Duty: Modern Warfare (2019)".to_string())
+        );
+        assert_eq!(
+            resolve_tact_segment("auks"),
+            TactResolution::Game("Call of Duty".to_string())
+        );
     }
 
     #[test]
-    fn tact_display_name_unknown_returns_none() {
-        assert_eq!(tact_display_name("notarealcode"), None);
+    fn resolve_shared_segments() {
+        assert_eq!(
+            resolve_tact_segment("configs"),
+            TactResolution::Shared("Battle.net (shared)".to_string())
+        );
+        assert_eq!(
+            resolve_tact_segment("agent"),
+            TactResolution::Shared("Battle.net (shared)".to_string())
+        );
+        assert_eq!(
+            resolve_tact_segment("catalogs"),
+            TactResolution::Shared("Battle.net (shared)".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_unknown_returns_unknown() {
+        assert_eq!(resolve_tact_segment("notarealcode"), TactResolution::Unknown);
     }
 }

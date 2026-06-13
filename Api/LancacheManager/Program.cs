@@ -537,6 +537,10 @@ builder.Services.AddSingleton<EpicAuthStorageService>();
 // Register unified EpicMappingService for game discovery, mapping, and scheduling
 builder.Services.AddSingletonHostedService<EpicMappingService>();
 
+// Register BattleNetMappingService for re-mapping existing Blizzard downloads to game
+// names from the single-sourced TACT catalog (anonymous/static - no login, no schedule).
+builder.Services.AddSingleton<LancacheManager.Core.Services.BattleNet.BattleNetMappingService>();
+
 // Register GcScheduledService - runs on a user-configurable interval (managed through the
 // unified Schedules page) and performs aggressive GC when the working set exceeds the
 // configured threshold. Surfaces on the unified Schedules page as "performanceOptimization"
