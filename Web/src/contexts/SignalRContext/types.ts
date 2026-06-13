@@ -175,6 +175,9 @@ export const SIGNALR_EVENTS = [
   'EpicMappingProgress',
   'EpicGameMappingsUpdated',
 
+  // Blizzard / Battle.net Game Mappings
+  'BlizzardGameMappingsUpdated',
+
   // Eviction Scan
   'EvictionScanStarted',
   'EvictionScanProgress',
