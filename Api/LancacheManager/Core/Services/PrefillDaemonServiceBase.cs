@@ -423,6 +423,15 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             return existingSession;
         }
 
+        // Enforce UserId-based bans at session-create time. For anonymous services (e.g. Battle.net)
+        // there is no credential step, so this is the only point at which a ban can be enforced.
+        // Username-based (Steam/Epic) bans continue to be enforced at credential-provide time.
+        if (await _sessionService.IsUserIdBannedAsync(userId))
+        {
+            _logger.LogWarning("Refusing to create {ServiceName} session for banned user {UserId}", ServiceName, userId);
+            throw new InvalidOperationException("You are banned from using the prefill feature.");
+        }
+
         // Always pull latest image before creating session
         await EnsureImageExistsAsync(cancellationToken);
 

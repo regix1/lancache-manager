@@ -46,6 +46,7 @@ public class PrefillAdminController : ControllerBase
     {
         Id = ban.Id,
         Username = ban.Username,
+        BannedUserId = ban.BannedUserId,
         BanReason = ban.BanReason,
         BannedBySessionId = ParseGuidOrNull(ban.BannedBySessionId),
         BannedAtUtc = ban.BannedAtUtc,
@@ -243,6 +244,7 @@ public class PrefillAdminController : ControllerBase
         {
             Id = b.Id,
             Username = b.Username,
+            BannedUserId = b.BannedUserId,
             BanReason = b.BanReason,
             BannedBySessionId = ParseGuidOrNull(b.BannedBySessionId),
             BannedAtUtc = b.BannedAtUtc,
@@ -276,7 +278,7 @@ public class PrefillAdminController : ControllerBase
 
         if (ban == null)
         {
-            return BadRequest(ApiResponse.Error("Could not ban user - session has no username. User may not have logged in yet."));
+            return BadRequest(ApiResponse.Error("Could not ban user - session not found or has no identity to ban."));
         }
 
         // Also terminate the session (try all services since we don't know the platform)
@@ -284,8 +286,8 @@ public class PrefillAdminController : ControllerBase
         await _epicDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionIdString);
         await _battleNetDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionIdString);
 
-        _logger.LogWarning("Admin session {AdminId} banned Steam user {Username} from session {SessionId}. Reason: {Reason}",
-            adminSessionId, ban.Username, sessionId, request.Reason);
+        _logger.LogWarning("Admin session {AdminId} banned prefill user (username={Username}, userId={BannedUserId}) from session {SessionId}. Reason: {Reason}",
+            adminSessionId, ban.Username ?? "(none)", ban.BannedUserId, sessionId, request.Reason);
 
         return Ok(BuildBanDto(ban));
     }

@@ -51,7 +51,8 @@ public class PrefillSessionDto
 public class BannedSteamUserDto
 {
     public long Id { get; set; }
-    public string Username { get; set; } = string.Empty;
+    public string? Username { get; set; }
+    public Guid? BannedUserId { get; set; }
     public string? BanReason { get; set; }
     public Guid? BannedBySessionId { get; set; }
     public DateTime BannedAtUtc { get; set; }

@@ -46,6 +46,27 @@ public class PrefillSessionService
     }
 
     /// <summary>
+    /// Checks if a lancache-manager auth-session id (DaemonSession.UserId GUID) is banned.
+    /// This is the enforcement path for anonymous services (e.g. Battle.net) that have no username.
+    /// Returns true if there is an active ban for the given UserId.
+    /// </summary>
+    public async Task<bool> IsUserIdBannedAsync(Guid userId)
+    {
+        if (userId == Guid.Empty)
+            return false;
+
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var ban = await context.BannedSteamUsers
+            .AsNoTracking()
+            .Where(b => b.BannedUserId == userId && !b.IsLifted)
+            .Where(b => b.ExpiresAtUtc == null || b.ExpiresAtUtc > DateTime.UtcNow)
+            .FirstOrDefaultAsync();
+
+        return ban != null;
+    }
+
+    /// <summary>
     /// Bans a Steam user by their username.
     /// </summary>
     public async Task<BannedSteamUser> BanUserAsync(
@@ -87,6 +108,53 @@ public class PrefillSessionService
 
         _logger.LogWarning("Banned Steam user {Username} by session {BannedBySessionId}. Reason: {Reason}",
             username, bannedBySessionId ?? "admin", reason ?? "No reason provided");
+
+        return ban;
+    }
+
+    /// <summary>
+    /// Bans a prefill user by their lancache-manager auth-session id (DaemonSession.UserId GUID).
+    /// Used for anonymous services (e.g. Battle.net) that have no game username to ban.
+    /// </summary>
+    public async Task<BannedSteamUser> BanUserByUserIdAsync(
+        Guid bannedUserId,
+        string? reason = null,
+        string? bannedBySessionId = null,
+        string? bannedBy = null,
+        DateTime? expiresAt = null)
+    {
+        if (bannedUserId == Guid.Empty)
+            throw new ArgumentException("BannedUserId is required", nameof(bannedUserId));
+
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        // Check if already banned
+        var existingBan = await context.BannedSteamUsers
+            .Where(b => b.BannedUserId == bannedUserId && !b.IsLifted)
+            .FirstOrDefaultAsync();
+
+        if (existingBan != null)
+        {
+            _logger.LogInformation("User id {BannedUserId} is already banned", bannedUserId);
+            return existingBan;
+        }
+
+        var ban = new BannedSteamUser
+        {
+            Username = null,
+            BannedUserId = bannedUserId,
+            BanReason = reason,
+            BannedBySessionId = bannedBySessionId,
+            BannedBy = bannedBy ?? "admin",
+            BannedAtUtc = DateTime.UtcNow,
+            ExpiresAtUtc = expiresAt
+        };
+
+        context.BannedSteamUsers.Add(ban);
+        await context.SaveChangesAsync();
+
+        _logger.LogWarning("Banned prefill user id {BannedUserId} by session {BannedBySessionId}. Reason: {Reason}",
+            bannedUserId, bannedBySessionId ?? "admin", reason ?? "No reason provided");
 
         return ban;
     }
@@ -546,7 +614,12 @@ public class PrefillSessionService
     #region Admin Operations
 
     /// <summary>
-    /// Bans a user by session ID (looks up the username from the session).
+    /// Bans a user by session ID.
+    /// For sessions that captured a game username (Steam/Epic) the ban keys on that username.
+    /// For anonymous sessions with no username (e.g. Battle.net) the ban falls back to the
+    /// shared lancache-manager auth-session id (<see cref="PrefillSession.CreatedBySessionId"/>,
+    /// the DaemonSession.UserId GUID) so anonymous prefill users remain bannable.
+    /// Returns null only when the session itself cannot be found.
     /// </summary>
     public async Task<BannedSteamUser?> BanUserBySessionAsync(
         string sessionId,
@@ -560,16 +633,38 @@ public class PrefillSessionService
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.SessionId == sessionId);
 
-        if (string.IsNullOrEmpty(session?.SteamUsername))
+        if (session == null)
         {
-            _logger.LogWarning("Cannot ban user for session {SessionId} - no username found", sessionId);
+            _logger.LogWarning("Cannot ban user for session {SessionId} - session not found", sessionId);
             return null;
         }
 
-        return await BanUserAsync(
-            session.SteamUsername,
+        var bannedBySessionId = session.CreatedBySessionId == Guid.Empty
+            ? null
+            : session.CreatedBySessionId.ToString();
+
+        // Username-based ban (Steam/Epic): preserve the existing behavior exactly.
+        if (!string.IsNullOrEmpty(session.SteamUsername))
+        {
+            return await BanUserAsync(
+                session.SteamUsername,
+                reason,
+                bannedBySessionId,
+                bannedBy,
+                expiresAt);
+        }
+
+        // Anonymous session (e.g. Battle.net): ban by the shared auth-session UserId.
+        if (session.CreatedBySessionId == Guid.Empty)
+        {
+            _logger.LogWarning("Cannot ban user for session {SessionId} - no username and no auth-session id", sessionId);
+            return null;
+        }
+
+        return await BanUserByUserIdAsync(
+            session.CreatedBySessionId,
             reason,
-            session.CreatedBySessionId == Guid.Empty ? null : session.CreatedBySessionId.ToString(),
+            bannedBySessionId,
             bannedBy,
             expiresAt);
     }
