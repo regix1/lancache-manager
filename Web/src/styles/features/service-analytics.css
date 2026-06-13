@@ -431,7 +431,7 @@
 
 .legend-detail {
   padding-left: 1rem;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   color: var(--theme-text-muted);
   font-variant-numeric: tabular-nums lining-nums;
 }
