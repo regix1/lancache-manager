@@ -138,6 +138,18 @@ public static class SignalREvents
     public const string EpicPrefillHistoryUpdated = "EpicPrefillHistoryUpdated";
     public const string EpicSessionEnded = "EpicSessionEnded";
 
+    // Battle.net Prefill Daemon Events (anonymous - no account login)
+    public const string BattleNetDaemonSessionCreated = "BattleNetDaemonSessionCreated";
+    public const string BattleNetDaemonSessionUpdated = "BattleNetDaemonSessionUpdated";
+    public const string BattleNetDaemonSessionTerminated = "BattleNetDaemonSessionTerminated";
+    public const string BattleNetAuthStateChanged = "BattleNetAuthStateChanged";
+    public const string BattleNetCredentialChallenge = "BattleNetCredentialChallenge";
+    public const string BattleNetStatusChanged = "BattleNetStatusChanged";
+    public const string BattleNetPrefillStateChanged = "BattleNetPrefillStateChanged";
+    public const string BattleNetPrefillProgress = "BattleNetPrefillProgress";
+    public const string BattleNetPrefillHistoryUpdated = "BattleNetPrefillHistoryUpdated";
+    public const string BattleNetSessionEnded = "BattleNetSessionEnded";
+
     // Epic Guest Prefill Config
     public const string EpicGuestPrefillConfigChanged = "EpicGuestPrefillConfigChanged";
 

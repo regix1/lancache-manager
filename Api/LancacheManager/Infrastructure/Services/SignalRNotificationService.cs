@@ -15,17 +15,20 @@ public class SignalRNotificationService : ISignalRNotificationService
     private readonly IHubContext<DownloadHub> _downloadHubContext;
     private readonly IHubContext<SteamDaemonHub> _steamHubContext;
     private readonly IHubContext<EpicPrefillDaemonHub> _epicHubContext;
+    private readonly IHubContext<BattleNetDaemonHub> _battleNetHubContext;
     private readonly ILogger<SignalRNotificationService> _logger;
 
     public SignalRNotificationService(
         IHubContext<DownloadHub> downloadHubContext,
         IHubContext<SteamDaemonHub> steamHubContext,
         IHubContext<EpicPrefillDaemonHub> epicHubContext,
+        IHubContext<BattleNetDaemonHub> battleNetHubContext,
         ILogger<SignalRNotificationService> logger)
     {
         _downloadHubContext = downloadHubContext;
         _steamHubContext = steamHubContext;
         _epicHubContext = epicHubContext;
+        _battleNetHubContext = battleNetHubContext;
         _logger = logger;
     }
 
@@ -135,6 +138,35 @@ public class SignalRNotificationService : ISignalRNotificationService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to send SignalR notification (downloads + epic): {EventName}", eventName);
+        }
+    }
+
+    // ===== Battle.net Prefill Hub Methods =====
+
+    public async Task NotifyBattleNetPrefillClientAsync(string connectionId, string eventName, object? data = null)
+    {
+        await NotifySpecificClientAsync(_battleNetHubContext.Clients, connectionId, eventName, data, "Battle.net prefill");
+    }
+
+    public async Task SendToBattleNetPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
+    {
+        // This method throws on failure - caller is responsible for handling exceptions
+        await _battleNetHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
+    }
+
+    public async Task NotifyAllDownloadsAndBattleNetHubAsync(string eventName, object? data = null)
+    {
+        try
+        {
+            await Task.WhenAll(
+                _downloadHubContext.Clients.All.SendAsync(eventName, data),
+                _battleNetHubContext.Clients.All.SendAsync(eventName, data)
+            );
+            _logger.LogDebug("SignalR notification sent (downloads + battlenet): {EventName}", eventName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send SignalR notification (downloads + battlenet): {EventName}", eventName);
         }
     }
 
