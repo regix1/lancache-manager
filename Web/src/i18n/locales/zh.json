@@ -595,7 +595,7 @@
       "centerLabels": {
         "saved": "缓存命中",
         "internet": "缓存未命中",
-        "total": "总量",
+        "total": "已服务总量",
         "onDisk": "磁盘上"
       },
       "tabsLabel": "服务分析视图",

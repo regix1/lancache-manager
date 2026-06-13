@@ -595,7 +595,7 @@
       "centerLabels": {
         "saved": "Cache Hits",
         "internet": "Cache Misses",
-        "total": "Total",
+        "total": "Total Served",
         "onDisk": "On Disk"
       },
       "tabsLabel": "Service analytics views",

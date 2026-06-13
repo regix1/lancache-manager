@@ -141,11 +141,18 @@
   flex: 1;
   display: flex;
   justify-content: center;
-  align-items: center;
+  /* BUG 2: stretch so the height-driven donut fills the shared body height and
+     the left donut column matches the right list column at any item count. */
+  align-items: stretch;
   min-height: 0;
   position: relative;
   min-width: 0;
   overflow: hidden;
+}
+
+/* When the breakdown list is hidden the donut centers full-width; recenter it. */
+.service-analytics-body[data-show-list='false'] .analytics-chart-container {
+  align-items: center;
 }
 
 .analytics-compare-container {
@@ -280,14 +287,18 @@
   font-weight: 700;
   color: var(--theme-text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.1em;
   border-bottom: 1px solid var(--theme-border-secondary);
   margin-bottom: 0.5rem;
 }
 
 .chart-wrapper {
   position: relative;
-  width: min(100%, 400px);
+  /* BUG 2: HEIGHT-driven square so the donut's height == the body height and
+     thus == the right list height. width:auto + aspect-ratio:1 lets the square
+     grow from its height; max-width caps it so it never overflows the column. */
+  height: 100%;
+  width: auto;
   aspect-ratio: 1;
   max-width: 100%;
   max-height: 100%;
@@ -314,25 +325,26 @@
 }
 
 .chart-center-value {
-  font-size: 1.5rem;
+  font-size: 1.6rem;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--theme-text-primary);
   line-height: 1.1;
+  font-variant-numeric: tabular-nums lining-nums;
 }
 
 @container (min-width: 500px) {
   .chart-center-value {
-    font-size: 1.65rem;
+    font-size: 1.85rem;
   }
 }
 
 .chart-center-label {
-  font-size: 0.6rem;
+  font-size: 0.68rem;
   color: var(--theme-text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-top: 0.2rem;
+  letter-spacing: 0.12em;
+  margin-top: 0.3rem;
 }
 
 .data-side {
@@ -357,7 +369,7 @@
 .legend-list {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.3rem;
   padding-bottom: 0.25rem;
   padding-right: 0.2rem;
 }
@@ -409,19 +421,19 @@
 }
 
 .legend-value {
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--theme-text-primary);
-  font-variant-numeric: tabular-nums;
+  font-variant-numeric: tabular-nums lining-nums;
   white-space: nowrap;
   padding-left: 0.5rem;
 }
 
 .legend-detail {
   padding-left: 1rem;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   color: var(--theme-text-muted);
-  font-variant-numeric: tabular-nums;
+  font-variant-numeric: tabular-nums lining-nums;
 }
 
 .legend-meter {
@@ -471,7 +483,7 @@
   line-height: 1.25;
   overflow-wrap: anywhere;
   white-space: normal;
-  font-variant-numeric: tabular-nums;
+  font-variant-numeric: tabular-nums lining-nums;
 }
 
 .analytics-insight.primary .analytics-insight-value {
@@ -479,11 +491,11 @@
 }
 
 .analytics-insight-label {
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   color: var(--theme-text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-top: 0.2rem;
+  letter-spacing: 0.1em;
+  margin-top: 0.25rem;
 }
 
 @container (max-width: 480px) {
@@ -650,29 +662,22 @@
 
 .empty-icon {
   position: relative;
-  width: 56px;
-  height: 56px;
+  width: 72px;
+  height: 72px;
   margin-bottom: 1rem;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
+/* Faint placeholder donut ring (NOT a broken 0-slice donut) - a thick muted
+   ring with a hollow center mirrors the real donut so empty reads as "no data
+   yet" rather than a rendering error. */
 .empty-icon-bg {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  border: 2px dashed var(--theme-border-secondary);
-  animation: rotate-slow 15s linear infinite;
-}
-
-@keyframes rotate-slow {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  border: 9px solid var(--theme-bg-secondary-strong);
 }
 
 .empty-icon svg {
@@ -724,6 +729,21 @@
     flex: 1 1 auto;
     width: 100%;
     min-width: 0;
+  }
+
+  /* On phones the body is auto-height (stacked column), so the height-driven
+     desktop donut would collapse to 0. Give the chart its own bounded height
+     and let the wrapper grow from WIDTH again (capped square). */
+  .analytics-chart-container {
+    align-items: center;
+    height: 18rem;
+    min-height: 18rem;
+  }
+
+  .chart-wrapper {
+    height: auto;
+    width: min(100%, 320px);
+    max-height: 100%;
   }
 
   .analytics-list-container {
