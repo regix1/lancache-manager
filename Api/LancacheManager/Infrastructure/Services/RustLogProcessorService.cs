@@ -817,15 +817,6 @@ public class RustLogProcessorService
                     // game detection (GameDetectionService) has finished.
                 });
 
-                // Invalidate the live dashboard-batch cache BEFORE signalling the frontend, so the
-                // refetch triggered by DownloadsRefresh (silent) / LogProcessingComplete (full) reads
-                // the freshly-written rows instead of the up-to-15s-stale cached snapshot. Resolved
-                // lazily from the provider (singleton) to avoid a constructor DI cycle.
-                if (shouldFinalizeOperation)
-                {
-                    _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateLiveCache();
-                }
-
                 if (!silentMode && shouldFinalizeOperation)
                 {
                     // Set IsProcessing to false BEFORE the delay so polling can detect completion

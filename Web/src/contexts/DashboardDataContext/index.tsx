@@ -4,7 +4,6 @@ import { isAbortError } from '@utils/error';
 import { EMPTY_CACHED_DETECTION, buildDetectionLookupMaps } from '@utils/gameDetection';
 import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../useTimeFilter';
-import { useRefreshRate } from '../useRefreshRate';
 import { useSignalR } from '../SignalRContext/useSignalR';
 import { useAuth } from '../useAuth';
 import { SIGNALR_REFRESH_EVENTS } from '../SignalRContext/types';
@@ -33,7 +32,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 }) => {
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventIds } =
     useTimeFilter();
-  const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
   const { hasSession, isLoading: authLoading } = useAuth();
   const hasAccess = hasSession;
@@ -101,7 +99,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   // This ensures that any function reading from these refs gets the current value
   const currentTimeRangeRef = useRef<string>(timeRange);
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
-  const getRefreshIntervalRef = useRef(getRefreshInterval);
   const mockModeRef = useRef(mockMode);
   const selectedEventIdsRef = useRef<number[]>(selectedEventIds);
   const authLoadingRef = useRef(authLoading);
@@ -110,7 +107,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   // Update refs synchronously on every render
   currentTimeRangeRef.current = timeRange;
   getTimeRangeParamsRef.current = getTimeRangeParams;
-  getRefreshIntervalRef.current = getRefreshInterval;
   mockModeRef.current = mockMode;
   selectedEventIdsRef.current = selectedEventIds;
   authLoadingRef.current = authLoading;
@@ -294,12 +290,15 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   useEffect(() => {
     if (mockMode) return;
 
-    // Trailing debounce: any SignalR refresh event resets the 1-second timer.
-    // The fetch fires once, 1 second after the last event in a burst.
+    // Trailing debounce on SignalR push events, fixed at 500ms and DECOUPLED from the user's
+    // refresh-rate setting (that setting still governs the speed panel's polling, just not this).
+    // A push means "data is ready now", so the debounce only coalesces bursts and must stay BELOW
+    // the live monitor's ~1s emit cadence: tying it to the 10s STANDARD interval made the trailing
+    // timer reset on every tick and never fire during a continuous download (looked like "never live").
     // For historical ranges (not 'live'), skip SignalR refreshes to prevent flickering.
     const handleRefreshEvent = (eventName?: string) => {
       if (currentTimeRangeRef.current !== 'live') return;
-      const delay = getRefreshIntervalRef.current() || 500;
+      const delay = 500;
       if (refreshDebounceTimerRef.current) clearTimeout(refreshDebounceTimerRef.current);
       refreshDebounceTimerRef.current = setTimeout(
         () => fetchAllData({ trigger: `signalr:${eventName || 'unknown'}` }),

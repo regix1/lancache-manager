@@ -17,25 +17,38 @@ public class SignalRNotificationService : ISignalRNotificationService
     private readonly IHubContext<EpicPrefillDaemonHub> _epicHubContext;
     private readonly IHubContext<BattleNetDaemonHub> _battleNetHubContext;
     private readonly ILogger<SignalRNotificationService> _logger;
+    private readonly IServiceProvider _serviceProvider;
 
     public SignalRNotificationService(
         IHubContext<DownloadHub> downloadHubContext,
         IHubContext<SteamDaemonHub> steamHubContext,
         IHubContext<EpicPrefillDaemonHub> epicHubContext,
         IHubContext<BattleNetDaemonHub> battleNetHubContext,
-        ILogger<SignalRNotificationService> logger)
+        ILogger<SignalRNotificationService> logger,
+        IServiceProvider serviceProvider)
     {
         _downloadHubContext = downloadHubContext;
         _steamHubContext = steamHubContext;
         _epicHubContext = epicHubContext;
         _battleNetHubContext = battleNetHubContext;
         _logger = logger;
+        _serviceProvider = serviceProvider;
     }
 
     public async Task NotifyAllAsync(string eventName, object? data = null)
     {
         try
         {
+            // Events that make the frontend refetch GET /api/dashboard/batch must first expire the
+            // live batch cache, or the refetch is served the (up to 15s) stale snapshot. This is the
+            // single chokepoint for ALL DownloadsRefresh + LogProcessingComplete emitters (log
+            // processing, evictions, removals, mapping re-resolves, speed-tracker idle ticks).
+            // Resolved lazily to avoid a constructor DI cycle (IDashboardBatchService is a singleton).
+            if (eventName is SignalREvents.DownloadsRefresh or SignalREvents.LogProcessingComplete)
+            {
+                _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateLiveCache();
+            }
+
             await _downloadHubContext.Clients.All.SendAsync(eventName, data);
             _logger.LogDebug("SignalR notification sent to all: {EventName}", eventName);
         }
