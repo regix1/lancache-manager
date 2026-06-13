@@ -292,7 +292,8 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           })
         );
 
-        if (activeSession.authState === 'Authenticated') {
+        if (activeSession.authState === 'Authenticated' && serviceId !== 'battlenet') {
+          // Battle.net is anonymous - never logs a "logged in" message
           addLog('info', t('prefill.log.alreadyLoggedIn'));
         } else if (serviceId !== 'battlenet') {
           // Battle.net is anonymous - no login prompt needed
@@ -431,7 +432,10 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
             t('prefill.log.connectedExistingSession'),
             t('prefill.log.containerDetail', { name: sessionDto.containerName })
           );
-          addLog('info', t('prefill.log.alreadyLoggedIn'));
+          if (serviceId !== 'battlenet') {
+            // Battle.net is anonymous - no "logged in" message
+            addLog('info', t('prefill.log.alreadyLoggedIn'));
+          }
         } else {
           addLog(
             'success',

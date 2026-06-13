@@ -483,7 +483,10 @@ function ServicePrefillPanel({
           appId: String(game.appId)
         }));
         setOwnedGames(normalizedGames);
-        addLog('info', t('prefill.log.foundGames', { count: normalizedGames.length }));
+        if (serviceId !== 'battlenet') {
+          // Battle.net has a fixed public catalog - "owned games" framing is inaccurate
+          addLog('info', t('prefill.log.foundGames', { count: normalizedGames.length }));
+        }
 
         // Get cached apps via ApiService and verify against daemon manifests/build versions
         const cachedApps = await ApiService.getPrefillCachedApps();
@@ -521,7 +524,7 @@ function ServicePrefillPanel({
         setIsLoadingGames(false);
       }
     },
-    [signalR.session, addLog, t, serviceBasePath, gamesCacheWindowMs]
+    [signalR.session, addLog, t, serviceBasePath, gamesCacheWindowMs, serviceId]
   );
 
   const executeCommand = useCallback(
@@ -599,7 +602,10 @@ function ServicePrefillPanel({
             break;
           }
           case 'select-apps': {
-            addLog('progress', t('prefill.log.loadingGameLibrary'));
+            if (serviceId !== 'battlenet') {
+              // Battle.net has a fixed public catalog - no "library" to load
+              addLog('progress', t('prefill.log.loadingGameLibrary'));
+            }
             setShowGameSelection(true);
             await loadGames();
             break;
