@@ -3473,7 +3473,16 @@
       "upToDate": "Up to Date",
       "elapsed": "elapsed",
       "gameUpToDate": "Game is already up to date in cache",
-      "preparingOperation": "Preparing prefill operation..."
+      "preparingOperation": "Preparing prefill operation...",
+      "gameXofN": "Game {{current}} of {{total}}",
+      "etaCurrentGame": "{{time}} left on this game",
+      "etaLessThanSecond": "< 1s",
+      "etaSeconds": "{{seconds}}s",
+      "etaMinutesSeconds": "{{minutes}}m {{seconds}}s",
+      "etaHoursMinutes": "{{hours}}h {{minutes}}m",
+      "failedCount": "({{count}} failed)",
+      "startingMessage": "Contacting daemon...",
+      "cancelling": "Cancelling..."
     },
     "duration": {
       "zero": "0s",
@@ -3672,6 +3681,7 @@
       "cacheDbCleared": "Prefill cache database cleared successfully",
       "failedClearCacheDb": "Failed to clear cache database",
       "commandFailed": "Command failed",
+      "alreadyRunning": "A prefill is already running for this session",
       "cancellingPrefill": "Cancelling prefill operation...",
       "failedCancelPrefill": "Failed to cancel prefill",
       "selectedGames": "Selected {{count}} game for prefill",

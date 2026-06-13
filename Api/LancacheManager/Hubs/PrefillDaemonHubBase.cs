@@ -152,6 +152,11 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
         _daemonService.AddSubscriber(sessionId, Context.ConnectionId);
 
         await Clients.Caller.SendAsync(SignalREvents.SessionSubscribed, DaemonSessionDto.FromSession(session));
+
+        // Re-hydration: if a prefill is in flight, replay the retained live progress snapshot to
+        // THIS caller only (reuses the existing PrefillProgress event; no new event; no
+        // double-broadcast to other subscribers) so the bar binds without waiting for the next tick.
+        await _daemonService.ReplayCurrentProgressToConnectionAsync(sessionId, Context.ConnectionId);
     }
 
     /// <summary>
@@ -262,6 +267,35 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
             CompletedAt = session.LastPrefillCompletedAt.Value,
             DurationSeconds = session.LastPrefillDurationSeconds ?? 0
         };
+    }
+
+    /// <summary>
+    /// Gets the live prefill progress snapshot for a session.
+    /// Used by clients to re-hydrate the progress bar after connect / reconnect / tab-return
+    /// while a prefill is still running. Returns the retained <see cref="PrefillProgress"/>
+    /// snapshot when the session is prefilling, else null. Mirrors the owned-session check
+    /// and shape of <see cref="GetLastPrefillResult"/>. This is a hub INVOKE (not a broadcast
+    /// event), so it is intentionally absent from SIGNALR_EVENTS.
+    /// </summary>
+    public PrefillProgress? GetCurrentPrefillProgress(string sessionId)
+    {
+        ValidateSessionAccess(sessionId, out var session);
+
+        // Snapshot the (IsPrefilling, LastProgress) pair into locals with single reads each.
+        // These two fields are written on the daemon-event thread (NotifyPrefillProgressAsync /
+        // TransitionToTerminalAsync) and read here on the hub-invoke thread with no lock. Reading
+        // each once means this call returns a self-consistent pair (never IsPrefilling==true with a
+        // LastProgress that a concurrent terminal transition has already nulled). A torn read just
+        // self-heals on the next tick, and the frontend already handles a null snapshot. (V9)
+        var isPrefilling = session.IsPrefilling;
+        var snapshot = session.LastProgress;
+
+        if (!isPrefilling)
+        {
+            return null;
+        }
+
+        return snapshot;
     }
 
     /// <summary>

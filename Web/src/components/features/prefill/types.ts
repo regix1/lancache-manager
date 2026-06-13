@@ -1,4 +1,3 @@
-import React from 'react';
 import {
   Clock,
   Download,
@@ -8,7 +7,8 @@ import {
   Gamepad2,
   TrendingUp,
   ShoppingCart,
-  Database
+  Database,
+  type LucideIcon
 } from 'lucide-react';
 import i18n from '../../../i18n';
 import type { DropdownOption } from '@components/ui/EnhancedDropdown';
@@ -33,6 +33,18 @@ export interface PrefillSessionDto {
   timeRemainingSeconds: number;
   authState: DaemonAuthState;
   networkDiagnostics?: NetworkDiagnostics;
+  /**
+   * Server truth: is a prefill currently running on the daemon? Stays true from start-ack
+   * through the real download (driven by terminal socket state, not the start-ack).
+   * Used to re-hydrate the progress bar on (re)connect/(re)mount/tab-return.
+   */
+  isPrefilling?: boolean;
+  /** App id currently being prefilled (when isPrefilling). */
+  currentAppId?: string;
+  /** Display name of the app currently being prefilled (when isPrefilling). */
+  currentAppName?: string;
+  /** Total bytes transferred so far in the running prefill (when isPrefilling). */
+  totalBytesTransferred?: number;
 }
 
 export interface PrefillPanelProps {
@@ -52,23 +64,22 @@ export type CommandType =
 
 export interface CommandButton {
   id: CommandType;
-  label: string;
-  description: string;
-  icon: React.ReactNode;
+  /** Icon component reference (rendered by the consumer; storing the component, not JSX,
+   *  keeps this a pure .ts module so it satisfies the Fast-Refresh / "no JSX in data" rule). */
+  icon: LucideIcon;
   variant?: 'default' | 'outline' | 'filled' | 'subtle';
   requiresLogin?: boolean;
   authOnly?: boolean; // Only show for authenticated users (not guests)
   color?: 'blue' | 'green' | 'red' | 'yellow' | 'purple' | 'gray' | 'orange' | 'default';
 }
 
-// Grouped command buttons for better organization
-// Note: ALL commands require login - nothing works without Steam auth
+// Grouped command buttons for better organization.
+// Note: ALL commands require login - nothing works without Steam auth.
+// Labels/descriptions are resolved via i18n in the consumer (keyed by `id`).
 export const SELECTION_COMMANDS: CommandButton[] = [
   {
     id: 'select-apps',
-    label: '',
-    description: '',
-    icon: <List className="h-4 w-4" />,
+    icon: List,
     variant: 'filled',
     color: 'blue'
   }
@@ -77,38 +88,28 @@ export const SELECTION_COMMANDS: CommandButton[] = [
 export const PREFILL_COMMANDS: CommandButton[] = [
   {
     id: 'prefill',
-    label: '',
-    description: '',
-    icon: <Download className="h-4 w-4" />,
+    icon: Download,
     variant: 'filled',
     color: 'green'
   },
   {
     id: 'prefill-all',
-    label: '',
-    description: '',
-    icon: <Gamepad2 className="h-4 w-4" />,
+    icon: Gamepad2,
     variant: 'outline'
   },
   {
     id: 'prefill-recent',
-    label: '',
-    description: '',
-    icon: <Clock className="h-4 w-4" />,
+    icon: Clock,
     variant: 'outline'
   },
   {
     id: 'prefill-recent-purchased',
-    label: '',
-    description: '',
-    icon: <ShoppingCart className="h-4 w-4" />,
+    icon: ShoppingCart,
     variant: 'outline'
   },
   {
     id: 'prefill-top',
-    label: '',
-    description: '',
-    icon: <TrendingUp className="h-4 w-4" />,
+    icon: TrendingUp,
     variant: 'outline'
   }
 ];
@@ -116,24 +117,18 @@ export const PREFILL_COMMANDS: CommandButton[] = [
 export const UTILITY_COMMANDS: CommandButton[] = [
   {
     id: 'prefill-force',
-    label: '',
-    description: '',
-    icon: <RefreshCw className="h-4 w-4" />,
+    icon: RefreshCw,
     variant: 'outline'
   },
   {
     id: 'clear-temp',
-    label: '',
-    description: '',
-    icon: <Trash2 className="h-4 w-4" />,
+    icon: Trash2,
     variant: 'outline',
     color: 'red'
   },
   {
     id: 'clear-cache-data',
-    label: '',
-    description: '',
-    icon: <Database className="h-4 w-4" />,
+    icon: Database,
     variant: 'outline',
     color: 'red',
     authOnly: true
@@ -189,6 +184,24 @@ export function formatTimeRemaining(seconds: number): string {
     return t('prefill.timeRemaining.minutesSeconds', { minutes, seconds: secs });
   }
   return t('prefill.timeRemaining.seconds', { seconds: secs });
+}
+
+// Short download ETA formatter. Distinct from formatTimeRemaining (which carries SESSION-expiry
+// semantics and returns "Expiring..." at <= 0). For a download ETA, <= 0 means "almost done", so
+// it returns a "< 1s" string instead of a misleading expiry label.
+export function formatEtaShort(seconds: number): string {
+  const t = i18n.t.bind(i18n);
+  if (seconds <= 0) return t('prefill.progress.etaLessThanSecond');
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  if (hours > 0) {
+    return t('prefill.progress.etaHoursMinutes', { hours, minutes });
+  }
+  if (minutes > 0) {
+    return t('prefill.progress.etaMinutesSeconds', { minutes, seconds: secs });
+  }
+  return t('prefill.progress.etaSeconds', { seconds: secs });
 }
 
 export function formatDurationFromSeconds(seconds: number): string {

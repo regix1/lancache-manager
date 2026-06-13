@@ -179,41 +179,91 @@ public abstract partial class PrefillDaemonServiceBase
             new { sessionId = session.Id, status });
     }
 
-    private async Task NotifyPrefillStateChangeAsync(DaemonSession session, string state)
+    /// <summary>
+    /// Emits the non-terminal <c>started</c> state transition: resets the per-run terminal
+    /// idempotency guard, records the start time, clears any previous completion result, and
+    /// broadcasts exactly one <c>PrefillStateChanged</c>. Terminal transitions
+    /// (completed/failed/cancelled) go exclusively through <see cref="TransitionToTerminalAsync"/>.
+    /// </summary>
+    private async Task NotifyPrefillStartedAsync(DaemonSession session)
     {
+        // Track when prefill started for duration calculation
+        session.PrefillStartedAt = DateTime.UtcNow;
+        // Arm the terminal funnel for this run (allows exactly one terminal transition)
+        Interlocked.Exchange(ref session.TerminalCompletedFlag, 0);
+        session.PrefillState = PrefillState.Started;
+        // Clear any previous completion info
+        session.LastPrefillCompletedAt = null;
+        session.LastPrefillDurationSeconds = null;
+        session.LastPrefillStatus = null;
+
+        var state = PrefillProgressState.Started.ToWireString();
+        await BroadcastToSubscribersAsync(session, EventPrefillStateChanged,
+            new { sessionId = session.Id, state, durationSeconds = (int?)null });
+    }
+
+    /// <summary>
+    /// THE SINGLE terminal funnel for a prefill run. Idempotent via an
+    /// <see cref="Interlocked.CompareExchange(ref int, int, int)"/> guard on
+    /// <see cref="DaemonSession.TerminalCompletedFlag"/>, so a socket-death + a late daemon
+    /// terminal event can never double-fire. This is the ONLY place that:
+    /// sets <c>IsPrefilling=false</c>, records the <c>LastPrefill*</c> completion result,
+    /// clears the <c>LastProgress</c> snapshot, and emits exactly one <c>PrefillStateChanged</c>.
+    /// ALL terminal paths (completed / failed / cancelled / cancel / socket-disconnect) route here.
+    /// </summary>
+    private async Task TransitionToTerminalAsync(DaemonSession session, PrefillState terminalState)
+    {
+        // Idempotency: only the first caller for this run wins.
+        if (Interlocked.CompareExchange(ref session.TerminalCompletedFlag, 1, 0) != 0)
+        {
+            return;
+        }
+
+        var state = terminalState switch
+        {
+            PrefillState.Completed => PrefillProgressState.Completed.ToWireString(),
+            PrefillState.Failed => PrefillProgressState.Failed.ToWireString(),
+            PrefillState.Cancelled => PrefillProgressState.Cancelled.ToWireString(),
+            // Defensive: a non-terminal value should never reach here; treat as Failed.
+            _ => PrefillProgressState.Failed.ToWireString()
+        };
+
         int? durationSeconds = null;
-        var parsed = PrefillProgressStateExtensions.ParseOrUnknown(state);
-
-        // For completion states, calculate duration and store the result for background detection
-        if (parsed == PrefillProgressState.Completed
-            || parsed == PrefillProgressState.Failed
-            || parsed == PrefillProgressState.Cancelled)
+        if (session.PrefillStartedAt.HasValue)
         {
-            if (session.PrefillStartedAt.HasValue)
-            {
-                durationSeconds = (int)(DateTime.UtcNow - session.PrefillStartedAt.Value).TotalSeconds;
-            }
-
-            // Store the last prefill result for clients that were disconnected during prefill
-            session.LastPrefillCompletedAt = DateTime.UtcNow;
-            session.LastPrefillDurationSeconds = durationSeconds;
-            session.LastPrefillStatus = state;
-
-            _logger.LogInformation("Prefill {State} for session {SessionId}, duration: {Duration}s",
-                state, session.Id, durationSeconds ?? 0);
+            durationSeconds = (int)(DateTime.UtcNow - session.PrefillStartedAt.Value).TotalSeconds;
         }
-        else if (parsed == PrefillProgressState.Started)
-        {
-            // Track when prefill started for duration calculation
-            session.PrefillStartedAt = DateTime.UtcNow;
-            // Clear any previous completion info
-            session.LastPrefillCompletedAt = null;
-            session.LastPrefillDurationSeconds = null;
-            session.LastPrefillStatus = null;
-        }
+
+        // The terminal funnel is the SOLE setter of IsPrefilling=false (started/download keep it true).
+        session.IsPrefilling = false;
+        session.PrefillState = terminalState;
+        session.LastProgress = null;
+        session.CurrentAppId = null;
+        session.CurrentAppName = null;
+        session.PreviousAppId = null;
+        session.PreviousAppName = null;
+
+        // Store the last prefill result for clients that were disconnected during prefill
+        session.LastPrefillCompletedAt = DateTime.UtcNow;
+        session.LastPrefillDurationSeconds = durationSeconds;
+        session.LastPrefillStatus = state;
+
+        _logger.LogInformation("Prefill {State} for session {SessionId}, duration: {Duration}s",
+            state, session.Id, durationSeconds ?? 0);
 
         await BroadcastToSubscribersAsync(session, EventPrefillStateChanged,
             new { sessionId = session.Id, state, durationSeconds });
+
+        // Keep admin pages in sync (IsPrefilling flipped false, current app cleared).
+        try
+        {
+            var dto = DaemonSessionDto.FromSession(session);
+            await NotifyAllDownloadsAndServiceHubAsync(EventSessionUpdated, dto);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to broadcast session update after terminal transition for session {SessionId}", session.Id);
+        }
     }
 
     private async Task NotifyPrefillProgressAsync(DaemonSession session, PrefillProgress progress)
@@ -376,8 +426,28 @@ public abstract partial class PrefillDaemonServiceBase
                     BytesPerSecond = 0,
                     Result = progress.Result,
                     TotalApps = progress.TotalApps,
-                    UpdatedApps = progress.UpdatedApps
+                    UpdatedApps = progress.UpdatedApps,
+                    // Carry the cached/failed app counts so the frontend's
+                    // processedApps = updatedApps + alreadyUpToDate + failedApps doesn't
+                    // undercount across cached games (which never bump UpdatedApps) and
+                    // "Game X of N" can't jump backward. (V4-A)
+                    AlreadyUpToDate = progress.AlreadyUpToDate,
+                    FailedApps = progress.FailedApps,
+                    // Carry the running session total so a reconnect mid-cached-run
+                    // re-hydrates the correct aggregate, not a stale value. (V4-B)
+                    TotalBytesTransferred = session.TotalBytesTransferred
                 };
+
+                // Retain this app_completed snapshot as the live snapshot BEFORE broadcasting,
+                // so a client that reconnects during a run of consecutive cached games (which
+                // only emit app_completed ticks, no "downloading" ticks) re-hydrates the current
+                // snapshot via GetCurrentPrefillProgress / subscribe-replay instead of a stale
+                // "downloading" one. Bump Started -> Downloading like the normal path. (V4-B)
+                session.LastProgress = frontendProgress;
+                if (session.PrefillState == PrefillState.Started)
+                {
+                    session.PrefillState = PrefillState.Downloading;
+                }
 
                 await BroadcastToSubscribersAsync(session, EventPrefillProgress,
                     new { sessionId = session.Id, progress = frontendProgress });
@@ -444,10 +514,16 @@ public abstract partial class PrefillDaemonServiceBase
                 }
             }
 
-            // Notify frontend of prefill state change (completed/failed)
-            // Normalise daemon "error" → "failed" via the shared extension helper.
-            var notifyState = progressState.NormaliseErrorToFailed().ToWireString();
-            await NotifyPrefillStateChangeAsync(session, notifyState);
+            // Route through the single idempotent terminal funnel.
+            // Normalise daemon "error" → "failed" first.
+            var normalised = progressState.NormaliseErrorToFailed();
+            var terminalState = normalised switch
+            {
+                PrefillProgressState.Completed => PrefillState.Completed,
+                PrefillProgressState.Cancelled => PrefillState.Cancelled,
+                _ => PrefillState.Failed
+            };
+            await TransitionToTerminalAsync(session, terminalState);
             return; // Don't process further for terminal states
         }
 
@@ -472,6 +548,19 @@ public abstract partial class PrefillDaemonServiceBase
             }
             // Total = completed games + current game progress (for real-time display)
             session.TotalBytesTransferred = session.CompletedBytesTransferred + progress.BytesDownloaded;
+        }
+
+        // Fill in the running session-level totals so the retained snapshot is self-contained
+        // for re-hydration (a reconnecting client reads these straight off LastProgress).
+        progress.TotalBytesTransferred = session.TotalBytesTransferred;
+
+        // Retain the latest live snapshot on the session BEFORE broadcasting, so a client that
+        // connects/refreshes/reconnects mid-prefill can immediately re-hydrate the bar
+        // (GetCurrentPrefillProgress / subscribe replay) without waiting for the next tick.
+        session.LastProgress = progress;
+        if (session.PrefillState == PrefillState.Started)
+        {
+            session.PrefillState = PrefillState.Downloading;
         }
 
         // Broadcast session update to all clients on every progress (for admin pages - both hubs)

@@ -3473,7 +3473,16 @@
       "upToDate": "已是最新",
       "elapsed": "已用时",
       "gameUpToDate": "游戏在缓存中已是最新",
-      "preparingOperation": "正在准备预填充操作..."
+      "preparingOperation": "正在准备预填充操作...",
+      "gameXofN": "第 {{current}} 个游戏，共 {{total}} 个",
+      "etaCurrentGame": "本游戏剩余 {{time}}",
+      "etaLessThanSecond": "< 1秒",
+      "etaSeconds": "{{seconds}}秒",
+      "etaMinutesSeconds": "{{minutes}}分 {{seconds}}秒",
+      "etaHoursMinutes": "{{hours}}小时 {{minutes}}分",
+      "failedCount": "（{{count}} 个失败）",
+      "startingMessage": "正在连接守护进程...",
+      "cancelling": "正在取消..."
     },
     "duration": {
       "zero": "0秒",
@@ -3672,6 +3681,7 @@
       "cacheDbCleared": "预填充缓存数据库已成功清除",
       "failedClearCacheDb": "清除缓存数据库失败",
       "commandFailed": "命令失败",
+      "alreadyRunning": "此会话已有预填充正在运行",
       "cancellingPrefill": "正在取消预填充操作...",
       "failedCancelPrefill": "取消预填充失败",
       "selectedGames": "已选择 {{count}} 个游戏进行预填充",

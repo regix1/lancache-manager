@@ -29,6 +29,28 @@
     width: var(--progress-width);
   }
 
+  /* Per-app bar enter animation. The per-app bar is keyed by currentAppId so it REMOUNTS on each
+     game change; without this it would snap straight to the previous 100% then jump back. Animating
+     width from 0 to its target on mount reads as "a new game is starting" instead of a jarring
+     snap-back (O5). `backwards` fill applies the 0% start before the first frame paints. */
+  .prefill-app-bar-enter {
+    animation: prefill-app-bar-grow 0.45s ease-out backwards;
+  }
+
+  @keyframes prefill-app-bar-grow {
+    from {
+      width: 0;
+    }
+    to {
+      width: var(--progress-width);
+    }
+  }
+
+  /* Compact "Cancelling..." row shown in place of the frozen progress bars (O6). */
+  .prefill-cancelling-row {
+    padding: 0.25rem 0;
+  }
+
   /* Loading State - Service-specific icon variants */
   .prefill-loading-icon--steam {
     background-color: var(--theme-steam-subtle);

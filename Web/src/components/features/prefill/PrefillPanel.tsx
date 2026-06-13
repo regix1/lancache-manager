@@ -14,7 +14,6 @@ import { useAuth } from '@contexts/useAuth';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
-import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { API_BASE } from '@utils/constants';
 
 import { ScrollText, X, Timer, LogIn, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -30,6 +29,7 @@ import { PrefillCommandButtons } from './PrefillCommandButtons';
 import { PrefillConfirmModal } from './PrefillConfirmModal';
 import { CompletionBanner } from './CompletionBanner';
 import { usePrefillSignalR } from './hooks/usePrefillSignalR';
+import { prefillServiceConfig } from './hooks/prefillServiceConfig';
 import { type PrefillPanelProps, type CommandType, formatTimeRemaining } from './types';
 import type { DaemonAuthState } from '@/types/operations';
 
@@ -37,12 +37,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const { selectedService, setSelectedService } = useGameService();
   const [pendingService, setPendingService] = useState<GameServiceId | null>(null);
 
-  const hubPath =
-    selectedService === 'epic'
-      ? '/epic-prefill-daemon'
-      : selectedService === 'battlenet'
-        ? '/battlenet-prefill-daemon'
-        : '/steam-daemon';
+  const hubPath = prefillServiceConfig(selectedService).hubPath;
 
   const handleServiceStart = useCallback(
     (serviceId: GameServiceId) => {
@@ -88,12 +83,9 @@ function ServicePrefillPanel({
   onServiceStart
 }: ServicePrefillPanelProps) {
   const { t } = useTranslation();
-  const serviceBasePath =
-    serviceId === 'epic'
-      ? 'epic-daemon'
-      : serviceId === 'battlenet'
-        ? 'battlenet-daemon'
-        : 'steam-daemon';
+  const serviceConfig = prefillServiceConfig(serviceId);
+  const serviceBasePath = serviceConfig.serviceBasePath;
+  const ServiceIcon = serviceConfig.icon;
   const hasExpiredRef = useRef(false);
   const gamesCacheRef = useRef<{
     sessionId: string | null;
@@ -433,11 +425,16 @@ function ServicePrefillPanel({
       });
 
       if (!response.ok) {
-        const error = await response
-          .json()
-          .catch(() => ({ message: t('prefill.errors.requestFailed') }));
+        const error = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          message?: string;
+        };
+        // The 409 "already running" body shape is `{ error: ... }`; other error paths use
+        // `{ message: ... }`. Read both so the specific reason surfaces regardless of shape.
         throw new Error(
-          error.message || t('prefill.errors.httpStatus', { status: response.status })
+          error.error ??
+            error.message ??
+            t('prefill.errors.httpStatus', { status: response.status })
         );
       }
 
@@ -533,6 +530,16 @@ function ServicePrefillPanel({
       if (signalR.session.status !== 'Active' || signalR.timeRemaining <= 0) {
         signalR.setError(t('prefill.errors.sessionExpired'));
         addLog('warning', t('prefill.errors.sessionExpired'));
+        return;
+      }
+
+      // Start guard: never POST a second prefill while one is already running on the daemon.
+      // `isPrefillActive` is now reliable (re-hydrated from server `isPrefilling`), so this also
+      // covers the previously-broken "already running but no bar" state. Surface "already
+      // running" instead of spawning a duplicate daemon run.
+      const isPrefillCommand = commandType.startsWith('prefill');
+      if (isPrefillCommand && signalR.isPrefillActive) {
+        addLog('warning', t('prefill.log.alreadyRunning'));
         return;
       }
 
@@ -638,6 +645,21 @@ function ServicePrefillPanel({
         }
       } catch (err) {
         addLog('error', err instanceof Error ? err.message : t('prefill.log.commandFailed'));
+        // V1: roll back the OPTIMISTIC 'starting' bar painted in handleConfirmCommand. If the
+        // prefill POST threw (409 already-running / network / non-ok) no daemon run started, so no
+        // terminal event will ever arrive to clear it — without this the fake "Contacting daemon..."
+        // bar (and its live-but-dead Cancel) sticks and the start-guard blocks all retries. Gated to
+        // the prefill start path so a genuinely-running prefill's bar (which the start-guard already
+        // protects from re-entry) is never clobbered.
+        if (isPrefillCommand) {
+          signalR.setIsPrefillActive(false);
+          signalR.setPrefillProgress(null);
+          try {
+            sessionStorage.removeItem('prefill_in_progress');
+          } catch {
+            /* ignore */
+          }
+        }
       } finally {
         setIsExecuting(false);
       }
@@ -648,6 +670,7 @@ function ServicePrefillPanel({
       signalR.hubConnection,
       signalR.expectedAppCountRef,
       signalR.timeRemaining,
+      signalR.isPrefillActive,
       signalR.setError,
       callPrefillApi,
       selectedAppIds,
@@ -679,19 +702,11 @@ function ServicePrefillPanel({
     }
   }, [signalR.session, signalR.hubConnection, authActions]);
 
-  const handleCancelPrefill = useCallback(async () => {
-    if (!signalR.session || !signalR.hubConnection.current) return;
-
-    signalR.isCancelling.current = true;
-    addLog('info', t('prefill.log.cancellingPrefill'));
-
-    try {
-      await signalR.hubConnection.current.invoke('CancelPrefillAsync', signalR.session.id);
-    } catch (_err) {
-      signalR.isCancelling.current = false;
-      addLog('error', t('prefill.log.failedCancelPrefill'));
-    }
-  }, [signalR.session, signalR.hubConnection, signalR.isCancelling, addLog, t]);
+  const handleCancelPrefill = useCallback(() => {
+    // Full cancel orchestration (hard-stop animations + reactive "Cancelling..." state + watchdog
+    // + hub invoke) lives in the SignalR hook so it can reach the internal animation refs.
+    void signalR.cancelPrefill();
+  }, [signalR]);
 
   const handleOpenAuthModal = useCallback(() => {
     authActions.resetAuthForm();
@@ -842,12 +857,39 @@ function ServicePrefillPanel({
   );
 
   const handleConfirmCommand = useCallback(() => {
-    if (pendingConfirmCommand) {
-      executeCommand(pendingConfirmCommand);
+    if (!pendingConfirmCommand) return;
+
+    // Continue start-guard: short-circuit if a prefill is already running (reliable now that
+    // isPrefillActive is re-hydrated from server truth) so Continue can't spawn a duplicate run.
+    if (pendingConfirmCommand.startsWith('prefill') && signalR.isPrefillActive) {
+      addLog('warning', t('prefill.log.alreadyRunning'));
       setPendingConfirmCommand(null);
       setEstimatedSize({ bytes: 0, loading: false });
+      return;
     }
-  }, [pendingConfirmCommand, executeCommand]);
+
+    // Optimistic start: paint a 'starting' bar immediately so there is no dead gap between
+    // Continue and the first server PrefillProgress/PrefillStateChanged event.
+    if (pendingConfirmCommand.startsWith('prefill')) {
+      signalR.isCancelling.current = false;
+      signalR.setIsPrefillActive(true);
+      signalR.setPrefillProgress({
+        state: 'starting',
+        message: t('prefill.progress.startingMessage'),
+        currentAppId: '',
+        currentAppName: undefined,
+        percentComplete: 0,
+        bytesDownloaded: 0,
+        totalBytes: 0,
+        bytesPerSecond: 0,
+        elapsedSeconds: 0
+      });
+    }
+
+    executeCommand(pendingConfirmCommand);
+    setPendingConfirmCommand(null);
+    setEstimatedSize({ bytes: 0, loading: false });
+  }, [pendingConfirmCommand, executeCommand, signalR, addLog, t]);
 
   const handleCancelConfirm = useCallback(() => {
     setPendingConfirmCommand(null);
@@ -994,21 +1036,9 @@ function ServicePrefillPanel({
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-lg bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)]">
         <div className="flex items-center gap-4">
           <div
-            className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
-              serviceId === 'epic'
-                ? 'bg-[var(--theme-epic)]'
-                : serviceId === 'battlenet'
-                  ? 'bg-[var(--theme-blizzard)]'
-                  : 'bg-[var(--theme-steam)]'
-            }`}
+            className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${serviceConfig.iconBgClass}`}
           >
-            {serviceId === 'epic' ? (
-              <EpicIcon size={24} className="text-white" />
-            ) : serviceId === 'battlenet' ? (
-              <BlizzardIcon size={24} className="text-white" />
-            ) : (
-              <SteamIcon size={24} className="text-white" />
-            )}
+            <ServiceIcon size={24} className="text-white" />
           </div>
           <div>
             <h1 className="text-xl font-bold text-themed-primary">
@@ -1145,6 +1175,7 @@ function ServicePrefillPanel({
             <PrefillProgressCard
               progress={signalR.prefillProgress}
               onCancel={handleCancelPrefill}
+              isCancelling={signalR.isCancellingState}
             />
           )}
 

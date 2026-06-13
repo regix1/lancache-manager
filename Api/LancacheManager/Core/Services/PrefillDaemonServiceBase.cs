@@ -759,6 +759,17 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
                 try
                 {
+                    // If a prefill was in flight when the socket died, the in-flight `prefill`
+                    // command already returned (the ack is immediate), so nothing else would flip
+                    // the prefill terminal - leaving a ghost IsPrefilling=true with no terminal
+                    // event. Route through the single idempotent terminal funnel (→ Failed) so the
+                    // user's bar resolves and IsPrefilling is cleared. Idempotent, so a later daemon
+                    // terminal event (if the socket reconnects) cannot double-fire.
+                    if (disconnectedSession.IsPrefilling)
+                    {
+                        await TransitionToTerminalAsync(disconnectedSession, PrefillState.Failed);
+                    }
+
                     var sessionDto = DaemonSessionDto.FromSession(disconnectedSession);
                     await NotifyAllDownloadsAndServiceHubAsync(EventSessionUpdated, sessionDto);
                 }
@@ -1085,9 +1096,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 await BroadcastPrefillHistoryUpdatedAsync(sessionId, session.CurrentAppId, "Cancelled");
             }
 
-            // Mark session as no longer prefilling and notify frontend
-            session.IsPrefilling = false;
-            await NotifyPrefillStateChangeAsync(session, PrefillProgressState.Cancelled.ToWireString());
+            // Route through the single idempotent terminal funnel - the ONLY setter of
+            // IsPrefilling=false. Idempotent, so a racing daemon "cancelled" socket event
+            // cannot double-fire the terminal transition.
+            await TransitionToTerminalAsync(session, PrefillState.Cancelled);
 
             _logger.LogInformation("Prefill cancelled for session {SessionId}", sessionId);
         }
@@ -1182,7 +1194,16 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             throw new KeyNotFoundException($"Session not found: {sessionId}");
         }
 
+        // Start guard: reject a second prefill while one is already in flight (double-start /
+        // SkipDownloads race). IsPrefilling is now driven by the terminal socket state, so this
+        // check is reliable for the entire duration of the real download. Surfaced as HTTP 409.
+        if (session.IsPrefilling)
+        {
+            throw new PrefillAlreadyRunningException($"A prefill is already in progress for session {sessionId}");
+        }
+
         session.IsPrefilling = true;
+        session.LastProgress = null;
         session.PreviousAppId = null;
         session.PreviousAppName = null;
         session.CurrentAppId = null;
@@ -1191,7 +1212,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         session.CurrentTotalBytes = 0;
         session.CompletedBytesTransferred = 0;
         session.TotalBytesTransferred = 0;
-        await NotifyPrefillStateChangeAsync(session, PrefillProgressState.Started.ToWireString());
+        await NotifyPrefillStartedAsync(session);
         var startDto = DaemonSessionDto.FromSession(session);
         await NotifyAllDownloadsAndServiceHubAsync(EventSessionUpdated, startDto);
 
@@ -1221,30 +1242,46 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 }
             }
 
-            var result = await session.Client.PrefillAsync(all, recent, recentlyPurchased, top, force, operatingSystems, maxConcurrency, cachedDepots, cancellationToken);
+            PrefillResult result;
+            try
+            {
+                result = await session.Client.PrefillAsync(all, recent, recentlyPurchased, top, force, operatingSystems, maxConcurrency, cachedDepots, cancellationToken);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("already in progress", StringComparison.OrdinalIgnoreCase))
+            {
+                // The daemon rejected the command because it is already prefilling. A prefill IS
+                // running, so do NOT flip IsPrefilling off / fire a terminal - surface as 409.
+                throw new PrefillAlreadyRunningException(ex.Message);
+            }
 
             // NOTE: Don't notify completion here - the daemon returns immediately with an acknowledgement.
-            // The actual completion is detected by the frontend by counting completed apps.
-            // Only notify failure if the command itself failed.
+            // The actual completion is detected via the socket progress terminal events.
+            // The daemon ack only failing (without an exception) means the run never started, so
+            // route through the single terminal funnel to clear IsPrefilling and emit Failed once.
             if (!result.Success)
             {
-                await NotifyPrefillStateChangeAsync(session, PrefillProgressState.Failed.ToWireString());
+                await TransitionToTerminalAsync(session, PrefillState.Failed);
             }
 
             // Don't complete apps here - the daemon returns immediately with "Prefill started".
-            // All app completions are handled by the socket progress event handlers
-            // (app_completed and completed events in NotifyPrefillProgressAsync).
+            // IsPrefilling stays TRUE from this ack through the real download; it is cleared ONLY
+            // by the terminal funnel (TransitionToTerminalAsync) via a socket terminal event,
+            // cancel, or socket disconnect. No `finally IsPrefilling=false` (that cleared it
+            // milliseconds after the start ack, so it was never true during the real download).
             return result;
         }
-        finally
+        catch (PrefillAlreadyRunningException)
         {
-            session.IsPrefilling = false;
-            session.CurrentAppId = null;
-            session.CurrentAppName = null;
-            session.PreviousAppId = null;
-            session.PreviousAppName = null;
-            var endDto = DaemonSessionDto.FromSession(session);
-            await NotifyAllDownloadsAndServiceHubAsync(EventSessionUpdated, endDto);
+            // Genuine "already running" - leave IsPrefilling true; just rethrow for the 409 mapping.
+            throw;
+        }
+        catch
+        {
+            // Any other failure to dispatch the prefill means the run never started on the daemon.
+            // Route through the single terminal funnel so IsPrefilling is cleared and exactly one
+            // terminal PrefillStateChanged(Failed) is emitted, then rethrow for the controller.
+            await TransitionToTerminalAsync(session, PrefillState.Failed);
+            throw;
         }
     }
 
@@ -1527,6 +1564,44 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             session.SubscribedConnections.Add(connectionId);
             _logger.LogDebug("Added subscriber {ConnectionId} to session {SessionId} (total: {Count})",
                 connectionId, sessionId, session.SubscribedConnections.Count);
+        }
+    }
+
+    /// <summary>
+    /// Replays the retained live progress snapshot to a SINGLE just-(re)subscribed connection,
+    /// so a client that connects/refreshes/reconnects mid-prefill binds its bar immediately
+    /// without waiting for the next periodic daemon tick. Reuses the existing
+    /// <c>EventPrefillProgress</c> event (no new event) and sends ONLY to the caller's connection
+    /// (no double-broadcast to already-subscribed clients). No-op when the session is not
+    /// prefilling or has no retained snapshot yet.
+    /// </summary>
+    public async Task ReplayCurrentProgressToConnectionAsync(string sessionId, string connectionId)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var session))
+        {
+            return;
+        }
+
+        // Snapshot the (IsPrefilling, LastProgress) pair into locals with single reads each so the
+        // replay decision and payload are self-consistent even though these fields are written on
+        // the daemon-event thread without synchronization. (V9)
+        var isPrefilling = session.IsPrefilling;
+        var snapshot = session.LastProgress;
+
+        if (!isPrefilling || snapshot == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await SendToServiceClientRawAsync(connectionId, EventPrefillProgress,
+                new { sessionId = session.Id, progress = snapshot });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to replay current prefill progress to connection {ConnectionId} for session {SessionId}",
+                connectionId, sessionId);
         }
     }
 

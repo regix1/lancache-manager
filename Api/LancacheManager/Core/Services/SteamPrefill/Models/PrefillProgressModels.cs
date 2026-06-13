@@ -70,6 +70,18 @@ public class PrefillProgress
 }
 
 /// <summary>
+/// Thrown when a prefill is requested for a session that already has a prefill in flight.
+/// Mapped to HTTP 409 (Conflict) by the controller and to the daemon's
+/// "A prefill is already in progress" rejection.
+/// </summary>
+public class PrefillAlreadyRunningException : InvalidOperationException
+{
+    public PrefillAlreadyRunningException(string message) : base(message)
+    {
+    }
+}
+
+/// <summary>
 /// Depot manifest info for cache tracking in progress updates.
 /// </summary>
 public class DepotManifestProgressInfo

@@ -110,7 +110,9 @@ export function PrefillCommandButtons({
             {isExecuting && cmd.id.startsWith('prefill') ? (
               <LoadingSpinner inline size="sm" className="text-themed-muted" />
             ) : (
-              <span className={getIconColorClass(cmd)}>{cmd.icon}</span>
+              <span className={getIconColorClass(cmd)}>
+                <cmd.icon className="h-4 w-4" />
+              </span>
             )}
           </span>
           <div className="flex flex-col">

@@ -15,6 +15,31 @@ public class DaemonSession
     public string? ErrorMessage { get; set; }
     public DaemonAuthState AuthState { get; set; } = DaemonAuthState.NotAuthenticated;
     public bool IsPrefilling { get; set; }
+
+    /// <summary>
+    /// High-level lifecycle state of the current/last prefill run. Driven by the terminal
+    /// socket state (not the start ack), so it stays <see cref="PrefillState.Downloading"/>
+    /// for the duration of the real download.
+    /// </summary>
+    public PrefillState PrefillState { get; set; } = PrefillState.Idle;
+
+    /// <summary>
+    /// The latest live <see cref="PrefillProgress"/> snapshot broadcast for this session,
+    /// retained so a client that connects/refreshes/reconnects mid-prefill can immediately
+    /// re-hydrate the progress bar without waiting for the next periodic tick. Set on every
+    /// progress tick in NotifyPrefillProgressAsync (before broadcasting) and cleared by the
+    /// terminal funnel. Null when no prefill is in flight.
+    /// </summary>
+    public PrefillProgress? LastProgress { get; set; }
+
+    /// <summary>
+    /// Per-run idempotency guard for the terminal funnel. 0 = not yet terminal, 1 = terminal
+    /// already fired. Reset to 0 at the start of each prefill run; flipped once via
+    /// <see cref="System.Threading.Interlocked.CompareExchange(ref int, int, int)"/> so a
+    /// socket-death + late daemon terminal event can never double-fire the terminal transition.
+    /// </summary>
+    public int TerminalCompletedFlag;
+
     public DateTime? PrefillStartedAt { get; set; }
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime? EndedAt { get; set; }
@@ -96,4 +121,29 @@ public class DaemonSession
     public string? SocketPath { get; set; }
     public HashSet<string> SubscribedConnections { get; } = new();
     public CancellationTokenSource CancellationTokenSource { get; } = new();
+}
+
+/// <summary>
+/// High-level lifecycle state of a prefill run, tracked on the session and driven by the
+/// terminal socket state rather than the (immediate) daemon start-ack.
+/// </summary>
+public enum PrefillState
+{
+    /// <summary>No prefill is active.</summary>
+    Idle,
+
+    /// <summary>Prefill was initiated (start-ack received) but no download tick has arrived yet.</summary>
+    Started,
+
+    /// <summary>Daemon is actively downloading content (a progress tick has been observed).</summary>
+    Downloading,
+
+    /// <summary>Prefill run completed successfully.</summary>
+    Completed,
+
+    /// <summary>Prefill run failed (including socket death mid-prefill).</summary>
+    Failed,
+
+    /// <summary>Prefill run was cancelled by the user.</summary>
+    Cancelled
 }

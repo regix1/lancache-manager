@@ -297,17 +297,28 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
 
         _logger.LogInformation("Starting {Platform} prefill for session {SessionId}", _platformName, sessionId);
 
-        var result = await _daemonService.PrefillAsync(
-            sessionId,
-            all: request?.All ?? false,
-            recent: request?.Recent ?? false,
-            recentlyPurchased: request?.RecentlyPurchased ?? false,
-            top: request?.Top,
-            force: request?.Force ?? false,
-            operatingSystems: request?.OperatingSystems,
-            maxConcurrency: request?.MaxConcurrency);
+        try
+        {
+            var result = await _daemonService.PrefillAsync(
+                sessionId,
+                all: request?.All ?? false,
+                recent: request?.Recent ?? false,
+                recentlyPurchased: request?.RecentlyPurchased ?? false,
+                top: request?.Top,
+                force: request?.Force ?? false,
+                operatingSystems: request?.OperatingSystems,
+                maxConcurrency: request?.MaxConcurrency);
 
-        return Ok(result);
+            return Ok(result);
+        }
+        catch (PrefillAlreadyRunningException ex)
+        {
+            // A prefill is already in flight for this session (local start guard OR the daemon's
+            // "already in progress" rejection). Surface as 409 Conflict, not a 500.
+            _logger.LogInformation("{Platform} prefill rejected for session {SessionId}: {Message}",
+                _platformName, sessionId, ex.Message);
+            return Conflict(new { error = ex.Message });
+        }
     }
 
     /// <summary>

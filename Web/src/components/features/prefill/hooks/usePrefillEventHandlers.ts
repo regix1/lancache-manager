@@ -32,9 +32,18 @@ interface UsePrefillEventHandlersOptions {
     setPrefillProgress: React.Dispatch<React.SetStateAction<PrefillProgress | null>>
   ) => void;
   resetAnimationState: () => void;
+  stopAnimations: () => void;
   cachedAnimationQueueRef: React.RefObject<CachedAnimationItem[]>;
   isProcessingAnimationRef: React.RefObject<boolean>;
   serviceId: string;
+  /** CONTRACT: invokes GetCurrentPrefillProgress(sessionId) and binds the live bar. */
+  rehydratePrefillProgress: (connection: HubConnection, sessionId: string) => Promise<void>;
+  /** Builds the coarse 'reconnecting' placeholder from a session DTO that is mid-prefill. */
+  seedReconnectingProgressFromSession: (sessionDto: PrefillSessionDto) => PrefillProgress;
+  /** Reactive mirror of isCancelling for the Cancel button's disabled "Cancelling..." state. */
+  setIsCancellingState: React.Dispatch<React.SetStateAction<boolean>>;
+  /** Watchdog timer started on Cancel; terminal events clear it. */
+  cancelWatchdogRef: React.RefObject<ReturnType<typeof setTimeout> | null>;
 }
 
 /**
@@ -67,10 +76,25 @@ export function registerPrefillEventHandlers(
     totalBytesDownloadedRef,
     enqueueAnimation,
     resetAnimationState,
+    stopAnimations,
     cachedAnimationQueueRef,
     isProcessingAnimationRef,
-    serviceId
+    serviceId,
+    rehydratePrefillProgress,
+    seedReconnectingProgressFromSession,
+    setIsCancellingState,
+    cancelWatchdogRef
   } = options;
+
+  // Clears the cancel watchdog + reactive "Cancelling..." state. Called from every terminal path
+  // so the Cancel button never gets stuck disabled and the watchdog can't fire after the fact.
+  const clearCancelTracking = (): void => {
+    setIsCancellingState(false);
+    if (cancelWatchdogRef.current !== null) {
+      clearTimeout(cancelWatchdogRef.current);
+      cancelWatchdogRef.current = null;
+    }
+  };
 
   const t = i18n.t.bind(i18n);
 
@@ -113,6 +137,17 @@ export function registerPrefillEventHandlers(
     setSession(sessionDto);
     setTimeRemaining(sessionDto.timeRemainingSeconds);
     setIsLoggedIn(sessionDto.authState === 'Authenticated');
+
+    // Server truth: a prefill is already running for this session. Seed the bar immediately
+    // (coarse 'reconnecting' placeholder). V6: do NOT invoke GetCurrentPrefillProgress here — the
+    // backend already replays the existing PrefillProgress event to Clients.Caller on subscribe, so
+    // the real bar binds from that push. Adding the invoke too is a redundant, racy double-write
+    // (two snapshots + the live tick) that can flicker the bar backward. The visibilitychange /
+    // onreconnected paths keep the invoke because there is no fresh subscribe replay there.
+    if (sessionDto.isPrefilling) {
+      setIsPrefillActive(true);
+      setPrefillProgress((prev) => prev ?? seedReconnectingProgressFromSession(sessionDto));
+    }
   });
 
   // Handle session ended (sent to session owner)
@@ -123,6 +158,8 @@ export function registerPrefillEventHandlers(
       setSession(null);
       setIsLoggedIn(false);
       setIsPrefillActive(false);
+      clearCancelTracking();
+      stopAnimations();
       setPrefillProgress(null);
       // Clear all prefill-related storage when session ends
       clearAllPrefillStorage();
@@ -143,6 +180,8 @@ export function registerPrefillEventHandlers(
         setSession(null);
         setIsLoggedIn(false);
         setIsPrefillActive(false);
+        clearCancelTracking();
+        stopAnimations();
         setPrefillProgress(null);
         clearAllPrefillStorage();
         onSessionEnd?.();
@@ -162,18 +201,34 @@ export function registerPrefillEventHandlers(
 
       if (isFinalState) {
         isCancelling.current = false;
+        clearCancelTracking();
+        stopAnimations();
         setPrefillProgress(null);
         return;
       }
 
       if (isCancelling.current) return;
 
+      // Seed the expected-app count from the daemon's totalApps the first time we learn it, so
+      // the two-tier "Game X of N" overall bar can render even for prefill-all/recent jobs where
+      // the count is not known up-front on the client.
+      if (
+        (expectedAppCountRef.current ?? 0) === 0 &&
+        progress.totalApps &&
+        progress.totalApps > 0
+      ) {
+        expectedAppCountRef.current = progress.totalApps;
+      }
+
       if (progress.state === 'downloading') {
         if (
           !currentAnimationAppIdRef.current ||
           currentAnimationAppIdRef.current === progress.currentAppId
         ) {
-          setPrefillProgress(progress);
+          setPrefillProgress({
+            ...progress,
+            expectedAppCount: expectedAppCountRef.current || progress.totalApps || undefined
+          });
         }
       } else if (progress.state === 'app_completed') {
         currentAnimationAppIdRef.current = '';
@@ -263,6 +318,7 @@ export function registerPrefillEventHandlers(
     }) => {
       if (state === 'started') {
         setIsPrefillActive(true);
+        setIsCancellingState(false);
         addLog('download', t('prefill.log.prefillStarted'));
         resetAnimationState();
         clearBackgroundCompletion();
@@ -271,6 +327,11 @@ export function registerPrefillEventHandlers(
         downloadedGamesCountRef.current = 0;
         cachedGamesCountRef.current = 0;
         totalBytesDownloadedRef.current = 0;
+        // V5: also clear the expected-app count so a stale total from a prior run (e.g. a
+        // prefill-top(50)) can't leak into a new prefill-recent(12) job on a non-executeCommand
+        // start path (2nd tab / replayed start). The PrefillProgress seed-guard re-derives the
+        // correct count from the daemon's totalApps on the first tick.
+        expectedAppCountRef.current = 0;
         try {
           sessionStorage.setItem(
             'prefill_in_progress',
@@ -306,6 +367,7 @@ export function registerPrefillEventHandlers(
         }
 
         isCancelling.current = false;
+        clearCancelTracking();
 
         // If there are pending cached animations, let them finish before clearing
         const hasPendingAnimations =
@@ -330,7 +392,9 @@ export function registerPrefillEventHandlers(
         setIsPrefillActive(false);
         addLog('error', t('prefill.log.prefillFailed'));
         isCancelling.current = false;
+        clearCancelTracking();
 
+        stopAnimations();
         setPrefillProgress(null);
         resetAnimationState();
         try {
@@ -342,7 +406,9 @@ export function registerPrefillEventHandlers(
         setIsPrefillActive(false);
         addLog('info', t('prefill.log.prefillCancelled'));
         isCancelling.current = false;
+        clearCancelTracking();
 
+        stopAnimations();
         setPrefillProgress(null);
         resetAnimationState();
         try {
@@ -391,6 +457,10 @@ export function registerPrefillEventHandlers(
     if (currentSession) {
       try {
         await connection.invoke('SubscribeToSessionAsync', currentSession.id);
+
+        // Re-bind the live progress bar from server truth (the daemon may still be prefilling
+        // after the socket drop). CONTRACT: GetCurrentPrefillProgress.
+        await rehydratePrefillProgress(connection, currentSession.id);
 
         const lastResult = (await connection.invoke('GetLastPrefillResult', currentSession.id)) as {
           status: string;
