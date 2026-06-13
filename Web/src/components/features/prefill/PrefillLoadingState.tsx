@@ -9,7 +9,7 @@ interface PrefillLoadingStateProps {
 
 export function PrefillLoadingState({ status, serviceId }: PrefillLoadingStateProps) {
   const { t } = useTranslation();
-  const isEpic = serviceId === 'epic';
+  const accent = serviceId === 'epic' ? 'epic' : serviceId === 'battlenet' ? 'battlenet' : 'steam';
 
   const title =
     status === 'creating'
@@ -22,17 +22,9 @@ export function PrefillLoadingState({ status, serviceId }: PrefillLoadingStatePr
         <CardContent className="py-12">
           <div className="flex flex-col items-center justify-center gap-4">
             <div
-              className={`w-16 h-16 rounded-xl flex items-center justify-center ${
-                isEpic ? 'prefill-loading-icon--epic' : 'prefill-loading-icon--steam'
-              }`}
+              className={`w-16 h-16 rounded-xl flex items-center justify-center prefill-loading-icon--${accent}`}
             >
-              <LoadingSpinner
-                inline
-                size="xl"
-                className={
-                  isEpic ? 'prefill-loading-spinner--epic' : 'prefill-loading-spinner--steam'
-                }
-              />
+              <LoadingSpinner inline size="xl" className={`prefill-loading-spinner--${accent}`} />
             </div>
             <div className="text-center">
               <p className="text-lg font-medium text-themed-primary">{title}</p>

@@ -4714,11 +4714,6 @@
           "description": "Epic Games 平台颜色",
           "affects": ["Epic 徽章", "Epic 图表"]
         },
-        "battlenetColor": {
-          "label": "Battle.net",
-          "description": "Battle.net 平台颜色",
-          "affects": ["Battle.net 徽章", "Battle.net 图表", "Battle.net 预填充品牌"]
-        },
         "originColor": {
           "label": "Origin/EA",
           "description": "EA/Origin 平台颜色",

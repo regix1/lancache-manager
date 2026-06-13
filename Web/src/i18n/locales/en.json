@@ -4744,11 +4744,6 @@
           "description": "Epic Games platform color",
           "affects": ["Epic badges", "Epic charts"]
         },
-        "battlenetColor": {
-          "label": "Battle.net",
-          "description": "Battle.net platform color",
-          "affects": ["Battle.net badges", "Battle.net charts", "Battle.net Prefill branding"]
-        },
         "originColor": {
           "label": "Origin/EA",
           "description": "EA/Origin platform color",
