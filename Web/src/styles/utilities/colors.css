@@ -375,6 +375,10 @@
     color: var(--theme-epic);
   }
 
+  .text-blizzard {
+    color: var(--theme-blizzard);
+  }
+
   /* Semantic text content colors (for readable text in alert boxes) */
   .text-info-text {
     color: var(--theme-info-text);

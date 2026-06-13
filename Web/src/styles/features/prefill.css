@@ -38,12 +38,20 @@
     background-color: var(--theme-epic-subtle);
   }
 
+  .prefill-loading-icon--battlenet {
+    background-color: var(--theme-blizzard-subtle);
+  }
+
   .prefill-loading-spinner--steam {
     color: var(--theme-steam);
   }
 
   .prefill-loading-spinner--epic {
     color: var(--theme-epic);
+  }
+
+  .prefill-loading-spinner--battlenet {
+    color: var(--theme-blizzard);
   }
 
   /* ===== COMMAND CENTER STYLES ===== */

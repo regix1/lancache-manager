@@ -44,6 +44,7 @@ const ManagementTab: React.FC = () => {
   const [gameCacheRefreshKey, setGameCacheRefreshKey] = useState(0);
   const [highlightSteamApi, setHighlightSteamApi] = useState(false);
   const [highlightEpic, setHighlightEpic] = useState(false);
+  const [highlightBattleNet, setHighlightBattleNet] = useState(false);
   const [highlightScheduleKey, setHighlightScheduleKey] = useState<string | null>(null);
 
   // Derive log processing state from notifications for DepotMappingManager
@@ -143,6 +144,17 @@ const ManagementTab: React.FC = () => {
     }, 2000);
   }, []);
 
+  // Handle navigation to Battle.net daemon status in Integrations section.
+  // Battle.net is anonymous (no login), so this only highlights the daemon card.
+  const handleNavigateToBattleNetLogin = useCallback(() => {
+    setActiveSection('integrations');
+    setHighlightBattleNet(true);
+    // Clear highlight after animation completes
+    setTimeout(() => {
+      setHighlightBattleNet(false);
+    }, 2000);
+  }, []);
+
   // Handle navigation to a specific schedule card in the Schedules section
   const handleNavigateToSchedule = useCallback((scheduleKey: string) => {
     setActiveSection('schedules');
@@ -185,6 +197,7 @@ const ManagementTab: React.FC = () => {
             onSuccess={setSuccess}
             highlightSteamApi={highlightSteamApi}
             highlightEpic={highlightEpic}
+            highlightBattleNet={highlightBattleNet}
           />
         );
 
@@ -217,6 +230,7 @@ const ManagementTab: React.FC = () => {
             onDataRefresh={refreshStatsAndGameCache}
             onNavigateToSteamApi={handleNavigateToSteamApi}
             onNavigateToEpicLogin={handleNavigateToEpicLogin}
+            onNavigateToBattleNetLogin={handleNavigateToBattleNetLogin}
             onNavigateToSchedule={handleNavigateToSchedule}
           />
         );

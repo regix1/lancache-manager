@@ -726,6 +726,16 @@
   color: var(--theme-epic);
 }
 
+/* Battle.net platform badge (anonymous prefill).
+   ServiceName casing may surface as "battlenet" or "Battle.net" — cover both
+   lowercased forms so the badge tints regardless of backend display string. */
+.prefill-platform-battlenet,
+.prefill-platform-battle\.net,
+.session-battlenet {
+  background-color: var(--theme-blizzard-subtle);
+  color: var(--theme-blizzard);
+}
+
 /* Platform-aware username icon colors */
 .prefill-session-username.platform-steam svg {
   color: var(--theme-steam);
@@ -733,6 +743,11 @@
 
 .prefill-session-username.platform-epic svg {
   color: var(--theme-epic);
+}
+
+.prefill-session-username.platform-battlenet svg,
+.prefill-session-username.platform-battle\.net svg {
+  color: var(--theme-blizzard);
 }
 
 /* Accordion spacing */

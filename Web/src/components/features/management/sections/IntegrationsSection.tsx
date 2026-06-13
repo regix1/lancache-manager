@@ -7,6 +7,7 @@ import SteamLoginManager from '../steam/SteamLoginManager';
 import SteamWebApiStatus from '../steam/SteamWebApiStatus';
 import GrafanaEndpoints from '../grafana/GrafanaEndpoints';
 import EpicDaemonStatus from '../epic/EpicDaemonStatus';
+import BattleNetDaemonStatus from '../battlenet/BattleNetDaemonStatus';
 
 interface IntegrationsSectionProps {
   authMode: AuthMode;
@@ -16,6 +17,7 @@ interface IntegrationsSectionProps {
   onSuccess: (message: string) => void;
   highlightSteamApi?: boolean;
   highlightEpic?: boolean;
+  highlightBattleNet?: boolean;
 }
 
 const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
@@ -25,7 +27,8 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
   onError,
   onSuccess,
   highlightSteamApi,
-  highlightEpic
+  highlightEpic,
+  highlightBattleNet
 }) => {
   const { t } = useTranslation();
 
@@ -77,6 +80,16 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
               onError={onError}
               onSuccess={onSuccess}
             />
+          </HighlightGlow>
+        </section>
+
+        {/* Battle.net - anonymous prefill daemon status (no account login) */}
+        <section>
+          <h3 className="integrations-group-label">
+            {t('management.sections.integrations.battlenetIntegration', 'Battle.net Integration')}
+          </h3>
+          <HighlightGlow enabled={highlightBattleNet}>
+            <BattleNetDaemonStatus onError={onError} />
           </HighlightGlow>
         </section>
 
