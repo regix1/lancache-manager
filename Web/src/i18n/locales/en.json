@@ -384,7 +384,8 @@
         "monolithic": "Enhanced fork with improved performance and additional features for LAN caching",
         "lancachePics": "Game artwork repository for mapping Steam depot downloads to game icons",
         "steamPrefillDaemon": "Background daemon for scheduled Steam game prefilling and cache warming",
-        "epicPrefillDaemon": "Background daemon for scheduled Epic Games prefilling and cache warming"
+        "epicPrefillDaemon": "Background daemon for scheduled Epic Games prefilling and cache warming",
+        "battlenetPrefillDaemon": "Background daemon for scheduled Battle.net game prefilling and cache warming"
       }
     }
   },
@@ -1768,6 +1769,41 @@
               }
             },
             "note": "An encrypted OAuth refresh token is stored locally to allow automatic reconnection. It is used only for game library discovery."
+          }
+        },
+        "battlenetDaemonStatus": {
+          "title": "Battle.net",
+          "ready": "Ready",
+          "unavailable": "Unavailable",
+          "connected": "Connected",
+          "notConnected": "Not Connected",
+          "connectedAs": "Connected as {{name}}",
+          "connectedDesc": "Public Battle.net content is available for prefill",
+          "notConnectedDesc": "Start the daemon to enable Battle.net prefill",
+          "dockerStatus": "Docker Service",
+          "dockerAvailableDesc": "Docker is available and ready for Battle.net prefill sessions",
+          "dockerUnavailableDesc": "Start Docker Desktop to enable Battle.net prefill",
+          "loginButton": "Login with Battle.net",
+          "loginDesc": "No account login is required for Battle.net prefill",
+          "logout": "Logout",
+          "prefillSessions": "Prefill Sessions",
+          "loadError": "Failed to load Battle.net status. Displaying default values.",
+          "noActiveSessions": "No active sessions",
+          "activeSessions": "{{count}} active session",
+          "activeSessions_plural": "{{count}} active sessions",
+          "help": {
+            "authentication": {
+              "title": "Battle.net Prefill",
+              "loginRequired": {
+                "term": "No Login Required",
+                "description": "Battle.net prefill is fully anonymous. It prefills public Blizzard CDN content with no account, login, or credentials."
+              },
+              "gameDiscovery": {
+                "term": "Game Discovery",
+                "description": "The full Battle.net product catalog is available for selection without connecting an account."
+              }
+            },
+            "note": "No credentials are stored. Battle.net prefill only downloads public Blizzard CDN content."
           }
         },
         "epicGameMappings": {
@@ -3329,7 +3365,12 @@
       "epicFeature1": "Prefill entire library or select specific games",
       "epicFeature2": "Recent and top games presets",
       "epicFeature3": "Force re-download and cache management",
-      "requiresEpicLogin": "Browser-based authorization code login"
+      "requiresEpicLogin": "Browser-based authorization code login",
+      "battlenetDescription": "Prefill public Battle.net content including recent games, top titles, or hand-picked selections from the catalog.",
+      "battlenetFeature1": "Prefill entire catalog or select specific games",
+      "battlenetFeature2": "Recent and top games presets",
+      "battlenetFeature3": "Force re-download and cache management",
+      "requiresBattlenetLogin": "No account login required"
     },
     "startScreen": {
       "description": "Pre-download Steam games to your cache for faster LAN party downloads. Connect to your Steam library and prefill games before the event.",
@@ -4702,6 +4743,11 @@
           "label": "Epic Games",
           "description": "Epic Games platform color",
           "affects": ["Epic badges", "Epic charts"]
+        },
+        "battlenetColor": {
+          "label": "Battle.net",
+          "description": "Battle.net platform color",
+          "affects": ["Battle.net badges", "Battle.net charts", "Battle.net Prefill branding"]
         },
         "originColor": {
           "label": "Origin/EA",
