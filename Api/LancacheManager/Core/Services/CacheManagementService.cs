@@ -1662,6 +1662,11 @@ public class CacheManagementService
     public void InvalidateCachedScan()
     {
         _cachedCacheScan = null;
+        // A cache-content change re-arms the automatic rescan triggers: the suppression
+        // protected "the scan the user just cancelled", but after a clear/removal that
+        // scan's result would be stale anyway. Without this, a past scan cancel leaves
+        // no-cache + suppressed, and every GET /api/cache/size 500s until a force rescan.
+        _autoRescanSuppressed = false;
         try
         {
             if (File.Exists(_cachedScanFilePath))

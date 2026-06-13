@@ -125,12 +125,14 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     await refreshStats(true);
   }, [fetchCacheSize, refreshStats]);
 
-  // Fetch cache size on mount if not already loaded
+  // Fetch cache size on mount if not already loaded. The error guard is what stops
+  // a failed fetch (size null, loading false) from re-triggering this effect in an
+  // endless 500 loop - after a failure, only the explicit Refresh button retries.
   useEffect(() => {
-    if (!mockMode && !cacheReadOnly && !cacheSize && !cacheSizeLoading) {
+    if (!mockMode && !cacheReadOnly && !cacheSize && !cacheSizeLoading && !cacheSizeError) {
       fetchCacheSize();
     }
-  }, [mockMode, cacheReadOnly, cacheSize, cacheSizeLoading, fetchCacheSize]);
+  }, [mockMode, cacheReadOnly, cacheSize, cacheSizeLoading, cacheSizeError, fetchCacheSize]);
 
   // Show notification when cache size fetch fails
   useEffect(() => {
