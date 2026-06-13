@@ -255,6 +255,10 @@ public class AppDbContext : DbContext
             .HasDatabaseName("IX_BannedSteamUsers_Username");
 
         modelBuilder.Entity<BannedSteamUser>()
+            .HasIndex(b => b.BannedUserId)
+            .HasDatabaseName("IX_BannedSteamUsers_BannedUserId");
+
+        modelBuilder.Entity<BannedSteamUser>()
             .HasIndex(b => b.BannedAtUtc)
             .HasDatabaseName("IX_BannedSteamUsers_BannedAtUtc");
 

@@ -3,7 +3,10 @@ using System.ComponentModel.DataAnnotations;
 namespace LancacheManager.Models;
 
 /// <summary>
-/// Tracks banned Steam users by their username.
+/// Tracks banned prefill users. A ban keys on either the game <see cref="Username"/>
+/// (Steam/Epic, captured at credential time) or, for anonymous services with no login
+/// such as Battle.net, the shared lancache-manager auth-session <see cref="BannedUserId"/> GUID.
+/// Exactly one of the two identity columns is populated per ban.
 /// </summary>
 public class BannedSteamUser
 {
@@ -11,11 +14,17 @@ public class BannedSteamUser
     public long Id { get; set; }
 
     /// <summary>
-    /// The Steam username that was banned (stored lowercase for case-insensitive matching).
+    /// The game username that was banned (stored lowercase for case-insensitive matching).
+    /// Null for UserId-based bans (anonymous services like Battle.net have no username).
     /// </summary>
-    [Required]
     [MaxLength(100)]
-    public string Username { get; set; } = string.Empty;
+    public string? Username { get; set; }
+
+    /// <summary>
+    /// The lancache-manager auth-session id (UserSession.Id / DaemonSession.UserId GUID) that was banned.
+    /// Used for anonymous services (e.g. Battle.net) that issue no game username. Null for username-based bans.
+    /// </summary>
+    public Guid? BannedUserId { get; set; }
 
     /// <summary>
     /// Reason for the ban (optional, for admin reference)
