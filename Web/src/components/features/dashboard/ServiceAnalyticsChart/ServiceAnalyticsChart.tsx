@@ -217,9 +217,6 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
         {/* Header */}
         <div className="service-analytics-header">
           <div className="service-analytics-heading">
-            <div className="service-analytics-kicker">
-              {activeTabConfig.tooltip ?? activeTabConfig.label}
-            </div>
             <h3>{t('dashboard.serviceAnalytics.title')}</h3>
             <p>{activeDescription}</p>
             {activeTab === 'games' && scanMayBeStale ? (

@@ -711,10 +711,13 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           border-radius: 0;
         }
 
+        /* 1px inset keeps item borders off the scroll container's clip edge so
+           rounded corners can't be shaved by the overflow clip. */
         .downloads-list {
           display: flex;
           flex-direction: column;
           gap: 0.5rem;
+          padding: 1px;
         }
 
         .download-item {
@@ -727,15 +730,16 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           background: var(--theme-bg-secondary);
           border: 1px solid var(--theme-border-secondary);
           transition: all 0.2s ease;
-          animation: item-slide-in 0.3s ease forwards;
-          opacity: 0;
-          transform: translateY(8px);
+          /* backwards fill + from-keyframe: the final state keeps NO transform,
+             so the item drops its compositing layer and the corner border
+             renders crisp instead of being shaved at the clip edge. */
+          animation: item-slide-in 0.3s ease backwards;
         }
 
         @keyframes item-slide-in {
-          to {
-            opacity: 1;
-            transform: translateY(0);
+          from {
+            opacity: 0;
+            transform: translateY(8px);
           }
         }
 
