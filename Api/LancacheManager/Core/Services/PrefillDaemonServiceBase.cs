@@ -35,6 +35,22 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     private readonly IOptionsMonitor<PrefillNetworkOptions> _networkOptions;
 
     /// <summary>
+    /// Short-timeout HttpClient used only to probe candidate lancache containers via their
+    /// <c>/lancache-heartbeat</c> endpoint during auto-detection. Static + shared to avoid
+    /// socket exhaustion. The lancache HTTP server answers this with an
+    /// <c>X-LanCache-Processed-By</c> header; the management app (and any non-lancache
+    /// container) does not, which is how we distinguish the real cache from ourselves.
+    /// </summary>
+    private static readonly HttpClient _heartbeatProbeClient = new(new SocketsHttpHandler
+    {
+        ConnectTimeout = TimeSpan.FromSeconds(2),
+        PooledConnectionLifetime = TimeSpan.FromMinutes(1),
+    })
+    {
+        Timeout = TimeSpan.FromSeconds(2),
+    };
+
+    /// <summary>
     /// The lancache server IP most recently injected into a daemon container via the
     /// <c>LANCACHE_IP</c> env var. Set during container creation after
     /// <see cref="ResolveLancacheServerIpAsync"/> and read by the diagnostics builder
@@ -1826,57 +1842,258 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 new ContainersListParameters { All = false }, // Only running containers
                 cancellationToken);
 
-            // Identify the lancache HTTP cache server container by common name patterns,
-            // excluding the lancache-dns container (that serves DNS, not CDN HTTP traffic).
-            var serverContainer = containers.FirstOrDefault(c =>
-                c.Names.Any(n =>
-                    !n.Contains("dns", StringComparison.OrdinalIgnoreCase) &&
-                    (n.Contains("monolithic", StringComparison.OrdinalIgnoreCase) ||
-                     n.Contains("lancache", StringComparison.OrdinalIgnoreCase))));
+            // Our own container id - never probe/inject ourselves (the manager serves no CDN
+            // content; injecting its IP routes the daemon's TACT requests into a dead end, which
+            // is the exact "Error reading build config!" bug). Steam/Epic don't hit this because
+            // their CDN domains are DNS-poisoned to the real cache; Blizzard's are not, so only
+            // battlenet needs the injected LANCACHE_IP - hence we must find the SAME real cache.
+            string? ownContainerId = TryGetOwnContainerId();
 
-            if (serverContainer == null)
+            bool IsManager(ContainerListResponse c)
             {
-                return null;
+                if (!string.IsNullOrEmpty(ownContainerId) &&
+                    c.ID.StartsWith(ownContainerId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+                var img = c.Image ?? string.Empty;
+                return c.Names.Any(n => n.Contains("manager", StringComparison.OrdinalIgnoreCase)) ||
+                       img.Contains("lancache-manager", StringComparison.OrdinalIgnoreCase);
             }
 
-            var inspect = await _dockerClient.Containers.InspectContainerAsync(serverContainer.ID, cancellationToken);
-
-            // Host networking: the server listens on the host's loopback/host IP. There is no
-            // stable bridge IP to inject, and a loopback target would re-create the freeze. Be
-            // conservative and decline (returns null -> warning surfaces -> user sets the override).
-            if (inspect.HostConfig?.NetworkMode == "host")
+            IEnumerable<string> PrivateIpsOf(ContainerInspectResponse inspect)
             {
-                _logger.LogInformation(
-                    "Detected a lancache HTTP server container using host networking; not auto-injecting LANCACHE_IP. " +
-                    "Set Prefill__LancacheIp=<your-lancache-server-ip> for reliable CDN routing.");
-                return null;
+                if (inspect.HostConfig?.NetworkMode == "host")
+                {
+                    return Enumerable.Empty<string>();
+                }
+                var nets = inspect.NetworkSettings?.Networks;
+                if (nets == null)
+                {
+                    return Enumerable.Empty<string>();
+                }
+                return nets
+                    .Where(n => !string.IsNullOrEmpty(n.Value.IPAddress) && IsPrivateIp(n.Value.IPAddress))
+                    .Select(n => n.Value.IPAddress!)
+                    .Distinct();
             }
 
-            var networks = inspect.NetworkSettings?.Networks;
-            if (networks == null || networks.Count == 0)
+            // Build an ordered, de-duplicated list of (ip, source) candidates. Higher-confidence
+            // sources first; the first IP that passes the heartbeat wins.
+            var candidates = new List<(string Ip, string Source)>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void AddCandidate(string? ip, string source)
             {
-                return null;
+                if (!string.IsNullOrWhiteSpace(ip) && IsPrivateIp(ip) && seen.Add(ip))
+                {
+                    candidates.Add((ip, source));
+                }
             }
 
-            // Prefer a private bridge IP (RFC 1918) so we never inject a loopback or public address.
-            var detectedIp = networks
-                .Where(n => !string.IsNullOrEmpty(n.Value.IPAddress) && IsPrivateIp(n.Value.IPAddress))
-                .Select(n => n.Value.IPAddress)
-                .FirstOrDefault();
-
-            if (string.IsNullOrEmpty(detectedIp))
+            // (a) Explicit Prefill__LancacheDnsIp (monolithic runs DNS+cache on the same IP).
+            var configuredDnsIp = _networkOptions.CurrentValue.LancacheDnsIp;
+            if (!string.IsNullOrWhiteSpace(configuredDnsIp) &&
+                !string.Equals(configuredDnsIp, "auto", StringComparison.OrdinalIgnoreCase))
             {
+                AddCandidate(configuredDnsIp, "Prefill__LancacheDnsIp");
+            }
+
+            // (b) Auto-detected lancache-dns container IP (same host as the cache for monolithic).
+            try
+            {
+                AddCandidate(await GetLancacheDnsIpAsync(cancellationToken), "lancache-dns container");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Auto-detect: lancache-dns IP lookup failed");
+            }
+
+            // (c) Containers whose image is lancachenet/* or name is monolithic/lancache (not manager).
+            // (d) Every other container IP on a bridge network (last resort) - the real cache is
+            //     reachable on the manager's own docker network, just not name-identifiable.
+            string[] lancacheImagePrefixes = { "lancachenet/monolithic", "lancachenet/generic", "lancachenet/sniproxy" };
+            var fallbackCandidates = new List<(string Ip, string Source)>();
+
+            foreach (var c in containers)
+            {
+                if (IsManager(c))
+                {
+                    _logger.LogDebug("Auto-detect: skipping manager container {Name} (image {Image})", c.Names.FirstOrDefault(), c.Image);
+                    continue;
+                }
+                if (c.Names.Any(n => n.Contains("dns", StringComparison.OrdinalIgnoreCase)))
+                {
+                    // DNS already covered in (a)/(b); don't add it as an HTTP cache candidate here.
+                    continue;
+                }
+
+                ContainerInspectResponse inspect;
+                try
+                {
+                    inspect = await _dockerClient.Containers.InspectContainerAsync(c.ID, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Auto-detect: failed to inspect {Name}; skipping", c.Names.FirstOrDefault());
+                    continue;
+                }
+
+                var image = c.Image ?? string.Empty;
+                var name = c.Names.FirstOrDefault() ?? "(unnamed)";
+                bool isLancacheImage = lancacheImagePrefixes.Any(p => image.Contains(p, StringComparison.OrdinalIgnoreCase));
+                bool isLancacheName = c.Names.Any(n =>
+                    n.Contains("monolithic", StringComparison.OrdinalIgnoreCase) ||
+                    n.Contains("lancache", StringComparison.OrdinalIgnoreCase));
+
+                foreach (var ip in PrivateIpsOf(inspect))
+                {
+                    if (isLancacheImage || isLancacheName)
+                    {
+                        AddCandidate(ip, $"container {name} (image {image})");
+                    }
+                    else
+                    {
+                        // Defer non-lancache containers to the end of the probe order.
+                        if (IsPrivateIp(ip) && !seen.Contains(ip))
+                        {
+                            fallbackCandidates.Add((ip, $"network peer {name} (image {image})"));
+                        }
+                    }
+                }
+            }
+
+            foreach (var fc in fallbackCandidates)
+            {
+                AddCandidate(fc.Ip, fc.Source);
+            }
+
+            if (candidates.Count == 0)
+            {
+                _logger.LogWarning(
+                    "Auto-detect: no candidate IPs found to probe for a lancache cache - " +
+                    "set Prefill__LancacheIp=<your-lancache-server-ip> for reliable CDN routing.");
                 return null;
             }
 
             _logger.LogInformation(
-                "Auto-detected lancache HTTP server IP {LancacheIp} from container {ContainerName} (Prefill__LancacheIp not set)",
-                detectedIp, serverContainer.Names.FirstOrDefault());
-            return detectedIp;
+                "Auto-detect: heartbeat-probing {Count} candidate IP(s) for the lancache cache, in priority order: {Candidates}",
+                candidates.Count,
+                string.Join(", ", candidates.Select(c => $"{c.Ip} [{c.Source}]")));
+
+            foreach (var (ip, source) in candidates)
+            {
+                var (verified, detail) = await ProbeLancacheHeartbeatAsync(ip, cancellationToken);
+                if (verified)
+                {
+                    _logger.LogInformation(
+                        "Auto-detect: using {LancacheIp} from {Source}, heartbeat verified (X-LanCache-Processed-By present). " +
+                        "Prefill__LancacheIp not set.",
+                        ip, source);
+                    return ip;
+                }
+
+                _logger.LogInformation(
+                    "Auto-detect: candidate {Ip} [{Source}] failed heartbeat verification: {Detail}",
+                    ip, source, detail);
+            }
+
+            _logger.LogWarning(
+                "Auto-detect: none of the {Count} candidate IP(s) returned X-LanCache-Processed-By on /lancache-heartbeat. " +
+                "Not injecting any IP (the manager and non-lancache peers are correctly rejected) - " +
+                "set Prefill__LancacheIp=<your-lancache-server-ip>.",
+                candidates.Count);
+            return null;
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to auto-detect lancache HTTP server IP");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Probes <c>http://{ip}/lancache-heartbeat</c> and returns whether the response carries the
+    /// <c>X-LanCache-Processed-By</c> header (case-insensitive) - the definitive lancache signal.
+    /// Mirrors the daemon's Common LancacheIpResolver validation so the manager's own IP (which
+    /// answers HTTP but lacks this header) is correctly rejected.
+    /// </summary>
+    private static async Task<(bool Verified, string Detail)> ProbeLancacheHeartbeatAsync(string ip, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"http://{ip}/lancache-heartbeat");
+            using var response = await _heartbeatProbeClient.SendAsync(
+                request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+
+            bool hasHeader = response.Headers.TryGetValues("X-LanCache-Processed-By", out _) ||
+                             (response.Content?.Headers.TryGetValues("X-LanCache-Processed-By", out _) ?? false);
+
+            if (hasHeader)
+            {
+                return (true, "X-LanCache-Processed-By present");
+            }
+
+            return (false, $"HTTP {(int)response.StatusCode} but no X-LanCache-Processed-By header (not a lancache server)");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return (false, "cancelled");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        {
+            // Connection refused / timeout / no HTTP listener - not the lancache cache server.
+            return (false, $"probe failed ({ex.GetType().Name}: {ex.Message})");
+        }
+    }
+
+    /// <summary>
+    /// Best-effort discovery of this process's own container id (used to exclude the manager
+    /// from lancache auto-detection). Reads it from cgroup, falling back to the hostname.
+    /// Returns null when not running in a container or the id cannot be determined.
+    /// </summary>
+    private string? TryGetOwnContainerId()
+    {
+        if (!_isRunningInContainer)
+        {
+            return null;
+        }
+
+        try
+        {
+            // Docker sets the container's short hostname to the (truncated) container id by default.
+            var hostname = Environment.GetEnvironmentVariable("HOSTNAME");
+            if (!string.IsNullOrWhiteSpace(hostname) && hostname.Length >= 12)
+            {
+                return hostname;
+            }
+
+            const string cgroupPath = "/proc/self/cgroup";
+            if (File.Exists(cgroupPath))
+            {
+                foreach (var line in File.ReadLines(cgroupPath))
+                {
+                    var idx = line.IndexOf("docker", StringComparison.OrdinalIgnoreCase);
+                    if (idx < 0)
+                    {
+                        continue;
+                    }
+
+                    var segment = line[idx..];
+                    // Look for a 64-hex container id within the cgroup path.
+                    var match = System.Text.RegularExpressions.Regex.Match(segment, "[0-9a-f]{64}");
+                    if (match.Success)
+                    {
+                        return match.Value;
+                    }
+                }
+            }
+
+            return string.IsNullOrWhiteSpace(hostname) ? null : hostname;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Auto-detect: could not determine own container id");
             return null;
         }
     }
