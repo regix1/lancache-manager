@@ -384,7 +384,8 @@
         "monolithic": "增强版复刻，为 LAN 缓存提供更高的性能和更多功能",
         "lancachePics": "游戏图片资源库，用于将 Steam 仓库下载映射到游戏图标",
         "steamPrefillDaemon": "用于定时预填充 Steam 游戏和预热缓存的后台守护进程",
-        "epicPrefillDaemon": "用于定时预填充 Epic 游戏和预热缓存的后台守护进程"
+        "epicPrefillDaemon": "用于定时预填充 Epic 游戏和预热缓存的后台守护进程",
+        "battlenetPrefillDaemon": "用于定时预填充 Battle.net 游戏和预热缓存的后台守护进程"
       }
     }
   },
@@ -1768,6 +1769,41 @@
               }
             },
             "note": "加密的 OAuth 刷新令牌存储在本地以允许自动重新连接。它仅用于游戏库发现。"
+          }
+        },
+        "battlenetDaemonStatus": {
+          "title": "Battle.net",
+          "ready": "就绪",
+          "unavailable": "不可用",
+          "connected": "已连接",
+          "notConnected": "未连接",
+          "connectedAs": "已连接为 {{name}}",
+          "connectedDesc": "公开的 Battle.net 内容可用于预填充",
+          "notConnectedDesc": "启动守护进程以启用 Battle.net 预填充",
+          "dockerStatus": "Docker 服务",
+          "dockerAvailableDesc": "Docker 可用并已准备好进行 Battle.net 预填充会话",
+          "dockerUnavailableDesc": "启动 Docker Desktop 以启用 Battle.net 预填充",
+          "loginButton": "使用 Battle.net 登录",
+          "loginDesc": "Battle.net 预填充无需账号登录",
+          "logout": "登出",
+          "prefillSessions": "预填充会话",
+          "loadError": "加载 Battle.net 状态失败。显示默认值。",
+          "noActiveSessions": "没有活跃会话",
+          "activeSessions": "{{count}} 个活跃会话",
+          "activeSessions_plural": "{{count}} 个活跃会话",
+          "help": {
+            "authentication": {
+              "title": "Battle.net 预填充",
+              "loginRequired": {
+                "term": "无需登录",
+                "description": "Battle.net 预填充完全匿名。它预填充公开的暴雪 CDN 内容，无需账号、登录或凭据。"
+              },
+              "gameDiscovery": {
+                "term": "游戏发现",
+                "description": "无需连接账户即可选择完整的 Battle.net 产品目录。"
+              }
+            },
+            "note": "不存储任何凭据。Battle.net 预填充仅下载公开的暴雪 CDN 内容。"
           }
         },
         "epicGameMappings": {
@@ -3329,7 +3365,12 @@
       "epicFeature1": "预填充整个库或选择特定游戏",
       "epicFeature2": "最近游戏和热门游戏预设",
       "epicFeature3": "强制重新下载和缓存管理",
-      "requiresEpicLogin": "基于浏览器的授权码登录"
+      "requiresEpicLogin": "基于浏览器的授权码登录",
+      "battlenetDescription": "预填充公开的 Battle.net 内容，包括最近游玩的游戏、热门游戏或从目录中手动挑选的游戏。",
+      "battlenetFeature1": "预填充整个目录或选择特定游戏",
+      "battlenetFeature2": "最近游戏和热门游戏预设",
+      "battlenetFeature3": "强制重新下载和缓存管理",
+      "requiresBattlenetLogin": "无需账号登录"
     },
     "startScreen": {
       "description": "将 Steam 游戏预下载到缓存，以加快 LAN 聚会下载速度。连接您的 Steam 库，在活动之前预填充游戏。",
@@ -4672,6 +4713,11 @@
           "label": "Epic Games",
           "description": "Epic Games 平台颜色",
           "affects": ["Epic 徽章", "Epic 图表"]
+        },
+        "battlenetColor": {
+          "label": "Battle.net",
+          "description": "Battle.net 平台颜色",
+          "affects": ["Battle.net 徽章", "Battle.net 图表", "Battle.net 预填充品牌"]
         },
         "originColor": {
           "label": "Origin/EA",

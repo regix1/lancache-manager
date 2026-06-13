@@ -2,13 +2,13 @@
 
 **English** | [中文](README.zh.md)
 
-A web UI for [LANCache](https://lancache.net/). Watch downloads as they happen, see what's already cached, track bandwidth saved, and prefill Steam and Epic games before your next LAN party. The web UI is available in English and 简体中文.
+A web UI for [LANCache](https://lancache.net/). Watch downloads as they happen, see what's already cached, track bandwidth saved, and prefill Steam, Epic, and Battle.net games before your next LAN party. The web UI is available in English and 简体中文.
 
 **What it does:**
 
 - **Live dashboard** - downloads as they happen, bandwidth saved, top clients, service analytics
 - **Cache browser** - see every cached game with cover art, sizes, and per-client history
-- **Prefill** - download Steam and Epic games into your cache *before* guests arrive
+- **Prefill** - download Steam, Epic, and Battle.net games into your cache *before* guests arrive
 - **Management** - process logs, clear cache, detect corruption, find what's cached, manage themes
 - **Monitoring** - Prometheus metrics out of the box, Grafana-ready
 
@@ -35,7 +35,7 @@ A web UI for [LANCache](https://lancache.net/). Watch downloads as they happen, 
   - [Paths and Datasources](#paths-and-datasources)
   - [Nginx Log Rotation](#nginx-log-rotation)
   - [API and Advanced](#api-and-advanced)
-- [Prefill (Steam & Epic)](#prefill-steam--epic)
+- [Prefill (Steam, Epic & Battle.net)](#prefill-steam--epic)
 - [Custom Themes](#custom-themes)
 - [Multiple Datasources](#multiple-datasources)
 - [Reverse Proxy (Nginx)](#nginx-reverse-proxy)
@@ -154,7 +154,7 @@ docker run -d \
 ### Prefill
 <img alt="Prefill Home" src="docs/images/prefill-home.png" />
 
-*Pick between Steam and Epic to start a prefill session*
+*Pick between Steam, Epic, and Battle.net to start a prefill session*
 
 <img alt="Prefill Session" src="docs/images/prefill-session.png" />
 
@@ -360,6 +360,7 @@ For setup decisions (when do I need which override?), see [Prefill → Network s
 | `Prefill__NetworkMode` | `auto` | Docker network mode for prefill containers. Accepts `host`, `bridge`, or a Docker network name. `auto` infers the mode from your `lancache-dns` container. |
 | `Prefill__SteamDockerImage` | `ghcr.io/regix1/steam-prefill-daemon:latest` | Docker image used for Steam prefill containers. |
 | `Prefill__EpicDockerImage` | `ghcr.io/regix1/epic-prefill-daemon:latest` | Docker image used for Epic prefill containers. |
+| `Prefill__BattlenetDockerImage` | `ghcr.io/regix1/battlenet-prefill-daemon:latest` | Docker image used for Battle.net prefill containers. |
 | `Prefill__SessionTimeoutMinutes` | `120` | Minutes of inactivity before an idle prefill session is cleaned up. |
 | `Prefill__DaemonBasePath` | `/data/prefill` | Container path where prefill session state is stored. |
 | `Prefill__HostDataPath` | `auto` | Host path that maps to the manager's `/data` volume. Detected from the manager's mount config; set explicitly only when detection fails (unusual platforms, custom volume drivers). |
@@ -434,13 +435,14 @@ services:
       # - Security__ProtectSwagger=true
       # - Security__AllowedOrigins=
 
-      # Prefill (Steam & Epic) - see Configuration > Prefill for the full reference
+      # Prefill (Steam, Epic & Battle.net) - see Configuration > Prefill for the full reference
       # Most installs need none of these; auto-detection covers the common cases.
       # - Prefill__LancacheIp=192.168.1.10        # Cache server IP. The single most reliable override.
       # - Prefill__LancacheDnsIp=192.168.1.20     # DNS server IP. Bridge mode only.
       # - Prefill__NetworkMode=bridge             # `host`, `bridge`, or a Docker network name.
       # - Prefill__SteamDockerImage=ghcr.io/regix1/steam-prefill-daemon:latest
       # - Prefill__EpicDockerImage=ghcr.io/regix1/epic-prefill-daemon:latest
+      # - Prefill__BattlenetDockerImage=ghcr.io/regix1/battlenet-prefill-daemon:latest
 
       # Nginx Log Rotation
       # - NginxLogRotation__Enabled=true
@@ -467,11 +469,11 @@ services:
 -----
 
 <a id="prefill-steam--epic"></a>
-## Prefill (Steam & Epic)
+## Prefill (Steam, Epic & Battle.net)
 
 Prefill downloads games into your cache *before* people connect. When guests show up, every install reads from your cache instead of the public internet - full LAN speed, no bandwidth bottleneck.
 
-Steam and Epic each run in their own container, so you can prefill both at the same time without them interfering. Progress streams live to the UI.
+Steam, Epic, and Battle.net each run in their own container, so you can prefill all of them at the same time without them interfering. Progress streams live to the UI.
 
 ### Requirements
 
@@ -483,15 +485,15 @@ Steam and Epic each run in their own container, so you can prefill both at the s
 
 The flow is the same for both services:
 
-1. Open the **Prefill** tab and pick **Steam** or **Epic Games**
-2. Sign in (Steam Guard for Steam, OAuth for Epic)
+1. Open the **Prefill** tab and pick **Steam**, **Epic Games**, or **Battle.net**
+2. Sign in (Steam Guard for Steam, OAuth for Epic; Battle.net needs no login)
 3. Pick games from your library
 4. Hit **Start**
 
 That's it. Leave it running - when guests arrive, everything's cached.
 
 > [!NOTE]
-> Steam prefill is built on [steam-prefill-daemon](https://github.com/regix1/steam-prefill-daemon), a fork of [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) by [@tpill90](https://github.com/tpill90). Epic prefill uses [epic-prefill-daemon](https://github.com/regix1/epic-prefill-daemon).
+> Steam prefill is built on [steam-prefill-daemon](https://github.com/regix1/steam-prefill-daemon), a fork of [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) by [@tpill90](https://github.com/tpill90). Epic prefill uses [epic-prefill-daemon](https://github.com/regix1/epic-prefill-daemon). Battle.net prefill uses [battlenet-prefill-daemon](https://github.com/regix1/battlenet-prefill-daemon) and is fully anonymous - no account login required.
 
 ### Importing Steam App IDs
 

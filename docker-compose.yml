@@ -157,6 +157,9 @@ services:
       # Docker image for Steam prefill containers
       # - Prefill__SteamDockerImage=ghcr.io/regix1/steam-prefill-daemon:latest
 
+      # Docker image for Battle.net prefill containers
+      # - Prefill__BattlenetDockerImage=ghcr.io/regix1/battlenet-prefill-daemon:latest
+
       # Session timeout in minutes (inactive sessions get cleaned up)
       # - Prefill__SessionTimeoutMinutes=120
 
