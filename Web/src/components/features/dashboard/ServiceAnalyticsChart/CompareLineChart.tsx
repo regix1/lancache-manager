@@ -8,11 +8,14 @@ import {
   BarElement,
   Tooltip,
   Legend,
+  type Chart,
   type ChartData,
-  type ChartOptions
+  type ChartOptions,
+  type Plugin
 } from 'chart.js';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import type { ServiceStat } from '@/types';
+import { useServiceColors } from './useServiceColors';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -51,7 +54,32 @@ interface TooltipContent {
   rows: TooltipRow[];
 }
 
+/**
+ * Per-render visual config consumed by the canvas plugin. Reading these from
+ * theme CSS vars (via useServiceColors / getThemeColor) keeps every paint on
+ * theme — no hardcoded colors, no CSS for the canvas overlay.
+ */
+interface DivergingBarTheme {
+  rowHighlight: string;
+  labelColor: string;
+  zeroLineColor: string;
+}
+
 const TOOLTIP_GAP = 12;
+
+/**
+ * Minimum painted bar length (px). Tiny services (wsus, small blizzard/epic)
+ * would otherwise render a sub-pixel hairline that cannot be hovered. With
+ * intersect:false this also guarantees a real, visible swatch per row.
+ */
+const MIN_BAR_LENGTH = 6;
+
+// A bar at least this many px wide gets its value painted inline at the end;
+// narrower "slivers" stay tooltip-only to avoid clutter (web-research Topic 2 #4).
+const INLINE_LABEL_MIN_BAR_PX = 44;
+const INLINE_LABEL_GAP = 6;
+const VALUE_LABEL_FONT =
+  '600 11px "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif';
 
 function getThemeColor(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -69,11 +97,122 @@ function useThemeRevision(): number {
   return revision;
 }
 
+/**
+ * Canvas plugin that paints, beneath the bars, a faint full-width highlight
+ * across the hovered row's whole band — so hovering anywhere on a service's
+ * row (label gutter, either bar track, the value gutter) reads as "this row".
+ * Combined with options.interaction.intersect:false this gives a full-row
+ * hit-area without any DOM/CSS overlay. The highlight color comes from the
+ * theme (--theme-bg-hover), so it tracks light/dark.
+ */
+function createRowHighlightPlugin(getTheme: () => DivergingBarTheme): Plugin<'bar'> {
+  return {
+    id: 'divergingRowHighlight',
+    beforeDatasetsDraw(chart: Chart<'bar'>) {
+      const active = chart.getActiveElements();
+      if (!active.length) return;
+      const rowIndex = active[0].index;
+      const yScale = chart.scales.y;
+      const xScale = chart.scales.x;
+      if (!yScale || !xScale) return;
+
+      const band = (yScale as unknown as { getPixelForValue: (v: number) => number })
+        .getPixelForValue;
+      const center = band.call(yScale, rowIndex);
+      const step = (yScale.height || 0) / Math.max(1, yScale.ticks.length || 1);
+      const halfBand = Math.max(step / 2, 8);
+
+      const { ctx, chartArea } = chart;
+      ctx.save();
+      ctx.fillStyle = getTheme().rowHighlight;
+      ctx.fillRect(
+        chartArea.left,
+        center - halfBand,
+        chartArea.right - chartArea.left,
+        halfBand * 2
+      );
+      ctx.restore();
+    }
+  };
+}
+
+/**
+ * Canvas plugin that paints the exact byte value at the end of each readable
+ * bar (>= INLINE_LABEL_MIN_BAR_PX). Slivers are skipped (tooltip-only). Hits
+ * are right-anchored to the right of their bar end; misses left-anchored to the
+ * left of theirs. Numbers reuse formatBytes; the canvas font is fixed-digit so
+ * values align (the tabular-figure intent for canvas text).
+ */
+function createValueLabelPlugin(getTheme: () => DivergingBarTheme): Plugin<'bar'> {
+  return {
+    id: 'divergingValueLabels',
+    afterDatasetsDraw(chart: Chart<'bar'>) {
+      const xScale = chart.scales.x;
+      if (!xScale) return;
+      const zeroX = xScale.getPixelForValue(0);
+      const { ctx, chartArea } = chart;
+
+      ctx.save();
+      ctx.font = VALUE_LABEL_FONT;
+      ctx.fillStyle = getTheme().labelColor;
+      ctx.textBaseline = 'middle';
+
+      chart.data.datasets.forEach((_dataset, datasetIndex) => {
+        const meta = chart.getDatasetMeta(datasetIndex);
+        if (meta.hidden) return;
+        meta.data.forEach((element, dataIndex) => {
+          const raw = Number(chart.data.datasets[datasetIndex].data[dataIndex] ?? 0);
+          if (!raw) return;
+          const bar = element as unknown as { x: number; y: number };
+          const barLength = Math.abs(bar.x - zeroX);
+          if (barLength < INLINE_LABEL_MIN_BAR_PX) return;
+
+          const text = formatBytes(Math.abs(raw));
+          const isPositive = raw >= 0;
+          ctx.textAlign = isPositive ? 'left' : 'right';
+          const textX = isPositive ? bar.x + INLINE_LABEL_GAP : bar.x - INLINE_LABEL_GAP;
+          const textWidth = ctx.measureText(text).width;
+          // Skip if the label would spill outside the plot area.
+          if (isPositive && textX + textWidth > chartArea.right) return;
+          if (!isPositive && textX - textWidth < chartArea.left) return;
+          ctx.fillText(text, textX, bar.y);
+        });
+      });
+      ctx.restore();
+    }
+  };
+}
+
 const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceStats }) => {
   const themeRevision = useThemeRevision();
+  const { getCacheHitColor, getCacheMissColor, getBorderColor } = useServiceColors();
   const tooltipElRef = useRef<HTMLDivElement | null>(null);
   const lastDataKeyRef = useRef<string>('');
   const [tooltipContent, setTooltipContent] = useState<TooltipContent>({ title: '', rows: [] });
+
+  // Live theme snapshot the canvas plugins read at paint time. A ref keeps the
+  // plugin identity stable across renders while still resolving fresh colors.
+  const themeRef = useRef<DivergingBarTheme>({
+    rowHighlight: '',
+    labelColor: '',
+    zeroLineColor: ''
+  });
+  themeRef.current = useMemo(() => {
+    void themeRevision;
+    return {
+      rowHighlight: getThemeColor('--theme-bg-hover'),
+      labelColor: getThemeColor('--theme-chart-text'),
+      zeroLineColor: getThemeColor('--theme-border-primary')
+    };
+  }, [themeRevision]);
+
+  const plugins = useMemo<Plugin<'bar'>[]>(
+    () => [
+      createRowHighlightPlugin(() => themeRef.current),
+      createValueLabelPlugin(() => themeRef.current)
+    ],
+    []
+  );
 
   const services = useMemo(
     () =>
@@ -88,10 +227,11 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
 
   const chartData: ChartData<'bar'> = useMemo(() => {
     void themeRevision;
-    const hitColor = getThemeColor('--theme-chart-cache-hit');
-    const missColor = getThemeColor('--theme-chart-cache-miss');
-    const hitColorSoft = getThemeColor('--theme-success-subtle');
-    const missColorSoft = getThemeColor('--theme-error-subtle');
+    // Diverging color pair = the dedicated cache-hit / cache-miss theme colors.
+    // Solid fills (no pattern fills); hover darkens to the same hue.
+    const hitColor = getCacheHitColor() || getThemeColor('--theme-chart-cache-hit');
+    const missColor = getCacheMissColor() || getThemeColor('--theme-chart-cache-miss');
+    const borderColor = getBorderColor() || getThemeColor('--theme-chart-border');
 
     return {
       labels,
@@ -99,36 +239,37 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
         {
           label: 'Cache Hits',
           data: services.map((service) => service.totalCacheHitBytes),
-          backgroundColor: hitColorSoft,
+          backgroundColor: hitColor,
           hoverBackgroundColor: hitColor,
-          borderColor: hitColor,
-          borderWidth: 1.5,
-          borderRadius: 6,
+          borderColor,
+          borderWidth: 1,
+          borderRadius: 4,
           borderSkipped: false,
+          minBarLength: MIN_BAR_LENGTH,
           barPercentage: 0.78,
           categoryPercentage: 0.74
         },
         {
           label: 'Cache Misses',
           data: services.map((service) => -service.totalCacheMissBytes),
-          backgroundColor: missColorSoft,
+          backgroundColor: missColor,
           hoverBackgroundColor: missColor,
-          borderColor: missColor,
-          borderWidth: 1.5,
-          borderRadius: 6,
+          borderColor,
+          borderWidth: 1,
+          borderRadius: 4,
           borderSkipped: false,
+          minBarLength: MIN_BAR_LENGTH,
           barPercentage: 0.78,
           categoryPercentage: 0.74
         }
       ]
     };
-  }, [labels, services, themeRevision]);
+  }, [labels, services, themeRevision, getCacheHitColor, getCacheMissColor, getBorderColor]);
 
   const options: ChartOptions<'bar'> = useMemo(() => {
     void themeRevision;
     const textColor = getThemeColor('--theme-chart-text');
     const mutedColor = getThemeColor('--theme-text-muted');
-    const gridColor = getThemeColor('--theme-chart-grid');
     const zeroLineColor = getThemeColor('--theme-border-primary');
     const maxMagnitude = services.reduce(
       (max, service) => Math.max(max, service.totalCacheHitBytes, service.totalCacheMissBytes),
@@ -139,18 +280,21 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
       responsive: true,
       maintainAspectRatio: false,
       indexAxis: 'y',
+      // Full-row hit-area: snap to the whole category row (mode 'y') and never
+      // require the pointer to land on the painted rect (intersect:false), so
+      // even a min-length sliver is hoverable anywhere along its row band.
       interaction: {
-        mode: 'nearest',
-        intersect: true
+        mode: 'y',
+        intersect: false
       },
       hover: {
-        mode: 'nearest',
-        intersect: true
+        mode: 'y',
+        intersect: false
       },
       layout: {
         padding: {
           top: 4,
-          right: 12,
+          right: 16,
           bottom: 4,
           left: 4
         }
@@ -160,22 +304,28 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
           stacked: false,
           suggestedMin: -maxMagnitude,
           suggestedMax: maxMagnitude,
+          // No vertical gridlines except a single 1px zero baseline; both halves
+          // grow from it so rows compare across the center (web-research #3).
           grid: {
-            color: gridColor,
-            lineWidth: (ctx) => (ctx.tick.value === 0 ? 0 : 1)
+            color: zeroLineColor,
+            lineWidth: (ctx) => (ctx.tick.value === 0 ? 1 : 0),
+            drawTicks: false
           },
           border: {
-            color: zeroLineColor,
-            width: 1
+            display: false
           },
           ticks: {
             color: mutedColor,
+            maxTicksLimit: 5,
             callback: (value) => formatBytes(Math.abs(Number(value)))
           }
         },
         y: {
           stacked: false,
           grid: {
+            display: false
+          },
+          border: {
             display: false
           },
           ticks: {
@@ -305,7 +455,7 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
   return (
     <>
       <div className="compare-line-chart">
-        <Bar data={chartData} options={options} />
+        <Bar data={chartData} options={options} plugins={plugins} />
       </div>
       {createPortal(
         <div ref={tooltipElRef} className="themed-card tooltip-edge compare-chart-tooltip">
