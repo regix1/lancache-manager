@@ -24,6 +24,9 @@ interface DataSectionProps {
   onDataRefresh: () => void;
   onNavigateToSteamApi?: () => void;
   onNavigateToEpicLogin?: () => void;
+  // Battle.net is anonymous (no login); this navigates to / highlights the
+  // Battle.net daemon status card in the Integrations section.
+  onNavigateToBattleNetLogin?: () => void;
   onNavigateToSchedule?: (scheduleKey: string) => void;
 }
 

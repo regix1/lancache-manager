@@ -71,6 +71,9 @@ const themeColorDefaults: Record<string, string> = {
   epicColor: '#8b5cf6',
   originColor: '#fb923c',
   blizzardColor: '#3b82f6',
+  blizzardFaint: 'rgba(59, 130, 246, 0.1)',
+  blizzardOnBorder: 'rgba(59, 130, 246, 0.5)',
+  blizzardStrong: 'rgba(59, 130, 246, 0.3)',
   wsusColor: '#06b6d4',
   riotColor: '#ef4444',
   xboxColor: '#107C10',
@@ -248,6 +251,12 @@ function normalizeThemeColors(colors: Record<string, string>): Record<string, st
   if (!result.epicFaint) result.epicFaint = hexToRgba(epic, 0.1);
   if (!result.epicOnBorder) result.epicOnBorder = hexToRgba(epic, 0.5);
   if (!result.epicStrong) result.epicStrong = hexToRgba(epic, 0.3);
+
+  // Battle.net (Blizzard) variants derived from blizzardColor
+  const blizzard = result.blizzardColor;
+  if (!result.blizzardFaint) result.blizzardFaint = hexToRgba(blizzard, 0.1);
+  if (!result.blizzardOnBorder) result.blizzardOnBorder = hexToRgba(blizzard, 0.5);
+  if (!result.blizzardStrong) result.blizzardStrong = hexToRgba(blizzard, 0.3);
 
   // Ubisoft defaults to epic
   if (!result.ubisoftColor) result.ubisoftColor = result.epicColor;

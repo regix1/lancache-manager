@@ -73,6 +73,10 @@
   animation-delay: 80ms;
 }
 
+.prefill-service-card:nth-child(3) {
+  animation-delay: 160ms;
+}
+
 /* Accent top bar */
 .prefill-service-card::before {
   content: '';
@@ -132,6 +136,14 @@
   --service-accent-faint: var(--theme-epic-faint);
   --service-accent-strong: var(--theme-epic-strong);
   --service-accent-subtle: var(--theme-epic-subtle);
+}
+
+.prefill-service-card--battlenet {
+  --service-accent: var(--theme-blizzard);
+  --service-accent-on-border: var(--theme-blizzard-on-border);
+  --service-accent-faint: var(--theme-blizzard-faint);
+  --service-accent-strong: var(--theme-blizzard-strong);
+  --service-accent-subtle: var(--theme-blizzard-subtle);
 }
 
 /* Z-index for card content above glow */

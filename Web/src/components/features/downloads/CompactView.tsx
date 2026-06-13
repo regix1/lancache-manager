@@ -7,6 +7,8 @@ import { formatBytes, formatPercent, formatRelativeTime, formatCount } from '@ut
 import BadgesRow from './BadgesRow';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { SteamIcon } from '@components/ui/SteamIcon';
+import { EpicIcon } from '@components/ui/EpicIcon';
+import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { GameImage } from '@components/common/GameImage';
 import EvictedBadge from '@components/common/EvictedBadge';
 import { useHoldTimer } from '@hooks/useHoldTimer';
@@ -176,6 +178,8 @@ const GroupRow: React.FC<GroupRowProps> = ({
   const primaryDownload = group.downloads[0];
   const serviceLower = (group.service ?? '').toLowerCase();
   const isEpicService = serviceLower === 'epic' || serviceLower === 'epicgames';
+  const isBlizzardService =
+    serviceLower === 'blizzard' || serviceLower === 'battle.net' || serviceLower === 'battlenet';
   const showSteamImage =
     serviceLower === 'steam' && availableImages.has(String(primaryDownload?.gameAppId ?? ''));
   const showEpicImage = isEpicService && availableImages.has(primaryDownload?.epicAppId ?? '');
@@ -359,7 +363,13 @@ const GroupRow: React.FC<GroupRowProps> = ({
               <div className="flex-shrink-0">
                 {aestheticMode || imageErrors.has(gameImageErrorKey) ? (
                   <div className="compact-expanded-banner sm:w-[100px] sm:h-[46px] rounded border flex items-center justify-center bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)]">
-                    <SteamIcon size={24} className="text-[var(--theme-steam)] opacity-60" />
+                    {isBlizzardService ? (
+                      <BlizzardIcon size={24} className="text-[var(--theme-blizzard)] opacity-60" />
+                    ) : isEpicService ? (
+                      <EpicIcon size={24} className="text-[var(--theme-epic)] opacity-60" />
+                    ) : (
+                      <SteamIcon size={24} className="text-[var(--theme-steam)] opacity-60" />
+                    )}
                   </div>
                 ) : (
                   <GameImage
