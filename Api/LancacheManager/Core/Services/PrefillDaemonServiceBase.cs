@@ -1770,7 +1770,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         var configured = _networkOptions.CurrentValue.LancacheIp;
         if (string.IsNullOrWhiteSpace(configured))
         {
-            return null;
+            // No explicit Prefill__LancacheIp configured. Best-effort auto-detect the lancache
+            // HTTP server container's bridge IP (mirrors GetLancacheDnsIpAsync). This is STRICTLY
+            // additive: it only returns a value when a running lancache/monolithic HTTP-server
+            // container is found on a bridge network with a reachable private IP. Otherwise it
+            // returns null - exactly today's behavior - so Steam/Epic/Battle.net are unaffected
+            // when nothing is confidently detected.
+            return await DetectLancacheServerIpAsync(cancellationToken);
         }
 
         if (IPAddress.TryParse(configured, out _))
@@ -1793,6 +1799,85 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         {
             throw new InvalidOperationException(
                 $"Prefill__LancacheIp='{configured}' could not be resolved to an IP address.", ex);
+        }
+    }
+
+    /// <summary>
+    /// Best-effort auto-detection of the lancache HTTP server IP when <c>Prefill__LancacheIp</c>
+    /// is not configured. Mirrors <see cref="GetLancacheDnsIpAsync"/>: inspects running containers
+    /// for a lancache/monolithic HTTP server and returns its bridge-network IP when CONFIDENT.
+    ///
+    /// STRICTLY ADDITIVE / CONSERVATIVE: returns <c>null</c> (today's behavior) when Docker is
+    /// unavailable, when no matching container is running, when the container uses host networking
+    /// (loopback heartbeat is ambiguous - the LANCACHE_IP override would be meaningless), or when
+    /// no private bridge IP can be read. This keeps Steam/Epic/Battle.net container creation
+    /// unchanged unless a lancache server is unambiguously detected.
+    /// </summary>
+    private async Task<string?> DetectLancacheServerIpAsync(CancellationToken cancellationToken)
+    {
+        if (_dockerClient == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var containers = await _dockerClient.Containers.ListContainersAsync(
+                new ContainersListParameters { All = false }, // Only running containers
+                cancellationToken);
+
+            // Identify the lancache HTTP cache server container by common name patterns,
+            // excluding the lancache-dns container (that serves DNS, not CDN HTTP traffic).
+            var serverContainer = containers.FirstOrDefault(c =>
+                c.Names.Any(n =>
+                    !n.Contains("dns", StringComparison.OrdinalIgnoreCase) &&
+                    (n.Contains("monolithic", StringComparison.OrdinalIgnoreCase) ||
+                     n.Contains("lancache", StringComparison.OrdinalIgnoreCase))));
+
+            if (serverContainer == null)
+            {
+                return null;
+            }
+
+            var inspect = await _dockerClient.Containers.InspectContainerAsync(serverContainer.ID, cancellationToken);
+
+            // Host networking: the server listens on the host's loopback/host IP. There is no
+            // stable bridge IP to inject, and a loopback target would re-create the freeze. Be
+            // conservative and decline (returns null -> warning surfaces -> user sets the override).
+            if (inspect.HostConfig?.NetworkMode == "host")
+            {
+                _logger.LogInformation(
+                    "Detected a lancache HTTP server container using host networking; not auto-injecting LANCACHE_IP. " +
+                    "Set Prefill__LancacheIp=<your-lancache-server-ip> for reliable CDN routing.");
+                return null;
+            }
+
+            var networks = inspect.NetworkSettings?.Networks;
+            if (networks == null || networks.Count == 0)
+            {
+                return null;
+            }
+
+            // Prefer a private bridge IP (RFC 1918) so we never inject a loopback or public address.
+            var detectedIp = networks
+                .Where(n => !string.IsNullOrEmpty(n.Value.IPAddress) && IsPrivateIp(n.Value.IPAddress))
+                .Select(n => n.Value.IPAddress)
+                .FirstOrDefault();
+
+            if (string.IsNullOrEmpty(detectedIp))
+            {
+                return null;
+            }
+
+            _logger.LogInformation(
+                "Auto-detected lancache HTTP server IP {LancacheIp} from container {ContainerName} (Prefill__LancacheIp not set)",
+                detectedIp, serverContainer.Names.FirstOrDefault());
+            return detectedIp;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to auto-detect lancache HTTP server IP");
+            return null;
         }
     }
 

@@ -3118,6 +3118,7 @@
       "labels": {
         "unauthorizedAccount": "Unauthorized Steam account",
         "notLoggedInSession": "Not logged in session",
+        "anonymousAccount": "Battle.net — no login required",
         "loading": "Loading...",
         "created": "Created",
         "ended": "Ended",
@@ -3423,7 +3424,7 @@
       "optionalDomainNotConfigured": "This domain is optional. As long as the primary domain is configured, prefill will work correctly.",
       "hostNetworkingHint": "If Steam login hangs or times out, set Prefill__LancacheIp to your lancache server's IP - this fixes most DNS-related issues without changing network mode. As a fallback, try Prefill__NetworkMode=bridge in your docker-compose.yml.",
       "lancacheIpInjected": "Lancache server: {{ip}} (direct, DNS-independent)",
-      "lancacheIpResolutionFailed": "Prefill__LancacheIp is not set. The daemon will fall back to container DNS, which may not resolve CDN domains correctly. Set Prefill__LancacheIp=<your-lancache-server-ip> in your docker-compose.",
+      "lancacheIpResolutionFailed": "Prefill__LancacheIp is not set and a lancache server could not be auto-detected. The daemon will fall back to container DNS, which may not resolve every CDN domain (Battle.net/Blizzard CDNs are often missing from lancache DNS) and can cause prefill to hang. Set Prefill__LancacheIp=<your-lancache-server-ip> in your docker-compose for reliable prefill.",
       "ipv6UnsupportedHint": "IPv6 failures are expected: lancache-dns only supports IPv4. If clients prefer IPv6, disable IPv6 or force IPv4 to avoid bypassing your cache.",
       "ipv6BypassDetected": "IPv6 resolution detected for this domain. If your router or clients bypass lancache-dns via IPv6, Steam login and prefill can fail. Consider disabling IPv6 or ensuring AAAA records point to your cache."
     },

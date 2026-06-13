@@ -126,11 +126,9 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                 </div>
               </div>
             ) : (
-              diagnostics.useHostNetworking && (
-                <div className="text-xs p-2.5 rounded bg-[var(--theme-warning-bg)] text-[var(--theme-warning-text)] leading-relaxed">
-                  {t('prefill.network.lancacheIpResolutionFailed')}
-                </div>
-              )
+              <div className="text-xs p-2.5 rounded bg-[var(--theme-warning-bg)] text-[var(--theme-warning-text)] leading-relaxed">
+                {t('prefill.network.lancacheIpResolutionFailed')}
+              </div>
             )}
             {/* Internet Connectivity */}
             <div className="flex items-center justify-between gap-2 flex-wrap">

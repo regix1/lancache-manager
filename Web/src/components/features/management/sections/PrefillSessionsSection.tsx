@@ -35,6 +35,7 @@ import ApiService, {
   type PrefillHistoryEntryDto
 } from '@services/api.service';
 import type { PrefillSessionStatus } from '@/types/operations';
+import { GAME_SERVICES, type GameServiceId } from '@/types/gameService';
 import { getErrorMessage } from '@utils/error';
 import { formatBytes } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -121,6 +122,25 @@ const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> 
 
   return <span className={config.className}>{getDisplayStatus()}</span>;
 };
+
+// Resolve a session's raw platform string (e.g. "Steam", "Epic", "battlenet")
+// to a strongly-typed GameServiceId. Defaults to Steam for legacy/unknown values.
+const resolveServiceId = (platform: string): GameServiceId => {
+  switch (platform.toLowerCase()) {
+    case 'epic':
+      return 'epic';
+    case 'battlenet':
+    case 'blizzard':
+      return 'battlenet';
+    case 'steam':
+    default:
+      return 'steam';
+  }
+};
+
+// Friendly display name for the platform badge ("Steam" / "Epic Games" / "Battle.net").
+const serviceDisplayName = (serviceId: GameServiceId): string =>
+  GAME_SERVICES.find((service) => service.id === serviceId)?.name ?? serviceId;
 
 // Status badge component
 const StatusBadge: React.FC<{ status: string; isLive?: boolean }> = ({ status, isLive }) => {
@@ -218,6 +238,9 @@ const SessionCard: React.FC<{
   const platform = isDaemonSession
     ? (session as DaemonSessionDto).platform || 'Steam'
     : (session as PrefillSessionDto).platform || 'Steam';
+  const serviceId = resolveServiceId(platform);
+  const isBattlenet = serviceId === 'battlenet';
+  const platformDisplayName = serviceDisplayName(serviceId);
 
   const displayUsername = isDaemonSession
     ? (session as DaemonSessionDto).username || (session as DaemonSessionDto).steamUsername
@@ -291,22 +314,22 @@ const SessionCard: React.FC<{
               {/* Header: Username and status */}
               <div className="prefill-session-header">
                 {displayUsername ? (
-                  <span className={`prefill-session-username platform-${platform.toLowerCase()}`}>
+                  <span className={`prefill-session-username platform-${serviceId}`}>
                     <User className="w-3.5 h-3.5" />
                     {displayUsername}
                   </span>
                 ) : (
                   <span className="prefill-session-no-user">
-                    {isAuthenticated_
-                      ? t('management.prefillSessions.labels.unauthorizedAccount')
-                      : t('management.prefillSessions.labels.notLoggedInSession')}
+                    {isBattlenet
+                      ? t('management.prefillSessions.labels.anonymousAccount')
+                      : isAuthenticated_
+                        ? t('management.prefillSessions.labels.unauthorizedAccount')
+                        : t('management.prefillSessions.labels.notLoggedInSession')}
                   </span>
                 )}
                 <StatusBadge status={status} isLive={isLive} />
-                <span
-                  className={`prefill-platform-badge prefill-platform-${platform.toLowerCase()}`}
-                >
-                  {platform}
+                <span className={`prefill-platform-badge prefill-platform-${serviceId}`}>
+                  {platformDisplayName}
                 </span>
                 {!isDaemonSession && (session as PrefillSessionDto).isAuthenticated && (
                   <Tooltip content={t('management.prefillSessions.tooltips.steamAuthenticated')}>

@@ -193,6 +193,15 @@ services:
       #   - If lancache-dns uses bridge → prefill uses its IP for DNS
       # Only set these if auto-detection fails or you have a custom setup.
 
+      # RECOMMENDED: cache server IP for reliable prefill.
+      # Set Prefill__LancacheIp to the IP of your lancache HTTP server (port 80).
+      # Prefill then talks to the cache by IP and stops depending on DNS entirely.
+      # Strongly recommended for Battle.net (Blizzard CDN domains are often missing
+      # from lancache DNS, which can make prefill hang) and any non-standard DNS setup.
+      # If unset, the app best-effort auto-detects a running lancache server, but
+      # auto-detection can fail - setting this explicitly is the only fully reliable path.
+      # - Prefill__LancacheIp=192.168.1.10
+
       # Network mode for prefill containers
       # Options: "host", "bridge", a custom Docker network name, or "auto"
       # - Prefill__NetworkMode=auto

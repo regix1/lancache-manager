@@ -349,7 +349,7 @@ To hand out a guest link without sharing your API key, open the **Users** tab an
 <a id="prefill-config"></a>
 ### Prefill
 
-Prefill auto-detects the right values for almost everything in this table. The one variable worth knowing about is **`Prefill__LancacheIp`** - set it to your cache server's IP and prefill stops depending on DNS at all. Reach for the others only when auto-detection gets it wrong.
+Prefill auto-detects the right values for almost everything in this table. **For reliable prefill you should set `Prefill__LancacheIp` to your cache server's IP** - this makes prefill talk to your cache by IP and stop depending on DNS entirely. It is strongly recommended for Battle.net (Blizzard's CDN domains are often missing from lancache DNS, which can make prefill hang) and for any non-standard DNS setup. When it is unset the manager makes a best-effort attempt to auto-detect a running lancache server, but auto-detection can fail; setting it explicitly is the only fully reliable path. Reach for the other variables only when auto-detection gets them wrong.
 
 For setup decisions (when do I need which override?), see [Prefill → Network setup](#prefill-network).
 
