@@ -113,12 +113,20 @@ public class GameImagesController : ControllerBase
         var (imageData, contentType) = await _imageCacheService.GetImageAsync(
             slug, canonicalService, cancellationToken) ?? default;
 
-        if (imageData == null)
+        if (imageData != null)
         {
-            return NotFound(new GameImageErrorResponse { Error = $"Game image not available for {canonicalService} '{slug}'" });
+            return ImageResponse(imageData, contentType ?? "image/jpeg", $"{canonicalService}-{slug}");
         }
 
-        return ImageResponse(imageData, contentType ?? "image/jpeg", $"{canonicalService}-{slug}");
+        // Instant path: curated embedded banners (Blizzard/Riot) live in the assembly, so serve them
+        // directly even before any GameImage row has been fetched/stored. This makes a curated banner
+        // appear the moment its game card renders - no fetch, detection scan, or 30-min wait.
+        if (NameKeyedBannerSource.TryGetEmbeddedBytesForSlug(canonicalService, slug, out var embeddedBytes, out var embeddedContentType))
+        {
+            return ImageResponse(embeddedBytes, embeddedContentType, $"{canonicalService}-{slug}");
+        }
+
+        return NotFound(new GameImageErrorResponse { Error = $"Game image not available for {canonicalService} '{slug}'" });
     }
 
     /// <summary>
@@ -141,7 +149,13 @@ public class GameImagesController : ControllerBase
             .Select(gi => gi.AppId)
             .ToListAsync(cancellationToken);
 
-        return Ok(ids);
+        // Also advertise curated embedded name-keyed banners (Blizzard/Riot). Their JPEG bytes live
+        // in the assembly and are served on-demand by GetNameKeyedHeaderImageAsync, so they are
+        // "available" the instant a curated game's card renders - no fetched GameImage row required.
+        var available = new HashSet<string>(ids, StringComparer.Ordinal);
+        available.UnionWith(NameKeyedBannerSource.EmbeddedBannerSlugs());
+
+        return Ok(available);
     }
 
     /// <summary>

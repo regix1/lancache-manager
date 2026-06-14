@@ -1,7 +1,6 @@
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace LancacheManager.Infrastructure.Data;
 
@@ -32,6 +31,17 @@ public static class NameKeyedBannerSource
     private static readonly Lazy<Dictionary<(string Service, string Slug), string>> _bySlug =
         new(LoadBySlug);
 
+    // Curated slugs whose banner is an embedded:// sentinel AND whose JPEG resource is present in
+    // the assembly. These are served on-demand (no stored GameImage row needed), so the /available
+    // endpoint advertises them and the serve route resolves them instantly.
+    private static readonly Lazy<HashSet<string>> _embeddedSlugs =
+        new(LoadEmbeddedSlugs);
+
+    // Set of curated service keys (the top-level sections of game_banners.json), so NormalizeService
+    // recognizes any name-keyed service present in the data with no code change.
+    private static readonly Lazy<HashSet<string>> _services =
+        new(() => _bySlug.Value.Keys.Select(k => k.Service).ToHashSet(StringComparer.Ordinal));
+
     /// <summary>
     /// Normalizes a service string to one of the canonical keys this source covers,
     /// or null if the service is not name-keyed here.
@@ -39,11 +49,15 @@ public static class NameKeyedBannerSource
     public static string? NormalizeService(string? service)
     {
         if (string.IsNullOrWhiteSpace(service)) return null;
-        return service.ToLowerInvariant() switch
+        var lower = service.ToLowerInvariant();
+        return lower switch
         {
+            // Well-known aliases mapping an nginx/request service name to its game_banners.json key.
             "blizzard" or "battle.net" or "battlenet" => BlizzardService,
             "riot" or "riotgames" => RiotService,
-            _ => null
+            // Any OTHER service with a curated section in game_banners.json is name-keyed too, so a
+            // new name-keyed service needs only a JSON section + embedded JPEGs (no code change).
+            _ => _services.Value.Contains(lower) ? lower : null
         };
     }
 
@@ -118,6 +132,31 @@ public static class NameKeyedBannerSource
         return bytes.Length > 0;
     }
 
+    /// <summary>
+    /// Resolves a curated name-keyed (service, slug) DIRECTLY to its embedded banner bytes, without
+    /// needing a stored GameImage row. Lets the serve route return curated Blizzard/Riot banners
+    /// instantly (the JPEGs live in the assembly). Returns false when the service is not name-keyed,
+    /// no curated entry exists for the slug, or that entry is not an <c>embedded://</c> sentinel.
+    /// </summary>
+    public static bool TryGetEmbeddedBytesForSlug(string? service, string? slug, out byte[] bytes, out string contentType)
+    {
+        bytes = Array.Empty<byte>();
+        contentType = "image/jpeg";
+
+        var normalized = NormalizeService(service);
+        if (normalized == null || string.IsNullOrWhiteSpace(slug)) return false;
+
+        return _bySlug.Value.TryGetValue((normalized, slug!), out var url)
+            && TryGetEmbeddedBytes(url, out bytes, out contentType);
+    }
+
+    /// <summary>
+    /// All curated name-keyed slugs whose banner is an embedded:// sentinel with a present JPEG
+    /// resource. The /available endpoint reports these so the frontend renders a curated game's
+    /// banner the instant its card appears, with no fetched GameImage row required.
+    /// </summary>
+    public static IReadOnlyCollection<string> EmbeddedBannerSlugs() => _embeddedSlugs.Value;
+
     private static Dictionary<(string, string), string> LoadBySlug()
     {
         var assembly = Assembly.GetExecutingAssembly();
@@ -126,35 +165,48 @@ public static class NameKeyedBannerSource
                 $"Embedded banner map resource '{ResourceName}' not found. " +
                 "Verify the EmbeddedResource link in LancacheManager.csproj.");
 
-        var raw = JsonSerializer.Deserialize<RawBannerMap>(stream, new JsonSerializerOptions
+        // Parsed generically as { service -> { gameName -> url } } so ANY name-keyed service in the
+        // JSON is loaded with no code change. Non-object top-level values (e.g. the "_comment" doc
+        // string, or any future metadata key) are skipped.
+        var raw = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(stream, new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true
         }) ?? throw new InvalidOperationException("Embedded game_banners.json is malformed");
 
         var result = new Dictionary<(string, string), string>();
 
-        void AddSection(string service, Dictionary<string, string>? section)
+        foreach (var (service, section) in raw)
         {
-            if (section == null) return;
-            foreach (var (gameName, url) in section)
+            if (section.ValueKind != JsonValueKind.Object) continue;
+
+            var svc = service.ToLowerInvariant();
+            foreach (var game in section.EnumerateObject())
             {
-                if (string.IsNullOrWhiteSpace(url)) continue;
-                result[(service, Slug(gameName))] = url;
+                if (game.Value.ValueKind != JsonValueKind.String) continue;
+                var url = game.Value.GetString();
+                if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(game.Name)) continue;
+                result[(svc, Slug(game.Name))] = url;
             }
         }
-
-        AddSection(BlizzardService, raw.Blizzard);
-        AddSection(RiotService, raw.Riot);
 
         return result;
     }
 
-    private sealed class RawBannerMap
+    private static HashSet<string> LoadEmbeddedSlugs()
     {
-        [JsonPropertyName("blizzard")]
-        public Dictionary<string, string>? Blizzard { get; set; }
+        var assembly = Assembly.GetExecutingAssembly();
+        var resourceNames = new HashSet<string>(assembly.GetManifestResourceNames(), StringComparer.Ordinal);
 
-        [JsonPropertyName("riot")]
-        public Dictionary<string, string>? Riot { get; set; }
+        var slugs = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var ((_, slug), url) in _bySlug.Value)
+        {
+            if (url.StartsWith(EmbeddedScheme, StringComparison.OrdinalIgnoreCase)
+                && resourceNames.Contains($"LancacheManager.banners.{slug}.jpg"))
+            {
+                slugs.Add(slug);
+            }
+        }
+
+        return slugs;
     }
 }
