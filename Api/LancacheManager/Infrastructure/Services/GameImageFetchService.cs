@@ -318,6 +318,32 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     {
         try
         {
+            // Hard-coded embedded banners (embedded://{slug}): bytes come from the embedded JPEG
+            // resource, never the network. These 20 name-keyed banners are NEVER fetched at runtime.
+            if (NameKeyedBannerSource.TryGetEmbeddedBytes(url, out var embeddedBytes, out var embeddedContentType))
+            {
+                if (embeddedBytes.Length < MinImageBytes)
+                {
+                    _logger.LogDebug("[GameImageFetch] Skipping tiny embedded image ({Size} bytes) for {Service} {Slug} from {Url}", embeddedBytes.Length, service, slug, url);
+                    return false;
+                }
+
+                lock (db)
+                {
+                    db.GameImages.Add(new GameImage
+                    {
+                        AppId = slug,
+                        Service = service,
+                        ImageData = embeddedBytes,
+                        ContentType = embeddedContentType,
+                        SourceUrl = url,
+                        FetchedAtUtc = DateTime.UtcNow
+                    });
+                }
+
+                return true;
+            }
+
             await _httpThrottle.WaitAsync(ct);
             try
             {
@@ -747,6 +773,23 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         CancellationToken ct)
     {
         if (string.IsNullOrEmpty(image.SourceUrl)) return;
+
+        // Hard-coded embedded banners (embedded://{slug}): re-seed from the embedded JPEG bytes,
+        // never the network. These name-keyed banners are NEVER auto-updated over HTTP.
+        if (NameKeyedBannerSource.TryGetEmbeddedBytes(image.SourceUrl, out var embeddedBytes, out var embeddedContentType))
+        {
+            if (embeddedBytes.Length < MinImageBytes)
+            {
+                _logger.LogDebug("[GameImageFetch] Skipping tiny embedded image ({Size} bytes) during refresh for {AppId}", embeddedBytes.Length, image.AppId);
+                return;
+            }
+
+            image.ImageData = embeddedBytes;
+            image.ContentType = embeddedContentType;
+            image.FetchedAtUtc = DateTime.UtcNow;
+            image.UpdatedAtUtc = DateTime.UtcNow;
+            return;
+        }
 
         try
         {

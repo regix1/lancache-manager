@@ -59,6 +59,41 @@ public sealed class GameCacheDetectionDataService
         return new CachedGameUnevictTargets(steamGameIdsToUnevict, epicAppIdsToUnevict);
     }
 
+    /// <summary>
+    /// Downloads-keyed service self-heal companion to <see cref="GetGamesToUnevictAsync"/>.
+    /// Returns the lowercased names of services whose <see cref="CachedServiceDetection.IsEvicted"/>
+    /// is currently true but which now have at least one non-evicted service-scoped Download
+    /// (Service==name case-insensitive, GameAppId==null &amp;&amp; EpicAppId==null) - i.e. the cache
+    /// files reappeared on disk. Keying off Downloads.IsEvicted (the disk-probe signal) instead of
+    /// the stale CachedServiceDetection.CacheFilesFound snapshot lets a re-cached service self-heal
+    /// within the eviction scan, matching the games path.
+    /// </summary>
+    internal async Task<List<string>> GetServicesToUnevictAsync(
+        AppDbContext context,
+        CancellationToken cancellationToken)
+    {
+        var evictedServiceNames = await context.CachedServiceDetections
+            .Where(s => s.IsEvicted)
+            .Select(s => s.ServiceName.ToLower())
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        if (evictedServiceNames.Count == 0)
+        {
+            return new List<string>();
+        }
+
+        return await context.Downloads
+            .Where(d => d.GameAppId == null
+                     && d.EpicAppId == null
+                     && d.Service != null
+                     && !d.IsEvicted
+                     && evictedServiceNames.Contains(d.Service!.ToLower()))
+            .Select(d => d.Service!.ToLower())
+            .Distinct()
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<DetectionOperationResponse?> LoadDetectionAsync(
         CancellationToken cancellationToken = default)
     {
@@ -717,6 +752,30 @@ public sealed class GameCacheDetectionDataService
         var existingDict = await dbContext.CachedServiceDetections
             .ToDictionaryAsync(s => s.ServiceName.ToLowerInvariant(), cancellationToken);
 
+        // Positive-evidence gate for the absence→evict loop below. Mirror games'
+        // `g.All(d => d.IsEvicted)` rule: a service must only be badged Evicted when ALL of its
+        // service-scoped Downloads (Service==name, no GameAppId/EpicAppId) are already evicted by
+        // the disk-probing Rust scan. Absence from this scan's results alone is NOT proof the files
+        // were removed (a present-on-disk service whose URLs don't hash-match the cache keys - e.g.
+        // wsus host/path/normalization drift - is silently omitted from the Rust report).
+        //
+        // CASING: the gate key (`kvp.Key`) comes from `existingDict`/`incomingByName`, both keyed
+        // with C# `.ToLowerInvariant()`. Build this set the SAME way so the membership check below
+        // can never miss on a locale/collation-divergent name. We therefore select the RAW Service
+        // string (translatable, no nested projection) and lowercase with `ToLowerInvariant()` in
+        // C# AFTER materializing - NOT `.ToLower()` inside the LINQ-to-SQL query (which would key by
+        // DB collation and re-introduce the mismatch).
+        var servicesWithLiveDownloadsList = await dbContext.Downloads
+            .Where(d => d.GameAppId == null
+                     && d.EpicAppId == null
+                     && d.Service != null
+                     && !d.IsEvicted)
+            .Select(d => d.Service!)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        var servicesWithLiveDownloads = new HashSet<string>(
+            servicesWithLiveDownloadsList.Select(s => s.ToLowerInvariant()));
+
         foreach (var kvp in incomingByName)
         {
             var service = kvp.Value;
@@ -759,13 +818,32 @@ public sealed class GameCacheDetectionDataService
             if (!incomingByName.ContainsKey(kvp.Key))
             {
                 var existing = kvp.Value;
-                existing.IsEvicted = true;
+
+                // Always refresh the snapshot columns so the UI shows an honest "0 files this scan"
+                // regardless of the badge decision below.
                 existing.CacheFilesFound = 0;
                 existing.TotalSizeBytes = 0;
                 existing.LastDetectedUtc = now;
-                _logger.LogInformation(
-                    "[ServiceDetection] Marked {Name} as evicted - no cache files found on latest scan",
-                    existing.ServiceName);
+
+                // Only flip the Evicted badge when there is POSITIVE eviction evidence: the service
+                // has no live (non-evicted) Download. If any service-scoped Download is still
+                // !IsEvicted, the files are believed present on disk and this absence is a scan
+                // false-negative (hash mismatch / lagged ingest / partial datasource) - leave the
+                // badge untouched. The Downloads-keyed self-heal (UnevictCachedServiceDetectionsAsync
+                // → GetServicesToUnevictAsync) recovers any that legitimately re-cache later.
+                if (!servicesWithLiveDownloads.Contains(kvp.Key))
+                {
+                    existing.IsEvicted = true;
+                    _logger.LogInformation(
+                        "[ServiceDetection] Marked {Name} as evicted - absent from latest scan and all Downloads already evicted",
+                        existing.ServiceName);
+                }
+                else
+                {
+                    _logger.LogDebug(
+                        "[ServiceDetection] {Name} absent from latest scan but has non-evicted Downloads - NOT evicting (likely scan false-negative)",
+                        existing.ServiceName);
+                }
             }
         }
 

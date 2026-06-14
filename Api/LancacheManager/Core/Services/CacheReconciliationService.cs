@@ -392,11 +392,28 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                                 "[GameDetection] Self-healed {Count} CachedGameDetection rows after eviction scan reported {UnEvicted} un-evicted downloads",
                                 unevictedCount, scanResult.UnEvicted);
                         }
+
+                        // Service badges self-heal the same way: when the scan re-cached any
+                        // Downloads, clear CachedServiceDetections.IsEvicted for services whose
+                        // Downloads are no longer all evicted (keys off Downloads.IsEvicted via
+                        // GetServicesToUnevictAsync, not the stale CacheFilesFound snapshot). Runs
+                        // in this same try/catch so a service failure does not abort the games heal.
+                        var serviceUnevictedCount = await UnevictCachedServiceDetectionsAsync(
+                            context,
+                            _logger,
+                            _gameCacheDetectionDataService,
+                            stoppingToken);
+                        if (serviceUnevictedCount > 0)
+                        {
+                            _logger.LogInformation(
+                                "[ServiceDetection] Self-healed {Count} CachedServiceDetection rows after eviction scan reported {UnEvicted} un-evicted downloads",
+                                serviceUnevictedCount, scanResult.UnEvicted);
+                        }
                     }
                     catch (Exception selfHealEx) when (selfHealEx is not OperationCanceledException)
                     {
                         _logger.LogWarning(selfHealEx,
-                            "[GameDetection] Reverse-reconcile of CachedGameDetections failed - will retry next scan");
+                            "[GameDetection] Reverse-reconcile of CachedGameDetections/CachedServiceDetections failed - will retry next scan");
                     }
                 }
 
@@ -1347,6 +1364,29 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
 
     /// <summary>
+    /// Partial-eviction safety (shared by the bulk <see cref="PurgeLogEntriesAsync"/> and the
+    /// per-entity <see cref="PurgeLogEntriesForEntityAsync"/> paths). The Rust log purger matches
+    /// access.log lines on URL OR depot_id; a depot present in BOTH an evicted and a still-cached
+    /// Download would otherwise strip the still-cached copy's lines. Narrows <paramref name="evictedDepotIds"/>
+    /// down to those that appear ONLY in evicted Downloads (i.e. not in <paramref name="cachedDepotIds"/>)
+    /// and reports how many were skipped. Pure: each caller supplies its own scoped
+    /// evicted/cached lists and owns the logging of the returned skip count.
+    /// </summary>
+    private static (List<long> Safe, int Skipped) NarrowDepotsToExclusivelyEvicted(
+        List<long> evictedDepotIds,
+        List<long> cachedDepotIds)
+    {
+        if (evictedDepotIds.Count == 0)
+        {
+            return (evictedDepotIds, 0);
+        }
+
+        var cachedSet = new HashSet<long>(cachedDepotIds);
+        var safe = evictedDepotIds.Where(d => !cachedSet.Contains(d)).ToList();
+        return (safe, evictedDepotIds.Count - safe.Count);
+    }
+
+    /// <summary>
     /// Fix 2: Rewrites nginx access.log files to drop all entries belonging to evicted games,
     /// using the `cache_purge_log_entries` Rust binary. Runs once per configured datasource.
     ///
@@ -1381,12 +1421,39 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 .Distinct()
                 .ToListAsync(stoppingToken);
 
-            // Collect distinct depot IDs directly from the Downloads rows.
-            var depotIds = await context.Downloads
+            // Collect candidate depot IDs from the evicted Downloads only.
+            var evictedDepotIds = await context.Downloads
                 .Where(d => d.IsEvicted && d.DepotId != null)
                 .Select(d => d.DepotId!.Value)
                 .Distinct()
                 .ToListAsync(stoppingToken);
+
+            // IMPORTANT (partial-eviction safety): the Rust log purger matches lines on URL OR
+            // depot_id. If a depot appears in BOTH an evicted and a still-cached Download (e.g. a
+            // game/service was downloaded twice and only the older copy was evicted), sending that
+            // depot_id would also strip the still-cached copy's access.log lines - data loss. This
+            // is the exact guard the per-entity sibling (PurgeLogEntriesForEntityAsync) already has;
+            // the bulk path was missing it. Filter depot_ids down to those that appear ONLY in
+            // evicted Downloads (across ALL entities, since this path purges every evicted row).
+            // Shared narrowing lives in NarrowDepotsToExclusivelyEvicted; we only fetch cached depot
+            // ids when there is something to narrow.
+            var cachedDepotIds = evictedDepotIds.Count == 0
+                ? new List<long>()
+                : await context.Downloads
+                    .Where(d => !d.IsEvicted && d.DepotId != null)
+                    .Select(d => d.DepotId!.Value)
+                    .Distinct()
+                    .ToListAsync(stoppingToken);
+
+            var (safeDepotIds, skippedCount) = NarrowDepotsToExclusivelyEvicted(evictedDepotIds, cachedDepotIds);
+            if (skippedCount > 0)
+            {
+                _logger.LogInformation(
+                    "[EvictedLogPurge] Excluded {Skipped} depot ID(s) from bulk log purge because they also appear in still-cached downloads (partial-eviction safety)",
+                    skippedCount);
+            }
+
+            var depotIds = safeDepotIds;
 
             if (urls.Count == 0 && depotIds.Count == 0)
             {
@@ -1542,19 +1609,36 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// (CacheFilesFound > 0). Services do not have a Downloads FK relationship so the check is
     /// simpler - if the Rust scan found cache files again, the service is no longer evicted.
     /// </summary>
+    /// <summary>
+    /// Downloads-keyed service self-heal: clears <see cref="CachedServiceDetection.IsEvicted"/> for any
+    /// service whose service-scoped Downloads are no longer all evicted (cache files reappeared on disk).
+    /// Mirrors <see cref="UnevictCachedGameDetectionsAsync"/>: keys off <c>Downloads.IsEvicted</c> (the
+    /// disk-probe signal) via <see cref="GameCacheDetectionDataService.GetServicesToUnevictAsync"/> rather
+    /// than the stale <see cref="CachedServiceDetection.CacheFilesFound"/> snapshot column (which the
+    /// eviction scan never updates and the absence→evict path zeroes), so a re-cached service self-heals
+    /// within the eviction scan instead of waiting for the next full detection scan.
+    /// Services DO join Downloads via the <c>Service</c> string (GameAppId/EpicAppId both null).
+    /// </summary>
     public static async Task<int> UnevictCachedServiceDetectionsAsync(
         AppDbContext context,
         ILogger logger,
+        GameCacheDetectionDataService detectionDataService,
         CancellationToken ct)
     {
+        var serviceNamesToUnevict = await detectionDataService.GetServicesToUnevictAsync(context, ct);
+        if (serviceNamesToUnevict.Count == 0)
+        {
+            return 0;
+        }
+
         var updated = await context.CachedServiceDetections
-            .Where(s => s.IsEvicted && s.CacheFilesFound > 0)
+            .Where(s => s.IsEvicted && serviceNamesToUnevict.Contains(s.ServiceName.ToLower()))
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsEvicted, false), ct);
 
         if (updated > 0)
         {
             logger.LogInformation(
-                "[ServiceDetection] Self-healed {Count} evicted services - cache files found on disk again",
+                "[ServiceDetection] Self-healed {Count} evicted services - Downloads no longer all evicted",
                 updated);
         }
 
@@ -1809,11 +1893,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             }
 
             // Step 3b: Bulk self-heal helper stays for the separate "files reappeared on disk"
-            // use case (background reconciliation). Its `CacheFilesFound > 0` filter is correct
-            // for that scenario; the targeted un-evict above handles the user-triggered removal.
+            // use case (background reconciliation). It now keys off Downloads.IsEvicted (via
+            // GetServicesToUnevictAsync) so it stays correct for that scenario; the targeted
+            // un-evict above handles the user-triggered removal.
             if (scope == EvictionScope.Service)
             {
-                await UnevictCachedServiceDetectionsAsync(context, _logger, stoppingToken);
+                await UnevictCachedServiceDetectionsAsync(context, _logger, _gameCacheDetectionDataService, stoppingToken);
             }
             else
             {
@@ -1976,14 +2061,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // Filter depot_ids down to those that ONLY appear in evicted Downloads for this
             // entity. This preserves the benefit of depot matching (catching orphan log
             // lines that have no LogEntry row) while preventing cross-state contamination.
-            List<long> safeDepotIds;
-            if (evictedDepotIds.Count == 0)
-            {
-                safeDepotIds = evictedDepotIds;
-            }
-            else
-            {
-                var cachedDepotIds = scope switch
+            // Shared narrowing lives in NarrowDepotsToExclusivelyEvicted; only fetch the scoped
+            // cached depot ids when there is something to narrow.
+            var cachedDepotIds = evictedDepotIds.Count == 0
+                ? new List<long>()
+                : scope switch
                 {
                     EvictionScope.Steam => await context.Downloads
                         .Where(d => !d.IsEvicted
@@ -2013,16 +2095,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     _ => throw new ArgumentOutOfRangeException(nameof(scope))
                 };
 
-                var cachedSet = new HashSet<long>(cachedDepotIds);
-                safeDepotIds = evictedDepotIds.Where(d => !cachedSet.Contains(d)).ToList();
-
-                var skippedCount = evictedDepotIds.Count - safeDepotIds.Count;
-                if (skippedCount > 0)
-                {
-                    _logger.LogInformation(
-                        "[EvictedLogPurge] Excluded {Skipped} depot ID(s) from log purge for {Scope} '{Key}' because they also appear in still-cached downloads (partial-eviction safety)",
-                        skippedCount, scope, key);
-                }
+            var (safeDepotIds, skippedCount) = NarrowDepotsToExclusivelyEvicted(evictedDepotIds, cachedDepotIds);
+            if (skippedCount > 0)
+            {
+                _logger.LogInformation(
+                    "[EvictedLogPurge] Excluded {Skipped} depot ID(s) from log purge for {Scope} '{Key}' because they also appear in still-cached downloads (partial-eviction safety)",
+                    skippedCount, scope, key);
             }
 
             var depotIds = safeDepotIds;

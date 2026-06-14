@@ -17,6 +17,11 @@
     <RustTarget Condition="'$(RuntimeIdentifier)' == 'linux-arm64'">linux-arm64</RustTarget>
   </PropertyGroup>
 
+  <!-- Expose internal members (e.g. GetServicesToUnevictAsync) to the test project. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="LancacheManager.Tests" />
+  </ItemGroup>
+
   <!--
     Single-source Blizzard/Battle.net TACT catalog. Embedded from the SAME file the Rust
     log_processor compiles in via include_str!, so the two backends never drift. Read at
@@ -37,6 +42,19 @@
   <ItemGroup>
     <EmbeddedResource Include="Infrastructure\Data\game_banners.json">
       <LogicalName>LancacheManager.game_banners.json</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!--
+    Hard-coded, curated banner JPEGs for the name-keyed services (Blizzard/Battle.net + Riot).
+    These are composited/curated OFFLINE and embedded as the SOLE source for those 20 banners -
+    game_banners.json maps each GameName to an embedded://{slug} sentinel and GameImageFetchService
+    loads the bytes from these resources (it NEVER fetches or auto-updates them over the network).
+    Read at runtime via Assembly.GetManifestResourceStream("LancacheManager.banners.{slug}.jpg").
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="Infrastructure\Data\banners\*.jpg">
+      <LogicalName>LancacheManager.banners.%(Filename).jpg</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 

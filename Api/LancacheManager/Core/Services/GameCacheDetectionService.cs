@@ -991,7 +991,7 @@ public class GameCacheDetectionService : IDisposable
 
         try
         {
-            var serviceSelfHealedCount = await CacheReconciliationService.UnevictCachedServiceDetectionsAsync(dbContext, _logger, default);
+            var serviceSelfHealedCount = await CacheReconciliationService.UnevictCachedServiceDetectionsAsync(dbContext, _logger, _detectionDataService, default);
             if (serviceSelfHealedCount > 0)
             {
                 _logger.LogInformation(

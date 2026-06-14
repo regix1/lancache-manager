@@ -60,6 +60,38 @@ struct ScanResult {
     error: Option<String>,
 }
 
+/// What to do with a download whose files could NOT be positively verified this scan
+/// (none of its probe keys resolved to an on-disk indexed datasource root).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UnverifiableAction {
+    /// Orphaned shape: the download produced NO probe keys at all (no usable log entries —
+    /// no rows, or every row's Service/Url was NULL). A stale `IsEvicted` flag here is an
+    /// artifact (e.g. a shared-depot removal rewrote its lines out of access.log), so we
+    /// clear it to self-heal.
+    ClearStaleFlag,
+    /// Offline-mount shape: the download HAS probe keys, but every key resolves to a
+    /// datasource cache root that isn't indexed right now (relocated / offline / removed
+    /// mount). We have no evidence either way, so we leave the flag untouched. It resolves
+    /// via the normal positive-evidence path once the root returns. Also the no-op outcome
+    /// for a not-currently-evicted download.
+    Abstain,
+}
+
+/// Pure classification for the unverifiable branch of the eviction scan. Splitting the two
+/// unverifiable shapes here (instead of blindly clearing every unverifiable flag) kills the
+/// badge-flap during a transient mount outage while preserving the orphan self-heal.
+///
+/// `has_probe_keys` is true when the download produced at least one (service, url) probe key
+/// this scan; `is_evicted` is its current DB flag. This is only consulted when the download is
+/// NOT verifiable, so a `true`/`true` here always means the offline-mount shape.
+fn classify_unverifiable(has_probe_keys: bool, is_evicted: bool) -> UnverifiableAction {
+    if !has_probe_keys && is_evicted {
+        UnverifiableAction::ClearStaleFlag
+    } else {
+        UnverifiableAction::Abstain
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     cancel::install();
@@ -279,32 +311,83 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
             .collect();
         probe_memo.extend(probe_results);
 
-        // Check each download's cache files against disk
+        // Decide each download's eviction state from POSITIVE disk evidence only.
+        //
+        // A download is only "verifiable" when it has at least one probe key whose
+        // datasource cache root was actually indexed this scan (the directory existed
+        // and was walked). We assert IsEvicted=true ONLY for a verifiable download whose
+        // files are confirmed absent. When a download is NOT verifiable we have zero
+        // evidence either way, so we must never evict it — and we proactively CLEAR any
+        // stale flag so it self-heals instead of being stuck "Evicted" forever.
+        //
+        // Two unverifiable shapes both used to stamp false "Evicted" badges on games
+        // whose files are still on disk:
+        //   1. No usable log entries (no rows, or every row had a NULL Service/Url and
+        //      was filtered out by the Step B query) → no (service, url) to hash. The
+        //      old code evicted these BLIND. This is exactly how a freshly-added game
+        //      gets wrongly evicted — e.g. a shared/mis-mapped depot removal rewrote its
+        //      lines out of access.log and a later reprocess left the Downloads row
+        //      without LogEntries, or the Download↔LogEntry association simply lagged.
+        //   2. Every key resolves to a datasource cache root that isn't on disk right
+        //      now (relocated/offline/removed mount). `has_cache_file` returns false for
+        //      an unindexed root, but that means "we didn't look here", not "it's gone".
+        //
+        // The verified branch below still evicts downloads whose files are genuinely
+        // missing, so legitimate nginx evictions are unaffected. Clearing stale flags
+        // here counts toward `un_evicted`, which drives the C# reverse-reconcile that
+        // self-heals the dependent CachedGameDetections badge.
         let mut ids_to_evict: Vec<i64> = Vec::new();
         let mut ids_to_unevict: Vec<i64> = Vec::new();
+        let mut unverifiable_cleared = 0usize;
 
-        // Downloads without any log entries can't be verified - mark them as evicted
         for download_id in &download_ids {
             let is_evicted = download_evicted.get(download_id).copied().unwrap_or(false);
-            if !download_keys.contains_key(download_id) && !is_evicted {
-                ids_to_evict.push(*download_id);
-            }
-        }
+            let keys = download_keys.get(download_id);
 
-        for (download_id, keys) in &download_keys {
-            let is_evicted = download_evicted.get(download_id).copied().unwrap_or(false);
-            let has_cache_file = keys.iter().any(|key| {
-                probe_memo
-                    .get(key)
-                    .copied()
-                    .expect("probe memo must contain every key collected this batch")
-            });
+            // Verifiable iff at least one key could actually be checked against an
+            // indexed on-disk root this scan.
+            let has_probe_keys = keys.map(|ks| !ks.is_empty()).unwrap_or(false);
+            let verifiable = keys
+                .map(|ks| ks.iter().any(|key| key.root_is_indexed(&files_on_disk)))
+                .unwrap_or(false);
+
+            if !verifiable {
+                // Split the two unverifiable shapes: clear a stale flag ONLY for the orphaned
+                // (no-probe-keys) shape; ABSTAIN for the offline-mount shape (has keys but no
+                // indexed root) so a transient mount outage does not flap the badge. The
+                // offline case self-heals via the positive-evidence branch when the root returns.
+                match classify_unverifiable(has_probe_keys, is_evicted) {
+                    UnverifiableAction::ClearStaleFlag => {
+                        ids_to_unevict.push(*download_id);
+                        unverifiable_cleared += 1;
+                    }
+                    UnverifiableAction::Abstain => {}
+                }
+                continue;
+            }
+
+            let has_cache_file = keys
+                .expect("verifiable implies the download has probe keys")
+                .iter()
+                .any(|key| {
+                    probe_memo
+                        .get(key)
+                        .copied()
+                        .expect("probe memo must contain every key collected this batch")
+                });
 
             if !has_cache_file && !is_evicted {
                 ids_to_evict.push(*download_id);
             } else if has_cache_file && is_evicted {
                 ids_to_unevict.push(*download_id);
             }
+        }
+
+        if unverifiable_cleared > 0 {
+            eprintln!(
+                "[EvictionScan] Cleared stale IsEvicted on {} orphaned download(s) with no service/url to probe (refusing to keep an Evicted badge we can't verify). Offline-mount downloads (keys present, root not indexed) are left untouched to avoid badge-flap.",
+                unverifiable_cleared
+            );
         }
 
         // rust-3: wrap both evict/unevict UPDATEs for this batch in a single transaction
@@ -442,4 +525,46 @@ fn write_progress(
     };
 
     progress_utils::write_progress_json(path, &progress)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{classify_unverifiable, UnverifiableAction};
+
+    #[test]
+    fn orphaned_evicted_download_clears_stale_flag() {
+        // Shape (a): no probe keys at all + currently evicted → self-heal by clearing.
+        assert_eq!(
+            classify_unverifiable(false, true),
+            UnverifiableAction::ClearStaleFlag
+        );
+    }
+
+    #[test]
+    fn orphaned_not_evicted_download_abstains() {
+        // No keys but not evicted: nothing to clear.
+        assert_eq!(
+            classify_unverifiable(false, false),
+            UnverifiableAction::Abstain
+        );
+    }
+
+    #[test]
+    fn offline_mount_evicted_download_abstains() {
+        // Shape (b): has probe keys but no indexed root this scan. A genuine eviction must
+        // NOT be flapped off during a transient mount outage — abstain and let the
+        // positive-evidence path resolve it when the root returns.
+        assert_eq!(
+            classify_unverifiable(true, true),
+            UnverifiableAction::Abstain
+        );
+    }
+
+    #[test]
+    fn offline_mount_not_evicted_download_abstains() {
+        assert_eq!(
+            classify_unverifiable(true, false),
+            UnverifiableAction::Abstain
+        );
+    }
 }

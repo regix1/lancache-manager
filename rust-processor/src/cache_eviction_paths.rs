@@ -106,6 +106,14 @@ impl ProbeKey {
         )
         .any(|hash| names.contains(&hash))
     }
+
+    /// True when this key's resolved datasource cache root was actually indexed this
+    /// scan (its directory existed and was walked). A key whose root is NOT indexed
+    /// cannot be verified: a probe miss means "we never looked here", not "the file is
+    /// gone". Callers must not treat such a miss as eviction evidence.
+    pub(super) fn root_is_indexed(&self, files_on_disk: &FilesOnDisk) -> bool {
+        files_on_disk.names_for_root(&self.root).is_some()
+    }
 }
 
 /// Walks all configured cache directories and indexes file names per datasource root.

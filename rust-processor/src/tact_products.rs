@@ -180,7 +180,7 @@ mod tests {
         );
         assert_eq!(
             resolve_tact_segment("pro"),
-            TactResolution::Game("Overwatch 2".to_string())
+            TactResolution::Game("Overwatch".to_string())
         );
         // case-insensitive
         assert_eq!(

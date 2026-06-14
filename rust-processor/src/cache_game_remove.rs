@@ -120,11 +120,35 @@ async fn get_game_urls_from_db(pool: &PgPool, game_app_id: u32) -> Result<HashMa
 
     // Query 1: Mapped games - join LogEntries to SteamDepotMappings via DepotId.
     // Works for games where PicsDataService has populated SteamDepotMappings.
+    //
+    // DepotId is many-to-one with AppId (shared / mis-mapped depots; SteamDepotMappings has no
+    // unique index on DepotId, and orphan-resolution `depotId-1/-2` can attach a depot to the
+    // wrong app). A bare DepotId join therefore pulls in URLs that ANOTHER game downloaded from a
+    // depot that also maps to this AppId, and `remove_cache_files_for_game` would then delete that
+    // other game's cache files. Mirror the C# `safeDepotIds` idea here at the source: exclude any
+    // DepotId that ALSO belongs to a different AppId so cache-file URL selection stays anchored to
+    // depots EXCLUSIVELY owned by this game.
+    //
+    // CRITICAL: this exclusion must cover the SAME full "shared" set that `get_shared_depot_ids`
+    // subtracts for the log purge — i.e. depots shared via SteamDepotMappings (AppId<>$1) AND
+    // depots another game's Downloads carry (GameAppId<>$1). Excluding only the SteamDepotMappings
+    // half would let cache-file selection delete a Downloads-shared depot's files that the log
+    // purge protects, so the two halves of the cross-game guard would disagree. Both NOT IN clauses
+    // below keep cache-file scope == log-purge scope. (Query 3 below, the Downloads-FK path, remains
+    // fully AppId-scoped and is the correct delisted-app/Aion route — it returns this game's OWN
+    // urls and is intentionally NOT narrowed by the shared-depot filter.)
     let rows = sqlx::query(
         "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"DepotId\", le.\"BytesServed\"
          FROM \"LogEntries\" le
          INNER JOIN \"SteamDepotMappings\" sdm ON le.\"DepotId\" = sdm.\"DepotId\"
-         WHERE sdm.\"AppId\" = $1 AND le.\"Url\" IS NOT NULL"
+         WHERE sdm.\"AppId\" = $1 AND le.\"Url\" IS NOT NULL
+           AND le.\"DepotId\" NOT IN (
+               SELECT \"DepotId\" FROM \"SteamDepotMappings\" WHERE \"AppId\" <> $1
+           )
+           AND le.\"DepotId\" NOT IN (
+               SELECT \"DepotId\" FROM \"Downloads\"
+               WHERE \"DepotId\" IS NOT NULL AND \"GameAppId\" IS NOT NULL AND \"GameAppId\" <> $1
+           )"
     )
     .bind(game_app_id as i64)
     .fetch_all(pool)
@@ -236,6 +260,52 @@ async fn get_game_depot_ids(pool: &PgPool, game_app_id: u32) -> Result<HashSet<u
     }
 
     Ok(depot_ids)
+}
+
+/// Depot IDs that are NOT exclusively owned by this game — i.e. they also belong to a DIFFERENT
+/// AppId, either via `SteamDepotMappings` (AppId <> $1) or via another game's `Downloads`
+/// (GameAppId <> $1). These are shared / mis-mapped depots: the access.log purge predicate matches
+/// lines on `depot_id ∈ valid_depot_ids`, so feeding a shared depot id would strip the OTHER game's
+/// HIT/MISS lines (cross-game data loss). Subtracting this set from `valid_depot_ids` yields the
+/// "safe" depot set, mirroring the C# `safeDepotIds` partial-eviction guard but at cross-game scope.
+async fn get_shared_depot_ids(pool: &PgPool, game_app_id: u32) -> Result<HashSet<u32>> {
+    let mut shared: HashSet<u32> = HashSet::new();
+
+    // Depots mapped to a DIFFERENT AppId in SteamDepotMappings.
+    let mapping_rows = sqlx::query(
+        "SELECT DISTINCT \"DepotId\" FROM \"SteamDepotMappings\" WHERE \"AppId\" <> $1"
+    )
+    .bind(game_app_id as i64)
+    .fetch_all(pool)
+    .await?;
+
+    for row in mapping_rows {
+        let depot_id: i64 = row.get("DepotId");
+        shared.insert(depot_id as u32);
+    }
+
+    // Depots that another game's Downloads rows carry (GameAppId set and != this game).
+    let download_rows = sqlx::query(
+        "SELECT DISTINCT \"DepotId\" FROM \"Downloads\"
+         WHERE \"DepotId\" IS NOT NULL AND \"GameAppId\" IS NOT NULL AND \"GameAppId\" <> $1"
+    )
+    .bind(game_app_id as i64)
+    .fetch_all(pool)
+    .await?;
+
+    for row in download_rows {
+        let depot_id: i64 = row.get("DepotId");
+        shared.insert(depot_id as u32);
+    }
+
+    Ok(shared)
+}
+
+/// Pure set-narrowing used for the access.log purge: keep only depots EXCLUSIVELY owned by the
+/// target game (present in `valid` but NOT in `shared`). Extracted so the cross-game safety logic
+/// is unit-testable without a live database.
+fn compute_safe_depot_ids(valid: &HashSet<u32>, shared: &HashSet<u32>) -> HashSet<u32> {
+    valid.difference(shared).copied().collect()
 }
 
 async fn delete_game_from_database(pool: &PgPool, game_app_id: u32) -> Result<u64> {
@@ -466,6 +536,33 @@ async fn main() -> Result<()> {
     let valid_depot_ids = get_game_depot_ids(&pool, game_app_id).await?;
     eprintln!("Valid depot IDs for this game: {:?}", valid_depot_ids);
 
+    // Narrow to depots EXCLUSIVELY owned by this game before they reach the access.log purge.
+    // The log predicate (log_purge.rs) removes any line whose `depot_id ∈ valid_depot_ids`, so a
+    // depot shared with another AppId (SteamDepotMappings AppId<>$1) or another game's Downloads
+    // (GameAppId<>$1) would strip THAT game's HIT/MISS lines. Subtract the shared set; the result
+    // (`safe_depot_ids`) is what we hand to remove_log_entries_for_game below. This mirrors the C#
+    // `safeDepotIds` guard. Cache-file URL selection is narrowed separately inside
+    // get_game_urls_from_db (Query 1), so deletion and the log rewrite stay in the same scope.
+    //
+    // Short-circuit when this game owns no depots (e.g. the delisted-app/Aion path where URL/DB
+    // removal goes through Query 3): `compute_safe_depot_ids(empty, _)` is always empty, so skip
+    // the two wide SteamDepotMappings/Downloads scans entirely. Mirrors the C#
+    // `evictedDepotIds.Count == 0` guard.
+    let safe_depot_ids: HashSet<u32> = if valid_depot_ids.is_empty() {
+        HashSet::new()
+    } else {
+        let shared_depot_ids = get_shared_depot_ids(&pool, game_app_id).await?;
+        compute_safe_depot_ids(&valid_depot_ids, &shared_depot_ids)
+    };
+    let excluded_depot_count = valid_depot_ids.len() - safe_depot_ids.len();
+    if excluded_depot_count > 0 {
+        eprintln!(
+            "Excluded {} depot ID(s) from log purge for game AppID {} because they also appear in other apps' mappings/downloads (cross-game safety)",
+            excluded_depot_count, game_app_id
+        );
+    }
+    eprintln!("Safe (exclusively-owned) depot IDs for log purge: {:?}", safe_depot_ids);
+
     // Query database directly for URLs - much faster than scanning logs!
     let url_data = get_game_urls_from_db(&pool, game_app_id).await?;
 
@@ -539,7 +636,10 @@ async fn main() -> Result<()> {
             total,
         );
     };
-    let (log_entries_removed, log_permission_errors) = remove_log_entries_for_game(&log_dir, &urls_to_remove, &valid_depot_ids, Some(&log_file_progress))?;
+    // Use the narrowed `safe_depot_ids` (exclusively-owned depots) for the log purge so shared-depot
+    // lines belonging to OTHER games are not stripped. This call runs for both the normal and the
+    // `--skip-file-probe` fast path, so the fast path inherits the same cross-game safety.
+    let (log_entries_removed, log_permission_errors) = remove_log_entries_for_game(&log_dir, &urls_to_remove, &safe_depot_ids, Some(&log_file_progress))?;
 
     // CRITICAL: Check for permission errors before deleting database records
     let total_permission_errors = cache_permission_errors + log_permission_errors;
@@ -606,4 +706,49 @@ async fn main() -> Result<()> {
     eprintln!("Report saved to: {}", output_json.display());
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn set(items: &[u32]) -> HashSet<u32> {
+        items.iter().copied().collect()
+    }
+
+    #[test]
+    fn keeps_depot_owned_only_by_target_excludes_shared() {
+        // Game A owns D1 (exclusive) and shares D2 with game B.
+        let valid = set(&[1, 2]); // A's depots: D1, D2
+        let shared = set(&[2]); // D2 also belongs to another app/game
+        let safe = compute_safe_depot_ids(&valid, &shared);
+        assert!(safe.contains(&1), "exclusively-owned depot D1 must be purged");
+        assert!(!safe.contains(&2), "shared depot D2 must be excluded from the log purge");
+        assert_eq!(safe.len(), 1);
+    }
+
+    #[test]
+    fn no_shared_depots_keeps_all() {
+        let valid = set(&[10, 11, 12]);
+        let shared = HashSet::new();
+        let safe = compute_safe_depot_ids(&valid, &shared);
+        assert_eq!(safe, valid, "with no shared depots, all owned depots are safe");
+    }
+
+    #[test]
+    fn all_shared_excludes_everything() {
+        let valid = set(&[5, 6]);
+        let shared = set(&[5, 6, 99]); // superset is fine
+        let safe = compute_safe_depot_ids(&valid, &shared);
+        assert!(safe.is_empty(), "every owned depot also shared → nothing safe to purge");
+    }
+
+    #[test]
+    fn empty_valid_is_empty_safe() {
+        // Delisted-app shape: no SteamDepotMappings depots; URL/DB removal goes via Query 3.
+        let valid: HashSet<u32> = HashSet::new();
+        let shared = set(&[1, 2, 3]);
+        let safe = compute_safe_depot_ids(&valid, &shared);
+        assert!(safe.is_empty());
+    }
 }

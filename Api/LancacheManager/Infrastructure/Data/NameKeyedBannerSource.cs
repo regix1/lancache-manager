@@ -17,6 +17,13 @@ public static class NameKeyedBannerSource
 {
     private const string ResourceName = "LancacheManager.game_banners.json";
 
+    /// <summary>
+    /// Sentinel scheme used in <c>game_banners.json</c> values. A value of
+    /// <c>embedded://{slug}</c> means the banner bytes come from the embedded resource
+    /// <c>LancacheManager.banners.{slug}.jpg</c> and must NEVER be fetched over the network.
+    /// </summary>
+    private const string EmbeddedScheme = "embedded://";
+
     /// <summary>Canonical service keys this source covers.</summary>
     public const string BlizzardService = "blizzard";
     public const string RiotService = "riot";
@@ -77,6 +84,38 @@ public static class NameKeyedBannerSource
         if (normalized == null || string.IsNullOrWhiteSpace(gameName)) return null;
 
         return _bySlug.Value.TryGetValue((normalized, Slug(gameName)), out var url) ? url : null;
+    }
+
+    /// <summary>
+    /// Resolves an <c>embedded://{slug}</c> sentinel URL to the hard-coded banner bytes embedded as
+    /// <c>LancacheManager.banners.{slug}.jpg</c>. Returns true with the JPEG bytes and
+    /// <c>image/jpeg</c> content type when the url is an embedded sentinel whose resource exists;
+    /// returns false for any non-embedded url (so the caller can fall through to a network fetch).
+    /// This is the sole source for the 20 name-keyed banners - they are never fetched at runtime.
+    /// </summary>
+    public static bool TryGetEmbeddedBytes(string url, out byte[] bytes, out string contentType)
+    {
+        bytes = Array.Empty<byte>();
+        contentType = "image/jpeg";
+
+        if (string.IsNullOrWhiteSpace(url) ||
+            !url.StartsWith(EmbeddedScheme, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var slug = url.Substring(EmbeddedScheme.Length).Trim();
+        if (slug.Length == 0) return false;
+
+        var resourceName = $"LancacheManager.banners.{slug}.jpg";
+        var assembly = Assembly.GetExecutingAssembly();
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream == null) return false;
+
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms);
+        bytes = ms.ToArray();
+        return bytes.Length > 0;
     }
 
     private static Dictionary<(string, string), string> LoadBySlug()

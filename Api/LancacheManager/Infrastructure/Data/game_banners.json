@@ -1,27 +1,29 @@
 {
-  "_comment": "official publisher-CDN only, name-bearing, viewed+server-side-verified; games without a qualifying official asset are omitted (placeholder) pending better sources. Official publisher CDNs ONLY: blz-contentstack-images.akamaized.net + bnetcmsus-a.akamaihd.net (Blizzard), imgs.callofduty.com + www.callofduty.com (Activision/Call of Duty), cmsassets.rgpub.io + playruneterra.com (Riot). Every URL returns HTTP 200 >5KB via a plain Mozilla User-Agent fetch AND was visually confirmed to be WIDE with the game's legible name/logo baked in. (Some callofduty.com assets serve valid JPEG/PNG bytes as application/octet-stream; GameImageFetchService coerces non-image content-types to image/jpeg on store.) Overwatch 2 and Warcraft III: Reforged use the official colored icon-with-text LOGO (OW2 emblem+wordmark from static.playoverwatch.com; WC3R tightly-cropped Reforged crest from contentstack) because Blizzard ships no baked wide title card for them (the wordmark is normally a separate logo CSS-overlaid at render) — per user direction, words are required so the logo is used. LoL & Valorant likewise use Riot's official wordmark. Keys MUST match the exact GameName strings produced by BattleNetMappingService (rust-processor/tact_products.json) and the Riot service. Loaded at runtime by GameImageFetchService via Assembly.GetManifestResourceStream(\"LancacheManager.game_banners.json\").",
+  "_comment": "Hard-coded EMBEDDED banner map for name-keyed services (Blizzard/Battle.net + Riot) that have no Steam appId / Epic catalog id. Each value is an 'embedded://{slug}' sentinel that resolves to the embedded resource LancacheManager.banners.{slug}.jpg (the 22 JPEGs under Infrastructure/Data/banners/). These banners are composited/curated OFFLINE and the embedded bytes are the SOLE source - GameImageFetchService loads them via NameKeyedBannerSource.TryGetEmbeddedBytes and NEVER fetches or auto-updates them over the network (no startup fetch, no 7-day refresh, no HTTP on clear-cache re-seed). Keys MUST match the exact GameName strings produced by BattleNetMappingService (rust-processor/tact_products.json) and the Riot service. Loaded at runtime by GameImageFetchService via Assembly.GetManifestResourceStream(\"LancacheManager.game_banners.json\").",
   "blizzard": {
-    "Diablo II: Resurrected": "https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/blt185726ac34f99175/698100271279400c31d2c641/infernal_OG.webp",
-    "Diablo IV": "https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/blt7e63ffa7acc28b95/692f34c7826cf18bafcedc51/d4-open-graph_001.jpg",
-    "Diablo Immortal": "https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/blt47deaa9e2be4b752/6a1f4beaeb54a6907d694fb8/DI_Warlock_OG-Image@2x_enUS.jpg",
-    "Heroes of the Storm": "https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/blt8c01f980b76eb350/67ce291560fcdc2c6cfed487/og_image.webp",
-    "StarCraft: Remastered": "https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/blta6e7f3522c877e4a/6966ba926da530214d07b5da/og_image_scr.webp",
-    "StarCraft II": "https://blz-contentstack-images.akamaized.net/v3/assets/blt72f16e066f85e164/blt167976541c434de1/64b80296a4648b1c1476cbfe/SC2_Logo.png?imwidth=1920",
-    "Blizzard Arcade Collection": "https://bnetcmsus-a.akamaihd.net/cms/blog_header/6k/6KTTLS9D8F971611938683175.jpg",
-    "Hearthstone": "https://blz-contentstack-images.akamaized.net/v3/assets/bltc965041283bac56c/bltce748775e32f8c04/5f0769f35d2ae808119fb2dd/homepage_logo.png",
-    "Warcraft III: Reforged": "https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/blta93bd94b92c6e27d/696472e215c04e3d27b80136/logo.webp",
-    "World of Warcraft": "https://blz-contentstack-images.akamaized.net/v3/assets/blt3452e3b114fab0cd/blte82ef8135378a09b/5d4883cabf384b03afd01553/Logo-wow.png",
-    "Diablo III": "https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/blteb1e5bc4ea9b1fa6/696338e4549186e3f750dd7d/logo_(1).webp",
-    "Overwatch 2": "https://static.playoverwatch.com/img/overwatch-logo.png",
-    "Call of Duty: Black Ops 4": "https://blz-contentstack-images.akamaized.net/v3/assets/bltf408a0557f4e4998/bltd11d425fcbbe3c46/63eecbbd1e040260dfbede83/BO4_(2).png?imwidth=1920",
-    "Call of Duty: Black Ops Cold War": "https://imgs.callofduty.com/content/dam/atvi/activision/atvi-touchui/blog/callofduty/feature/BO-Cold-War-Reveal-Tout.jpg",
-    "Call of Duty: Modern Warfare (2019)": "https://imgs.callofduty.com/content/dam/atvi/callofduty/cod-touchui/kronos/common/social-share/social-share-image.jpg",
-    "Call of Duty: Modern Warfare 2 Remastered": "https://imgs.callofduty.com/content/dam/atvi/callofduty/cod-touchui/mw2-remastered/common/mw2cr-social-share-image.jpg",
-    "Call of Duty: Vanguard": "https://www.callofduty.com/content/dam/atvi/callofduty/cod-touchui/store/games/vanguard/overview/VanguardPDP_Hero.png"
+    "Diablo II: Resurrected": "embedded://diablo-ii-resurrected",
+    "Diablo IV": "embedded://diablo-iv",
+    "Diablo Immortal": "embedded://diablo-immortal",
+    "Heroes of the Storm": "embedded://heroes-of-the-storm",
+    "StarCraft: Remastered": "embedded://starcraft-remastered",
+    "StarCraft II": "embedded://starcraft-ii",
+    "Blizzard Arcade Collection": "embedded://blizzard-arcade-collection",
+    "Hearthstone": "embedded://hearthstone",
+    "Warcraft I: Remastered": "embedded://warcraft-i-remastered",
+    "Warcraft II: Remastered": "embedded://warcraft-ii-remastered",
+    "Warcraft III: Reforged": "embedded://warcraft-iii-reforged",
+    "World of Warcraft": "embedded://world-of-warcraft",
+    "Diablo III": "embedded://diablo-iii",
+    "Overwatch": "embedded://overwatch",
+    "Call of Duty: Black Ops 4": "embedded://call-of-duty-black-ops-4",
+    "Call of Duty: Black Ops Cold War": "embedded://call-of-duty-black-ops-cold-war",
+    "Call of Duty: Modern Warfare (2019)": "embedded://call-of-duty-modern-warfare-2019",
+    "Call of Duty: Modern Warfare 2 Remastered": "embedded://call-of-duty-modern-warfare-2-remastered",
+    "Call of Duty: Vanguard": "embedded://call-of-duty-vanguard"
   },
   "riot": {
-    "League of Legends": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/news/9eb028de391e65072d06e77f06d0955f66b9fa2c-736x316.png",
-    "Valorant": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/news_live/43c58d61876c43b6cbb6b87165efbf17c148ad01-1920x1080.jpg",
-    "Legends of Runeterra": "https://playruneterra.com/assets/ccc9b55ec5fec88d1a616e7dec4795282a3aba52/static/image/share-image.jpg"
+    "League of Legends": "embedded://league-of-legends",
+    "Valorant": "embedded://valorant",
+    "Legends of Runeterra": "embedded://legends-of-runeterra"
   }
 }
