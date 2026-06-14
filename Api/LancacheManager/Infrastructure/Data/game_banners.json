@@ -1,5 +1,5 @@
 {
-  "_comment": "Hard-coded EMBEDDED banner map for name-keyed services (Blizzard/Battle.net + Riot) that have no Steam appId / Epic catalog id. Each value is an 'embedded://{slug}' sentinel that resolves to the embedded resource LancacheManager.banners.{slug}.jpg (the 22 JPEGs under Infrastructure/Data/banners/). These banners are composited/curated OFFLINE and the embedded bytes are the SOLE source - GameImageFetchService loads them via NameKeyedBannerSource.TryGetEmbeddedBytes and NEVER fetches or auto-updates them over the network (no startup fetch, no 7-day refresh, no HTTP on clear-cache re-seed). Keys MUST match the exact GameName strings produced by BattleNetMappingService (rust-processor/tact_products.json) and the Riot service. Loaded at runtime by GameImageFetchService via Assembly.GetManifestResourceStream(\"LancacheManager.game_banners.json\").",
+  "_comment": "Hard-coded EMBEDDED banner map for name-keyed services (Blizzard/Battle.net + Riot) that have no Steam appId / Epic catalog id. Each value is an 'embedded://{slug}' sentinel that resolves to the embedded resource LancacheManager.banners.{slug}.jpg (the 26 JPEGs under Infrastructure/Data/banners/). These banners are composited/curated OFFLINE and the embedded bytes are the SOLE source - GameImageFetchService loads them via NameKeyedBannerSource.TryGetEmbeddedBytes and NEVER fetches or auto-updates them over the network (no startup fetch, no 7-day refresh, no HTTP on clear-cache re-seed). Keys MUST match the exact GameName strings produced by BattleNetMappingService (rust-processor/tact_products.json) and the Riot service. Loaded at runtime by GameImageFetchService via Assembly.GetManifestResourceStream(\"LancacheManager.game_banners.json\").",
   "blizzard": {
     "Diablo II: Resurrected": "embedded://diablo-ii-resurrected",
     "Diablo IV": "embedded://diablo-iv",
@@ -19,7 +19,11 @@
     "Call of Duty: Black Ops Cold War": "embedded://call-of-duty-black-ops-cold-war",
     "Call of Duty: Modern Warfare (2019)": "embedded://call-of-duty-modern-warfare-2019",
     "Call of Duty: Modern Warfare 2 Remastered": "embedded://call-of-duty-modern-warfare-2-remastered",
-    "Call of Duty: Vanguard": "embedded://call-of-duty-vanguard"
+    "Call of Duty: Vanguard": "embedded://call-of-duty-vanguard",
+    "Call of Duty": "embedded://call-of-duty",
+    "Avowed": "embedded://avowed",
+    "Crash Bandicoot 4": "embedded://crash-bandicoot-4",
+    "Sea of Thieves": "embedded://sea-of-thieves"
   },
   "riot": {
     "League of Legends": "embedded://league-of-legends",
