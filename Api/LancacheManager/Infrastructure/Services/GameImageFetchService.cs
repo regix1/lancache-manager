@@ -338,7 +338,9 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                         AppId = slug,
                         Service = service,
                         ImageData = bytes,
-                        ContentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg",
+                        // Some official CDNs (e.g. callofduty.com) serve real JPEG/PNG bytes as
+                        // application/octet-stream; coerce non-image content-types so the browser renders it.
+                        ContentType = (response.Content.Headers.ContentType?.MediaType is string mt && mt.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) ? mt : "image/jpeg",
                         SourceUrl = url,
                         FetchedAtUtc = DateTime.UtcNow
                     });
