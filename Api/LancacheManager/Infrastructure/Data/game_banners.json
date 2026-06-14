@@ -1,10 +1,11 @@
 {
   "_comment": "official publisher-CDN only, name-bearing, viewed+server-side-verified; games without a qualifying official asset are omitted (placeholder) pending better sources. Allowed hosts ONLY: blz-contentstack-images.akamaized.net + bnetcmsus-a.akamaihd.net (Blizzard/Activision), cmsassets.rgpub.io (Riot). Every URL returns HTTP 200 image/* >5KB via a plain Mozilla User-Agent fetch AND was visually confirmed to carry the game's legible name/logo. Keys MUST match the exact GameName strings produced by BattleNetMappingService (rust-processor/tact_products.json) and the Riot service. Loaded at runtime by GameImageFetchService via Assembly.GetManifestResourceStream(\"LancacheManager.game_banners.json\").",
   "blizzard": {
-    "Diablo II: Resurrected": "https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/blt132c40e698f2d16c/697206b315c04e7736b802ee/DIA_D2R_Garden_GameplayTrailer_thumbnail_1920x1080_KEYART2_LL01_1.png?imwidth=1920",
+    "Diablo II: Resurrected": "https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/blt185726ac34f99175/698100271279400c31d2c641/infernal_OG.webp",
     "Diablo IV": "https://blz-contentstack-images.akamaized.net/v3/assets/bltf408a0557f4e4998/bltb3598fe0ffd7f1d9/64baff12e26c5466574bc28f/Diablo_IV_Logo_EN.png",
     "Diablo Immortal": "https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/blt47deaa9e2be4b752/6a1f4beaeb54a6907d694fb8/DI_Warlock_OG-Image@2x_enUS.jpg",
-    "Heroes of the Storm": "https://blz-contentstack-images.akamaized.net/v3/assets/blt72f16e066f85e164/blt7fed496231425261/6515b314b456563551fc33ca/mobile_heroes_logo.png?imwidth=1920",
+    "Heroes of the Storm": "https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/blt8c01f980b76eb350/67ce291560fcdc2c6cfed487/og_image.webp",
+    "StarCraft: Remastered": "https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/blta6e7f3522c877e4a/6966ba926da530214d07b5da/og_image_scr.webp",
     "StarCraft II": "https://blz-contentstack-images.akamaized.net/v3/assets/blt72f16e066f85e164/blt167976541c434de1/64b80296a4648b1c1476cbfe/SC2_Logo.png?imwidth=1920",
     "Blizzard Arcade Collection": "https://bnetcmsus-a.akamaihd.net/cms/blog_header/6k/6KTTLS9D8F971611938683175.jpg"
   },
