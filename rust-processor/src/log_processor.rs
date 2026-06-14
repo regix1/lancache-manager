@@ -947,6 +947,26 @@ impl Processor {
                     .await?
                     .map(|r| r.get::<i64, _>("Id"))
                 }
+            } else if service.to_lowercase() == "riot" && game_name.is_some() {
+                // Riot host RESOLVED to a known game (lol/valorant/bacon). Match the
+                // existing active Riot session either by the resolved GameName OR by a
+                // still-NULL GameName. The host-keyed session grouping (_riotgame:<name>)
+                // already guarantees this batch's entries belong to exactly this game, so
+                // adopting a previously-NULL Riot row is safe — and it lets the COALESCE
+                // UPDATE below NAME that row IN THIS BATCH (the row never lingers unnamed
+                // waiting for a later back-fill). A genuinely-unknown earlier host would
+                // have used the _riot:<host> key + the GameName-IS-NULL branch below, so
+                // it won't be wrongly adopted here. Prefer the exact-name match first.
+                let resolved_name = game_name.as_deref().unwrap();
+                sqlx::query(
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND (\"GameName\" = $3 OR \"GameName\" IS NULL) ORDER BY (\"GameName\" = $3) DESC, \"StartTimeUtc\" DESC LIMIT 1"
+                )
+                .bind(client_ip)
+                .bind(service)
+                .bind(resolved_name)
+                .fetch_optional(&mut **tx)
+                .await?
+                .map(|r| r.get::<i64, _>("Id"))
             } else if let Some(resolved_name) = game_name.as_deref() {
                 // For Blizzard services whose segment RESOLVED to a game (or the shared
                 // label), match the existing session by the resolved GameName so a
