@@ -18,4 +18,9 @@ pub(crate) struct LogEntry {
     /// HTTP Range header value (e.g., "bytes=0-1048575"). Empty if not present.
     /// Used to distinguish WSUS/BITS range requests from corruption retries.
     pub(crate) http_range: String,
+    /// Riot CDN host parsed from the access.log `$host` field (e.g. "lol.dyn.riotcdn.net").
+    /// Only populated (lowercased) for the `riot` service; None otherwise. Riot bundle
+    /// URLs carry no product slug, so the host is the only per-game discriminator — used
+    /// to map a Riot download to a game name and to group/dedup sessions per game.
+    pub(crate) cdn_host: Option<String>,
 }

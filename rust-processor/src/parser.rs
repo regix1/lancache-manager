@@ -104,6 +104,17 @@ impl LogParser {
             None
         };
 
+        // Extract the Riot CDN host (access.log $host, the 4th quoted field) for the
+        // riot service. Riot bundle URLs have no product slug, so the host subdomain
+        // (lol/valorant/bacon) is the only game discriminator. Lowercased for stable
+        // matching; None when absent ("-").
+        let cdn_host = if service_lower == "riot" {
+            let host = self.extract_quoted_field(rest, 4);
+            (!host.is_empty()).then(|| host.to_lowercase())
+        } else {
+            None
+        };
+
         Some(LogEntry {
             timestamp,
             client_ip,
@@ -115,6 +126,7 @@ impl LogParser {
             depot_id,
             tact_product,
             http_range,
+            cdn_host,
         })
     }
 

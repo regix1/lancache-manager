@@ -20,6 +20,7 @@ mod models;
 mod parser;
 mod progress_events;
 mod progress_utils;
+mod riot_hosts;
 mod service_utils;
 mod session;
 mod tact_products;
@@ -122,6 +123,7 @@ struct Processor {
     last_logged_percent: AtomicU64, // Store as integer (0-100) for atomic operations
     logged_depots: HashSet<u32>, // Track depots that have already been logged
     logged_tact_products: HashSet<String>, // Track Blizzard TACT products already logged
+    logged_riot_hosts: HashSet<String>, // Track Riot CDN hosts already logged
     datasource_name: String,
     depot_map: HashMap<u32, (u32, Option<String>)>,
     skip_dedup: bool, // True when table is empty - skip duplicate checks for max speed
@@ -165,6 +167,7 @@ impl Processor {
             last_logged_percent: AtomicU64::new(0),
             logged_depots: HashSet::new(),
             logged_tact_products: HashSet::new(),
+            logged_riot_hosts: HashSet::new(),
             datasource_name,
             depot_map,
             skip_dedup: false,
@@ -539,6 +542,18 @@ impl Processor {
                     tact_products::TactResolution::Shared(label) => format!("_tactgame:{}", label),
                     tact_products::TactResolution::Unknown => format!("_tact:{}", product),
                 }
+            } else if let Some(host) = entry.cdn_host.as_deref() {
+                // For Riot entries, key the session on the CDN host because every
+                // game's bundle URL shares the identical path
+                // (/channels/public/bundles/<hash>.bundle) — only the host subdomain
+                // (lol/valorant/bacon) distinguishes the games. Keying on the resolved
+                // game name keeps a title's traffic in ONE session; unknown hosts keep
+                // the raw host so distinct unknown Riot products still get distinct
+                // sessions instead of collapsing together.
+                match riot_hosts::resolve_riot_host(host) {
+                    Some(name) => format!("_riotgame:{}", name),
+                    None => format!("_riot:{}", host),
+                }
             } else {
                 "_nodepot".to_string()
             };
@@ -698,6 +713,19 @@ impl Processor {
             .max_by_key(|(_, count)| *count)
             .map(|(product, _)| product);
 
+        // Extract primary Riot CDN host (most common) for game naming/grouping.
+        // Riot bundle URLs carry no product slug; the host subdomain is the discriminator.
+        let primary_cdn_host: Option<String> = new_entries
+            .iter()
+            .filter_map(|e| e.cdn_host.clone())
+            .fold(HashMap::new(), |mut map, host| {
+                *map.entry(host).or_insert(0) += 1;
+                map
+            })
+            .into_iter()
+            .max_by_key(|(_, count)| *count)
+            .map(|(host, _)| host);
+
         let last_url = new_entries.last().map(|e| e.url.as_str());
 
         // Lookup depot mappings during log processing (auto_map_depots = true)
@@ -755,6 +783,36 @@ impl Processor {
                                 product, req_count
                             );
                             self.logged_tact_products.insert(product.to_string());
+                        }
+                        (None, None)
+                    }
+                }
+            } else {
+                (None, None)
+            }
+        } else if self.auto_map_depots && service.to_lowercase() == "riot" {
+            // Riot has no integer app id and no product slug in the URL path; resolve
+            // the CDN host subdomain (lol/valorant/bacon) -> game name. GameAppId stays
+            // None (only GameName is set). Unknown hosts leave GameName NULL (mirroring
+            // an unmapped depot) and are LOGGED once per run so a 1-line host entry can
+            // close the gap later.
+            if let Some(host) = primary_cdn_host.as_deref() {
+                match riot_hosts::resolve_riot_host(host) {
+                    Some(name) => {
+                        if !self.logged_riot_hosts.contains(host) {
+                            println!("Mapped Riot host {} -> {}", host, name);
+                            self.logged_riot_hosts.insert(host.to_string());
+                        }
+                        (None, Some(name.to_string()))
+                    }
+                    None => {
+                        if !self.logged_riot_hosts.contains(host) {
+                            let req_count = new_entries
+                                .iter()
+                                .filter(|e| e.cdn_host.as_deref() == Some(host))
+                                .count();
+                            println!("Unmapped Riot CDN host: {} ({} req)", host, req_count);
+                            self.logged_riot_hosts.insert(host.to_string());
                         }
                         (None, None)
                     }
@@ -917,6 +975,23 @@ impl Processor {
                 .bind(client_ip)
                 .bind(service)
                 .bind(&like_pattern)
+                .fetch_optional(&mut **tx)
+                .await?
+                .map(|r| r.get::<i64, _>("Id"))
+            } else if service.to_lowercase() == "riot" && primary_cdn_host.is_some() {
+                // Riot host that did NOT resolve to a known game (GameName NULL above; a
+                // resolved Riot game is handled by the GameName branch). The CDN host is
+                // NOT persisted in LastUrl (every Riot bundle shares the identical path
+                // /channels/public/bundles/<hash>.bundle), so unknown Riot hosts cannot
+                // be discriminated at the DB level — match the most recent active Riot
+                // session for this client. In-batch, distinct unknown hosts are already
+                // kept in separate session-key groups (_riot:<host>); they only converge
+                // here across batches, which is acceptable for the rare unmapped-host case.
+                sqlx::query(
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"GameName\" IS NULL AND \"IsActive\" = true ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
+                )
+                .bind(client_ip)
+                .bind(service)
                 .fetch_optional(&mut **tx)
                 .await?
                 .map(|r| r.get::<i64, _>("Id"))

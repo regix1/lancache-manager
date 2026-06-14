@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 mod db;
+mod riot_hosts;
 mod service_utils;
 mod tact_products;
 
@@ -30,6 +31,10 @@ struct SpeedLogEntry {
     bytes_sent: i64,
     is_cache_hit: bool,
     request_url: String,
+    /// Riot CDN host (access.log `$host`, 4th quoted field), lowercased; only set
+    /// for the riot service (None otherwise). Riot bundle URLs have no slug, so the
+    /// host subdomain (lol/valorant/bacon) is the only live per-game discriminator.
+    cdn_host: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -130,6 +135,14 @@ impl LogParser {
             .and_then(|cap| cap.get(1))
             .and_then(|m| m.as_str().parse::<u32>().ok());
 
+        // Riot CDN host (4th quoted field, $host) — only the riot service needs it.
+        let cdn_host = if service == "riot" {
+            let host = self.extract_quoted_field(rest, 4);
+            (!host.is_empty()).then(|| host.to_lowercase())
+        } else {
+            None
+        };
+
         Some(SpeedLogEntry {
             timestamp,
             client_ip,
@@ -138,6 +151,7 @@ impl LogParser {
             bytes_sent,
             is_cache_hit,
             request_url: url.to_string(),
+            cdn_host,
         })
     }
 
@@ -204,6 +218,36 @@ impl LogParser {
         }
 
         "UNKNOWN".to_string()
+    }
+
+    /// Extract the Nth quoted field from the rest string (1-indexed).
+    /// Returns empty string if the field doesn't exist or is "-".
+    /// (Mirrors `parser.rs::extract_quoted_field`; field 4 = the `$host` value.)
+    fn extract_quoted_field(&self, rest: &str, field_number: usize) -> String {
+        let target_open = (field_number - 1) * 2 + 1; // Quote that opens the field
+        let target_close = target_open + 1; // Quote that closes the field
+        let mut quote_count = 0usize;
+        let mut start_idx = None;
+
+        for (i, ch) in rest.char_indices() {
+            if ch == '"' {
+                quote_count += 1;
+                if quote_count == target_open {
+                    start_idx = Some(i + 1);
+                } else if quote_count == target_close {
+                    if let Some(start) = start_idx {
+                        let value = &rest[start..i];
+                        if value == "-" {
+                            return String::new();
+                        }
+                        return value.to_string();
+                    }
+                    break;
+                }
+            }
+        }
+
+        String::new()
     }
 }
 
@@ -416,6 +460,25 @@ impl SpeedTracker {
                     .or(shared_label)
                     .unwrap_or_else(|| get_service_display_name(&service));
                 resolved_groups.entry((group_name, client_ip)).or_default().extend(entries);
+            } else if service.contains("riot") {
+                // Riot bundle URLs carry no product slug; sub-group each entry by the
+                // game resolved from its CDN host (lol/valorant/bacon). One Riot game
+                // maps to exactly one host, so there is no flapping (unlike Blizzard)
+                // and no dominant-game collapse is needed. Unknown/absent hosts fall
+                // back to the generic "Riot Games" service label.
+                let mut sub_groups: HashMap<String, Vec<SpeedLogEntry>> = HashMap::new();
+                for entry in entries {
+                    let game_name = entry
+                        .cdn_host
+                        .as_deref()
+                        .and_then(riot_hosts::resolve_riot_host)
+                        .map(|name| name.to_string())
+                        .unwrap_or_else(|| get_service_display_name(&service));
+                    sub_groups.entry(game_name).or_default().push(entry);
+                }
+                for (game_name, sub_entries) in sub_groups {
+                    resolved_groups.entry((game_name, client_ip.clone())).or_default().extend(sub_entries);
+                }
             } else {
                 let display_name = get_service_display_name(&service);
                 resolved_groups.entry((display_name, client_ip)).or_default().extend(entries);
