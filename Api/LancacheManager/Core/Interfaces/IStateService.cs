@@ -49,6 +49,14 @@ public interface IStateService
     DateTime? GetLastPicsCrawl();
     void SetLastPicsCrawl(DateTime crawlTime);
 
+    // Battle.net Mapping Last-Applied Methods
+    DateTime? GetBattleNetMappingLastApplied();
+    void SetBattleNetMappingLastApplied(DateTime appliedTime);
+
+    // Epic Mapping Last-Collection Methods
+    DateTime? GetEpicMappingLastCollection();
+    void SetEpicMappingLastCollection(DateTime collectionTime);
+
     // Service Interval Methods
     double? GetServiceInterval(string serviceKey);
     void SetServiceInterval(string serviceKey, double hours);

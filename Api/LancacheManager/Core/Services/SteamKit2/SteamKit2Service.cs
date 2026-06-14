@@ -652,14 +652,13 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
 
     public SteamPicsProgress GetProgress()
     {
-        // If never crawled, initialize to current time so next crawl is in the future
-        if (_lastCrawlTime == DateTime.MinValue)
-        {
-            _lastCrawlTime = DateTime.UtcNow;
-        }
-
         var crawlInterval = ConfiguredInterval;
-        var timeSinceLastCrawl = DateTime.UtcNow - _lastCrawlTime;
+        // If never crawled, treat "now" as the reference point so the next crawl is a
+        // full interval out. Use a local — never mutate _lastCrawlTime from this getter:
+        // it must stay MinValue so LastCrawlTime below correctly reports null, and reading
+        // progress should not have the side effect of seeding a fake crawl time.
+        var effectiveCrawlTime = _lastCrawlTime == DateTime.MinValue ? DateTime.UtcNow : _lastCrawlTime;
+        var timeSinceLastCrawl = DateTime.UtcNow - effectiveCrawlTime;
         var nextCrawlIn = TimeSpan.FromTicks(Math.Max(0, (crawlInterval - timeSinceLastCrawl).Ticks)); // Clamp to zero if negative
 
         var totalMappings = _depotToAppMappings.Count;

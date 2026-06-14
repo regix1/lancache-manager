@@ -65,6 +65,8 @@ public class StateService : IStateService
         // OperationStates moved to data/operations/operation_history.json
         public bool SetupCompleted { get; set; } = false;
         public DateTime? LastPicsCrawl { get; set; }
+        public DateTime? BattleNetMappingLastApplied { get; set; }
+        public DateTime? EpicMappingLastCollection { get; set; }
         public double CrawlIntervalHours { get; set; } = 1.0;
         public object CrawlIncrementalMode { get; set; } = true;
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
@@ -705,6 +707,28 @@ public class StateService : IStateService
         UpdateState(state => state.LastPicsCrawl = crawlTime);
     }
 
+    // Battle.net Mapping Last-Applied Methods
+    public DateTime? GetBattleNetMappingLastApplied()
+    {
+        return GetState().BattleNetMappingLastApplied;
+    }
+
+    public void SetBattleNetMappingLastApplied(DateTime appliedTime)
+    {
+        UpdateState(state => state.BattleNetMappingLastApplied = appliedTime);
+    }
+
+    // Epic Mapping Last-Collection Methods
+    public DateTime? GetEpicMappingLastCollection()
+    {
+        return GetState().EpicMappingLastCollection;
+    }
+
+    public void SetEpicMappingLastCollection(DateTime collectionTime)
+    {
+        UpdateState(state => state.EpicMappingLastCollection = collectionTime);
+    }
+
     // Crawl Interval Methods
     public double GetCrawlIntervalHours()
     {
@@ -862,6 +886,8 @@ public class StateService : IStateService
             // OperationStates loaded from separate file via GetOperationStates()
             SetupCompleted = persisted.SetupCompleted,
             LastPicsCrawl = persisted.LastPicsCrawl,
+            BattleNetMappingLastApplied = persisted.BattleNetMappingLastApplied,
+            EpicMappingLastCollection = persisted.EpicMappingLastCollection,
             CrawlIntervalHours = persisted.CrawlIntervalHours,
             CrawlIncrementalMode = persisted.CrawlIncrementalMode,
             LastUpdated = persisted.LastUpdated,
@@ -944,6 +970,8 @@ public class StateService : IStateService
             // OperationStates saved to separate file via SaveOperationStates()
             SetupCompleted = state.SetupCompleted,
             LastPicsCrawl = state.LastPicsCrawl,
+            BattleNetMappingLastApplied = state.BattleNetMappingLastApplied,
+            EpicMappingLastCollection = state.EpicMappingLastCollection,
             CrawlIntervalHours = state.CrawlIntervalHours,
             CrawlIncrementalMode = state.CrawlIncrementalMode,
             LastUpdated = state.LastUpdated,

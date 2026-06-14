@@ -246,8 +246,8 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
           borderRadius: 4,
           borderSkipped: false,
           minBarLength: MIN_BAR_LENGTH,
-          barPercentage: 0.78,
-          categoryPercentage: 0.74
+          barPercentage: 0.92,
+          categoryPercentage: 0.86
         },
         {
           label: 'Cache Misses',
@@ -259,8 +259,8 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
           borderRadius: 4,
           borderSkipped: false,
           minBarLength: MIN_BAR_LENGTH,
-          barPercentage: 0.78,
-          categoryPercentage: 0.74
+          barPercentage: 0.92,
+          categoryPercentage: 0.86
         }
       ]
     };
@@ -280,6 +280,13 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
       responsive: true,
       maintainAspectRatio: false,
       indexAxis: 'y',
+      // Explicit entry animation: bars grow in from the zero baseline. (chart.js
+      // default grow is flattened by minBarLength + the per-frame canvas plugins,
+      // so set it here to restore a clear, smooth animate-in on mount/tab-switch.)
+      animation: {
+        duration: 650,
+        easing: 'easeOutQuart'
+      },
       // Full-row hit-area: snap to the whole category row (mode 'y') and never
       // require the pointer to land on the painted rect (intersect:false), so
       // even a min-length sliver is hoverable anywhere along its row band.

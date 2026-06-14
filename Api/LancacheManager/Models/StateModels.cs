@@ -17,6 +17,8 @@ public class AppState
     public List<OperationState> OperationStates { get; set; } = new();
     public bool SetupCompleted { get; set; } = false;
     public DateTime? LastPicsCrawl { get; set; }
+    public DateTime? BattleNetMappingLastApplied { get; set; } // Last time the Blizzard/TACT catalog was re-applied
+    public DateTime? EpicMappingLastCollection { get; set; } // Last time the Epic catalog/CDN patterns were collected
     public double CrawlIntervalHours { get; set; } = 1.0; // Default to 1 hour
     public object CrawlIncrementalMode { get; set; } = true; // Default to incremental scans (true/false/"github")
     public DateTime LastUpdated { get; set; } = DateTime.UtcNow;

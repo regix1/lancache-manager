@@ -30,18 +30,19 @@ public class BattleNetMappingService
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly ISignalRNotificationService _notifications;
     private readonly ILogger<BattleNetMappingService> _logger;
+    private readonly IStateService _stateService;
     private readonly Lazy<TactCatalog> _catalog;
-
-    private DateTime? _lastAppliedUtc;
 
     public BattleNetMappingService(
         IDbContextFactory<AppDbContext> dbContextFactory,
         ISignalRNotificationService notifications,
-        ILogger<BattleNetMappingService> logger)
+        ILogger<BattleNetMappingService> logger,
+        IStateService stateService)
     {
         _dbContextFactory = dbContextFactory;
         _notifications = notifications;
         _logger = logger;
+        _stateService = stateService;
         _catalog = new Lazy<TactCatalog>(LoadCatalog);
     }
 
@@ -67,7 +68,7 @@ public class BattleNetMappingService
         if (unresolvedDownloads.Count == 0)
         {
             _logger.LogInformation("No unnamed Blizzard downloads with a LastUrl to resolve");
-            _lastAppliedUtc = DateTime.UtcNow;
+            _stateService.SetBattleNetMappingLastApplied(DateTime.UtcNow);
             return 0;
         }
 
@@ -128,7 +129,7 @@ public class BattleNetMappingService
                 unresolvedDownloads.Count);
         }
 
-        _lastAppliedUtc = DateTime.UtcNow;
+        _stateService.SetBattleNetMappingLastApplied(DateTime.UtcNow);
         return resolvedCount;
     }
 
@@ -157,7 +158,7 @@ public class BattleNetMappingService
             TotalBlizzardDownloads = totalBlizzard,
             NamedBlizzardDownloads = namedBlizzard,
             UnnamedBlizzardDownloads = unnamedBlizzard,
-            LastAppliedUtc = _lastAppliedUtc
+            LastAppliedUtc = _stateService.GetBattleNetMappingLastApplied()
         };
     }
 

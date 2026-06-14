@@ -148,6 +148,9 @@ public partial class EpicMappingService
             _displayName = tokens.DisplayName;
             _lastCollectionUtc = DateTime.UtcNow;
             _lastRefreshTime = DateTime.UtcNow;
+            // Persist the collection time to state.json so it survives restarts
+            // (uniform with Battle.net mapping's last-applied persistence).
+            _stateService.SetEpicMappingLastCollection(_lastCollectionUtc.Value);
 
             // Resolve existing Epic downloads against the freshly collected CDN patterns
             try
@@ -266,7 +269,10 @@ public partial class EpicMappingService
                 _isAuthenticated = true;
                 _displayName = tokens.DisplayName;
                 _gamesDiscovered = authData.GamesDiscovered;
-                _lastCollectionUtc = authData.LastAuthenticated;
+                // Prefer the persisted collection time (captures scheduled refreshes too);
+                // fall back to the auth timestamp for pre-existing state.json without it.
+                _lastCollectionUtc =
+                    _stateService.GetEpicMappingLastCollection() ?? authData.LastAuthenticated;
 
                 _logger.LogInformation("Epic auto-reconnect authenticated: {DisplayName}, {Games} cached games",
                     tokens.DisplayName, _gamesDiscovered);

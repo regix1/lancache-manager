@@ -301,6 +301,9 @@ public partial class EpicMappingService
 
             _gamesDiscovered = result.TotalGames;
             _lastCollectionUtc = DateTime.UtcNow;
+            // Persist so a scheduled refresh's collection time survives restarts
+            // (auth storage's LastAuthenticated only tracks login/token-refresh).
+            _stateService.SetEpicMappingLastCollection(_lastCollectionUtc.Value);
             _lastNewGames += result.NewGames;
             _lastUpdatedGames += result.UpdatedGames;
 
