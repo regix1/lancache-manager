@@ -3,6 +3,7 @@ using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -24,6 +25,7 @@ public class GameCacheDetectionService : IDisposable
     private readonly ISignalRNotificationService _notifications;
     private readonly DatasourceService _datasourceService;
     private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly GameImageFetchService _gameImageFetchService;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private CancellationTokenSource? _cancellationTokenSource;
     private Guid? _currentTrackerOperationId;
@@ -100,7 +102,8 @@ public class GameCacheDetectionService : IDisposable
         RustProcessHelper rustProcessHelper,
         ISignalRNotificationService notifications,
         DatasourceService datasourceService,
-        IUnifiedOperationTracker operationTracker)
+        IUnifiedOperationTracker operationTracker,
+        GameImageFetchService gameImageFetchService)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -113,6 +116,7 @@ public class GameCacheDetectionService : IDisposable
         _notifications = notifications;
         _datasourceService = datasourceService;
         _operationTracker = operationTracker;
+        _gameImageFetchService = gameImageFetchService;
 
         _logger.LogInformation("GameCacheDetectionService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
 
@@ -723,6 +727,26 @@ public class GameCacheDetectionService : IDisposable
             await FinalizeDetectionAsync(operationId, success: true,
                 status: OperationStatus.Completed, stageKey: completionStageKey, cancelled: false,
                 context: completionContext, gamesDetected: totalGamesDetected, servicesDetected: finalServices.Count);
+
+            // Auto-fetch banners for newly-surfaced games right after detection, instead of waiting
+            // for GameImageFetchService's 30-min interval. This closes the gap for the curated
+            // name-keyed Blizzard/Riot banners (their GameNames arrive via log processing and were
+            // never wired to the image fetcher, so new games rendered blank until the next cycle or
+            // a manual "Clear Image Cache"). Fire-and-forget: FetchImagesNowAsync is lock-guarded
+            // (skips if a fetch is already running) and idempotent (only fetches games that lack a
+            // GameImage row), so it is cheap in the steady state and safe after every detection.
+            // CancellationToken.None so it outlives this operation's token disposal.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _gameImageFetchService.FetchImagesNowAsync(CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[GameDetection] Post-detection game image fetch failed (non-fatal)");
+                }
+            });
         }
         catch (OperationCanceledException oce)
         {
