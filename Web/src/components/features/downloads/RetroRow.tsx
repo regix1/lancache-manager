@@ -209,6 +209,8 @@ const RetroRow: React.FC<RetroRowProps> = memo(
       timeRange,
       accentColor,
       hasGameImage,
+      nameKeyedService,
+      nameKeyedSlug,
       onDiskSizeBytes,
       events
     } = data;
@@ -250,10 +252,12 @@ const RetroRow: React.FC<RetroRowProps> = memo(
               {/* Banner - dedicated column for game artwork */}
               {showBannerColumn && (
                 <div className="px-2 min-w-0 flex items-center justify-center" data-cell>
-                  {hasGameImage && (data.gameAppId || data.epicAppId) ? (
+                  {hasGameImage && (data.gameAppId || data.epicAppId || nameKeyedSlug) ? (
                     <GameImage
-                      gameAppId={data.epicAppId || data.gameAppId!}
+                      gameAppId={nameKeyedSlug ? undefined : data.epicAppId || data.gameAppId!}
                       epicAppId={data.epicAppId || undefined}
+                      nameKeyedService={nameKeyedService || undefined}
+                      nameKeyedSlug={nameKeyedSlug || undefined}
                       alt={data.gameName || t('downloads.tab.retro.gameFallback')}
                       className={`w-[120px] h-[56px] rounded object-cover ${getBannerImageClass('retro-banner-image', bannerImageRendering)}`}
                       onError={onImageError}
@@ -404,10 +408,12 @@ const RetroRow: React.FC<RetroRowProps> = memo(
             <div className="p-3 pl-4 space-y-2 sm:space-y-3 w-full max-w-full overflow-hidden">
               {/* App image and name */}
               <div className="flex items-center gap-3 w-full min-w-0">
-                {hasGameImage && (data.gameAppId || data.epicAppId) ? (
+                {hasGameImage && (data.gameAppId || data.epicAppId || nameKeyedSlug) ? (
                   <GameImage
-                    gameAppId={data.epicAppId || data.gameAppId!}
+                    gameAppId={nameKeyedSlug ? undefined : data.epicAppId || data.gameAppId!}
                     epicAppId={data.epicAppId || undefined}
+                    nameKeyedService={nameKeyedService || undefined}
+                    nameKeyedSlug={nameKeyedSlug || undefined}
                     alt={data.gameName || t('downloads.tab.retro.gameFallback')}
                     className={`w-[120px] h-[56px] rounded object-cover flex-shrink-0 ${getBannerImageClass('retro-banner-image', bannerImageRendering)}`}
                     onError={onImageError}

@@ -13,6 +13,7 @@ import { GameImage } from '@components/common/GameImage';
 import EvictedBadge from '@components/common/EvictedBadge';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
+import { nameKeyedImageKey } from '@utils/gameBannerSlug';
 import { useGroupPagination } from '@hooks/useGroupPagination';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
@@ -183,11 +184,19 @@ const GroupRow: React.FC<GroupRowProps> = ({
   const showSteamImage =
     serviceLower === 'steam' && availableImages.has(String(primaryDownload?.gameAppId ?? ''));
   const showEpicImage = isEpicService && availableImages.has(primaryDownload?.epicAppId ?? '');
-  const showGameImage = showSteamImage || showEpicImage;
-  const gameImageAppId = showEpicImage ? primaryDownload?.epicAppId : primaryDownload?.gameAppId;
-  const gameImageErrorKey = showEpicImage
-    ? `epic-${primaryDownload?.epicAppId}`
-    : String(primaryDownload?.gameAppId);
+  const nameKeyed = nameKeyedImageKey(group.service, primaryDownload?.gameName);
+  const showNameKeyedImage = nameKeyed !== null && availableImages.has(nameKeyed.slug);
+  const showGameImage = showSteamImage || showEpicImage || showNameKeyedImage;
+  const gameImageAppId = showNameKeyedImage
+    ? nameKeyed!.slug
+    : showEpicImage
+      ? primaryDownload?.epicAppId
+      : primaryDownload?.gameAppId;
+  const gameImageErrorKey = showNameKeyedImage
+    ? `${nameKeyed!.service}-${nameKeyed!.slug}`
+    : showEpicImage
+      ? `epic-${primaryDownload?.epicAppId}`
+      : String(primaryDownload?.gameAppId);
   const storeLink =
     showSteamImage && primaryDownload?.gameAppId
       ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
@@ -373,8 +382,10 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   </div>
                 ) : (
                   <GameImage
-                    gameAppId={gameImageAppId}
+                    gameAppId={showNameKeyedImage ? undefined : gameImageAppId}
                     epicAppId={showEpicImage ? primaryDownload.epicAppId! : undefined}
+                    nameKeyedService={showNameKeyedImage ? nameKeyed!.service : undefined}
+                    nameKeyedSlug={showNameKeyedImage ? nameKeyed!.slug : undefined}
                     alt={primaryDownload.gameName || group.name}
                     className={`compact-expanded-banner sm:w-[100px] sm:h-[46px] rounded object-cover border border-[var(--theme-border-secondary)] ${getBannerImageClass('retro-banner-image', bannerImageRendering)}`}
                     sizes="(max-width: 639px) 100%, 100px"

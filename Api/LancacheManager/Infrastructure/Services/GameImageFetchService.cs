@@ -212,7 +212,63 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             db.ChangeTracker.Clear();
         }
 
-        // 3. Re-fetch stale images (older than 7 days)
+        // 3. NAME-KEYED (Blizzard/Riot): Downloads identified only by GameName (no Steam appId,
+        // no Epic catalog id). Source URLs come from the curated official-CDN banner map keyed on
+        // the exact GameName. Stored under (AppId = slug(GameName), Service = "blizzard"|"riot").
+        var nameKeyedTargets = await db.Downloads
+            .AsNoTracking()
+            .Where(d => d.GameAppId == null
+                && !string.IsNullOrEmpty(d.GameName)
+                && (d.Service == "blizzard" || d.Service == "battle.net" || d.Service == "battlenet"
+                    || d.Service == "riot" || d.Service == "riotgames"))
+            .Select(d => new { d.Service, d.GameName })
+            .Distinct()
+            .ToListAsync(stoppingToken);
+
+        // Resolve each distinct (service, name) to (canonical service, slug, url) via the curated
+        // map; drop names with no curated entry (no fallback placeholder - just no banner).
+        var nameKeyedJobs = nameKeyedTargets
+            .Select(t => new
+            {
+                Service = NameKeyedBannerSource.NormalizeService(t.Service),
+                Slug = NameKeyedBannerSource.Slug(t.GameName!),
+                Url = NameKeyedBannerSource.TryGetUrl(t.Service, t.GameName)
+            })
+            .Where(j => j.Service != null && j.Url != null)
+            .GroupBy(j => (j.Service!, j.Slug))
+            .Select(g => g.First())
+            .ToList();
+
+        var existingNameKeyedIds = await db.GameImages
+            .AsNoTracking()
+            .Where(g => g.Service == NameKeyedBannerSource.BlizzardService
+                || g.Service == NameKeyedBannerSource.RiotService)
+            .Select(g => new { g.Service, g.AppId })
+            .ToListAsync(stoppingToken);
+
+        var existingNameKeyedSet = existingNameKeyedIds
+            .Select(g => (g.Service, g.AppId))
+            .ToHashSet();
+
+        var missingNameKeyedJobs = nameKeyedJobs
+            .Where(j => !existingNameKeyedSet.Contains((j.Service!, j.Slug)))
+            .ToList();
+
+        var newNameKeyedImages = 0;
+        foreach (var batch in missingNameKeyedJobs.Chunk(50))
+        {
+            if (stoppingToken.IsCancellationRequested) return;
+
+            var tasks = batch.Select(job =>
+                FetchNameKeyedImageAsync(db, client, job.Service!, job.Slug, job.Url!, stoppingToken));
+
+            var added = await Task.WhenAll(tasks);
+            newNameKeyedImages += added.Count(a => a);
+            await db.SaveChangesAsync(stoppingToken);
+            db.ChangeTracker.Clear();
+        }
+
+        // 4. Re-fetch stale images (older than 7 days)
         var staleImages = await db.GameImages
             .Where(g => g.FetchedAtUtc < DateTime.UtcNow.AddDays(-7))
             .ToListAsync(stoppingToken);
@@ -230,10 +286,10 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         }
 
         _logger.LogInformation(
-            "[GameImageFetch] Complete: {NewSteam} new Steam, {NewEpic} new Epic, {Stale} refreshed",
-            missingSteamIds.Count, missingEpicMappings.Count, staleImages.Count);
+            "[GameImageFetch] Complete: {NewSteam} new Steam, {NewEpic} new Epic, {NewNameKeyed} new Blizzard/Riot, {Stale} refreshed",
+            missingSteamIds.Count, missingEpicMappings.Count, newNameKeyedImages, staleImages.Count);
 
-        if (missingSteamIds.Count > 0 || missingEpicMappings.Count > 0)
+        if (missingSteamIds.Count > 0 || missingEpicMappings.Count > 0 || newNameKeyedImages > 0)
         {
             GameImagesController.IncrementCacheGeneration();
             _imageCacheService.EvictMemoryCache();
@@ -241,8 +297,64 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             {
                 newSteamImages = missingSteamIds.Count,
                 newEpicImages = missingEpicMappings.Count,
+                newNameKeyedImages,
                 cacheGeneration = GameImagesController.CacheGeneration
             });
+        }
+    }
+
+    /// <summary>
+    /// Fetches a curated official-CDN banner for a name-keyed service (Blizzard/Riot) and stores
+    /// it under (AppId = slug, Service = service). Applies the same MinImageBytes quality gate as
+    /// the Steam/Epic passes. Returns true if an image was stored.
+    /// </summary>
+    private async Task<bool> FetchNameKeyedImageAsync(
+        AppDbContext db,
+        HttpClient client,
+        string service,
+        string slug,
+        string url,
+        CancellationToken ct)
+    {
+        try
+        {
+            await _httpThrottle.WaitAsync(ct);
+            try
+            {
+                var response = await client.GetAsync(url, ct);
+                if (!response.IsSuccessStatusCode) return false;
+
+                var bytes = await response.Content.ReadAsByteArrayAsync(ct);
+                if (bytes.Length < MinImageBytes)
+                {
+                    _logger.LogDebug("[GameImageFetch] Skipping tiny image ({Size} bytes) for {Service} {Slug} from {Url}", bytes.Length, service, slug, url);
+                    return false;
+                }
+
+                lock (db)
+                {
+                    db.GameImages.Add(new GameImage
+                    {
+                        AppId = slug,
+                        Service = service,
+                        ImageData = bytes,
+                        ContentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg",
+                        SourceUrl = url,
+                        FetchedAtUtc = DateTime.UtcNow
+                    });
+                }
+
+                return true;
+            }
+            finally
+            {
+                _httpThrottle.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[GameImageFetch] Failed to fetch {Service} image {Slug} from {Url}", service, slug, url);
+            return false;
         }
     }
 

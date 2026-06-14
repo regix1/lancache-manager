@@ -26,6 +26,7 @@ import { Alert } from '@components/ui/Alert';
 import { Pagination } from '@components/ui/Pagination';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { resolveGameDetection } from '@utils/gameDetection';
+import { nameKeyedImageKey } from '@utils/gameBannerSlug';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import type { BannerImageRendering } from './bannerImageRendering';
 import RetroRow from './RetroRow';
@@ -538,7 +539,13 @@ const RetroView = memo(
             data.epicAppId &&
             availableImages.has(data.epicAppId) &&
             !imageErrors.has(`epic-${data.epicAppId}`);
-          const hasGameImage = Boolean(hasSteamImage || hasEpicImage);
+          const nameKeyed = nameKeyedImageKey(data.service, data.gameName);
+          const hasNameKeyedImage =
+            !aestheticMode &&
+            nameKeyed !== null &&
+            availableImages.has(nameKeyed.slug) &&
+            !imageErrors.has(`${nameKeyed.service}-${nameKeyed.slug}`);
+          const hasGameImage = Boolean(hasSteamImage || hasEpicImage || hasNameKeyedImage);
 
           const detection = resolveGameDetection(
             data.gameAppId,
@@ -559,6 +566,8 @@ const RetroView = memo(
             timeRange,
             accentColor,
             hasGameImage,
+            nameKeyedService: hasNameKeyedImage ? nameKeyed!.service : null,
+            nameKeyedSlug: hasNameKeyedImage ? nameKeyed!.slug : null,
             onDiskSizeBytes: detection?.total_size_bytes ?? null
           };
         });

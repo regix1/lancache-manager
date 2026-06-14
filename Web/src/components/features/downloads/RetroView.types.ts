@@ -15,5 +15,9 @@ export interface RetroRowData extends DepotGroupedData {
   timeRange: string;
   accentColor: string;
   hasGameImage: boolean;
+  /** Canonical name-keyed service ("blizzard" | "riot") when this row's banner is name-keyed. */
+  nameKeyedService: string | null;
+  /** Normalized GameName slug paired with nameKeyedService. */
+  nameKeyedSlug: string | null;
   onDiskSizeBytes: number | null;
 }

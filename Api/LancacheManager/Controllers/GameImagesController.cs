@@ -92,6 +92,36 @@ public class GameImagesController : ControllerBase
     }
 
     /// <summary>
+    /// Returns the cached banner image for a name-keyed service (Blizzard/Riot) whose games are
+    /// identified only by GameName. The slug is the normalized GameName produced by
+    /// NameKeyedBannerSource.Slug, and the service is the canonical "blizzard"/"riot" key.
+    /// Returns 404 if no image is stored for this (slug, service).
+    /// </summary>
+    [HttpGet("name/{service}/{slug}/header")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetNameKeyedHeaderImageAsync(
+        string service,
+        string slug,
+        CancellationToken cancellationToken = default)
+    {
+        var canonicalService = NameKeyedBannerSource.NormalizeService(service);
+        if (canonicalService == null)
+        {
+            return NotFound(new GameImageErrorResponse { Error = $"Unsupported name-keyed service '{service}'" });
+        }
+
+        var (imageData, contentType) = await _imageCacheService.GetImageAsync(
+            slug, canonicalService, cancellationToken) ?? default;
+
+        if (imageData == null)
+        {
+            return NotFound(new GameImageErrorResponse { Error = $"Game image not available for {canonicalService} '{slug}'" });
+        }
+
+        return ImageResponse(imageData, contentType ?? "image/jpeg", $"{canonicalService}-{slug}");
+    }
+
+    /// <summary>
     /// Returns the current cache generation so the frontend can build cache-busted image URLs on page load.
     /// </summary>
     [HttpGet("cache-version")]

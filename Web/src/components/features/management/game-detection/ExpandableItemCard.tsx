@@ -7,6 +7,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { GameImage } from '../../../common/GameImage';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
+import { nameKeyedImageKey } from '@utils/gameBannerSlug';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
 
 export interface ExpandableItemStat {
@@ -72,7 +73,8 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   };
 
   const isEpic = service === 'epicgames';
-  const imageId = isEpic ? epicAppId : String(gameAppId ?? '');
+  const nameKeyed = nameKeyedImageKey(service, title);
+  const imageId = nameKeyed ? nameKeyed.slug : isEpic ? epicAppId : String(gameAppId ?? '');
   const showImage = !!imageId && availableImages.has(imageId) && !imageError;
   const isUnknownGame = title.startsWith('Unknown Game');
 
@@ -100,8 +102,10 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
           )}
           {showImage && (
             <GameImage
-              gameAppId={gameAppId}
+              gameAppId={nameKeyed ? undefined : gameAppId}
               epicAppId={isEpic ? epicAppId : undefined}
+              nameKeyedService={nameKeyed ? nameKeyed.service : undefined}
+              nameKeyedSlug={nameKeyed ? nameKeyed.slug : undefined}
               alt={title}
               className="game-card-image hidden sm:block"
               loading="lazy"

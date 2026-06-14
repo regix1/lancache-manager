@@ -29,6 +29,17 @@
     </EmbeddedResource>
   </ItemGroup>
 
+  <!--
+    Curated GameName -> official publisher-CDN banner URL map for name-keyed services
+    (Blizzard/Battle.net + Riot) that have no Steam appId / Epic catalog id. Read at runtime by
+    GameImageFetchService via Assembly.GetManifestResourceStream with the LogicalName below.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="Infrastructure\Data\game_banners.json">
+      <LogicalName>LancacheManager.game_banners.json</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Docker.DotNet" Version="3.125.15" />
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="11.4.0" />

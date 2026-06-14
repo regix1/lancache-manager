@@ -28,6 +28,7 @@ import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { GameImage } from '@components/common/GameImage';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
+import { nameKeyedImageKey } from '@utils/gameBannerSlug';
 import { useGroupPagination } from '@hooks/useGroupPagination';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
@@ -194,13 +195,21 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const diskSizeBytes = detection?.total_size_bytes;
   const showSteamImage = isSteam && availableImages.has(String(primaryDownload?.gameAppId ?? ''));
   const showEpicImage = isEpic && availableImages.has(primaryDownload?.epicAppId ?? '');
+  const nameKeyed = nameKeyedImageKey(group.service, primaryName);
+  const showNameKeyedImage = nameKeyed !== null && availableImages.has(nameKeyed.slug);
   const storeLink = primaryDownload?.gameAppId
     ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
     : null;
   const shouldRenderBanner =
     !aestheticMode &&
     (isSteam || isWsus || isRiot || isEpic || isEA || isBlizzard || isXbox || isOtherService);
-  const artworkId = showSteamImage ? steamAppId : showEpicImage ? `epic-${epicAppId}` : null;
+  const artworkId = showSteamImage
+    ? steamAppId
+    : showEpicImage
+      ? `epic-${epicAppId}`
+      : showNameKeyedImage
+        ? `${nameKeyed!.service}-${nameKeyed!.slug}`
+        : null;
   const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
   // Full-height: banner at natural aspect ratio, each row height varies
   // Fit-to-row: fixed height, banner centered with overflow hidden, uniform rows
@@ -260,8 +269,10 @@ const GroupCard: React.FC<GroupCardProps> = ({
     if (hasArtwork && artworkId) {
       bannerContent = (
         <GameImage
-          gameAppId={showEpicImage ? epicAppId! : steamAppId!}
+          gameAppId={showNameKeyedImage ? undefined : showEpicImage ? epicAppId! : steamAppId!}
           epicAppId={showEpicImage ? epicAppId! : undefined}
+          nameKeyedService={showNameKeyedImage ? nameKeyed!.service : undefined}
+          nameKeyedSlug={showNameKeyedImage ? nameKeyed!.slug : undefined}
           alt={primaryName || group.name}
           className={getBannerImageClass(
             fullHeightBanners ? 'download-banner-image-natural' : 'download-banner-image',
@@ -993,7 +1004,15 @@ const GridCard: React.FC<GridCardProps> = ({
   const primaryName = primaryDownload?.gameName ?? '';
   const showSteamImage = isSteam && availableImages.has(String(primaryDownload?.gameAppId ?? ''));
   const showEpicImage = isEpic && availableImages.has(primaryDownload?.epicAppId ?? '');
-  const artworkId = showSteamImage ? steamAppId : showEpicImage ? `epic-${epicAppId}` : null;
+  const nameKeyed = nameKeyedImageKey(group.service, primaryName);
+  const showNameKeyedImage = nameKeyed !== null && availableImages.has(nameKeyed.slug);
+  const artworkId = showSteamImage
+    ? steamAppId
+    : showEpicImage
+      ? `epic-${epicAppId}`
+      : showNameKeyedImage
+        ? `${nameKeyed!.service}-${nameKeyed!.slug}`
+        : null;
   const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
   const isEvicted = group.downloads.every((d: Download) => d.isEvicted);
   const isPartiallyEvicted = !isEvicted && group.downloads.some((d: Download) => d.isEvicted);
@@ -1029,8 +1048,10 @@ const GridCard: React.FC<GridCardProps> = ({
     if (hasArtwork && artworkId) {
       bannerContent = (
         <GameImage
-          gameAppId={showEpicImage ? epicAppId! : steamAppId!}
+          gameAppId={showNameKeyedImage ? undefined : showEpicImage ? epicAppId! : steamAppId!}
           epicAppId={showEpicImage ? epicAppId! : undefined}
+          nameKeyedService={showNameKeyedImage ? nameKeyed!.service : undefined}
+          nameKeyedSlug={showNameKeyedImage ? nameKeyed!.slug : undefined}
           alt={primaryName || group.name}
           className={getBannerImageClass('card-grid-banner-image', bannerImageRendering)}
           sizes="(max-width: 639px) 100vw, 360px"
@@ -1219,7 +1240,15 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
     detectionByService
   );
   const diskSizeBytes = detection?.total_size_bytes;
-  const artworkId = showSteamImage ? steamAppId : showEpicImage ? `epic-${epicAppId}` : null;
+  const nameKeyed = nameKeyedImageKey(group.service, primaryName);
+  const showNameKeyedImage = nameKeyed !== null && availableImages.has(nameKeyed.slug);
+  const artworkId = showSteamImage
+    ? steamAppId
+    : showEpicImage
+      ? `epic-${epicAppId}`
+      : showNameKeyedImage
+        ? `${nameKeyed!.service}-${nameKeyed!.slug}`
+        : null;
   const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
   const storeLink = primaryDownload?.gameAppId
     ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
@@ -1254,8 +1283,10 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
   if (shouldRenderBanner && hasArtwork && artworkId) {
     drawerBanner = (
       <GameImage
-        gameAppId={showEpicImage ? epicAppId! : steamAppId!}
+        gameAppId={showNameKeyedImage ? undefined : showEpicImage ? epicAppId! : steamAppId!}
         epicAppId={showEpicImage ? epicAppId! : undefined}
+        nameKeyedService={showNameKeyedImage ? nameKeyed!.service : undefined}
+        nameKeyedSlug={showNameKeyedImage ? nameKeyed!.slug : undefined}
         alt={primaryName || group.name}
         className={getBannerImageClass('drawer-banner-image', bannerImageRendering)}
         sizes="(max-width: 639px) 100vw, 550px"

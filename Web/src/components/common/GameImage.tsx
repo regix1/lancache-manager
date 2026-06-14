@@ -11,6 +11,10 @@ interface GameImageProps {
   onError: (gameAppId: string) => void;
   sizes?: string;
   epicAppId?: string;
+  /** Canonical name-keyed service ("blizzard" | "riot") for games identified only by GameName. */
+  nameKeyedService?: string;
+  /** Normalized GameName slug, paired with nameKeyedService. */
+  nameKeyedSlug?: string;
 }
 
 /**
@@ -23,10 +27,17 @@ export const GameImage: React.FC<GameImageProps> = ({
   loading = 'lazy',
   onError,
   sizes,
-  epicAppId
+  epicAppId,
+  nameKeyedService,
+  nameKeyedSlug
 }) => {
   const appId = gameAppId != null ? String(gameAppId) : '';
-  const imageKey = epicAppId ? `epic-${epicAppId}` : appId;
+  const isNameKeyed = Boolean(nameKeyedService && nameKeyedSlug);
+  const imageKey = isNameKeyed
+    ? `${nameKeyedService}-${nameKeyedSlug}`
+    : epicAppId
+      ? `epic-${epicAppId}`
+      : appId;
   const [failed, setFailed] = useState(false);
   const cacheBuster = useContext(ImageCacheContext);
 
@@ -35,10 +46,12 @@ export const GameImage: React.FC<GameImageProps> = ({
   }, [imageKey]);
 
   const src = useMemo(() => {
+    if (isNameKeyed)
+      return `${API_BASE}/game-images/name/${nameKeyedService}/${nameKeyedSlug}/header`;
     if (epicAppId) return `${API_BASE}/game-images/epic/${epicAppId}/header`;
     if (appId) return `${API_BASE}/game-images/${appId}/header`;
     return null;
-  }, [epicAppId, appId]);
+  }, [isNameKeyed, nameKeyedService, nameKeyedSlug, epicAppId, appId]);
 
   const finalSrc =
     src && cacheBuster > 0
