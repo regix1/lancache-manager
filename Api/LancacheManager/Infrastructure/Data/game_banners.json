@@ -1,28 +1,16 @@
 {
-  "_comment": "Curated GameName -> OFFICIAL publisher-CDN banner URL map for name-keyed services (Blizzard/Battle.net + Riot) that have no Steam appId / Epic catalog id. Keys MUST match the exact GameName strings produced by BattleNetMappingService (from rust-processor/tact_products.json) and the Riot service GameName strings. Blizzard = blz-contentstack-images.akamaized.net (Contentstack/Akamai); Riot = cmsassets.rgpub.io (Sanity). Official CDNs only; no third-party art. Every URL verified HTTP 200 image/* >5KB AND visually confirmed to recognizably depict that game (logo legible or key-art unmistakably that title). Each Call of Duty title uses its OWN per-title official key-art (no shared wordmark). The generic franchise 'Call of Duty' entry was removed (no legible per-title official art); the FE falls back to the service-icon placeholder. Loaded at runtime by GameImageFetchService via Assembly.GetManifestResourceStream(\"LancacheManager.game_banners.json\").",
+  "_comment": "official publisher-CDN only, name-bearing, viewed+server-side-verified; games without a qualifying official asset are omitted (placeholder) pending better sources. Allowed hosts ONLY: blz-contentstack-images.akamaized.net + bnetcmsus-a.akamaihd.net (Blizzard/Activision), cmsassets.rgpub.io (Riot). Every URL returns HTTP 200 image/* >5KB via a plain Mozilla User-Agent fetch AND was visually confirmed to carry the game's legible name/logo. Keys MUST match the exact GameName strings produced by BattleNetMappingService (rust-processor/tact_products.json) and the Riot service. Loaded at runtime by GameImageFetchService via Assembly.GetManifestResourceStream(\"LancacheManager.game_banners.json\").",
   "blizzard": {
     "Diablo II: Resurrected": "https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/blt132c40e698f2d16c/697206b315c04e7736b802ee/DIA_D2R_Garden_GameplayTrailer_thumbnail_1920x1080_KEYART2_LL01_1.png?imwidth=1920",
-    "Diablo III": "https://blz-contentstack-images.akamaized.net/v3/assets/bltf408a0557f4e4998/bltb7c56c00956bda2c/67ed87996a1a269831c31c08/DIA_D3_S32_Battlenet_Shop_Thumb_Desktop_Textless_1920x1080.png?imwidth=1920",
     "Diablo IV": "https://blz-contentstack-images.akamaized.net/v3/assets/bltf408a0557f4e4998/bltb3598fe0ffd7f1d9/64baff12e26c5466574bc28f/Diablo_IV_Logo_EN.png",
-    "Diablo Immortal": "https://blz-contentstack-images.akamaized.net/v3/assets/bltf408a0557f4e4998/blt031fc78a371de1d6/685d7ee96616e5cf2a59423e/%5BPUBLISHING%5D_DI_Art_All_classes_illustration_1920x1080.jpg?imwidth=1920",
-    "Hearthstone": "https://blz-contentstack-images.akamaized.net/v3/assets/bltc965041283bac56c/blt2a00940d7f28339b/64bea585e26c5443e04bc2a4/Masthead.png?imwidth=1920",
+    "Diablo Immortal": "https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/blt47deaa9e2be4b752/6a1f4beaeb54a6907d694fb8/DI_Warlock_OG-Image@2x_enUS.jpg",
     "Heroes of the Storm": "https://blz-contentstack-images.akamaized.net/v3/assets/blt72f16e066f85e164/blt7fed496231425261/6515b314b456563551fc33ca/mobile_heroes_logo.png?imwidth=1920",
-    "Overwatch 2": "https://blz-contentstack-images.akamaized.net/v3/assets/blt2477dcaf4ebd440c/blt45586c965db08717/6823abc24dee72d806fff5e2/OpenGraph.jpg?imwidth=1920",
-    "StarCraft: Remastered": "https://blz-contentstack-images.akamaized.net/v3/assets/bltf408a0557f4e4998/blta8e3385149989265/632250701566e20e82f303ce/starcraft-remastered-section1-feature2.jpg?imwidth=1920",
     "StarCraft II": "https://blz-contentstack-images.akamaized.net/v3/assets/blt72f16e066f85e164/blt167976541c434de1/64b80296a4648b1c1476cbfe/SC2_Logo.png?imwidth=1920",
-    "Warcraft III: Reforged": "https://blz-contentstack-images.akamaized.net/v3/assets/blt9c12f249ac15c7ec/bltf20ea0ebfa4e3d09/69649ea9521fe66dcc245395/background_w3r_outro_md.jpg?imwidth=1920",
-    "World of Warcraft": "https://blz-contentstack-images.akamaized.net/v3/assets/blt3452e3b114fab0cd/blt2be6a804034ba5cd/675366b6ae219f6838ef76ce/SCVKZC3QVGFW1594741716280.jpg?imwidth=1920",
-    "Crash Bandicoot 4": "https://blz-contentstack-images.akamaized.net/v3/assets/bltf408a0557f4e4998/blt861e34883e31a113/63eec7f166192b60e0205205/CB4_Launch_Keyart_CTA_02-Bnet-Launcher_Launcher_2.0-1920x1080_textless.jpg?imwidth=1920",
-    "Blizzard Arcade Collection": "https://blz-contentstack-images.akamaized.net/v3/assets/bltf408a0557f4e4998/bltc2737ca8175c8330/620d7693f2a06e30446fa9c7/BCO_PR_Shop_Assets_prod-thumb_TS01.jpg?imwidth=1920",
-    "Call of Duty: Black Ops 4": "https://blz-contentstack-images.akamaized.net/v3/assets/bltf408a0557f4e4998/blte68483b020b1f791/63b5c9c3253ed30fa0bf1734/call-of-duty-black-ops-4-section1-feature1.png?imwidth=1920",
-    "Call of Duty: Black Ops Cold War": "https://blz-contentstack-images.akamaized.net/v3/assets/bltf408a0557f4e4998/blt3e4e126b8153648b/63eeca6b998e686b2e53b748/CW-keyArt-thumb.jpg?imwidth=1920",
-    "Call of Duty: Modern Warfare (2019)": "https://blz-contentstack-images.akamaized.net/v3/assets/bltf408a0557f4e4998/blt56dd9181471a6362/63b5c1d3919ab90fd610a02c/call-of-duty-modern-warfare-section1-feature1.jpg?imwidth=1920",
-    "Call of Duty: Modern Warfare 2 Remastered": "https://blz-contentstack-images.akamaized.net/v3/assets/bltf408a0557f4e4998/blt72492fc553181d77/63b5c85eac4f9a0f87bbf5ab/call-of-duty-modern-warfare-2-campaign-remastered-section1-feature1.jpg?imwidth=1920",
-    "Call of Duty: Vanguard": "https://blz-contentstack-images.akamaized.net/v3/assets/bltf408a0557f4e4998/bltff4d6ec7afd2e49a/63f695ff583a5b674fbcde69/CODVG_Reveal_Ultimate_Keyart_Textless-Bnet-Launcher_Content_UI_(Phoenix)-1920x1080_01a_FINAL.jpg?imwidth=1920"
+    "Blizzard Arcade Collection": "https://bnetcmsus-a.akamaihd.net/cms/blog_header/6k/6KTTLS9D8F971611938683175.jpg"
   },
   "riot": {
-    "League of Legends": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/universe/4de677b45fdaaa7874a030c6c8865e9ffdb6a0ba-1920x1080.jpg?accountingTag=LoL",
-    "Valorant": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/riotbar/f5481efb9e52aa16b34946540bcb88ff574fc546-500x188.png",
-    "Legends of Runeterra": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/legends_of_runeterra/5ceac6eb457f29440ead4755a6777315e085dc72-368x328.png?accountingTag=lor"
+    "League of Legends": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/news/9eb028de391e65072d06e77f06d0955f66b9fa2c-736x316.png",
+    "Valorant": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/news/7b76209193f1bfe190d3ae6ef8728328870be9c3-736x138.png",
+    "Legends of Runeterra": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/riotbar/f5481efb9e52aa16b34946540bcb88ff574fc546-500x188.png"
   }
 }
