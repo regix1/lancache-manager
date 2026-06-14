@@ -76,6 +76,7 @@ public class SessionsController : ControllerBase
         var steamPrefillEnabled = isAdmin || (s.SteamPrefillExpiresAtUtc != null && s.SteamPrefillExpiresAtUtc > now);
         var epicPrefillEnabled = isAdmin || (s.EpicPrefillExpiresAtUtc != null && s.EpicPrefillExpiresAtUtc > now);
         var battlenetPrefillEnabled = isAdmin || (s.BattleNetPrefillExpiresAtUtc != null && s.BattleNetPrefillExpiresAtUtc > now);
+        var riotPrefillEnabled = isAdmin || (s.RiotPrefillExpiresAtUtc != null && s.RiotPrefillExpiresAtUtc > now);
 
         return new SessionDto
         {
@@ -90,7 +91,7 @@ public class SessionsController : ControllerBase
             IsCurrentSession = s.Id == currentSessionId,
             IsExpired = !s.IsRevoked && s.ExpiresAtUtc <= now,
             RevokedAt = s.RevokedAtUtc.HasValue ? DateTime.SpecifyKind(s.RevokedAtUtc.Value, DateTimeKind.Utc) : (DateTime?)null,
-            PrefillEnabled = steamPrefillEnabled || epicPrefillEnabled || battlenetPrefillEnabled,
+            PrefillEnabled = steamPrefillEnabled || epicPrefillEnabled || battlenetPrefillEnabled || riotPrefillEnabled,
             SteamPrefillEnabled = steamPrefillEnabled,
             SteamPrefillExpiresAt = !isAdmin && s.SteamPrefillExpiresAtUtc > now
                 ? DateTime.SpecifyKind(s.SteamPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null,
@@ -100,6 +101,9 @@ public class SessionsController : ControllerBase
             BattlenetPrefillEnabled = battlenetPrefillEnabled,
             BattlenetPrefillExpiresAt = !isAdmin && s.BattleNetPrefillExpiresAtUtc > now
                 ? DateTime.SpecifyKind(s.BattleNetPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null,
+            RiotPrefillEnabled = riotPrefillEnabled,
+            RiotPrefillExpiresAt = !isAdmin && s.RiotPrefillExpiresAtUtc > now
+                ? DateTime.SpecifyKind(s.RiotPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null,
             PublicIpAddress = s.PublicIpAddress,
             CountryCode = s.CountryCode,
             CountryName = s.CountryName,

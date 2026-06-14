@@ -374,7 +374,7 @@ class ThemeService {
           blizzardOnBorder: 'rgba(37, 99, 235, 0.5)',
           blizzardStrong: 'rgba(37, 99, 235, 0.3)',
           wsusColor: '#0891b2',
-          riotColor: '#dc2626',
+          riotColor: '#d13639',
           xboxColor: '#107C10', // Xbox Green
           ubisoftColor: '#db2777', // Pink
 
@@ -585,6 +585,7 @@ class ThemeService {
     const steam = colors.steamColor!;
     const epic = colors.epicColor!;
     const blizzard = colors.blizzardColor!;
+    const riot = colors.riotColor!;
     const buttonBg = colors.buttonBg!;
     const actionDelete = colors.actionDeleteBg!;
     const actionProcess = colors.actionProcessBg!;
@@ -691,6 +692,10 @@ class ThemeService {
       --theme-blizzard-faint: ${colors.blizzardFaint};
       --theme-blizzard-on-border: ${colors.blizzardOnBorder};
       --theme-blizzard-strong: ${colors.blizzardStrong};
+      --theme-riot-subtle: ${v('riotSubtle', rgba(riot, 0.15))};
+      --theme-riot-faint: ${v('riotFaint', rgba(riot, 0.1))};
+      --theme-riot-on-border: ${v('riotOnBorder', rgba(riot, 0.5))};
+      --theme-riot-strong: ${v('riotStrong', rgba(riot, 0.3))};
 
       /* Icon Backgrounds */
       --theme-icon-blue-subtle: ${v('iconBlueSubtle', rgba(iconBlue, 0.15))};

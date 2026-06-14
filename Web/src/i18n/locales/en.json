@@ -1736,6 +1736,7 @@
         "steamIntegration": "Steam Integration",
         "monitoringMetrics": "Monitoring & Metrics",
         "epicIntegration": "Epic Games Integration",
+        "riotIntegration": "Riot Integration",
         "loadingEndpoints": "Loading endpoints...",
         "epicDaemonStatus": {
           "title": "Epic Games",
@@ -1805,6 +1806,34 @@
               }
             },
             "note": "No credentials are stored. Battle.net prefill only downloads public Blizzard CDN content."
+          }
+        },
+        "riotDaemonStatus": {
+          "title": "Riot Games",
+          "ready": "Ready",
+          "unavailable": "Unavailable",
+          "connected": "Connected",
+          "notConnected": "Not Connected",
+          "dockerStatus": "Docker Service",
+          "dockerAvailableDesc": "Docker is available and ready for Riot prefill sessions. No account login required.",
+          "dockerUnavailableDesc": "Start Docker to enable Riot prefill sessions.",
+          "loadError": "Failed to load Riot status. Displaying default values.",
+          "noActiveSessions": "No active sessions",
+          "activeSessions": "{{count}} active session",
+          "activeSessions_plural": "{{count}} active sessions",
+          "help": {
+            "anonymous": {
+              "title": "Anonymous Prefill",
+              "noLogin": {
+                "term": "No Account Login",
+                "description": "Riot prefill downloads public Riot CDN content and requires no account, credentials, or login."
+              },
+              "products": {
+                "term": "Product Catalog",
+                "description": "The daemon exposes the full fixed Riot product catalog for prefill selection."
+              }
+            },
+            "note": "No login required. The daemon container only needs Docker to be available to run prefill sessions."
           }
         },
         "epicGameMappings": {
@@ -3382,6 +3411,7 @@
     "title": "Steam Prefill",
     "titleEpic": "Epic Prefill",
     "titleBattlenet": "Battle.net Prefill",
+    "titleRiot": "Riot Prefill",
     "subtitle": "Pre-download games to your cache",
     "endSession": "End Session",
     "home": {
@@ -3403,7 +3433,13 @@
       "battlenetFeature1": "Prefill entire catalog or select specific games",
       "battlenetFeature2": "Recent and top games presets",
       "battlenetFeature3": "Force re-download and cache management",
-      "requiresBattlenetLogin": "No account login required"
+      "requiresBattlenetLogin": "No account login required",
+      "riotDescription": "Prefill public Riot CDN content for titles such as League of Legends and VALORANT.",
+      "riotFeature1": "Prefill all products or select specific titles",
+      "riotFeature2": "No account or login required",
+      "riotFeature3": "Force re-download and cache management",
+      "riotNoLogin": "No account login required",
+      "requiresRiotLogin": "No account login required"
     },
     "startScreen": {
       "description": "Pre-download Steam games to your cache for faster LAN party downloads. Connect to your Steam library and prefill games before the event.",

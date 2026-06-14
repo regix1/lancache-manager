@@ -198,6 +198,9 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             case "battlenet":
                 await _notifications.SendToBattleNetPrefillClientRawAsync(connectionId, eventName, data);
                 break;
+            case "riot":
+                await _notifications.SendToRiotPrefillClientRawAsync(connectionId, eventName, data);
+                break;
             default:
                 await _notifications.SendToPrefillClientRawAsync(connectionId, eventName, data);
                 break;
@@ -217,6 +220,9 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 break;
             case "battlenet":
                 await _notifications.NotifyBattleNetHubAsync(eventName, data);
+                break;
+            case "riot":
+                await _notifications.NotifyRiotHubAsync(eventName, data);
                 break;
             default:
                 await _notifications.NotifySteamHubAsync(eventName, data);

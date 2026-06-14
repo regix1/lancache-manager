@@ -150,6 +150,14 @@
   --service-accent-subtle: var(--theme-blizzard-subtle);
 }
 
+.prefill-service-card--riot {
+  --service-accent: var(--theme-riot);
+  --service-accent-on-border: var(--theme-riot-on-border);
+  --service-accent-faint: var(--theme-riot-faint);
+  --service-accent-strong: var(--theme-riot-strong);
+  --service-accent-subtle: var(--theme-riot-subtle);
+}
+
 /* Z-index for card content above glow */
 .prefill-service-card > * {
   position: relative;

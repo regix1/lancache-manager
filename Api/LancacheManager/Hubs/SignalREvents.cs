@@ -150,11 +150,26 @@ public static class SignalREvents
     public const string BattleNetPrefillHistoryUpdated = "BattleNetPrefillHistoryUpdated";
     public const string BattleNetSessionEnded = "BattleNetSessionEnded";
 
+    // Riot Prefill Daemon Events (anonymous - no account login)
+    public const string RiotDaemonSessionCreated = "RiotDaemonSessionCreated";
+    public const string RiotDaemonSessionUpdated = "RiotDaemonSessionUpdated";
+    public const string RiotDaemonSessionTerminated = "RiotDaemonSessionTerminated";
+    public const string RiotAuthStateChanged = "RiotAuthStateChanged";
+    public const string RiotCredentialChallenge = "RiotCredentialChallenge";
+    public const string RiotStatusChanged = "RiotStatusChanged";
+    public const string RiotPrefillStateChanged = "RiotPrefillStateChanged";
+    public const string RiotPrefillProgress = "RiotPrefillProgress";
+    public const string RiotPrefillHistoryUpdated = "RiotPrefillHistoryUpdated";
+    public const string RiotSessionEnded = "RiotSessionEnded";
+
     // Epic Guest Prefill Config
     public const string EpicGuestPrefillConfigChanged = "EpicGuestPrefillConfigChanged";
 
     // Battle.net Guest Prefill Config
     public const string BattleNetGuestPrefillConfigChanged = "BattleNetGuestPrefillConfigChanged";
+
+    // Riot Guest Prefill Config
+    public const string RiotGuestPrefillConfigChanged = "RiotGuestPrefillConfigChanged";
 
     // Epic Game Mapping
     public const string EpicGameMappingsUpdated = "EpicGameMappingsUpdated";

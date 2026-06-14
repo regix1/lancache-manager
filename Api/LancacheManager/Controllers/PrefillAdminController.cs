@@ -20,6 +20,7 @@ public class PrefillAdminController : ControllerBase
     private readonly SteamDaemonService _steamDaemonService;
     private readonly EpicPrefillDaemonService _epicDaemonService;
     private readonly BattleNetDaemonService _battleNetDaemonService;
+    private readonly RiotDaemonService _riotDaemonService;
     private readonly PrefillCacheService _cacheService;
     private readonly ILogger<PrefillAdminController> _logger;
 
@@ -28,6 +29,7 @@ public class PrefillAdminController : ControllerBase
         SteamDaemonService steamDaemonService,
         EpicPrefillDaemonService epicDaemonService,
         BattleNetDaemonService battleNetDaemonService,
+        RiotDaemonService riotDaemonService,
         PrefillCacheService cacheService,
         ILogger<PrefillAdminController> logger)
     {
@@ -35,6 +37,7 @@ public class PrefillAdminController : ControllerBase
         _steamDaemonService = steamDaemonService;
         _epicDaemonService = epicDaemonService;
         _battleNetDaemonService = battleNetDaemonService;
+        _riotDaemonService = riotDaemonService;
         _cacheService = cacheService;
         _logger = logger;
     }
@@ -82,7 +85,8 @@ public class PrefillAdminController : ControllerBase
         var steamSessions = _steamDaemonService.GetAllSessions();
         var epicSessions = _epicDaemonService.GetAllSessions();
         var battleNetSessions = _battleNetDaemonService.GetAllSessions();
-        var liveSessions = steamSessions.Concat(epicSessions).Concat(battleNetSessions).ToList();
+        var riotSessions = _riotDaemonService.GetAllSessions();
+        var liveSessions = steamSessions.Concat(epicSessions).Concat(battleNetSessions).Concat(riotSessions).ToList();
 
         // Enrich DB sessions with live data.
         // DaemonSession.Id is a 16-char daemon-local id (string); PrefillSession.SessionId is a Guid.
@@ -132,6 +136,7 @@ public class PrefillAdminController : ControllerBase
         var sessions = _steamDaemonService.GetAllSessions()
             .Concat(_epicDaemonService.GetAllSessions())
             .Concat(_battleNetDaemonService.GetAllSessions())
+            .Concat(_riotDaemonService.GetAllSessions())
             .Select(DaemonSessionDto.FromSession)
             .ToList();
         return Ok(sessions);
@@ -182,6 +187,7 @@ public class PrefillAdminController : ControllerBase
         await _steamDaemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionIdString);
         await _epicDaemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionIdString);
         await _battleNetDaemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionIdString);
+        await _riotDaemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionIdString);
 
         return Ok(ApiResponse.Message("Session terminated"));
     }
@@ -201,7 +207,8 @@ public class PrefillAdminController : ControllerBase
         var steamSessions = _steamDaemonService.GetAllSessions().ToList();
         var epicSessions = _epicDaemonService.GetAllSessions().ToList();
         var battleNetSessions = _battleNetDaemonService.GetAllSessions().ToList();
-        var allSessions = steamSessions.Concat(epicSessions).Concat(battleNetSessions).ToList();
+        var riotSessions = _riotDaemonService.GetAllSessions().ToList();
+        var allSessions = steamSessions.Concat(epicSessions).Concat(battleNetSessions).Concat(riotSessions).ToList();
         var count = allSessions.Count;
 
         _logger.LogWarning("Admin session {AdminId} terminating all {Count} sessions: {Reason}",
@@ -220,6 +227,11 @@ public class PrefillAdminController : ControllerBase
         foreach (var session in battleNetSessions)
         {
             await _battleNetDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString);
+        }
+
+        foreach (var session in riotSessions)
+        {
+            await _riotDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString);
         }
 
         return Ok(new { message = $"Terminated {count} sessions" });
@@ -285,6 +297,7 @@ public class PrefillAdminController : ControllerBase
         await _steamDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionIdString);
         await _epicDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionIdString);
         await _battleNetDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionIdString);
+        await _riotDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionIdString);
 
         _logger.LogWarning("Admin session {AdminId} banned prefill user (username={Username}, userId={BannedUserId}) from session {SessionId}. Reason: {Reason}",
             adminSessionId, ban.Username ?? "(none)", ban.BannedUserId, sessionId, request.Reason);

@@ -455,6 +455,11 @@ public class SessionService
         return _stateService.GetBattleNetGuestPrefillEnabledByDefault();
     }
 
+    public bool IsRiotPrefillEnabled()
+    {
+        return _stateService.GetRiotGuestPrefillEnabledByDefault();
+    }
+
     public void SetSteamGuestPrefillEnabled(bool enabled)
     {
         _stateService.SetGuestPrefillEnabledByDefault(enabled);
@@ -543,6 +548,30 @@ public class SessionService
             session.BattleNetPrefillExpiresAtUtc = null;
             await context.SaveChangesAsync();
             _logger.LogInformation("Revoked Battle.net prefill access for session {SessionId}", sessionId);
+        }
+    }
+
+    public async Task GrantRiotPrefillAccessAsync(Guid sessionId, int durationHours)
+    {
+        using var context = _dbContextFactory.CreateDbContext();
+        var session = await context.UserSessions.FindAsync(sessionId);
+        if (session != null)
+        {
+            session.RiotPrefillExpiresAtUtc = DateTime.UtcNow.AddHours(durationHours);
+            await context.SaveChangesAsync();
+            _logger.LogInformation("Granted Riot prefill access to session {SessionId}, expires at {ExpiresAt}", sessionId, session.RiotPrefillExpiresAtUtc);
+        }
+    }
+
+    public async Task RevokeRiotPrefillAccessAsync(Guid sessionId)
+    {
+        using var context = _dbContextFactory.CreateDbContext();
+        var session = await context.UserSessions.FindAsync(sessionId);
+        if (session != null)
+        {
+            session.RiotPrefillExpiresAtUtc = null;
+            await context.SaveChangesAsync();
+            _logger.LogInformation("Revoked Riot prefill access for session {SessionId}", sessionId);
         }
     }
 

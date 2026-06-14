@@ -108,7 +108,13 @@ function ServicePrefillPanel({
     clearAllPrefillStorage
   } = usePrefillContext();
 
-  const { isAdmin, steamPrefillEnabled, epicPrefillEnabled, battlenetPrefillEnabled } = useAuth();
+  const {
+    isAdmin,
+    steamPrefillEnabled,
+    epicPrefillEnabled,
+    battlenetPrefillEnabled,
+    riotPrefillEnabled
+  } = useAuth();
 
   // Main SignalR hub for system-level events (PrefillDefaultsChanged)
   const { on: onSignalR, off: offSignalR } = useSignalR();
@@ -480,8 +486,8 @@ function ServicePrefillPanel({
           appId: String(game.appId)
         }));
         setOwnedGames(normalizedGames);
-        if (serviceId !== 'battlenet') {
-          // Battle.net has a fixed public catalog - "owned games" framing is inaccurate
+        if (serviceId !== 'battlenet' && serviceId !== 'riot') {
+          // Battle.net/Riot have a fixed public catalog - "owned games" framing is inaccurate
           addLog('info', t('prefill.log.foundGames', { count: normalizedGames.length }));
         }
 
@@ -609,8 +615,8 @@ function ServicePrefillPanel({
             break;
           }
           case 'select-apps': {
-            if (serviceId !== 'battlenet') {
-              // Battle.net has a fixed public catalog - no "library" to load
+            if (serviceId !== 'battlenet' && serviceId !== 'riot') {
+              // Battle.net/Riot have a fixed public catalog - no "library" to load
               addLog('progress', t('prefill.log.loadingGameLibrary'));
             }
             setShowGameSelection(true);
@@ -901,11 +907,11 @@ function ServicePrefillPanel({
     !!signalR.session && signalR.session.status === 'Active' && signalR.timeRemaining > 0;
   const isSessionExpired = !!signalR.session && !isSessionActive;
 
-  // Battle.net prefill is fully anonymous - no account login ever. Treat the client as
-  // always "logged in"/ready so the auth login card stays hidden, the "Login Required"
+  // Battle.net and Riot prefill are fully anonymous - no account login ever. Treat the client
+  // as always "logged in"/ready so the auth login card stays hidden, the "Login Required"
   // notice never shows, and prefill commands are enabled the moment a session is active.
-  const isBattlenet = serviceId === 'battlenet';
-  const isReadyForCommands = isBattlenet || signalR.isLoggedIn;
+  const isAnonymousService = serviceId === 'battlenet' || serviceId === 'riot';
+  const isReadyForCommands = isAnonymousService || signalR.isLoggedIn;
 
   const handleStartNewSession = useCallback(() => {
     setShowAuthModal(false);
@@ -927,7 +933,7 @@ function ServicePrefillPanel({
     return (
       <>
         {/* Battle.net is anonymous - no auth modal */}
-        {serviceId === 'battlenet' ? null : serviceId === 'epic' ? (
+        {serviceId === 'battlenet' || serviceId === 'riot' ? null : serviceId === 'epic' ? (
           <EpicAuthModal
             opened={showAuthModal}
             onClose={() => setShowAuthModal(false)}
@@ -953,6 +959,7 @@ function ServicePrefillPanel({
           steamPrefillEnabled={steamPrefillEnabled}
           epicPrefillEnabled={epicPrefillEnabled}
           battlenetPrefillEnabled={battlenetPrefillEnabled}
+          riotPrefillEnabled={riotPrefillEnabled}
         />
       </>
     );
@@ -967,8 +974,8 @@ function ServicePrefillPanel({
   // Active session - full interface
   return (
     <div className="space-y-4 animate-fade-in">
-      {/* Auth Modal - Battle.net is anonymous, so no modal */}
-      {serviceId === 'battlenet' ? null : serviceId === 'epic' ? (
+      {/* Auth Modal - Battle.net and Riot are anonymous, so no modal */}
+      {serviceId === 'battlenet' || serviceId === 'riot' ? null : serviceId === 'epic' ? (
         <EpicAuthModal
           opened={showAuthModal}
           onClose={() => setShowAuthModal(false)}
@@ -1046,7 +1053,9 @@ function ServicePrefillPanel({
                 ? t('prefill.titleEpic')
                 : serviceId === 'battlenet'
                   ? t('prefill.titleBattlenet')
-                  : t('prefill.title')}
+                  : serviceId === 'riot'
+                    ? t('prefill.titleRiot')
+                    : t('prefill.title')}
             </h1>
             <p className="text-sm text-themed-muted">{t('prefill.subtitle')}</p>
           </div>
@@ -1107,8 +1116,8 @@ function ServicePrefillPanel({
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         {/* Left Column - Controls */}
         <div className="xl:col-span-2 space-y-4">
-          {/* Authentication Card - Battle.net is anonymous (no login), so this is hidden */}
-          {serviceId !== 'battlenet' && (
+          {/* Authentication Card - Battle.net and Riot are anonymous (no login), so this is hidden */}
+          {serviceId !== 'battlenet' && serviceId !== 'riot' && (
             <Card padding="md">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div className="flex items-center gap-3">

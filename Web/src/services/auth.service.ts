@@ -19,6 +19,8 @@ interface AuthStatusResponse {
   epicPrefillExpiresAt: string | null;
   battlenetPrefillEnabled: boolean;
   battlenetPrefillExpiresAt: string | null;
+  riotPrefillEnabled: boolean;
+  riotPrefillExpiresAt: string | null;
   token?: string;
 }
 
@@ -118,7 +120,9 @@ class AuthService {
         epicPrefillEnabled: false,
         epicPrefillExpiresAt: null,
         battlenetPrefillEnabled: false,
-        battlenetPrefillExpiresAt: null
+        battlenetPrefillExpiresAt: null,
+        riotPrefillEnabled: false,
+        riotPrefillExpiresAt: null
       };
     } finally {
       clearTimeout(timeoutId);

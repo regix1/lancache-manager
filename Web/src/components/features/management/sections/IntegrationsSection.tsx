@@ -8,6 +8,7 @@ import SteamWebApiStatus from '../steam/SteamWebApiStatus';
 import GrafanaEndpoints from '../grafana/GrafanaEndpoints';
 import EpicDaemonStatus from '../epic/EpicDaemonStatus';
 import BattleNetDaemonStatus from '../battlenet/BattleNetDaemonStatus';
+import RiotDaemonStatus from '../riot/RiotDaemonStatus';
 
 interface IntegrationsSectionProps {
   authMode: AuthMode;
@@ -91,6 +92,14 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
           <HighlightGlow enabled={highlightBattleNet}>
             <BattleNetDaemonStatus onError={onError} />
           </HighlightGlow>
+        </section>
+
+        {/* Riot - anonymous prefill daemon status (no account login) */}
+        <section>
+          <h3 className="integrations-group-label">
+            {t('management.sections.integrations.riotIntegration', 'Riot Integration')}
+          </h3>
+          <RiotDaemonStatus onError={onError} />
         </section>
 
         {/* Monitoring - Grafana endpoints */}

@@ -71,6 +71,8 @@ public class AuthController : ControllerBase
         DateTime? epicPrefillExpiresAt = null;
         var battlenetPrefillEnabled = false;
         DateTime? battlenetPrefillExpiresAt = null;
+        var riotPrefillEnabled = false;
+        DateTime? riotPrefillExpiresAt = null;
 
         if (session != null)
         {
@@ -79,6 +81,7 @@ public class AuthController : ControllerBase
                 steamPrefillEnabled = true;
                 epicPrefillEnabled = true;
                 battlenetPrefillEnabled = true;
+                riotPrefillEnabled = true;
             }
             else if (session.SessionType == SessionType.Guest)
             {
@@ -93,11 +96,15 @@ public class AuthController : ControllerBase
                 battlenetPrefillEnabled = session.BattleNetPrefillExpiresAtUtc != null && session.BattleNetPrefillExpiresAtUtc > DateTime.UtcNow;
                 battlenetPrefillExpiresAt = battlenetPrefillEnabled
                     ? DateTime.SpecifyKind(session.BattleNetPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null;
+
+                riotPrefillEnabled = session.RiotPrefillExpiresAtUtc != null && session.RiotPrefillExpiresAtUtc > DateTime.UtcNow;
+                riotPrefillExpiresAt = riotPrefillEnabled
+                    ? DateTime.SpecifyKind(session.RiotPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null;
             }
         }
 
         // Backward-compat: prefillEnabled is true if any service is active
-        var prefillEnabled = steamPrefillEnabled || epicPrefillEnabled || battlenetPrefillEnabled;
+        var prefillEnabled = steamPrefillEnabled || epicPrefillEnabled || battlenetPrefillEnabled || riotPrefillEnabled;
 
         // Token rotation: provide a fresh token for SignalR accessTokenFactory (mobile support)
         string? token = null;
@@ -125,6 +132,8 @@ public class AuthController : ControllerBase
             EpicPrefillExpiresAt = epicPrefillExpiresAt,
             BattlenetPrefillEnabled = battlenetPrefillEnabled,
             BattlenetPrefillExpiresAt = battlenetPrefillExpiresAt,
+            RiotPrefillEnabled = riotPrefillEnabled,
+            RiotPrefillExpiresAt = riotPrefillExpiresAt,
             Token = token
         });
     }
@@ -209,6 +218,11 @@ public class AuthController : ControllerBase
         if (_sessionService.IsBattleNetPrefillEnabled())
         {
             await _sessionService.GrantBattleNetPrefillAccessAsync(session.Id, _stateService.GetBattleNetGuestPrefillDurationHours());
+        }
+
+        if (_sessionService.IsRiotPrefillEnabled())
+        {
+            await _sessionService.GrantRiotPrefillAccessAsync(session.Id, _stateService.GetRiotGuestPrefillDurationHours());
         }
 
         // Broadcast session created
@@ -505,6 +519,47 @@ public class AuthController : ControllerBase
         });
     }
 
+    // --- Riot Guest Prefill Endpoints (anonymous - no account login, no thread limit) ---
+
+    [AllowAnonymous]
+    [HttpGet("guest/riot-prefill/config")]
+    public IActionResult GetRiotPrefillConfig()
+    {
+        return Ok(new
+        {
+            enabledByDefault = _stateService.GetRiotGuestPrefillEnabledByDefault(),
+            durationHours = _stateService.GetRiotGuestPrefillDurationHours()
+        });
+    }
+
+    [Authorize(Policy = "AdminOnly")]
+    [HttpPost("guest/riot-prefill/config")]
+    public async Task<IActionResult> SetRiotPrefillConfigAsync([FromBody] RiotGuestPrefillConfigRequest request)
+    {
+        if (request.DurationHours != 1 && request.DurationHours != 2)
+        {
+            return BadRequest(new { error = "Duration must be 1 or 2 hours" });
+        }
+
+        _stateService.SetRiotGuestPrefillEnabledByDefault(request.EnabledByDefault);
+        _stateService.SetRiotGuestPrefillDurationHours(request.DurationHours);
+
+        _logger.LogInformation("Default Riot guest prefill config updated: enabled={Enabled}, duration={Hours}h (existing sessions unchanged)",
+            request.EnabledByDefault, request.DurationHours);
+
+        await _signalR.NotifyAllAsync(SignalREvents.RiotGuestPrefillConfigChanged, new
+        {
+            enabledByDefault = _stateService.GetRiotGuestPrefillEnabledByDefault(),
+            durationHours = _stateService.GetRiotGuestPrefillDurationHours()
+        });
+
+        return Ok(new {
+            success = true,
+            enabledByDefault = _stateService.GetRiotGuestPrefillEnabledByDefault(),
+            durationHours = _stateService.GetRiotGuestPrefillDurationHours()
+        });
+    }
+
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/prefill/toggle/{sessionId:guid}")]
     public async Task<IActionResult> ToggleGuestPrefillAsync(Guid sessionId, [FromBody] GuestPrefillToggleRequest request, [FromQuery] string service = "steam")
@@ -525,6 +580,14 @@ public class AuthController : ControllerBase
                 await _sessionService.GrantBattleNetPrefillAccessAsync(sessionId, _stateService.GetBattleNetGuestPrefillDurationHours());
             else
                 await _sessionService.RevokeBattleNetPrefillAccessAsync(sessionId);
+        }
+        else if (normalizedService == "riot")
+        {
+            // Riot is anonymous; this grant only gates feature access (not an account login)
+            if (request.Enabled)
+                await _sessionService.GrantRiotPrefillAccessAsync(sessionId, _stateService.GetRiotGuestPrefillDurationHours());
+            else
+                await _sessionService.RevokeRiotPrefillAccessAsync(sessionId);
         }
         else
         {
@@ -548,6 +611,12 @@ public class AuthController : ControllerBase
         {
             prefillExpiresAt = updatedSession?.BattleNetPrefillExpiresAtUtc != null
                 ? DateTime.SpecifyKind(updatedSession.BattleNetPrefillExpiresAtUtc.Value, DateTimeKind.Utc)
+                : (DateTime?)null;
+        }
+        else if (normalizedService == "riot")
+        {
+            prefillExpiresAt = updatedSession?.RiotPrefillExpiresAtUtc != null
+                ? DateTime.SpecifyKind(updatedSession.RiotPrefillExpiresAtUtc.Value, DateTimeKind.Utc)
                 : (DateTime?)null;
         }
         else
@@ -589,6 +658,9 @@ public class GuestPrefillConfigRequest
     // Optional Battle.net defaults (anonymous service); omitted by Steam-only callers.
     public bool? BattleNetEnabledByDefault { get; set; }
     public int? BattleNetDurationHours { get; set; }
+    // Optional Riot defaults (anonymous service); omitted by Steam-only callers.
+    public bool? RiotEnabledByDefault { get; set; }
+    public int? RiotDurationHours { get; set; }
 }
 
 public class GuestPrefillToggleRequest
@@ -604,6 +676,12 @@ public class EpicGuestPrefillConfigRequest
 }
 
 public class BattleNetGuestPrefillConfigRequest
+{
+    public bool EnabledByDefault { get; set; }
+    public int DurationHours { get; set; } = 2;
+}
+
+public class RiotGuestPrefillConfigRequest
 {
     public bool EnabledByDefault { get; set; }
     public int DurationHours { get; set; } = 2;

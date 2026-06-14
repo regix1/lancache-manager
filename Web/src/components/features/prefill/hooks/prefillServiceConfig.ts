@@ -1,6 +1,7 @@
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
+import { RiotIcon } from '@components/ui/RiotIcon';
 
 /**
  * Single source of truth for per-service prefill routing/branding.
@@ -55,6 +56,15 @@ const BATTLENET_CONFIG: PrefillServiceConfig = {
   iconBgClass: 'bg-[var(--theme-blizzard)]'
 };
 
+const RIOT_CONFIG: PrefillServiceConfig = {
+  hubPath: '/riot-prefill-daemon',
+  serviceBasePath: 'riot-daemon',
+  icon: RiotIcon,
+  colorVar: 'var(--theme-riot)',
+  subtleColorVar: 'var(--theme-riot-subtle)',
+  iconBgClass: 'bg-[var(--theme-riot)]'
+};
+
 /**
  * Resolves the full routing/branding config for a given service id.
  * Unknown ids fall back to Steam (the historical default) but every known service is
@@ -66,6 +76,8 @@ export function prefillServiceConfig(serviceId: string): PrefillServiceConfig {
       return EPIC_CONFIG;
     case 'battlenet':
       return BATTLENET_CONFIG;
+    case 'riot':
+      return RIOT_CONFIG;
     default:
       return STEAM_CONFIG;
   }

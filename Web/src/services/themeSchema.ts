@@ -75,7 +75,7 @@ const themeColorDefaults: Record<string, string> = {
   blizzardOnBorder: 'rgba(59, 130, 246, 0.5)',
   blizzardStrong: 'rgba(59, 130, 246, 0.3)',
   wsusColor: '#06b6d4',
-  riotColor: '#ef4444',
+  riotColor: '#d13639',
   xboxColor: '#107C10',
 
   // ── Components ───────────────────────────────────────────────────────

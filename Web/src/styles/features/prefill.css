@@ -64,6 +64,10 @@
     background-color: var(--theme-blizzard-subtle);
   }
 
+  .prefill-loading-icon--riot {
+    background-color: var(--theme-riot-subtle);
+  }
+
   .prefill-loading-spinner--steam {
     color: var(--theme-steam);
   }
@@ -74,6 +78,10 @@
 
   .prefill-loading-spinner--battlenet {
     color: var(--theme-blizzard);
+  }
+
+  .prefill-loading-spinner--riot {
+    color: var(--theme-riot);
   }
 
   /* ===== COMMAND CENTER STYLES ===== */

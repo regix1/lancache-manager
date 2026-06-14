@@ -4,6 +4,7 @@ import { Button } from '../../ui/Button';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
+import { RiotIcon } from '@components/ui/RiotIcon';
 import { ArrowRight, Shield, AlertCircle } from 'lucide-react';
 import type { GameServiceId } from '@/types/gameService';
 import './PrefillHomePage.css';
@@ -16,6 +17,7 @@ interface PrefillHomePageProps {
   steamPrefillEnabled: boolean;
   epicPrefillEnabled: boolean;
   battlenetPrefillEnabled: boolean;
+  riotPrefillEnabled: boolean;
 }
 
 export function PrefillHomePage({
@@ -25,17 +27,22 @@ export function PrefillHomePage({
   isAdmin,
   steamPrefillEnabled,
   epicPrefillEnabled,
-  battlenetPrefillEnabled
+  battlenetPrefillEnabled,
+  riotPrefillEnabled
 }: PrefillHomePageProps) {
   const { t } = useTranslation();
 
   const showSteam = isAdmin || steamPrefillEnabled;
   const showEpic = isAdmin || epicPrefillEnabled;
   const showBattlenet = isAdmin || battlenetPrefillEnabled;
+  const showRiot = isAdmin || riotPrefillEnabled;
 
   // Number of services a guest has access to (admins always see all cards).
   const enabledServiceCount =
-    Number(steamPrefillEnabled) + Number(epicPrefillEnabled) + Number(battlenetPrefillEnabled);
+    Number(steamPrefillEnabled) +
+    Number(epicPrefillEnabled) +
+    Number(battlenetPrefillEnabled) +
+    Number(riotPrefillEnabled);
 
   // If the user is a guest with access to exactly one service, skip the home page
   // and go directly to that service's panel.
@@ -51,12 +58,15 @@ export function PrefillHomePage({
       onServiceStart('epic');
     } else if (battlenetPrefillEnabled) {
       onServiceStart('battlenet');
+    } else if (riotPrefillEnabled) {
+      onServiceStart('riot');
     }
   }, [
     isAdmin,
     steamPrefillEnabled,
     epicPrefillEnabled,
     battlenetPrefillEnabled,
+    riotPrefillEnabled,
     enabledServiceCount,
     onServiceStart,
     error
@@ -233,6 +243,57 @@ export function PrefillHomePage({
                 {t('prefill.home.battlenetNoLogin', 'No account login required')}
               </span>
               <Button variant="filled" size="md" onClick={() => onServiceStart('battlenet')}>
+                <ArrowRight size={16} />
+                {t('prefill.home.startSession', 'Start Session')}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Riot Games Card */}
+        {showRiot && (
+          <div className="prefill-service-card prefill-service-card--riot">
+            <div className="prefill-service-card-top">
+              <div className="prefill-service-icon">
+                <RiotIcon size={28} className="text-white" />
+              </div>
+              <div className="prefill-service-meta">
+                <h2 className="prefill-service-name">Riot Games</h2>
+                <div className="prefill-service-status">
+                  <span className="prefill-service-status-dot prefill-service-status-dot--ready" />
+                  <span>{t('prefill.home.ready', 'Ready')}</span>
+                </div>
+              </div>
+            </div>
+
+            <p className="prefill-service-description">
+              {t(
+                'prefill.home.riotDescription',
+                'Prefill public Riot CDN content for titles such as League of Legends and VALORANT.'
+              )}
+            </p>
+
+            <ul className="prefill-service-features">
+              <li>
+                {t('prefill.home.riotFeature1', 'Prefill all products or select specific titles')}
+              </li>
+              <li>{t('prefill.home.riotFeature2', 'No account or login required')}</li>
+              <li>{t('prefill.home.riotFeature3', 'Force re-download and cache management')}</li>
+            </ul>
+
+            {error && errorService === 'riot' && (
+              <div className="prefill-service-error">
+                <AlertCircle size={16} />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <div className="prefill-service-action">
+              <span className="prefill-service-note">
+                <Shield size={14} />
+                {t('prefill.home.riotNoLogin', 'No account login required')}
+              </span>
+              <Button variant="filled" size="md" onClick={() => onServiceStart('riot')}>
                 <ArrowRight size={16} />
                 {t('prefill.home.startSession', 'Start Session')}
               </Button>

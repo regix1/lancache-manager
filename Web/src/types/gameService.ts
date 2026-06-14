@@ -5,7 +5,7 @@ export interface GameServiceConfig {
   order: number;
 }
 
-export type GameServiceId = 'steam' | 'epic' | 'battlenet';
+export type GameServiceId = 'steam' | 'epic' | 'battlenet' | 'riot';
 
 export const GAME_SERVICES: GameServiceConfig[] = [
   {
@@ -25,5 +25,11 @@ export const GAME_SERVICES: GameServiceConfig[] = [
     name: 'Battle.net',
     enabled: true,
     order: 2
+  },
+  {
+    id: 'riot',
+    name: 'Riot Games',
+    enabled: true,
+    order: 3
   }
 ];

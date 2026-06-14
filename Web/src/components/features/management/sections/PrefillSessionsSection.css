@@ -736,6 +736,16 @@
   color: var(--theme-blizzard);
 }
 
+/* Riot platform badge (anonymous prefill).
+   ServiceName casing may surface as "riot" or "Riot Games" — cover both
+   lowercased forms so the badge tints regardless of backend display string. */
+.prefill-platform-riot,
+.prefill-platform-riotgames,
+.session-riot {
+  background-color: var(--theme-riot-subtle);
+  color: var(--theme-riot);
+}
+
 /* Platform-aware username icon colors */
 .prefill-session-username.platform-steam svg {
   color: var(--theme-steam);
@@ -748,6 +758,11 @@
 .prefill-session-username.platform-battlenet svg,
 .prefill-session-username.platform-battle\.net svg {
   color: var(--theme-blizzard);
+}
+
+.prefill-session-username.platform-riot svg,
+.prefill-session-username.platform-riotgames svg {
+  color: var(--theme-riot);
 }
 
 /* Accordion spacing */

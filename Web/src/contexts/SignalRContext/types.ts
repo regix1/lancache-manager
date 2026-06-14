@@ -165,11 +165,26 @@ export const SIGNALR_EVENTS = [
   'BattleNetPrefillHistoryUpdated',
   'BattleNetSessionEnded',
 
+  // Riot Prefill Daemon Events
+  'RiotDaemonSessionCreated',
+  'RiotDaemonSessionUpdated',
+  'RiotDaemonSessionTerminated',
+  'RiotAuthStateChanged',
+  'RiotCredentialChallenge',
+  'RiotStatusChanged',
+  'RiotPrefillStateChanged',
+  'RiotPrefillProgress',
+  'RiotPrefillHistoryUpdated',
+  'RiotSessionEnded',
+
   // Epic Guest Prefill Config
   'EpicGuestPrefillConfigChanged',
 
   // Battle.net Guest Prefill Config
   'BattleNetGuestPrefillConfigChanged',
+
+  // Riot Guest Prefill Config
+  'RiotGuestPrefillConfigChanged',
 
   // Epic Game Mappings
   'EpicMappingProgress',

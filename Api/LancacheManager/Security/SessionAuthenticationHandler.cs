@@ -59,6 +59,10 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
             || (session.BattleNetPrefillExpiresAtUtc != null && session.BattleNetPrefillExpiresAtUtc > DateTime.UtcNow))
             claims.Add(new Claim("BattleNetPrefillActive", "true"));
 
+        if (session.SessionType == SessionType.Admin
+            || (session.RiotPrefillExpiresAtUtc != null && session.RiotPrefillExpiresAtUtc > DateTime.UtcNow))
+            claims.Add(new Claim("RiotPrefillActive", "true"));
+
         var identity = new ClaimsIdentity(claims, SchemeName);
         var principal = new ClaimsPrincipal(identity);
         var ticket = new AuthenticationTicket(principal, SchemeName);

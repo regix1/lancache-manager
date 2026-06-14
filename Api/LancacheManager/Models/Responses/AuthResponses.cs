@@ -19,6 +19,8 @@ public class AuthStatusResponse
     public DateTime? EpicPrefillExpiresAt { get; set; }
     public bool BattlenetPrefillEnabled { get; set; }
     public DateTime? BattlenetPrefillExpiresAt { get; set; }
+    public bool RiotPrefillEnabled { get; set; }
+    public DateTime? RiotPrefillExpiresAt { get; set; }
     public string? Token { get; set; }
 }
 
@@ -56,6 +58,8 @@ public class SessionDto
     public DateTime? EpicPrefillExpiresAt { get; set; }
     public bool BattlenetPrefillEnabled { get; set; }
     public DateTime? BattlenetPrefillExpiresAt { get; set; }
+    public bool RiotPrefillEnabled { get; set; }
+    public DateTime? RiotPrefillExpiresAt { get; set; }
 
     // Client-reported + GeoIP-enriched metadata. All optional.
     public string? PublicIpAddress { get; set; }

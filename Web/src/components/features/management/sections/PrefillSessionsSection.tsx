@@ -132,6 +132,9 @@ const resolveServiceId = (platform: string): GameServiceId => {
     case 'battlenet':
     case 'blizzard':
       return 'battlenet';
+    case 'riot':
+    case 'riotgames':
+      return 'riot';
     case 'steam':
     default:
       return 'steam';
@@ -239,7 +242,8 @@ const SessionCard: React.FC<{
     ? (session as DaemonSessionDto).platform || 'Steam'
     : (session as PrefillSessionDto).platform || 'Steam';
   const serviceId = resolveServiceId(platform);
-  const isBattlenet = serviceId === 'battlenet';
+  // Battle.net and Riot are anonymous prefill services (no account login).
+  const isAnonymousService = serviceId === 'battlenet' || serviceId === 'riot';
   const platformDisplayName = serviceDisplayName(serviceId);
 
   const displayUsername = isDaemonSession
@@ -320,7 +324,7 @@ const SessionCard: React.FC<{
                   </span>
                 ) : (
                   <span className="prefill-session-no-user">
-                    {isBattlenet
+                    {isAnonymousService
                       ? t('management.prefillSessions.labels.anonymousAccount')
                       : isAuthenticated_
                         ? t('management.prefillSessions.labels.unauthorizedAccount')
@@ -868,6 +872,15 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       }
     };
 
+    const handleRiotPrefillHistoryUpdated = async (event: PrefillHistoryUpdatedEvent) => {
+      try {
+        const history = await ApiService.getPrefillSessionHistory(event.sessionId);
+        setHistoryData((prev) => ({ ...prev, [event.sessionId]: history }));
+      } catch {
+        // Ignore errors in SignalR handler
+      }
+    };
+
     on('DaemonSessionCreated', handleSessionCreated);
     on('DaemonSessionUpdated', handleSessionUpdated);
     on('DaemonSessionTerminated', handleSessionTerminated);
@@ -880,6 +893,10 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     on('BattleNetDaemonSessionUpdated', handleSessionUpdated);
     on('BattleNetDaemonSessionTerminated', handleSessionTerminated);
     on('BattleNetPrefillHistoryUpdated', handleBattleNetPrefillHistoryUpdated);
+    on('RiotDaemonSessionCreated', handleSessionCreated);
+    on('RiotDaemonSessionUpdated', handleSessionUpdated);
+    on('RiotDaemonSessionTerminated', handleSessionTerminated);
+    on('RiotPrefillHistoryUpdated', handleRiotPrefillHistoryUpdated);
 
     return () => {
       off('DaemonSessionCreated', handleSessionCreated);
@@ -894,6 +911,10 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       off('BattleNetDaemonSessionUpdated', handleSessionUpdated);
       off('BattleNetDaemonSessionTerminated', handleSessionTerminated);
       off('BattleNetPrefillHistoryUpdated', handleBattleNetPrefillHistoryUpdated);
+      off('RiotDaemonSessionCreated', handleSessionCreated);
+      off('RiotDaemonSessionUpdated', handleSessionUpdated);
+      off('RiotDaemonSessionTerminated', handleSessionTerminated);
+      off('RiotPrefillHistoryUpdated', handleRiotPrefillHistoryUpdated);
     };
   }, [on, off]);
 

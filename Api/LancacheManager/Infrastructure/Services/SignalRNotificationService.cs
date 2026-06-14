@@ -16,6 +16,7 @@ public class SignalRNotificationService : ISignalRNotificationService
     private readonly IHubContext<SteamDaemonHub> _steamHubContext;
     private readonly IHubContext<EpicPrefillDaemonHub> _epicHubContext;
     private readonly IHubContext<BattleNetDaemonHub> _battleNetHubContext;
+    private readonly IHubContext<RiotDaemonHub> _riotHubContext;
     private readonly ILogger<SignalRNotificationService> _logger;
     private readonly IServiceProvider _serviceProvider;
 
@@ -24,6 +25,7 @@ public class SignalRNotificationService : ISignalRNotificationService
         IHubContext<SteamDaemonHub> steamHubContext,
         IHubContext<EpicPrefillDaemonHub> epicHubContext,
         IHubContext<BattleNetDaemonHub> battleNetHubContext,
+        IHubContext<RiotDaemonHub> riotHubContext,
         ILogger<SignalRNotificationService> logger,
         IServiceProvider serviceProvider)
     {
@@ -31,6 +33,7 @@ public class SignalRNotificationService : ISignalRNotificationService
         _steamHubContext = steamHubContext;
         _epicHubContext = epicHubContext;
         _battleNetHubContext = battleNetHubContext;
+        _riotHubContext = riotHubContext;
         _logger = logger;
         _serviceProvider = serviceProvider;
     }
@@ -180,6 +183,35 @@ public class SignalRNotificationService : ISignalRNotificationService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to send SignalR notification (downloads + battlenet): {EventName}", eventName);
+        }
+    }
+
+    // ===== Riot Prefill Hub Methods =====
+
+    public async Task NotifyRiotPrefillClientAsync(string connectionId, string eventName, object? data = null)
+    {
+        await NotifyClientAsync(_riotHubContext.Clients, connectionId, eventName, data, "Riot prefill");
+    }
+
+    public async Task SendToRiotPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
+    {
+        // This method throws on failure - caller is responsible for handling exceptions
+        await _riotHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
+    }
+
+    public async Task NotifyRiotHubAsync(string eventName, object? data = null)
+    {
+        try
+        {
+            await Task.WhenAll(
+                _downloadHubContext.Clients.All.SendAsync(eventName, data),
+                _riotHubContext.Clients.All.SendAsync(eventName, data)
+            );
+            _logger.LogDebug("SignalR notification sent (downloads + riot): {EventName}", eventName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send SignalR notification (downloads + riot): {EventName}", eventName);
         }
     }
 

@@ -2244,6 +2244,13 @@ class ApiService {
     return ApiService.handleResponse<EpicDaemonStatusDto>(response);
   }
 
+  static async getRiotDaemonStatus(): Promise<EpicDaemonStatusDto> {
+    const response = await fetch(`${API_BASE}/riot-daemon/status`, {
+      credentials: 'include'
+    });
+    return ApiService.handleResponse<EpicDaemonStatusDto>(response);
+  }
+
   static async getEpicGameMappings(): Promise<EpicGameMappingDto[]> {
     const response = await fetch(`${API_BASE}/epic/game-mappings`, {
       credentials: 'include'

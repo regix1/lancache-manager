@@ -60,6 +60,21 @@ const BATTLENET_EVENT_MAP: Record<string, string> = {
   CredentialChallenge: 'BattleNetCredentialChallenge'
 };
 
+/** Maps generic event names to service-specific event names for Riot */
+const RIOT_EVENT_MAP: Record<string, string> = {
+  AuthStateChanged: 'RiotAuthStateChanged',
+  SessionSubscribed: 'SessionSubscribed',
+  SessionEnded: 'RiotSessionEnded',
+  DaemonSessionTerminated: 'RiotDaemonSessionTerminated',
+  PrefillProgress: 'RiotPrefillProgress',
+  StatusChanged: 'RiotStatusChanged',
+  PrefillStateChanged: 'RiotPrefillStateChanged',
+  DaemonSessionCreated: 'RiotDaemonSessionCreated',
+  DaemonSessionUpdated: 'RiotDaemonSessionUpdated',
+  PrefillHistoryUpdated: 'RiotPrefillHistoryUpdated',
+  CredentialChallenge: 'RiotCredentialChallenge'
+};
+
 /** Resolves a generic SignalR event name to a service-specific name */
 export function getEventName(base: string, serviceId: string): string {
   if (serviceId === 'epic') {
@@ -67,6 +82,9 @@ export function getEventName(base: string, serviceId: string): string {
   }
   if (serviceId === 'battlenet') {
     return BATTLENET_EVENT_MAP[base] ?? base;
+  }
+  if (serviceId === 'riot') {
+    return RIOT_EVENT_MAP[base] ?? base;
   }
   return base;
 }

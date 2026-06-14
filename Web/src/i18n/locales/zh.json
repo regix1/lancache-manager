@@ -1736,6 +1736,7 @@
         "steamIntegration": "Steam 集成",
         "monitoringMetrics": "监控与指标",
         "epicIntegration": "Epic Games 集成",
+        "riotIntegration": "Riot 集成",
         "loadingEndpoints": "加载端点中...",
         "epicDaemonStatus": {
           "title": "Epic Games",
@@ -1805,6 +1806,34 @@
               }
             },
             "note": "不存储任何凭据。Battle.net 预填充仅下载公开的暴雪 CDN 内容。"
+          }
+        },
+        "riotDaemonStatus": {
+          "title": "Riot Games",
+          "ready": "就绪",
+          "unavailable": "不可用",
+          "connected": "已连接",
+          "notConnected": "未连接",
+          "dockerStatus": "Docker 服务",
+          "dockerAvailableDesc": "Docker 可用，已准备好进行 Riot 预填充会话。无需账号登录。",
+          "dockerUnavailableDesc": "启动 Docker 以启用 Riot 预填充会话。",
+          "loadError": "无法加载 Riot 状态。显示默认值。",
+          "noActiveSessions": "无活动会话",
+          "activeSessions": "{{count}} 个活动会话",
+          "activeSessions_plural": "{{count}} 个活动会话",
+          "help": {
+            "anonymous": {
+              "title": "匿名预填充",
+              "noLogin": {
+                "term": "无需账号登录",
+                "description": "Riot 预填充下载公开的 Riot CDN 内容，无需任何账号、凭据或登录。"
+              },
+              "products": {
+                "term": "产品目录",
+                "description": "守护进程公开完整的固定 Riot 产品目录以供预填充选择。"
+              }
+            },
+            "note": "无需登录。守护进程容器仅需 Docker 可用即可运行预填充会话。"
           }
         },
         "epicGameMappings": {
@@ -3382,6 +3411,7 @@
     "title": "Steam 预填充",
     "titleEpic": "Epic 预填充",
     "titleBattlenet": "Battle.net 预填充",
+    "titleRiot": "Riot 预填充",
     "subtitle": "预下载游戏到缓存",
     "endSession": "结束会话",
     "home": {
@@ -3403,7 +3433,13 @@
       "battlenetFeature1": "预填充整个目录或选择特定游戏",
       "battlenetFeature2": "最近游戏和热门游戏预设",
       "battlenetFeature3": "强制重新下载和缓存管理",
-      "requiresBattlenetLogin": "无需账号登录"
+      "requiresBattlenetLogin": "无需账号登录",
+      "riotDescription": "预填充公开的 Riot CDN 内容，例如《英雄联盟》和《无畏契约》等游戏。",
+      "riotFeature1": "预填充所有产品或选择特定游戏",
+      "riotFeature2": "无需账号或登录",
+      "riotFeature3": "强制重新下载和缓存管理",
+      "riotNoLogin": "无需账号登录",
+      "requiresRiotLogin": "无需账号登录"
     },
     "startScreen": {
       "description": "将 Steam 游戏预下载到缓存，以加快 LAN 聚会下载速度。连接您的 Steam 库，在活动之前预填充游戏。",

@@ -112,6 +112,10 @@ public class StateService : IStateService
         public bool BattleNetGuestPrefillEnabledByDefault { get; set; } = false;
         public int BattleNetGuestPrefillDurationHours { get; set; } = 2;
 
+        // Riot prefill settings (anonymous service)
+        public bool RiotGuestPrefillEnabledByDefault { get; set; } = false;
+        public int RiotGuestPrefillDurationHours { get; set; } = 2;
+
         // PICS viability check caching
         public bool RequiresFullScan { get; set; } = false;
         public DateTime? LastViabilityCheck { get; set; }
@@ -921,6 +925,9 @@ public class StateService : IStateService
             // Battle.net prefill settings
             BattleNetGuestPrefillEnabledByDefault = persisted.BattleNetGuestPrefillEnabledByDefault,
             BattleNetGuestPrefillDurationHours = persisted.BattleNetGuestPrefillDurationHours,
+            // Riot prefill settings
+            RiotGuestPrefillEnabledByDefault = persisted.RiotGuestPrefillEnabledByDefault,
+            RiotGuestPrefillDurationHours = persisted.RiotGuestPrefillDurationHours,
             // PICS viability check caching
             RequiresFullScan = persisted.RequiresFullScan,
             LastViabilityCheck = persisted.LastViabilityCheck,
@@ -1005,6 +1012,9 @@ public class StateService : IStateService
             // Battle.net prefill settings
             BattleNetGuestPrefillEnabledByDefault = state.BattleNetGuestPrefillEnabledByDefault,
             BattleNetGuestPrefillDurationHours = state.BattleNetGuestPrefillDurationHours,
+            // Riot prefill settings
+            RiotGuestPrefillEnabledByDefault = state.RiotGuestPrefillEnabledByDefault,
+            RiotGuestPrefillDurationHours = state.RiotGuestPrefillDurationHours,
             // PICS viability check caching
             RequiresFullScan = state.RequiresFullScan,
             LastViabilityCheck = state.LastViabilityCheck,
@@ -1506,6 +1516,32 @@ public class StateService : IStateService
             hours = 2; // Default to 2 hours
         }
         UpdateState(state => state.BattleNetGuestPrefillDurationHours = hours);
+    }
+
+    // Riot Guest Prefill Permission Methods
+    public bool GetRiotGuestPrefillEnabledByDefault()
+    {
+        return GetState().RiotGuestPrefillEnabledByDefault;
+    }
+
+    public void SetRiotGuestPrefillEnabledByDefault(bool enabled)
+    {
+        UpdateState(state => state.RiotGuestPrefillEnabledByDefault = enabled);
+    }
+
+    public int GetRiotGuestPrefillDurationHours()
+    {
+        return GetState().RiotGuestPrefillDurationHours;
+    }
+
+    public void SetRiotGuestPrefillDurationHours(int hours)
+    {
+        // Validate hours (1 or 2)
+        if (hours != 1 && hours != 2)
+        {
+            hours = 2; // Default to 2 hours
+        }
+        UpdateState(state => state.RiotGuestPrefillDurationHours = hours);
     }
 
     public int? GetEpicDefaultGuestMaxThreadCount()

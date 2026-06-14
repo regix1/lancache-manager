@@ -90,6 +90,26 @@ public interface ISignalRNotificationService
     /// </summary>
     Task NotifyBattleNetHubAsync(string eventName, object? data = null);
 
+    // ===== Riot Prefill Hub Methods =====
+
+    /// <summary>
+    /// Send a notification to a specific client on the RiotDaemonHub.
+    /// Errors are caught and logged; does not throw.
+    /// </summary>
+    Task NotifyRiotPrefillClientAsync(string connectionId, string eventName, object? data = null);
+
+    /// <summary>
+    /// Send a notification to a specific client on the RiotDaemonHub.
+    /// Throws exceptions on failure so caller can handle them.
+    /// </summary>
+    Task SendToRiotPrefillClientRawAsync(string connectionId, string eventName, object? data = null);
+
+    /// <summary>
+    /// Send a notification to all clients on the DownloadHub and the Riot daemon hub only.
+    /// Used for Riot-specific daemon events that should not be sent to the Steam/Epic/Battle.net hubs.
+    /// </summary>
+    Task NotifyRiotHubAsync(string eventName, object? data = null);
+
     // ===== DownloadHub Group Methods =====
 
     /// <summary>

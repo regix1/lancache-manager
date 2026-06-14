@@ -447,11 +447,15 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("BattleNetPrefillAccess", policy =>
         policy.RequireClaim("BattleNetPrefillActive", "true"));
 
+    options.AddPolicy("RiotPrefillAccess", policy =>
+        policy.RequireClaim("RiotPrefillActive", "true"));
+
     options.AddPolicy("AnyPrefillAccess", policy =>
         policy.RequireAssertion(context =>
             context.User.HasClaim("SteamPrefillActive", "true") ||
             context.User.HasClaim("EpicPrefillActive", "true") ||
-            context.User.HasClaim("BattleNetPrefillActive", "true")));
+            context.User.HasClaim("BattleNetPrefillActive", "true") ||
+            context.User.HasClaim("RiotPrefillActive", "true")));
 });
 
 // Register SignalR connection tracking service for targeted messaging
@@ -527,6 +531,9 @@ builder.Services.AddSingletonHostedService<EpicPrefillDaemonService>();
 
 // Register BattleNetDaemonService for anonymous Battle.net daemon-based prefill management
 builder.Services.AddSingletonHostedService<BattleNetDaemonService>();
+
+// Register RiotDaemonService for anonymous Riot daemon-based prefill management
+builder.Services.AddSingletonHostedService<RiotDaemonService>();
 
 // Register EpicApiDirectClient for direct HTTP calls to Epic APIs (no Docker needed)
 builder.Services.AddHttpClient<EpicApiDirectClient>();
@@ -879,6 +886,7 @@ app.MapHub<DownloadHub>("/hubs/downloads");
 app.MapHub<SteamDaemonHub>("/hubs/steam-daemon");
 app.MapHub<EpicPrefillDaemonHub>("/hubs/epic-prefill-daemon");
 app.MapHub<BattleNetDaemonHub>("/hubs/battlenet-prefill-daemon");
+app.MapHub<RiotDaemonHub>("/hubs/riot-prefill-daemon");
 
 // Map Prometheus metrics endpoint for Grafana.
 // AllowAnonymous bypasses the FallbackPolicy; MetricsAuthenticationMiddleware enforces
