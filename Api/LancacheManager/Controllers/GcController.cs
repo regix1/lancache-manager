@@ -99,7 +99,7 @@ public class GcController : ControllerBase
     }
 
     [HttpPost("trigger")]
-    public IActionResult TriggerGarbageCollection()
+    public IActionResult TriggerGc()
     {
         var now = DateTime.UtcNow;
         var cooldownPeriod = TimeSpan.FromSeconds(5);
@@ -126,7 +126,7 @@ public class GcController : ControllerBase
             // Use platform-specific memory manager for garbage collection
             // On Linux, this includes malloc_trim to force glibc to return memory to OS
             // On Windows, standard GC is sufficient
-            _memoryManager.PerformAggressiveGarbageCollection(_logger);
+            _memoryManager.CollectGarbage(_logger);
 
             _lastGcTriggerTime = DateTime.UtcNow;
 

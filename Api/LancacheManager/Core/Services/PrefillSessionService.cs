@@ -116,7 +116,7 @@ public class PrefillSessionService
     /// Bans a prefill user by their lancache-manager auth-session id (DaemonSession.UserId GUID).
     /// Used for anonymous services (e.g. Battle.net) that have no game username to ban.
     /// </summary>
-    public async Task<BannedSteamUser> BanUserByUserIdAsync(
+    public async Task<BannedSteamUser> BanByUserIdAsync(
         Guid bannedUserId,
         string? reason = null,
         string? bannedBySessionId = null,
@@ -254,7 +254,7 @@ public class PrefillSessionService
     /// Updates the Steam username for a session.
     /// Called when the user provides their username credential.
     /// </summary>
-    public async Task SetSessionUsernameAsync(string sessionId, string username)
+    public async Task SetUsernameAsync(string sessionId, string username)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
@@ -273,7 +273,7 @@ public class PrefillSessionService
     /// <summary>
     /// Updates the authentication status for a session.
     /// </summary>
-    public async Task SetSessionAuthenticatedAsync(string sessionId, bool isAuthenticated)
+    public async Task SetAuthenticatedAsync(string sessionId, bool isAuthenticated)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
@@ -290,7 +290,7 @@ public class PrefillSessionService
     /// <summary>
     /// Updates the prefilling status for a session.
     /// </summary>
-    public async Task SetSessionPrefillingAsync(string sessionId, bool isPrefilling)
+    public async Task SetPrefillingAsync(string sessionId, bool isPrefilling)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
@@ -395,7 +395,7 @@ public class PrefillSessionService
     /// Marks orphaned sessions (sessions marked as Active in DB but not in memory).
     /// Called on startup to detect containers that may still be running.
     /// </summary>
-    public async Task<List<PrefillSession>> MarkOrphanedSessionsAsync()
+    public async Task<List<PrefillSession>> MarkOrphansAsync()
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
@@ -436,7 +436,7 @@ public class PrefillSessionService
     /// <summary>
     /// Marks an orphaned session as cleaned up.
     /// </summary>
-    public async Task MarkOrphanedSessionCleanedAsync(string containerId)
+    public async Task MarkOrphanCleanedAsync(string containerId)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
@@ -459,7 +459,7 @@ public class PrefillSessionService
     /// Records the start of a game prefill.
     /// Returns null if the app was recently completed (prevents duplicate entries).
     /// </summary>
-    public async Task<PrefillHistoryEntry?> StartPrefillEntryAsync(
+    public async Task<PrefillHistoryEntry?> StartEntryAsync(
         string sessionId,
         string appId,
         string? appName)
@@ -518,7 +518,7 @@ public class PrefillSessionService
     /// <summary>
     /// Updates a prefill entry when the game download completes.
     /// </summary>
-    public async Task<PrefillHistoryEntry?> CompletePrefillEntryAsync(
+    public async Task<PrefillHistoryEntry?> CompleteEntryAsync(
         string sessionId,
         string appId,
         string status,
@@ -559,7 +559,7 @@ public class PrefillSessionService
     /// <summary>
     /// Gets prefill history for a session.
     /// </summary>
-    public async Task<List<PrefillHistoryEntry>> GetPrefillHistoryAsync(string sessionId)
+    public async Task<List<PrefillHistoryEntry>> GetHistoryAsync(string sessionId)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
@@ -573,7 +573,7 @@ public class PrefillSessionService
     /// <summary>
     /// Gets the current in-progress prefill entry for a session.
     /// </summary>
-    public async Task<PrefillHistoryEntry?> GetCurrentPrefillEntryAsync(string sessionId)
+    public async Task<PrefillHistoryEntry?> GetCurrentEntryAsync(string sessionId)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
@@ -588,7 +588,7 @@ public class PrefillSessionService
     /// Marks all in-progress entries for a session as cancelled.
     /// Called when a prefill operation is cancelled or session terminates.
     /// </summary>
-    public async Task CancelPrefillEntriesAsync(string sessionId)
+    public async Task CancelEntriesAsync(string sessionId)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
@@ -661,7 +661,7 @@ public class PrefillSessionService
             return null;
         }
 
-        return await BanUserByUserIdAsync(
+        return await BanByUserIdAsync(
             session.CreatedBySessionId,
             reason,
             bannedBySessionId,

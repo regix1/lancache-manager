@@ -133,7 +133,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             }
         }
 
-        await OnPostAuthenticationAsync();
+        await OnAuthenticatedAsync();
     }
 
     /// <summary>
@@ -159,13 +159,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// Virtual hook called after OnDaemonAuthenticated fires.
     /// Override in derived classes for service-specific post-authentication behavior.
     /// </summary>
-    protected virtual Task OnPostAuthenticationAsync() => Task.CompletedTask;
+    protected virtual Task OnAuthenticatedAsync() => Task.CompletedTask;
 
     /// <summary>
     /// Identifies which prefill daemon hub this service routes per-connection and broadcast
     /// notifications to. Steam inherits "steam"; concrete services override for their hub
-    /// ("epic", "battlenet"). Used by <see cref="SendToServiceClientRawAsync"/> and
-    /// <see cref="NotifyAllDownloadsAndServiceHubAsync"/> to avoid cross-hub event leakage.
+    /// ("epic", "battlenet"). Used by <see cref="SendToClientAsync"/> and
+    /// <see cref="NotifyHubAsync"/> to avoid cross-hub event leakage.
     /// </summary>
     protected virtual string HubRoutingTarget => "steam";
 
@@ -188,7 +188,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// <summary>
     /// Sends a notification to a specific client on the appropriate hub (Steam, Epic, or Battle.net).
     /// </summary>
-    protected async Task SendToServiceClientRawAsync(string connectionId, string eventName, object? data = null)
+    protected async Task SendToClientAsync(string connectionId, string eventName, object? data = null)
     {
         switch (HubRoutingTarget)
         {
@@ -208,18 +208,18 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// Broadcasts a notification to the downloads hub and the correct daemon hub (Steam, Epic, or Battle.net).
     /// Avoids sending service-specific events to the wrong daemon hub.
     /// </summary>
-    protected async Task NotifyAllDownloadsAndServiceHubAsync(string eventName, object? data = null)
+    protected async Task NotifyHubAsync(string eventName, object? data = null)
     {
         switch (HubRoutingTarget)
         {
             case "epic":
-                await _notifications.NotifyAllDownloadsAndEpicHubAsync(eventName, data);
+                await _notifications.NotifyEpicHubAsync(eventName, data);
                 break;
             case "battlenet":
-                await _notifications.NotifyAllDownloadsAndBattleNetHubAsync(eventName, data);
+                await _notifications.NotifyBattleNetHubAsync(eventName, data);
                 break;
             default:
-                await _notifications.NotifyAllDownloadsAndSteamHubAsync(eventName, data);
+                await _notifications.NotifySteamHubAsync(eventName, data);
                 break;
         }
     }
@@ -227,12 +227,12 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// <summary>
     /// Fires an async callback in a fire-and-forget manner with error handling.
     /// </summary>
-    protected void FireCallbackAsync(Func<Task> callback, string callbackName)
+    protected void FireAndForgetAsync(Func<Task> callback, string callbackName)
     {
-        _ = ExecuteCallbackAsync(callback, callbackName);
+        _ = InvokeSafeAsync(callback, callbackName);
     }
 
-    private async Task ExecuteCallbackAsync(Func<Task> callback, string callbackName)
+    private async Task InvokeSafeAsync(Func<Task> callback, string callbackName)
     {
         try
         {
@@ -337,7 +337,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         try
         {
             // Mark any "Active" sessions in DB as orphaned
-            var orphanedSessions = await _sessionService.MarkOrphanedSessionsAsync();
+            var orphanedSessions = await _sessionService.MarkOrphansAsync();
 
             // Find all running containers matching this service's prefix
             var containers = await _dockerClient.Containers.ListContainersAsync(
@@ -385,7 +385,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                         container.ID[..12]);
 
                     // Mark as cleaned in database
-                    await _sessionService.MarkOrphanedSessionCleanedAsync(container.ID);
+                    await _sessionService.MarkOrphanCleanedAsync(container.ID);
                 }
                 catch (DockerApiException ex) when (ex.Message.Contains("removal") && ex.Message.Contains("already in progress"))
                 {
@@ -733,15 +733,15 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         // Wire up socket events to session handlers
         daemonClient.OnCredentialChallenge += async (CredentialChallenge challenge) =>
         {
-            await HandleSocketCredentialChallengeAsync(session, challenge);
+            await OnCredentialChallengeAsync(session, challenge);
         };
         daemonClient.OnStatusUpdate += async (DaemonStatus status) =>
         {
-            await HandleStatusChangeFromSocketAsync(session, status);
+            await OnStatusChangeAsync(session, status);
         };
         daemonClient.OnProgressUpdate += async (SocketPrefillProgress progress) =>
         {
-            await HandleProgressChangeFromSocketAsync(session, progress);
+            await OnProgressChangeAsync(session, progress);
         };
         daemonClient.OnError += async (string error) =>
         {
@@ -771,7 +771,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                     }
 
                     var sessionDto = DaemonSessionDto.FromSession(disconnectedSession);
-                    await NotifyAllDownloadsAndServiceHubAsync(EventSessionUpdated, sessionDto);
+                    await NotifyHubAsync(EventSessionUpdated, sessionDto);
                 }
                 catch (Exception ex)
                 {
@@ -798,7 +798,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                     attempt, sessionId);
 
                 // Fetch daemon container logs to diagnose why the connection failed
-                await LogDaemonContainerLogsAsync(containerId, sessionId, cancellationToken);
+                await LogContainerLogsAsync(containerId, sessionId, cancellationToken);
 
                 // Wait before retry with increasing delay
                 await Task.Delay(TimeSpan.FromSeconds(attempt * 2), cancellationToken);
@@ -808,7 +808,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 _logger.LogError(ex, "All {MaxRetries} socket connection attempts failed for session {SessionId}", maxRetries, sessionId);
 
                 // Fetch daemon container logs to diagnose why the connection failed
-                await LogDaemonContainerLogsAsync(containerId, sessionId, cancellationToken);
+                await LogContainerLogsAsync(containerId, sessionId, cancellationToken);
 
                 throw;
             }
@@ -831,7 +831,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         // Broadcast session creation to all clients for real-time updates (both hubs)
         var sessionDto = DaemonSessionDto.FromSession(session);
-        await NotifyAllDownloadsAndServiceHubAsync(EventSessionCreated, sessionDto);
+        await NotifyHubAsync(EventSessionCreated, sessionDto);
 
         return session;
     }
@@ -839,7 +839,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// <summary>
     /// Fetches and logs the daemon container's stdout/stderr to help diagnose socket connection failures.
     /// </summary>
-    private async Task LogDaemonContainerLogsAsync(string containerId, string sessionId, CancellationToken cancellationToken)
+    private async Task LogContainerLogsAsync(string containerId, string sessionId, CancellationToken cancellationToken)
     {
         if (_dockerClient == null) return;
 
@@ -965,7 +965,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             await NotifyAuthStateChangeAsync(session);
 
             // Notify derived class that a session is now authenticated
-            FireCallbackAsync(OnSessionAuthenticatedAsync, nameof(OnSessionAuthenticatedAsync));
+            FireAndForgetAsync(OnSessionAuthenticatedAsync, nameof(OnSessionAuthenticatedAsync));
 
             _logger.LogInformation("Session {SessionId} already authenticated - no challenge needed", sessionId);
             return null;
@@ -1003,14 +1003,14 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             session.Username = credential;
 
             // Update the database record with the username
-            await _sessionService.SetSessionUsernameAsync(sessionId, credential);
+            await _sessionService.SetUsernameAsync(sessionId, credential);
 
             _logger.LogInformation("Captured username for session {SessionId}: {Username}",
                 sessionId, credential);
 
             // Broadcast session update to all clients for real-time updates (both hubs)
             var updatedDto = DaemonSessionDto.FromSession(session);
-            await NotifyAllDownloadsAndServiceHubAsync(EventSessionUpdated, updatedDto);
+            await NotifyHubAsync(EventSessionUpdated, updatedDto);
         }
 
         _logger.LogInformation("Providing encrypted {CredentialType} for session {SessionId}",
@@ -1088,12 +1088,12 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             await session.Client.CancelPrefillAsync(cancellationToken);
 
             // Cancel any in-progress history entries
-            await _sessionService.CancelPrefillEntriesAsync(sessionId);
+            await _sessionService.CancelEntriesAsync(sessionId);
 
             // Broadcast history update if there was a current app
             if (!string.IsNullOrEmpty(session.CurrentAppId))
             {
-                await BroadcastPrefillHistoryUpdatedAsync(sessionId, session.CurrentAppId, "Cancelled");
+                await BroadcastHistoryUpdatedAsync(sessionId, session.CurrentAppId, "Cancelled");
             }
 
             // Route through the single idempotent terminal funnel - the ONLY setter of
@@ -1214,7 +1214,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         session.TotalBytesTransferred = 0;
         await NotifyPrefillStartedAsync(session);
         var startDto = DaemonSessionDto.FromSession(session);
-        await NotifyAllDownloadsAndServiceHubAsync(EventSessionUpdated, startDto);
+        await NotifyHubAsync(EventSessionUpdated, startDto);
 
         try
         {
@@ -1362,7 +1362,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         {
             try
             {
-                await _sessionService.CompletePrefillEntryAsync(
+                await _sessionService.CompleteEntryAsync(
                     session.Id,
                     session.CurrentAppId,
                     "Cancelled",
@@ -1380,7 +1380,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         }
 
         // Cancel any remaining in-progress history entries (shouldn't be any, but just in case)
-        await _sessionService.CancelPrefillEntriesAsync(sessionId);
+        await _sessionService.CancelEntriesAsync(sessionId);
 
         // Persist termination to database
         await _sessionService.TerminateSessionAsync(sessionId, reason, terminatedBy);
@@ -1390,7 +1390,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         // Broadcast session termination to all clients for real-time updates (both hubs)
         var terminatedEvent = new { sessionId = session.Id, reason = reason };
-        await NotifyAllDownloadsAndServiceHubAsync(EventSessionTerminated, terminatedEvent);
+        await NotifyHubAsync(EventSessionTerminated, terminatedEvent);
 
         // Cancel any ongoing operations immediately
         session.CancellationTokenSource.Cancel();
@@ -1447,7 +1447,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         // Check if all daemons are now logged out after session removal
         if (!IsAnyDaemonAuthenticated())
         {
-            FireCallbackAsync(OnAllSessionsLoggedOutAsync, nameof(OnAllSessionsLoggedOutAsync));
+            FireAndForgetAsync(OnAllSessionsLoggedOutAsync, nameof(OnAllSessionsLoggedOutAsync));
         }
 
         // Cleanup
@@ -1510,7 +1510,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// Called when authentication is logged out.
     /// </summary>
     /// <param name="reason">Reason for termination (for logging)</param>
-    public async Task TerminateAuthenticatedSessionsAsync(
+    public async Task TerminateAllSessionsAsync(
         string reason = "Authentication logged out")
     {
         var sessions = _sessions.Values.ToList();
@@ -1575,7 +1575,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// (no double-broadcast to already-subscribed clients). No-op when the session is not
     /// prefilling or has no retained snapshot yet.
     /// </summary>
-    public async Task ReplayCurrentProgressToConnectionAsync(string sessionId, string connectionId)
+    public async Task ReplayProgressAsync(string sessionId, string connectionId)
     {
         if (!_sessions.TryGetValue(sessionId, out var session))
         {
@@ -1595,7 +1595,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         try
         {
-            await SendToServiceClientRawAsync(connectionId, EventPrefillProgress,
+            await SendToClientAsync(connectionId, EventPrefillProgress,
                 new { sessionId = session.Id, progress = snapshot });
         }
         catch (Exception ex)

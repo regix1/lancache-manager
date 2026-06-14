@@ -46,7 +46,7 @@ public class DatabaseController : ControllerBase
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
         async Task<Guid?> StartDatabaseResetAsync()
         {
-            var ok = await _rustDatabaseResetService.StartDatabaseResetAsync();
+            var ok = await _rustDatabaseResetService.StartResetAsync();
             return ok ? _rustDatabaseResetService.CurrentOperationId ?? Guid.NewGuid() : null;
         }
 
@@ -94,7 +94,7 @@ public class DatabaseController : ControllerBase
             return BadRequest(new ErrorResponse { Error = "No tables specified for reset" });
         }
 
-        var operationId = _dbService.StartResetSelectedTablesAsync(request.Tables);
+        var operationId = _dbService.StartResetAsync(request.Tables);
         _logger.LogInformation("Started selective database reset operation: {OperationId}, Tables: {Tables}",
             operationId, string.Join(", ", request.Tables));
 
@@ -129,7 +129,7 @@ public class DatabaseController : ControllerBase
         }
 
         // Fall back to Rust-based reset service status
-        var status = _rustDatabaseResetService.GetDatabaseResetStatus();
+        var status = _rustDatabaseResetService.GetResetStatus();
         return Ok(status);
     }
 
@@ -137,7 +137,7 @@ public class DatabaseController : ControllerBase
     /// GET /api/database/log-entries-count - Get count of log entries in database
     /// </summary>
     [HttpGet("log-entries-count")]
-    public async Task<IActionResult> GetLogEntriesCountAsync()
+    public async Task<IActionResult> GetLogCountAsync()
     {
         var count = await _dbService.GetLogEntriesCountAsync();
         return Ok(new LogEntriesCountResponse { Count = count });

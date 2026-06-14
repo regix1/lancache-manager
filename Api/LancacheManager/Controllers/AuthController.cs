@@ -39,7 +39,7 @@ public class AuthController : ControllerBase
 
     [AllowAnonymous]
     [HttpGet("status")]
-    public async Task<IActionResult> CheckAuthStatusAsync()
+    public async Task<IActionResult> GetStatusAsync()
     {
         Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
         Response.Headers["Pragma"] = "no-cache";
@@ -104,7 +104,7 @@ public class AuthController : ControllerBase
         if (session != null)
         {
             var rotatedToken = await _sessionService.RotateSessionTokenAsync(session, HttpContext);
-            token = rotatedToken ?? SessionService.GetSessionTokenFromCookie(HttpContext);
+            token = rotatedToken ?? SessionService.TokenFromCookie(HttpContext);
         }
 
         return Ok(new AuthStatusResponse
@@ -140,7 +140,7 @@ public class AuthController : ControllerBase
         }
 
         // If this browser has an existing guest session, revoke it before upgrading
-        var existingToken = SessionService.GetSessionTokenFromCookie(HttpContext);
+        var existingToken = SessionService.TokenFromCookie(HttpContext);
         if (!string.IsNullOrEmpty(existingToken))
         {
             var existingSession = await _sessionService.ValidateSessionAsync(existingToken);
@@ -244,7 +244,7 @@ public class AuthController : ControllerBase
     [HttpPost("logout")]
     public async Task<IActionResult> LogoutAsync()
     {
-        var rawToken = SessionService.GetSessionTokenFromCookie(HttpContext);
+        var rawToken = SessionService.TokenFromCookie(HttpContext);
         if (!string.IsNullOrEmpty(rawToken))
         {
             var session = await _sessionService.ValidateSessionAsync(rawToken);
@@ -293,14 +293,14 @@ public class AuthController : ControllerBase
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("guest/config/duration")]
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-    public IActionResult GetGuestDurationConfig()
+    public IActionResult GetGuestDuration()
     {
         return Ok(new GuestDurationResponse
         {
             DurationHours = _sessionService.GetGuestDurationHours(),
-            Source = _sessionService.HasGuestDurationOverride() ? "ui" : "config",
+            Source = _sessionService.HasDurationOverride() ? "ui" : "config",
             CanEdit = true,
-            EnvVarValue = _sessionService.GetGuestDurationConfigValue()
+            EnvVarValue = _sessionService.GetGuestDurationDefault()
         });
     }
 
@@ -317,7 +317,7 @@ public class AuthController : ControllerBase
         {
             if (request.DurationHours is null)
             {
-                _sessionService.ClearGuestDurationOverride();
+                _sessionService.ClearDurationOverride();
                 _logger.LogInformation("Guest duration UI override cleared (will revert to env/appsettings default)");
             }
             else
@@ -343,9 +343,9 @@ public class AuthController : ControllerBase
         return Ok(new GuestDurationResponse
         {
             DurationHours = effectiveHours,
-            Source = _sessionService.HasGuestDurationOverride() ? "ui" : "config",
+            Source = _sessionService.HasDurationOverride() ? "ui" : "config",
             CanEdit = true,
-            EnvVarValue = _sessionService.GetGuestDurationConfigValue()
+            EnvVarValue = _sessionService.GetGuestDurationDefault()
         });
     }
 
@@ -423,7 +423,7 @@ public class AuthController : ControllerBase
 
     [AllowAnonymous]
     [HttpGet("guest/epic-prefill/config")]
-    public IActionResult GetEpicGuestPrefillConfig()
+    public IActionResult GetEpicPrefillConfig()
     {
         return Ok(new
         {
@@ -435,7 +435,7 @@ public class AuthController : ControllerBase
 
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/epic-prefill/config")]
-    public async Task<IActionResult> SetEpicGuestPrefillConfigAsync([FromBody] EpicGuestPrefillConfigRequest request)
+    public async Task<IActionResult> SetEpicPrefillConfigAsync([FromBody] EpicGuestPrefillConfigRequest request)
     {
         if (request.DurationHours != 1 && request.DurationHours != 2)
         {
@@ -468,7 +468,7 @@ public class AuthController : ControllerBase
 
     [AllowAnonymous]
     [HttpGet("guest/battlenet-prefill/config")]
-    public IActionResult GetBattleNetGuestPrefillConfig()
+    public IActionResult GetBattleNetPrefillConfig()
     {
         return Ok(new
         {
@@ -479,7 +479,7 @@ public class AuthController : ControllerBase
 
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/battlenet-prefill/config")]
-    public async Task<IActionResult> SetBattleNetGuestPrefillConfigAsync([FromBody] BattleNetGuestPrefillConfigRequest request)
+    public async Task<IActionResult> SetBattleNetPrefillConfigAsync([FromBody] BattleNetGuestPrefillConfigRequest request)
     {
         if (request.DurationHours != 1 && request.DurationHours != 2)
         {

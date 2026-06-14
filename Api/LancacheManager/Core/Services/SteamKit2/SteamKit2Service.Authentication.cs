@@ -17,7 +17,7 @@ public partial class SteamKit2Service
             {
                 _connectedTcs = new TaskCompletionSource();
                 _steamClient!.Connect();
-                await WaitForTaskWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(30), CancellationToken.None);
+                await WaitWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(30), CancellationToken.None);
             }
 
             // Create authenticator that returns provided codes
@@ -112,7 +112,7 @@ public partial class SteamKit2Service
             _logger.LogInformation("SteamKit2 auth-flow login with LoginID: {LoginID} (0x{LoginIDHex:X8}) for user: {Username}", _steamLoginId, _steamLoginId, pollResponse.AccountName);
 
             // Use longer timeout for authentication (Steam servers can be slow)
-            await WaitForTaskWithTimeoutAsync(_loggedOnTcs.Task, TimeSpan.FromMinutes(2), CancellationToken.None);
+            await WaitWithTimeoutAsync(_loggedOnTcs.Task, TimeSpan.FromMinutes(2), CancellationToken.None);
 
             return new AuthenticationResult
             {
@@ -166,7 +166,7 @@ public partial class SteamKit2Service
 
                 if (daemonService != null)
                 {
-                    await daemonService.TerminateAuthenticatedSessionsAsync(
+                    await daemonService.TerminateAllSessionsAsync(
                         "Steam PICS authentication logged out");
                 }
             }
@@ -180,7 +180,7 @@ public partial class SteamKit2Service
 
             // Disconnect from Steam
             _intentionalDisconnect = true;
-            await DisconnectFromSteamAsync();
+            await DisconnectAsync();
 
             _logger.LogInformation("Logged out from Steam and cleared credentials");
         }

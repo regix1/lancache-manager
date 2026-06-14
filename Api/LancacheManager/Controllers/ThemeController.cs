@@ -51,7 +51,7 @@ public class ThemeController : ControllerBase
     /// Validates and sanitizes a theme ID from a request.
     /// Returns null with the sanitized themeId if valid, or an IActionResult error if invalid.
     /// </summary>
-    private (string? themeId, IActionResult? error) ValidateAndSanitizeThemeId(ThemePreferenceRequest? request)
+    private (string? themeId, IActionResult? error) SanitizeThemeId(ThemePreferenceRequest? request)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.ThemeId))
         {
@@ -502,7 +502,7 @@ public class ThemeController : ControllerBase
     [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> SetDefaultGuestThemeAsync([FromBody] ThemePreferenceRequest request)
     {
-        var (themeId, error) = ValidateAndSanitizeThemeId(request);
+        var (themeId, error) = SanitizeThemeId(request);
         if (error != null) return error;
 
         _stateRepository.SetDefaultGuestTheme(themeId!);

@@ -146,7 +146,7 @@ public partial class SteamKit2Service
                 if (_steamClient?.IsConnected == true)
                 {
                     _intentionalDisconnect = true;
-                    await DisconnectFromSteamAsync();
+                    await DisconnectAsync();
                 }
 
                 // Dispose the cancellation token source
@@ -177,7 +177,7 @@ public partial class SteamKit2Service
             _logger.LogInformation("Cancelling active PICS rebuild (operationId: {OperationId})", operationId);
 
             // Fail any pending connection/login tasks to unblock waiting code
-            FailPendingConnectionTasks(new OperationCanceledException("PICS rebuild cancelled by user"));
+            FailConnectionTasks(new OperationCanceledException("PICS rebuild cancelled by user"));
 
             _currentRebuildCts.Cancel();
 
@@ -282,7 +282,7 @@ public partial class SteamKit2Service
         }
 
         // Load existing data from JSON file if it exists
-        var existingData = await _picsDataService.LoadPicsDataFromJsonAsync();
+        var existingData = await _picsDataService.LoadFromJsonAsync();
         bool hasExistingJsonData = existingData?.DepotMappings?.Any() == true;
         bool hasExistingDatabaseData = estimatedDatabaseDepotCount > 1000; // Require substantial database data (not just a few mappings)
         bool hasExistingData = hasExistingJsonData || hasExistingDatabaseData;
@@ -309,7 +309,7 @@ public partial class SteamKit2Service
             _logger.LogInformation("Incremental update mode - loading existing data");
 
             // Load existing mappings from database first
-            await LoadExistingDepotMappingsAsync();
+            await LoadDepotMappingsAsync();
             _logger.LogInformation("Loaded {Count} mappings from database into memory", _depotToAppMappings.Count);
 
             // Load change number from JSON if available
@@ -333,7 +333,7 @@ public partial class SteamKit2Service
         }
 
         // Enumerate every appid by crawling the PICS changelist
-        List<uint> appIds = await EnumerateAllAppIdsViaPicsChangesAsync(ct, incrementalOnly);
+        List<uint> appIds = await GetAppIdsViaPicsAsync(ct, incrementalOnly);
         _logger.LogInformation("Retrieved {Count} app IDs from PICS", appIds.Count);
 
         return (appIds, incrementalOnly);
@@ -533,7 +533,7 @@ public partial class SteamKit2Service
         await SendPostProcessingProgressAsync("Applying mappings to downloads...", 100, _depotToAppMappings.Count);
         _logger.LogInformation("Automatically applying depot mappings after PICS completion");
 
-        var (downloadsUpdated, downloadsNotFound) = await UpdateDownloadsWithDepotMappingsAsync();
+        var (downloadsUpdated, downloadsNotFound) = await ApplyDepotMappingsAsync();
 
         _currentStatus = DepotScanPhase.Completed;
         _lastCrawlTime = DateTime.UtcNow;
@@ -646,7 +646,7 @@ public partial class SteamKit2Service
     /// 2. Provides a safety net if Steam conditions change during scan startup
     /// 3. For manual full scans, user has already been informed - just proceed with Web API
     /// </summary>
-    private async Task<List<uint>> EnumerateAllAppIdsViaPicsChangesAsync(CancellationToken ct, bool incrementalOnly = false)
+    private async Task<List<uint>> GetAppIdsViaPicsAsync(CancellationToken ct, bool incrementalOnly = false)
     {
         if (_steamApps is null)
         {
@@ -669,7 +669,7 @@ public partial class SteamKit2Service
             _logger.LogInformation("Full scan requested - enumerating all apps via Web API V2/V1");
             try
             {
-                var webApiAppIds = await EnumerateAllAppIdsViaWebApiAsync(ct);
+                var webApiAppIds = await GetAppIdsViaWebApiAsync(ct);
 
                 // Success! Add all app IDs to our collection
                 foreach (var appId in webApiAppIds)
@@ -681,7 +681,7 @@ public partial class SteamKit2Service
 
                 // IMPORTANT: Get and save current change number for future incremental updates
                 // Even though we're using Web API for app enumeration, we still need the PICS change number
-                var latestChangeNumber = await GetCurrentPicsChangeNumberAsync(ct);
+                var latestChangeNumber = await GetPicsChangeNumberAsync(ct);
 
                 if (latestChangeNumber > _lastChangeNumberSeen)
                 {
@@ -712,7 +712,7 @@ public partial class SteamKit2Service
         uint since = 0;
 
         // Get current change number
-        var currentChangeNumber = await GetCurrentPicsChangeNumberAsync(ct);
+        var currentChangeNumber = await GetPicsChangeNumberAsync(ct);
 
         // Use saved change number for incremental, or start from recent point if we have existing data
         if (incrementalOnly && _lastChangeNumberSeen > 0)
@@ -768,7 +768,7 @@ public partial class SteamKit2Service
                 {
                     // Try to enumerate via Web API (V2 or V1 with API key)
                     _logger.LogInformation("Attempting full scan via Steam Web API (V2/V1 fallback)");
-                    var webApiAppIds = await EnumerateAllAppIdsViaWebApiAsync(ct);
+                    var webApiAppIds = await GetAppIdsViaWebApiAsync(ct);
 
                     // Success! Add all app IDs to our collection
                     foreach (var appId in webApiAppIds)
@@ -834,7 +834,7 @@ public partial class SteamKit2Service
     /// Enumerate all app IDs via Steam Web API V2/V1 (used when PICS requires full update)
     /// Falls back from V2 (no auth) to V1 (with API key)
     /// </summary>
-    private async Task<List<uint>> EnumerateAllAppIdsViaWebApiAsync(CancellationToken ct)
+    private async Task<List<uint>> GetAppIdsViaWebApiAsync(CancellationToken ct)
     {
         _logger.LogInformation("Attempting to enumerate app IDs via Steam Web API (V2/V1 fallback)");
 
@@ -934,7 +934,7 @@ public partial class SteamKit2Service
         return await tcs.Task;
     }
 
-    private async Task<IReadOnlyList<SteamApps.PICSProductInfoCallback>> WaitForAllProductInfoAsync(
+    private async Task<IReadOnlyList<SteamApps.PICSProductInfoCallback>> WaitForProductInfoAsync(
         AsyncJobMultiple<SteamApps.PICSProductInfoCallback> job,
         CancellationToken ct)
     {

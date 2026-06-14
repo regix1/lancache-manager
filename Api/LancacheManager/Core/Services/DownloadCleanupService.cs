@@ -38,10 +38,10 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
         await _stateService.WaitForSetupCompletedAsync(stoppingToken);
 
         using var scopedDb = _serviceProvider.CreateScopedDbContext();
-        await PerformInitialCleanupAsync(scopedDb.DbContext, stoppingToken);
+        await InitialCleanupAsync(scopedDb.DbContext, stoppingToken);
     }
 
-    protected override async Task ExecuteScopedWorkAsync(
+    protected override async Task ExecuteWorkAsync(
         IServiceProvider scopedServices,
         CancellationToken stoppingToken)
     {
@@ -93,7 +93,7 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
         }
     }
 
-    private async Task PerformInitialCleanupAsync(AppDbContext context, CancellationToken stoppingToken)
+    private async Task InitialCleanupAsync(AppDbContext context, CancellationToken stoppingToken)
     {
         _logger.LogInformation("Running initial database cleanup...");
 
@@ -149,7 +149,7 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
 
             // Fix service name aliases that don't match lancache nginx cache identifiers
             // The log processor previously normalized "epicgames" → "epic", but nginx cache keys use "epicgames"
-            await NormalizeServiceNamesAsync(context, stoppingToken);
+            await NormalizeServicesAsync(context, stoppingToken);
 
             // Normalize datasource mappings - fix inconsistent case and missing datasources
             await NormalizeDatasourceMappingsAsync(context, stoppingToken);
@@ -170,7 +170,7 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
     /// The Rust log processor previously aliased "epicgames" → "epic", but nginx uses "epicgames" in its
     /// proxy_cache_key ($cacheidentifier$uri), causing cache file lookups to fail with wrong MD5 hashes.
     /// </summary>
-    private async Task NormalizeServiceNamesAsync(AppDbContext context, CancellationToken stoppingToken)
+    private async Task NormalizeServicesAsync(AppDbContext context, CancellationToken stoppingToken)
     {
         // Map of old (incorrect) names → correct nginx cache identifier names
         var serviceRenames = new Dictionary<string, string>

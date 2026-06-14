@@ -52,7 +52,7 @@ public class BattleNetMappingService
     /// GameAppId NULL, persists, and emits <see cref="SignalREvents.BlizzardGameMappingsUpdated"/>.
     /// Returns the number of downloads that were resolved.
     /// </summary>
-    public async Task<int> ResolveBlizzardDownloadsAsync(CancellationToken ct = default)
+    public async Task<int> ResolveDownloadsAsync(CancellationToken ct = default)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(ct);
         const string blizzardServicePattern = "%blizzard%";
@@ -158,7 +158,7 @@ public class BattleNetMappingService
             TotalBlizzardDownloads = totalBlizzard,
             NamedBlizzardDownloads = namedBlizzard,
             UnnamedBlizzardDownloads = unnamedBlizzard,
-            LastAppliedUtc = _stateService.GetBattleNetMappingLastApplied()
+            LastAppliedUtc = _stateService.GetBattleNetMappingAppliedAt()
         };
     }
 

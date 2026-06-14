@@ -36,11 +36,11 @@ public static class RepositoryExtensions
             return entity;
         }
 
-        var entityName = GetFriendlyTypeName(typeof(TEntity));
+        var entityName = GetTypeName(typeof(TEntity));
         throw new NotFoundException(entityName);
     }
 
-    private static string GetFriendlyTypeName(Type type)
+    private static string GetTypeName(Type type)
     {
         var name = type.Name;
 

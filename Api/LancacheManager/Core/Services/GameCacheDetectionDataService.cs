@@ -59,7 +59,7 @@ public sealed class GameCacheDetectionDataService
         return new CachedGameUnevictTargets(steamGameIdsToUnevict, epicAppIdsToUnevict);
     }
 
-    public async Task<DetectionOperationResponse?> LoadDetectionFromDatabaseAsync(
+    public async Task<DetectionOperationResponse?> LoadDetectionAsync(
         CancellationToken cancellationToken = default)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
@@ -67,8 +67,8 @@ public sealed class GameCacheDetectionDataService
         var cachedGames = await dbContext.CachedGameDetections.AsNoTracking().ToListAsync(cancellationToken);
         var cachedServices = await dbContext.CachedServiceDetections.AsNoTracking().ToListAsync(cancellationToken);
 
-        var games = cachedGames.Select(ConvertToGameCacheInfo).ToList();
-        var services = cachedServices.Select(ConvertToServiceCacheInfo).ToList();
+        var games = cachedGames.Select(ToGameCacheInfo).ToList();
+        var services = cachedServices.Select(ToServiceCacheInfo).ToList();
 
         var steamEvictedMap = await dbContext.Downloads
             .Where(d => d.IsEvicted && d.GameAppId != null && d.EpicAppId == null)
@@ -218,7 +218,7 @@ public sealed class GameCacheDetectionDataService
             }
         }
 
-        await EnrichGameImageUrlsFromDatabaseAsync(dbContext, games, cancellationToken);
+        await EnrichImageUrlsAsync(dbContext, games, cancellationToken);
 
         if (games.Count == 0 && services.Count == 0)
         {
@@ -275,7 +275,7 @@ public sealed class GameCacheDetectionDataService
     /// Recomputes deduplicated on-disk totals from persisted detection rows and stores the singleton summary row.
     /// Runs after detection scans and other detection mutations — not on dashboard reads.
     /// </summary>
-    public async Task RefreshDetectionSummaryFromDatabaseAsync(CancellationToken cancellationToken = default)
+    public async Task RefreshDiskSummaryAsync(CancellationToken cancellationToken = default)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -292,8 +292,8 @@ public sealed class GameCacheDetectionDataService
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        var games = cachedGames.Select(ConvertToGameCacheInfo).ToList();
-        var services = cachedServices.Select(ConvertToServiceCacheInfo).ToList();
+        var games = cachedGames.Select(ToGameCacheInfo).ToList();
+        var services = cachedServices.Select(ToServiceCacheInfo).ToList();
         var attributed = GamesOnDiskCalculator.ComputeAttributedCacheFromDisk(games, services);
 
         foreach (var cached in cachedGames)
@@ -305,7 +305,7 @@ public sealed class GameCacheDetectionDataService
                 continue;
             }
 
-            var key = GamesOnDiskCalculator.GetGameKey(ConvertToGameCacheInfo(cached));
+            var key = GamesOnDiskCalculator.GetGameKey(ToGameCacheInfo(cached));
             cached.TotalSizeBytes = attributed.GameBytesByKey.TryGetValue(key, out var bytes) ? bytes : 0;
         }
 
@@ -318,7 +318,7 @@ public sealed class GameCacheDetectionDataService
                 continue;
             }
 
-            var key = GamesOnDiskCalculator.GetServiceKey(ConvertToServiceCacheInfo(cached));
+            var key = GamesOnDiskCalculator.GetServiceKey(ToServiceCacheInfo(cached));
             cached.TotalSizeBytes = attributed.ServiceBytesByKey.TryGetValue(key, out var bytes) ? bytes : 0;
         }
 
@@ -436,7 +436,7 @@ public sealed class GameCacheDetectionDataService
         _logger.LogInformation("[GameDetection] Removed service '{ServiceName}' from cache", serviceName);
     }
 
-    public async Task SaveGamesToDatabaseAsync(
+    public async Task SaveGamesAsync(
         List<GameCacheInfo> games,
         bool incremental,
         CancellationToken cancellationToken = default)
@@ -703,7 +703,7 @@ public sealed class GameCacheDetectionDataService
         return evictedServices.Count;
     }
 
-    public async Task SaveServicesToDatabaseAsync(
+    public async Task SaveServicesAsync(
         List<ServiceCacheInfo> services,
         CancellationToken cancellationToken = default)
     {
@@ -789,7 +789,7 @@ public sealed class GameCacheDetectionDataService
         }
     }
 
-    private static GameCacheInfo ConvertToGameCacheInfo(CachedGameDetection cached)
+    private static GameCacheInfo ToGameCacheInfo(CachedGameDetection cached)
     {
         var datasourcesJson = string.IsNullOrWhiteSpace(cached.DatasourcesJson)
             ? "[]"
@@ -810,7 +810,7 @@ public sealed class GameCacheDetectionDataService
         };
     }
 
-    private static ServiceCacheInfo ConvertToServiceCacheInfo(CachedServiceDetection cached)
+    private static ServiceCacheInfo ToServiceCacheInfo(CachedServiceDetection cached)
     {
         var datasourcesJson = string.IsNullOrWhiteSpace(cached.DatasourcesJson)
             ? "[]"
@@ -827,7 +827,7 @@ public sealed class GameCacheDetectionDataService
         };
     }
 
-    private static async Task EnrichGameImageUrlsFromDatabaseAsync(
+    private static async Task EnrichImageUrlsAsync(
         AppDbContext db,
         List<GameCacheInfo> games,
         CancellationToken cancellationToken)

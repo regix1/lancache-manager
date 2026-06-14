@@ -29,7 +29,7 @@ public static class WindowsPostgresManager
         var port = connBuilder.Port;
 
         // Already running - nothing to do
-        if (await IsPostgresReachableAsync(host, port))
+        if (await IsReachableAsync(host, port))
         {
             logger.LogInformation("PostgreSQL is already running on {Host}:{Port}", host, port);
             return;
@@ -44,9 +44,9 @@ public static class WindowsPostgresManager
         }
 
         // Try starting any existing postgres container that maps to our port
-        if (await TryStartExistingContainerAsync(port, logger))
+        if (await TryStartContainerAsync(port, logger))
         {
-            await WaitForPostgresAsync(host, port, logger);
+            await WaitForReadyAsync(host, port, logger);
             return;
         }
 
@@ -55,13 +55,13 @@ public static class WindowsPostgresManager
             port, ContainerName);
 
         await CreateContainerAsync(connBuilder, logger);
-        await WaitForPostgresAsync(host, port, logger);
+        await WaitForReadyAsync(host, port, logger);
 
         logger.LogInformation("PostgreSQL container '{Container}' is ready on {Host}:{Port}",
             ContainerName, host, port);
     }
 
-    private static async Task<bool> IsPostgresReachableAsync(string host, int port)
+    private static async Task<bool> IsReachableAsync(string host, int port)
     {
         try
         {
@@ -79,7 +79,7 @@ public static class WindowsPostgresManager
     {
         try
         {
-            var result = await RunDockerCommandAsync("info --format {{.ServerVersion}}");
+            var result = await RunDockerAsync("info --format {{.ServerVersion}}");
             return result.ExitCode == 0;
         }
         catch (Exception ex)
@@ -93,10 +93,10 @@ public static class WindowsPostgresManager
     /// Looks for any stopped postgres container whose port mapping includes our target port,
     /// or falls back to the well-known container name.
     /// </summary>
-    private static async Task<bool> TryStartExistingContainerAsync(int port, ILogger logger)
+    private static async Task<bool> TryStartContainerAsync(int port, ILogger logger)
     {
         // First check for our named container
-        var inspect = await RunDockerCommandAsync($"inspect --format {{{{.State.Status}}}} {ContainerName}");
+        var inspect = await RunDockerAsync($"inspect --format {{{{.State.Status}}}} {ContainerName}");
         if (inspect.ExitCode == 0)
         {
             var status = inspect.Output.Trim();
@@ -107,29 +107,29 @@ public static class WindowsPostgresManager
             }
 
             logger.LogInformation("Starting existing container '{Container}' (was {Status})...", ContainerName, status);
-            var start = await RunDockerCommandAsync($"start {ContainerName}");
+            var start = await RunDockerAsync($"start {ContainerName}");
             return start.ExitCode == 0;
         }
 
         // Search for any stopped postgres container mapping to our port
-        var search = await RunDockerCommandAsync(
+        var search = await RunDockerAsync(
             $"ps -a --filter ancestor={PostgresImage} --format {{{{.Names}}}}");
         if (search.ExitCode == 0 && !string.IsNullOrWhiteSpace(search.Output))
         {
             var containerName = search.Output.Trim().Split('\n')[0].Trim();
             logger.LogInformation("Found existing postgres container '{Container}', starting...", containerName);
-            var start = await RunDockerCommandAsync($"start {containerName}");
+            var start = await RunDockerAsync($"start {containerName}");
             return start.ExitCode == 0;
         }
 
         // Also search for any postgres image variant (e.g., postgres:15, postgres:17)
-        var searchAny = await RunDockerCommandAsync(
+        var searchAny = await RunDockerAsync(
             "ps -a --filter ancestor=postgres --format {{.Names}}");
         if (searchAny.ExitCode == 0 && !string.IsNullOrWhiteSpace(searchAny.Output))
         {
             var containerName = searchAny.Output.Trim().Split('\n')[0].Trim();
             logger.LogInformation("Found existing postgres container '{Container}', starting...", containerName);
-            var start = await RunDockerCommandAsync($"start {containerName}");
+            var start = await RunDockerAsync($"start {containerName}");
             return start.ExitCode == 0;
         }
 
@@ -151,7 +151,7 @@ public static class WindowsPostgresManager
                    $"--restart unless-stopped " +
                    $"{PostgresImage}";
 
-        var result = await RunDockerCommandAsync(args);
+        var result = await RunDockerAsync(args);
         if (result.ExitCode != 0)
         {
             logger.LogError("Failed to create PostgreSQL container: {Error}", result.Error);
@@ -162,14 +162,14 @@ public static class WindowsPostgresManager
         logger.LogInformation("Created PostgreSQL container '{Container}'", ContainerName);
     }
 
-    private static async Task WaitForPostgresAsync(string host, int port, ILogger logger)
+    private static async Task WaitForReadyAsync(string host, int port, ILogger logger)
     {
         logger.LogInformation("Waiting for PostgreSQL to accept connections on {Host}:{Port}...", host, port);
 
         var sw = Stopwatch.StartNew();
         while (sw.Elapsed.TotalSeconds < MaxWaitSeconds)
         {
-            if (await IsPostgresReachableAsync(host, port))
+            if (await IsReachableAsync(host, port))
             {
                 logger.LogInformation("PostgreSQL is accepting connections (took {Elapsed:F1}s)", sw.Elapsed.TotalSeconds);
                 return;
@@ -181,7 +181,7 @@ public static class WindowsPostgresManager
         logger.LogWarning("PostgreSQL did not become reachable within {Seconds}s - migration may fail", MaxWaitSeconds);
     }
 
-    private static async Task<DockerResult> RunDockerCommandAsync(string arguments)
+    private static async Task<DockerResult> RunDockerAsync(string arguments)
     {
         using var process = new Process
         {

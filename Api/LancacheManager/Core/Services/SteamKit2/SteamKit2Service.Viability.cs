@@ -9,7 +9,7 @@ public partial class SteamKit2Service
     /// Check if incremental scan is viable or if change gap is too large (will trigger full scan)
     /// Uses cached result from state.json if available and recent (< 1 hour old) to avoid repeated Steam API calls
     /// </summary>
-    public async Task<IncrementalViabilityCheck> CheckIncrementalViabilityAsync(CancellationToken ct)
+    public async Task<IncrementalViabilityCheck> CheckViabilityAsync(CancellationToken ct)
     {
         try
         {
@@ -43,7 +43,7 @@ public partial class SteamKit2Service
 
             // Always load the latest change number from JSON to ensure viability check matches what the scan will use
             // (scan always reloads from JSON, so viability check must too)
-            var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
+            var picsData = await _picsDataService.LoadFromJsonAsync();
             uint changeNumberToCheck = 0;
             if (picsData?.Metadata?.LastChangeNumber > 0)
             {
@@ -62,7 +62,7 @@ public partial class SteamKit2Service
             try
             {
                 // Get current change number from Steam
-                var currentChangeNumber = await GetCurrentPicsChangeNumberAsync(ct);
+                var currentChangeNumber = await GetPicsChangeNumberAsync(ct);
 
                 uint changeGap = changeNumberToCheck > 0
                     ? currentChangeNumber - changeNumberToCheck
@@ -177,7 +177,7 @@ public partial class SteamKit2Service
     {
         try
         {
-            var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
+            var picsData = await _picsDataService.LoadFromJsonAsync();
             var changeNumber = picsData?.Metadata?.LastChangeNumber;
             return changeNumber > 0 ? changeNumber : null;
         }
@@ -203,7 +203,7 @@ public partial class SteamKit2Service
 
             try
             {
-                return await GetCurrentPicsChangeNumberAsync(ct);
+                return await GetPicsChangeNumberAsync(ct);
             }
             finally
             {

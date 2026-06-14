@@ -35,7 +35,7 @@ public class ImageCacheService : IImageCacheService
         _memoryCache = memoryCache;
     }
 
-    public async Task<(byte[] imageBytes, string contentType)?> GetCachedImageAsync(
+    public async Task<(byte[] imageBytes, string contentType)?> GetImageAsync(
         string appId,
         string platform,
         CancellationToken cancellationToken = default)

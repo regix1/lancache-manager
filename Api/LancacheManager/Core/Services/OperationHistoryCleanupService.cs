@@ -32,11 +32,11 @@ public class OperationHistoryCleanupService : ScheduledBackgroundService
 
     protected override Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
-        CleanupOldOperations();
+        Cleanup();
         return Task.CompletedTask;
     }
 
-    private void CleanupOldOperations()
+    private void Cleanup()
     {
         try
         {

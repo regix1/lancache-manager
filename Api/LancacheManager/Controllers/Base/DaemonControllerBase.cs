@@ -45,7 +45,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     /// Resolves the effective thread limit for the given user session.
     /// Returns null for admin users (no limit).
     /// </summary>
-    protected abstract int? ResolveEffectiveThreadLimit(UserSession session);
+    protected abstract int? ResolveThreadLimit(UserSession session);
 
     /// <summary>
     /// Gets all active daemon sessions (admin only)
@@ -288,7 +288,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
         var userSession = HttpContext.GetUserSession();
         if (userSession != null && request?.MaxConcurrency != null)
         {
-            var effectiveLimit = ResolveEffectiveThreadLimit(userSession);
+            var effectiveLimit = ResolveThreadLimit(userSession);
             if (effectiveLimit.HasValue && request.MaxConcurrency > effectiveLimit.Value)
             {
                 request.MaxConcurrency = effectiveLimit.Value;

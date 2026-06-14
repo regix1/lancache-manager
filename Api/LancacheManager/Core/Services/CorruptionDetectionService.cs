@@ -206,7 +206,7 @@ public class CorruptionDetectionService
             var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
             var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
 
-            _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Corruption manager");
+            _rustProcessHelper.EnsureBinaryExists(rustBinaryPath, "Corruption manager");
 
             _logger.LogInformation("[CorruptionDetection] Starting detection for {Count} datasource(s)", datasources.Count);
 
@@ -219,7 +219,7 @@ public class CorruptionDetectionService
                 // Check for cancellation before each datasource
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var dsCounts = await GetCorruptionSummaryForDatasourceAsync(
+                var dsCounts = await GetSummaryForDatasourceAsync(
                     datasource.LogPath, datasource.CachePath, timezone, rustBinaryPath,
                     operationId, datasource.Name, threshold, compareToCacheLogs, cancellationToken, detectRedownloads);
 
@@ -262,7 +262,7 @@ public class CorruptionDetectionService
             });
 
             // Save results to database
-            await SaveCorruptionToDatabaseAsync(aggregatedCounts);
+            await SaveToDatabaseAsync(aggregatedCounts);
 
             // Clear operation state
             _operationStateService.RemoveState($"{_operationStateKey}_{operationId}");
@@ -302,7 +302,7 @@ public class CorruptionDetectionService
     /// <summary>
     /// Get corruption summary for a specific datasource with progress tracking.
     /// </summary>
-    private async Task<Dictionary<string, long>> GetCorruptionSummaryForDatasourceAsync(
+    private async Task<Dictionary<string, long>> GetSummaryForDatasourceAsync(
         string logDir, string cacheDir, string timezone, string rustBinaryPath,
         Guid operationId, string datasourceName, int threshold, bool compareToCacheLogs, CancellationToken cancellationToken, bool detectRedownloads = false)
     {
@@ -378,14 +378,14 @@ public class CorruptionDetectionService
         }
         finally
         {
-            await _rustProcessHelper.DeleteTemporaryFileAsync(progressFile);
+            await _rustProcessHelper.DeleteTempFileAsync(progressFile);
         }
     }
 
     /// <summary>
     /// Save corruption detection results to database for caching.
     /// </summary>
-    private async Task SaveCorruptionToDatabaseAsync(Dictionary<string, long> corruptionCounts)
+    private async Task SaveToDatabaseAsync(Dictionary<string, long> corruptionCounts)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
 
@@ -440,7 +440,7 @@ public class CorruptionDetectionService
     /// <summary>
     /// Get cached corruption detection results from database.
     /// </summary>
-    public async Task<CachedCorruptionResult?> GetCachedDetectionAsync()
+    public async Task<CachedCorruptionResult?> GetDetectionAsync()
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
         var cachedCorruption = await dbContext.CachedCorruptionDetections.AsNoTracking().ToListAsync();
@@ -469,7 +469,7 @@ public class CorruptionDetectionService
     /// <summary>
     /// Remove a service's cached corruption detection entry after successful removal.
     /// </summary>
-    public async Task RemoveCachedServiceAsync(string serviceName)
+    public async Task ClearServiceCacheAsync(string serviceName)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
         var deleted = await dbContext.CachedCorruptionDetections

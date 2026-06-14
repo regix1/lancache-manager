@@ -90,7 +90,7 @@ public class EpicGameMappingController : ControllerBase
     /// No Docker container is created - the URL points directly to Epic's login page.
     /// </summary>
     [HttpPost("auth/login")]
-    public ActionResult StartMappingLogin()
+    public ActionResult StartLogin()
     {
         try
         {
@@ -108,7 +108,7 @@ public class EpicGameMappingController : ControllerBase
     /// Logs out mapping session and clears saved credentials.
     /// </summary>
     [HttpDelete("auth")]
-    public async Task<ActionResult> LogoutMappingAsync()
+    public async Task<ActionResult> LogoutAsync()
     {
         await _epicMappingService.LogoutAsync();
         return Ok(ApiResponse.Message("Epic mapping logged out"));
@@ -119,7 +119,7 @@ public class EpicGameMappingController : ControllerBase
     /// exchanges it for tokens, fetches games, and saves credentials.
     /// </summary>
     [HttpPost("auth/complete")]
-    public async Task<ActionResult> CompleteMappingAuthAsync([FromBody] EpicAuthCompleteRequest request)
+    public async Task<ActionResult> CompleteAuthAsync([FromBody] EpicAuthCompleteRequest request)
     {
         if (string.IsNullOrWhiteSpace(request?.AuthorizationCode))
         {
@@ -222,7 +222,7 @@ public class EpicGameMappingController : ControllerBase
     [HttpPost("resolve")]
     public async Task<ActionResult> ResolveDownloadsAsync(CancellationToken ct = default)
     {
-        var start = await BeginResolveOperationAsync(ct);
+        var start = await BeginResolveAsync(ct);
         if (start.Conflict != null)
         {
             return Conflict(start.Conflict);
@@ -234,7 +234,7 @@ public class EpicGameMappingController : ControllerBase
         try
         {
             _operationTracker.UpdateProgress(operationId, 0, "Resolving Epic downloads...");
-            var resolved = await _epicMappingService.ResolveEpicDownloadsAsync(operationCts.Token);
+            var resolved = await _epicMappingService.ResolveDownloadsAsync(operationCts.Token);
             _operationTracker.UpdateProgress(operationId, 100, $"Resolved {resolved} Epic download(s)");
             _operationTracker.CompleteOperation(operationId, true);
             return Ok(new
@@ -323,7 +323,7 @@ public class EpicGameMappingController : ControllerBase
         return Ok(dtos);
     }
 
-    private async Task<(Guid? OperationId, CancellationTokenSource? CancellationTokenSource, OperationConflictResponse? Conflict)> BeginResolveOperationAsync(CancellationToken cancellationToken)
+    private async Task<(Guid? OperationId, CancellationTokenSource? CancellationTokenSource, OperationConflictResponse? Conflict)> BeginResolveAsync(CancellationToken cancellationToken)
     {
         await _resolveStartLock.WaitAsync(cancellationToken);
         try

@@ -11,7 +11,7 @@ public partial class EpicMappingService
     /// Matches download URLs against stored EpicCdnPatterns.
     /// Called after log processing to identify Epic game downloads.
     /// </summary>
-    public async Task<int> ResolveEpicDownloadsAsync(CancellationToken ct = default)
+    public async Task<int> ResolveDownloadsAsync(CancellationToken ct = default)
     {
         // Seed well-known non-game patterns (Epic Games Launcher etc.) so launcher chunks
         // get labeled instead of falling through as Unknown. Idempotent.

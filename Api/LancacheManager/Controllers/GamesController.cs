@@ -54,8 +54,8 @@ public class GamesController : ControllerBase
     /// </summary>
     private BadRequestObjectResult? EnsureDirectoriesWritable(string operationDescription)
     {
-        var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
-        var logsWritable = _pathResolver.IsLogsDirectoryWritable();
+        var cacheWritable = _pathResolver.IsCacheWritable();
+        var logsWritable = _pathResolver.IsLogsWritable();
 
         if (cacheWritable && logsWritable)
             return null;
@@ -71,7 +71,7 @@ public class GamesController : ControllerBase
         return BadRequest(new ErrorResponse { Error = errorMessage });
     }
 
-    private static Dictionary<string, object?> BuildGameRemovalContext(
+    private static Dictionary<string, object?> RemovalContext(
         string displayName,
         long? gameAppId = null,
         string? epicAppId = null,
@@ -141,7 +141,7 @@ public class GamesController : ControllerBase
         var gameName = cachedResults?.Games?.FirstOrDefault(g => g.GameAppId == appId)?.GameName ?? $"Game {appId}";
 
         // Shared start path so the wait-queue can run it verbatim at promotion time.
-        Task<Guid> StartCoreAsync() => StartRemovalCoreAsync(
+        Task<Guid> StartCoreAsync() => StartRemovalAsync(
             entityKey: appId.ToString(),
             displayName: gameName,
             operationLabel: $"Game Removal: {gameName}",
@@ -201,7 +201,7 @@ public class GamesController : ControllerBase
         var epicAppId = epicGame?.EpicAppId;
 
         // Shared start path so the wait-queue can run it verbatim at promotion time.
-        Task<Guid> StartCoreAsync() => StartRemovalCoreAsync(
+        Task<Guid> StartCoreAsync() => StartRemovalAsync(
             entityKey: epicAppId ?? gameName,
             displayName: gameName,
             operationLabel: $"Epic Game Removal: {gameName}",
@@ -247,7 +247,7 @@ public class GamesController : ControllerBase
     /// <param name="appId">Steam AppId (0 for Epic games)</param>
     /// <param name="removeFunc">The actual removal function that accepts cancellation token and progress callback</param>
     /// <param name="onSuccess">Optional callback after successful removal (e.g., Steam removes from detection cache)</param>
-    private async Task<Guid> StartRemovalCoreAsync(
+    private async Task<Guid> StartRemovalAsync(
         string entityKey,
         string displayName,
         string operationLabel,
@@ -288,7 +288,7 @@ public class GamesController : ControllerBase
                     GameName: displayName,
                     StageKey: startingStageKey,
                     Timestamp: DateTime.UtcNow,
-                    Context: BuildGameRemovalContext(displayName, appId, epicAppId)),
+                    Context: RemovalContext(displayName, appId, epicAppId)),
                 ProgressEventName: SignalREvents.GameRemovalProgress,
                 InitialStageKey: startingStageKey,
                 BuildInitialProgressPayload: id => new GameRemovalProgress(
@@ -297,7 +297,7 @@ public class GamesController : ControllerBase
                     EpicAppId: isEpic ? epicAppId : null,
                     GameName: displayName,
                     StageKey: startingStageKey,
-                    Context: BuildGameRemovalContext(displayName, appId, epicAppId)),
+                    Context: RemovalContext(displayName, appId, epicAppId)),
                 BuildProgressPayload: (id, update) => new GameRemovalProgress(
                     OperationId: id,
                     GameAppId: isEpic ? null : appId,
@@ -319,7 +319,7 @@ public class GamesController : ControllerBase
                     PercentComplete: 100.0,
                     FilesDeleted: report.CacheFilesDeleted,
                     BytesFreed: (long)report.TotalBytesFreed,
-                    Context: BuildGameRemovalContext(
+                    Context: RemovalContext(
                         displayName,
                         appId,
                         epicAppId,
@@ -336,7 +336,7 @@ public class GamesController : ControllerBase
                     FilesDeleted: report.CacheFilesDeleted,
                     BytesFreed: (long)report.TotalBytesFreed,
                     LogEntriesRemoved: report.LogEntriesRemoved,
-                    Context: BuildGameRemovalContext(
+                    Context: RemovalContext(
                         displayName,
                         appId,
                         epicAppId,
@@ -350,7 +350,7 @@ public class GamesController : ControllerBase
                     EpicAppId: isEpic ? epicAppId : null,
                     StageKey: cancelledStageKey,
                     GameName: displayName,
-                    Context: BuildGameRemovalContext(displayName, appId, epicAppId)),
+                    Context: RemovalContext(displayName, appId, epicAppId)),
                 BuildErrorProgressPayload: (id, ex) => new GameRemovalProgress(
                     OperationId: id,
                     GameAppId: isEpic ? null : appId,
@@ -358,7 +358,7 @@ public class GamesController : ControllerBase
                     GameName: displayName,
                     StageKey: errorStageKey,
                     PercentComplete: 0.0,
-                    Context: BuildGameRemovalContext(displayName, appId, epicAppId, errorDetail: ex.Message)),
+                    Context: RemovalContext(displayName, appId, epicAppId, errorDetail: ex.Message)),
                 BuildErrorCompletePayload: (id, ex) => new GameRemovalComplete(
                     Success: false,
                     OperationId: id,
@@ -366,7 +366,7 @@ public class GamesController : ControllerBase
                     EpicAppId: isEpic ? epicAppId : null,
                     StageKey: errorStageKey,
                     GameName: displayName,
-                    Context: BuildGameRemovalContext(displayName, appId, epicAppId, errorDetail: ex.Message)),
+                    Context: RemovalContext(displayName, appId, epicAppId, errorDetail: ex.Message)),
                 ExecuteAsync: (opId, ct, onProgress) => removeFunc(
                     opId,
                     ct,
@@ -456,7 +456,7 @@ public class GamesController : ControllerBase
             Operations = operations.Select(op =>
             {
                 var metrics = op.Metadata as RemovalMetrics;
-                return ProjectGameRemovalInfo(op, metrics);
+                return ToRemovalInfo(op, metrics);
             })
         });
     }
@@ -466,7 +466,7 @@ public class GamesController : ControllerBase
     /// Steam entries emit `GameAppId`; Epic entries emit `EpicAppId`. Legacy rows without
     /// `EntityKind` fall back to numeric parse so existing Steam-only data keeps round-tripping.
     /// </summary>
-    private static GameRemovalInfo ProjectGameRemovalInfo(OperationInfo op, RemovalMetrics? metrics)
+    private static GameRemovalInfo ToRemovalInfo(OperationInfo op, RemovalMetrics? metrics)
     {
         long? gameAppId = null;
         string? epicAppId = null;
@@ -601,7 +601,7 @@ public class GamesController : ControllerBase
     /// </summary>
     [AllowAnonymous]
     [HttpGet("detect/cached")]
-    public async Task<IActionResult> GetCachedDetectionResultsAsync()
+    public async Task<IActionResult> GetCachedDetectionAsync()
     {
         var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
 

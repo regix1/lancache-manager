@@ -11,20 +11,20 @@ public partial class SteamKit2Service
         try
         {
             // Convert ConcurrentDictionary to Dictionary for the service call
-            var (depotMappingsDict, appNamesDict, depotOwnersDict, depotNamesDict) = SteamKit2Helpers.ConvertMappingsDictionaries(
+            var (depotMappingsDict, appNamesDict, depotOwnersDict, depotNamesDict) = SteamKit2Helpers.ToPlainDictionaries(
                 _depotToAppMappings, _appNames, _depotOwners, _depotNames);
 
             if (incrementalOnly)
             {
                 // Pass validateExisting=true to clean up corrupted entries during incremental updates
-                await _picsDataService.MergePicsDataToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen, validateExisting: true, depotOwners: depotOwnersDict, depotNames: depotNamesDict);
+                await _picsDataService.MergeToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen, validateExisting: true, depotOwners: depotOwnersDict, depotNames: depotNamesDict);
                 _logger.LogInformation(
                     "Merged {DepotCount} unique depot mappings to JSON (incremental); JSON metadata totals will list depot/app pairs when depots are shared",
                     depotMappingsDict.Count);
             }
             else
             {
-                await _picsDataService.SavePicsDataToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen, depotOwners: depotOwnersDict, depotNames: depotNamesDict);
+                await _picsDataService.SaveToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen, depotOwners: depotOwnersDict, depotNames: depotNamesDict);
                 _logger.LogInformation(
                     "Saved {DepotCount} unique depot mappings to JSON file (full); JSON metadata totals will list depot/app pairs when depots are shared",
                     _depotToAppMappings.Count);
@@ -43,7 +43,7 @@ public partial class SteamKit2Service
     {
         try
         {
-            await _picsDataService.ImportJsonDataToDatabaseAsync();
+            await _picsDataService.ImportToDatabaseAsync();
             _logger.LogInformation("Successfully imported PICS JSON data to database");
         }
         catch (Exception ex)
@@ -119,7 +119,7 @@ public partial class SteamKit2Service
     /// <summary>
     /// Load existing depot mappings from database on startup
     /// </summary>
-    private async Task LoadExistingDepotMappingsAsync()
+    private async Task LoadDepotMappingsAsync()
     {
         try
         {
@@ -179,7 +179,7 @@ public partial class SteamKit2Service
             }
 
             // Load change number from JSON file (still needed for PICS scans)
-            var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
+            var picsData = await _picsDataService.LoadFromJsonAsync();
             if (picsData?.Metadata != null)
             {
                 _lastChangeNumberSeen = picsData.Metadata.LastChangeNumber;

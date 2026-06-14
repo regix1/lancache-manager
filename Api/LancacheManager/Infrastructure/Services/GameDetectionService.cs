@@ -99,7 +99,7 @@ public class GameDetectionService : ScheduledBackgroundService
 
             // Run recovery, self-healing, and cleanup ONCE on startup - not on every dashboard load.
             _logger.LogInformation("[GameDetection] Running detection data reconciliation...");
-            await _detectionService.ReconcileCachedDetectionDataAsync();
+            await _detectionService.ReconcileDetectionDataAsync();
 
             var cached = await _detectionService.GetCachedDetectionAsync();
             if (cached != null)

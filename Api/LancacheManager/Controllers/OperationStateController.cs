@@ -106,7 +106,7 @@ public class OperationStateController : ControllerBase
     }
 
     [HttpGet]
-    public IActionResult GetAllStates([FromQuery] string? type = null)
+    public IActionResult GetAll([FromQuery] string? type = null)
     {
         var states = string.IsNullOrEmpty(type)
             ? _stateService.GetAllStates()
@@ -116,7 +116,7 @@ public class OperationStateController : ControllerBase
     }
 
     [HttpPost("cleanup")]
-    public IActionResult CleanupExpired()
+    public IActionResult Cleanup()
     {
         // Trigger manual cleanup if needed
         var allStates = _stateService.GetAllStates();

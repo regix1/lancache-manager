@@ -25,7 +25,7 @@ public sealed class UnknownGameResolutionService
         _logger = logger;
     }
 
-    public async Task<int> ResolveUnknownGamesInCacheAsync(CancellationToken cancellationToken = default)
+    public async Task<int> ResolveUnknownGamesAsync(CancellationToken cancellationToken = default)
     {
         try
         {

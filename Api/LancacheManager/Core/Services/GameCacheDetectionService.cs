@@ -164,7 +164,7 @@ public class GameCacheDetectionService : IDisposable
                 // which path completed the op, so a force-kill that bypasses FinalizeDetectionAsync still
                 // clears the service-local "detection running" marker (mirrors the reset at line ~777).
                 onTerminalCleanup: () => { _currentTrackerOperationId = null; },
-                onTerminalEmit: info => EmitGameDetectionCompleteAsync(registeredId, info)
+                onTerminalEmit: info => EmitDetectionCompleteAsync(registeredId, info)
             );
             var operationId = _currentTrackerOperationId.Value;
             registeredId = operationId;
@@ -210,7 +210,7 @@ public class GameCacheDetectionService : IDisposable
     /// Check if unknown depot IDs now have mappings available in SteamDepotMappings
     /// Returns the count of unknown depot IDs that now have mappings
     /// </summary>
-    private async Task<(int totalUnknowns, int nowMapped)> CheckUnknownDepotsForMappingsAsync()
+    private async Task<(int totalUnknowns, int nowMapped)> CountMappedDepotsAsync()
     {
         try
         {
@@ -250,11 +250,11 @@ public class GameCacheDetectionService : IDisposable
     /// Smart pre-check: If 3+ unknown games detected in cache, check if depot mappings are now available
     /// If mappings exist, invalidate cache to trigger fresh scan with new mappings
     /// </summary>
-    private async Task<bool> ApplyMappingsPreCheckAsync(Guid operationId)
+    private async Task<bool> PreCheckMappingsAsync(Guid operationId)
     {
         try
         {
-            var (totalUnknowns, nowMapped) = await CheckUnknownDepotsForMappingsAsync();
+            var (totalUnknowns, nowMapped) = await CountMappedDepotsAsync();
 
             if (totalUnknowns >= 3 && nowMapped > 0)
             {
@@ -332,13 +332,13 @@ public class GameCacheDetectionService : IDisposable
             // Smart pre-check: If incremental scan and we have 3+ unknown games, try applying mappings first
             if (incremental)
             {
-                await ApplyMappingsPreCheckAsync(operationId);
+                await PreCheckMappingsAsync(operationId);
             }
 
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var rustBinaryPath = _pathResolver.GetRustGameDetectorPath();
 
-            _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Game cache detector");
+            _rustProcessHelper.EnsureBinaryExists(rustBinaryPath, "Game cache detector");
 
             // Get all datasources
             var datasources = _datasourceService.GetDatasources();
@@ -357,7 +357,7 @@ public class GameCacheDetectionService : IDisposable
                     if (cachedGames.Count > 0)
                     {
                         // Convert database records to GameCacheInfo
-                        existingGames = cachedGames.Select(ConvertToGameCacheInfo).ToList();
+                        existingGames = cachedGames.Select(ToGameCacheInfo).ToList();
                         var excludedGameIds = existingGames.Select(g => g.GameAppId).ToList();
 
                         excludedIdsPath = Path.Combine(operationsDir, $"excluded_game_ids_{operationId}.json");
@@ -377,7 +377,7 @@ public class GameCacheDetectionService : IDisposable
                         .ToListAsync(cancellationToken);
                     if (cachedServices.Count > 0)
                     {
-                        existingServices = cachedServices.Select(ConvertToServiceCacheInfo).ToList();
+                        existingServices = cachedServices.Select(ToServiceCacheInfo).ToList();
                         _logger.LogInformation("[GameDetection] Incremental scan: preserving {ServiceCount} existing services", existingServices.Count);
                     }
                 }
@@ -546,7 +546,7 @@ public class GameCacheDetectionService : IDisposable
                     {
                         // Game already found in another datasource - merge without double-counting files
                         var existingGame = aggregatedGames.First(g => g.GameAppId == game.GameAppId);
-                        GameCacheInfoMergeHelper.MergeGameInto(existingGame, game, datasource.Name);
+                        GameCacheInfoMergeHelper.MergeGame(existingGame, game, datasource.Name);
                     }
 
                     gameIndex++;
@@ -581,7 +581,7 @@ public class GameCacheDetectionService : IDisposable
                         // Service already found in another datasource - merge without double-counting files
                         var existingService = aggregatedServices.First(s =>
                             s.ServiceName.Equals(service.ServiceName, StringComparison.OrdinalIgnoreCase));
-                        GameCacheInfoMergeHelper.MergeServiceInto(existingService, service, datasource.Name);
+                        GameCacheInfoMergeHelper.MergeService(existingService, service, datasource.Name);
                     }
                 }
 
@@ -715,7 +715,7 @@ public class GameCacheDetectionService : IDisposable
             // substantial remaining work instead of sitting on the last scan message.
             _operationTracker.UpdateProgress(operationId, 97, "signalr.gameDetect.refreshingSummary");
 
-            await _detectionDataService.RefreshDetectionSummaryFromDatabaseAsync(cancellationToken);
+            await _detectionDataService.RefreshDiskSummaryAsync(cancellationToken);
 
             _logger.LogInformation("[GameDetection] Completed: {Count} games detected across {DatasourceCount} datasource(s)",
                 totalGamesDetected, datasources.Count);
@@ -791,15 +791,15 @@ public class GameCacheDetectionService : IDisposable
             // Clean up temporary files in all paths (success, cancel, error)
             foreach (var outputJson in outputJsonFiles)
             {
-                await _rustProcessHelper.DeleteTemporaryFileAsync(outputJson);
+                await _rustProcessHelper.DeleteTempFileAsync(outputJson);
             }
             if (!string.IsNullOrEmpty(excludedIdsPath))
             {
-                await _rustProcessHelper.DeleteTemporaryFileAsync(excludedIdsPath);
+                await _rustProcessHelper.DeleteTempFileAsync(excludedIdsPath);
             }
             if (!string.IsNullOrEmpty(progressFilePath))
             {
-                await _rustProcessHelper.DeleteTemporaryFileAsync(progressFilePath);
+                await _rustProcessHelper.DeleteTempFileAsync(progressFilePath);
             }
         }
     }
@@ -867,7 +867,7 @@ public class GameCacheDetectionService : IDisposable
     /// force-kill switch. Reads the metrics FinalizeDetectionAsync stashed in <see cref="_terminalPayload"/>;
     /// on a force-kill that bypasses Finalize, the payload defaults to a cancelled-shaped record.
     /// </summary>
-    private Task EmitGameDetectionCompleteAsync(Guid operationId, OperationTerminalInfo info)
+    private Task EmitDetectionCompleteAsync(Guid operationId, OperationTerminalInfo info)
     {
         var payload = _terminalPayload;
         var status = info.Cancelled
@@ -906,7 +906,7 @@ public class GameCacheDetectionService : IDisposable
             return null;
         }
 
-        return BuildResponseFromOperationInfo(opInfo);
+        return ToDetectionResponse(opInfo);
     }
 
 
@@ -918,7 +918,7 @@ public class GameCacheDetectionService : IDisposable
             return null;
         }
 
-        return BuildResponseFromOperationInfo(activeOp);
+        return ToDetectionResponse(activeOp);
     }
 
     /// <summary>
@@ -952,7 +952,7 @@ public class GameCacheDetectionService : IDisposable
     /// Runs recovery, self-healing, and cleanup operations on cached detection data.
     /// Called once on startup by GameDetectionService - NOT on every dashboard load.
     /// </summary>
-    public async Task ReconcileCachedDetectionDataAsync()
+    public async Task ReconcileDetectionDataAsync()
     {
         var recoveredCount = await RecoverEvictedGamesAsync();
         if (recoveredCount > 0)
@@ -1015,7 +1015,7 @@ public class GameCacheDetectionService : IDisposable
             _logger.LogInformation("[GameDetection] Cleaned up {Count} legacy GameAppId=0 entries from cache on startup", legacyZeroEntries.Count);
         }
 
-        await _detectionDataService.RefreshDetectionSummaryFromDatabaseAsync();
+        await _detectionDataService.RefreshDiskSummaryAsync();
         InvalidateDetectionCache();
         _logger.LogInformation("[GameDetection] Startup reconciliation complete");
     }
@@ -1042,9 +1042,9 @@ public class GameCacheDetectionService : IDisposable
     /// Recomputes persisted disk-summary totals and clears the in-memory detection cache.
     /// Call once after batch detection mutations (evictions, removals, scans).
     /// </summary>
-    public async Task RefreshAndInvalidateDetectionCacheAsync(CancellationToken cancellationToken = default)
+    public async Task RefreshDiskSummaryAndInvalidateAsync(CancellationToken cancellationToken = default)
     {
-        await _detectionDataService.RefreshDetectionSummaryFromDatabaseAsync(cancellationToken);
+        await _detectionDataService.RefreshDiskSummaryAsync(cancellationToken);
         InvalidateDetectionCache();
     }
 
@@ -1058,7 +1058,7 @@ public class GameCacheDetectionService : IDisposable
                 return _cachedDetectionResponse;
             }
 
-            var result = await LoadDetectionFromDatabaseAsync();
+            var result = await LoadDetectionAsync();
             _cachedDetectionResponse = result;
             return result;
         }
@@ -1068,9 +1068,9 @@ public class GameCacheDetectionService : IDisposable
         }
     }
 
-    private Task<DetectionOperationResponse?> LoadDetectionFromDatabaseAsync(
+    private Task<DetectionOperationResponse?> LoadDetectionAsync(
         CancellationToken cancellationToken = default) =>
-        _detectionDataService.LoadDetectionFromDatabaseAsync(cancellationToken);
+        _detectionDataService.LoadDetectionAsync(cancellationToken);
 
     public async Task InvalidateCacheAsync()
     {
@@ -1096,7 +1096,7 @@ public class GameCacheDetectionService : IDisposable
     /// Returns the number of games that were resolved.
     /// </summary>
     public Task<int> ResolveUnknownGamesInCacheAsync(CancellationToken cancellationToken = default) =>
-        _unknownGameResolutionService.ResolveUnknownGamesInCacheAsync(cancellationToken);
+        _unknownGameResolutionService.ResolveUnknownGamesAsync(cancellationToken);
 
     private void RestoreInterruptedOperations()
     {
@@ -1140,7 +1140,7 @@ public class GameCacheDetectionService : IDisposable
                         _cancellationTokenSource,
                         metadata,
                         onTerminalCleanup: () => { _currentTrackerOperationId = null; },
-                        onTerminalEmit: info => EmitGameDetectionCompleteAsync(persistedGuid, info)))
+                        onTerminalEmit: info => EmitDetectionCompleteAsync(persistedGuid, info)))
                 {
                     // core-7: the tracker did NOT adopt this CTS (ID already in use), so we still own it.
                     // Dispose the just-created CTS before continuing so it is not leaked.
@@ -1169,7 +1169,7 @@ public class GameCacheDetectionService : IDisposable
     /// <summary>
     /// Builds a DetectionOperationResponse from an OperationInfo, preserving the JSON shape expected by the frontend.
     /// </summary>
-    private static DetectionOperationResponse BuildResponseFromOperationInfo(OperationInfo opInfo)
+    private static DetectionOperationResponse ToDetectionResponse(OperationInfo opInfo)
     {
         var metrics = opInfo.Metadata as GameDetectionMetrics;
 
@@ -1196,7 +1196,7 @@ public class GameCacheDetectionService : IDisposable
         List<GameCacheInfo> games,
         bool incremental,
         CancellationToken cancellationToken = default) =>
-        _detectionDataService.SaveGamesToDatabaseAsync(games, incremental, cancellationToken);
+        _detectionDataService.SaveGamesAsync(games, incremental, cancellationToken);
 
     /// <summary>
     /// Surfaces entities whose underlying Downloads are already marked <c>IsEvicted = true</c>
@@ -1223,7 +1223,7 @@ public class GameCacheDetectionService : IDisposable
     private Task SaveServicesToDatabaseAsync(
         List<ServiceCacheInfo> services,
         CancellationToken cancellationToken = default) =>
-        _detectionDataService.SaveServicesToDatabaseAsync(services, cancellationToken);
+        _detectionDataService.SaveServicesAsync(services, cancellationToken);
 
     private static async Task<List<CachedGameDetection>> GetUnknownGamesCachedAsync(AppDbContext dbContext)
     {
@@ -1239,7 +1239,7 @@ public class GameCacheDetectionService : IDisposable
         catch { return new List<string>(); }
     }
 
-    private static GameCacheInfo ConvertToGameCacheInfo(CachedGameDetection cached)
+    private static GameCacheInfo ToGameCacheInfo(CachedGameDetection cached)
     {
         var datasourcesJson = string.IsNullOrWhiteSpace(cached.DatasourcesJson) ? "[]" : cached.DatasourcesJson;
         return new GameCacheInfo
@@ -1258,7 +1258,7 @@ public class GameCacheDetectionService : IDisposable
         };
     }
 
-    private static ServiceCacheInfo ConvertToServiceCacheInfo(CachedServiceDetection cached)
+    private static ServiceCacheInfo ToServiceCacheInfo(CachedServiceDetection cached)
     {
         var datasourcesJson = string.IsNullOrWhiteSpace(cached.DatasourcesJson) ? "[]" : cached.DatasourcesJson;
         return new ServiceCacheInfo

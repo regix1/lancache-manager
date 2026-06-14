@@ -273,13 +273,13 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         // Per-hour activity metrics (with hour label)
         _meter.CreateObservableGauge(
             "lancache_hourly_downloads",
-            GetHourlyDownloadsMetrics,
+            HourlyDownloadsObserver,
             description: "Downloads per hour of day (7-day period)"
         );
 
         _meter.CreateObservableGauge(
             "lancache_hourly_bytes",
-            GetHourlyBytesMetrics,
+            HourlyBytesObserver,
             description: "Bytes served per hour of day (7-day period)"
         );
 
@@ -315,37 +315,37 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         // ============================================
         _meter.CreateObservableGauge(
             "lancache_service_bytes_total",
-            GetServiceBytesMetrics,
+            ServiceBytesObserver,
             description: "Total bytes served per service"
         );
 
         _meter.CreateObservableGauge(
             "lancache_service_hit_bytes_total",
-            GetServiceHitBytesMetrics,
+            ServiceHitBytesObserver,
             description: "Cache hit bytes per service"
         );
 
         _meter.CreateObservableGauge(
             "lancache_service_miss_bytes_total",
-            GetServiceMissBytesMetrics,
+            ServiceMissBytesObserver,
             description: "Cache miss bytes per service"
         );
 
         _meter.CreateObservableGauge(
             "lancache_service_downloads_total",
-            GetServiceDownloadsMetrics,
+            ServiceDownloadsObserver,
             description: "Total downloads per service"
         );
 
         _meter.CreateObservableGauge(
             "lancache_service_hit_ratio",
-            GetServiceHitRatioMetrics,
+            ServiceHitRatioObserver,
             description: "Cache hit ratio per service (0-1)"
         );
 
         _meter.CreateObservableGauge(
             "lancache_service_active_downloads",
-            GetServiceActiveDownloadsMetrics,
+            ServiceActiveDownloadsObserver,
             description: "Active downloads per service"
         );
 
@@ -354,13 +354,13 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         // ============================================
         _meter.CreateObservableGauge(
             "lancache_client_bytes_total",
-            GetClientBytesMetrics,
+            ClientBytesObserver,
             description: "Total bytes served per client (top 10)"
         );
 
         _meter.CreateObservableGauge(
             "lancache_client_downloads_total",
-            GetClientDownloadsMetrics,
+            ClientDownloadsObserver,
             description: "Total downloads per client (top 10)"
         );
 
@@ -368,7 +368,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
     }
 
     // Service metrics measurement providers
-    private IEnumerable<Measurement<long>> GetServiceBytesMetrics()
+    private IEnumerable<Measurement<long>> ServiceBytesObserver()
     {
         foreach (var kvp in _serviceMetrics)
         {
@@ -379,7 +379,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         }
     }
 
-    private IEnumerable<Measurement<long>> GetServiceHitBytesMetrics()
+    private IEnumerable<Measurement<long>> ServiceHitBytesObserver()
     {
         foreach (var kvp in _serviceMetrics)
         {
@@ -390,7 +390,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         }
     }
 
-    private IEnumerable<Measurement<long>> GetServiceMissBytesMetrics()
+    private IEnumerable<Measurement<long>> ServiceMissBytesObserver()
     {
         foreach (var kvp in _serviceMetrics)
         {
@@ -401,7 +401,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         }
     }
 
-    private IEnumerable<Measurement<long>> GetServiceDownloadsMetrics()
+    private IEnumerable<Measurement<long>> ServiceDownloadsObserver()
     {
         foreach (var kvp in _serviceMetrics)
         {
@@ -412,7 +412,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         }
     }
 
-    private IEnumerable<Measurement<double>> GetServiceHitRatioMetrics()
+    private IEnumerable<Measurement<double>> ServiceHitRatioObserver()
     {
         foreach (var kvp in _serviceMetrics)
         {
@@ -423,7 +423,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         }
     }
 
-    private IEnumerable<Measurement<long>> GetServiceActiveDownloadsMetrics()
+    private IEnumerable<Measurement<long>> ServiceActiveDownloadsObserver()
     {
         foreach (var kvp in _serviceMetrics)
         {
@@ -435,7 +435,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
     }
 
     // Hourly metrics measurement providers
-    private IEnumerable<Measurement<long>> GetHourlyDownloadsMetrics()
+    private IEnumerable<Measurement<long>> HourlyDownloadsObserver()
     {
         foreach (var kvp in _hourlyMetrics)
         {
@@ -446,7 +446,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         }
     }
 
-    private IEnumerable<Measurement<long>> GetHourlyBytesMetrics()
+    private IEnumerable<Measurement<long>> HourlyBytesObserver()
     {
         foreach (var kvp in _hourlyMetrics)
         {
@@ -458,7 +458,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
     }
 
     // Client metrics measurement providers
-    private IEnumerable<Measurement<long>> GetClientBytesMetrics()
+    private IEnumerable<Measurement<long>> ClientBytesObserver()
     {
         foreach (var kvp in _clientMetrics)
         {
@@ -469,7 +469,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         }
     }
 
-    private IEnumerable<Measurement<long>> GetClientDownloadsMetrics()
+    private IEnumerable<Measurement<long>> ClientDownloadsObserver()
     {
         foreach (var kvp in _clientMetrics)
         {
@@ -509,7 +509,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         }
     }
 
-    protected override async Task ExecuteScopedWorkAsync(
+    protected override async Task ExecuteWorkAsync(
         IServiceProvider scopedServices,
         CancellationToken stoppingToken)
     {

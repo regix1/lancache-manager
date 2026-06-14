@@ -67,10 +67,10 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
         entity.ColorIndex = Math.Clamp(request.ColorIndex ?? entity.ColorIndex, 1, 8);
     }
 
-    protected override Task ValidateCreateRequestAsync(CreateEventRequest request, CancellationToken ct)
+    protected override Task ValidateCreateAsync(CreateEventRequest request, CancellationToken ct)
         => Task.CompletedTask;
 
-    protected override Task ValidateUpdateRequestAsync(long id, UpdateEventRequest request, Event existingEntity, CancellationToken ct)
+    protected override Task ValidateUpdateAsync(long id, UpdateEventRequest request, Event existingEntity, CancellationToken ct)
         => Task.CompletedTask;
 
     // ===== SignalR Notifications =====
@@ -118,7 +118,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
         var startUtc = start.FromUnixSeconds();
         var endUtc = end.FromUnixSeconds();
 
-        var events = await _eventsService.GetEventsByDateRangeAsync(startUtc, endUtc);
+        var events = await _eventsService.GetByDateRangeAsync(startUtc, endUtc);
         return Ok(events);
     }
 
@@ -167,7 +167,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     {
         var evt = await _eventsService.GetByIdOrThrowAsync(id, "Event");
 
-        var downloads = await _eventsService.GetDownloadsForEventAsync(id, taggedOnly);
+        var downloads = await _eventsService.GetEventDownloadsAsync(id, taggedOnly);
         return Ok(downloads);
     }
 

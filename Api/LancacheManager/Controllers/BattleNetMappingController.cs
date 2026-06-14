@@ -45,7 +45,7 @@ public class BattleNetMappingController : ControllerBase
 
         try
         {
-            var resolved = await _battleNetMappingService.ResolveBlizzardDownloadsAsync(ct);
+            var resolved = await _battleNetMappingService.ResolveDownloadsAsync(ct);
             return Ok(new
             {
                 resolved,

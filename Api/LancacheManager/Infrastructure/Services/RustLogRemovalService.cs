@@ -43,7 +43,7 @@ public class RustLogRemovalService
     /// <summary>
     /// Starts service removal in the background and returns the operation id as soon as it is registered.
     /// </summary>
-    public Task<Guid?> StartServiceRemovalInBackgroundAsync(string service)
+    public Task<Guid?> StartRemovalInBackgroundAsync(string service)
     {
         return StartRemovalInBackgroundAsync(() => StartRemovalAsync(service));
     }
@@ -51,7 +51,7 @@ public class RustLogRemovalService
     /// <summary>
     /// Starts per-datasource service removal in the background and returns the operation id as soon as it is registered.
     /// </summary>
-    public Task<Guid?> StartServiceRemovalForDatasourceInBackgroundAsync(string service, string datasourceName)
+    public Task<Guid?> StartRemovalForDatasourceInBackgroundAsync(string service, string datasourceName)
     {
         return StartRemovalInBackgroundAsync(() => StartRemovalForDatasourceAsync(service, datasourceName));
     }
@@ -180,7 +180,7 @@ public class RustLogRemovalService
     /// _completionMetrics (captured by value just before each CompleteOperation call, including the
     /// operation id). Branches on info.Cancelled / info.Success / else(error).
     /// </summary>
-    private Func<OperationTerminalInfo, Task> BuildLogRemovalTerminalEmit()
+    private Func<OperationTerminalInfo, Task> BuildTerminalEmit()
     {
         return info =>
         {
@@ -295,7 +295,7 @@ public class RustLogRemovalService
                     _cancellationTokenSource?.Dispose();
                     _cancellationTokenSource = null;
                 },
-                onTerminalEmit: BuildLogRemovalTerminalEmit()
+                onTerminalEmit: BuildTerminalEmit()
             );
             NotifyOperationRegistered();
 
@@ -447,14 +447,14 @@ public class RustLogRemovalService
                         // Scale this datasource's inner 0-100% into its band so the outer card moves
                         // smoothly across datasources instead of jumping at each boundary. The bands fill
                         // [0, MultiDatasourceFileCeiling]; DB cleanup owns the remaining top slice.
-                        progress => SendLogRemovalProgressAsync(progress, service, datasource.Name, datasourcesProcessed, datasources.Count, MultiDatasourceFileCeiling),
+                        progress => SendProgressAsync(progress, service, datasource.Name, datasourcesProcessed, datasources.Count, MultiDatasourceFileCeiling),
                         processLabel: "log_removal");
 
                     var exitCode = result.ExitCode;
                     _logger.LogInformation("Rust log_manager exited with code {ExitCode} for datasource '{DatasourceName}'",
                         exitCode, datasource.Name);
 
-                    if (WasLogRemovalCancelled())
+                    if (WasCancelled())
                     {
                         return false;
                     }
@@ -497,9 +497,9 @@ public class RustLogRemovalService
                 if (!dsSuccess)
                 {
                     allSuccess = false;
-                    if (WasLogRemovalCancelled())
+                    if (WasCancelled())
                     {
-                        await CompleteLogRemovalCancelledAsync(service);
+                        await CompleteCancelledAsync(service);
                         return false;
                     }
 
@@ -510,9 +510,9 @@ public class RustLogRemovalService
                 datasourcesProcessed++;
             }
 
-            if (WasLogRemovalCancelled())
+            if (WasCancelled())
             {
-                await CompleteLogRemovalCancelledAsync(service);
+                await CompleteCancelledAsync(service);
                 return false;
             }
 
@@ -523,13 +523,13 @@ public class RustLogRemovalService
             if (allSuccess && datasourcesProcessed > 0)
             {
                 // Invalidate service counts cache so UI refreshes
-                await _cacheManagementService.InvalidateServiceCountsCacheAsync();
+                await _cacheManagementService.InvalidateServiceCountsAsync();
 
                 // Signal nginx to reopen log files (prevents monolithic container from losing log access)
                 await _nginxLogRotationService.ReopenNginxLogsAsync();
 
                 // Clean up database records for this service
-                var dbCleanupResult = await CleanupDatabaseRecordsAsync(service);
+                var dbCleanupResult = await CleanupDbRecordsAsync(service);
 
                 // Build completion message + capture final metrics for the onTerminalEmit closure.
                 var logMessage = $"Successfully removed {service} entries from {datasourcesProcessed} datasource(s)";
@@ -733,7 +733,7 @@ public class RustLogRemovalService
                     _cancellationTokenSource?.Dispose();
                     _cancellationTokenSource = null;
                 },
-                onTerminalEmit: BuildLogRemovalTerminalEmit()
+                onTerminalEmit: BuildTerminalEmit()
             );
             NotifyOperationRegistered();
 
@@ -796,15 +796,15 @@ public class RustLogRemovalService
                     _currentTrackerOperationId,
                     _cancellationTokenSource.Token,
                     progressPath,
-                    progress => SendLogRemovalProgressAsync(progress, service, datasourceName),
+                    progress => SendProgressAsync(progress, service, datasourceName),
                     processLabel: "log_removal");
 
                 var exitCode = result.ExitCode;
                 _logger.LogInformation("Rust log_manager exited with code {ExitCode} for datasource {Datasource}", exitCode, datasourceName);
 
-                if (WasLogRemovalCancelled())
+                if (WasCancelled())
                 {
-                    await CompleteLogRemovalCancelledAsync(service, datasourceName);
+                    await CompleteCancelledAsync(service, datasourceName);
                     return false;
                 }
 
@@ -820,7 +820,7 @@ public class RustLogRemovalService
 
                 if (exitCode == 0)
                 {
-                    await _cacheManagementService.InvalidateServiceCountsCacheAsync();
+                    await _cacheManagementService.InvalidateServiceCountsAsync();
                     await _nginxLogRotationService.ReopenNginxLogsAsync();
 
                     // Note: Database cleanup is not datasource-specific, so we skip it for per-datasource removal
@@ -876,7 +876,7 @@ public class RustLogRemovalService
             // SignalR completion + CompleteOperation so only ONE terminal event is emitted.
             if (!IsOperationAlreadyTerminal())
             {
-                await CompleteLogRemovalCancelledAsync(service, datasourceName);
+                await CompleteCancelledAsync(service, datasourceName);
             }
 
             return false;
@@ -928,7 +928,7 @@ public class RustLogRemovalService
     /// Upper bound (percent) of the file-processing phase when removing across MULTIPLE datasources.
     /// The datasource bands fill [0, MultiDatasourceFileCeiling]; the remaining
     /// [MultiDatasourceFileCeiling, 100] is reserved for the post-loop database cleanup phase (which
-    /// emits 95% — see <see cref="CleanupDatabaseRecordsAsync"/>) and final completion, so progress
+    /// emits 95% — see <see cref="CleanupDbRecordsAsync"/>) and final completion, so progress
     /// never steps backward from a full 100% band into the 95% cleanup tick.
     /// </summary>
     private const double MultiDatasourceFileCeiling = 95.0;
@@ -944,7 +944,7 @@ public class RustLogRemovalService
     /// (index 0, count 1) the band is [0, ceiling] with ceiling 100, so the inner percent passes
     /// through unchanged.
     /// </summary>
-    private Task SendLogRemovalProgressAsync(
+    private Task SendProgressAsync(
         ProgressData progress,
         string service,
         string datasourceName,
@@ -1029,7 +1029,7 @@ public class RustLogRemovalService
             is (OperationStatus.Completed or OperationStatus.Failed or OperationStatus.Cancelled);
     }
 
-    private bool WasLogRemovalCancelled()
+    private bool WasCancelled()
     {
         if (_cancellationTokenSource?.IsCancellationRequested == true)
         {
@@ -1053,7 +1053,7 @@ public class RustLogRemovalService
     /// (cancelled) event is emitted via onTerminalEmit inside CompleteOperation; this only
     /// captures the cancel message and calls CompleteOperation.
     /// </summary>
-    private Task CompleteLogRemovalCancelledAsync(string service, string? datasourceName = null)
+    private Task CompleteCancelledAsync(string service, string? datasourceName = null)
     {
         var message = datasourceName != null
             ? $"Service removal for {service} in {datasourceName} was cancelled"
@@ -1104,7 +1104,7 @@ public class RustLogRemovalService
     /// Cleans up database records for a removed service.
     /// Deletes LogEntries, Downloads, and ServiceStats for the specified service.
     /// </summary>
-    private async Task<DatabaseCleanupResult> CleanupDatabaseRecordsAsync(string service)
+    private async Task<DatabaseCleanupResult> CleanupDbRecordsAsync(string service)
     {
         var result = new DatabaseCleanupResult();
 

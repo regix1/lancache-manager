@@ -45,7 +45,7 @@ public class ApiKeysController : ControllerBase
     /// GET /api/api-keys/status - Check API key type
     /// </summary>
     [HttpGet("status")]
-    public IActionResult GetApiKeyStatus()
+    public IActionResult GetStatus()
     {
         var apiKey = Request.Headers["X-Api-Key"].FirstOrDefault();
 
@@ -80,7 +80,7 @@ public class ApiKeysController : ControllerBase
     {
         // SECURITY: Clear ALL Steam-related data when API key is regenerated
         var steamWasAuthenticated = _stateService.GetSteamAuthMode() == SteamAuthMode.Authenticated;
-        var hadSteamWebApiKey = !string.IsNullOrWhiteSpace(_steamAuthStorage.GetSteamAuthData().SteamApiKey);
+        var hadSteamWebApiKey = !string.IsNullOrWhiteSpace(_steamAuthStorage.GetAuthData().SteamApiKey);
 
         // Clear Steam auth data (with error handling to ensure API key regen completes)
         try
@@ -92,7 +92,7 @@ public class ApiKeysController : ControllerBase
             _logger.LogWarning(steamEx, "Error clearing Steam auth during API key regeneration (continuing anyway)");
         }
 
-        var (oldKey, newKey) = _apiKeyService.ForceRegenerateApiKey();
+        var (oldKey, newKey) = _apiKeyService.RegenerateApiKey();
         _apiKeyService.DisplayApiKey(_configuration);
 
         _logger.LogWarning(

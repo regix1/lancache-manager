@@ -35,7 +35,7 @@ public class SessionsController : ControllerBase
 
     [Authorize(Policy = "AdminOnly")]
     [HttpGet]
-    public async Task<IActionResult> GetAllSessionsAsync([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    public async Task<IActionResult> GetAllAsync([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         if (page < 1) page = 1;
         if (pageSize < 1) pageSize = 20;
@@ -46,12 +46,12 @@ public class SessionsController : ControllerBase
 
         // Active sessions (paginated)
         var (activeSessions, activeCount) = await _sessionService.GetActiveSessionsPagedAsync(page, pageSize);
-        var activeDtos = activeSessions.Select(s => MapSessionToDto(s, currentSessionId, now)).ToList();
+        var activeDtos = activeSessions.Select(s => ToDto(s, currentSessionId, now)).ToList();
         var totalPages = (int)Math.Ceiling((double)activeCount / pageSize);
 
         // History sessions (revoked/expired) - unpaginated
-        var historySessions = await _sessionService.GetHistorySessionsAsync();
-        var historyDtos = historySessions.Select(s => MapSessionToDto(s, currentSessionId, now)).ToList();
+        var historySessions = await _sessionService.GetSessionHistoryAsync();
+        var historyDtos = historySessions.Select(s => ToDto(s, currentSessionId, now)).ToList();
 
         return Ok(new
         {
@@ -70,7 +70,7 @@ public class SessionsController : ControllerBase
         });
     }
 
-    private static SessionDto MapSessionToDto(UserSession s, Guid? currentSessionId, DateTime now)
+    private static SessionDto ToDto(UserSession s, Guid? currentSessionId, DateTime now)
     {
         var isAdmin = s.SessionType == SessionType.Admin;
         var steamPrefillEnabled = isAdmin || (s.SteamPrefillExpiresAtUtc != null && s.SteamPrefillExpiresAtUtc > now);
@@ -114,7 +114,7 @@ public class SessionsController : ControllerBase
 
     [Authorize(Policy = "AdminOnly")]
     [HttpPatch("{id:guid}/revoke")]
-    public async Task<IActionResult> RevokeSessionAsync(Guid id)
+    public async Task<IActionResult> RevokeAsync(Guid id)
     {
         var currentSession = HttpContext.GetUserSession();
 
@@ -136,7 +136,7 @@ public class SessionsController : ControllerBase
 
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("{id:guid}")]
-    public async Task<IActionResult> DeleteSessionAsync(Guid id)
+    public async Task<IActionResult> DeleteAsync(Guid id)
     {
         var currentSession = HttpContext.GetUserSession();
 
@@ -174,7 +174,7 @@ public class SessionsController : ControllerBase
         var prefsService = scope.ServiceProvider.GetRequiredService<UserPreferencesService>();
 
         var refreshRateJson = JsonSerializer.SerializeToElement(request.RefreshRate ?? "");
-        var result = await prefsService.UpdatePreferenceAndGetAsync(id, PreferenceKey.RefreshRate, refreshRateJson);
+        var result = await prefsService.UpdatePreferenceAsync(id, PreferenceKey.RefreshRate, refreshRateJson);
         if (result == null)
         {
             return NotFound(new { error = "Session not found or update failed" });
@@ -191,7 +191,7 @@ public class SessionsController : ControllerBase
 
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("bulk/reset-to-defaults")]
-    public async Task<IActionResult> BulkResetToDefaultsAsync()
+    public async Task<IActionResult> ResetToDefaultsAsync()
     {
         using var scope = _scopeFactory.CreateScope();
         var prefsService = scope.ServiceProvider.GetRequiredService<UserPreferencesService>();
@@ -226,7 +226,7 @@ public class SessionsController : ControllerBase
 
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("bulk/clear-guests")]
-    public async Task<IActionResult> BulkClearGuestsAsync()
+    public async Task<IActionResult> ClearGuestsAsync()
     {
         var count = await _sessionService.RevokeAllGuestSessionsAsync();
 
@@ -248,7 +248,7 @@ public class SessionsController : ControllerBase
     /// Any session type (admin or guest) may write its own client info.
     /// </summary>
     [HttpPost("me/client-info")]
-    public async Task<IActionResult> UpdateOwnClientInfoAsync(
+    public async Task<IActionResult> UpdateClientInfoAsync(
         [FromBody] ClientInfoRequest request,
         [FromServices] GeoIpService geoIpService,
         [FromServices] PublicIpLookupService publicIpLookupService,

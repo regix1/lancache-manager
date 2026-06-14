@@ -17,7 +17,7 @@ public static class CacheScanStaleCalculator
     /// <summary>
     /// Returns true when live mount usage has drifted significantly since the last cache file scan.
     /// </summary>
-    public static bool IsMountUsageStale(long currentUsedBytes, long? usedBytesAtScan = null)
+    public static bool IsMountStale(long currentUsedBytes, long? usedBytesAtScan = null)
     {
         if (usedBytesAtScan is long baseline && IsUsageDriftStale(currentUsedBytes, baseline))
         {
@@ -29,7 +29,7 @@ public static class CacheScanStaleCalculator
 
     /// <summary>Backward-compatible alias.</summary>
     public static bool IsAnyScanStale(long currentUsedBytes, long? usedBytesAtScan = null) =>
-        IsMountUsageStale(currentUsedBytes, usedBytesAtScan);
+        IsMountStale(currentUsedBytes, usedBytesAtScan);
 
     private static bool IsUsageDriftStale(long currentUsedBytes, long baselineUsedBytes)
     {

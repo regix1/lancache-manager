@@ -46,9 +46,9 @@ public partial class SteamKit2Service
 
         // Reload depot mappings from database to ensure we have latest data
         _logger.LogInformation("Reloading depot mappings from database...");
-        await LoadExistingDepotMappingsAsync();
+        await LoadDepotMappingsAsync();
 
-        await UpdateDownloadsWithDepotMappingsAsync();
+        await ApplyDepotMappingsAsync();
 
         using var scopedDb = _scopeFactory.CreateScopedDbContext();
         var unmappedCount = await scopedDb.DbContext.Downloads
@@ -91,11 +91,11 @@ public partial class SteamKit2Service
 
             _logger.LogInformation("[GameDetection] Querying PICS for {Count} candidate app(s) to resolve unknown depots", candidates.Count);
 
-            var (resolvedDepotIds, newMappings) = await QueryPicsForDepotMappingsAsync(depotIds, candidates, ct);
+            var (resolvedDepotIds, newMappings) = await QueryPicsDepotsAsync(depotIds, candidates, ct);
 
             // Persist new mappings directly to SteamDepotMappings so they are available immediately
             if (newMappings.Count > 0)
-                await PersistNewDepotMappingsAsync(newMappings, ct);
+                await SaveDepotMappingsAsync(newMappings, ct);
 
             _logger.LogInformation("[GameDetection] Specific depot resolution complete: {Resolved}/{Total} depot(s) resolved",
                 resolvedDepotIds.Count, depotIds.Count);
@@ -175,7 +175,7 @@ public partial class SteamKit2Service
 
             _logger.LogInformation("Querying PICS for {Count} candidate parent app(s) for orphan depots", candidates.Count);
 
-            var (resolvedDepotIds, _) = await QueryPicsForDepotMappingsAsync(orphanDepotIds, candidates, ct);
+            var (resolvedDepotIds, _) = await QueryPicsDepotsAsync(orphanDepotIds, candidates, ct);
 
             _logger.LogInformation("Orphan depot resolution complete: {Resolved} new depot mapping(s) discovered from {Candidates} candidate(s)",
                 resolvedDepotIds.Count, candidates.Count);
@@ -215,7 +215,7 @@ public partial class SteamKit2Service
     /// Returns the resolved depot IDs (filtered to those in targetDepotIds) and
     /// corresponding SteamDepotMapping records ready for DB persistence.
     /// </summary>
-    private async Task<(List<uint> resolvedDepotIds, List<SteamDepotMapping> newMappings)> QueryPicsForDepotMappingsAsync(
+    private async Task<(List<uint> resolvedDepotIds, List<SteamDepotMapping> newMappings)> QueryPicsDepotsAsync(
         IReadOnlyList<uint> targetDepotIds,
         HashSet<uint> candidateAppIds,
         CancellationToken ct)
@@ -280,7 +280,7 @@ public partial class SteamKit2Service
     /// Persists newly discovered depot mappings to SteamDepotMappings table,
     /// avoiding duplicates with existing records.
     /// </summary>
-    private async Task PersistNewDepotMappingsAsync(List<SteamDepotMapping> newMappings, CancellationToken ct)
+    private async Task SaveDepotMappingsAsync(List<SteamDepotMapping> newMappings, CancellationToken ct)
     {
         try
         {
@@ -314,7 +314,7 @@ public partial class SteamKit2Service
     /// <summary>
     /// Update downloads that have depot IDs but no game information
     /// </summary>
-    private async Task<(int updated, int notFound)> UpdateDownloadsWithDepotMappingsAsync()
+    private async Task<(int updated, int notFound)> ApplyDepotMappingsAsync()
     {
         try
         {

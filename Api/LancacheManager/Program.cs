@@ -733,7 +733,7 @@ using (var scope = app.Services.CreateScope())
 
             // This will create the database if it doesn't exist and apply all pending migrations
             await dbContext.Database.MigrateAsync();
-            await DatabaseSchemaFixer.ApplyPostMigrationFixesAsync(dbContext, logger);
+            await DatabaseSchemaFixer.ApplyPostMigrationAsync(dbContext, logger);
 
             logger.LogInformation("Database migrations applied successfully");
 
@@ -762,14 +762,14 @@ using (var scope = app.Services.CreateScope())
     }
 
     // Migrate operation files from old data directory to new operations subdirectory
-    var migratedCount = pathResolver.MigrateOperationFilesToNewLocation();
+    var migratedCount = pathResolver.MigrateOperationFiles();
     if (migratedCount > 0)
     {
         logger.LogInformation("Migrated {Count} operation files to operations directory", migratedCount);
     }
 
     // Clean up old operation progress files (cache_clear, corruption_removal, etc.)
-    var cleanedCount = pathResolver.CleanupOldOperationFiles(maxAgeHours: 24);
+    var cleanedCount = pathResolver.CleanupOperationFiles(maxAgeHours: 24);
     if (cleanedCount > 0)
     {
         logger.LogInformation("Cleaned up {Count} old operation files on startup", cleanedCount);

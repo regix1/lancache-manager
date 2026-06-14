@@ -117,7 +117,7 @@ public sealed class SocketDaemonClient : IDaemonClient
             if (_socket?.Connected == true)
                 return;
 
-            await ConnectInternalAsync(cancellationToken);
+            await ConnectCoreAsync(cancellationToken);
         }
         finally
         {
@@ -125,10 +125,10 @@ public sealed class SocketDaemonClient : IDaemonClient
         }
     }
 
-    private async Task ConnectInternalAsync(CancellationToken cancellationToken)
+    private async Task ConnectCoreAsync(CancellationToken cancellationToken)
     {
         // Clean up previous connection if any
-        await DisconnectInternalAsync();
+        await DisconnectCoreAsync();
 
         _logger?.LogInformation("Connecting to daemon socket at {SocketPath}", _socketPath);
 
@@ -191,7 +191,7 @@ public sealed class SocketDaemonClient : IDaemonClient
     {
         _logger?.LogDebug("Authenticating with daemon...");
 
-        var response = await SendCommandInternalAsync("auth", new Dictionary<string, string>
+        var response = await SendCoreAsync("auth", new Dictionary<string, string>
         {
             ["secret"] = _sharedSecret!
         }, TimeSpan.FromSeconds(10), cancellationToken);
@@ -206,7 +206,7 @@ public sealed class SocketDaemonClient : IDaemonClient
         _logger?.LogInformation("Socket authentication successful");
     }
 
-    private async Task DisconnectInternalAsync()
+    private async Task DisconnectCoreAsync()
     {
         _isAuthenticated = false;
 
@@ -367,7 +367,7 @@ public sealed class SocketDaemonClient : IDaemonClient
                         if (challenge != null)
                         {
                             _logger?.LogInformation("Received credential challenge: {Type}", challenge.CredentialType);
-                            await HandleCredentialChallengeAsync(challenge);
+                            await DispatchChallengeAsync(challenge);
                         }
                     }
                     break;
@@ -427,7 +427,7 @@ public sealed class SocketDaemonClient : IDaemonClient
         }
     }
 
-    private async Task HandleCredentialChallengeAsync(CredentialChallenge challenge)
+    private async Task DispatchChallengeAsync(CredentialChallenge challenge)
     {
         lock (_challengeLock)
         {
@@ -474,14 +474,14 @@ public sealed class SocketDaemonClient : IDaemonClient
         CancellationToken cancellationToken = default)
     {
         await EnsureConnectedAsync(cancellationToken);
-        return await SendCommandInternalAsync(type, parameters, timeout, cancellationToken);
+        return await SendCoreAsync(type, parameters, timeout, cancellationToken);
     }
 
     /// <summary>
     /// Internal method to send command without connection check.
     /// Used during authentication when we're already connected but not yet authenticated.
     /// </summary>
-    private async Task<CommandResponse> SendCommandInternalAsync(
+    private async Task<CommandResponse> SendCoreAsync(
         string type,
         Dictionary<string, string>? parameters,
         TimeSpan? timeout,
@@ -622,7 +622,7 @@ public sealed class SocketDaemonClient : IDaemonClient
         string credential,
         CancellationToken cancellationToken = default)
     {
-        var encrypted = SecureCredentialExchange.EncryptCredentialRaw(
+        var encrypted = SecureCredentialExchange.Encrypt(
             challenge.ChallengeId,
             challenge.ServerPublicKey,
             credential,
@@ -930,7 +930,7 @@ public sealed class SocketDaemonClient : IDaemonClient
     {
         if (_disposed) return;
 
-        DisconnectInternalAsync().GetAwaiter().GetResult();
+        DisconnectCoreAsync().GetAwaiter().GetResult();
         _sendLock.Dispose();
         _connectLock.Dispose();
         _disposed = true;

@@ -68,7 +68,7 @@ public abstract class PathResolverBase : IPathResolver
 
     public string GetThemesDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "themes"));
 
-    public string GetCachedImagesDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "cache", "images"));
+    public string GetImagesDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "cache", "images"));
 
     public string GetOperationsDirectory()
     {
@@ -77,7 +77,7 @@ public abstract class PathResolverBase : IPathResolver
         return path;
     }
 
-    public int CleanupOldOperationFiles(int maxAgeHours = 24)
+    public int CleanupOperationFiles(int maxAgeHours = 24)
     {
         var operationsDir = GetOperationsDirectory();
         var deletedCount = 0;
@@ -116,7 +116,7 @@ public abstract class PathResolverBase : IPathResolver
         return deletedCount;
     }
 
-    public int MigrateOperationFilesToNewLocation()
+    public int MigrateOperationFiles()
     {
         var dataDir = GetDataDirectory();
         var operationsDir = GetOperationsDirectory();
@@ -200,7 +200,7 @@ public abstract class PathResolverBase : IPathResolver
     public string GetRustEvictionScanPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", $"cache_eviction_scan{RustExecutableExtension}");
 
-    public string GetRustCachePurgeLogEntriesPath() =>
+    public string GetRustLogPurgePath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", $"cache_purge_log_entries{RustExecutableExtension}");
 
     public string GetRustSpeedTrackerPath() =>
@@ -251,9 +251,9 @@ public abstract class PathResolverBase : IPathResolver
         }
     }
 
-    public bool IsCacheDirectoryWritable() => IsDirectoryWritable(GetCacheDirectory());
+    public bool IsCacheWritable() => IsDirectoryWritable(GetCacheDirectory());
 
-    public bool IsLogsDirectoryWritable() => IsDirectoryWritable(GetLogsDirectory());
+    public bool IsLogsWritable() => IsDirectoryWritable(GetLogsDirectory());
 
     public abstract bool IsDockerSocketAvailable();
 

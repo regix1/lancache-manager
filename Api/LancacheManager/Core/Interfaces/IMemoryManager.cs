@@ -12,5 +12,5 @@ public interface IMemoryManager
     /// On Linux: Standard GC + SQLite pool clearing + malloc_trim to return memory to OS
     /// </summary>
     /// <param name="logger">Optional logger for diagnostics</param>
-    void PerformAggressiveGarbageCollection(ILogger? logger = null);
+    void CollectGarbage(ILogger? logger = null);
 }

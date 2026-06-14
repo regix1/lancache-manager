@@ -15,12 +15,12 @@ public partial class EpicMappingService
     /// Awaits the background refresh task so the base class sets LastRunUtc and fires
     /// ServiceWorkCompleted only after the actual catalog refresh finishes.
     /// </summary>
-    protected override async Task ExecuteScheduledWorkAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
         if (_cancellationTokenSource.Token.IsCancellationRequested || Volatile.Read(ref _isRunning) == 0)
             return;
 
-        await WaitForStartupAutoReconnectAsync(stoppingToken);
+        await WaitForAutoReconnectAsync(stoppingToken);
 
         if (_cancellationTokenSource.Token.IsCancellationRequested || Volatile.Read(ref _isRunning) == 0)
             return;
@@ -150,7 +150,7 @@ public partial class EpicMappingService
                 success = true;
 
                 // Persist last refresh time so it survives restarts (mirrors Steam's SaveLastCrawlTime)
-                _authStorage.UpdateEpicAuthData(data => data.LastAuthenticated = _lastRefreshTime);
+                _authStorage.UpdateAuthData(data => data.LastAuthenticated = _lastRefreshTime);
 
                 _logger.LogInformation("Epic catalog refresh completed successfully");
             }
@@ -193,7 +193,7 @@ public partial class EpicMappingService
         return true;
     }
 
-    private async Task WaitForStartupAutoReconnectAsync(CancellationToken stoppingToken)
+    private async Task WaitForAutoReconnectAsync(CancellationToken stoppingToken)
     {
         if (_startupAutoReconnectCompleted.Task.IsCompleted)
         {
@@ -257,14 +257,14 @@ public partial class EpicMappingService
                     LastAuthenticated = DateTime.UtcNow,
                     GamesDiscovered = _gamesDiscovered
                 };
-                _authStorage.SaveEpicAuthData(authData);
+                _authStorage.SaveAuthData(authData);
 
                 _displayName = tokens.DisplayName;
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Token refresh failed during catalog update, clearing credentials");
-                _authStorage.ClearEpicAuthData();
+                _authStorage.ClearAuthData();
                 _isAuthenticated = false;
                 _displayName = null;
                 _gamesDiscovered = 0;
@@ -389,7 +389,7 @@ public partial class EpicMappingService
 
         try
         {
-            var resolved = await ResolveEpicDownloadsAsync(ct);
+            var resolved = await ResolveDownloadsAsync(ct);
             if (resolved > 0)
             {
                 _logger.LogInformation("Resolved {Count} Epic downloads to game names", resolved);

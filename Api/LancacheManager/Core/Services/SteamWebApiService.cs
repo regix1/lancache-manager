@@ -58,7 +58,7 @@ public class SteamWebApiService
         // Return cached status if recent enough and not forcing refresh
         if (!forceRefresh && DateTime.UtcNow - _lastStatusCheck < _statusCheckInterval && _cachedVersion != SteamApiVersion.Unknown)
         {
-            return BuildStatusFromCache();
+            return BuildCachedStatus();
         }
 
         // Acquire lock to prevent concurrent status checks
@@ -68,11 +68,11 @@ public class SteamWebApiService
             // Double-check after acquiring lock
             if (!forceRefresh && DateTime.UtcNow - _lastStatusCheck < _statusCheckInterval && _cachedVersion != SteamApiVersion.Unknown)
             {
-                return BuildStatusFromCache();
+                return BuildCachedStatus();
             }
 
             // Check if we have an API key configured
-            var authData = _steamAuthRepository.GetSteamAuthData();
+            var authData = _steamAuthRepository.GetAuthData();
             var hasApiKey = !string.IsNullOrWhiteSpace(authData.SteamApiKey);
 
             // Test V2 first (no API key needed)
@@ -253,7 +253,7 @@ public class SteamWebApiService
             throw new ArgumentException("API key cannot be empty", nameof(apiKey));
         }
 
-        _steamAuthRepository.UpdateSteamAuthData(data =>
+        _steamAuthRepository.UpdateAuthData(data =>
         {
             data.SteamApiKey = apiKey.Trim();
         });
@@ -270,7 +270,7 @@ public class SteamWebApiService
     /// </summary>
     public void RemoveApiKey()
     {
-        _steamAuthRepository.UpdateSteamAuthData(data =>
+        _steamAuthRepository.UpdateAuthData(data =>
         {
             data.SteamApiKey = null;
         });
@@ -331,7 +331,7 @@ public class SteamWebApiService
 
                 await GetApiStatusAsync(forceRefresh: true);
 
-                var fallbackApps = await GetV1AppListWithPaginationAsync();
+                var fallbackApps = await FetchV1AppListAsync();
                 if (fallbackApps == null || fallbackApps.Count == 0)
                 {
                     _logger.LogError("Steam Web API V1 fallback failed to return any apps");
@@ -342,7 +342,7 @@ public class SteamWebApiService
             else if (status.Version == SteamApiVersion.V1WithKey)
             {
                 // V1 requires pagination - fetch all pages
-                return await GetV1AppListWithPaginationAsync();
+                return await FetchV1AppListAsync();
             }
             else
             {
@@ -360,9 +360,9 @@ public class SteamWebApiService
     /// <summary>
     /// Get all apps from V1 API with pagination (V1 limits to 50k per request)
     /// </summary>
-    private async Task<List<SteamApp>?> GetV1AppListWithPaginationAsync()
+    private async Task<List<SteamApp>?> FetchV1AppListAsync()
     {
-        var authData = _steamAuthRepository.GetSteamAuthData();
+        var authData = _steamAuthRepository.GetAuthData();
         var apiKey = authData.SteamApiKey;
 
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -543,9 +543,9 @@ public class SteamWebApiService
         }
     }
 
-    private ApiStatus BuildStatusFromCache()
+    private ApiStatus BuildCachedStatus()
     {
-        var authData = _steamAuthRepository.GetSteamAuthData();
+        var authData = _steamAuthRepository.GetAuthData();
         var hasApiKey = !string.IsNullOrWhiteSpace(authData.SteamApiKey);
 
         return _cachedVersion switch
@@ -607,7 +607,7 @@ public class SteamWebApiService
     /// Get cached Web API availability status synchronously (doesn't trigger a new check)
     /// Returns true if either V2 is active or V1 is configured with an API key
     /// </summary>
-    public bool IsWebApiAvailableCached()
+    public bool IsAvailableCached()
     {
         // Web API is available if V2 works or V1 is configured with a key
         return _cachedVersion == SteamApiVersion.V2Active || _cachedVersion == SteamApiVersion.V1WithKey;

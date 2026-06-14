@@ -143,10 +143,10 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     public async Task ClearAllSteamAuthAsync()
     {
         // Capture API key status BEFORE clearing
-        var hadWebApiKey = !string.IsNullOrWhiteSpace(_steamAuthRepository.GetSteamAuthData().SteamApiKey);
+        var hadWebApiKey = !string.IsNullOrWhiteSpace(_steamAuthRepository.GetAuthData().SteamApiKey);
 
         await LogoutAsync();
-        _steamAuthRepository.ClearSteamAuthData();
+        _steamAuthRepository.ClearAuthData();
         _logger.LogInformation("Cleared Steam PICS auth data");
 
         if (hadWebApiKey)
@@ -164,7 +164,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         try
         {
             // Load existing depot mappings from database first
-            await LoadExistingDepotMappingsAsync();
+            await LoadDepotMappingsAsync();
 
             // Initialize session tracking to current count (so session shows 0 when idle)
             _sessionStartDepotCount = _depotToAppMappings.Count;
@@ -179,7 +179,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
 
             // Load saved crawl mode from state
             _crawlIncrementalMode = _stateService.GetCrawlIncrementalMode();
-            var modeStr = GetCrawlModeString(_crawlIncrementalMode);
+            var modeStr = CrawlModeLabel(_crawlIncrementalMode);
             _logger.LogInformation("Loaded crawl mode from state: {Mode}", modeStr);
 
             // Load PICS metadata (crawl time and change number) from JSON or state
@@ -257,7 +257,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         UnsubscribeFromDaemonEvents();
 
         _intentionalDisconnect = true;
-        await DisconnectFromSteamAsync();
+        await DisconnectAsync();
 
         if (_currentBuildTask is not null)
         {
@@ -363,7 +363,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     /// Sends a SteamAutoLogout notification to the frontend.
     /// Used when credentials are invalidated or session is replaced.
     /// </summary>
-    private void SendAutoLogoutNotification(string message, string reason)
+    private void NotifyAutoLogout(string message, string reason)
     {
         _notifications.NotifyAllFireAndForget(SignalREvents.SteamAutoLogout, new
         {
@@ -378,7 +378,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     /// Fails any pending connection/login TaskCompletionSources with the given exception.
     /// Used during disconnection, cancellation, and error handling to unblock waiting code.
     /// </summary>
-    private void FailPendingConnectionTasks(Exception exception)
+    private void FailConnectionTasks(Exception exception)
     {
         _connectedTcs?.TrySetException(exception);
         _loggedOnTcs?.TrySetException(exception);
@@ -421,14 +421,14 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         }
 
         var productJob = _steamApps.PICSGetProductInfo(appRequests, Enumerable.Empty<SteamApps.PICSRequest>());
-        return await WaitForAllProductInfoAsync(productJob, ct);
+        return await WaitForProductInfoAsync(productJob, ct);
     }
 
     /// <summary>
     /// Gets the current PICS change number from Steam.
     /// Requires an active connection (_steamApps must be non-null).
     /// </summary>
-    private async Task<uint> GetCurrentPicsChangeNumberAsync(CancellationToken ct)
+    private async Task<uint> GetPicsChangeNumberAsync(CancellationToken ct)
     {
         var job = _steamApps!.PICSGetChangesSince(0, false, false);
         var changes = await WaitForCallbackAsync(job, ct);
@@ -542,7 +542,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
             // Save to state for persistence across restarts
             _stateService.SetCrawlIncrementalMode(value);
 
-            var modeStr = GetCrawlModeString(value);
+            var modeStr = CrawlModeLabel(value);
             _logger.LogInformation("Saved crawl mode to state: {Mode}", modeStr);
         }
     }
@@ -550,7 +550,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     /// <summary>
     /// Convert crawl mode object to string representation
     /// </summary>
-    private string GetCrawlModeString(object mode)
+    private string CrawlModeLabel(object mode)
     {
         if (mode is bool b)
         {
@@ -669,7 +669,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         var isAuthenticated = authMode == SteamAuthMode.Authenticated && !string.IsNullOrEmpty(_stateService.GetSteamRefreshToken());
 
         // Check if Web API is available (V2 or V1 with key) for Full/Incremental scans
-        var isWebApiAvailable = _steamWebApiService.IsWebApiAvailableCached();
+        var isWebApiAvailable = _steamWebApiService.IsAvailableCached();
 
         return new SteamPicsProgress
         {
@@ -703,7 +703,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     /// </summary>
     public bool IsWebApiAvailable()
     {
-        return _steamWebApiService.IsWebApiAvailableCached();
+        return _steamWebApiService.IsAvailableCached();
     }
 
 }

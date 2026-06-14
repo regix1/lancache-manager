@@ -39,12 +39,12 @@ public partial class SteamKit2Service
         _steamClient!.Connect();
 
         // Wait for connected (increased timeout to handle Steam server delays)
-        await WaitForTaskWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(60), ct, "Connecting to Steam");
+        await WaitWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(60), ct, "Connecting to Steam");
 
-        PerformLogin();
+        Login();
 
         // Wait for logged on (increased timeout to handle Steam server delays)
-        await WaitForTaskWithTimeoutAsync(_loggedOnTcs.Task, TimeSpan.FromSeconds(60), ct, "Logging into Steam");
+        await WaitWithTimeoutAsync(_loggedOnTcs.Task, TimeSpan.FromSeconds(60), ct, "Logging into Steam");
     }
 
     /// <summary>
@@ -53,7 +53,7 @@ public partial class SteamKit2Service
     /// synchronously, and ConnectAndLoginAsync awaits the logon result separately via _loggedOnTcs.
     /// Never use .Result or .Wait() here; SteamKit2 callbacks must not block the event loop thread.
     /// </summary>
-    private void PerformLogin()
+    private void Login()
     {
         if (IsSteamDaemonActive())
         {
@@ -85,7 +85,7 @@ public partial class SteamKit2Service
         _logger.LogInformation("SteamKit2 anonymous login (no LoginID)");
     }
 
-    private async Task WaitForTaskWithTimeoutAsync(Task task, TimeSpan timeout, CancellationToken ct, string operationName = "Steam operation")
+    private async Task WaitWithTimeoutAsync(Task task, TimeSpan timeout, CancellationToken ct, string operationName = "Steam operation")
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(timeout);
@@ -117,7 +117,7 @@ public partial class SteamKit2Service
             // Steam often fires OnDisconnected WITHOUT a preceding OnLoggedOff callback,
             // so we can't rely on tracking session replacement flags. Checking the daemon
             // status directly is reliable and avoids the authenticated reconnection loop.
-            PerformLogin();
+            Login();
         }
     }
 
@@ -149,7 +149,7 @@ public partial class SteamKit2Service
                 _lastErrorMessage = errorMessage;
 
                 // Fail any pending connection/login tasks
-                FailPendingConnectionTasks(new Exception(errorMessage));
+                FailConnectionTasks(new Exception(errorMessage));
 
                 // Cancel the rebuild
                 _currentRebuildCts?.Cancel();
@@ -201,7 +201,7 @@ public partial class SteamKit2Service
             // Fail pending tasks if not reconnecting
             if (!_connectedTcs?.Task.IsCompleted ?? false)
             {
-                FailPendingConnectionTasks(new Exception("Disconnected from Steam"));
+                FailConnectionTasks(new Exception("Disconnected from Steam"));
             }
             _reconnectAttempt = 0; // Reset when not actively rebuilding
         }
@@ -330,7 +330,7 @@ public partial class SteamKit2Service
             ClearSteamCredentials();
 
             // Notify frontend to update auth state (so the UI reflects anonymous mode)
-            SendAutoLogoutNotification(errorMessage, errorType);
+            NotifyAutoLogout(errorMessage, errorType);
         }
 
         // For credential-invalidating errors, clear stored credentials and notify frontend
@@ -340,7 +340,7 @@ public partial class SteamKit2Service
             ClearSteamCredentials();
 
             // Notify frontend to update auth state
-            SendAutoLogoutNotification(errorMessage, errorType);
+            NotifyAutoLogout(errorMessage, errorType);
         }
 
         // Send SignalR notification for significant errors
@@ -379,7 +379,7 @@ public partial class SteamKit2Service
     /// <summary>
     /// Helper method to disconnect from Steam properly
     /// </summary>
-    private async Task DisconnectFromSteamAsync(int delayMs = 1000)
+    private async Task DisconnectAsync(int delayMs = 1000)
     {
         if (_steamClient?.IsConnected == true)
         {

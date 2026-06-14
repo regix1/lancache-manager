@@ -220,7 +220,7 @@ public class ScheduledServiceStartupTests
         public Task InvokeStartupAsync(CancellationToken cancellationToken)
             => base.OnStartupAsync(cancellationToken);
 
-        protected override Task ExecuteScopedWorkAsync(
+        protected override Task ExecuteWorkAsync(
             IServiceProvider scopedServices,
             CancellationToken stoppingToken)
         {

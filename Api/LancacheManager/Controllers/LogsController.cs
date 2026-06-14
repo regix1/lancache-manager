@@ -177,7 +177,7 @@ public class LogsController : ControllerBase
     /// <summary>
     /// Count lines in a file efficiently
     /// </summary>
-    private static long CountLinesInFile(string filePath)
+    private static long CountLines(string filePath)
     {
         long lineCount = 0;
         using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
@@ -192,7 +192,7 @@ public class LogsController : ControllerBase
     /// <summary>
     /// Count lines in a gzip-compressed file
     /// </summary>
-    private static long CountLinesInGzipFile(string filePath)
+    private static long CountGzipLines(string filePath)
     {
         long lineCount = 0;
         using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
@@ -209,7 +209,7 @@ public class LogsController : ControllerBase
     /// Count total lines across all log files in a directory (matching Rust processor behavior)
     /// Includes access.log, access.log.1, access.log.2, and compressed variants (.gz)
     /// </summary>
-    private long CountLinesInAllLogFiles(string logDirectory)
+    private long CountAllLogLines(string logDirectory)
     {
         long totalLines = 0;
 
@@ -241,12 +241,12 @@ public class LogsController : ControllerBase
                     if (fileName.EndsWith(".gz"))
                     {
                         // Handle gzip-compressed files
-                        totalLines += CountLinesInGzipFile(logFile);
+                        totalLines += CountGzipLines(logFile);
                     }
                     else
                     {
                         // Handle plain text files
-                        totalLines += CountLinesInFile(logFile);
+                        totalLines += CountLines(logFile);
                     }
                 }
                 catch (Exception ex)
@@ -283,7 +283,7 @@ public class LogsController : ControllerBase
             if (totalLines == 0 && position == 0)
             {
                 // No saved value and position is 0 - count files as fallback
-                totalLines = CountLinesInAllLogFiles(ds.LogPath);
+                totalLines = CountAllLogLines(ds.LogPath);
             }
 
             positions.Add(new
@@ -326,7 +326,7 @@ public class LogsController : ControllerBase
         try
         {
             // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
-            Task<Guid?> StartAllProcessingAsync() => _rustLogProcessorService.StartProcessingAllInBackgroundAsync();
+            Task<Guid?> StartAllProcessingAsync() => _rustLogProcessorService.StartAllInBackgroundAsync();
 
             var conflict = await _conflictChecker.CheckAsync(
                 OperationType.LogProcessing,
@@ -392,7 +392,7 @@ public class LogsController : ControllerBase
             async Task<Guid?> StartDatasourceProcessingAsync()
             {
                 var position = _stateRepository.GetLogPosition(datasourceName);
-                return await _rustLogProcessorService.StartProcessingInBackgroundAsync(
+                return await _rustLogProcessorService.StartInBackgroundAsync(
                     datasource.LogPath,
                     position,
                     silentMode: false,
@@ -457,7 +457,7 @@ public class LogsController : ControllerBase
     /// POST /api/logs/process/kill - Force kill log processing operation
     /// </summary>
     [HttpPost("process/kill")]
-    public async Task<IActionResult> ForceKillLogProcessingAsync()
+    public async Task<IActionResult> ForceKillAsync()
     {
         var killed = await _rustLogProcessorService.ForceKillProcessingAsync();
         if (!killed)
@@ -508,7 +508,7 @@ public class LogsController : ControllerBase
         long totalLines = 0;
         foreach (var ds in datasources)
         {
-            var lineCount = CountLinesInAllLogFiles(ds.LogPath);
+            var lineCount = CountAllLogLines(ds.LogPath);
             // Save both position AND totalLines so they stay in sync
             _stateRepository.SetLogPosition(ds.Name, lineCount);
             _stateRepository.SetLogTotalLines(ds.Name, lineCount);
@@ -537,7 +537,7 @@ public class LogsController : ControllerBase
     /// Returns a BadRequest IActionResult with a PUID/PGID error message if none are writable, or null if at least one is writable.
     /// Also emits a warning if some (but not all) datasources are read-only.
     /// </summary>
-    private BadRequestObjectResult? EnsureLogsDirectoriesWritable(string operationDescription)
+    private BadRequestObjectResult? EnsureWritable(string operationDescription)
     {
         var datasources = _datasourceService.GetDatasources();
         var writableDatasources = datasources
@@ -579,12 +579,12 @@ public class LogsController : ControllerBase
 
         // CRITICAL: Check write permissions BEFORE starting the operation
         // This removes logs from all datasources, so we need at least one writable datasource
-        var permissionError = EnsureLogsDirectoriesWritable($"remove service logs for '{service}'");
+        var permissionError = EnsureWritable($"remove service logs for '{service}'");
         if (permissionError != null)
             return permissionError;
 
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
-        Task<Guid?> StartLogRemovalAsync() => _rustLogRemovalService.StartServiceRemovalInBackgroundAsync(service);
+        Task<Guid?> StartLogRemovalAsync() => _rustLogRemovalService.StartRemovalInBackgroundAsync(service);
 
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.LogRemoval,
@@ -651,7 +651,7 @@ public class LogsController : ControllerBase
 
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
         Task<Guid?> StartDatasourceLogRemovalAsync() =>
-            _rustLogRemovalService.StartServiceRemovalForDatasourceInBackgroundAsync(service, datasourceName);
+            _rustLogRemovalService.StartRemovalForDatasourceInBackgroundAsync(service, datasourceName);
 
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.LogRemoval,

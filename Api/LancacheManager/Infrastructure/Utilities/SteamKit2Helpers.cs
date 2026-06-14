@@ -11,7 +11,7 @@ public static class SteamKit2Helpers
     /// Converts concurrent dictionaries to regular dictionaries for serialization
     /// </summary>
     public static (Dictionary<uint, HashSet<uint>> depotMappings, Dictionary<uint, string> appNames, Dictionary<uint, uint> depotOwners, Dictionary<uint, string> depotNames)
-        ConvertMappingsDictionaries(
+        ToPlainDictionaries(
             ConcurrentDictionary<uint, HashSet<uint>> depotToAppMappings,
             ConcurrentDictionary<uint, string> appNames,
             ConcurrentDictionary<uint, uint> depotOwners,

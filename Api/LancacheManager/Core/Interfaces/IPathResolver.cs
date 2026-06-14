@@ -78,7 +78,7 @@ public interface IPathResolver
     /// <summary>
     /// Gets the cached images directory path
     /// </summary>
-    string GetCachedImagesDirectory();
+    string GetImagesDirectory();
 
     /// <summary>
     /// Gets the operations directory path for temporary operation progress files
@@ -90,13 +90,13 @@ public interface IPathResolver
     /// </summary>
     /// <param name="maxAgeHours">Maximum age in hours before files are deleted (default 24)</param>
     /// <returns>Number of files deleted</returns>
-    int CleanupOldOperationFiles(int maxAgeHours = 24);
+    int CleanupOperationFiles(int maxAgeHours = 24);
 
     /// <summary>
     /// Migrates operation files from the old data directory location to the new operations directory
     /// </summary>
     /// <returns>Number of files migrated</returns>
-    int MigrateOperationFilesToNewLocation();
+    int MigrateOperationFiles();
 
     /// <summary>
     /// Gets the path to the Rust log processor executable
@@ -158,7 +158,7 @@ public interface IPathResolver
     /// Used by RemoveEvictedRecordsAsync to rewrite access.log files and drop entries
     /// for all evicted games in a single pass.
     /// </summary>
-    string GetRustCachePurgeLogEntriesPath();
+    string GetRustLogPurgePath();
 
     /// <summary>
     /// Gets the path to the Rust speed tracker executable
@@ -196,12 +196,12 @@ public interface IPathResolver
     /// <summary>
     /// Checks if the cache directory is writable
     /// </summary>
-    bool IsCacheDirectoryWritable();
+    bool IsCacheWritable();
 
     /// <summary>
     /// Checks if the logs directory is writable
     /// </summary>
-    bool IsLogsDirectoryWritable();
+    bool IsLogsWritable();
 
     /// <summary>
     /// Checks if the Docker socket is available for container communication

@@ -123,7 +123,7 @@ public class DownloadsController : ControllerBase
             }
 
             // Resolve game names via Steam depot mappings + Epic lookup
-            await ResolveGameNamesAsync(downloads);
+            await ResolveNamesAsync(downloads);
 
             // Return just the array - frontend will use array.length for actual count
             return Ok(downloads);
@@ -201,7 +201,7 @@ public class DownloadsController : ControllerBase
     /// Get events for multiple download IDs in a single batch request
     /// </summary>
     [HttpPost("batch-download-events")]
-    public async Task<IActionResult> GetBatchDownloadEventsAsync([FromBody] BatchDownloadEventsRequest request)
+    public async Task<IActionResult> GetBatchEventsAsync([FromBody] BatchDownloadEventsRequest request)
     {
         if (request.DownloadIds == null || request.DownloadIds.Count == 0)
         {
@@ -244,7 +244,7 @@ public class DownloadsController : ControllerBase
     /// Get downloads with their tags and events for a time range
     /// </summary>
     [HttpGet("with-associations")]
-    public async Task<IActionResult> GetWithAssociationsAsync(
+    public async Task<IActionResult> GetWithEventsAsync(
         [FromQuery] int count = 100,
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null)
@@ -367,7 +367,7 @@ public class DownloadsController : ControllerBase
 
             // Resolve game names at group level (a depot maps to exactly one app, so this is
             // equivalent to the previous per-row resolution but over far fewer items).
-            await ResolveGroupGameNamesAsync(groupedRows);
+            await ResolveGroupNamesAsync(groupedRows);
 
             var grouped = groupedRows.Select(r =>
             {
@@ -552,7 +552,7 @@ public class DownloadsController : ControllerBase
                 .Take(query.PageSize)
                 .ToList();
 
-            await FillPageDownloadIdsAsync(query, items, pairsByRowId);
+            await FillDownloadIdsAsync(query, items, pairsByRowId);
 
             return Ok(new RetroDownloadResponse
             {
@@ -675,7 +675,7 @@ public class DownloadsController : ControllerBase
     /// Group-level variant of ResolveGameNamesAsync: fills missing game names on aggregated
     /// retro rows from Steam depot mappings and Epic game mappings.
     /// </summary>
-    private async Task ResolveGroupGameNamesAsync(List<RetroGroupRow> rows)
+    private async Task ResolveGroupNamesAsync(List<RetroGroupRow> rows)
     {
         if (rows.Count == 0) return;
 
@@ -731,7 +731,7 @@ public class DownloadsController : ControllerBase
     /// Fetches the underlying download IDs for the current page's depot-backed rows only.
     /// No-depot rows already carry their single download id from the aggregate query.
     /// </summary>
-    private async Task FillPageDownloadIdsAsync(
+    private async Task FillDownloadIdsAsync(
         RetroDownloadQuery query,
         List<RetroDownloadDto> pageItems,
         Dictionary<string, List<(long DepotId, string ClientIp)>> pairsByRowId)
@@ -784,7 +784,7 @@ public class DownloadsController : ControllerBase
         }
     }
 
-    private async Task ResolveGameNamesAsync(List<Download> downloads)
+    private async Task ResolveNamesAsync(List<Download> downloads)
     {
         if (downloads.Count == 0) return;
 

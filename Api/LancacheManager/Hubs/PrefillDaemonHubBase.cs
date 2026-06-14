@@ -46,7 +46,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     public override async Task OnConnectedAsync()
     {
         var httpContext = Context.GetHttpContext();
-        var rawToken = httpContext != null ? Security.SessionService.GetSessionTokenFromCookie(httpContext) : null;
+        var rawToken = httpContext != null ? Security.SessionService.TokenFromCookie(httpContext) : null;
 
         if (string.IsNullOrEmpty(rawToken))
         {
@@ -156,7 +156,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
         // Re-hydration: if a prefill is in flight, replay the retained live progress snapshot to
         // THIS caller only (reuses the existing PrefillProgress event; no new event; no
         // double-broadcast to other subscribers) so the bar binds without waiting for the next tick.
-        await _daemonService.ReplayCurrentProgressToConnectionAsync(sessionId, Context.ConnectionId);
+        await _daemonService.ReplayProgressAsync(sessionId, Context.ConnectionId);
     }
 
     /// <summary>

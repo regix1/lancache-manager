@@ -10,7 +10,7 @@ public partial class SteamKit2Service
     /// Called by the ConfigurableScheduledService base class on each interval tick.
     /// Checks preconditions and triggers a PICS crawl if appropriate.
     /// </summary>
-    protected override async Task ExecuteScheduledWorkAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
         // If initialization failed (e.g. DB was unavailable), retry it before doing any work
         if (!_initialized)
@@ -39,14 +39,14 @@ public partial class SteamKit2Service
         // Use configured scan mode for automatic scheduled scans
         if (!IsRebuildRunning)
         {
-            var scanType = GetCrawlModeString(_crawlIncrementalMode);
+            var scanType = CrawlModeLabel(_crawlIncrementalMode);
             _logger.LogInformation("Starting scheduled {ScanType} PICS update", scanType);
 
             // Check if GitHub mode - download from GitHub instead of connecting to Steam
             if (IsGithubMode(_crawlIncrementalMode))
             {
                 _logger.LogInformation("[GitHub Mode] Downloading depot data from GitHub (no Steam connection)");
-                var success = await DownloadAndImportGitHubDataAsync(stoppingToken);
+                var success = await ImportFromGitHubAsync(stoppingToken);
 
                 if (success)
                 {
@@ -68,7 +68,7 @@ public partial class SteamKit2Service
                 try
                 {
                     _logger.LogInformation("Checking incremental scan viability before starting scheduled scan");
-                    var viability = await CheckIncrementalViabilityAsync(stoppingToken);
+                    var viability = await CheckViabilityAsync(stoppingToken);
 
                     // Check if there was a connection/network error during viability check
                     if (!string.IsNullOrEmpty(viability.Error))
@@ -154,7 +154,7 @@ public partial class SteamKit2Service
     /// <summary>
     /// Clear the automatic scan skipped flag (used after manual actions like GitHub downloads or forced scans)
     /// </summary>
-    public void ClearAutomaticScanSkippedFlag()
+    public void ClearScanSkippedFlag()
     {
         if (_automaticScanSkipped)
         {

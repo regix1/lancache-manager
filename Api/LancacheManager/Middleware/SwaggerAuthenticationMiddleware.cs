@@ -63,7 +63,7 @@ public class SwaggerAuthenticationMiddleware
         _logger.LogWarning("Unauthorized swagger access attempt from {IP}",
             context.Connection.RemoteIpAddress);
 
-        await AuthenticationHelper.WriteErrorResponseAsync(
+        await AuthenticationHelper.WriteErrorAsync(
             context, 401, "API key required to access Swagger documentation");
     }
 }

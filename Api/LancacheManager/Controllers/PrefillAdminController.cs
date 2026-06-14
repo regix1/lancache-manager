@@ -42,13 +42,13 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Builds a BannedSteamUserDto from a BannedSteamUser entity (always sets IsActive = true for new bans).
     /// </summary>
-    private static BannedSteamUserDto BuildBanDto(BannedSteamUser ban) => new()
+    private static BannedSteamUserDto ToBanDto(BannedSteamUser ban) => new()
     {
         Id = ban.Id,
         Username = ban.Username,
         BannedUserId = ban.BannedUserId,
         BanReason = ban.BanReason,
-        BannedBySessionId = ParseGuidOrNull(ban.BannedBySessionId),
+        BannedBySessionId = TryParseGuid(ban.BannedBySessionId),
         BannedAtUtc = ban.BannedAtUtc,
         BannedBy = ban.BannedBy,
         ExpiresAtUtc = ban.ExpiresAtUtc,
@@ -60,7 +60,7 @@ public class PrefillAdminController : ControllerBase
     /// Parses a session id string to Guid, returning null for null/empty/invalid values.
     /// Used at the entity/DTO boundary for fields that legacy-store UserSession.Id as string.
     /// </summary>
-    private static Guid? ParseGuidOrNull(string? value)
+    private static Guid? TryParseGuid(string? value)
         => Guid.TryParse(value, out var guid) ? guid : null;
 
     #region Session Management
@@ -144,7 +144,7 @@ public class PrefillAdminController : ControllerBase
     [HttpGet("sessions/{sessionId}/history")]
     public async Task<ActionResult<List<PrefillHistoryEntryDto>>> GetSessionHistoryAsync(string sessionId)
     {
-        var history = await _sessionService.GetPrefillHistoryAsync(sessionId);
+        var history = await _sessionService.GetHistoryAsync(sessionId);
 
         return Ok(history.Select(h => new PrefillHistoryEntryDto
         {
@@ -166,7 +166,7 @@ public class PrefillAdminController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("sessions/{sessionId}/terminate")]
-    public async Task<ActionResult> TerminateSessionAsync(
+    public async Task<ActionResult> TerminateAsync(
         string sessionId,
         [FromBody] TerminateSessionRequest? request = null)
     {
@@ -191,7 +191,7 @@ public class PrefillAdminController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("sessions/terminate-all")]
-    public async Task<ActionResult> TerminateAllSessionsAsync([FromBody] TerminateSessionRequest? request = null)
+    public async Task<ActionResult> TerminateAllAsync([FromBody] TerminateSessionRequest? request = null)
     {
         var adminSessionId = HttpContext.GetRequiredSessionId();
         var adminSessionIdString = adminSessionId.ToString();
@@ -246,7 +246,7 @@ public class PrefillAdminController : ControllerBase
             Username = b.Username,
             BannedUserId = b.BannedUserId,
             BanReason = b.BanReason,
-            BannedBySessionId = ParseGuidOrNull(b.BannedBySessionId),
+            BannedBySessionId = TryParseGuid(b.BannedBySessionId),
             BannedAtUtc = b.BannedAtUtc,
             BannedBy = b.BannedBy,
             ExpiresAtUtc = b.ExpiresAtUtc,
@@ -289,7 +289,7 @@ public class PrefillAdminController : ControllerBase
         _logger.LogWarning("Admin session {AdminId} banned prefill user (username={Username}, userId={BannedUserId}) from session {SessionId}. Reason: {Reason}",
             adminSessionId, ban.Username ?? "(none)", ban.BannedUserId, sessionId, request.Reason);
 
-        return Ok(BuildBanDto(ban));
+        return Ok(ToBanDto(ban));
     }
 
     /// <summary>
@@ -317,7 +317,7 @@ public class PrefillAdminController : ControllerBase
         _logger.LogWarning("Admin session {AdminId} banned Steam user {Username}. Reason: {Reason}",
             adminSessionId, ban.Username, request.Reason);
 
-        return Ok(BuildBanDto(ban));
+        return Ok(ToBanDto(ban));
     }
 
     /// <summary>
@@ -371,7 +371,7 @@ public class PrefillAdminController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AnyPrefillAccess")]
     [HttpPost("cache/check")]
-    public async Task<ActionResult<CacheCheckResponse>> CheckAppsCachedAsync([FromBody] List<long> appIds)
+    public async Task<ActionResult<CacheCheckResponse>> CheckCachedAsync([FromBody] List<long> appIds)
     {
         if (appIds == null || appIds.Count == 0)
         {

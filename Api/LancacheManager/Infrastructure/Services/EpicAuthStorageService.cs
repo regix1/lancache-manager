@@ -78,7 +78,7 @@ public class EpicAuthStorageService
     /// <summary>
     /// Gets the current Epic auth data (with decrypted fields)
     /// </summary>
-    public EpicAuthData GetEpicAuthData()
+    public EpicAuthData GetAuthData()
     {
         lock (_lock)
         {
@@ -147,7 +147,7 @@ public class EpicAuthStorageService
     /// <summary>
     /// Saves Epic auth data (encrypts sensitive fields using Microsoft Data Protection API)
     /// </summary>
-    public void SaveEpicAuthData(EpicAuthData data)
+    public void SaveAuthData(EpicAuthData data)
     {
         lock (_lock)
         {
@@ -209,20 +209,20 @@ public class EpicAuthStorageService
     /// <summary>
     /// Updates a specific part of Epic auth data
     /// </summary>
-    public void UpdateEpicAuthData(Action<EpicAuthData> updater)
+    public void UpdateAuthData(Action<EpicAuthData> updater)
     {
         lock (_lock)
         {
-            var data = GetEpicAuthData();
+            var data = GetAuthData();
             updater(data);
-            SaveEpicAuthData(data);
+            SaveAuthData(data);
         }
     }
 
     /// <summary>
     /// Clears all Epic authentication data (logs out)
     /// </summary>
-    public void ClearEpicAuthData()
+    public void ClearAuthData()
     {
         lock (_lock)
         {
@@ -257,7 +257,7 @@ public class EpicAuthStorageService
             if (!File.Exists(_epicAuthFilePath))
                 return false;
 
-            var data = GetEpicAuthData();
+            var data = GetAuthData();
             return !string.IsNullOrEmpty(data.RefreshToken);
         }
         catch

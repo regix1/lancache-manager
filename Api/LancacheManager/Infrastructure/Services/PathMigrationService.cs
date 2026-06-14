@@ -65,7 +65,7 @@ public class PathMigrationService
 
         MoveDirectoryIfMissing(
             Path.Combine(dataDirectory, "cached-img"),
-            _pathResolver.GetCachedImagesDirectory(),
+            _pathResolver.GetImagesDirectory(),
             result,
             "cached images");
 

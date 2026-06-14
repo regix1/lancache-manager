@@ -46,15 +46,15 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
-        await RunScanAsync("Startup", stoppingToken);
+        await ScanAsync("Startup", stoppingToken);
     }
 
     protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
-        await RunScanAsync("Scheduled", stoppingToken);
+        await ScanAsync("Scheduled", stoppingToken);
     }
 
-    private async Task RunScanAsync(string trigger, CancellationToken stoppingToken)
+    private async Task ScanAsync(string trigger, CancellationToken stoppingToken)
     {
         stoppingToken.ThrowIfCancellationRequested();
 
@@ -87,7 +87,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
         try
         {
             _logger.LogInformation("[CacheSizeScan] Starting cache file scan (trigger: {Trigger})", trigger);
-            var result = await _cacheService.GetCachedCacheSizeAsync(force: true, datasource: null, cancellationToken: stoppingToken);
+            var result = await _cacheService.GetCacheSizeAsync(force: true, datasource: null, cancellationToken: stoppingToken);
             if (result == null)
             {
                 _logger.LogWarning("[CacheSizeScan] Cache file scan returned no result (trigger: {Trigger})", trigger);

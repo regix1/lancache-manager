@@ -82,7 +82,7 @@ public class LinuxPathResolver : PathResolverBase
             // Check /proc/mounts for read-only mount flag (Linux-specific optimization)
             // IMPORTANT: Only short-circuit on READ-ONLY mounts. For read-write mounts,
             // we MUST still run TestWriteAccess to verify actual permissions (PUID/PGID).
-            var isReadOnlyMount = CheckLinuxReadOnlyMount(directoryPath);
+            var isReadOnlyMount = CheckReadOnlyMount(directoryPath);
             if (isReadOnlyMount.HasValue && isReadOnlyMount.Value)
             {
                 // Mount is definitely read-only - no need to test further
@@ -203,7 +203,7 @@ public class LinuxPathResolver : PathResolverBase
     /// <summary>
     /// Checks if directory is mounted read-only by reading /proc/mounts
     /// </summary>
-    private bool? CheckLinuxReadOnlyMount(string directoryPath)
+    private bool? CheckReadOnlyMount(string directoryPath)
     {
         try
         {

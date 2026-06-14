@@ -44,7 +44,7 @@ public class ApiKeyService
         }
     }
 
-    public string GetOrCreateApiKey()
+    public string GetApiKey()
     {
         lock (_keyLock)
         {
@@ -94,7 +94,7 @@ public class ApiKeyService
             return false;
         }
 
-        var validKey = GetOrCreateApiKey();
+        var validKey = GetApiKey();
 
         // Use constant-time comparison to prevent timing attacks
         // CryptographicOperations.FixedTimeEquals compares byte arrays in constant time
@@ -113,11 +113,11 @@ public class ApiKeyService
         return CryptographicOperations.FixedTimeEquals(apiKeyBytes, validKeyBytes);
     }
 
-    public (string oldKey, string newKey) ForceRegenerateApiKey()
+    public (string oldKey, string newKey) RegenerateApiKey()
     {
         lock (_keyLock)
         {
-            var oldKey = GetOrCreateApiKey();
+            var oldKey = GetApiKey();
 
             string newKey;
             do
@@ -163,7 +163,7 @@ public class ApiKeyService
 
     public void DisplayApiKey(IConfiguration configuration)
     {
-        var apiKey = GetOrCreateApiKey();
+        var apiKey = GetApiKey();
 
         // Get PUID/PGID from environment (set by entrypoint.sh)
         var puid = Environment.GetEnvironmentVariable("LANCACHE_PUID") ?? "N/A";

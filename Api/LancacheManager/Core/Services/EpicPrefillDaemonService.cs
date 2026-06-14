@@ -69,16 +69,16 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
     /// <summary>
     /// After authentication, check for banned Epic users and collect owned games from all authenticated sessions in the background.
     /// </summary>
-    protected override Task OnPostAuthenticationAsync()
+    protected override Task OnAuthenticatedAsync()
     {
         _ = Task.Run(async () =>
         {
             try
             {
                 // Check all authenticated sessions for banned users
-                await EnforceBansOnAuthenticatedSessionsAsync();
+                await KickBannedSessionsAsync();
 
-                await CollectGameMappingsFromAuthenticatedSessionsAsync();
+                await CollectSessionGameMappingsAsync();
             }
             catch (Exception ex)
             {
@@ -95,7 +95,7 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
     /// Epic uses OAuth (authorization-url), so bans cannot be checked at credential time
     /// like Steam - they must be enforced after authentication when the display name is known.
     /// </summary>
-    private async Task EnforceBansOnAuthenticatedSessionsAsync()
+    private async Task KickBannedSessionsAsync()
     {
         foreach (var session in _sessions.Values)
         {
@@ -117,7 +117,7 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
     /// Iterate all authenticated sessions and collect owned games.
     /// Merges results into the cumulative mapping database.
     /// </summary>
-    private async Task CollectGameMappingsFromAuthenticatedSessionsAsync()
+    private async Task CollectSessionGameMappingsAsync()
     {
         foreach (var session in _sessions.Values)
         {

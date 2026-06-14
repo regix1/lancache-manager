@@ -84,7 +84,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
         _logger.LogInformation("CacheClearingService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
 
-        LoadPersistedOperations();
+        LoadOperations();
         return Task.CompletedTask;
     }
 
@@ -97,7 +97,7 @@ public class CacheClearingService : ScheduledBackgroundService
     {
         await base.StopAsync(cancellationToken);
 
-        SaveAllOperationsToState();
+        SaveAllOperations();
 
         // Cancel all active cache clearing operations
         var activeOperations = _operationTracker.GetActiveOperations(OperationType.CacheClearing);
@@ -143,7 +143,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 onTerminalCleanup: () => { _currentTrackerOperationId = null; },
                 onTerminalEmit: info => _notifications.NotifyAllAsync(
                     SignalREvents.CacheClearingComplete,
-                    BuildCacheClearComplete(capturedOperationId, info))
+                    BuildClearCompleteEvent(capturedOperationId, info))
             );
             var operationId = _currentTrackerOperationId.Value;
             capturedOperationId = operationId;
@@ -160,7 +160,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 (datasourceName != null ? $" for datasource: {datasourceName}" : " for all datasources"));
 
             // Start the clear operation on a background thread
-            _ = Task.Run(async () => await ExecuteCacheClearAsync(trackerKey, operationId, datasourceName), cts.Token);
+            _ = Task.Run(async () => await RunCacheClearAsync(trackerKey, operationId, datasourceName), cts.Token);
 
             return operationId;
         }
@@ -170,7 +170,7 @@ public class CacheClearingService : ScheduledBackgroundService
         }
     }
 
-    private async Task ExecuteCacheClearAsync(string trackerKey, Guid operationId, string? datasourceName)
+    private async Task RunCacheClearAsync(string trackerKey, Guid operationId, string? datasourceName)
     {
         try
         {
@@ -481,7 +481,7 @@ public class CacheClearingService : ScheduledBackgroundService
                     });
                 }
 
-                await _rustProcessHelper.DeleteTemporaryFileAsync(progressFile);
+                await _rustProcessHelper.DeleteTempFileAsync(progressFile);
                 _logger.LogInformation($"Completed clearing {dsName} cache: {finalProgress?.DirectoriesProcessed ?? 0} directories");
             }
 
@@ -582,7 +582,7 @@ public class CacheClearingService : ScheduledBackgroundService
     /// corresponding CompleteOperation call; this reads them so the wire payload matches the prior
     /// SendOperationCompleteAsync emits.
     /// </summary>
-    private CacheClearComplete BuildCacheClearComplete(Guid operationId, OperationTerminalInfo info)
+    private CacheClearComplete BuildClearCompleteEvent(Guid operationId, OperationTerminalInfo info)
     {
         if (info.Cancelled)
         {
@@ -713,7 +713,7 @@ public class CacheClearingService : ScheduledBackgroundService
         }
     }
 
-    private void LoadPersistedOperations()
+    private void LoadOperations()
     {
         try
         {
@@ -787,7 +787,7 @@ public class CacheClearingService : ScheduledBackgroundService
         }
     }
 
-    private void SaveAllOperationsToState()
+    private void SaveAllOperations()
     {
         try
         {

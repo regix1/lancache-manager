@@ -78,7 +78,7 @@ public class SignalRNotificationService : ISignalRNotificationService
 
     public async Task NotifyPrefillClientAsync(string connectionId, string eventName, object? data = null)
     {
-        await NotifySpecificClientAsync(_steamHubContext.Clients, connectionId, eventName, data, "Steam prefill");
+        await NotifyClientAsync(_steamHubContext.Clients, connectionId, eventName, data, "Steam prefill");
     }
 
     public async Task SendToPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
@@ -91,7 +91,7 @@ public class SignalRNotificationService : ISignalRNotificationService
 
     public async Task NotifyEpicPrefillClientAsync(string connectionId, string eventName, object? data = null)
     {
-        await NotifySpecificClientAsync(_epicHubContext.Clients, connectionId, eventName, data, "Epic prefill");
+        await NotifyClientAsync(_epicHubContext.Clients, connectionId, eventName, data, "Epic prefill");
     }
 
     public async Task SendToEpicPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
@@ -104,7 +104,7 @@ public class SignalRNotificationService : ISignalRNotificationService
     /// Shared per-client notification helper. Sends to a specific connection on the provided hub clients,
     /// with consistent debug logging and error handling. Does not rethrow on failure.
     /// </summary>
-    private async Task NotifySpecificClientAsync(
+    private async Task NotifyClientAsync(
         IHubClients hubClients,
         string connectionId,
         string eventName,
@@ -122,7 +122,7 @@ public class SignalRNotificationService : ISignalRNotificationService
         }
     }
 
-    public async Task NotifyAllDownloadsAndSteamHubAsync(string eventName, object? data = null)
+    public async Task NotifySteamHubAsync(string eventName, object? data = null)
     {
         try
         {
@@ -138,7 +138,7 @@ public class SignalRNotificationService : ISignalRNotificationService
         }
     }
 
-    public async Task NotifyAllDownloadsAndEpicHubAsync(string eventName, object? data = null)
+    public async Task NotifyEpicHubAsync(string eventName, object? data = null)
     {
         try
         {
@@ -158,7 +158,7 @@ public class SignalRNotificationService : ISignalRNotificationService
 
     public async Task NotifyBattleNetPrefillClientAsync(string connectionId, string eventName, object? data = null)
     {
-        await NotifySpecificClientAsync(_battleNetHubContext.Clients, connectionId, eventName, data, "Battle.net prefill");
+        await NotifyClientAsync(_battleNetHubContext.Clients, connectionId, eventName, data, "Battle.net prefill");
     }
 
     public async Task SendToBattleNetPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
@@ -167,7 +167,7 @@ public class SignalRNotificationService : ISignalRNotificationService
         await _battleNetHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
     }
 
-    public async Task NotifyAllDownloadsAndBattleNetHubAsync(string eventName, object? data = null)
+    public async Task NotifyBattleNetHubAsync(string eventName, object? data = null)
     {
         try
         {

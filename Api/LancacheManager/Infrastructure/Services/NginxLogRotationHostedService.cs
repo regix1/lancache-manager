@@ -40,13 +40,13 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
         // One-time migration: copy any legacy log-rotation-settings.json value into state.json,
         // then delete the file. After this runs, state.json is the sole source of truth and
         // all schedule changes flow through the Schedules UI.
-        MigrateLegacySettingsFile(pathResolver, stateService);
+        MigrateLegacySettings(pathResolver, stateService);
 
         // Apply persisted overrides (interval + run-on-startup) from state.json
         LoadStateOverrides(stateService);
     }
 
-    private void MigrateLegacySettingsFile(IPathResolver pathResolver, IStateService stateService)
+    private void MigrateLegacySettings(IPathResolver pathResolver, IStateService stateService)
     {
         try
         {
@@ -94,7 +94,7 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Running nginx log rotation at startup...");
-        await ExecuteRotationAsync("Startup");
+        await RotateAsync("Startup");
     }
 
     /// <summary>
@@ -103,10 +103,10 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
     /// </summary>
     protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
-        await ExecuteRotationAsync("Scheduled");
+        await RotateAsync("Scheduled");
     }
 
-    private async Task ExecuteRotationAsync(string trigger)
+    private async Task RotateAsync(string trigger)
     {
         try
         {

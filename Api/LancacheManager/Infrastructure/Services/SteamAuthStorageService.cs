@@ -80,7 +80,7 @@ public class SteamAuthStorageService : ISteamAuthStorageService
     /// <summary>
     /// Gets the current Steam auth data (with decrypted fields)
     /// </summary>
-    public SteamAuthData GetSteamAuthData()
+    public SteamAuthData GetAuthData()
     {
         lock (_lock)
         {
@@ -165,7 +165,7 @@ public class SteamAuthStorageService : ISteamAuthStorageService
     /// <summary>
     /// Saves Steam auth data (encrypts sensitive fields using Microsoft Data Protection API)
     /// </summary>
-    public void SaveSteamAuthData(SteamAuthData data)
+    public void SaveAuthData(SteamAuthData data)
     {
         lock (_lock)
         {
@@ -228,27 +228,27 @@ public class SteamAuthStorageService : ISteamAuthStorageService
     /// <summary>
     /// Updates a specific part of Steam auth data
     /// </summary>
-    public void UpdateSteamAuthData(Action<SteamAuthData> updater)
+    public void UpdateAuthData(Action<SteamAuthData> updater)
     {
         lock (_lock)
         {
-            var data = GetSteamAuthData();
+            var data = GetAuthData();
             updater(data);
-            SaveSteamAuthData(data);
+            SaveAuthData(data);
         }
     }
 
     /// <summary>
     /// Clears all Steam authentication data (logs out)
     /// </summary>
-    public void ClearSteamAuthData()
+    public void ClearAuthData()
     {
         lock (_lock)
         {
             try
             {
                 var defaultData = new SteamAuthData();
-                SaveSteamAuthData(defaultData);
+                SaveAuthData(defaultData);
                 _cachedData = defaultData;
                 _logger.LogInformation("Cleared Steam authentication data");
             }
@@ -298,7 +298,7 @@ public class SteamAuthStorageService : ISteamAuthStorageService
                     LastAuthenticated = oldAuthState.LastAuthenticated
                 };
 
-                SaveSteamAuthData(newData);
+                SaveAuthData(newData);
                 _logger.LogInformation("Successfully migrated Steam auth data to separate file (refresh token only)");
             }
             catch (Exception ex)

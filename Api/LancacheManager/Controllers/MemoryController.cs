@@ -37,7 +37,7 @@ public class MemoryController : ControllerBase
             // Use platform-specific memory manager for garbage collection
             // On Linux, this includes malloc_trim to force glibc to return memory to OS
             // On Windows, standard GC is sufficient
-            _memoryManager.PerformAggressiveGarbageCollection(_logger);
+            _memoryManager.CollectGarbage(_logger);
         }
 
         var gcMemoryInfo = GC.GetGCMemoryInfo();

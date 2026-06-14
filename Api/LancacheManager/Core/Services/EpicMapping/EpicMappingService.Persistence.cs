@@ -193,7 +193,7 @@ public partial class EpicMappingService
     /// Re-fetches catalog metadata for all known Epic games and updates ImageUrl if changed.
     /// Called during periodic catalog refresh to keep images current.
     /// </summary>
-    public async Task<int> RefreshGameImagesAsync(string accessToken, CancellationToken ct = default)
+    public async Task<int> PropagateGameImagesAsync(string accessToken, CancellationToken ct = default)
     {
         using var db = _dbContextFactory.CreateDbContext();
 
@@ -273,7 +273,7 @@ public partial class EpicMappingService
     /// only re-fetches owned games (which updates ImageUrl via GetBestImageUrl) and
     /// propagates to Downloads table.
     /// </summary>
-    public async Task<int> RefreshImageUrlsAsync(CancellationToken ct = default)
+    public async Task<int> RefreshImagesAsync(CancellationToken ct = default)
     {
         if (!_isAuthenticated || _currentTokens == null)
         {
@@ -325,7 +325,7 @@ public partial class EpicMappingService
         // Also propagate to Downloads table
         try
         {
-            var imageUpdates = await RefreshGameImagesAsync(_currentTokens.AccessToken, ct);
+            var imageUpdates = await PropagateGameImagesAsync(_currentTokens.AccessToken, ct);
             _logger.LogInformation("Propagated {Count} image URLs to Downloads table", imageUpdates);
         }
         catch (Exception ex)

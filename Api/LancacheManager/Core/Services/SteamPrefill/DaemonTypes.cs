@@ -272,7 +272,7 @@ public static class SecureCredentialExchange
     /// Encrypts credentials using ECDH + HKDF + AES-GCM
     /// Matches the daemon's SecureCredentialExchange implementation exactly
     /// </summary>
-    public static EncryptedCredentialResponse EncryptCredentialRaw(
+    public static EncryptedCredentialResponse Encrypt(
         string challengeId,
         string serverPublicKeyBase64,
         string credential,

@@ -33,7 +33,7 @@ public class PicsDataService
     /// <summary>
     /// Save PICS depot mappings to JSON file
     /// </summary>
-    public Task SavePicsDataToJsonAsync(Dictionary<uint, HashSet<uint>> depotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0, Dictionary<uint, uint>? depotOwners = null, Dictionary<uint, string>? depotNames = null)
+    public Task SaveToJsonAsync(Dictionary<uint, HashSet<uint>> depotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0, Dictionary<uint, uint>? depotOwners = null, Dictionary<uint, string>? depotNames = null)
     {
         try
         {
@@ -129,12 +129,12 @@ public class PicsDataService
     /// <summary>
     /// Merge incremental PICS depot mappings into existing JSON file with validation
     /// </summary>
-    public async Task MergePicsDataToJsonAsync(Dictionary<uint, HashSet<uint>> newDepotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0, bool validateExisting = true, Dictionary<uint, uint>? depotOwners = null, Dictionary<uint, string>? depotNames = null)
+    public async Task MergeToJsonAsync(Dictionary<uint, HashSet<uint>> newDepotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0, bool validateExisting = true, Dictionary<uint, uint>? depotOwners = null, Dictionary<uint, string>? depotNames = null)
     {
         try
         {
             // Load existing data or create new if doesn't exist
-            var existingData = await LoadPicsDataFromJsonAsync() ?? new PicsJsonData
+            var existingData = await LoadFromJsonAsync() ?? new PicsJsonData
             {
                 Metadata = new PicsMetadata
                 {
@@ -290,7 +290,7 @@ public class PicsDataService
     private DateTime _cacheLastLoaded = DateTime.MinValue;
     private readonly TimeSpan _cacheExpiration = TimeSpan.FromMinutes(5);
 
-    public Task<PicsJsonData?> LoadPicsDataFromJsonAsync()
+    public Task<PicsJsonData?> LoadFromJsonAsync()
     {
         try
         {
@@ -370,7 +370,7 @@ public class PicsDataService
     {
         try
         {
-            var picsData = await LoadPicsDataFromJsonAsync();
+            var picsData = await LoadFromJsonAsync();
             if (picsData?.Metadata == null)
             {
                 return true; // No data exists, needs initial update
@@ -394,7 +394,7 @@ public class PicsDataService
     {
         try
         {
-            var picsData = await LoadPicsDataFromJsonAsync();
+            var picsData = await LoadFromJsonAsync();
             if (picsData?.DepotMappings == null)
             {
                 return new List<long>();
@@ -452,17 +452,17 @@ public class PicsDataService
     /// <summary>
     /// Import PICS data from JSON file to database
     /// </summary>
-    public async Task ImportJsonDataToDatabaseAsync()
+    public async Task ImportToDatabaseAsync()
     {
-        await ImportJsonDataToDatabaseAsync(CancellationToken.None, null);
+        await ImportToDatabaseAsync(CancellationToken.None, null);
     }
 
     /// <summary>
     /// Import PICS data from JSON file to database with cancellation support
     /// </summary>
-    public async Task ImportJsonDataToDatabaseAsync(CancellationToken cancellationToken)
+    public async Task ImportToDatabaseAsync(CancellationToken cancellationToken)
     {
-        await ImportJsonDataToDatabaseAsync(cancellationToken, null);
+        await ImportToDatabaseAsync(cancellationToken, null);
     }
 
     /// <summary>
@@ -470,14 +470,14 @@ public class PicsDataService
     /// </summary>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <param name="progressCallback">Optional callback for progress updates (phase, percentComplete within phase)</param>
-    public async Task ImportJsonDataToDatabaseAsync(CancellationToken cancellationToken, Func<string, int, Task>? progressCallback)
+    public async Task ImportToDatabaseAsync(CancellationToken cancellationToken, Func<string, int, Task>? progressCallback)
     {
         try
         {
             // Phase 1: Load PICS data from JSON (0-5%)
             if (progressCallback != null) await progressCallback("Loading depot data...", 0);
 
-            var picsData = await LoadPicsDataFromJsonAsync();
+            var picsData = await LoadFromJsonAsync();
             if (picsData?.DepotMappings == null)
             {
                 _logger.LogWarning("No PICS JSON data to import");
@@ -650,7 +650,7 @@ public class PicsDataService
         try
         {
             // Load existing data
-            var existingData = await LoadPicsDataFromJsonAsync();
+            var existingData = await LoadFromJsonAsync();
             if (existingData == null || existingData.Metadata == null)
             {
                 _logger.LogWarning("Cannot update change number - no existing PICS data found");

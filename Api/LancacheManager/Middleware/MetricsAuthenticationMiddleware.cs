@@ -62,7 +62,7 @@ public class MetricsAuthenticationMiddleware
         _logger.LogWarning("Metrics endpoint accessed without valid API key from {IP}",
             context.Connection.RemoteIpAddress);
 
-        await AuthenticationHelper.WriteErrorResponseAsync(
+        await AuthenticationHelper.WriteErrorAsync(
             context, result.StatusCode, result.ErrorMessage ?? "API key required for metrics");
     }
 }

@@ -62,7 +62,7 @@ public class SteamApiKeysController : ControllerBase
     /// Both endpoints are actively used by the frontend setup wizard and settings modal.
     /// </remarks>
     [HttpPost("test")]
-    public async Task<IActionResult> TestApiKeyAsync([FromBody] TestApiKeyRequest request)
+    public async Task<IActionResult> TestKeyAsync([FromBody] TestApiKeyRequest request)
     {
         // Validation is handled automatically by FluentValidation
         var isValid = await _steamWebApiService.TestApiKeyAsync(request.ApiKey);
@@ -94,7 +94,7 @@ public class SteamApiKeysController : ControllerBase
     /// Validation is handled automatically by FluentValidation (see SaveApiKeyRequestValidator)
     /// </remarks>
     [HttpPost]
-    public async Task<IActionResult> SaveApiKeyAsync([FromBody] SaveApiKeyRequest request)
+    public async Task<IActionResult> SaveKeyAsync([FromBody] SaveApiKeyRequest request)
     {
         // Validation is handled automatically by FluentValidation
         // Test the key first
@@ -126,7 +126,7 @@ public class SteamApiKeysController : ControllerBase
     /// RESTful: DELETE is proper method for removing resources
     /// </summary>
     [HttpDelete("current")]
-    public IActionResult RemoveApiKey()
+    public IActionResult RemoveKey()
     {
         _steamWebApiService.RemoveApiKey();
 

@@ -71,10 +71,10 @@ public class DatabaseService : IDatabaseService
     /// </summary>
     public Task<int> GetLogEntriesCountAsync()
     {
-        return GetLogEntriesCount();
+        return GetLogCount();
     }
 
-    public async Task<int> GetLogEntriesCount()
+    public async Task<int> GetLogCount()
     {
         return await _context.LogEntries.CountAsync();
     }
@@ -82,7 +82,7 @@ public class DatabaseService : IDatabaseService
     /// <summary>
     /// Starts a background task to reset selected tables and returns immediately
     /// </summary>
-    public Guid StartResetSelectedTablesAsync(List<string> tableNames)
+    public Guid StartResetAsync(List<string> tableNames)
     {
         // Create cancellation support
         var cts = new CancellationTokenSource();
@@ -163,7 +163,7 @@ public class DatabaseService : IDatabaseService
             });
 
             // Start background task with cancellation token
-            _ = Task.Run(async () => await ResetSelectedTablesInternalAsync(operationId, tableNames, cts.Token));
+            _ = Task.Run(async () => await DoResetAsync(operationId, tableNames, cts.Token));
         }
         else
         {
@@ -176,7 +176,7 @@ public class DatabaseService : IDatabaseService
     /// <summary>
     /// Internal method that performs the actual reset operation
     /// </summary>
-    private async Task ResetSelectedTablesInternalAsync(Guid operationId, List<string> tableNames, CancellationToken cancellationToken)
+    private async Task DoResetAsync(Guid operationId, List<string> tableNames, CancellationToken cancellationToken)
     {
         // Use a new DbContext from factory for background operation (don't use injected context)
         await using var context = await _dbContextFactory.CreateDbContextAsync(cancellationToken);

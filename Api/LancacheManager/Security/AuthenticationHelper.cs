@@ -34,7 +34,7 @@ public class AuthenticationHelper
     /// </summary>
     public AuthResult ValidateApiKey(HttpContext context)
     {
-        var apiKey = GetApiKeyFromHeader(context);
+        var apiKey = ExtractApiKey(context);
 
         if (string.IsNullOrEmpty(apiKey))
         {
@@ -63,7 +63,7 @@ public class AuthenticationHelper
     /// Gets the API key from request headers.
     /// Accepts X-Api-Key header (primary) or Authorization: Bearer &lt;key&gt; (Prometheus convention).
     /// </summary>
-    private static string? GetApiKeyFromHeader(HttpContext context)
+    private static string? ExtractApiKey(HttpContext context)
     {
         var apiKey = context.Request.Headers["X-Api-Key"].FirstOrDefault();
         if (apiKey != null)
@@ -81,7 +81,7 @@ public class AuthenticationHelper
     /// <summary>
     /// Writes a standard JSON error response.
     /// </summary>
-    public static async Task WriteErrorResponseAsync(
+    public static async Task WriteErrorAsync(
         HttpContext context,
         int statusCode,
         string errorMessage)

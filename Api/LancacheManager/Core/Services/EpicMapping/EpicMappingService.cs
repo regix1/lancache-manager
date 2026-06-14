@@ -85,7 +85,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
         Interlocked.Exchange(ref _isRunning, 1);
 
         // Load last refresh time from saved auth data (mirrors Steam loading from state.json)
-        var savedAuth = _authStorage.GetEpicAuthData();
+        var savedAuth = _authStorage.GetAuthData();
         var hasSavedCredentials = _authStorage.HasSavedCredentials();
 
         if (hasSavedCredentials)
@@ -124,7 +124,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
         }
 
         // Subscribe to Epic prefill daemon auth state change events
-        SubscribeToDaemonEvents();
+        SubscribeDaemonEvents();
 
         return Task.CompletedTask;
     }
@@ -135,7 +135,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
         Volatile.Write(ref _isRunning, 0);
 
         // Unsubscribe from Epic daemon events before cleanup
-        UnsubscribeFromDaemonEvents();
+        UnsubscribeDaemonEvents();
 
         try
         {
@@ -231,7 +231,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
         Volatile.Write(ref _isRunning, 0);
 
         // Unsubscribe from Epic daemon events
-        UnsubscribeFromDaemonEvents();
+        UnsubscribeDaemonEvents();
 
         _currentRefreshCts?.Dispose();
         _currentRefreshCts = null;
@@ -256,7 +256,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
     /// Subscribes to OnDaemonAuthenticated and OnAllDaemonsLoggedOut events
     /// from EpicPrefillDaemonService so we know when daemon auth state changes.
     /// </summary>
-    private void SubscribeToDaemonEvents()
+    private void SubscribeDaemonEvents()
     {
         try
         {
@@ -279,7 +279,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
         }
     }
 
-    private void UnsubscribeFromDaemonEvents()
+    private void UnsubscribeDaemonEvents()
     {
         if (_epicDaemonService != null)
         {

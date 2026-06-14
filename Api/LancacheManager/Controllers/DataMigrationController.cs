@@ -21,7 +21,7 @@ public class DataMigrationController : ControllerBase
 
     /// <summary>
     /// Per-operation mutable result holder. The two import action methods share one
-    /// <see cref="BeginDataImportAsync"/> register factory, but the terminal metrics
+    /// <see cref="StartImportAsync"/> register factory, but the terminal metrics
     /// (counts + message) are only known at emit time. Each method fills this holder
     /// immediately BEFORE calling <c>CompleteOperation</c>; the <c>onTerminalEmit</c>
     /// closure (created in the factory) reads it to build the single DataImportComplete
@@ -62,14 +62,14 @@ public class DataMigrationController : ControllerBase
     /// Request body: { "connectionString": "Host=localhost;Database=lancachemanager;Username=postgres;Password=...", "batchSize": 1000, "overwriteExisting": false }
     /// </summary>
     [HttpPost("import-lancache-manager")]
-    public async Task<IActionResult> ImportFromLancacheManagerAsync([FromBody] DataMigrationImportRequest request, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> ImportLancacheManagerAsync([FromBody] DataMigrationImportRequest request, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.ConnectionString))
         {
             return BadRequest(new ErrorResponse { Error = "Connection string is required" });
         }
 
-        var start = await BeginDataImportAsync("LancacheManager Import", cancellationToken);
+        var start = await StartImportAsync("LancacheManager Import", cancellationToken);
         if (start.Conflict != null)
         {
             return Conflict(start.Conflict);
@@ -446,7 +446,7 @@ public class DataMigrationController : ControllerBase
         }
     }
 
-    private async Task<(Guid? OperationId, CancellationTokenSource? CancellationTokenSource, DataImportResultHolder? Result, OperationConflictResponse? Conflict)> BeginDataImportAsync(
+    private async Task<(Guid? OperationId, CancellationTokenSource? CancellationTokenSource, DataImportResultHolder? Result, OperationConflictResponse? Conflict)> StartImportAsync(
         string operationName,
         CancellationToken cancellationToken)
     {

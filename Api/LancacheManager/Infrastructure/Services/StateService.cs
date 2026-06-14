@@ -174,7 +174,7 @@ public class StateService : IStateService
                     var persisted = JsonSerializer.Deserialize<PersistedState>(json) ?? new PersistedState();
 
                     // Convert persisted state to app state, decrypting sensitive fields
-                    _cachedState = ConvertFromPersistedState(persisted);
+                    _cachedState = FromPersisted(persisted);
                     CleanupStaleOperations(_cachedState);
 
                     // Migrate Steam auth data to separate file (one-time migration)
@@ -241,7 +241,7 @@ public class StateService : IStateService
                 state.LastUpdated = DateTime.UtcNow;
 
                 // Convert to persisted state with encrypted sensitive fields
-                var persisted = ConvertToPersistedState(state);
+                var persisted = ToPersisted(state);
 
                 var json = JsonSerializer.Serialize(persisted, new JsonSerializerOptions { WriteIndented = true });
 
@@ -423,7 +423,7 @@ public class StateService : IStateService
     {
         lock (_cacheClearLock)
         {
-            return LoadOperationList(ref _cachedCacheClearOperations, _cacheOperationsFilePath, CleanupOldCacheClearOperations);
+            return LoadOperationList(ref _cachedCacheClearOperations, _cacheOperationsFilePath, PruneCacheClearOperations);
         }
     }
 
@@ -477,7 +477,7 @@ public class StateService : IStateService
     /// <summary>
     /// Cleans up old completed cache clear operations (older than 24 hours)
     /// </summary>
-    private void CleanupOldCacheClearOperations()
+    private void PruneCacheClearOperations()
     {
         if (_cachedCacheClearOperations == null || _cachedCacheClearOperations.Count == 0)
         {
@@ -505,7 +505,7 @@ public class StateService : IStateService
     {
         lock (_operationLock)
         {
-            return LoadOperationList(ref _cachedOperationStates, _operationHistoryFilePath, CleanupOldOperationStates);
+            return LoadOperationList(ref _cachedOperationStates, _operationHistoryFilePath, PruneOperationStates);
         }
     }
 
@@ -564,7 +564,7 @@ public class StateService : IStateService
     /// <summary>
     /// Cleans up old completed operation states (older than 48 hours)
     /// </summary>
-    private void CleanupOldOperationStates()
+    private void PruneOperationStates()
     {
         if (_cachedOperationStates == null || _cachedOperationStates.Count == 0)
         {
@@ -666,7 +666,7 @@ public class StateService : IStateService
     }
 
     // Has Processed Logs Methods
-    public bool GetHasProcessedLogs()
+    public bool HasProcessedLogs()
     {
         return GetState().HasProcessedLogs;
     }
@@ -685,13 +685,13 @@ public class StateService : IStateService
 
     public async Task WaitForLogsProcessedAsync(CancellationToken cancellationToken)
     {
-        if (GetHasProcessedLogs()) return;
+        if (HasProcessedLogs()) return;
 
         Task signal;
         lock (_signalLock) { signal = _logsProcessedSignal.Task; }
 
         // Re-check after capturing signal to avoid TOCTOU race
-        if (GetHasProcessedLogs()) return;
+        if (HasProcessedLogs()) return;
 
         await signal.WaitAsync(cancellationToken);
     }
@@ -708,7 +708,7 @@ public class StateService : IStateService
     }
 
     // Battle.net Mapping Last-Applied Methods
-    public DateTime? GetBattleNetMappingLastApplied()
+    public DateTime? GetBattleNetMappingAppliedAt()
     {
         return GetState().BattleNetMappingLastApplied;
     }
@@ -719,7 +719,7 @@ public class StateService : IStateService
     }
 
     // Epic Mapping Last-Collection Methods
-    public DateTime? GetEpicMappingLastCollection()
+    public DateTime? GetEpicMappingCollectedAt()
     {
         return GetState().EpicMappingLastCollection;
     }
@@ -876,7 +876,7 @@ public class StateService : IStateService
     /// <summary>
     /// Converts persisted state (with encrypted fields) to app state (with decrypted fields)
     /// </summary>
-    private AppState ConvertFromPersistedState(PersistedState persisted)
+    private AppState FromPersisted(PersistedState persisted)
     {
         var state = new AppState
         {
@@ -960,7 +960,7 @@ public class StateService : IStateService
     /// <summary>
     /// Converts app state (with decrypted fields) to persisted state (with encrypted fields)
     /// </summary>
-    private PersistedState ConvertToPersistedState(AppState state)
+    private PersistedState ToPersisted(AppState state)
     {
         var persisted = new PersistedState
         {
@@ -1068,34 +1068,34 @@ public class StateService : IStateService
     // Steam Authentication Methods - now delegate to SteamAuthStorageService
     public SteamAuthMode? GetSteamAuthMode()
     {
-        var raw = _steamAuthStorage.GetSteamAuthData().Mode;
+        var raw = _steamAuthStorage.GetAuthData().Mode;
         return SteamAuthModeExtensions.TryParseWire(raw);
     }
 
     public void SetSteamAuthMode(SteamAuthMode mode)
     {
         var wire = mode.ToWireString();
-        _steamAuthStorage.UpdateSteamAuthData(data => data.Mode = wire);
+        _steamAuthStorage.UpdateAuthData(data => data.Mode = wire);
     }
 
     public string? GetSteamUsername()
     {
-        return _steamAuthStorage.GetSteamAuthData().Username;
+        return _steamAuthStorage.GetAuthData().Username;
     }
 
     public void SetSteamUsername(string? username)
     {
-        _steamAuthStorage.UpdateSteamAuthData(data => data.Username = username);
+        _steamAuthStorage.UpdateAuthData(data => data.Username = username);
     }
 
     public string? GetSteamRefreshToken()
     {
-        return _steamAuthStorage.GetSteamAuthData().RefreshToken;
+        return _steamAuthStorage.GetAuthData().RefreshToken;
     }
 
     public void SetSteamRefreshToken(string? token)
     {
-        _steamAuthStorage.UpdateSteamAuthData(data =>
+        _steamAuthStorage.UpdateAuthData(data =>
         {
             data.RefreshToken = token;
             if (token != null)
@@ -1107,7 +1107,7 @@ public class StateService : IStateService
 
     public bool HasSteamRefreshToken()
     {
-        return !string.IsNullOrEmpty(_steamAuthStorage.GetSteamAuthData().RefreshToken);
+        return !string.IsNullOrEmpty(_steamAuthStorage.GetAuthData().RefreshToken);
     }
 
     // NOTE: GuardData methods removed - modern Steam auth uses refresh tokens only

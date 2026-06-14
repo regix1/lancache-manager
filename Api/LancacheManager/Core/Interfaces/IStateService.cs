@@ -42,7 +42,7 @@ public interface IStateService
     void SetDataLoaded(bool loaded, int mappingCount = 0);
 
     // Has Processed Logs Methods
-    bool GetHasProcessedLogs();
+    bool HasProcessedLogs();
     void SetHasProcessedLogs(bool processed);
 
     // Last PICS Crawl Methods
@@ -50,11 +50,11 @@ public interface IStateService
     void SetLastPicsCrawl(DateTime crawlTime);
 
     // Battle.net Mapping Last-Applied Methods
-    DateTime? GetBattleNetMappingLastApplied();
+    DateTime? GetBattleNetMappingAppliedAt();
     void SetBattleNetMappingLastApplied(DateTime appliedTime);
 
     // Epic Mapping Last-Collection Methods
-    DateTime? GetEpicMappingLastCollection();
+    DateTime? GetEpicMappingCollectedAt();
     void SetEpicMappingLastCollection(DateTime collectionTime);
 
     // Service Interval Methods

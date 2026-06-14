@@ -37,7 +37,7 @@ public class EventsService : IEventsService
             .WithUtcMarking();
     }
 
-    public async Task<List<Event>> GetEventsByDateRangeAsync(DateTime startUtc, DateTime endUtc, CancellationToken cancellationToken = default)
+    public async Task<List<Event>> GetByDateRangeAsync(DateTime startUtc, DateTime endUtc, CancellationToken cancellationToken = default)
     {
         return (await _context.Events
             .AsNoTracking()
@@ -102,7 +102,7 @@ public class EventsService : IEventsService
         }
     }
 
-    public async Task<List<Download>> GetDownloadsForEventAsync(long eventId, bool taggedOnly, CancellationToken cancellationToken = default)
+    public async Task<List<Download>> GetEventDownloadsAsync(long eventId, bool taggedOnly, CancellationToken cancellationToken = default)
     {
         var evt = await _context.Events
             .AsNoTracking()
@@ -178,7 +178,7 @@ public class EventsService : IEventsService
         }
     }
 
-    public async Task<int> AutoTagDownloadsForActiveEventsAsync(CancellationToken cancellationToken = default)
+    public async Task<int> AutoTagActiveEventsAsync(CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
         var activeEvents = await _context.Events

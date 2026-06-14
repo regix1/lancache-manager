@@ -42,7 +42,7 @@ public class DepotsController : ControllerBase
     [Authorize]
     public async Task<IActionResult> GetDepotStatusAsync()
     {
-        var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
+        var picsData = await _picsDataService.LoadFromJsonAsync();
         var needsUpdate = await _picsDataService.NeedsUpdateAsync();
         var dbMappingCount = await _steamKit2Service.GetDepotMappingCountAsync();
 
@@ -86,7 +86,7 @@ public class DepotsController : ControllerBase
         if (incremental)
         {
             _logger.LogInformation("Incremental scan requested - checking viability first");
-            var viability = await _steamKit2Service.CheckIncrementalViabilityAsync(cancellationToken);
+            var viability = await _steamKit2Service.CheckViabilityAsync(cancellationToken);
             _logger.LogInformation("Viability check returned: {Viability}", System.Text.Json.JsonSerializer.Serialize(viability));
 
             if (viability.WillTriggerFullScan)
@@ -106,7 +106,7 @@ public class DepotsController : ControllerBase
             else
             {
                 _logger.LogInformation("Incremental scan is viable - proceeding with scan");
-                _steamKit2Service.ClearAutomaticScanSkippedFlag();
+                _steamKit2Service.ClearScanSkippedFlag();
             }
         }
 
@@ -166,9 +166,9 @@ public class DepotsController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("rebuild/check-incremental")]
-    public async Task<IActionResult> CheckIncrementalViabilityAsync(CancellationToken cancellationToken)
+    public async Task<IActionResult> CheckIncrementalAsync(CancellationToken cancellationToken)
     {
-        var result = await _steamKit2Service.CheckIncrementalViabilityAsync(cancellationToken);
+        var result = await _steamKit2Service.CheckViabilityAsync(cancellationToken);
         return Ok(result);
     }
 
@@ -185,11 +185,11 @@ public class DepotsController : ControllerBase
         {
             _logger.LogInformation("Starting download of pre-created depot data from GitHub");
 
-            var success = await _steamKit2Service.DownloadAndImportGitHubDataAsync(cancellationToken);
+            var success = await _steamKit2Service.ImportFromGitHubAsync(cancellationToken);
 
             if (success)
             {
-                _steamKit2Service.ClearAutomaticScanSkippedFlag();
+                _steamKit2Service.ClearScanSkippedFlag();
                 _steamKit2Service.EnablePeriodicCrawls();
 
                 _logger.LogInformation("Pre-created depot data downloaded and imported successfully from GitHub");
@@ -210,7 +210,7 @@ public class DepotsController : ControllerBase
         {
             _logger.LogInformation("Starting import of existing PICS data to database");
 
-            await _picsDataService.ImportJsonDataToDatabaseAsync(cancellationToken);
+            await _picsDataService.ImportToDatabaseAsync(cancellationToken);
             _steamKit2Service.EnablePeriodicCrawls();
 
             return Ok(new DepotImportResponse

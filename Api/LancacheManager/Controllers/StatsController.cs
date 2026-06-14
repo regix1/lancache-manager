@@ -90,7 +90,7 @@ public class StatsController : ControllerBase
     /// Builds the common base downloads query: hidden client filter + evicted filter.
     /// Avoids repeating this filter chain across multiple endpoints.
     /// </summary>
-    private IQueryable<Download> BuildBaseDownloadsQuery(List<string> hiddenClientIps, string evictedMode)
+    private IQueryable<Download> BaseDownloadsQuery(List<string> hiddenClientIps, string evictedMode)
     {
         return _context.Downloads.AsNoTracking()
             .ApplyHiddenClientFilter(hiddenClientIps)
@@ -226,7 +226,7 @@ public class StatsController : ControllerBase
         }).ToList();
 
         // IMPROVEMENT #2: Create reverse lookup dictionary (O(1) instead of O(n))
-        var ipToGroupMapping = await _clientGroupsRepository.GetIpToGroupMappingAsync();
+        var ipToGroupMapping = await _clientGroupsRepository.GetIpMappingAsync();
 
         // Build GroupId → GroupInfo lookup
         var groupIdToInfo = ipToGroupMapping.Values
@@ -258,7 +258,7 @@ public class StatsController : ControllerBase
             else
             {
                 // IMPROVEMENT #3: Use helper method
-                ungroupedStats.Add(CreateClientStats(
+                ungroupedStats.Add(ClientStats(
                     clientIp: stat.ClientIp,
                     totalCacheHitBytes: stat.TotalCacheHitBytes,
                     totalCacheMissBytes: stat.TotalCacheMissBytes,
@@ -276,7 +276,7 @@ public class StatsController : ControllerBase
             var members = kvp.Value;
             var groupInfo = groupIdToInfo[groupId]; // IMPROVEMENT #2: O(1) lookup!
 
-            return CreateClientStats(
+            return ClientStats(
                 clientIp: members.First().Ip,
                 totalCacheHitBytes: members.Sum(m => m.Hit),
                 totalCacheMissBytes: members.Sum(m => m.Miss),
@@ -404,7 +404,7 @@ public class StatsController : ControllerBase
 
     [HttpPost("eviction/reconcile")]
     [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> RunReconciliationAsync(CancellationToken cancellationToken)
+    public async Task<IActionResult> ReconcileAsync(CancellationToken cancellationToken)
     {
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
         Task<Guid?> StartManualScanAsync() => Task.FromResult(_reconciliationService.RunManualAsync());
@@ -445,7 +445,7 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("eviction/scan/status")]
-    public IActionResult GetEvictionScanStatus()
+    public IActionResult EvictionScanStatus()
     {
         var activeScan = _operationTracker.GetActiveOperations(OperationType.EvictionScan).FirstOrDefault();
         var silentMode = activeScan != null ? _reconciliationService.CurrentScanIsSilent : false;
@@ -490,7 +490,7 @@ public class StatsController : ControllerBase
     /// <summary>
     /// Creates a ClientStatsWithGroup object with calculated metrics
     /// </summary>
-    private static ClientStatsWithGroup CreateClientStats(
+    private static ClientStatsWithGroup ClientStats(
         string clientIp,
         long totalCacheHitBytes,
         long totalCacheMissBytes,
@@ -539,7 +539,7 @@ public class StatsController : ControllerBase
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
         var evictedMode = _stateRepository.GetEvictedDataMode();
-        var query = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
+        var query = BaseDownloadsQuery(hiddenClientIps, evictedMode);
 
         // Apply event filter if provided (filters to only tagged downloads)
         HashSet<long>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
@@ -589,7 +589,7 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("dashboard")]
-    public async Task<IActionResult> GetDashboardStatsAsync(
+    public async Task<IActionResult> DashboardStatsAsync(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
         [FromQuery] long? eventId = null)
@@ -620,7 +620,7 @@ public class StatsController : ControllerBase
 
         // Build the base query for period-specific metrics
         // Filter out hidden IPs completely, but include excluded IPs (they'll be excluded from calculations)
-        var downloadsQuery = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
+        var downloadsQuery = BaseDownloadsQuery(hiddenClientIps, evictedMode);
 
         // Apply event filter if provided (filters to only tagged downloads)
         HashSet<long>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
@@ -638,7 +638,7 @@ public class StatsController : ControllerBase
         // Calculate ALL-TIME totals from Downloads table directly (no cache)
         // Note: All-time totals should NOT be filtered by event - they represent overall system stats
         // Filter out hidden IPs, but exclude stats-excluded IPs from calculations
-        var allTimeQuery = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
+        var allTimeQuery = BaseDownloadsQuery(hiddenClientIps, evictedMode);
         var totalHitBytes = await AggregateExcludingAsync(allTimeQuery, statsExcludedOnlyIps,
             q => q.SumAsync(d => d.CacheHitBytes));
         var totalMissBytes = await AggregateExcludingAsync(allTimeQuery, statsExcludedOnlyIps,
@@ -654,7 +654,7 @@ public class StatsController : ControllerBase
 
         // Get top service from Downloads table (not cached ServiceStats)
         // Exclude stats-excluded IPs from the sum calculation
-        var topServiceQuery = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
+        var topServiceQuery = BaseDownloadsQuery(hiddenClientIps, evictedMode);
         var topServiceGroups = await topServiceQuery
             .GroupBy(d => d.Service)
             .Select(g => new { Service = g.Key, TotalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) })
@@ -685,7 +685,7 @@ public class StatsController : ControllerBase
             .FirstOrDefault();
 
         // Active downloads and unique clients (exclude stats-excluded IPs from counts)
-        var activeDownloadsQuery = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode)
+        var activeDownloadsQuery = BaseDownloadsQuery(hiddenClientIps, evictedMode)
             .Where(d => d.IsActive && d.EndTimeUtc > DateTime.UtcNow.AddMinutes(-5));
         var activeDownloads = await AggregateExcludingAsync(activeDownloadsQuery, statsExcludedOnlyIps,
             q => q.CountAsync());
@@ -704,7 +704,7 @@ public class StatsController : ControllerBase
         else
         {
             // For all-time, count distinct IPs excluding stats-excluded
-            var allIps = await BuildBaseDownloadsQuery(hiddenClientIps, evictedMode)
+            var allIps = await BaseDownloadsQuery(hiddenClientIps, evictedMode)
                 .Select(d => d.ClientIp)
                 .Distinct()
                 .ToListAsync();
@@ -790,7 +790,7 @@ public class StatsController : ControllerBase
     /// Groups downloads by hour of day to show activity patterns
     /// </summary>
     [HttpGet("hourly-activity")]
-    public async Task<IActionResult> GetHourlyActivityAsync(
+    public async Task<IActionResult> HourlyActivityAsync(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
         [FromQuery] long? eventId = null)
@@ -803,7 +803,7 @@ public class StatsController : ControllerBase
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
         var evictedMode = _stateRepository.GetEvictedDataMode();
-        var query = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
+        var query = BaseDownloadsQuery(hiddenClientIps, evictedMode);
 
         // Apply event filter if provided (filters to only tagged downloads)
         HashSet<long>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
@@ -909,7 +909,7 @@ public class StatsController : ControllerBase
     /// Pass actualCacheSize to detect deletions and calculate net growth
     /// </summary>
     [HttpGet("cache-growth")]
-    public async Task<IActionResult> GetCacheGrowthAsync(
+    public async Task<IActionResult> CacheGrowthAsync(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
         [FromQuery] string interval = "daily",
@@ -936,14 +936,14 @@ public class StatsController : ControllerBase
 
             // Try to get cache info from the system controller's cache service
             // For now, we'll calculate from downloads data (exclude stats-excluded IPs from calculations)
-            var allTimeQuery = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
+            var allTimeQuery = BaseDownloadsQuery(hiddenClientIps, evictedMode);
             var totalCacheMiss = await AggregateExcludingAsync(allTimeQuery, statsExcludedOnlyIps,
                 q => q.SumAsync(d => d.CacheMissBytes));
 
             currentCacheSize = totalCacheMiss; // Approximation: total cache misses = data added to cache
 
             // Build base query with time filtering (filter out hidden IPs, exclude stats-excluded from calculations)
-            var baseQuery = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
+            var baseQuery = BaseDownloadsQuery(hiddenClientIps, evictedMode);
 
             // Apply event filter if provided (filters to only tagged downloads)
             HashSet<long>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
@@ -1063,7 +1063,7 @@ public class StatsController : ControllerBase
             {
                 // Total cumulative downloads (all data ever added to cache)
                 // Exclude stats-excluded IPs from calculations
-                var allTimeQueryForCumulative = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
+                var allTimeQueryForCumulative = BaseDownloadsQuery(hiddenClientIps, evictedMode);
                 var cumulativeDownloads = await AggregateExcludingAsync(allTimeQueryForCumulative, statsExcludedOnlyIps,
                     q => q.SumAsync(d => d.CacheMissBytes));
 
@@ -1138,7 +1138,7 @@ public class StatsController : ControllerBase
     /// Returns daily aggregated data for bandwidth saved, cache hit ratio, total served, and added to cache
     /// </summary>
     [HttpGet("sparklines")]
-    public async Task<IActionResult> GetSparklineDataAsync(
+    public async Task<IActionResult> SparklineDataAsync(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
         [FromQuery] long? eventId = null)
@@ -1217,15 +1217,15 @@ public class StatsController : ControllerBase
 
             return Ok(new SparklineDataResponse
             {
-                BandwidthSaved = BuildSparklineMetric(bandwidthSavedData),
-                CacheHitRatio = BuildSparklineMetricForRatio(cacheHitRatioData),
-                TotalServed = BuildSparklineMetric(totalServedData),
-                AddedToCache = BuildSparklineMetric(addedToCacheData),
+                BandwidthSaved = SparklineMetric(bandwidthSavedData),
+                CacheHitRatio = SparklineMetricForRatio(cacheHitRatioData),
+                TotalServed = SparklineMetric(totalServedData),
+                AddedToCache = SparklineMetric(addedToCacheData),
                 Period = startTime.HasValue ? "filtered" : "all"
             });
     }
 
-    private static SparklineMetric BuildSparklineMetric(List<double> data)
+    private static SparklineMetric SparklineMetric(List<double> data)
     {
         // Trim trailing zeros
         var trimmed = data.ToList();
@@ -1257,7 +1257,7 @@ public class StatsController : ControllerBase
         return new SparklineMetric { Data = trimmed, Trend = trend };
     }
 
-    private static SparklineMetric BuildSparklineMetricForRatio(List<double> data)
+    private static SparklineMetric SparklineMetricForRatio(List<double> data)
     {
         // Trim trailing zeros
         var trimmed = data.ToList();
@@ -1294,7 +1294,7 @@ public class StatsController : ControllerBase
     /// Returns estimated used space based on periodic snapshots.
     /// </summary>
     [HttpGet("cache-snapshot")]
-    public async Task<IActionResult> GetCacheSnapshotAsync(
+    public async Task<IActionResult> CacheSnapshotAsync(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null)
     {

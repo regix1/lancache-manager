@@ -304,7 +304,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         operation.OnTerminalEmit = null;
         if (emit != null)
         {
-            _ = SafeInvokeTerminalEmitAsync(operationId, emit,
+            _ = SafeEmitTerminalAsync(operationId, emit,
                 new OperationTerminalInfo(success, operation.Cancelled, error));
         }
 
@@ -337,7 +337,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     /// faulty terminal-emit closure can never crash the tracker or leave the op un-reaped. Mirrors the
     /// best-effort handling of <see cref="OperationInfo.OnTerminalCleanup"/>.
     /// </summary>
-    private async Task SafeInvokeTerminalEmitAsync(Guid operationId,
+    private async Task SafeEmitTerminalAsync(Guid operationId,
         Func<OperationTerminalInfo, Task> emit, OperationTerminalInfo info)
     {
         try

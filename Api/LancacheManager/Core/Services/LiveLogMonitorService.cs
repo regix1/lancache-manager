@@ -145,7 +145,7 @@ public class LiveLogMonitorService : ScheduledBackgroundService
         }
 
         // Check if logs have been processed before (to distinguish fresh install from manual reset)
-        var hasProcessedLogs = _stateService.GetHasProcessedLogs();
+        var hasProcessedLogs = _stateService.HasProcessedLogs();
 
         // Initialize file sizes for each datasource
         foreach (var ds in datasources)
@@ -210,11 +210,11 @@ public class LiveLogMonitorService : ScheduledBackgroundService
         foreach (var ds in datasources)
         {
             if (!ds.Enabled) continue;
-            await MonitorAndProcessDatasourceAsync(ds, stoppingToken);
+            await ProcessDatasourceAsync(ds, stoppingToken);
         }
     }
 
-    private async Task MonitorAndProcessDatasourceAsync(ResolvedDatasource datasource, CancellationToken stoppingToken)
+    private async Task ProcessDatasourceAsync(ResolvedDatasource datasource, CancellationToken stoppingToken)
     {
         // Skip if already processing
         if (_isProcessing)

@@ -13,7 +13,7 @@ public interface IImageCacheService
     /// <param name="platform">The platform ("steam" or "epicgames")</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Image bytes and content type, or null if not cached</returns>
-    Task<(byte[] imageBytes, string contentType)?> GetCachedImageAsync(
+    Task<(byte[] imageBytes, string contentType)?> GetImageAsync(
         string appId,
         string platform,
         CancellationToken cancellationToken = default);

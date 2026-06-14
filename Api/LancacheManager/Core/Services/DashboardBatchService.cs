@@ -462,7 +462,7 @@ public class DashboardBatchService : IDashboardBatchService
         }
 
         // Resolve game names via Steam depot mappings + Epic lookup
-        await ResolveGameNamesAsync(context, downloads);
+        await EnrichGameNamesAsync(context, downloads);
 
         return downloads;
     }
@@ -583,7 +583,7 @@ public class DashboardBatchService : IDashboardBatchService
         return new SparklineDataResponse
         {
             BandwidthSaved = BuildSparklineMetric(bandwidthSavedData),
-            CacheHitRatio = BuildSparklineMetricForRatio(cacheHitRatioData),
+            CacheHitRatio = BuildRatioSparkline(cacheHitRatioData),
             TotalServed = BuildSparklineMetric(totalServedData),
             AddedToCache = BuildSparklineMetric(addedToCacheData),
             Period = startTime.HasValue ? "filtered" : "all"
@@ -947,7 +947,7 @@ public class DashboardBatchService : IDashboardBatchService
         return new SparklineMetric { Data = trimmed, Trend = trend };
     }
 
-    private static SparklineMetric BuildSparklineMetricForRatio(List<double> data)
+    private static SparklineMetric BuildRatioSparkline(List<double> data)
     {
         var trimmed = data.ToList();
         while (trimmed.Count > 1 && trimmed.Last() == 0)
@@ -1021,7 +1021,7 @@ public class DashboardBatchService : IDashboardBatchService
     /// Resolve game names for downloads using Steam depot mappings and Epic lookup.
     /// Mirrors the logic in DownloadsController.ResolveGameNamesAsync.
     /// </summary>
-    private static async Task ResolveGameNamesAsync(AppDbContext context, List<Download> downloads)
+    private static async Task EnrichGameNamesAsync(AppDbContext context, List<Download> downloads)
     {
         if (downloads.Count == 0) return;
 

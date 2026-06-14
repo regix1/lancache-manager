@@ -67,7 +67,7 @@ public class UserPreferencesController : ControllerBase
 
         // Strip admin-only fields for non-admin sessions
         if (session.SessionType != SessionType.Admin)
-            UserPreferencesService.StripAdminOnlyFields(preferences);
+            UserPreferencesService.RedactAdminFields(preferences);
 
         var success = await _preferencesService.SavePreferencesAsync(sessionId, preferences);
         if (success)
@@ -98,7 +98,7 @@ public class UserPreferencesController : ControllerBase
         if (session.SessionType != SessionType.Admin && UserPreferencesService.IsAdminOnlyKey(preferenceKey))
             return Forbid();
 
-        var preferences = await _preferencesService.UpdatePreferenceAndGetAsync(sessionId, preferenceKey, value);
+        var preferences = await _preferencesService.UpdatePreferenceAsync(sessionId, preferenceKey, value);
 
         if (preferences != null)
         {
@@ -111,7 +111,7 @@ public class UserPreferencesController : ControllerBase
 
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("session/{sessionId}")]
-    public IActionResult GetPreferencesForSession(Guid sessionId)
+    public IActionResult GetForSession(Guid sessionId)
     {
         var preferences = _preferencesService.GetPreferences(sessionId);
         if (preferences == null)
@@ -124,7 +124,7 @@ public class UserPreferencesController : ControllerBase
 
     [Authorize(Policy = "AdminOnly")]
     [HttpPut("session/{sessionId}")]
-    public async Task<IActionResult> SavePreferencesForSessionAsync(Guid sessionId, [FromBody] UserPreferencesDto preferences)
+    public async Task<IActionResult> SaveForSessionAsync(Guid sessionId, [FromBody] UserPreferencesDto preferences)
     {
         var success = await _preferencesService.SavePreferencesAsync(sessionId, preferences);
         if (success)

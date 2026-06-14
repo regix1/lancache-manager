@@ -87,7 +87,7 @@ public class LinuxMemoryManager : IMemoryManager
     /// Includes malloc_trim to force glibc to return memory to OS
     /// </summary>
     /// <param name="logger">Optional logger override for diagnostics</param>
-    public void PerformAggressiveGarbageCollection(ILogger? logger = null)
+    public void CollectGarbage(ILogger? logger = null)
     {
         var activeLogger = logger ?? _logger;
 

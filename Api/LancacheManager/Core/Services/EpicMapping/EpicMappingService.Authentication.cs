@@ -142,7 +142,7 @@ public partial class EpicMappingService
                 LastAuthenticated = DateTime.UtcNow,
                 GamesDiscovered = _gamesDiscovered
             };
-            _authStorage.SaveEpicAuthData(authData);
+            _authStorage.SaveAuthData(authData);
 
             _isAuthenticated = true;
             _displayName = tokens.DisplayName;
@@ -155,7 +155,7 @@ public partial class EpicMappingService
             // Resolve existing Epic downloads against the freshly collected CDN patterns
             try
             {
-                var resolved = await ResolveEpicDownloadsAsync(authCts.Token);
+                var resolved = await ResolveDownloadsAsync(authCts.Token);
                 if (resolved > 0)
                 {
                     _logger.LogInformation("Resolved {Count} Epic downloads to game names after login", resolved);
@@ -214,7 +214,7 @@ public partial class EpicMappingService
         await _sessionLock.WaitAsync();
         try
         {
-            _authStorage.ClearEpicAuthData();
+            _authStorage.ClearAuthData();
 
             _isAuthenticated = false;
             _displayName = null;
@@ -240,7 +240,7 @@ public partial class EpicMappingService
         await _sessionLock.WaitAsync(ct);
         try
         {
-            var authData = _authStorage.GetEpicAuthData();
+            var authData = _authStorage.GetAuthData();
             if (string.IsNullOrEmpty(authData.RefreshToken))
             {
                 _logger.LogInformation("No saved Epic refresh token, skipping auto-reconnect");
@@ -264,7 +264,7 @@ public partial class EpicMappingService
                     LastAuthenticated = DateTime.UtcNow,
                     GamesDiscovered = authData.GamesDiscovered
                 };
-                _authStorage.SaveEpicAuthData(updatedAuthData);
+                _authStorage.SaveAuthData(updatedAuthData);
 
                 _isAuthenticated = true;
                 _displayName = tokens.DisplayName;
@@ -272,7 +272,7 @@ public partial class EpicMappingService
                 // Prefer the persisted collection time (captures scheduled refreshes too);
                 // fall back to the auth timestamp for pre-existing state.json without it.
                 _lastCollectionUtc =
-                    _stateService.GetEpicMappingLastCollection() ?? authData.LastAuthenticated;
+                    _stateService.GetEpicMappingCollectedAt() ?? authData.LastAuthenticated;
 
                 _logger.LogInformation("Epic auto-reconnect authenticated: {DisplayName}, {Games} cached games",
                     tokens.DisplayName, _gamesDiscovered);
@@ -280,7 +280,7 @@ public partial class EpicMappingService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Epic refresh token expired or invalid, clearing credentials");
-                _authStorage.ClearEpicAuthData();
+                _authStorage.ClearAuthData();
 
                 _isAuthenticated = false;
                 _displayName = null;

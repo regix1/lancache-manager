@@ -22,20 +22,20 @@ public abstract partial class PrefillDaemonServiceBase
         _logger.LogInformation("═══════════════════════════════════════════════════════════════════════");
 
         // Test 1: Internet connectivity
-        var (internetSuccess, internetError) = await TestInternetConnectivityInContainerAsync(containerId, cancellationToken);
+        var (internetSuccess, internetError) = await TestInternetConnectivityAsync(containerId, cancellationToken);
         diagnostics.InternetConnectivity = internetSuccess;
         diagnostics.InternetConnectivityError = internetError;
-        var (ipv4Success, ipv4Error) = await TestInternetConnectivityByIpFamilyAsync(containerId, AddressFamily.InterNetwork, cancellationToken);
+        var (ipv4Success, ipv4Error) = await TestConnectivityByFamilyAsync(containerId, AddressFamily.InterNetwork, cancellationToken);
         diagnostics.InternetConnectivityIpv4 = ipv4Success;
         diagnostics.InternetConnectivityIpv4Error = ipv4Error;
-        var (ipv6Success, ipv6Error) = await TestInternetConnectivityByIpFamilyAsync(containerId, AddressFamily.InterNetworkV6, cancellationToken);
+        var (ipv6Success, ipv6Error) = await TestConnectivityByFamilyAsync(containerId, AddressFamily.InterNetworkV6, cancellationToken);
         diagnostics.InternetConnectivityIpv6 = ipv6Success;
         diagnostics.InternetConnectivityIpv6Error = ipv6Error;
 
         // Test 2: DNS resolution for service-specific lancache domains
         foreach (var domain in DiagnosticsDnsDomains)
         {
-            var dnsResult = await TestDnsResolutionInContainerAsync(containerId, domain, cancellationToken);
+            var dnsResult = await TestDnsAsync(containerId, domain, cancellationToken);
             diagnostics.DnsResults.Add(dnsResult);
         }
 
@@ -49,7 +49,7 @@ public abstract partial class PrefillDaemonServiceBase
     /// <summary>
     /// Tests internet connectivity from inside a container by attempting to reach Steam API.
     /// </summary>
-    private async Task<(bool Success, string? Error)> TestInternetConnectivityInContainerAsync(string containerId, CancellationToken cancellationToken)
+    private async Task<(bool Success, string? Error)> TestInternetConnectivityAsync(string containerId, CancellationToken cancellationToken)
     {
         try
         {
@@ -109,7 +109,7 @@ public abstract partial class PrefillDaemonServiceBase
     /// Tests internet connectivity for a specific IP family (IPv4 or IPv6) from inside a container.
     /// Returns null when the container lacks tools that support the requested family flag.
     /// </summary>
-    private async Task<(bool? Success, string? Error)> TestInternetConnectivityByIpFamilyAsync(
+    private async Task<(bool? Success, string? Error)> TestConnectivityByFamilyAsync(
         string containerId,
         AddressFamily family,
         CancellationToken cancellationToken)
@@ -174,7 +174,7 @@ public abstract partial class PrefillDaemonServiceBase
     /// Tests DNS resolution for a specific domain from inside a container.
     /// For lancache domains, this should resolve to your cache server IP.
     /// </summary>
-    private async Task<DnsTestResult> TestDnsResolutionInContainerAsync(string containerId, string domain, CancellationToken cancellationToken)
+    private async Task<DnsTestResult> TestDnsAsync(string containerId, string domain, CancellationToken cancellationToken)
     {
         var result = new DnsTestResult { Domain = domain };
 

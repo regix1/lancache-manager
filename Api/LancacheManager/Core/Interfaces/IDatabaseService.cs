@@ -2,7 +2,7 @@ namespace LancacheManager.Core.Interfaces;
 
 public interface IDatabaseService
 {
-    Guid StartResetSelectedTablesAsync(List<string> tableNames);
+    Guid StartResetAsync(List<string> tableNames);
     bool IsResetOperationRunning { get; }
-    Task<int> GetLogEntriesCount();
+    Task<int> GetLogCount();
 }

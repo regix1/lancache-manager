@@ -86,7 +86,7 @@ public class CacheController : ControllerBase
     [Authorize]
     public async Task<IActionResult> GetCacheSizeAsync([FromQuery] string? datasource = null, [FromQuery] bool force = false)
     {
-        var result = await _cacheService.GetCachedCacheSizeAsync(force, datasource);
+        var result = await _cacheService.GetCacheSizeAsync(force, datasource);
         if (result == null)
         {
             return StatusCode(500, new ErrorResponse { Error = "Failed to calculate cache size" });
@@ -150,7 +150,7 @@ public class CacheController : ControllerBase
     public IActionResult GetDirectoryPermissions()
     {
         var cachePath = _pathResolver.GetCacheDirectory();
-        var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
+        var cacheWritable = _pathResolver.IsCacheWritable();
 
         return Ok(new DirectoryPermission
         {
@@ -170,7 +170,7 @@ public class CacheController : ControllerBase
     {
         // Use cached permission flags (refreshed by DirectoryPermissionMonitor).
         var defaultDatasource = _datasourceService.GetDefaultDatasource();
-        var cacheWritable = defaultDatasource?.CacheWritable ?? _pathResolver.IsCacheDirectoryWritable();
+        var cacheWritable = defaultDatasource?.CacheWritable ?? _pathResolver.IsCacheWritable();
 
         if (!cacheWritable)
         {
@@ -323,9 +323,9 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("corruption/cached")]
-    public async Task<IActionResult> GetCachedCorruptionDetectionAsync()
+    public async Task<IActionResult> GetCachedCorruptionAsync()
     {
-        var cachedResults = await _corruptionDetectionService.GetCachedDetectionAsync();
+        var cachedResults = await _corruptionDetectionService.GetDetectionAsync();
 
         if (cachedResults == null)
         {
@@ -450,7 +450,7 @@ public class CacheController : ControllerBase
 
         // CRITICAL: Check write permissions BEFORE starting (or queueing) the operation
         // This prevents the DB/filesystem state mismatch when PUID/PGID is wrong
-        var permissionError = CheckDatasourcesWritableForCorruption(datasources, service);
+        var permissionError = CheckDatasourcesWritable(datasources, service);
         if (permissionError != null)
         {
             return BadRequest(new ErrorResponse { Error = permissionError });
@@ -463,7 +463,7 @@ public class CacheController : ControllerBase
         _cacheService.InvalidateCachedScan();
 
         // Optimistically delete the cached detection row immediately so app restarts don't resurface stale data
-        await _corruptionDetectionService.RemoveCachedServiceAsync(service);
+        await _corruptionDetectionService.ClearServiceCacheAsync(service);
 
         // Register synchronously (inside the core) but surface the operationId to this
         // request thread so it can be returned in the HTTP response.
@@ -481,7 +481,7 @@ public class CacheController : ControllerBase
 
                 try
                 {
-                    await RunCorruptionRemovalForServiceCoreAsync(
+                    await RunCorruptionRemovalCoreAsync(
                         service, threshold, compareToCacheLogs, detectionMode, datasources,
                         onRegistered: id => operationIdReady.TrySetResult(id));
                 }
@@ -542,7 +542,7 @@ public class CacheController : ControllerBase
     public async Task<IActionResult> RemoveAllCorruptedChunksAsync(CancellationToken cancellationToken, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
     {
         // Query which services currently have corruption data
-        var cachedDetection = await _corruptionDetectionService.GetCachedDetectionAsync();
+        var cachedDetection = await _corruptionDetectionService.GetDetectionAsync();
         if (cachedDetection == null || cachedDetection.CorruptionCounts == null || cachedDetection.CorruptionCounts.Count == 0)
         {
             return Ok(new { Message = "No corruption data found. Run a corruption detection scan first." });
@@ -553,7 +553,7 @@ public class CacheController : ControllerBase
         var datasources = _datasourceService.GetDatasources();
 
         // CRITICAL: Check write permissions BEFORE starting (or queueing) the operation
-        var permissionError = CheckDatasourcesWritableForCorruption(datasources, service: null);
+        var permissionError = CheckDatasourcesWritable(datasources, service: null);
         if (permissionError != null)
         {
             return BadRequest(new ErrorResponse { Error = permissionError });
@@ -572,7 +572,7 @@ public class CacheController : ControllerBase
         // Delete cached detection rows per-service and activate grace period to prevent immediate reappearance
         foreach (var service in servicesWithCorruption)
         {
-            await _corruptionDetectionService.RemoveCachedServiceAsync(service);
+            await _corruptionDetectionService.ClearServiceCacheAsync(service);
         }
 
         _ = Task.Run(async () =>
@@ -589,7 +589,7 @@ public class CacheController : ControllerBase
                 {
                     try
                     {
-                        await RunCorruptionRemovalForServiceCoreAsync(
+                        await RunCorruptionRemovalCoreAsync(
                             service, threshold, compareToCacheLogs, detectionMode, datasources);
                     }
                     catch (OperationCanceledException)
@@ -645,7 +645,7 @@ public class CacheController : ControllerBase
     /// null when all datasources are writable. <paramref name="service"/> is included in the
     /// log line for the single-service path; pass null for the all-services path.
     /// </summary>
-    private string? CheckDatasourcesWritableForCorruption(IReadOnlyList<ResolvedDatasource> datasources, string? service)
+    private string? CheckDatasourcesWritable(IReadOnlyList<ResolvedDatasource> datasources, string? service)
     {
         foreach (ResolvedDatasource datasource in datasources)
         {
@@ -692,7 +692,7 @@ public class CacheController : ControllerBase
     /// all-services loop continues with the next service. <paramref name="onRegistered"/> fires
     /// synchronously with the operationId the moment the operation is registered.
     /// </summary>
-    private async Task RunCorruptionRemovalForServiceCoreAsync(
+    private async Task RunCorruptionRemovalCoreAsync(
         string service,
         int threshold,
         bool compareToCacheLogs,
@@ -855,7 +855,7 @@ public class CacheController : ControllerBase
                 await _nginxLogRotationService.ReopenNginxLogsAsync();
 
                 // Invalidate service count cache since corruption removal affects counts
-                await _cacheService.InvalidateServiceCountsCacheAsync();
+                await _cacheService.InvalidateServiceCountsAsync();
 
                 // Terminal SignalR emit is centralized in the onTerminalEmit closure
                 // registered with RegisterOperation (fires exactly once from CompleteOperation).
@@ -942,8 +942,8 @@ public class CacheController : ControllerBase
     /// </summary>
     private BadRequestObjectResult? EnsureDirectoriesWritable(string operationDescription, string logContext)
     {
-        var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
-        var logsWritable = _pathResolver.IsLogsDirectoryWritable();
+        var cacheWritable = _pathResolver.IsCacheWritable();
+        var logsWritable = _pathResolver.IsLogsWritable();
 
         if (cacheWritable && logsWritable)
             return null;

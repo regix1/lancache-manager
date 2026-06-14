@@ -209,7 +209,7 @@ public abstract class ConfigurableScheduledService : BackgroundService
                 try
                 {
                     IsCurrentlyExecuting = true;
-                    await ExecuteScheduledWorkAsync(stoppingToken);
+                    await ExecuteWorkAsync(stoppingToken);
                     LastRunUtc = DateTime.UtcNow;
                     ServiceWorkCompleted?.Invoke(ServiceName);
                 }
@@ -269,7 +269,7 @@ public abstract class ConfigurableScheduledService : BackgroundService
     /// The main work to execute on each scheduled interval.
     /// Only called when the configured interval is greater than zero (service is enabled).
     /// </summary>
-    protected abstract Task ExecuteScheduledWorkAsync(CancellationToken stoppingToken);
+    protected abstract Task ExecuteWorkAsync(CancellationToken stoppingToken);
 
     /// <summary>
     /// Override to run initialization before the scheduling loop starts.

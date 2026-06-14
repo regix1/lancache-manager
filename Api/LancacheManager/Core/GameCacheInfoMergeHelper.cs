@@ -8,7 +8,7 @@ namespace LancacheManager.Core;
 /// </summary>
 internal static class GameCacheInfoMergeHelper
 {
-    public static void MergeGameInto(GameCacheInfo existing, GameCacheInfo incoming, string? datasourceName = null)
+    public static void MergeGame(GameCacheInfo existing, GameCacheInfo incoming, string? datasourceName = null)
     {
         MergeCacheFiles(existing, incoming);
 
@@ -29,7 +29,7 @@ internal static class GameCacheInfoMergeHelper
         }
     }
 
-    public static void MergeServiceInto(ServiceCacheInfo existing, ServiceCacheInfo incoming, string? datasourceName = null)
+    public static void MergeService(ServiceCacheInfo existing, ServiceCacheInfo incoming, string? datasourceName = null)
     {
         MergeCacheFiles(existing, incoming);
 
@@ -67,7 +67,7 @@ internal static class GameCacheInfoMergeHelper
 
         if (existing.CacheFilePaths.Count > 0)
         {
-            existing.TotalSizeBytes = GamesOnDiskCalculator.SumUniquePathBytes(existing.CacheFilePaths);
+            existing.TotalSizeBytes = GamesOnDiskCalculator.SumPaths(existing.CacheFilePaths);
             existing.CacheFilesFound = existing.CacheFilePaths.Count;
             return;
         }
@@ -90,7 +90,7 @@ internal static class GameCacheInfoMergeHelper
 
         if (existing.CacheFilePaths.Count > 0)
         {
-            existing.TotalSizeBytes = GamesOnDiskCalculator.SumUniquePathBytes(existing.CacheFilePaths);
+            existing.TotalSizeBytes = GamesOnDiskCalculator.SumPaths(existing.CacheFilePaths);
             existing.CacheFilesFound = existing.CacheFilePaths.Count;
             return;
         }

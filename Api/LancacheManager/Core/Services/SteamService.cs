@@ -82,10 +82,10 @@ public class SteamService : ScopedScheduledBackgroundService
 
         LoadStateOverrides(stateService);
 
-        ConfigurableScheduledService.ServiceWorkCompleted += OnConfigurableServiceWorkCompleted;
+        ConfigurableScheduledService.ServiceWorkCompleted += OnServiceWorkCompleted;
     }
 
-    private void OnConfigurableServiceWorkCompleted(string serviceName)
+    private void OnServiceWorkCompleted(string serviceName)
     {
         if (string.Equals(serviceName, SteamKit2ServiceName, StringComparison.Ordinal))
         {
@@ -102,20 +102,20 @@ public class SteamService : ScopedScheduledBackgroundService
         // warm this service against an empty or mid-replace depot table, the in-memory
         // cache stays stale until the next interval. Wait briefly for that startup work
         // to settle before loading the mappings we cache in memory.
-        await WaitForStartupDepotMappingsAsync(stoppingToken);
+        await WaitForDepotMappingStartupAsync(stoppingToken);
 
         // Run initial refresh during startup
         await RefreshMappingsAsync();
     }
 
-    protected override async Task ExecuteScopedWorkAsync(
+    protected override async Task ExecuteWorkAsync(
         IServiceProvider scopedServices,
         CancellationToken stoppingToken)
     {
         await RefreshMappingsAsync();
     }
 
-    private async Task WaitForStartupDepotMappingsAsync(CancellationToken stoppingToken)
+    private async Task WaitForDepotMappingStartupAsync(CancellationToken stoppingToken)
     {
         var steamKit2StartupEnabled =
             _stateService.GetCrawlIntervalHours() > 0 &&
@@ -366,7 +366,7 @@ public class SteamService : ScopedScheduledBackgroundService
 
             if (!response.IsSuccessStatusCode)
             {
-                return CreateFallbackGameInfo(appId, knownName);
+                return FallbackGameInfo(appId, knownName);
             }
 
             var json = await response.Content.ReadAsStringAsync();
@@ -376,18 +376,18 @@ public class SteamService : ScopedScheduledBackgroundService
         {
             // Steam Store API timed out - this is expected for some apps
             _logger.LogWarning($"Steam Store API timeout for app {appId} ({knownName ?? "Unknown"}) - using fallback");
-            return CreateFallbackGameInfo(appId, knownName);
+            return FallbackGameInfo(appId, knownName);
         }
         catch (TaskCanceledException)
         {
             // Request was cancelled for other reasons
             _logger.LogWarning($"Steam Store API request cancelled for app {appId} ({knownName ?? "Unknown"}) - using fallback");
-            return CreateFallbackGameInfo(appId, knownName);
+            return FallbackGameInfo(appId, knownName);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, $"Error fetching detailed game info for app {appId}");
-            return CreateFallbackGameInfo(appId, knownName);
+            return FallbackGameInfo(appId, knownName);
         }
         finally
         {
@@ -407,7 +407,7 @@ public class SteamService : ScopedScheduledBackgroundService
                 !success.GetBoolean() ||
                 !appData.TryGetProperty("data", out var data))
             {
-                return CreateFallbackGameInfo(appId, knownName);
+                return FallbackGameInfo(appId, knownName);
             }
 
             var gameInfo = new GameInfo
@@ -426,11 +426,11 @@ public class SteamService : ScopedScheduledBackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, $"Error parsing Store API response for {appId}");
-            return CreateFallbackGameInfo(appId, knownName);
+            return FallbackGameInfo(appId, knownName);
         }
     }
 
-    private static GameInfo CreateFallbackGameInfo(long appId, string? knownName = null)
+    private static GameInfo FallbackGameInfo(long appId, string? knownName = null)
     {
         return new GameInfo
         {
@@ -462,7 +462,7 @@ public class SteamService : ScopedScheduledBackgroundService
 
     public override void Dispose()
     {
-        ConfigurableScheduledService.ServiceWorkCompleted -= OnConfigurableServiceWorkCompleted;
+        ConfigurableScheduledService.ServiceWorkCompleted -= OnServiceWorkCompleted;
         _apiSemaphore.Dispose();
         base.Dispose();
     }

@@ -17,7 +17,7 @@ public class ClientGroupsService : IClientGroupsService
         _logger = logger;
     }
 
-    public async Task<List<ClientGroup>> GetAllGroupsAsync(CancellationToken cancellationToken = default)
+    public async Task<List<ClientGroup>> GetAllAsync(CancellationToken cancellationToken = default)
     {
         return (await _context.ClientGroups
             .AsNoTracking()
@@ -27,7 +27,7 @@ public class ClientGroupsService : IClientGroupsService
             .WithUtcMarking();
     }
 
-    public async Task<ClientGroup?> GetGroupByIdAsync(long id, CancellationToken cancellationToken = default)
+    public async Task<ClientGroup?> GetByIdAsync(long id, CancellationToken cancellationToken = default)
     {
         return (await _context.ClientGroups
             .AsNoTracking()
@@ -36,7 +36,7 @@ public class ClientGroupsService : IClientGroupsService
             ?.WithUtcMarking();
     }
 
-    public async Task<ClientGroup?> GetGroupByNicknameAsync(string nickname, CancellationToken cancellationToken = default)
+    public async Task<ClientGroup?> GetByNicknameAsync(string nickname, CancellationToken cancellationToken = default)
     {
         return (await _context.ClientGroups
             .AsNoTracking()
@@ -45,7 +45,7 @@ public class ClientGroupsService : IClientGroupsService
             ?.WithUtcMarking();
     }
 
-    public async Task<ClientGroup> CreateGroupAsync(ClientGroup group, CancellationToken cancellationToken = default)
+    public async Task<ClientGroup> CreateAsync(ClientGroup group, CancellationToken cancellationToken = default)
     {
         group.CreatedAtUtc = DateTime.UtcNow;
         _context.ClientGroups.Add(group);
@@ -55,7 +55,7 @@ public class ClientGroupsService : IClientGroupsService
         return group.WithUtcMarking();
     }
 
-    public async Task<ClientGroup> UpdateGroupAsync(ClientGroup group, CancellationToken cancellationToken = default)
+    public async Task<ClientGroup> UpdateAsync(ClientGroup group, CancellationToken cancellationToken = default)
     {
         var existing = await _context.ClientGroups
             .Include(g => g.Members)
@@ -76,7 +76,7 @@ public class ClientGroupsService : IClientGroupsService
         return existing.WithUtcMarking();
     }
 
-    public async Task DeleteGroupAsync(long id, CancellationToken cancellationToken = default)
+    public async Task DeleteAsync(long id, CancellationToken cancellationToken = default)
     {
         var group = await _context.ClientGroups.FindAsync(new object[] { id }, cancellationToken);
         if (group != null)
@@ -131,7 +131,7 @@ public class ClientGroupsService : IClientGroupsService
         }
     }
 
-    public async Task<Dictionary<string, (long GroupId, string Nickname)>> GetIpToGroupMappingAsync(CancellationToken cancellationToken = default)
+    public async Task<Dictionary<string, (long GroupId, string Nickname)>> GetIpMappingAsync(CancellationToken cancellationToken = default)
     {
         var mappings = await _context.ClientGroupMembers
             .AsNoTracking()
@@ -150,21 +150,11 @@ public class ClientGroupsService : IClientGroupsService
     }
 
     // ===== ICrudRepository-like methods (delegating to entity-specific methods) =====
-
-    public Task<List<ClientGroup>> GetAllAsync(CancellationToken ct = default)
-        => GetAllGroupsAsync(ct);
-
-    public Task<ClientGroup?> GetByIdAsync(long id, CancellationToken ct = default)
-        => GetGroupByIdAsync(id, ct);
-
-    public Task<ClientGroup> CreateAsync(ClientGroup entity, CancellationToken ct = default)
-        => CreateGroupAsync(entity, ct);
-
-    public Task<ClientGroup> UpdateAsync(ClientGroup entity, CancellationToken ct = default)
-        => UpdateGroupAsync(entity, ct);
+    // GetAllAsync/GetByIdAsync/CreateAsync/UpdateAsync now share signatures with the
+    // entity-specific methods above (post-rename), so they satisfy ICrudRepository directly.
 
     public async Task DeleteAsync(ClientGroup entity, CancellationToken ct = default)
-        => await DeleteGroupAsync(entity.Id, ct);
+        => await DeleteAsync(entity.Id, ct);
 
     public async Task<bool> ExistsAsync(long id, CancellationToken ct = default)
         => await _context.ClientGroups.AnyAsync(g => g.Id == id, ct);

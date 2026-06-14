@@ -10,7 +10,7 @@ public abstract partial class PrefillDaemonServiceBase
     /// <summary>
     /// Handles credential challenge events from socket communication.
     /// </summary>
-    private async Task HandleSocketCredentialChallengeAsync(DaemonSession session, CredentialChallenge challenge)
+    private async Task OnCredentialChallengeAsync(DaemonSession session, CredentialChallenge challenge)
     {
         try
         {
@@ -37,7 +37,7 @@ public abstract partial class PrefillDaemonServiceBase
     /// <summary>
     /// Handles status update events from socket communication.
     /// </summary>
-    private async Task HandleStatusChangeFromSocketAsync(DaemonSession session, DaemonStatus status)
+    private async Task OnStatusChangeAsync(DaemonSession session, DaemonStatus status)
     {
         try
         {
@@ -59,7 +59,7 @@ public abstract partial class PrefillDaemonServiceBase
                 && !string.IsNullOrEmpty(status.DisplayName))
             {
                 session.Username = status.DisplayName;
-                await _sessionService.SetSessionUsernameAsync(session.Id, status.DisplayName);
+                await _sessionService.SetUsernameAsync(session.Id, status.DisplayName);
             }
 
             if (session.AuthState != previousAuthState)
@@ -69,7 +69,7 @@ public abstract partial class PrefillDaemonServiceBase
                 // Notify derived class when a daemon becomes authenticated
                 if (newAuthState == DaemonAuthState.Authenticated)
                 {
-                    FireCallbackAsync(OnSessionAuthenticatedAsync, nameof(OnSessionAuthenticatedAsync));
+                    FireAndForgetAsync(OnSessionAuthenticatedAsync, nameof(OnSessionAuthenticatedAsync));
                 }
                 // Notify when auth state changes FROM authenticated to non-authenticated
                 else if (previousAuthState == DaemonAuthState.Authenticated && newAuthState != DaemonAuthState.Authenticated)
@@ -77,7 +77,7 @@ public abstract partial class PrefillDaemonServiceBase
                     // Check if any other daemons are still authenticated
                     if (!IsAnyDaemonAuthenticated())
                     {
-                        FireCallbackAsync(OnAllSessionsLoggedOutAsync, nameof(OnAllSessionsLoggedOutAsync));
+                        FireAndForgetAsync(OnAllSessionsLoggedOutAsync, nameof(OnAllSessionsLoggedOutAsync));
                     }
                 }
             }
@@ -93,7 +93,7 @@ public abstract partial class PrefillDaemonServiceBase
     /// <summary>
     /// Handles progress update events from socket communication.
     /// </summary>
-    private async Task HandleProgressChangeFromSocketAsync(DaemonSession session, SocketPrefillProgress socketProgress)
+    private async Task OnProgressChangeAsync(DaemonSession session, SocketPrefillProgress socketProgress)
     {
         try
         {
@@ -147,7 +147,7 @@ public abstract partial class PrefillDaemonServiceBase
         {
             try
             {
-                await SendToServiceClientRawAsync(connectionId, eventName, payload);
+                await SendToClientAsync(connectionId, eventName, payload);
             }
             catch (Exception ex)
             {
@@ -258,7 +258,7 @@ public abstract partial class PrefillDaemonServiceBase
         try
         {
             var dto = DaemonSessionDto.FromSession(session);
-            await NotifyAllDownloadsAndServiceHubAsync(EventSessionUpdated, dto);
+            await NotifyHubAsync(EventSessionUpdated, dto);
         }
         catch (Exception ex)
         {
@@ -284,7 +284,7 @@ public abstract partial class PrefillDaemonServiceBase
                     // If no bytes were downloaded, mark as Cached
                     var status = session.CurrentBytesDownloaded == 0 ? "Cached" : "Completed";
 
-                    await _sessionService.CompletePrefillEntryAsync(
+                    await _sessionService.CompleteEntryAsync(
                         session.Id,
                         session.CurrentAppId,
                         status,
@@ -296,7 +296,7 @@ public abstract partial class PrefillDaemonServiceBase
                         session.CurrentBytesDownloaded, session.CurrentTotalBytes);
 
                     // Broadcast history update
-                    await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.CurrentAppId, status);
+                    await BroadcastHistoryUpdatedAsync(session.Id, session.CurrentAppId, status);
                 }
                 catch (Exception ex)
                 {
@@ -307,7 +307,7 @@ public abstract partial class PrefillDaemonServiceBase
             // Start a new history entry for the current app
             try
             {
-                var entry = await _sessionService.StartPrefillEntryAsync(session.Id, progress.CurrentAppId, progress.CurrentAppName);
+                var entry = await _sessionService.StartEntryAsync(session.Id, progress.CurrentAppId, progress.CurrentAppName);
 
                 // Only broadcast if an entry was actually created (won't create if recently completed)
                 if (entry != null)
@@ -316,7 +316,7 @@ public abstract partial class PrefillDaemonServiceBase
                         progress.CurrentAppId, progress.CurrentAppName, session.Id);
 
                     // Broadcast history update
-                    await BroadcastPrefillHistoryUpdatedAsync(session.Id, progress.CurrentAppId, "InProgress");
+                    await BroadcastHistoryUpdatedAsync(session.Id, progress.CurrentAppId, "InProgress");
                 }
             }
             catch (Exception ex)
@@ -377,7 +377,7 @@ public abstract partial class PrefillDaemonServiceBase
                 var bytesDownloaded = progress.BytesDownloaded > 0 ? progress.BytesDownloaded : session.CurrentBytesDownloaded;
                 var totalBytes = progress.TotalBytes > 0 ? progress.TotalBytes : session.CurrentTotalBytes;
 
-                await _sessionService.CompletePrefillEntryAsync(
+                await _sessionService.CompleteEntryAsync(
                     session.Id,
                     progress.CurrentAppId,
                     status,
@@ -389,7 +389,7 @@ public abstract partial class PrefillDaemonServiceBase
                     bytesDownloaded, totalBytes);
 
                 // Broadcast history update
-                await BroadcastPrefillHistoryUpdatedAsync(session.Id, progress.CurrentAppId, status);
+                await BroadcastHistoryUpdatedAsync(session.Id, progress.CurrentAppId, status);
 
                 // Record cached depots for successful downloads (including AlreadyUpToDate)
                 // This allows us to skip re-downloading games that are already cached
@@ -494,7 +494,7 @@ public abstract partial class PrefillDaemonServiceBase
                         status = "Completed";
                     }
 
-                    await _sessionService.CompletePrefillEntryAsync(
+                    await _sessionService.CompleteEntryAsync(
                         session.Id,
                         session.CurrentAppId,
                         status,
@@ -506,7 +506,7 @@ public abstract partial class PrefillDaemonServiceBase
                         status, session.CurrentAppId, session.CurrentAppName);
 
                     // Broadcast history update
-                    await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.CurrentAppId, status);
+                    await BroadcastHistoryUpdatedAsync(session.Id, session.CurrentAppId, status);
                 }
                 catch (Exception ex)
                 {
@@ -566,14 +566,14 @@ public abstract partial class PrefillDaemonServiceBase
         // Broadcast session update to all clients on every progress (for admin pages - both hubs)
         // This ensures totalBytesTransferred updates in real-time
         var progressDto = DaemonSessionDto.FromSession(session);
-        await NotifyAllDownloadsAndServiceHubAsync(EventSessionUpdated, progressDto);
+        await NotifyHubAsync(EventSessionUpdated, progressDto);
 
         // Send detailed progress to subscribed connections (the user doing the prefill)
         await BroadcastToSubscribersAsync(session, EventPrefillProgress,
             new { sessionId = session.Id, progress });
     }
 
-    private async Task BroadcastPrefillHistoryUpdatedAsync(string sessionId, string appId, string status)
+    private async Task BroadcastHistoryUpdatedAsync(string sessionId, string appId, string status)
     {
         var historyEvent = new { sessionId, appId, status };
         // Narrowed from NotifyAllDownloadsAndServiceHubAsync → NotifyAllAsync (downloads hub only).

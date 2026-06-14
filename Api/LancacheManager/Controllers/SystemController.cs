@@ -77,8 +77,8 @@ public class SystemController : ControllerBase
                       ?? _configuration.GetValue<string>("TimeZone")
                       ?? "UTC",
             // Use cached permission flags maintained by DirectoryPermissionMonitor.
-            CacheWritable = defaultDatasource?.CacheWritable ?? _pathResolver.IsCacheDirectoryWritable(),
-            LogsWritable = defaultDatasource?.LogsWritable ?? _pathResolver.IsLogsDirectoryWritable(),
+            CacheWritable = defaultDatasource?.CacheWritable ?? _pathResolver.IsCacheWritable(),
+            LogsWritable = defaultDatasource?.LogsWritable ?? _pathResolver.IsLogsWritable(),
             // Include all datasources
             DataSources = datasources.Select(ds => new DatasourceInfoDto
             {
@@ -121,8 +121,8 @@ public class SystemController : ControllerBase
 
         var cacheExists = Directory.Exists(cachePath);
         var logsExists = Directory.Exists(logPath);
-        var cacheWritable = cacheExists && (defaultDatasource?.CacheWritable ?? _pathResolver.IsCacheDirectoryWritable());
-        var logsWritable = logsExists && (defaultDatasource?.LogsWritable ?? _pathResolver.IsLogsDirectoryWritable());
+        var cacheWritable = cacheExists && (defaultDatasource?.CacheWritable ?? _pathResolver.IsCacheWritable());
+        var logsWritable = logsExists && (defaultDatasource?.LogsWritable ?? _pathResolver.IsLogsWritable());
         var dockerSocketAvailable = _pathResolver.IsDockerSocketAvailable();
 
         return Ok(new SystemPermissionsResponse
@@ -266,7 +266,7 @@ public class SystemController : ControllerBase
 
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("gc-management/status")]
-    public IActionResult GetGcManagementStatus()
+    public IActionResult GetGcStatus()
     {
         var isEnabled = _configuration.GetValue<bool>(
             "Optimizations:EnableGarbageCollectionManagement",
@@ -401,7 +401,7 @@ public class SystemController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("rsync/available")]
-    public async Task<IActionResult> CheckRsyncAvailableAsync()
+    public async Task<IActionResult> IsRsyncAvailableAsync()
     {
         var isAvailable = await _cacheClearingService.IsRsyncAvailableAsync();
         return Ok(new RsyncAvailableResponse { Available = isAvailable });
@@ -711,11 +711,11 @@ public class SystemController : ControllerBase
     [HttpGet("prefill-defaults")]
     public IActionResult GetPrefillDefaults()
     {
-        var steamMaxThreadLimit = ResolveEffectiveSteamThreadLimit();
-        var epicMaxThreadLimit = ResolveEffectiveEpicThreadLimit();
-        var maxConcurrency = ClampConcurrencyToLimit(
+        var steamMaxThreadLimit = SteamThreadLimit();
+        var epicMaxThreadLimit = EpicThreadLimit();
+        var maxConcurrency = ClampConcurrency(
             _stateService.GetDefaultPrefillMaxConcurrency(), steamMaxThreadLimit);
-        var epicMaxConcurrency = ClampConcurrencyToLimit(
+        var epicMaxConcurrency = ClampConcurrency(
             _stateService.GetEpicDefaultPrefillMaxConcurrency(), epicMaxThreadLimit);
 
         return Ok(new
@@ -748,8 +748,8 @@ public class SystemController : ControllerBase
             _stateService.SetEpicDefaultPrefillMaxConcurrency(request.EpicDefaultPrefillMaxConcurrency);
         }
 
-        var steamMaxThreadLimit = ResolveEffectiveSteamThreadLimit();
-        var epicMaxThreadLimit = ResolveEffectiveEpicThreadLimit();
+        var steamMaxThreadLimit = SteamThreadLimit();
+        var epicMaxThreadLimit = EpicThreadLimit();
 
         await _notifications.NotifyAllAsync(SignalREvents.PrefillDefaultsChanged, new
         {
@@ -772,7 +772,7 @@ public class SystemController : ControllerBase
 
     private UserSession? GetSession() => HttpContext.GetUserSession();
 
-    private int? ResolveEffectiveSteamThreadLimit()
+    private int? SteamThreadLimit()
     {
         var session = GetSession();
         if (session == null) return null;
@@ -783,7 +783,7 @@ public class SystemController : ControllerBase
         return prefs?.SteamMaxThreadCount ?? _stateService.GetDefaultGuestMaxThreadCount();
     }
 
-    private int? ResolveEffectiveEpicThreadLimit()
+    private int? EpicThreadLimit()
     {
         var session = GetSession();
         if (session == null) return null;
@@ -798,7 +798,7 @@ public class SystemController : ControllerBase
     /// Clamp the default concurrency value so it does not exceed the guest thread limit.
     /// "auto" passes through unchanged; numeric values are capped.
     /// </summary>
-    private static string ClampConcurrencyToLimit(string concurrency, int? maxThreadLimit)
+    private static string ClampConcurrency(string concurrency, int? maxThreadLimit)
     {
         if (!maxThreadLimit.HasValue) return concurrency;
 

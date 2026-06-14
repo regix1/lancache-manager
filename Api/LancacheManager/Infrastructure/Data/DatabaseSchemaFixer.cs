@@ -12,7 +12,7 @@ public static class DatabaseSchemaFixer
     /// Applies schema fixes AFTER migrations run.
     /// Call this AFTER DbContext.Database.MigrateAsync().
     /// </summary>
-    public static async Task ApplyPostMigrationFixesAsync(DbContext dbContext, ILogger logger)
+    public static async Task ApplyPostMigrationAsync(DbContext dbContext, ILogger logger)
     {
         var connection = dbContext.Database.GetDbConnection();
 

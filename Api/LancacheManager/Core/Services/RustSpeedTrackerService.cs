@@ -94,7 +94,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         {
             try
             {
-                await RunSpeedTrackerAsync(rustExecutablePath, datasources, stoppingToken);
+                await RunTrackerAsync(rustExecutablePath, datasources, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -108,7 +108,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         }
     }
 
-    private async Task RunSpeedTrackerAsync(
+    private async Task RunTrackerAsync(
         string rustExecutablePath,
         IReadOnlyList<ResolvedDatasource> datasources,
         CancellationToken stoppingToken)
@@ -238,7 +238,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                 {
                     _logger.LogInformation("Stopping Rust speed tracker");
                     _processManager.KillProcessTree(_rustProcess, "speed tracker stop");
-                    await _processManager.WaitForExitAfterKillAsync(_rustProcess, TimeSpan.FromSeconds(5));
+                    await _processManager.WaitAfterKillAsync(_rustProcess, TimeSpan.FromSeconds(5));
                 }
 
                 _processManager.Untrack(_rustProcess);
@@ -254,7 +254,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         {
             _logger.LogInformation("Stopping Rust speed tracker process");
             _processManager.KillProcessTree(_rustProcess, "speed tracker service stop");
-            await _processManager.WaitForExitAfterKillAsync(_rustProcess, TimeSpan.FromSeconds(5));
+            await _processManager.WaitAfterKillAsync(_rustProcess, TimeSpan.FromSeconds(5));
         }
 
         await base.StopAsync(cancellationToken);

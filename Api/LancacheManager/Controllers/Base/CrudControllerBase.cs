@@ -52,12 +52,12 @@ public abstract class CrudControllerBase<TEntity, TDto, TCreateRequest, TUpdateR
     /// <summary>
     /// Validate create request. Throw ValidationException if invalid.
     /// </summary>
-    protected abstract Task ValidateCreateRequestAsync(TCreateRequest request, CancellationToken ct);
+    protected abstract Task ValidateCreateAsync(TCreateRequest request, CancellationToken ct);
 
     /// <summary>
     /// Validate update request. Throw ValidationException if invalid.
     /// </summary>
-    protected abstract Task ValidateUpdateRequestAsync(TKey id, TUpdateRequest request, TEntity existingEntity, CancellationToken ct);
+    protected abstract Task ValidateUpdateAsync(TKey id, TUpdateRequest request, TEntity existingEntity, CancellationToken ct);
 
     // ===== Virtual Methods - Override for custom SignalR notifications =====
 
@@ -101,7 +101,7 @@ public abstract class CrudControllerBase<TEntity, TDto, TCreateRequest, TUpdateR
     [HttpPost]
     public virtual async Task<IActionResult> CreateAsync([FromBody] TCreateRequest request, CancellationToken ct = default)
     {
-        await ValidateCreateRequestAsync(request, ct);
+        await ValidateCreateAsync(request, ct);
 
         var entity = FromCreateRequest(request);
         var created = await _repository.CreateAsync(entity, ct);
@@ -122,7 +122,7 @@ public abstract class CrudControllerBase<TEntity, TDto, TCreateRequest, TUpdateR
     {
         var entity = await _repository.GetByIdOrThrowAsync(id, ResourceName, ct);
 
-        await ValidateUpdateRequestAsync(id, request, entity, ct);
+        await ValidateUpdateAsync(id, request, entity, ct);
 
         ApplyUpdate(entity, request);
         var updated = await _repository.UpdateAsync(entity, ct);

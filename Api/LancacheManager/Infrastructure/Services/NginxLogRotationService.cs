@@ -63,7 +63,7 @@ public class NginxLogRotationService
                 !string.IsNullOrEmpty(configuredName) &&
                 !string.Equals(configuredName, "auto", StringComparison.OrdinalIgnoreCase)
                 ? (configuredName, (string?)null)
-                : await DetectMonolithicContainerAsync();
+                : await FindMonolithicContainerAsync();
 
             if (string.IsNullOrEmpty(containerName))
             {
@@ -75,7 +75,7 @@ public class NginxLogRotationService
             _logger.LogInformation("Signaling nginx to reopen logs in container: {ContainerName}", containerName);
 
             // Try method 1: Send USR1 to PID 1 (works if nginx is the main process)
-            var directSignalSuccess = await SendSignalToContainerAsync(containerName, "USR1");
+            var directSignalSuccess = await SignalContainerAsync(containerName, "USR1");
             if (directSignalSuccess)
             {
                 _logger.LogInformation("Successfully sent USR1 to PID 1 in {ContainerName}", containerName);
@@ -113,7 +113,7 @@ public class NginxLogRotationService
     /// with nginx checks as a fallback when there are multiple candidates.
     /// </summary>
     /// <returns>A tuple of (container name, error message). If container is found, error is null.</returns>
-    private async Task<(string? ContainerName, string? Error)> DetectMonolithicContainerAsync()
+    private async Task<(string? ContainerName, string? Error)> FindMonolithicContainerAsync()
     {
         try
         {
@@ -199,7 +199,7 @@ public class NginxLogRotationService
             {
                 foreach (var candidate in monolithicCandidates)
                 {
-                    var hasNginx = await CheckContainerHasNginxAsync(candidate.Name);
+                    var hasNginx = await ContainerHasNginxAsync(candidate.Name);
                     if (hasNginx)
                     {
                         _logger.LogInformation("Auto-detected monolithic container: {ContainerName}", candidate.Name);
@@ -223,7 +223,7 @@ public class NginxLogRotationService
             {
                 foreach (var candidate in candidates)
                 {
-                    var hasNginx = await CheckContainerHasNginxAsync(candidate.Name);
+                    var hasNginx = await ContainerHasNginxAsync(candidate.Name);
                     if (hasNginx)
                     {
                         _logger.LogInformation("Auto-detected monolithic container: {ContainerName}", candidate.Name);
@@ -239,7 +239,7 @@ public class NginxLogRotationService
             // Fall back to any container with nginx installed
             foreach (var container in containers)
             {
-                var hasNginx = await CheckContainerHasNginxAsync(container.Name);
+                var hasNginx = await ContainerHasNginxAsync(container.Name);
                 if (!hasNginx) continue;
 
                 // Found a container with nginx
@@ -262,7 +262,7 @@ public class NginxLogRotationService
     /// <summary>
     /// Check if a container has nginx by trying to execute nginx -v
     /// </summary>
-    private async Task<bool> CheckContainerHasNginxAsync(string containerName)
+    private async Task<bool> ContainerHasNginxAsync(string containerName)
     {
         try
         {
@@ -311,7 +311,7 @@ public class NginxLogRotationService
     /// Send a signal to a container using 'docker kill --signal'
     /// This sends signal to PID 1 in the container
     /// </summary>
-    private async Task<bool> SendSignalToContainerAsync(string containerName, string signal)
+    private async Task<bool> SignalContainerAsync(string containerName, string signal)
     {
         try
         {

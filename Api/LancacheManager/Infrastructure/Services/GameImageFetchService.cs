@@ -67,10 +67,10 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     {
         _logger.LogInformation("[GameImageFetch] Triggered by external service");
         using var scope = _serviceProvider.CreateScope();
-        await ExecuteScopedWorkAsync(scope.ServiceProvider, ct);
+        await ExecuteWorkAsync(scope.ServiceProvider, ct);
     }
 
-    protected override async Task ExecuteScopedWorkAsync(
+    protected override async Task ExecuteWorkAsync(
         IServiceProvider scopedServices,
         CancellationToken stoppingToken)
     {
@@ -83,7 +83,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
         try
         {
-            await ExecuteImageFetchAsync(scopedServices, stoppingToken);
+            await FetchImagesAsync(scopedServices, stoppingToken);
         }
         finally
         {
@@ -91,7 +91,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         }
     }
 
-    private async Task ExecuteImageFetchAsync(
+    private async Task FetchImagesAsync(
         IServiceProvider scopedServices,
         CancellationToken stoppingToken)
     {
@@ -271,7 +271,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         CancellationToken ct)
     {
         // Try fetching the image using the given appId
-        var imageBytes = await TryFetchSteamImageBytesAsync(client, appId, picsUrlMap, ct);
+        var imageBytes = await TryGetSteamImageAsync(client, appId, picsUrlMap, ct);
 
         if (imageBytes != null)
         {
@@ -301,7 +301,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         _logger.LogInformation("[GameImageFetch] No image for app {AppId}, trying parent app {ParentAppId}", appId, parentAppId);
 
         // Try fetching using the parent's app ID
-        var parentBytes = await TryFetchSteamImageBytesAsync(client, parentAppId, picsUrlMap, ct);
+        var parentBytes = await TryGetSteamImageAsync(client, parentAppId, picsUrlMap, ct);
         if (parentBytes != null)
         {
             // Store under the ORIGINAL appId so frontend lookups work
@@ -400,7 +400,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         return null;
     }
 
-    private async Task<(byte[] bytes, string contentType, string sourceUrl)?> TryFetchSteamImageBytesAsync(
+    private async Task<(byte[] bytes, string contentType, string sourceUrl)?> TryGetSteamImageAsync(
         HttpClient client,
         string appId,
         Dictionary<long, string> picsUrlMap,
@@ -449,7 +449,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         }
 
         // Tier 3: Steam Store API fallback - newer games use hash-based paths that aren't predictable from the app ID alone
-        var storeUrl = await GetStoreApiHeaderImageAsync(client, appId, ct);
+        var storeUrl = await GetStoreHeaderImageUrlAsync(client, appId, ct);
         if (storeUrl != null)
         {
             try
@@ -488,7 +488,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     /// Newer games use shared.akamai.steamstatic.com with hash-based paths
     /// that aren't available at the predictable cdn.akamai.steamstatic.com paths.
     /// </summary>
-    private async Task<string?> GetStoreApiHeaderImageAsync(
+    private async Task<string?> GetStoreHeaderImageUrlAsync(
         HttpClient client,
         string appId,
         CancellationToken ct)
@@ -672,7 +672,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                 }
 
                 // Tier 3: Steam Store API - newer games use hash-based paths that aren't predictable from the app ID alone
-                var storeUrl = await GetStoreApiHeaderImageAsync(client, image.AppId, ct);
+                var storeUrl = await GetStoreHeaderImageUrlAsync(client, image.AppId, ct);
                 if (storeUrl != null)
                 {
                     await _httpThrottle.WaitAsync(ct);

@@ -58,11 +58,11 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// Basic validation (required fields, format) is handled by FluentValidation.
     /// This method handles business logic validation that requires database access.
     /// </remarks>
-    protected override async Task ValidateCreateRequestAsync(CreateClientGroupRequest request, CancellationToken ct)
+    protected override async Task ValidateCreateAsync(CreateClientGroupRequest request, CancellationToken ct)
     {
         // Basic validation is handled automatically by FluentValidation (see CreateClientGroupRequestValidator)
         // Check for duplicate nickname (business logic validation)
-        var existing = await _clientGroupsRepository.GetGroupByNicknameAsync(request.Nickname, ct);
+        var existing = await _clientGroupsRepository.GetByNicknameAsync(request.Nickname, ct);
         if (existing != null)
         {
             throw new ValidationException("A client group with this nickname already exists");
@@ -76,11 +76,11 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// Basic validation (required fields, format) is handled by FluentValidation.
     /// This method handles business logic validation that requires database access.
     /// </remarks>
-    protected override async Task ValidateUpdateRequestAsync(long id, UpdateClientGroupRequest request, ClientGroup existingEntity, CancellationToken ct)
+    protected override async Task ValidateUpdateAsync(long id, UpdateClientGroupRequest request, ClientGroup existingEntity, CancellationToken ct)
     {
         // Basic validation is handled automatically by FluentValidation (see UpdateClientGroupRequestValidator)
         // Check for duplicate nickname (excluding self) - business logic validation
-        var duplicate = await _clientGroupsRepository.GetGroupByNicknameAsync(request.Nickname, ct);
+        var duplicate = await _clientGroupsRepository.GetByNicknameAsync(request.Nickname, ct);
         if (duplicate != null && duplicate.Id != id)
         {
             throw new ValidationException("A client group with this nickname already exists");
@@ -123,7 +123,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
                 }
             }
             // Refresh to get updated members
-            entity = await _clientGroupsRepository.GetGroupByIdAsync(entity.Id, ct) ?? entity;
+            entity = await _clientGroupsRepository.GetByIdAsync(entity.Id, ct) ?? entity;
         }
         return entity;
     }
@@ -134,7 +134,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     [Authorize(Policy = "AdminOnly")]
     public override async Task<IActionResult> CreateAsync([FromBody] CreateClientGroupRequest request, CancellationToken ct = default)
     {
-        await ValidateCreateRequestAsync(request, ct);
+        await ValidateCreateAsync(request, ct);
 
         var entity = FromCreateRequest(request);
         var created = await _repository.CreateAsync(entity, ct);
@@ -165,7 +165,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         await _clientGroupsRepository.AddMemberAsync(id, request.ClientIp.Trim(), ct);
 
         // Get updated group
-        var updated = await _clientGroupsRepository.GetGroupByIdAsync(id, ct);
+        var updated = await _clientGroupsRepository.GetByIdAsync(id, ct);
         var dto = ToDto(updated!);
 
         // Notify clients via SignalR
@@ -197,7 +197,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     [HttpGet("mapping")]
     public async Task<IActionResult> GetMappingAsync(CancellationToken ct = default)
     {
-        var mapping = await _clientGroupsRepository.GetIpToGroupMappingAsync(ct);
+        var mapping = await _clientGroupsRepository.GetIpMappingAsync(ct);
         var result = mapping.ToDictionary(
             kvp => kvp.Key,
             kvp => new { groupId = kvp.Value.GroupId, nickname = kvp.Value.Nickname }

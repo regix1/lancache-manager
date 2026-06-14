@@ -20,13 +20,13 @@ public abstract class ScopedScheduledBackgroundService : ScheduledBackgroundServ
     protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
         using var scope = _serviceProvider.CreateScope();
-        await ExecuteScopedWorkAsync(scope.ServiceProvider, stoppingToken);
+        await ExecuteWorkAsync(scope.ServiceProvider, stoppingToken);
     }
 
     /// <summary>
     /// Execute work with access to scoped services.
     /// </summary>
-    protected abstract Task ExecuteScopedWorkAsync(
+    protected abstract Task ExecuteWorkAsync(
         IServiceProvider scopedServices,
         CancellationToken stoppingToken);
 }

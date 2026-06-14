@@ -233,7 +233,7 @@ public class SessionService
     /// <summary>
     /// Get all revoked or expired sessions (for session history display).
     /// </summary>
-    public async Task<List<UserSession>> GetHistorySessionsAsync()
+    public async Task<List<UserSession>> GetSessionHistoryAsync()
     {
         var now = DateTime.UtcNow;
         using var context = _dbContextFactory.CreateDbContext();
@@ -376,7 +376,7 @@ public class SessionService
         });
     }
 
-    public static string? GetSessionTokenFromCookie(HttpContext httpContext)
+    public static string? TokenFromCookie(HttpContext httpContext)
     {
         return httpContext.Request.Cookies[CookieName];
     }
@@ -385,7 +385,7 @@ public class SessionService
     /// Gets session token from cookie first, then falls back to query string access_token.
     /// The query string fallback supports mobile browsers where cookies aren't sent with WebSocket upgrades.
     /// </summary>
-    public static string? GetSessionTokenFromRequest(HttpContext httpContext)
+    public static string? TokenFromRequest(HttpContext httpContext)
     {
         var token = httpContext.Request.Cookies[CookieName];
         if (!string.IsNullOrEmpty(token))
@@ -407,12 +407,12 @@ public class SessionService
            ?? 6;
 
     // True when the runtime value comes from a UI override (state.json), not env/appsettings.
-    public bool HasGuestDurationOverride()
+    public bool HasDurationOverride()
         => _stateService.GetGuestSessionDurationHours().HasValue;
 
     // The env/appsettings-resolved value (ignores any UI override). Used to render
     // "Source: config" labels and the "Reset to default" preview.
-    public int GetGuestDurationConfigValue()
+    public int GetGuestDurationDefault()
         => _configuration.GetValue<int?>("Security:GuestSessionDurationHours") ?? 6;
 
     public bool IsGuestModeLocked()
@@ -426,7 +426,7 @@ public class SessionService
         _logger.LogInformation("Guest duration updated to {Hours} hours", hours);
     }
 
-    public void ClearGuestDurationOverride()
+    public void ClearDurationOverride()
     {
         _stateService.SetGuestSessionDurationHours(null);
         _logger.LogInformation("Guest duration UI override cleared; reverting to env/appsettings default");

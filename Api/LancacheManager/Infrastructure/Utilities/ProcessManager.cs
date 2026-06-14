@@ -32,7 +32,7 @@ public class ProcessManager : IHostedService, IDisposable
             try
             {
                 KillProcessTree(process, "application shutdown", log: false);
-                await WaitForExitAfterKillAsync(process, TimeSpan.FromSeconds(5));
+                await WaitAfterKillAsync(process, TimeSpan.FromSeconds(5));
             }
             catch (Exception ex)
             {
@@ -104,7 +104,7 @@ public class ProcessManager : IHostedService, IDisposable
     /// <summary>
     /// Waits for a process to exit after a kill signal, with timeout.
     /// </summary>
-    public async Task WaitForExitAfterKillAsync(Process process, TimeSpan timeout)
+    public async Task WaitAfterKillAsync(Process process, TimeSpan timeout)
     {
         if (process.HasExited)
         {
@@ -163,7 +163,7 @@ public class ProcessManager : IHostedService, IDisposable
                 gracePeriod.TotalSeconds,
                 reason);
             KillProcessTree(process, reason);
-            await WaitForExitAfterKillAsync(process, TimeSpan.FromSeconds(5));
+            await WaitAfterKillAsync(process, TimeSpan.FromSeconds(5));
             return process.HasExited;
         }
     }

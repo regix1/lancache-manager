@@ -158,7 +158,7 @@ public class UserPreferencesService
     /// Update a specific preference field and return the updated full preferences
     /// This prevents race conditions by reading from the same transaction
     /// </summary>
-    public async Task<UserPreferencesDto?> UpdatePreferenceAndGetAsync(Guid sessionId, PreferenceKey preferenceKey, JsonElement value)
+    public async Task<UserPreferencesDto?> UpdatePreferenceAsync(Guid sessionId, PreferenceKey preferenceKey, JsonElement value)
     {
         try
         {
@@ -403,7 +403,7 @@ public class UserPreferencesService
     /// <summary>
     /// Strips admin-only fields from a DTO so they cannot be persisted by non-admin callers.
     /// </summary>
-    public static void StripAdminOnlyFields(UserPreferencesDto dto)
+    public static void RedactAdminFields(UserPreferencesDto dto)
     {
         dto.RefreshRateLocked = null;
         dto.AllowedTimeFormats = null;

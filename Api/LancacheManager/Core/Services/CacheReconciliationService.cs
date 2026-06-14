@@ -165,7 +165,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     ///   - The "Show scheduled scan notifications" toggle is off.
     /// Manual scans always notify and ignore this helper (per the UI's documented behavior).
     /// </summary>
-    private bool ShouldRunAutomaticScanSilently()
+    private bool IsSilentAutomaticScan()
     {
         var mode = _stateService.GetEvictedDataMode();
         if (mode == EvictedDataMode.Remove.ToWireString())
@@ -181,7 +181,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         // Wait for setup to complete so datasources and database are configured
         await _stateService.WaitForSetupCompletedAsync(stoppingToken);
 
-        var silent = ShouldRunAutomaticScanSilently();
+        var silent = IsSilentAutomaticScan();
 
         if (!TryBeginRun())
         {
@@ -217,11 +217,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
     }
 
-    protected override async Task ExecuteScopedWorkAsync(
+    protected override async Task ExecuteWorkAsync(
         IServiceProvider scopedServices,
         CancellationToken stoppingToken)
     {
-        var silent = ShouldRunAutomaticScanSilently();
+        var silent = IsSilentAutomaticScan();
         var context = scopedServices.GetRequiredService<AppDbContext>();
 
         if (!TryBeginRun())
@@ -310,7 +310,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         var stageKey = string.IsNullOrEmpty(progress.StageKey)
                             ? "signalr.evictionScan.progress"
                             : progress.StageKey;
-                        var context = BuildEvictionScanProgressContext(progress);
+                        var context = BuildScanProgressContext(progress);
                         _currentScanProgressContext = context;
 
                         // The Rust disk scan owns 0-85% of the bar. The C# post-processing that
@@ -363,7 +363,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                 if (!scanSilent)
                 {
-                    await NotifyEvictionScanPostRustProgressAsync(
+                    await NotifyScanProgressAsync(
                         operationId,
                         86.0,
                         "signalr.evictionScan.postProcessing",
@@ -442,14 +442,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     // honestly shows substantial remaining work instead of sitting at ~100%.
                     if (!scanSilent)
                     {
-                        await NotifyEvictionScanPostRustProgressAsync(
+                        await NotifyScanProgressAsync(
                             operationId,
                             92.0,
                             "signalr.evictionScan.refreshingSummary",
                             scanResult);
                     }
 
-                    await _gameCacheDetectionService.RefreshAndInvalidateDetectionCacheAsync(stoppingToken);
+                    await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
                 }
 
                 stoppingToken.ThrowIfCancellationRequested();
@@ -518,13 +518,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
             // Clean up temp files
             if (datasourceConfigPath != null)
-                await _rustProcessHelper.DeleteTemporaryFileAsync(datasourceConfigPath);
+                await _rustProcessHelper.DeleteTempFileAsync(datasourceConfigPath);
             if (progressFilePath != null)
-                await _rustProcessHelper.DeleteTemporaryFileAsync(progressFilePath);
+                await _rustProcessHelper.DeleteTempFileAsync(progressFilePath);
         }
     }
 
-    private static Dictionary<string, object?> BuildEvictionScanProgressContext(EvictionScanProgressData progress)
+    private static Dictionary<string, object?> BuildScanProgressContext(EvictionScanProgressData progress)
     {
         if (progress.Context != null && progress.Context.Count > 0)
         {
@@ -604,7 +604,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         return operationId;
     }
 
-    private async Task NotifyEvictionScanPostRustProgressAsync(
+    private async Task NotifyScanProgressAsync(
         Guid operationId,
         double percentComplete,
         string stageKey,
@@ -730,7 +730,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 _evictionRemovalTerminalStates.TryRemove(operationId, out _);
             },
             // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
-            onTerminalEmit: CreateEvictionRemovalTerminalEmit(() => operationId, terminalState));
+            onTerminalEmit: CreateRemovalTerminalEmit(() => operationId, terminalState));
         _evictionRemovalTerminalStates[operationId] = terminalState;
 
         await _notifications.NotifyAllAsync(
@@ -750,7 +750,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[EvictionRemoval] Unhandled error before removal started");
-                await CompleteEvictionRemovalAsync(
+                await CompleteRemovalAsync(
                     operationId,
                     success: false,
                     stageKey: "signalr.evictionRemove.failedToStart",
@@ -799,7 +799,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 _evictionRemovalTerminalStates.TryRemove(operationId, out _);
             },
             // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
-            onTerminalEmit: CreateEvictionRemovalTerminalEmit(() => operationId, terminalState));
+            onTerminalEmit: CreateRemovalTerminalEmit(() => operationId, terminalState));
         _evictionRemovalTerminalStates[operationId] = terminalState;
 
         await _notifications.NotifyAllAsync(
@@ -825,7 +825,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[EvictedRemoval] Unhandled error before entity removal started ({Scope} '{Key}')", scope, key);
-                await CompleteEvictionRemovalAsync(
+                await CompleteRemovalAsync(
                     operationId,
                     success: false,
                     stageKey: "signalr.evictionRemove.failedToStart",
@@ -836,7 +836,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         return operationId;
     }
 
-    private async Task ReportEvictionRemovalProgressAsync(
+    private async Task ReportRemovalProgressAsync(
         Guid operationId,
         double percentComplete,
         string status,
@@ -865,7 +865,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 context));
     }
 
-    private Task CompleteEvictionRemovalAsync(
+    private Task CompleteRemovalAsync(
         Guid operationId,
         bool success,
         string stageKey,
@@ -911,7 +911,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// holder at its defaults so the closure still emits a coherent record. The terminal SignalR
     /// event fires EXACTLY ONCE from inside CompleteOperation.
     /// </summary>
-    private Func<OperationTerminalInfo, Task> CreateEvictionRemovalTerminalEmit(
+    private Func<OperationTerminalInfo, Task> CreateRemovalTerminalEmit(
         Func<Guid> operationIdAccessor,
         EvictionRemovalTerminalState terminalState)
     {
@@ -958,14 +958,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         CancellationToken stoppingToken,
         EvictedLogPurgeRunOptions options)
     {
-        await ReportEvictionRemovalProgressAsync(
+        await ReportRemovalProgressAsync(
             operationId,
             options.ProgressStartPercent,
             "purging_log_entries",
             "signalr.evictionRemove.purgingLogs",
             context: new Dictionary<string, object?> { ["count"] = targets.Urls.Count + targets.DepotIds.Count });
 
-        var rustBinaryPath = _pathResolver.GetRustCachePurgeLogEntriesPath();
+        var rustBinaryPath = _pathResolver.GetRustLogPurgePath();
         if (!File.Exists(rustBinaryPath))
         {
             _logger.LogWarning(
@@ -1049,7 +1049,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                             var mappedPercent = dsSliceStart +
                                 (progress.PercentComplete / 100.0) * dsSliceSize;
 
-                            await ReportEvictionRemovalProgressAsync(
+                            await ReportRemovalProgressAsync(
                                 operationId,
                                 mappedPercent,
                                 "purging_log_entries",
@@ -1062,7 +1062,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         },
                         "cache_purge_log_entries");
 
-                    await _rustProcessHelper.DeleteTemporaryFileAsync(progressJsonPath);
+                    await _rustProcessHelper.DeleteTempFileAsync(progressJsonPath);
 
                     if (purgeResult.ExitCode != 0)
                     {
@@ -1183,7 +1183,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 },
                 // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
                 // Silent Remove-mode auto-cleanup is suppressed by the holder's Silent flag.
-                onTerminalEmit: CreateEvictionRemovalTerminalEmit(() => selfRegisteredId, terminalState));
+                onTerminalEmit: CreateRemovalTerminalEmit(() => selfRegisteredId, terminalState));
             _evictionRemovalTerminalStates[selfRegisteredId] = terminalState;
             operationId = selfRegisteredId;
 
@@ -1219,7 +1219,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // URLs still exist in the on-disk access.log. The rewrite is a best-effort optimization:
             // if the Rust binary fails we log a WARNING and continue - correctness of the DB delete
             // is preserved either way.
-            await PurgeEvictedLogEntriesAsync(context, opId, stoppingToken);
+            await PurgeLogEntriesAsync(context, opId, stoppingToken);
 
             // Removal-driven cleanup: the bulk path (Remove mode auto-scan and the controller-
             // driven "Remove All Evicted" button) is an explicit user request to delete evicted
@@ -1245,7 +1245,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 try
                 {
                     // Step 1: delete evicted detection rows so the frontend list clears.
-                    await ReportEvictionRemovalProgressAsync(
+                    await ReportRemovalProgressAsync(
                         opId,
                         40,
                         "removing_detection_rows",
@@ -1260,7 +1260,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         .ExecuteDeleteAsync(stoppingToken);
 
                     // Step 2: delete LogEntries for evicted downloads (FK constraint).
-                    await ReportEvictionRemovalProgressAsync(
+                    await ReportRemovalProgressAsync(
                         opId,
                         60,
                         "removing_log_entries",
@@ -1271,7 +1271,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         .ExecuteDeleteAsync(stoppingToken);
 
                     // Step 3: delete evicted Downloads.
-                    await ReportEvictionRemovalProgressAsync(
+                    await ReportRemovalProgressAsync(
                         opId,
                         80,
                         "removing_downloads",
@@ -1300,7 +1300,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
             // The disk-summary refresh can take a while on large caches; surface it as its own
             // progress stage so the notification doesn't sit frozen after the last delete step.
-            await ReportEvictionRemovalProgressAsync(
+            await ReportRemovalProgressAsync(
                 opId,
                 90,
                 "refreshing_detection",
@@ -1309,10 +1309,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 logEntriesRemoved: logEntriesDeleted);
 
             // Refresh persisted disk-summary totals so dashboard reads reflect post-removal state
-            await _gameCacheDetectionService.RefreshAndInvalidateDetectionCacheAsync(stoppingToken);
+            await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
             _logger.LogDebug("[EvictedRemoval] Detection cache refreshed after bulk removal");
 
-            await CompleteEvictionRemovalAsync(
+            await CompleteRemovalAsync(
                 opId,
                 success: true,
                 stageKey: "signalr.evictionRemove.complete",
@@ -1323,7 +1323,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         {
             // User-initiated cancel is an expected outcome, not an error.
             _logger.LogInformation("[EvictionScan] Bulk eviction removal cancelled by user (operation {OpId})", opId);
-            await CompleteEvictionRemovalAsync(
+            await CompleteRemovalAsync(
                 opId,
                 success: false,
                 stageKey: "signalr.evictionRemove.cancelled",
@@ -1333,7 +1333,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "[EvictionScan] Error removing evicted records from database");
-            await CompleteEvictionRemovalAsync(
+            await CompleteRemovalAsync(
                 opId,
                 success: false,
                 stageKey: "signalr.evictionRemove.failed",
@@ -1356,7 +1356,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// Best-effort: if the Rust binary fails we log a warning but still allow the DB deletes to
     /// proceed - the only loss is that a later full re-parse could re-create the rows.
     /// </summary>
-    private async Task PurgeEvictedLogEntriesAsync(AppDbContext context, Guid operationId, CancellationToken stoppingToken)
+    private async Task PurgeLogEntriesAsync(AppDbContext context, Guid operationId, CancellationToken stoppingToken)
     {
         try
         {
@@ -1606,7 +1606,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 cts,
                 onTerminalCleanup: () => _evictionRemovalTerminalStates.TryRemove(selfRegisteredId, out _),
                 // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
-                onTerminalEmit: CreateEvictionRemovalTerminalEmit(() => selfRegisteredId, terminalState));
+                onTerminalEmit: CreateRemovalTerminalEmit(() => selfRegisteredId, terminalState));
             _evictionRemovalTerminalStates[selfRegisteredId] = terminalState;
             operationId = selfRegisteredId;
 
@@ -1623,12 +1623,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // Step -1: Rewrite nginx access.log files to drop entries for this entity's evicted
             // downloads BEFORE deleting LogEntries/Downloads from the database. Best-effort -
             // failures are logged as warnings and do not block the DB delete.
-            await PurgeEvictedLogEntriesForEntityAsync(context, scope, key, opId, stoppingToken);
+            await PurgeLogEntriesForEntityAsync(context, scope, key, opId, stoppingToken);
 
             int logEntriesDeleted = 0;
             int downloadsDeleted = 0;
 
-            await ReportEvictionRemovalProgressAsync(
+            await ReportRemovalProgressAsync(
                 opId,
                 25,
                 "removing_log_entries",
@@ -1675,7 +1675,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     };
 
                     // Step 2: Delete this entity's evicted Downloads.
-                    await ReportEvictionRemovalProgressAsync(
+                    await ReportRemovalProgressAsync(
                         opId,
                         50,
                         "removing_downloads",
@@ -1722,7 +1722,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
             // Step 3: Defensive self-heal - if all evicted rows for this entity are now gone, clear
             // the aggregate IsEvicted flag so Dashboard stats update on the next GetCachedDetectionAsync.
-            await ReportEvictionRemovalProgressAsync(
+            await ReportRemovalProgressAsync(
                 opId,
                 75,
                 "updating_status",
@@ -1826,7 +1826,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             }
 
             // Invalidate the detection cache so the frontend refetch gets fresh data
-            await ReportEvictionRemovalProgressAsync(
+            await ReportRemovalProgressAsync(
                 opId,
                 90,
                 "finalizing_removal",
@@ -1837,10 +1837,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             var detectionService = _serviceProvider.GetService<GameCacheDetectionService>();
             if (detectionService != null)
             {
-                await detectionService.RefreshAndInvalidateDetectionCacheAsync(stoppingToken);
+                await detectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
             }
 
-            await CompleteEvictionRemovalAsync(
+            await CompleteRemovalAsync(
                 opId,
                 success: true,
                 stageKey: "signalr.evictionRemove.complete",
@@ -1852,7 +1852,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // User-initiated cancel is an expected outcome, not an error.
             _logger.LogInformation("[EvictionScan] Eviction removal for {Scope} '{Key}' cancelled by user (operation {OpId})",
                 scope, key, opId);
-            await CompleteEvictionRemovalAsync(
+            await CompleteRemovalAsync(
                 opId,
                 success: false,
                 stageKey: "signalr.evictionRemove.cancelled",
@@ -1862,7 +1862,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "[EvictionScan] Error removing evicted records for {Scope} '{Key}'", scope, key);
-            await CompleteEvictionRemovalAsync(
+            await CompleteRemovalAsync(
                 opId,
                 success: false,
                 stageKey: "signalr.evictionRemove.failed",
@@ -1875,11 +1875,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
-    /// Entity-scoped variant of <see cref="PurgeEvictedLogEntriesAsync"/>. Rewrites nginx access.log
+    /// Entity-scoped variant of <see cref="PurgeLogEntriesAsync"/>. Rewrites nginx access.log
     /// files to drop entries belonging only to the specified entity's evicted downloads.
     /// Best-effort: failures are logged as warnings and do not block the DB delete.
     /// </summary>
-    private async Task PurgeEvictedLogEntriesForEntityAsync(
+    private async Task PurgeLogEntriesForEntityAsync(
         AppDbContext context,
         EvictionScope scope,
         string key,

@@ -9,7 +9,7 @@ namespace LancacheManager.Infrastructure.Services;
 /// <summary>
 /// Scheduled service for garbage collection management. Runs on a user-configurable
 /// interval (managed through the unified Schedules page via <see cref="ServiceScheduleRegistry"/>)
-/// and calls <see cref="IMemoryManager.PerformAggressiveGarbageCollection"/> when the process
+/// and calls <see cref="IMemoryManager.CollectGarbage"/> when the process
 /// working set exceeds <see cref="GcSettings.MemoryThresholdMB"/>. Surfaces on the Schedules
 /// page as the <c>performanceOptimization</c> card, but only when
 /// <see cref="IsScheduleVisible"/> returns <c>true</c> - which tracks the user-controlled
@@ -59,7 +59,7 @@ public class GcScheduledService : ConfigurableScheduledService, IConditionallyVi
         return _settingsService.GetSettings().Enabled;
     }
 
-    protected override Task ExecuteScheduledWorkAsync(CancellationToken stoppingToken)
+    protected override Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
         var settings = _settingsService.GetSettings();
 
@@ -91,7 +91,7 @@ public class GcScheduledService : ConfigurableScheduledService, IConditionallyVi
             settings.MemoryThresholdMB);
 
         // Platform-specific GC (Windows: GC.Collect + pool clearing; Linux: + malloc_trim).
-        _memoryManager.PerformAggressiveGarbageCollection(_logger);
+        _memoryManager.CollectGarbage(_logger);
 
         process.Refresh();
         var afterGcMB = process.WorkingSet64 / (1024.0 * 1024.0);

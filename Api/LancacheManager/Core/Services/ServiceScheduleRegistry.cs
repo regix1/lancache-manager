@@ -42,7 +42,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             }
             else if (service is ConfigurableScheduledService configurableService)
             {
-                var key = GetConfigurableServiceKey(configurableService);
+                var key = GetServiceKey(configurableService);
                 _configurableServices[key] = configurableService;
             }
         }
@@ -68,10 +68,10 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // Re-use the same fire-and-forget SignalR broadcast path as work-completed ticks
         // so conditional-visibility changes (e.g. GC Aggressiveness flip) propagate to the
         // Schedules UI without a page reload. Any error is swallowed - matches existing pattern.
-        _ = BroadcastSchedulesUpdatedAsync();
+        _ = NotifySchedulesAsync();
     }
 
-    private async Task BroadcastSchedulesUpdatedAsync()
+    private async Task NotifySchedulesAsync()
     {
         try
         {
@@ -146,7 +146,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
         if (_configurableServices.TryGetValue(serviceKey, out var configurable))
         {
-            InvokeUpdateInterval(configurable, TimeSpan.FromHours(intervalHours));
+            ApplyInterval(configurable, TimeSpan.FromHours(intervalHours));
             _stateService.SetServiceInterval(serviceKey, intervalHours);
             return;
         }
@@ -239,7 +239,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     {
         return new ServiceScheduleInfo
         {
-            Key = GetConfigurableServiceKey(service),
+            Key = GetServiceKey(service),
             IntervalHours = service.ConfiguredInterval.TotalHours,
             RunOnStartup = service.RunOnStartup,
             IsRunning = service.IsCurrentlyExecuting,
@@ -248,7 +248,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         };
     }
 
-    private static string GetConfigurableServiceKey(ConfigurableScheduledService service)
+    private static string GetServiceKey(ConfigurableScheduledService service)
     {
         var serviceType = service.GetType();
         return GetStringProperty(serviceType, service, "ScheduleServiceKey") ?? serviceType.Name;
@@ -264,7 +264,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         return property.GetValue(instance) as string;
     }
 
-    private static void InvokeUpdateInterval(ConfigurableScheduledService service, TimeSpan interval)
+    private static void ApplyInterval(ConfigurableScheduledService service, TimeSpan interval)
     {
         // UpdateInterval is protected in ConfigurableScheduledService.
         // Services may expose a public wrapper (e.g., UpdateInterval(TimeSpan)) added by Worker 3.

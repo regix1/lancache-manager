@@ -257,12 +257,12 @@ public class CacheManagementService
         long configuredSize = 0;
 
         // Method 1: Try to read from Docker container environment
-        configuredSize = await GetConfiguredCacheSizeFromDockerAsync();
+        configuredSize = await ReadCacheSizeFromDockerAsync();
 
         // Method 2: Fall back to .env file
         if (configuredSize == 0)
         {
-            configuredSize = GetConfiguredCacheSizeFromEnvFile();
+            configuredSize = ReadCacheSizeFromEnvFile();
         }
 
         // Cache the result
@@ -275,7 +275,7 @@ public class CacheManagementService
     /// <summary>
     /// Reads CACHE_DISK_SIZE from the lancache-monolithic container environment variables.
     /// </summary>
-    private async Task<long> GetConfiguredCacheSizeFromDockerAsync()
+    private async Task<long> ReadCacheSizeFromDockerAsync()
     {
         if (_dockerClient == null)
             return 0;
@@ -362,7 +362,7 @@ public class CacheManagementService
     /// <summary>
     /// Reads the CACHE_DISK_SIZE setting from the lancache .env file.
     /// </summary>
-    private long GetConfiguredCacheSizeFromEnvFile()
+    private long ReadCacheSizeFromEnvFile()
     {
         try
         {
@@ -532,7 +532,7 @@ public class CacheManagementService
     /// <summary>
     /// Invalidate the service counts cache - call this after modifying logs
     /// </summary>
-    public async Task InvalidateServiceCountsCacheAsync()
+    public async Task InvalidateServiceCountsAsync()
     {
         // Delete the Rust cache files (global + per-datasource) to force rescan
         var operationsDir = _pathResolver.GetOperationsDirectory();
@@ -584,7 +584,7 @@ public class CacheManagementService
             // Process each datasource and aggregate counts
             foreach (var datasource in datasources)
             {
-                var dsCounts = await GetServiceLogCountsForDatasourceAsync(datasource.Name, datasource.LogPath, forceRefresh, cancellationToken);
+                var dsCounts = await GetLogCountsForDatasourceAsync(datasource.Name, datasource.LogPath, forceRefresh, cancellationToken);
 
                 // Aggregate counts
                 foreach (var kvp in dsCounts)
@@ -611,7 +611,7 @@ public class CacheManagementService
     /// <summary>
     /// Get service log counts for a specific datasource.
     /// </summary>
-    private async Task<Dictionary<string, long>> GetServiceLogCountsForDatasourceAsync(string datasourceName, string logDir, bool forceRefresh, CancellationToken cancellationToken)
+    private async Task<Dictionary<string, long>> GetLogCountsForDatasourceAsync(string datasourceName, string logDir, bool forceRefresh, CancellationToken cancellationToken)
     {
         var counts = new Dictionary<string, long>();
 
@@ -629,7 +629,7 @@ public class CacheManagementService
             var rustBinaryPath = _pathResolver.GetRustLogManagerPath();
 
             // Check if Rust binary exists
-            _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Rust log_manager");
+            _rustProcessHelper.EnsureBinaryExists(rustBinaryPath, "Rust log_manager");
 
             // If forceRefresh is true, delete the cache file to force Rust to rescan
             if (forceRefresh && File.Exists(progressFile))
@@ -766,7 +766,7 @@ public class CacheManagementService
 
             var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
 
-            _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Corruption manager");
+            _rustProcessHelper.EnsureBinaryExists(rustBinaryPath, "Corruption manager");
 
             try
             {
@@ -951,14 +951,14 @@ public class CacheManagementService
         string entityToken,
         bool requireWritableLogs)
     {
-        _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, binaryDescription);
+        _rustProcessHelper.EnsureBinaryExists(rustBinaryPath, binaryDescription);
 
         var operationsDir = _pathResolver.GetOperationsDirectory();
         Directory.CreateDirectory(operationsDir);
 
         var allDatasources = _datasourceService.GetDatasources().ToList();
         var runnableDatasources = new List<RemovalDatasourceContext>();
-        var sanitizedEntityToken = SanitizeRemovalArtifactToken(entityToken);
+        var sanitizedEntityToken = SanitizeArtifactToken(entityToken);
         var datasourcesSkipped = 0;
 
         foreach (var datasource in allDatasources)
@@ -1029,7 +1029,7 @@ public class CacheManagementService
         return true;
     }
 
-    private static string SanitizeRemovalArtifactToken(string value)
+    private static string SanitizeArtifactToken(string value)
     {
         var invalidChars = Path.GetInvalidFileNameChars();
         var sanitizedChars = value
@@ -1263,10 +1263,10 @@ public class CacheManagementService
             _logger.LogInformation("[GameRemoval] Removed cached game detection entry for AppID: {AppId}", gameAppId);
 
             // Refresh persisted disk-summary totals so dashboard reads reflect post-removal state
-            await _gameCacheDetectionService.RefreshAndInvalidateDetectionCacheAsync(cancellationToken);
+            await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(cancellationToken);
 
             // Invalidate service counts cache since logs were modified
-            await InvalidateServiceCountsCacheAsync();
+            await InvalidateServiceCountsAsync();
 
             // Signal nginx to reopen log files (prevents monolithic container from losing log access)
             await _nginxLogRotationService.ReopenNginxLogsAsync();
@@ -1391,7 +1391,7 @@ public class CacheManagementService
                 aggregatedReport.CacheFilesDeleted, aggregatedReport.TotalBytesFreed);
 
             // Invalidate service counts cache since logs were modified
-            await InvalidateServiceCountsCacheAsync();
+            await InvalidateServiceCountsAsync();
 
             // Signal nginx to reopen log files
             await _nginxLogRotationService.ReopenNginxLogsAsync();
@@ -1497,7 +1497,7 @@ public class CacheManagementService
                     datasource.Name, dsReport.CacheFilesDeleted, dsReport.TotalBytesFreed, serviceName);
 
                 // Clean up progress file for this datasource
-                await _rustProcessHelper.DeleteTemporaryFileAsync(execution.ProgressJsonPath);
+                await _rustProcessHelper.DeleteTempFileAsync(execution.ProgressJsonPath);
             }
 
             _logger.LogInformation(
@@ -1524,10 +1524,10 @@ public class CacheManagementService
                 .ExecuteDeleteAsync();
             _logger.LogInformation("[ServiceRemoval] Removed cached service detection entry for: {Service}", serviceName);
 
-            await _gameCacheDetectionService.RefreshAndInvalidateDetectionCacheAsync(cancellationToken);
+            await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(cancellationToken);
 
             // Invalidate service counts cache since logs were modified
-            await InvalidateServiceCountsCacheAsync();
+            await InvalidateServiceCountsAsync();
 
             // Signal nginx to reopen log files (prevents monolithic container from losing log access)
             await _nginxLogRotationService.ReopenNginxLogsAsync();
@@ -1755,7 +1755,7 @@ public class CacheManagementService
             // ThrowIfCancellationRequested immediately after the Rust run).
             if (cancellationToken.IsCancellationRequested)
             {
-                await _rustProcessHelper.DeleteTemporaryFileAsync(outputFile);
+                await _rustProcessHelper.DeleteTempFileAsync(outputFile);
                 cancellationToken.ThrowIfCancellationRequested();
             }
 
@@ -1768,12 +1768,12 @@ public class CacheManagementService
             {
                 _logger.LogError("Cache size calculation failed with exit code {ExitCode}: {Error}",
                     processResult.ExitCode, processResult.Error);
-                await _rustProcessHelper.DeleteTemporaryFileAsync(outputFile);
+                await _rustProcessHelper.DeleteTempFileAsync(outputFile);
                 return null;
             }
 
             var result = await _rustProcessHelper.ReadProgressFileAsync<CacheSizeResult>(outputFile);
-            await _rustProcessHelper.DeleteTemporaryFileAsync(outputFile);
+            await _rustProcessHelper.DeleteTempFileAsync(outputFile);
 
             if (result == null)
             {
@@ -1812,7 +1812,7 @@ public class CacheManagementService
     /// skipped: the Rust binary overwrites the progress file with the final result JSON (no
     /// stageKey) when it finishes, and the poller may read that before it stops.
     /// </summary>
-    private async Task RelayCacheSizeScanProgressAsync(Guid operationId, CacheSizeScanProgressData progress)
+    private async Task RelayProgressAsync(Guid operationId, CacheSizeScanProgressData progress)
     {
         if (string.IsNullOrEmpty(progress.StageKey))
         {
@@ -1852,7 +1852,7 @@ public class CacheManagementService
     /// are blocked by <see cref="OperationConflictChecker"/> while the scan runs.
     /// Callers must hold _scanCacheLock so at most one tracked scan is registered at a time.
     /// </summary>
-    private async Task<CacheSizeResponse?> RunTrackedFullScanAsync(string cachePath, CancellationToken callerToken)
+    private async Task<CacheSizeResponse?> RunFullScanAsync(string cachePath, CancellationToken callerToken)
     {
         var terminalFiles = 0L;
         var terminalBytes = 0L;
@@ -1920,7 +1920,7 @@ public class CacheManagementService
                 cachePath,
                 linked.Token,
                 operationId,
-                onProgress: progress => RelayCacheSizeScanProgressAsync(operationId, progress));
+                onProgress: progress => RelayProgressAsync(operationId, progress));
 
             linked.Token.ThrowIfCancellationRequested();
 
@@ -1970,7 +1970,7 @@ public class CacheManagementService
     ///   - no cached scan exists
     ///   - the drive's used space has changed by >= 50 GB since the last scan
     /// </summary>
-    public async Task<CacheSizeResponse?> GetCachedCacheSizeAsync(bool force = false, string? datasource = null, CancellationToken cancellationToken = default)
+    public async Task<CacheSizeResponse?> GetCacheSizeAsync(bool force = false, string? datasource = null, CancellationToken cancellationToken = default)
     {
         // Per-datasource scans are always live - no caching
         if (!string.IsNullOrEmpty(datasource))
@@ -1993,7 +1993,7 @@ public class CacheManagementService
             {
                 _autoRescanSuppressed = false;
                 _logger.LogInformation("Force rescan requested - running fresh cache size scan");
-                var freshResult = await RunTrackedFullScanAsync(allCachePath, cancellationToken);
+                var freshResult = await RunFullScanAsync(allCachePath, cancellationToken);
                 if (freshResult != null)
                 {
                     var cacheInfo = await GetCacheInfoAsync();
@@ -2004,7 +2004,7 @@ public class CacheManagementService
                 // Cancelled/failed force scan: fall back to the last good result (stale is
                 // fine) so the dashboard keeps showing data instead of erroring.
                 await LoadCachedScanAsync();
-                return BuildStaleCachedResult();
+                return BuildStaleResult();
             }
 
             // Load cached scan from disk if not in memory
@@ -2020,7 +2020,7 @@ public class CacheManagementService
                     return null;
                 }
                 _logger.LogInformation("No cached cache scan found - running fresh scan");
-                var freshResult = await RunTrackedFullScanAsync(allCachePath, cancellationToken);
+                var freshResult = await RunFullScanAsync(allCachePath, cancellationToken);
                 if (freshResult != null)
                 {
                     var cacheInfo = await GetCacheInfoAsync();
@@ -2042,7 +2042,7 @@ public class CacheManagementService
                 _logger.LogInformation(
                     "Cache usage changed by {DeltaGb:F1} GB since last scan - running fresh scan",
                     delta / (1024.0 * 1024.0 * 1024.0));
-                var freshResult = await RunTrackedFullScanAsync(allCachePath, cancellationToken);
+                var freshResult = await RunFullScanAsync(allCachePath, cancellationToken);
                 if (freshResult != null)
                 {
                     await SaveCachedScanAsync(freshResult, currentInfo.UsedCacheSize);
@@ -2050,7 +2050,7 @@ public class CacheManagementService
                     return freshResult;
                 }
                 // Cancelled/failed drift rescan: serve the previous result (graceful staleness).
-                return BuildStaleCachedResult();
+                return BuildStaleResult();
             }
 
             // Return cached result
@@ -2073,7 +2073,7 @@ public class CacheManagementService
     /// showing the previous scan's data + timestamp (graceful staleness) instead of an error.
     /// Cancellation never deletes the cached scan file; only cache clear/removals invalidate it.
     /// </summary>
-    private CacheSizeResponse? BuildStaleCachedResult()
+    private CacheSizeResponse? BuildStaleResult()
     {
         if (_cachedCacheScan == null)
         {

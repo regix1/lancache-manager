@@ -55,11 +55,11 @@ public class GameImagesController : ControllerBase
     /// </summary>
     [HttpGet("{appId}/header")]
     [AllowAnonymous]
-    public async Task<IActionResult> GetGameHeaderImageAsync(
+    public async Task<IActionResult> GetHeaderImageAsync(
         int appId,
         CancellationToken cancellationToken = default)
     {
-        var (imageData, contentType) = await _imageCacheService.GetCachedImageAsync(
+        var (imageData, contentType) = await _imageCacheService.GetImageAsync(
             appId.ToString(), "steam", cancellationToken) ?? default;
 
         if (imageData == null)
@@ -67,7 +67,7 @@ public class GameImagesController : ControllerBase
             return NotFound(new GameImageErrorResponse { Error = $"Game image not available for app {appId}" });
         }
 
-        return ReturnImageWithCaching(imageData, contentType ?? "image/jpeg", appId.ToString());
+        return ImageResponse(imageData, contentType ?? "image/jpeg", appId.ToString());
     }
 
     /// <summary>
@@ -76,11 +76,11 @@ public class GameImagesController : ControllerBase
     /// </summary>
     [HttpGet("epic/{epicAppId}/header")]
     [AllowAnonymous]
-    public async Task<IActionResult> GetEpicGameHeaderImageAsync(
+    public async Task<IActionResult> GetEpicHeaderImageAsync(
         string epicAppId,
         CancellationToken cancellationToken = default)
     {
-        var (imageData, contentType) = await _imageCacheService.GetCachedImageAsync(
+        var (imageData, contentType) = await _imageCacheService.GetImageAsync(
             epicAppId, "epicgames", cancellationToken) ?? default;
 
         if (imageData == null)
@@ -88,7 +88,7 @@ public class GameImagesController : ControllerBase
             return NotFound(new GameImageErrorResponse { Error = $"Game image not available for Epic app {epicAppId}" });
         }
 
-        return ReturnImageWithCaching(imageData, contentType ?? "image/jpeg", $"epic-{epicAppId}");
+        return ImageResponse(imageData, contentType ?? "image/jpeg", $"epic-{epicAppId}");
     }
 
     /// <summary>
@@ -133,7 +133,7 @@ public class GameImagesController : ControllerBase
                 _logger.LogInformation("Epic is authenticated - triggering immediate catalog refresh for image URLs");
                 try
                 {
-                    epicUrlsRefreshed = await _epicMappingService.RefreshImageUrlsAsync(cancellationToken);
+                    epicUrlsRefreshed = await _epicMappingService.RefreshImagesAsync(cancellationToken);
                     _logger.LogInformation("Epic image URL refresh complete: {Count} URLs updated", epicUrlsRefreshed);
                 }
                 catch (Exception ex)
@@ -175,7 +175,7 @@ public class GameImagesController : ControllerBase
     /// Returns an image response with proper cache headers and ETag-based conditional request support.
     /// Uses no-cache so the browser always revalidates, but gets efficient 304 responses when the image hasn't changed.
     /// </summary>
-    private IActionResult ReturnImageWithCaching(byte[] imageBytes, string contentType, string etagPrefix)
+    private IActionResult ImageResponse(byte[] imageBytes, string contentType, string etagPrefix)
     {
         var hash = Convert.ToHexString(SHA256.HashData(imageBytes)).ToLowerInvariant();
         var etag = $"\"{etagPrefix}-{hash}\"";

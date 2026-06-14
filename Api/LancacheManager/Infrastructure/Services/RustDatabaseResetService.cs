@@ -94,15 +94,15 @@ public class RustDatabaseResetService
     /// <summary>
     /// Starts database reset operation (wrapper for StartResetAsync)
     /// </summary>
-    public Task<bool> StartDatabaseResetAsync()
+    public Task<bool> StartResetAsync()
     {
-        return StartResetAsync();
+        return RunResetAsync();
     }
 
     /// <summary>
     /// Gets the current database reset status including progress data from Rust
     /// </summary>
-    public object GetDatabaseResetStatus()
+    public object GetResetStatus()
     {
         if (!IsProcessing)
         {
@@ -157,7 +157,7 @@ public class RustDatabaseResetService
         };
     }
 
-    public async Task<bool> StartResetAsync()
+    public async Task<bool> RunResetAsync()
     {
         await _startLock.WaitAsync();
         try

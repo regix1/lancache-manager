@@ -20,7 +20,7 @@ public class WindowsMemoryManager : IMemoryManager
     /// Windows memory allocator already returns memory promptly, so no additional steps needed
     /// </summary>
     /// <param name="logger">Optional logger override for diagnostics</param>
-    public void PerformAggressiveGarbageCollection(ILogger? logger = null)
+    public void CollectGarbage(ILogger? logger = null)
     {
         var activeLogger = logger ?? _logger;
 

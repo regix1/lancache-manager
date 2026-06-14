@@ -106,7 +106,7 @@ public partial class RustProcessHelper
     /// <summary>
     /// Safely deletes a temporary file with error handling
     /// </summary>
-    public async Task DeleteTemporaryFileAsync(string filePath)
+    public async Task DeleteTempFileAsync(string filePath)
     {
         try
         {
@@ -278,7 +278,7 @@ public partial class RustProcessHelper
             // rust-7: when WaitForExitAsync throws on cancel, outputTask/errorTask would otherwise
             // go unobserved. Observe both and surface any captured stderr at Debug so a killed
             // binary still leaves diagnostics behind.
-            await ObserveAndLogStderrAsync(outputTask, errorTask);
+            await LogStderrAsync(outputTask, errorTask);
         }
     }
 
@@ -286,7 +286,7 @@ public partial class RustProcessHelper
     /// Awaits the stdout/stderr read tasks defensively (swallowing read faults from a killed child)
     /// and logs any captured stderr at Debug. Used on cancel paths so output tasks are observed.
     /// </summary>
-    private async Task ObserveAndLogStderrAsync(Task<string> outputTask, Task<string> errorTask)
+    private async Task LogStderrAsync(Task<string> outputTask, Task<string> errorTask)
     {
         try { await outputTask; } catch { /* read may fault when the child was killed */ }
 
@@ -349,7 +349,7 @@ public partial class RustProcessHelper
     /// <summary>
     /// Validates that a Rust binary exists at the specified path
     /// </summary>
-    public void ValidateRustBinaryExists(string binaryPath, string binaryName)
+    public void EnsureBinaryExists(string binaryPath, string binaryName)
     {
         if (!File.Exists(binaryPath))
         {
@@ -393,7 +393,7 @@ public partial class RustProcessHelper
         var result = await ReadOutputJsonAsync<T>(outputJsonPath, operationName);
 
         // Clean up temporary JSON file
-        await DeleteTemporaryFileAsync(outputJsonPath);
+        await DeleteTempFileAsync(outputJsonPath);
 
         return result;
     }
@@ -401,7 +401,7 @@ public partial class RustProcessHelper
     /// <summary>
     /// Creates monitoring tasks for stdout and stderr of a process
     /// </summary>
-    public (Task stdoutTask, Task stderrTask) CreateOutputMonitoringTasks(Process process, string processName)
+    public (Task stdoutTask, Task stderrTask) CreateOutputTasks(Process process, string processName)
     {
         var stdoutTask = Task.Run(async () =>
         {
@@ -434,7 +434,7 @@ public partial class RustProcessHelper
     /// <summary>
     /// Waits for output monitoring tasks to complete with timeout
     /// </summary>
-    public async Task WaitForOutputTasksAsync(Task stdoutTask, Task stderrTask, TimeSpan timeout)
+    public async Task AwaitOutputTasksAsync(Task stdoutTask, Task stderrTask, TimeSpan timeout)
     {
         try
         {
@@ -467,7 +467,7 @@ public partial class RustProcessHelper
 
             // Use path resolver to get the correct Rust binary path for the current platform
             var rustBinaryPath = _pathResolver.GetRustLogManagerPath();
-            ValidateRustBinaryExists(rustBinaryPath, "log_manager");
+            EnsureBinaryExists(rustBinaryPath, "log_manager");
 
             // Create temp file path once if not provided
             var outputFile = progressFile ?? Path.GetTempFileName();
@@ -508,7 +508,7 @@ public partial class RustProcessHelper
                         // Clean up temp file
                         if (progressFile == null)
                         {
-                            await DeleteTemporaryFileAsync(outputFile);
+                            await DeleteTempFileAsync(outputFile);
                         }
                     }
                     catch (Exception ex)
@@ -578,7 +578,7 @@ public partial class RustProcessHelper
 
             // Use path resolver to get the correct Rust binary path for the current platform
             var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
-            ValidateRustBinaryExists(rustBinaryPath, "corruption_manager");
+            EnsureBinaryExists(rustBinaryPath, "corruption_manager");
 
             // Build arguments based on command
             var noCacheCheckFlag = !compareToCacheLogs ? " --no-cache-check" : "";
@@ -668,7 +668,7 @@ public partial class RustProcessHelper
         {
             // Always remove the internal output-JSON temp (distinct from the caller-polled progress
             // file). The caller owns cleanup of its own progress file.
-            await DeleteTemporaryFileAsync(outputFile);
+            await DeleteTempFileAsync(outputFile);
         }
     }
 
@@ -684,7 +684,7 @@ public partial class RustProcessHelper
         try
         {
             var rustBinaryPath = _pathResolver.GetRustEvictionScanPath();
-            ValidateRustBinaryExists(rustBinaryPath, "cache_eviction_scan");
+            EnsureBinaryExists(rustBinaryPath, "cache_eviction_scan");
 
             var progressArg = progressFile ?? "none";
             var arguments = $"\"{datasourceConfigPath}\" \"{progressArg}\"";

@@ -53,7 +53,7 @@ public class RustLogProcessorService
     private bool IsSilentMode { get; set; }
     public Guid? CurrentOperationId => _currentOperationId;
 
-    public Task<Guid?> StartProcessingAllInBackgroundAsync()
+    public Task<Guid?> StartAllInBackgroundAsync()
     {
         var datasources = _datasourceService.GetDatasources();
         if (datasources.Count == 0)
@@ -62,12 +62,12 @@ public class RustLogProcessorService
             return Task.FromResult<Guid?>(null);
         }
 
-        return StartBackgroundProcessingAsync(
+        return RunBackgroundAsync(
             () => RunAllDatasourcesAsync(silentMode: false),
             "processing all datasources");
     }
 
-    private Guid BeginLogProcessingOperation()
+    private Guid BeginOperation()
     {
         _cancellationTokenSource = new CancellationTokenSource();
         var operationId = _operationTracker.RegisterOperation(
@@ -89,7 +89,7 @@ public class RustLogProcessorService
             },
             // Batch path is always interactive (RunAllDatasourcesAsync is only ever invoked with
             // silentMode:false), so the terminal SignalR emitter is always wired here.
-            onTerminalEmit: BuildLogProcessingTerminalEmit());
+            onTerminalEmit: BuildTerminalEmit());
         _currentOperationId = operationId;
         _operationRegisteredTcs?.TrySetResult(operationId);
         IsProcessing = true;
@@ -105,7 +105,7 @@ public class RustLogProcessorService
     /// calling CompleteOperation. Silent operations never register an onTerminalEmit, so this only
     /// runs for interactive ops. The closure must not throw (tracker fire-and-forgets it).
     /// </summary>
-    private Func<OperationTerminalInfo, Task> BuildLogProcessingTerminalEmit()
+    private Func<OperationTerminalInfo, Task> BuildTerminalEmit()
     {
         // operationId is captured lazily via _currentOperationId because RegisterOperation has not
         // returned the id yet at the moment this closure is constructed. By the time the closure
@@ -162,7 +162,7 @@ public class RustLogProcessorService
         };
     }
 
-    private void EndLogProcessingOperation()
+    private void EndOperation()
     {
         IsProcessing = false;
         IsSilentMode = false;
@@ -182,7 +182,7 @@ public class RustLogProcessorService
             return false;
         }
 
-        var batchOperationId = BeginLogProcessingOperation();
+        var batchOperationId = BeginOperation();
         try
         {
             var allSuccess = true;
@@ -223,19 +223,19 @@ public class RustLogProcessorService
         {
             if (IsProcessing)
             {
-                EndLogProcessingOperation();
+                EndOperation();
             }
         }
     }
 
-    public Task<Guid?> StartProcessingInBackgroundAsync(string logFilePath, long startPosition = 0, bool silentMode = false, string? datasourceName = null)
+    public Task<Guid?> StartInBackgroundAsync(string logFilePath, long startPosition = 0, bool silentMode = false, string? datasourceName = null)
     {
-        return StartBackgroundProcessingAsync(
+        return RunBackgroundAsync(
             () => StartProcessingAsync(logFilePath, startPosition, silentMode, datasourceName),
             $"processing datasource '{datasourceName ?? "default"}'");
     }
 
-    private async Task<Guid?> StartBackgroundProcessingAsync(Func<Task<bool>> processor, string description)
+    private async Task<Guid?> RunBackgroundAsync(Func<Task<bool>> processor, string description)
     {
         var registered = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
         _operationRegisteredTcs = registered;
@@ -535,7 +535,7 @@ public class RustLogProcessorService
                     // Silent ops emit no terminal SignalR (preserves the old !silentMode guard), so
                     // only wire the emitter for interactive ops. The single terminal event then fires
                     // exactly once from CompleteOperation (success / OCE / force-kill).
-                    onTerminalEmit: silentMode ? null : BuildLogProcessingTerminalEmit());
+                    onTerminalEmit: silentMode ? null : BuildTerminalEmit());
                 _operationRegisteredTcs?.TrySetResult(_currentOperationId.Value);
             }
 
@@ -623,7 +623,7 @@ public class RustLogProcessorService
                 processingToken,
                 async process =>
                 {
-                    var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(process, "Rust log processor");
+                    var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputTasks(process, "Rust log processor");
 
                     if (!silentMode)
                     {
@@ -648,7 +648,7 @@ public class RustLogProcessorService
 
                     _logger.LogInformation("Rust processor exited with code {ExitCode}", process.ExitCode);
 
-                    await _rustProcessHelper.WaitForOutputTasksAsync(stdoutTask, stderrTask, TimeSpan.FromSeconds(5));
+                    await _rustProcessHelper.AwaitOutputTasksAsync(stdoutTask, stderrTask, TimeSpan.FromSeconds(5));
 
                     if (_cancellationTokenSource != null)
                     {
@@ -780,7 +780,7 @@ public class RustLogProcessorService
                 {
                     using var epicScope = _serviceProvider.CreateScope();
                     var epicMappingService = epicScope.ServiceProvider.GetRequiredService<EpicMappingService>();
-                    var resolved = await epicMappingService.ResolveEpicDownloadsAsync();
+                    var resolved = await epicMappingService.ResolveDownloadsAsync();
                     if (resolved > 0)
                     {
                         _logger.LogInformation("Resolved {Count} Epic downloads to game names after log processing", resolved);
@@ -804,12 +804,12 @@ public class RustLogProcessorService
                     // Only fetch Steam images when new entries were saved (requires Steam API calls)
                     if (finalProgress?.EntriesSaved > 0)
                     {
-                        await FetchMissingGameImagesAsync();
+                        await FetchMissingGameNamesAsync();
                     }
 
                     // Fetch images for resolved Epic downloads unconditionally - new resolutions
                     // may have occurred above even without new log entries
-                    await FetchMissingEpicGameImagesAsync();
+                    await FetchMissingEpicImagesAsync();
 
                     // NOTE: GameImageFetchService runs on its own 30-minute schedule and will
                     // fetch image binaries after all game detection, mapping, and DB saves complete.
@@ -953,7 +953,7 @@ public class RustLogProcessorService
         {
             if (shouldFinalizeOperation)
             {
-                EndLogProcessingOperation();
+                EndOperation();
             }
             else
             {
@@ -1026,7 +1026,7 @@ public class RustLogProcessorService
     /// Image bytes are fetched exclusively by <see cref="GameImageFetchService"/> (3-tier pipeline).
     /// This method only updates GameName, which GameImageFetchService does not enrich.
     /// </summary>
-    private async Task FetchMissingGameImagesAsync()
+    private async Task FetchMissingGameNamesAsync()
     {
         try
         {
@@ -1088,7 +1088,7 @@ public class RustLogProcessorService
     /// Sets GameImageUrl on Epic downloads that have been resolved to games but are missing images.
     /// Looks up image URLs from the EpicGameMappings table.
     /// </summary>
-    private async Task FetchMissingEpicGameImagesAsync()
+    private async Task FetchMissingEpicImagesAsync()
     {
         try
         {
@@ -1140,7 +1140,7 @@ public class RustLogProcessorService
             using var scope = _serviceProvider.CreateScope();
             var eventsService = scope.ServiceProvider.GetRequiredService<IEventsService>();
 
-            var taggedCount = await eventsService.AutoTagDownloadsForActiveEventsAsync();
+            var taggedCount = await eventsService.AutoTagActiveEventsAsync();
             if (taggedCount > 0)
             {
                 _logger.LogInformation("Auto-tagged {Count} downloads to active events", taggedCount);

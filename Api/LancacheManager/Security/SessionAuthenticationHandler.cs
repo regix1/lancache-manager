@@ -19,7 +19,7 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         // 1. Extract session token from cookie
-        var rawToken = SessionService.GetSessionTokenFromCookie(Context);
+        var rawToken = SessionService.TokenFromCookie(Context);
         if (string.IsNullOrEmpty(rawToken))
             return AuthenticateResult.NoResult();
 

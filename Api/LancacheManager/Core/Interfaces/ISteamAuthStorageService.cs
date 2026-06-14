@@ -4,10 +4,10 @@ namespace LancacheManager.Core.Interfaces;
 
 public interface ISteamAuthStorageService
 {
-    SteamAuthData GetSteamAuthData();
-    void SaveSteamAuthData(SteamAuthData data);
-    void UpdateSteamAuthData(Action<SteamAuthData> updater);
-    void ClearSteamAuthData();
+    SteamAuthData GetAuthData();
+    void SaveAuthData(SteamAuthData data);
+    void UpdateAuthData(Action<SteamAuthData> updater);
+    void ClearAuthData();
     void MigrateFromStateJson(SteamAuthState? oldAuthState);
     string GetCredentialsFilePath();
     string GetAuthDirectory();

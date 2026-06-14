@@ -24,7 +24,7 @@ public class EpicDaemonController : DaemonControllerBase<EpicPrefillDaemonServic
     {
     }
 
-    protected override int? ResolveEffectiveThreadLimit(UserSession session)
+    protected override int? ResolveThreadLimit(UserSession session)
     {
         if (session.SessionType == SessionType.Admin) return null;
         var prefs = _userPreferencesService.GetPreferences(session.Id);

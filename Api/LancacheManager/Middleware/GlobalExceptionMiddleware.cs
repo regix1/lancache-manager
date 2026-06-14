@@ -44,36 +44,36 @@ public class GlobalExceptionMiddleware
         }
         catch (NotFoundException ex)
         {
-            await HandleExceptionAsync(context, ex, HttpStatusCode.NotFound, ex.Message);
+            await WriteErrorAsync(context, ex, HttpStatusCode.NotFound, ex.Message);
         }
         catch (ValidationException ex)
         {
-            await HandleExceptionAsync(context, ex, HttpStatusCode.BadRequest, ex.Message);
+            await WriteErrorAsync(context, ex, HttpStatusCode.BadRequest, ex.Message);
         }
         catch (UnauthorizedAccessException ex)
         {
             _logger.LogWarning(ex, "Unauthorized access attempt");
-            await HandleExceptionAsync(context, ex, HttpStatusCode.Forbidden, "Access denied");
+            await WriteErrorAsync(context, ex, HttpStatusCode.Forbidden, "Access denied");
         }
         catch (ArgumentException ex)
         {
             _logger.LogWarning(ex, "Invalid argument provided");
-            await HandleExceptionAsync(context, ex, HttpStatusCode.BadRequest, "Invalid request parameters");
+            await WriteErrorAsync(context, ex, HttpStatusCode.BadRequest, "Invalid request parameters");
         }
         catch (InvalidOperationException ex)
         {
             _logger.LogError(ex, "Invalid operation");
-            await HandleExceptionAsync(context, ex, HttpStatusCode.BadRequest, "Invalid operation");
+            await WriteErrorAsync(context, ex, HttpStatusCode.BadRequest, "Invalid operation");
         }
         catch (IOException ex)
         {
             _logger.LogError(ex, "IO error occurred");
-            await HandleExceptionAsync(context, ex, HttpStatusCode.InternalServerError, "A file system error occurred");
+            await WriteErrorAsync(context, ex, HttpStatusCode.InternalServerError, "A file system error occurred");
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
         {
             _logger.LogError(ex, "Request timeout");
-            await HandleExceptionAsync(context, ex, HttpStatusCode.RequestTimeout, "Request timed out");
+            await WriteErrorAsync(context, ex, HttpStatusCode.RequestTimeout, "Request timed out");
         }
         catch (OperationCanceledException)
         {
@@ -83,11 +83,11 @@ public class GlobalExceptionMiddleware
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unhandled exception occurred at {Path}", context.Request.Path);
-            await HandleExceptionAsync(context, ex, HttpStatusCode.InternalServerError, "An unexpected error occurred");
+            await WriteErrorAsync(context, ex, HttpStatusCode.InternalServerError, "An unexpected error occurred");
         }
     }
 
-    private Task HandleExceptionAsync(
+    private Task WriteErrorAsync(
         HttpContext context,
         Exception exception,
         HttpStatusCode statusCode,

@@ -28,14 +28,14 @@ public class OperationStateService : ScheduledBackgroundService
 
     protected override Task OnStartupAsync(CancellationToken stoppingToken)
     {
-        LoadStatesFromStateService();
+        LoadStates();
         return Task.CompletedTask;
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         await base.StopAsync(cancellationToken);
-        SaveAllStatesToStateService();
+        PersistAllStates();
     }
 
     public OperationState? GetState(string key)
@@ -53,7 +53,7 @@ public class OperationStateService : ScheduledBackgroundService
         }
 
         // Attempt to hydrate from persisted state if not already in memory
-        var hydrated = HydrateStateFromPersistence(key);
+        var hydrated = LoadState(key);
         if (hydrated != null && hydrated.ExpiresAt > DateTime.UtcNow)
         {
             return hydrated;
@@ -70,7 +70,7 @@ public class OperationStateService : ScheduledBackgroundService
         }
         state.UpdatedAt = DateTime.UtcNow;
         _states[key] = state;
-        SaveStateToStateService(state);
+        PersistState(state);
     }
 
     public void UpdateState(string key, Dictionary<string, object> updates)
@@ -105,7 +105,7 @@ public class OperationStateService : ScheduledBackgroundService
         state.UpdatedAt = DateTime.UtcNow;
         state.ExpiresAt = state.UpdatedAt.AddHours(24);
         _states[key] = state;
-        SaveStateToStateService(state);
+        PersistState(state);
     }
 
     public void RemoveState(string key)
@@ -142,7 +142,7 @@ public class OperationStateService : ScheduledBackgroundService
             return existing;
         }
 
-        var hydrated = HydrateStateFromPersistence(key);
+        var hydrated = LoadState(key);
         if (hydrated != null)
         {
             return hydrated;
@@ -162,7 +162,7 @@ public class OperationStateService : ScheduledBackgroundService
         return created;
     }
 
-    private OperationState? HydrateStateFromPersistence(string key)
+    private OperationState? LoadState(string key)
     {
         try
         {
@@ -184,7 +184,7 @@ public class OperationStateService : ScheduledBackgroundService
                 return null;
             }
 
-            var mapped = MapPersistedState(persisted);
+            var mapped = ToOperationState(persisted);
             _states[key] = mapped;
             return mapped;
         }
@@ -195,7 +195,7 @@ public class OperationStateService : ScheduledBackgroundService
         }
     }
 
-    private OperationState MapPersistedState(ModelOperationState persisted)
+    private OperationState ToOperationState(ModelOperationState persisted)
     {
         return new OperationState
         {
@@ -203,14 +203,14 @@ public class OperationStateService : ScheduledBackgroundService
             Type = persisted.Type.ToWireString(),
             Status = persisted.Status.ToWireString(),
             Message = persisted.Message,
-            Data = ConvertDataToJsonElement(persisted.Data),
+            Data = ToJsonElement(persisted.Data),
             CreatedAt = persisted.CreatedAt,
             UpdatedAt = persisted.UpdatedAt,
             ExpiresAt = persisted.UpdatedAt.AddHours(24)
         };
     }
 
-    private static JsonElement? ConvertDataToJsonElement(object? data)
+    private static JsonElement? ToJsonElement(object? data)
     {
         if (data == null)
         {
@@ -256,7 +256,7 @@ public class OperationStateService : ScheduledBackgroundService
         }
     }
 
-    private void LoadStatesFromStateService()
+    private void LoadStates()
     {
         try
         {
@@ -268,7 +268,7 @@ public class OperationStateService : ScheduledBackgroundService
                 // Only load non-expired states
                 if (op.UpdatedAt > now.AddHours(-24)) // Use UpdatedAt as expiration check
                 {
-                    var operationState = MapPersistedState(op);
+                    var operationState = ToOperationState(op);
                     operationState.ExpiresAt = operationState.UpdatedAt.AddHours(24);
                     _states[op.Id.ToString()] = operationState;
                 }
@@ -277,7 +277,7 @@ public class OperationStateService : ScheduledBackgroundService
             _logger.LogInformation("Loaded {Count} operation states from StateService", _states.Count);
 
             // Check for interrupted log processing operations and mark them for resume
-            CheckAndMarkInterruptedOperationsForResume();
+            ResumeInterruptedOperations();
         }
         catch (Exception ex)
         {
@@ -285,7 +285,7 @@ public class OperationStateService : ScheduledBackgroundService
         }
     }
 
-    private static ModelOperationState? TryMapToModelOperationState(OperationState state)
+    private static ModelOperationState? TryToModel(OperationState state)
     {
         if (!Guid.TryParse(state.Key, out var parsedKey))
         {
@@ -311,11 +311,11 @@ public class OperationStateService : ScheduledBackgroundService
         };
     }
 
-    private void SaveStateToStateService(OperationState state)
+    private void PersistState(OperationState state)
     {
         try
         {
-            var stateOp = TryMapToModelOperationState(state);
+            var stateOp = TryToModel(state);
             if (stateOp == null)
             {
                 return;
@@ -337,12 +337,12 @@ public class OperationStateService : ScheduledBackgroundService
         }
     }
 
-    private void SaveAllStatesToStateService()
+    private void PersistAllStates()
     {
         try
         {
             var operations = _states.Values
-                .Select(TryMapToModelOperationState)
+                .Select(TryToModel)
                 .Where(op => op != null)
                 .Cast<ModelOperationState>()
                 .ToList();
@@ -387,7 +387,7 @@ public class OperationStateService : ScheduledBackgroundService
     /// <summary>
     /// Checks for interrupted log processing operations and marks them for resume
     /// </summary>
-    private void CheckAndMarkInterruptedOperationsForResume()
+    private void ResumeInterruptedOperations()
     {
         _logger.LogInformation("Checking for interrupted log processing operations...");
 
@@ -451,7 +451,7 @@ public class OperationStateService : ScheduledBackgroundService
 
                             // Update the state in memory and persist it
                             _states["activeLogProcessing"] = activeLogOperation;
-                            SaveStateToStateService(activeLogOperation);
+                            PersistState(activeLogOperation);
 
                             _logger.LogInformation("Marked stuck operation as complete");
                         }
@@ -467,7 +467,7 @@ public class OperationStateService : ScheduledBackgroundService
 
                             // Update the state in memory and persist it
                             _states["activeLogProcessing"] = activeLogOperation;
-                            SaveStateToStateService(activeLogOperation);
+                            PersistState(activeLogOperation);
 
                             _logger.LogInformation("Updated operation state to resume mode");
 

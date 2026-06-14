@@ -55,7 +55,7 @@ public static class GamesOnDiskCalculator
                 continue;
             }
 
-            var contributedBytes = AddUniquePathBytesFromDisk(seenPaths, game.CacheFilePaths);
+            var contributedBytes = AccumulatePaths(seenPaths, game.CacheFilePaths);
             if (contributedBytes == 0)
             {
                 continue;
@@ -72,7 +72,7 @@ public static class GamesOnDiskCalculator
                 continue;
             }
 
-            var contributedBytes = AddUniquePathBytesFromDisk(seenPaths, service.CacheFilePaths);
+            var contributedBytes = AccumulatePaths(seenPaths, service.CacheFilePaths);
             if (contributedBytes == 0)
             {
                 continue;
@@ -96,13 +96,13 @@ public static class GamesOnDiskCalculator
             serviceBytesByKey);
     }
 
-    public static ulong SumUniquePathBytes(IEnumerable<string> paths)
+    public static ulong SumPaths(IEnumerable<string> paths)
     {
         var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        return AddUniquePathBytesFromDisk(seenPaths, paths.ToList());
+        return AccumulatePaths(seenPaths, paths.ToList());
     }
 
-    private static ulong AddUniquePathBytesFromDisk(HashSet<string> seenPaths, List<string>? paths)
+    private static ulong AccumulatePaths(HashSet<string> seenPaths, List<string>? paths)
     {
         if (paths == null || paths.Count == 0)
         {
