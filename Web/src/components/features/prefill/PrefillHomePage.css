@@ -36,23 +36,17 @@
 }
 
 /* --- Service Cards Grid --- */
+/* 2×2 CSS grid so all four cards are always the same width regardless of count.
+   Each card gets exactly 1fr — no flex-grow imbalance when rows have different
+   numbers of items. max-width caps the two-column layout on very wide screens. */
 .prefill-home-grid {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 1.25rem;
   width: 100%;
-  max-width: 84rem;
+  max-width: 62rem;
   position: relative;
   z-index: 1;
-}
-
-/* Comfortable basis keeps each card wide (~24-28rem) whether 2 or 3 services are
-   shown; max-width stops a lone card from stretching too far. flex-wrap lets a third
-   card drop to a new row on narrower viewports before the mobile stack kicks in. */
-.prefill-home-grid > .prefill-service-card {
-  flex: 1 1 24rem;
-  max-width: 30rem;
 }
 
 /* --- Individual Service Card --- */
@@ -325,13 +319,7 @@
   }
 
   .prefill-home-grid {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .prefill-home-grid > .prefill-service-card {
-    flex: none;
-    max-width: none;
+    grid-template-columns: 1fr;
   }
 
   .prefill-home-title {
