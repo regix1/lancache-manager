@@ -912,6 +912,29 @@ lancache_cache_used_bytes / 1024 / 1024 / 1024
 3. 在管理中点击**处理日志**。
 4. 查看容器日志：`docker logs lancache-manager`。
 
+### Web 界面显示“无日志文件”（但文件确实存在）
+
+`LanCache__LogPath` 必须是**容器内访问日志文件的完整路径**，需包含文件名——例如 `/logs/access.log`，而不只是 `/logs`。请确认：
+
+1. 你的数据卷已将宿主机日志目录挂载到容器内（例如 `- /host/path/lancache/logs:/logs`）。
+2. `LanCache__LogPath` 指向该*容器*路径下的文件（`/logs/access.log`）。
+3. 该文件在容器内可读：`docker exec -it lancache-manager cat /logs/access.log | head`。
+
+网络共享（NFS/SMB）没有问题。`ls -la` 输出中末尾的 `+`（例如 `-rw-r--r--+`）只是 NFS 的 ACL 标记——它**不会**阻止读取。如果 `cat` 能打印出文件内容，那么问题就不在权限，而应检查所配置的路径。
+
+### 仪表盘未显示缓存大小 / 磁盘占用
+
+`LanCache__CachePath` 必须指向**直接包含哈希缓存文件夹**（名称形如 `00`、`1a`、`ff`）的目录，而不是它的上级目录。
+
+标准的 lancache（monolithic）布局会将内容嵌套在下一层，因此如果你把缓存数据目录挂载到 `/cache`，实际的缓存文件夹通常位于 `/cache/cache`——此时应设置 `LanCache__CachePath=/cache/cache`。如果指向的层级过高（即只包含单个 `cache/` 子目录的文件夹），仪表盘会显示驱动器但报告缓存占用为零。此规则同样适用于网络挂载（NFS/SMB）的缓存目录。
+
+确认该路径下的实际内容：
+
+```bash
+docker exec -it lancache-manager ls /cache
+# 你应当看到哈希文件夹（00、1a、…… ff），而不是单个 "cache" 文件夹
+```
+
 ### 游戏未被识别
 
 **Steam：**

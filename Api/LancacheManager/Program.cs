@@ -423,8 +423,43 @@ builder.Services.AddAuthentication(SessionAuthenticationHandler.SchemeName)
         SessionAuthenticationHandler.SchemeName, null);
 
 // Authorization policies
+var authEnabled = builder.Configuration.GetValue<bool>("Security:EnableAuthentication", true);
 builder.Services.AddAuthorization(options =>
 {
+    if (!authEnabled)
+    {
+        // Authentication disabled via config: open BOTH FallbackPolicy (endpoints without an
+        // explicit policy) AND DefaultPolicy (bare [Authorize] controllers use DefaultPolicy, so
+        // an open FallbackPolicy alone is NOT enough). RequireAssertion(_ => true) allows anonymous.
+        var openPolicy = new AuthorizationPolicyBuilder()
+            .RequireAssertion(_ => true)
+            .Build();
+        options.FallbackPolicy = openPolicy;
+        options.DefaultPolicy = openPolicy;
+
+        // Named policies registered via [Authorize(Policy = "...")] use RequireClaim/RequireAssertion
+        // and are NOT covered by Default/FallbackPolicy. With auth disabled an anonymous caller has no
+        // SessionType/*PrefillActive claims, so every [Authorize(Policy="AdminOnly")] endpoint would
+        // still 403. Open every named policy too so disabling auth truly grants access to ALL endpoints,
+        // then return so the secure named-policy definitions below do NOT re-run and override these.
+        foreach (var policyName in new[]
+                 {
+                     "AdminOnly",
+                     "GuestAllowed",
+                     "SteamPrefillAccess",
+                     "EpicPrefillAccess",
+                     "BattleNetPrefillAccess",
+                     "RiotPrefillAccess",
+                     "AnyPrefillAccess"
+                 })
+        {
+            options.AddPolicy(policyName, policy => policy.RequireAssertion(_ => true));
+        }
+
+        Console.WriteLine("Authentication DISABLED via Security:EnableAuthentication — all endpoints allow anonymous access");
+        return;
+    }
+
     // Secure-by-default: every endpoint requires an authenticated principal unless it
     // explicitly opts out with [AllowAnonymous] (e.g. /health, /api/auth/login, /api/setup/*).
     // This closes the "forgot to add [Authorize]" gap on controllers added later.

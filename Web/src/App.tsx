@@ -74,7 +74,8 @@ const AppContent: React.FC = () => {
     isLoading: checkingAuth,
     refreshAuth,
     prefillEnabled,
-    isBanned
+    isBanned,
+    authenticationEnabled
   } = useAuth();
   const { status: steamApiStatus, refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
   const { refreshSteamAuth } = useSteamAuth();
@@ -90,7 +91,8 @@ const AppContent: React.FC = () => {
   const setupCompleted = setupStatus?.isCompleted ?? null;
   const hasProcessedLogs = setupStatus?.hasProcessedLogs ?? null;
   const shouldShowInitializationFlow =
-    !setupCompleted || Boolean(setupStatus?.needsPostgresCredentials);
+    (!setupCompleted || Boolean(setupStatus?.needsPostgresCredentials)) &&
+    authenticationEnabled !== false;
 
   // Switch away from auth-required tabs if auth is lost
   useEffect(() => {
@@ -504,7 +506,7 @@ const AppContent: React.FC = () => {
   };
 
   // Show login page if not authenticated
-  if (!checkingAuth && authMode === 'unauthenticated') {
+  if (!checkingAuth && authMode === 'unauthenticated' && authenticationEnabled !== false) {
     return <AuthenticationModal onAuthComplete={refreshAuth} />;
   }
 

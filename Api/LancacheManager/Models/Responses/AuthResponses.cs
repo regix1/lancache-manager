@@ -3,6 +3,8 @@ namespace LancacheManager.Models;
 public class AuthStatusResponse
 {
     public bool IsAuthenticated { get; set; }
+    /// <summary>False when Security:EnableAuthentication is disabled; lets the frontend bypass the login prompt + setup wizard.</summary>
+    public bool AuthenticationEnabled { get; set; }
     public SessionType? SessionType { get; set; }
     public Guid? SessionId { get; set; }
     public DateTime? ExpiresAt { get; set; }

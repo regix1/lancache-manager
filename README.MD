@@ -904,6 +904,29 @@ lancache_cache_used_bytes / 1024 / 1024 / 1024
 3. Click **Process Logs** in Management.
 4. Look at the container logs: `docker logs lancache-manager`.
 
+### The web UI says "No log file" (but the file exists)
+
+`LanCache__LogPath` must be the **full path to the access log file inside the container**, including the filename — e.g. `/logs/access.log`, not just `/logs`. Confirm:
+
+1. Your volume mounts the host log directory into the container (e.g. `- /host/path/lancache/logs:/logs`).
+2. `LanCache__LogPath` points at the file at that *container* path (`/logs/access.log`).
+3. The file is readable from inside the container: `docker exec -it lancache-manager cat /logs/access.log | head`.
+
+Network shares (NFS/SMB) are fine. A trailing `+` in `ls -la` output (e.g. `-rw-r--r--+`) is just an NFS ACL marker — it does **not** block reads. If `cat` prints the file, permissions are not the problem and the configured path is what to check.
+
+### Cache size / disk usage isn't showing on the dashboard
+
+`LanCache__CachePath` must point at the directory that **directly contains the hashed cache folders** (named like `00`, `1a`, `ff`), not its parent.
+
+A standard lancache (monolithic) layout nests the content one level down, so if you mount your cache data directory to `/cache`, the actual cache folders usually live at `/cache/cache` — set `LanCache__CachePath=/cache/cache`. If you point it one level too high (at a folder that only contains a single `cache/` subdirectory), the dashboard shows the drive but reports no cache usage. This applies equally to network-mounted (NFS/SMB) cache directories.
+
+Verify what's actually at the path:
+
+```bash
+docker exec -it lancache-manager ls /cache
+# you should see the hashed folders (00, 1a, ... ff), not a single "cache" folder
+```
+
 ### Games aren't being identified
 
 **Steam:**

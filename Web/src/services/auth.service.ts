@@ -3,6 +3,7 @@ export type SessionType = 'admin' | 'guest';
 
 interface AuthStatusResponse {
   isAuthenticated: boolean;
+  authenticationEnabled: boolean;
   sessionType: SessionType | null;
   sessionId: string | null;
   expiresAt: string | null;
@@ -105,6 +106,7 @@ class AuthService {
 
       return {
         isAuthenticated: false,
+        authenticationEnabled: true,
         sessionType: null,
         sessionId: null,
         expiresAt: null,

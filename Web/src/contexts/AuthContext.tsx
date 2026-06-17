@@ -13,6 +13,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [sessionExpiresAt, setSessionExpiresAt] = useState<string | null>(null);
+  const [authenticationEnabled, setAuthenticationEnabled] = useState(true);
   const [steamPrefillEnabled, setSteamPrefillEnabled] = useState(false);
   const [steamPrefillExpiresAt, setSteamPrefillExpiresAt] = useState<string | null>(null);
   const [epicPrefillEnabled, setEpicPrefillEnabled] = useState(false);
@@ -47,6 +48,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       const data = await authService.checkAuth();
 
+      if (data.authenticationEnabled === false) {
+        console.warn(
+          '[Auth] Authentication DISABLED via Security:EnableAuthentication — bypassing login + setup wizard, all access granted'
+        );
+      }
+
+      setAuthenticationEnabled(data.authenticationEnabled);
       setSessionType(data.sessionType);
       setSessionId(data.sessionId);
       setSessionExpiresAt(data.expiresAt);
@@ -68,6 +76,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
     } catch (error) {
       console.error('[Auth] Failed to check auth status:', error);
+      setAuthenticationEnabled(true);
       setAuthMode('unauthenticated');
       setSessionType(null);
       setSessionId(null);
@@ -277,6 +286,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         sessionType,
         sessionId,
         sessionExpiresAt,
+        authenticationEnabled,
         isLoading,
         login,
         startGuestSession,

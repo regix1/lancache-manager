@@ -22,19 +22,22 @@ public class AuthController : ControllerBase
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly StateService _stateService;
     private readonly ISignalRNotificationService _signalR;
+    private readonly IConfiguration _configuration;
 
     public AuthController(
         SessionService sessionService,
         ILogger<AuthController> logger,
         IDbContextFactory<AppDbContext> dbContextFactory,
         StateService stateService,
-        ISignalRNotificationService signalR)
+        ISignalRNotificationService signalR,
+        IConfiguration configuration)
     {
         _sessionService = sessionService;
         _logger = logger;
         _dbContextFactory = dbContextFactory;
         _stateService = stateService;
         _signalR = signalR;
+        _configuration = configuration;
     }
 
     [AllowAnonymous]
@@ -114,10 +117,15 @@ public class AuthController : ControllerBase
             token = rotatedToken ?? SessionService.TokenFromCookie(HttpContext);
         }
 
+        // When authentication is disabled via config, treat the anonymous caller as an admin
+        // so the frontend grants admin mode and skips the login prompt + setup wizard.
+        var authenticationEnabled = _configuration.GetValue<bool>("Security:EnableAuthentication", true);
+
         return Ok(new AuthStatusResponse
         {
-            IsAuthenticated = session != null,
-            SessionType = session?.SessionType,
+            AuthenticationEnabled = authenticationEnabled,
+            IsAuthenticated = !authenticationEnabled || session != null,
+            SessionType = !authenticationEnabled ? Models.SessionType.Admin : session?.SessionType,
             SessionId = session?.Id,
             ExpiresAt = session != null ? DateTime.SpecifyKind(session.ExpiresAtUtc, DateTimeKind.Utc) : (DateTime?)null,
             HasData = hasData,

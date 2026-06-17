@@ -8,6 +8,7 @@ interface AuthContextType {
   sessionType: SessionType | null;
   sessionId: string | null;
   sessionExpiresAt: string | null;
+  authenticationEnabled: boolean;
   isLoading: boolean;
   login: (apiKey: string) => Promise<{ success: boolean; message?: string }>;
   startGuestSession: () => Promise<{ success: boolean; message?: string }>;
