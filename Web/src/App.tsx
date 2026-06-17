@@ -90,9 +90,14 @@ const AppContent: React.FC = () => {
   // Derive setup state from context
   const setupCompleted = setupStatus?.isCompleted ?? null;
   const hasProcessedLogs = setupStatus?.hasProcessedLogs ?? null;
+  // The setup wizard performs required first-run work (entering Postgres credentials,
+  // marking setup complete, initial log processing) and is NOT an auth gate — its
+  // endpoints are anonymous. Show it purely on setup status, regardless of
+  // Security:EnableAuthentication. Disabling auth only suppresses the login prompt
+  // (see the AuthenticationModal gate below), not genuine setup work — otherwise a
+  // fresh external-Postgres install with no env credentials would be stranded.
   const shouldShowInitializationFlow =
-    (!setupCompleted || Boolean(setupStatus?.needsPostgresCredentials)) &&
-    authenticationEnabled !== false;
+    !setupCompleted || Boolean(setupStatus?.needsPostgresCredentials);
 
   // Switch away from auth-required tabs if auth is lost
   useEffect(() => {
