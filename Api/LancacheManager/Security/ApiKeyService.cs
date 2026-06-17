@@ -169,6 +169,8 @@ public class ApiKeyService
         var puid = Environment.GetEnvironmentVariable("LANCACHE_PUID") ?? "N/A";
         var pgid = Environment.GetEnvironmentVariable("LANCACHE_PGID") ?? "N/A";
 
+        var authenticationEnabled = configuration.GetValue<bool>("Security:EnableAuthentication", true);
+
         Console.WriteLine("");
         Console.WriteLine("┌────────────────────────────────────────────────────────────────────────────┐");
         Console.WriteLine("│                            LANCACHE MANAGER                                │");
@@ -176,13 +178,22 @@ public class ApiKeyService
         Console.WriteLine("");
         Console.WriteLine($"  Running as UID: {puid} / GID: {pgid}");
         Console.WriteLine("");
-        Console.WriteLine("  API KEY (used for login & Metrics/Swagger protection)");
+        Console.WriteLine(authenticationEnabled
+            ? "  API KEY (used for login & Metrics/Swagger protection)"
+            : "  API KEY (used for Metrics/Swagger protection)");
         Console.WriteLine($"  {apiKey}");
         Console.WriteLine("");
         Console.WriteLine($"  File: {_apiKeyPath}");
         Console.WriteLine("");
-        Console.WriteLine("  Authentication is ENABLED - use this API key to log in");
-        Console.WriteLine("  Guest access allows read-only dashboard viewing");
+        if (authenticationEnabled)
+        {
+            Console.WriteLine("  Authentication is ENABLED - use this API key to log in");
+            Console.WriteLine("  Guest access allows read-only dashboard viewing");
+        }
+        else
+        {
+            Console.WriteLine("  Authentication is DISABLED via Security:EnableAuthentication - no login required, all endpoints allow anonymous access");
+        }
         Console.WriteLine("");
         Console.WriteLine("────────────────────────────────────────────────────────────────────────────");
     }

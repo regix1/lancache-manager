@@ -3082,10 +3082,12 @@
         "guestMode": "访客模式（剩余 {{time}}）",
         "guestModeNoTime": "访客模式",
         "expired": "访客会话已过期",
-        "notAuthenticated": "未验证"
+        "notAuthenticated": "未验证",
+        "disabled": "已禁用"
       },
       "description": {
         "authenticated": "管理功能已启用",
+        "disabled": "已通过 Security:EnableAuthentication 禁用身份验证 — 已授予全部访问权限，无需登录",
         "guest": "仅查看权限已激活",
         "expired": "需要身份验证才能继续",
         "requiresKeyOrGuest": "管理功能需要 API 密钥或访客访问权限",

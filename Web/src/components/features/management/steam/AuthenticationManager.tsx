@@ -20,7 +20,7 @@ interface AuthenticationManagerProps {
 const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, onSuccess }) => {
   const { t } = useTranslation();
   const { guestDurationHours } = useGuestConfig();
-  const { authMode, refreshAuth, sessionExpiresAt } = useAuth();
+  const { authMode, refreshAuth, sessionExpiresAt, authenticationEnabled } = useAuth();
   const { refreshSteamAuth, setSteamAuthMode, setUsername } = useSteamAuth();
   const { refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
   const [authChecking, setAuthChecking] = useState(true);
@@ -204,6 +204,24 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
 
   if (authChecking) {
     return null;
+  }
+
+  // When authentication is disabled via Security:EnableAuthentication, the auth
+  // context forces authMode to 'authenticated'. Surface a distinct DISABLED state
+  // instead of falsely claiming the user is "Authenticated" with management features.
+  if (authenticationEnabled === false) {
+    return (
+      <Alert color="blue" icon={<Lock className="w-5 h-5" />}>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-sm sm:text-base">
+              {t('management.auth.status.disabled')}
+            </span>
+          </div>
+          <p className="text-xs mt-1 opacity-75">{t('management.auth.description.disabled')}</p>
+        </div>
+      </Alert>
+    );
   }
 
   const getAlertColor = () => {

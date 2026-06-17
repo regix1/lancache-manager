@@ -3082,10 +3082,12 @@
         "guestMode": "Guest Mode ({{time}} remaining)",
         "guestModeNoTime": "Guest Mode",
         "expired": "Guest Session Expired",
-        "notAuthenticated": "Not Authenticated"
+        "notAuthenticated": "Not Authenticated",
+        "disabled": "Disabled"
       },
       "description": {
         "authenticated": "Management features enabled",
+        "disabled": "Authentication disabled via Security:EnableAuthentication — all access granted, no login required",
         "guest": "View-only access active",
         "expired": "Authentication required to continue",
         "requiresKeyOrGuest": "Management features require API key or guest access",
