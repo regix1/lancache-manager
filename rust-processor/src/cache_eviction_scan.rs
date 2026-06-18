@@ -92,6 +92,40 @@ fn classify_unverifiable(has_probe_keys: bool, is_evicted: bool) -> Unverifiable
     }
 }
 
+/// What to do with a download whose files COULD be positively verified this scan (at least one
+/// probe key resolved to an on-disk indexed datasource root).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VerifiableAction {
+    /// Genuine eviction: content was cached (positive evidence) but is now confirmed absent.
+    Evict,
+    /// Clear the flag: either the content is back on disk (re-cached), OR it is absent AND there
+    /// is no evidence it was ever cached (pure MISS / non-cacheable / aborted) — in which case a
+    /// pre-existing `IsEvicted` flag is a false positive that we heal.
+    Unevict,
+    /// Nothing to change.
+    NoOp,
+}
+
+/// Pure classification for the verifiable branch of the eviction scan. Gating evict on
+/// `was_cached` (CacheHitBytes > 0) stops pure cache-MISS content — logged but never written to
+/// disk — from being mislabeled "evicted", and heals rows already wrongly flagged that way.
+///
+/// `has_cache_file` is the ANY-probe-key on-disk result; `is_evicted` is the current DB flag;
+/// `was_cached` is true when the download has positive cache evidence (CacheHitBytes > 0).
+fn classify_verifiable(has_cache_file: bool, is_evicted: bool, was_cached: bool) -> VerifiableAction {
+    if has_cache_file {
+        // Content present on disk → never evicted; clear any stale flag (re-cached).
+        if is_evicted { VerifiableAction::Unevict } else { VerifiableAction::NoOp }
+    } else if was_cached {
+        // Absent AND was once cached → genuine nginx eviction.
+        if !is_evicted { VerifiableAction::Evict } else { VerifiableAction::NoOp }
+    } else {
+        // Absent AND never cached (pure MISS / non-cacheable / aborted) → NOT an eviction.
+        // Heal a pre-existing false-positive flag.
+        if is_evicted { VerifiableAction::Unevict } else { VerifiableAction::NoOp }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     cancel::install();
@@ -233,7 +267,7 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
         // Step A: Fetch a batch of distinct inactive download IDs
         let download_rows = sqlx::query(
             r#"
-            SELECT "Id" as download_id, "IsEvicted" as is_evicted
+            SELECT "Id" as download_id, "IsEvicted" as is_evicted, "CacheHitBytes" as cache_hit_bytes
             FROM "Downloads"
             WHERE "IsActive" = false AND "Id" > $1
             ORDER BY "Id"
@@ -253,6 +287,12 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
         let download_ids: Vec<i64> = download_rows.iter().map(|r| r.get("download_id")).collect();
         let download_evicted: HashMap<i64, bool> = download_rows.iter()
             .map(|r| (r.get("download_id"), r.get("is_evicted")))
+            .collect();
+        // Positive cache evidence per download: CacheHitBytes > 0 ⇔ served from cache at least
+        // once ⇔ definitely was cached. Gates the verifiable→evict decision so pure-MISS content
+        // (logged but never written to disk) is never mislabeled "evicted".
+        let download_hit_bytes: HashMap<i64, i64> = download_rows.iter()
+            .map(|r| (r.get("download_id"), r.get("cache_hit_bytes")))
             .collect();
 
         let Some(last_download_id) = download_ids.last().copied() else {
@@ -383,10 +423,14 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
                         .expect("probe memo must contain every key collected this batch")
                 });
 
-            if !has_cache_file && !is_evicted {
-                ids_to_evict.push(*download_id);
-            } else if has_cache_file && is_evicted {
-                ids_to_unevict.push(*download_id);
+            // Gate the evict decision on POSITIVE cache evidence: only content that was once
+            // served from cache (CacheHitBytes > 0) can be "evicted". Absent content that was
+            // never cached (pure MISS) is healed of any stale flag, not freshly flagged.
+            let was_cached = download_hit_bytes.get(download_id).copied().unwrap_or(0) > 0;
+            match classify_verifiable(has_cache_file, is_evicted, was_cached) {
+                VerifiableAction::Evict => ids_to_evict.push(*download_id),
+                VerifiableAction::Unevict => ids_to_unevict.push(*download_id),
+                VerifiableAction::NoOp => {}
             }
         }
 
@@ -536,7 +580,7 @@ fn write_progress(
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_unverifiable, UnverifiableAction};
+    use super::{classify_unverifiable, classify_verifiable, UnverifiableAction, VerifiableAction};
 
     #[test]
     fn orphaned_evicted_download_clears_stale_flag() {
@@ -572,6 +616,70 @@ mod tests {
         assert_eq!(
             classify_unverifiable(true, false),
             UnverifiableAction::Abstain
+        );
+    }
+
+    // --- classify_verifiable: full truth table (has_cache_file × is_evicted × was_cached) ---
+
+    #[test]
+    fn absent_was_cached_not_evicted_evicts() {
+        // Cached then gone → genuine nginx eviction.
+        assert_eq!(
+            classify_verifiable(false, false, true),
+            VerifiableAction::Evict
+        );
+    }
+
+    #[test]
+    fn absent_was_cached_already_evicted_noops() {
+        // Already flagged correctly; nothing to change.
+        assert_eq!(
+            classify_verifiable(false, true, true),
+            VerifiableAction::NoOp
+        );
+    }
+
+    #[test]
+    fn absent_never_cached_evicted_heals() {
+        // THE BUG FIX: absent + never cached (pure MISS) but flagged → heal the false positive.
+        assert_eq!(
+            classify_verifiable(false, true, false),
+            VerifiableAction::Unevict
+        );
+    }
+
+    #[test]
+    fn absent_never_cached_not_evicted_noops() {
+        // Never cached and not flagged → never stamp "Evicted" on never-cached content.
+        assert_eq!(
+            classify_verifiable(false, false, false),
+            VerifiableAction::NoOp
+        );
+    }
+
+    #[test]
+    fn present_evicted_unevicts() {
+        // Content back on disk (re-cached) → clear the stale flag. was_cached is irrelevant.
+        assert_eq!(
+            classify_verifiable(true, true, true),
+            VerifiableAction::Unevict
+        );
+        assert_eq!(
+            classify_verifiable(true, true, false),
+            VerifiableAction::Unevict
+        );
+    }
+
+    #[test]
+    fn present_not_evicted_noops() {
+        // Content present and not flagged → no change. was_cached is irrelevant.
+        assert_eq!(
+            classify_verifiable(true, false, true),
+            VerifiableAction::NoOp
+        );
+        assert_eq!(
+            classify_verifiable(true, false, false),
+            VerifiableAction::NoOp
         );
     }
 }
