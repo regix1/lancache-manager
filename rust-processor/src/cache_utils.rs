@@ -374,6 +374,34 @@ pub fn calculate_cache_path_no_range(
     cache_dir.join(last_2).join(middle_2).join(&hash)
 }
 
+/// Calculate cache file path for the `@noslice` location.
+/// Lancache nginx cache key format: `$cacheidentifier$uri::noslice` (literal `::noslice` suffix,
+/// NO byte range — `15_noslice.conf:51`). Mirrors `calculate_cache_path_no_range` exactly except
+/// for the trailing `::noslice`, so the produced filename matches the no-range/ranged forms in shape.
+///
+/// Note: This function is used by multiple binaries but not all, hence the allow(dead_code)
+#[allow(dead_code)]
+pub fn calculate_cache_path_noslice(
+    cache_dir: &Path,
+    service: &str,
+    url: &str,
+) -> PathBuf {
+    // Transform the stored URL into nginx's `$uri` so the md5 matches the on-disk filename.
+    let url = nginx_cache_uri(url);
+    let cache_key = format!("{}{}::noslice", service, url);
+    let hash = calculate_md5(&cache_key);
+
+    let len = hash.len();
+    if len < 4 {
+        return cache_dir.join(&hash);
+    }
+
+    let last_2 = &hash[len - 2..];
+    let middle_2 = &hash[len - 4..len - 2];
+
+    cache_dir.join(last_2).join(middle_2).join(&hash)
+}
+
 /// Lowercase service name for cache-path MD5 hashing.
 ///
 /// Feeds MD5 cache-path hashing and must NOT canonicalize IPs/localhost.
@@ -403,7 +431,11 @@ where
 /// Lazily yields the md5-hex cache-key hashes probed for (service, url) — exactly the
 /// file-name components of `cache_path_candidates_for_probe`, in the same order, without
 /// constructing any paths. Lazy so callers doing set-membership checks can early-exit
-/// on the first hit instead of always hashing all `max_chunks + 1` candidates.
+/// on the first hit instead of always hashing all `max_chunks + 2` candidates.
+///
+/// Order: `[no_range, noslice, chunk0, chunk1, ...]`. The `::noslice` candidate matches the
+/// lancache `@noslice` location's `$cacheidentifier$uri::noslice` key (literal suffix, no byte
+/// range) so the probe also finds noslice-cached content.
 #[allow(dead_code)]
 pub fn cache_hash_candidates_iter(
     service: &str,
@@ -412,13 +444,16 @@ pub fn cache_hash_candidates_iter(
 ) -> impl Iterator<Item = String> {
     let service = service_name_lowercase(service);
     // Transform the stored URL into nginx's `$uri` once so every candidate md5 (no-range +
-    // ranged) matches the on-disk filename. Owned because the ranged closure outlives `url`.
+    // noslice + ranged) matches the on-disk filename. Owned because the ranged closure outlives `url`.
     let url = nginx_cache_uri(url).into_owned();
     let no_range_hash = calculate_md5(&format!("{}{}", service, url));
+    let noslice_hash = calculate_md5(&format!("{}{}::noslice", service, url));
 
-    std::iter::once(no_range_hash).chain(chunk_ranges_for_probe(max_chunks).into_iter().map(
-        move |(start, end)| calculate_md5(&format!("{}{}bytes={}-{}", service, url, start, end)),
-    ))
+    std::iter::once(no_range_hash).chain(std::iter::once(noslice_hash)).chain(
+        chunk_ranges_for_probe(max_chunks).into_iter().map(move |(start, end)| {
+            calculate_md5(&format!("{}{}bytes={}-{}", service, url, start, end))
+        }),
+    )
 }
 
 #[allow(dead_code)]
@@ -434,8 +469,9 @@ pub fn cache_path_candidates_for_probe(
     max_chunks: usize,
 ) -> Vec<PathBuf> {
     let service = service_name_lowercase(service);
-    let mut paths = Vec::with_capacity(max_chunks + 1);
+    let mut paths = Vec::with_capacity(max_chunks + 2);
     paths.push(calculate_cache_path_no_range(cache_dir, &service, url));
+    paths.push(calculate_cache_path_noslice(cache_dir, &service, url));
 
     for (start, end) in chunk_ranges_for_probe(max_chunks) {
         paths.push(calculate_cache_path(cache_dir, &service, url, start, end));
@@ -453,8 +489,9 @@ pub fn cache_path_candidates_for_bytes(
 ) -> Vec<PathBuf> {
     let service = service_name_lowercase(service);
     let chunk_ranges = chunk_ranges_for_total_bytes(total_bytes);
-    let mut paths = Vec::with_capacity(chunk_ranges.len() + 1);
+    let mut paths = Vec::with_capacity(chunk_ranges.len() + 2);
     paths.push(calculate_cache_path_no_range(cache_dir, &service, url));
+    paths.push(calculate_cache_path_noslice(cache_dir, &service, url));
 
     for (start, end) in chunk_ranges {
         paths.push(calculate_cache_path(cache_dir, &service, url, start, end));
@@ -608,7 +645,41 @@ mod tests {
             cache_hash_candidates_iter("steam", "/depot/1/chunk/aa", DEFAULT_MAX_CHUNKS).collect();
         let eager = cache_hash_candidates_for_probe("steam", "/depot/1/chunk/aa", DEFAULT_MAX_CHUNKS);
         assert_eq!(collected, eager);
-        assert_eq!(collected.len(), DEFAULT_MAX_CHUNKS + 1);
+        // no_range + noslice + MAX_CHUNKS ranged slices.
+        assert_eq!(collected.len(), DEFAULT_MAX_CHUNKS + 2);
+    }
+
+    /// The probe must include the `@noslice` location's key:
+    /// `md5(lower(service) + nginx_cache_uri(url) + "::noslice")` — with NO byte range — so
+    /// noslice-cached content is matched by detect/evict/remove. Pinned at the second position
+    /// (immediately after the no-range candidate, before the chunk slices).
+    #[test]
+    fn hash_candidates_contains_noslice_key() {
+        let service = "epicgames";
+        let url = "/Builds/Org/CloudDir/ChunksV4/12/ABCD_0123456789abcdef.chunk";
+
+        let expected_noslice = calculate_md5(&format!(
+            "{}{}::noslice",
+            service_name_lowercase(service),
+            nginx_cache_uri(url)
+        ));
+
+        let hashes = cache_hash_candidates_for_probe(service, url, DEFAULT_MAX_CHUNKS);
+        assert!(
+            hashes.contains(&expected_noslice),
+            "probe candidates must contain the ::noslice key {} for ({}, {})",
+            expected_noslice,
+            service,
+            url
+        );
+        // Order contract: [no_range, noslice, chunk0, ...] — noslice is the second candidate.
+        let expected_no_range = calculate_md5(&format!(
+            "{}{}",
+            service_name_lowercase(service),
+            nginx_cache_uri(url)
+        ));
+        assert_eq!(hashes[0], expected_no_range, "first candidate must be no_range");
+        assert_eq!(hashes[1], expected_noslice, "second candidate must be ::noslice");
     }
 
     /// `probe_chunks_for_bytes` sizes the probe chunk count from the URL's byte size, never
