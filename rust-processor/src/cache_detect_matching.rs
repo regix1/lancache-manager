@@ -10,7 +10,9 @@ use crate::cache_detect_queries::{DownloadRecord, EpicDownloadRecord};
 use crate::cache_utils;
 use crate::{CacheFileInfo, GameCacheInfo, ServiceCacheInfo};
 
-type ServiceUrl = (String, String);
+/// (service, url, bytes_served) — `bytes_served` is the URL's `MAX(LogEntries.BytesServed)`,
+/// used to size the probe chunk count via `cache_utils::probe_chunks_for_bytes` (0 = unknown).
+type ServiceUrl = (String, String, i64);
 
 struct SteamGameInputs {
     game_app_id: u32,
@@ -42,7 +44,11 @@ pub(crate) fn group_epic_records(
         let entry = epic_map
             .entry(record.epic_app_id.clone())
             .or_insert_with(|| (record.game_name.clone(), Vec::new()));
-        entry.1.push((record.service.to_lowercase(), record.url.clone()));
+        entry.1.push((
+            record.service.to_lowercase(),
+            record.url.clone(),
+            record.bytes_served,
+        ));
     }
 
     epic_map
@@ -64,6 +70,7 @@ fn collect_steam_game_inputs(records: &[DownloadRecord]) -> Result<SteamGameInpu
         service_urls.push((
             cache_utils::service_name_lowercase(&record.service),
             record.url.clone(),
+            record.bytes_served,
         ));
 
         if let Some(depot_id) = record.depot_id {
@@ -95,13 +102,14 @@ fn match_files_with_index_tracked(
 ) -> HashSet<PathBuf> {
     service_urls
         .par_iter()
-        .filter_map(|(service, url)| {
-            let result = cache_utils::cache_hash_candidates_for_probe(
+        .filter_map(|(service, url, bytes_served)| {
+            // Lazy iterator early-exits on the first matching hash; the chunk count is sized
+            // from the URL's byte size (clamped to [DEFAULT_MAX_CHUNKS, MAX_PROBE_CHUNKS]).
+            let result = cache_utils::cache_hash_candidates_iter(
                 service,
                 url,
-                cache_utils::DEFAULT_MAX_CHUNKS,
+                cache_utils::probe_chunks_for_bytes(*bytes_served),
             )
-            .into_iter()
             .find_map(|hash| cache_files_index.get(&hash).map(|info| info.path.clone()));
             counter.fetch_add(1, Ordering::Relaxed);
             result
@@ -121,12 +129,14 @@ fn match_files_in_cache_tracked(
 ) -> HashSet<PathBuf> {
     service_urls
         .par_iter()
-        .filter_map(|(service, url)| {
+        .filter_map(|(service, url, bytes_served)| {
+            // Chunk count sized from the URL's byte size (clamped); `.find` early-exits on the
+            // first existing path so only genuine all-misses pay the full candidate cost.
             let result = cache_utils::cache_path_candidates_for_probe(
                 cache_dir,
                 service,
                 url,
-                cache_utils::DEFAULT_MAX_CHUNKS,
+                cache_utils::probe_chunks_for_bytes(*bytes_served),
             )
             .into_iter()
             .find(|path| path.exists());
@@ -174,7 +184,7 @@ pub(crate) fn detect_service_cache_info(
     let found_files = match_files_with_index_tracked(service_urls, cache_files_index, counter);
     let total_size = total_size_from_index(&found_files, cache_files_index);
     let sample_urls =
-        cache_utils::sorted_sample_urls(service_urls.iter().map(|(_, url)| url.as_str()), 5);
+        cache_utils::sorted_sample_urls(service_urls.iter().map(|(_, url, _)| url.as_str()), 5);
 
     Ok(ServiceCacheInfo {
         service_name: service_name.to_string(),
@@ -194,7 +204,7 @@ pub(crate) fn detect_service_cache_info_incremental(
     let found_files = match_files_in_cache_tracked(service_urls, cache_dir, counter);
     let total_size = total_size_from_filesystem(&found_files);
     let sample_urls =
-        cache_utils::sorted_sample_urls(service_urls.iter().map(|(_, url)| url.as_str()), 5);
+        cache_utils::sorted_sample_urls(service_urls.iter().map(|(_, url, _)| url.as_str()), 5);
 
     Ok(ServiceCacheInfo {
         service_name: service_name.to_string(),
@@ -263,7 +273,7 @@ fn build_epic_game_cache_info(
     total_size_bytes: u64,
 ) -> GameCacheInfo {
     let sample_urls =
-        cache_utils::sorted_sample_urls(service_urls.iter().map(|(_, url)| url.as_str()), 5);
+        cache_utils::sorted_sample_urls(service_urls.iter().map(|(_, url, _)| url.as_str()), 5);
 
     GameCacheInfo {
         game_app_id: generate_epic_game_app_id(epic_app_id),

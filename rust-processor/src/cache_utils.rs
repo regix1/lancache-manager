@@ -5,8 +5,49 @@ use std::path::{Path, PathBuf};
 #[allow(dead_code)]
 pub const DEFAULT_SLICE_SIZE: u64 = 1_048_576;
 
+// Detect + evict probe the 1 MiB slices of each (service, url). The chunk count is now sized
+// from the URL's observed byte size (`MAX(LogEntries.BytesServed)`) via `probe_chunks_for_bytes`,
+// clamped to [`DEFAULT_MAX_CHUNKS`, `MAX_PROBE_CHUNKS`]. `DEFAULT_MAX_CHUNKS` is the unconditional
+// FLOOR — sizing can only ever probe MORE slices than the old flat behavior, never fewer — and
+// `MAX_PROBE_CHUNKS` is the perf CEILING that keeps the all-miss cost bounded (see below).
 #[allow(dead_code)]
 pub const DEFAULT_MAX_CHUNKS: usize = 100;
+
+// Upper bound on probe chunk count when sizing from a URL's byte size.
+//
+// WHY A CAP IS REQUIRED: the eviction scan runs over ALL inactive downloads every 6h, and the
+// all-absent (true-miss) case CANNOT early-exit — `has_cache_file` / the path probe must check
+// every candidate before concluding "gone". Sizing chunk count uncapped from per-URL bytes would
+// let a single large URL (e.g. a 100 GB session sum mis-attributed to one URL) explode to ~100k
+// md5/stat candidates, multiplied across every unique (service, url) that genuinely misses.
+//
+// WHY 4096: DEFAULT_SLICE_SIZE is 1 MiB, so 4096 chunks == 4 GiB worth of slices. A single cached
+// lancache OBJECT (one Steam/Epic/Blizzard chunk file, one WSUS .psf range) is realistically far
+// smaller than 4 GiB — they are typically 1 MiB..256 MiB — so 4 GiB covers any realistic single
+// sliced object with large margin while never undercounting. Worst-case all-miss cost per unique
+// key is bounded at 4097 candidates (vs today's 101), each unique key is probed exactly once
+// scan-wide (memoized), and the present case still short-circuits on the first hit.
+#[allow(dead_code)]
+pub const MAX_PROBE_CHUNKS: usize = 4096;
+
+/// Derives the probe chunk count for a URL from its observed byte size, clamped to
+/// `[DEFAULT_MAX_CHUNKS, MAX_PROBE_CHUNKS]`.
+///
+/// - `bytes <= 0` (unknown/0 size) → `DEFAULT_MAX_CHUNKS` (the old floor; never less coverage).
+/// - small object → `DEFAULT_MAX_CHUNKS` (floor keeps the old 100-slice safety net).
+/// - large object → `ceil(bytes / DEFAULT_SLICE_SIZE)` capped at `MAX_PROBE_CHUNKS`.
+///
+/// Sizing this way lets detect/evict find cached slices that fall past the first 100 MiB of a
+/// large object, fixing the Phase-3 false-miss, while the cap bounds the all-miss scan cost.
+#[allow(dead_code)]
+pub fn probe_chunks_for_bytes(bytes: i64) -> usize {
+    if bytes <= 0 {
+        return DEFAULT_MAX_CHUNKS;
+    }
+    // ceil(bytes / slice) — number of 1 MiB slices needed to cover `bytes`.
+    let needed = ((bytes as u64).div_ceil(DEFAULT_SLICE_SIZE)) as usize;
+    needed.clamp(DEFAULT_MAX_CHUNKS, MAX_PROBE_CHUNKS)
+}
 
 /// Returns the canonical form of `candidate`, but only if it resides under `root` and is not a symlink.
 /// Errors out for symlinks (refuses to follow), paths outside the root, or non-existent paths.
@@ -142,6 +183,139 @@ pub fn calculate_md5(cache_key: &str) -> String {
     format!("{:x}", md5::compute(cache_key.as_bytes()))
 }
 
+/// Reproduce nginx's `$uri` from a stored `LogEntries.Url`.
+///
+/// The lancache monolithic image keys the cache on `$cacheidentifier$uri$slice_range`
+/// (`cache.conf.d/root/30_cache_key.conf:1`), where `$uri` is nginx's NORMALIZED, URL-DECODED
+/// request path — NOT `$request_uri`. The access log records the raw `$request` line, so the
+/// parser stores the URL with the query string retained and percent-escapes as-logged. To match
+/// the on-disk md5 filename we must transform the stored URL into nginx's `$uri` before hashing:
+///
+///   (a) DROP everything from the first `?` (query string — nginx keys on `$uri`, not `$request_uri`).
+///   (b) PERCENT-DECODE `%XX` escapes (nginx decodes `$uri`).
+///   (c) COLLAPSE consecutive `//` to `/` (nginx default `merge_slashes on`).
+///   (d) RESOLVE `.` / `..` path segments.
+///
+/// This is the shared key-derivation chokepoint, applied identically by detect, evict, all three
+/// removers and both corruption binaries. A wrong transform here breaks all of them together, so
+/// the transforms are deliberately minimal and exactly mirror nginx ground truth.
+///
+/// Borrowed fast path: if the URL has no `?`, no `%`, no `//`, and no `.`-only / `..` segment, the
+/// stored URL already equals `$uri`, so we return `Cow::Borrowed` with zero allocation. This bounds
+/// the blast radius to only previously-divergent URLs and keeps the hot rayon'd probe loop cheap.
+pub fn nginx_cache_uri(url: &str) -> std::borrow::Cow<'_, str> {
+    // (a) Strip the query string first; only the path participates in `$uri`.
+    let path = match url.find('?') {
+        Some(idx) => &url[..idx],
+        None => url,
+    };
+
+    // Fast path: a clean, already-`$uri`-shaped path. No query was present (path == url), no
+    // percent-escape, no `//` run, and no `.`/`..` segment that would resolve away. Return the
+    // original borrowed slice unchanged — zero allocation in the hot loop.
+    if std::ptr::eq(path, url) && !needs_uri_normalization(path) {
+        return std::borrow::Cow::Borrowed(url);
+    }
+
+    // (b) Percent-decode, then (c) collapse `//`, then (d) resolve dot-segments.
+    let decoded = percent_decode(path);
+    let collapsed = collapse_double_slashes(&decoded);
+    let resolved = resolve_dot_segments(&collapsed);
+    std::borrow::Cow::Owned(resolved)
+}
+
+/// True if `path` contains anything that `nginx_cache_uri` would rewrite: a `%` escape, a `//`
+/// run, or a `.`/`..` path segment. Used to decide whether the borrowed fast path applies.
+fn needs_uri_normalization(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    if bytes.contains(&b'%') {
+        return true;
+    }
+    if bytes.windows(2).any(|pair| pair == b"//") {
+        return true;
+    }
+    // A `.`/`..` segment is one bounded by `/` (or string edges) consisting only of dots.
+    path.split('/').any(|seg| seg == "." || seg == "..")
+}
+
+/// Decode `%XX` percent-escapes the way nginx decodes `$uri`. Lone or malformed `%` sequences are
+/// left verbatim (nginx is lenient here and so are we). Self-contained: no extra crate dependency.
+fn percent_decode(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(hi), Some(lo)) = (hi, lo) {
+                out.push((hi * 16 + lo) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    // The decoded bytes form a path; cache keys are hashed as bytes so lossy UTF-8 is harmless,
+    // and lancache paths are ASCII in practice.
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Collapse runs of consecutive `/` to a single `/` (nginx `merge_slashes on`). Idempotent: an
+/// already-collapsed path is returned with the same content.
+fn collapse_double_slashes(input: &str) -> String {
+    if !input.as_bytes().windows(2).any(|pair| pair == b"//") {
+        return input.to_string();
+    }
+    let mut out = String::with_capacity(input.len());
+    let mut prev_slash = false;
+    for ch in input.chars() {
+        if ch == '/' {
+            if !prev_slash {
+                out.push(ch);
+            }
+            prev_slash = true;
+        } else {
+            out.push(ch);
+            prev_slash = false;
+        }
+    }
+    out
+}
+
+/// Resolve `.` and `..` path segments the way nginx normalizes `$uri`. Operates on a
+/// `/`-collapsed path. A leading `/` is preserved; a `..` cannot escape above the root.
+fn resolve_dot_segments(input: &str) -> String {
+    if !input.split('/').any(|seg| seg == "." || seg == "..") {
+        return input.to_string();
+    }
+
+    let leading_slash = input.starts_with('/');
+    let trailing_slash = input.len() > 1 && input.ends_with('/');
+
+    let mut stack: Vec<&str> = Vec::new();
+    for seg in input.split('/') {
+        match seg {
+            "" | "." => {} // empty (from leading/trailing/collapsed) and `.` are dropped
+            ".." => {
+                stack.pop();
+            }
+            other => stack.push(other),
+        }
+    }
+
+    let mut out = String::with_capacity(input.len());
+    if leading_slash {
+        out.push('/');
+    }
+    out.push_str(&stack.join("/"));
+    if trailing_slash && !out.ends_with('/') {
+        out.push('/');
+    }
+    out
+}
+
 /// Calculate cache file path with byte range using lancache's MD5 structure:
 /// /cache/{last_2_chars}/{2_chars_before_that}/{full_hash}
 ///
@@ -156,6 +330,8 @@ pub fn calculate_cache_path(
     start: u64,
     end: u64,
 ) -> PathBuf {
+    // Transform the stored URL into nginx's `$uri` so the md5 matches the on-disk filename.
+    let url = nginx_cache_uri(url);
     let cache_key = format!("{}{}bytes={}-{}", service, url, start, end);
     let hash = calculate_md5(&cache_key);
 
@@ -182,6 +358,8 @@ pub fn calculate_cache_path_no_range(
     service: &str,
     url: &str,
 ) -> PathBuf {
+    // Transform the stored URL into nginx's `$uri` so the md5 matches the on-disk filename.
+    let url = nginx_cache_uri(url);
     let cache_key = format!("{}{}", service, url);
     let hash = calculate_md5(&cache_key);
 
@@ -233,7 +411,9 @@ pub fn cache_hash_candidates_iter(
     max_chunks: usize,
 ) -> impl Iterator<Item = String> {
     let service = service_name_lowercase(service);
-    let url = url.to_owned();
+    // Transform the stored URL into nginx's `$uri` once so every candidate md5 (no-range +
+    // ranged) matches the on-disk filename. Owned because the ranged closure outlives `url`.
+    let url = nginx_cache_uri(url).into_owned();
     let no_range_hash = calculate_md5(&format!("{}{}", service, url));
 
     std::iter::once(no_range_hash).chain(chunk_ranges_for_probe(max_chunks).into_iter().map(
@@ -373,6 +553,10 @@ mod tests {
             ("steam", "/depot/881100/chunk/9b5af6c1d3e8a2f4b7c0d9e8f1a2b3c4d5e6f708"),
             ("Epic", "/Builds/Org/CloudDir/ChunksV4/12/ABCD_0123456789abcdef.chunk"),
             ("blizzard", "/tpr/bnt001/data/05/d6/05d6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"),
+            // The `?range=1` query is now stripped by nginx_cache_uri (nginx keys on `$uri`,
+            // not `$request_uri`). Both the hash form and the path form apply the SAME transform,
+            // so this test still proves internal consistency — only the absolute md5 changed (to
+            // the nginx-correct, query-stripped value).
             ("wsus", "/c/upgr/2021/01/windows10-kb5000802-x64_abc123.psf?range=1"),
         ];
         let cache_dir = Path::new("/cache");
@@ -425,5 +609,138 @@ mod tests {
         let eager = cache_hash_candidates_for_probe("steam", "/depot/1/chunk/aa", DEFAULT_MAX_CHUNKS);
         assert_eq!(collected, eager);
         assert_eq!(collected.len(), DEFAULT_MAX_CHUNKS + 1);
+    }
+
+    /// `probe_chunks_for_bytes` sizes the probe chunk count from the URL's byte size, never
+    /// below the `DEFAULT_MAX_CHUNKS` floor and never above the `MAX_PROBE_CHUNKS` ceiling.
+    #[test]
+    fn probe_chunks_for_bytes_clamps_to_floor_and_ceiling() {
+        // 0 / unknown / negative size → the old flat floor (never less coverage than before).
+        assert_eq!(probe_chunks_for_bytes(0), DEFAULT_MAX_CHUNKS);
+        assert_eq!(probe_chunks_for_bytes(-1), DEFAULT_MAX_CHUNKS);
+
+        // A small object (well under the floor's coverage) still probes the full floor.
+        assert_eq!(probe_chunks_for_bytes(1), DEFAULT_MAX_CHUNKS);
+        assert_eq!(
+            probe_chunks_for_bytes(DEFAULT_SLICE_SIZE as i64),
+            DEFAULT_MAX_CHUNKS
+        );
+        // Exactly at the floor boundary: 100 MiB → 100 slices == floor.
+        assert_eq!(
+            probe_chunks_for_bytes(DEFAULT_MAX_CHUNKS as i64 * DEFAULT_SLICE_SIZE as i64),
+            DEFAULT_MAX_CHUNKS
+        );
+
+        // A large object (between floor and ceiling) → ceil(bytes / slice), exceeding the
+        // old flat 100. 1 GiB = 1024 MiB → 1024 slices.
+        let one_gib = 1024i64 * DEFAULT_SLICE_SIZE as i64;
+        assert_eq!(probe_chunks_for_bytes(one_gib), 1024);
+        assert!(probe_chunks_for_bytes(one_gib) > DEFAULT_MAX_CHUNKS);
+
+        // ceil rounding: floor + half a slice rounds UP to floor + 1.
+        let just_over_floor =
+            DEFAULT_MAX_CHUNKS as i64 * DEFAULT_SLICE_SIZE as i64 + DEFAULT_SLICE_SIZE as i64 / 2;
+        assert_eq!(probe_chunks_for_bytes(just_over_floor), DEFAULT_MAX_CHUNKS + 1);
+
+        // A huge (e.g. mis-attributed 100 GB) size is capped at MAX_PROBE_CHUNKS so the
+        // all-miss eviction scan stays bounded.
+        let one_hundred_gb = 100i64 * 1024 * DEFAULT_SLICE_SIZE as i64;
+        assert_eq!(probe_chunks_for_bytes(one_hundred_gb), MAX_PROBE_CHUNKS);
+        // Exactly at the ceiling boundary stays at the ceiling.
+        assert_eq!(
+            probe_chunks_for_bytes(MAX_PROBE_CHUNKS as i64 * DEFAULT_SLICE_SIZE as i64),
+            MAX_PROBE_CHUNKS
+        );
+    }
+
+    use std::borrow::Cow;
+
+    #[test]
+    fn nginx_cache_uri_strips_query_string() {
+        assert_eq!(nginx_cache_uri("/a/b?x=1"), "/a/b");
+        assert_eq!(nginx_cache_uri("/a/b?x=1&y=2"), "/a/b");
+        // A bare trailing `?` yields the empty query → path only.
+        assert_eq!(nginx_cache_uri("/a/b?"), "/a/b");
+    }
+
+    #[test]
+    fn nginx_cache_uri_percent_decodes() {
+        assert_eq!(nginx_cache_uri("/a%20b"), "/a b"); // %20 -> space
+        assert_eq!(nginx_cache_uri("/a%2Fb"), "/a/b"); // %2F -> '/'
+        assert_eq!(nginx_cache_uri("/a%2fb"), "/a/b"); // lowercase hex
+        // Query stripped THEN decoded: the decode operates on the path only.
+        assert_eq!(nginx_cache_uri("/a%20b?token=%2F"), "/a b");
+    }
+
+    #[test]
+    fn nginx_cache_uri_collapses_double_slashes_idempotent() {
+        assert_eq!(nginx_cache_uri("/a//b"), "/a/b");
+        assert_eq!(nginx_cache_uri("/a///b//c"), "/a/b/c");
+        // Already-clean path is unchanged (idempotent collapse).
+        assert_eq!(nginx_cache_uri("/a/b/c"), "/a/b/c");
+    }
+
+    #[test]
+    fn nginx_cache_uri_resolves_dot_segments() {
+        assert_eq!(nginx_cache_uri("/a/./b"), "/a/b");
+        assert_eq!(nginx_cache_uri("/a/b/../c"), "/a/c");
+        assert_eq!(nginx_cache_uri("/a/b/../../c"), "/c");
+        // `..` cannot escape above the root.
+        assert_eq!(nginx_cache_uri("/../a"), "/a");
+    }
+
+    #[test]
+    fn nginx_cache_uri_borrowed_fast_path_for_clean_url() {
+        // A clean depot path needs no transform → returned BORROWED (zero allocation in the hot
+        // rayon'd probe loop). This is the safety mechanism that bounds the fix's blast radius.
+        let clean = "/depot/881100/chunk/9b5af6c1d3e8a2f4b7c0d9e8f1a2b3c4d5e6f708";
+        assert!(matches!(nginx_cache_uri(clean), Cow::Borrowed(_)));
+        // A URL that needs ANY transform is Owned.
+        assert!(matches!(nginx_cache_uri("/a/b?x=1"), Cow::Owned(_)));
+        assert!(matches!(nginx_cache_uri("/a//b"), Cow::Owned(_)));
+        assert!(matches!(nginx_cache_uri("/a%20b"), Cow::Owned(_)));
+        assert!(matches!(nginx_cache_uri("/a/./b"), Cow::Owned(_)));
+    }
+
+    /// REAL-SAMPLE REGRESSION GATE — pins the nginx-correct md5 key against a known on-disk file.
+    ///
+    /// This is `#[ignore]`'d so CI stays green until a real sample is pasted in. To enable it:
+    ///
+    ///   1. On the server, run `rust-processor/scripts/verify_cache_key.py --sample-evicted 25`
+    ///      (or pass an explicit `--service`/`--url`). It prints, per (service, url), which URL
+    ///      variant produced an md5 whose file EXISTS under /data/cache/cache. The WINNING variant
+    ///      is the confirmed nginx derivation, and the printed `md5` is the on-disk filename.
+    ///   2. Replace the three placeholders below with that real (service, url, expected_md5).
+    ///   3. Drop the `#[ignore]` (or run `cargo test -- --ignored`) to assert the SHIPPED
+    ///      derivation reproduces the real on-disk filename.
+    ///
+    /// Do NOT fabricate a hash — a fabricated value would make this a tautology and defeat the
+    /// purpose of pinning against ground truth.
+    #[test]
+    #[ignore = "fill in a real (service, url, md5) captured by scripts/verify_cache_key.py first"]
+    fn nginx_key_matches_real_on_disk_file() {
+        // ---- PASTE REAL SAMPLE HERE (from verify_cache_key.py) ----
+        let service: &str = "REPLACE_ME_service"; // e.g. "steam"
+        let url: &str = "REPLACE_ME_url"; // e.g. "/depot/123/chunk/abc?token=xyz"
+        let expected_md5: &str = "REPLACE_ME_32_char_md5"; // the on-disk filename the script found
+        // -----------------------------------------------------------
+
+        // Reproduce nginx's key the SHIPPED way: lower(service) + $uri + slice range, then md5.
+        let uri = nginx_cache_uri(url);
+        let svc = service_name_lowercase(service);
+
+        // Try the no-range key and the first-slice key; one of them must match the on-disk file.
+        let no_range = calculate_md5(&format!("{}{}", svc, uri));
+        let first_slice = calculate_md5(&format!("{}{}bytes=0-1048575", svc, uri));
+
+        assert!(
+            no_range == expected_md5 || first_slice == expected_md5,
+            "nginx-correct key did not reproduce the on-disk filename {} (got no_range={}, first_slice={}) for service={} url={}",
+            expected_md5,
+            no_range,
+            first_slice,
+            service,
+            url
+        );
     }
 }

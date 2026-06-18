@@ -71,11 +71,35 @@ impl FilesOnDisk {
 /// Identity of one unique cache probe: resolved datasource root + normalized service + URL.
 /// Probe results are memoized per key across the entire scan, since many downloads share
 /// the same (service, url, datasource) tuple and the on-disk index is immutable scan-wide.
-#[derive(Clone, PartialEq, Eq, Hash)]
+///
+/// `bytes_served` (the URL's `MAX(LogEntries.BytesServed)`) sizes the probe chunk count via
+/// `cache_utils::probe_chunks_for_bytes`, but is DELIBERATELY EXCLUDED from the memo identity
+/// (`PartialEq`/`Eq`/`Hash` below cover only root+service+url). The byte size is a deterministic
+/// function of (service, url) within a scan, so two keys with the same tuple probe the same
+/// candidate set; keeping it out of the identity guarantees the scan-wide memo still dedups
+/// each unique (root, service, url) to exactly one probe regardless of per-row size noise.
+#[derive(Clone)]
 pub(super) struct ProbeKey {
     root: PathBuf,
     service: String,
     url: String,
+    bytes_served: i64,
+}
+
+impl PartialEq for ProbeKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.root == other.root && self.service == other.service && self.url == other.url
+    }
+}
+
+impl Eq for ProbeKey {}
+
+impl std::hash::Hash for ProbeKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.root.hash(state);
+        self.service.hash(state);
+        self.url.hash(state);
+    }
 }
 
 impl ProbeKey {
@@ -83,17 +107,21 @@ impl ProbeKey {
         service: &str,
         url: String,
         datasource: Option<&str>,
+        bytes_served: i64,
         roots: &DatasourceRoots,
     ) -> Self {
         Self {
             root: roots.resolve(datasource).to_path_buf(),
             service: cache_utils::service_name_lowercase(service),
             url,
+            bytes_served,
         }
     }
 
     /// True when any cache-key hash candidate for this (service, url) exists in the
-    /// resolved root's on-disk file-name set. Early-exits on the first hit.
+    /// resolved root's on-disk file-name set. Early-exits on the first hit. The candidate
+    /// count is sized from `bytes_served` (clamped to [DEFAULT_MAX_CHUNKS, MAX_PROBE_CHUNKS]),
+    /// so large objects whose present slices fall past the first 100 MiB are still found.
     pub(super) fn has_cache_file(&self, files_on_disk: &FilesOnDisk) -> bool {
         let Some(names) = files_on_disk.names_for_root(&self.root) else {
             return false;
@@ -102,7 +130,7 @@ impl ProbeKey {
         cache_utils::cache_hash_candidates_iter(
             &self.service,
             &self.url,
-            cache_utils::DEFAULT_MAX_CHUNKS,
+            cache_utils::probe_chunks_for_bytes(self.bytes_served),
         )
         .any(|hash| names.contains(&hash))
     }

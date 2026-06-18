@@ -261,13 +261,17 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
         last_processed_id = last_download_id;
         let batch_count = download_ids.len();
 
-        // Step B: Fetch log entries for these downloads (single int8[] array bind)
+        // Step B: Fetch log entries for these downloads (single int8[] array bind).
+        // GROUP BY (download_id, service, url, datasource) + MAX("BytesServed") collapses
+        // duplicate rows to one per probe tuple and carries the URL's largest observed byte
+        // size, which sizes the probe chunk count (clamped) in ProbeKey::has_cache_file.
         let log_rows = sqlx::query(
             r#"
-            SELECT "DownloadId" as download_id, "Service" as service, "Url" as url, "Datasource" as datasource
+            SELECT "DownloadId" as download_id, "Service" as service, "Url" as url, "Datasource" as datasource, MAX("BytesServed") as bytes_served
             FROM "LogEntries"
             WHERE "DownloadId" = ANY($1)
             AND "Service" IS NOT NULL AND "Url" IS NOT NULL
+            GROUP BY "DownloadId", "Service", "Url", "Datasource"
             "#
         )
         .bind(&download_ids)
@@ -282,6 +286,8 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
             let service: String = row.get("service");
             let url: String = row.get("url");
             let datasource: Option<String> = row.get("datasource");
+            // MAX() is typed nullable; NULL means no usable size → 0 → probe-chunk floor.
+            let bytes_served: Option<i64> = row.get("bytes_served");
 
             download_keys
                 .entry(download_id)
@@ -290,6 +296,7 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
                     &service,
                     url,
                     datasource.as_deref(),
+                    bytes_served.unwrap_or(0),
                     &datasource_roots,
                 ));
         }
