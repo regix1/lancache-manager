@@ -2199,6 +2199,8 @@
       },
       "serviceSteam": "Steam",
       "serviceEpicGames": "Epic Games",
+      "serviceBlizzard": "Blizzard",
+      "serviceRiot": "Riot",
       "epicRemovalNotSupported": "Individual Epic game cache removal is not yet supported. Use service-level removal instead.",
       "noServicesMatching": "No services found matching \"{{query}}\"",
       "servicesLabel": "services",

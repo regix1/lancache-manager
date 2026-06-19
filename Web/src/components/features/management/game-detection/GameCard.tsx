@@ -37,6 +37,10 @@ const GameCard: React.FC<GameCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const isEpic = game.service === 'epicgames';
+  // Named (Blizzard/Riot) games: game_app_id === 0 with a non-Steam, non-Epic service. They have
+  // no Steam AppId and no depots, and must NOT fall through to the Steam badge/label.
+  const isNamed = game.game_app_id === 0 && !!game.service && game.service !== 'steam' && !isEpic;
+  const isSteam = !isEpic && !isNamed;
   const gameUniqueId = getGameUniqueId(game);
   const isRemoving = useIsEntityBusy(
     isEpic
@@ -63,7 +67,7 @@ const GameCard: React.FC<GameCardProps> = ({
   ];
 
   // Only show depot count for Steam games
-  if (!isEpic && game.depot_ids.length > 0) {
+  if (isSteam && game.depot_ids.length > 0) {
     stats.push({
       icon: Database,
       value: game.depot_ids.length,
@@ -72,13 +76,32 @@ const GameCard: React.FC<GameCardProps> = ({
     });
   }
 
+  // Service badge: Epic and Steam have dedicated styling; named (Blizzard/Riot and any future
+  // name-keyed service) get a per-service modifier when one exists, falling back to a neutral
+  // named modifier so they never masquerade as Steam.
+  const namedBadgeModifier =
+    game.service === 'blizzard' || game.service === 'riot'
+      ? `game-card-service-badge--${game.service}`
+      : 'game-card-service-badge--named';
   const serviceBadgeClass = isEpic
     ? 'game-card-service-badge game-card-service-badge--epic'
-    : 'game-card-service-badge game-card-service-badge--steam';
+    : isNamed
+      ? `game-card-service-badge ${namedBadgeModifier}`
+      : 'game-card-service-badge game-card-service-badge--steam';
+
+  // Named-service label: prefer an explicit translation (blizzard/riot), otherwise capitalize the
+  // raw service id so unrecognised name-keyed services still render a sensible label.
+  const namedServiceLabel = (service: string): string => {
+    const key = `management.gameDetection.service${service.charAt(0).toUpperCase()}${service.slice(1)}`;
+    const translated = t(key);
+    return translated === key ? service.charAt(0).toUpperCase() + service.slice(1) : translated;
+  };
 
   const serviceBadgeLabel = isEpic
     ? t('management.gameDetection.serviceEpicGames')
-    : t('management.gameDetection.serviceSteam');
+    : isNamed
+      ? namedServiceLabel(game.service as string)
+      : t('management.gameDetection.serviceSteam');
 
   const isEvicted = game.is_evicted === true;
 
@@ -88,7 +111,7 @@ const GameCard: React.FC<GameCardProps> = ({
         {isEpic && <EpicIcon size={10} className="game-card-epic-icon" />}
         {serviceBadgeLabel}
       </span>
-      {!isEpic && (
+      {isSteam && (
         <span className="text-xs text-themed-muted bg-themed-elevated px-2 py-0.5 rounded">
           AppID: {game.game_app_id}
         </span>
@@ -112,7 +135,7 @@ const GameCard: React.FC<GameCardProps> = ({
   const urlsForExpansion = isEvictedVariant ? (game.evicted_sample_urls ?? []) : game.sample_urls;
   const pathsForExpansion = !isEvictedVariant ? (game.cache_file_paths ?? []) : [];
   const hasExpandableContent =
-    (!isEpic && depotIdsForExpansion.length > 0) ||
+    (isSteam && depotIdsForExpansion.length > 0) ||
     urlsForExpansion.length > 0 ||
     pathsForExpansion.length > 0;
 
@@ -138,7 +161,7 @@ const GameCard: React.FC<GameCardProps> = ({
         removeTooltip={removeTooltip}
       >
         {/* Depot IDs - Steam only */}
-        {!isEpic &&
+        {isSteam &&
           (() => {
             const depotIds = isEvictedVariant ? (game.evicted_depot_ids ?? []) : game.depot_ids;
             return depotIds.length > 0 ? (

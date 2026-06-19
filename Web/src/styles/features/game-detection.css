@@ -29,6 +29,24 @@
   color: var(--theme-epic);
 }
 
+/* Blizzard service badge (named game) */
+.game-card-service-badge--blizzard {
+  background-color: var(--theme-blizzard-subtle);
+  color: var(--theme-blizzard);
+}
+
+/* Riot service badge (named game) */
+.game-card-service-badge--riot {
+  background-color: var(--theme-riot-subtle);
+  color: var(--theme-riot);
+}
+
+/* Generic named-service badge (Blizzard/Riot/other name-keyed services without a theme color) */
+.game-card-service-badge--named {
+  background-color: var(--theme-bg-elevated);
+  color: var(--theme-text-secondary);
+}
+
 /* Epic icon placeholder in game cards */
 .game-card-epic-icon {
   display: flex;

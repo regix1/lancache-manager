@@ -127,9 +127,16 @@ public class AppDbContext : DbContext
             .IsUnique();
 
         // CachedGameDetection indexes
+        // Composite unique index on (GameAppId, EpicAppId) - matches the FixEpicGameDetectionIndex
+        // migration that is already applied to live databases. A single-column unique index on
+        // GameAppId would collapse every Epic AND named (Blizzard/Riot) game, since they all share
+        // GameAppId = 0. Steam rows are distinct by GameAppId; Epic rows by EpicAppId; named rows
+        // are (0, NULL) and coexist via PostgreSQL's NULLS-DISTINCT semantics. Identity-keyed
+        // upserts in SaveGamesAsync prevent duplicate named rows; this index is non-load-bearing
+        // for named uniqueness but must stay composite so it never blocks GameAppId = 0 rows.
         modelBuilder.Entity<CachedGameDetection>()
-            .HasIndex(c => c.GameAppId)
-            .HasDatabaseName("IX_CachedGameDetection_GameAppId")
+            .HasIndex(c => new { c.GameAppId, c.EpicAppId })
+            .HasDatabaseName("IX_CachedGameDetection_GameAppId_EpicAppId")
             .IsUnique();
 
         modelBuilder.Entity<CachedGameDetection>()

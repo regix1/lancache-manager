@@ -218,9 +218,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("GameAppId")
+                    b.HasIndex("GameAppId", "EpicAppId")
                         .IsUnique()
-                        .HasDatabaseName("IX_CachedGameDetection_GameAppId");
+                        .HasDatabaseName("IX_CachedGameDetection_GameAppId_EpicAppId");
 
                     b.HasIndex("LastDetectedUtc")
                         .HasDatabaseName("IX_CachedGameDetection_LastDetectedUtc");

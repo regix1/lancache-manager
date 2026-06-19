@@ -395,8 +395,12 @@ public class GameCacheDetectionService : IDisposable
             // to avoid reprocessing large non-game service buckets that the caller will ignore.
             var skipServiceScan = incremental && existingServices is { Count: > 0 };
 
-            // Aggregate results from all datasources
-            var gameAppIdSet = new HashSet<long>(); // Track unique game app IDs across datasources
+            // Aggregate results from all datasources.
+            // Games are deduplicated by IDENTITY, not by GameAppId alone: Steam games use GameAppId,
+            // Epic games use EpicAppId, and named (Blizzard/Riot) games use (Service, GameName) because
+            // they ALL share GameAppId=0. Keying on GameAppId alone collapsed every named game into a
+            // single row. This identity mirrors SaveGamesAsync's persistence buckets exactly.
+            var gameIdentityMap = new Dictionary<string, GameCacheInfo>(StringComparer.Ordinal); // identity -> aggregated game
             var serviceNameSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // Track unique services
 
             // Scan each datasource
@@ -535,17 +539,17 @@ public class GameCacheDetectionService : IDisposable
 
                 foreach (var game in detectionResult.Games)
                 {
-                    if (!gameAppIdSet.Contains(game.GameAppId))
+                    var identity = BuildGameIdentityKey(game);
+                    if (!gameIdentityMap.TryGetValue(identity, out var existingGame))
                     {
-                        gameAppIdSet.Add(game.GameAppId);
                         // Initialize datasources list with current datasource
                         game.Datasources = new List<string> { datasource.Name };
+                        gameIdentityMap[identity] = game;
                         aggregatedGames.Add(game);
                     }
                     else
                     {
                         // Game already found in another datasource - merge without double-counting files
-                        var existingGame = aggregatedGames.First(g => g.GameAppId == game.GameAppId);
                         GameCacheInfoMergeHelper.MergeGame(existingGame, game, datasource.Name);
                     }
 
@@ -1237,6 +1241,35 @@ public class GameCacheDetectionService : IDisposable
         if (string.IsNullOrEmpty(json)) return new List<string>();
         try { return JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>(); }
         catch { return new List<string>(); }
+    }
+
+    /// <summary>
+    /// Stable cross-datasource dedup identity for a detected game. Mirrors the persistence
+    /// buckets in <see cref="GameCacheDetectionDataService.SaveGamesAsync"/> exactly so the
+    /// in-memory aggregation can never collapse distinct games:
+    /// <list type="bullet">
+    /// <item>Epic games: keyed by <c>EpicAppId</c> (GameAppId is a synthetic non-zero id).</item>
+    /// <item>Named (Blizzard/Riot) games: GameAppId is always 0 and EpicAppId is null, so they
+    /// are keyed by <c>(Service, GameName)</c>. Keying on GameAppId alone collapsed all of them
+    /// into one row.</item>
+    /// <item>Steam games: keyed by <c>GameAppId</c> (unique per game).</item>
+    /// </list>
+    /// The <c></c> separator cannot appear in a service or game name, matching the Rust
+    /// composite-key separator, so named keys can never ambiguously collide.
+    /// </summary>
+    private static string BuildGameIdentityKey(GameCacheInfo game)
+    {
+        if (game.EpicAppId != null)
+        {
+            return $"epic:{game.EpicAppId}";
+        }
+
+        if (game.GameAppId == 0 && game.Service != null && game.GameName != "")
+        {
+            return $"named:{game.Service.ToLowerInvariant()}{game.GameName}";
+        }
+
+        return $"steam:{game.GameAppId}";
     }
 
     private static GameCacheInfo ToGameCacheInfo(CachedGameDetection cached)

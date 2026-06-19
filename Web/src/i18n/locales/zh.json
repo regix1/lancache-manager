@@ -2199,6 +2199,8 @@
       },
       "serviceSteam": "Steam",
       "serviceEpicGames": "Epic Games",
+      "serviceBlizzard": "Blizzard",
+      "serviceRiot": "Riot",
       "epicRemovalNotSupported": "尚不支持单个 Epic 游戏缓存移除。请改用服务级别移除。",
       "noServicesMatching": "未找到匹配\"{{query}}\"的服务",
       "servicesLabel": "个服务",
