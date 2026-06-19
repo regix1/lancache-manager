@@ -303,6 +303,25 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     } else {
       const game = partialEvictedTarget as GameCacheInfo;
       const isEpic = game.service === 'epicgames';
+      // Named (Blizzard/Riot) games have game_app_id === 0 and no Epic id; their identity is
+      // (service, game_name). They share game_app_id 0, so the Steam evicted endpoint
+      // (cache/evicted/steam?key=0) both collides them and 400s. There is no per-entity
+      // evicted scope for named games, so fall back to the canonical named removal
+      // (runTrackedGameRemoval), mirroring how the all-evicted path handles them.
+      const isNamed =
+        !isEpic && game.game_app_id === 0 && !!game.service && game.service !== 'steam';
+      if (isNamed) {
+        setPartialEvictedTarget(null);
+        await runTrackedGameRemoval({
+          game,
+          t,
+          addNotification,
+          updateNotification,
+          scheduleRemovalRefresh,
+          onDataRefresh
+        });
+        return;
+      }
       partialRemovalTargetRef.current = isEpic
         ? {
             epicAppId: game.epic_app_id ?? undefined,

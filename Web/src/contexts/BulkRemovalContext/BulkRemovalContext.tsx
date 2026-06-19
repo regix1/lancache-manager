@@ -171,6 +171,12 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             const gameAppId = game.game_app_id;
             const gameName = game.game_name;
             const isEpic = game.service === 'epicgames' && !!gameName;
+            // Named (Blizzard/Riot) games have game_app_id === 0, no Epic id, and a
+            // non-Steam service. Their identity is (service, gameName) - every named game
+            // shares gameAppId 0, so matching by gameAppId would collide and the Steam
+            // removal endpoint (key=0) would 400. Mirror runTrackedGameRemoval.
+            const isNamed =
+              !isEpic && gameAppId === 0 && !!game.service && game.service !== 'steam';
             const epicAppId = game.epic_app_id ?? undefined;
             let currentOperationId: string | null = null;
             const matchesGame = (payload?: {
@@ -192,6 +198,12 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
                   return true;
                 }
 
+                return payload.gameName === gameName;
+              }
+
+              // Named games carry gameAppId=null and epicAppId=null in their event
+              // payload; gameName is the only distinguishing identity.
+              if (isNamed) {
                 return payload.gameName === gameName;
               }
 
@@ -240,6 +252,10 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
 
             if (isEpic) {
               const response = await ApiService.removeEpicGameFromCache(gameName);
+              currentOperationId = response.operationId;
+              ctx.setOperationId(response.operationId);
+            } else if (isNamed) {
+              const response = await ApiService.removeNamedGameFromCache(game.service!, gameName);
               currentOperationId = response.operationId;
               ctx.setOperationId(response.operationId);
             } else {

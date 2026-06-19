@@ -45,7 +45,9 @@ const GameCard: React.FC<GameCardProps> = ({
   const isRemoving = useIsEntityBusy(
     isEpic
       ? { kind: 'epicGame', epicAppId: game.epic_app_id, gameName: game.game_name }
-      : { kind: 'steamGame', gameAppId: game.game_app_id }
+      : isNamed
+        ? { kind: 'namedGame', service: game.service!, gameName: game.game_name }
+        : { kind: 'steamGame', gameAppId: game.game_app_id }
   );
   const isEvictedVariant = variant === 'evicted';
 
