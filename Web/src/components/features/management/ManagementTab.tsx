@@ -46,6 +46,7 @@ const ManagementTab: React.FC = () => {
   const [highlightEpic, setHighlightEpic] = useState(false);
   const [highlightBattleNet, setHighlightBattleNet] = useState(false);
   const [highlightScheduleKey, setHighlightScheduleKey] = useState<string | null>(null);
+  const [highlightEviction, setHighlightEviction] = useState(false);
 
   // Derive log processing state from notifications for DepotMappingManager
   const isProcessingLogs = useOperationBusy({ types: ['log_processing'] });
@@ -165,6 +166,17 @@ const ManagementTab: React.FC = () => {
     }, 3000);
   }, []);
 
+  // Reverse of handleNavigateToSchedule: jump from the Eviction Scan schedule card to the
+  // Eviction Detection and Removal card in the Storage section and glow it into view.
+  const handleNavigateToEvictionSettings = useCallback(() => {
+    setActiveSection('storage');
+    setHighlightEviction(true);
+    // Clear highlight after the navigate-variant glow completes (HighlightGlow default 2s)
+    setTimeout(() => {
+      setHighlightEviction(false);
+    }, 3000);
+  }, []);
+
   // Render the active section
   const renderActiveSection = () => {
     // Settings section is always available
@@ -211,6 +223,7 @@ const ManagementTab: React.FC = () => {
             authMode={authMode}
             mockMode={mockMode}
             gameCacheRefreshKey={gameCacheRefreshKey}
+            highlightEviction={highlightEviction}
             onError={addError}
             onSuccess={setSuccess}
             onDataRefresh={refreshStatsAndGameCache}
@@ -236,7 +249,13 @@ const ManagementTab: React.FC = () => {
         );
 
       case 'schedules':
-        return <SchedulesSection isAdmin={isAdmin} highlightScheduleKey={highlightScheduleKey} />;
+        return (
+          <SchedulesSection
+            isAdmin={isAdmin}
+            highlightScheduleKey={highlightScheduleKey}
+            onNavigateToEvictionSettings={handleNavigateToEvictionSettings}
+          />
+        );
 
       case 'preferences':
         return <PreferencesSection isAdmin={isAdmin} />;

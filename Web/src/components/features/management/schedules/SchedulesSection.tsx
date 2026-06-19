@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import './SchedulesSection.css';
 import { useTranslation } from 'react-i18next';
+import { Sliders } from 'lucide-react';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -21,6 +22,7 @@ import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 interface SchedulesSectionProps {
   isAdmin: boolean;
   highlightScheduleKey?: string | null;
+  onNavigateToEvictionSettings?: () => void;
 }
 
 // Isolated countdown component - ticks every second without re-rendering the parent card
@@ -153,6 +155,7 @@ interface ScheduleCardProps {
   runningKey: string | null;
   justCompleted: boolean;
   completedVariant: 'navigate' | 'subtle';
+  onNavigateToEvictionSettings?: () => void;
 }
 
 const ScheduleCard = memo(function ScheduleCard({
@@ -166,13 +169,15 @@ const ScheduleCard = memo(function ScheduleCard({
   onRunNow,
   runningKey,
   justCompleted,
-  completedVariant
+  completedVariant,
+  onNavigateToEvictionSettings
 }: ScheduleCardProps) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const formattedNextRun = useFormattedDateTime(service.nextRunUtc);
 
   const isDepotMapping = service.key === 'depotMapping';
+  const isCacheReconciliation = service.key === 'cacheReconciliation';
   const isRunningThis = runningKey === service.key;
 
   const formatLastRun = (lastRunUtc: string | null): string => {
@@ -323,6 +328,22 @@ const ScheduleCard = memo(function ScheduleCard({
           </div>
         )}
 
+        {/* Reverse of the management-side "View Schedule" button: jumps to the Eviction
+          Detection and Removal card in the Storage section and glows it into view. */}
+        {isCacheReconciliation && onNavigateToEvictionSettings && (
+          <div className="schedule-nav-row">
+            <Button
+              variant="filled"
+              color="blue"
+              size="sm"
+              onClick={onNavigateToEvictionSettings}
+              rightSection={<Sliders className="w-3.5 h-3.5" />}
+            >
+              {t('management.schedules.services.cacheReconciliation.viewManagement')}
+            </Button>
+          </div>
+        )}
+
         {/* Run-on-startup toggle - hidden when interval is "Startup only" (-1) since the
           entire point of that schedule IS to run at startup, making the toggle redundant. */}
         {service.intervalHours !== -1 && (
@@ -378,7 +399,11 @@ const ScheduleCard = memo(function ScheduleCard({
   );
 });
 
-const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightScheduleKey }) => {
+const SchedulesSection: React.FC<SchedulesSectionProps> = ({
+  isAdmin,
+  highlightScheduleKey,
+  onNavigateToEvictionSettings
+}) => {
   const { t } = useTranslation();
   const [schedules, setSchedules] = useState<ServiceScheduleInfo[]>([]);
   const { isLoading, setLoading, markLoaded } = useManagerLoading(true);
@@ -736,6 +761,9 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightS
               runningKey={runningKey}
               justCompleted={!!completedKeys[service.key]}
               completedVariant={completedKeys[service.key] ?? 'navigate'}
+              onNavigateToEvictionSettings={
+                service.key === 'cacheReconciliation' ? onNavigateToEvictionSettings : undefined
+              }
             />
           </div>
         ))}

@@ -1476,7 +1476,7 @@
         "title": "数据配置",
         "subtitle": "管理仓库映射、导入数据和控制数据库表",
         "depotMapping": "仓库映射",
-        "steamDepotMapping": "Steam 仓库映射",
+        "steamDepotMapping": "Steam 游戏映射",
         "epicGameMapping": "Epic Games 映射",
         "blizzardGameMapping": "暴雪 / Battle.net 映射",
         "epicResolve": {
@@ -2586,7 +2586,7 @@
       }
     },
     "depotMapping": {
-      "title": "Steam 仓库映射",
+      "title": "Steam 游戏映射",
       "subtitle": "从仓库 ID 自动识别 Steam 游戏",
       "configureSteamApi": "配置 Steam API",
       "viewSchedule": "查看计划",
@@ -3024,7 +3024,8 @@
           "displayName": "淘汰扫描",
           "description": "将缓存目录与数据库进行比较，查看哪些仍存在于磁盘上，哪些已被 nginx 淘汰。保持界面中的\"已驱逐\"徽章准确。",
           "gain": "界面中的淘汰徽章和缓存状态更准确和最新",
-          "loss": "界面可能显示过时的淘汰状态 - 标记为已缓存的项目可能实际上已被驱逐，反之亦然"
+          "loss": "界面可能显示过时的淘汰状态 - 标记为已缓存的项目可能实际上已被驱逐，反之亦然",
+          "viewManagement": "查看淘汰设置"
         },
         "cacheSizeScan": {
           "displayName": "缓存文件扫描",
@@ -3046,7 +3047,7 @@
         },
         "steamService": {
           "displayName": "Steam 游戏信息",
-          "description": "将仓库到应用的查找表加载到内存中，使名称查找保持即时，并按需缓存 Steam 商店游戏元数据。在 Steam 仓库映射完成后重新加载。",
+          "description": "将仓库到应用的查找表加载到内存中，使名称查找保持即时，并按需缓存 Steam 商店游戏元数据。在 Steam 游戏映射完成后重新加载。",
           "gain": "仓库到应用的查找保持快速，新发现的 PICS 映射更快被拾取",
           "loss": "新发现的 PICS 映射可能需要更长时间出现在仓库查找中，直到下次重新加载"
         },

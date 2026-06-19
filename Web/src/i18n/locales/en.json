@@ -1476,7 +1476,7 @@
         "title": "Data Configuration",
         "subtitle": "Manage depot mappings, import data, and control database tables",
         "depotMapping": "Depot Mapping",
-        "steamDepotMapping": "Steam Depot Mapping",
+        "steamDepotMapping": "Steam Game Mapping",
         "epicGameMapping": "Epic Games Mapping",
         "blizzardGameMapping": "Blizzard / Battle.net Mapping",
         "epicResolve": {
@@ -2586,7 +2586,7 @@
       }
     },
     "depotMapping": {
-      "title": "Steam Depot Mapping",
+      "title": "Steam Game Mapping",
       "subtitle": "Automatically identifies Steam games from depot IDs",
       "configureSteamApi": "Configure Steam API",
       "viewSchedule": "View Schedule",
@@ -3024,7 +3024,8 @@
           "displayName": "Eviction Scan",
           "description": "Compares your cache directory against the database to see what is still on disk vs. what nginx has evicted. Keeps the 'evicted' badges in the UI accurate.",
           "gain": "Eviction badges and cache status in the UI are more accurate and up to date",
-          "loss": "The UI may show stale eviction status - items marked as cached might actually be evicted, or vice versa"
+          "loss": "The UI may show stale eviction status - items marked as cached might actually be evicted, or vice versa",
+          "viewManagement": "View Eviction Settings"
         },
         "cacheSizeScan": {
           "displayName": "Cache File Scan",
@@ -3046,7 +3047,7 @@
         },
         "steamService": {
           "displayName": "Steam Game Info",
-          "description": "Loads the depot-to-app lookup into memory so name lookups stay instant, and caches Steam Store game metadata on demand. Reloads after Steam Depot Mapping finishes.",
+          "description": "Loads the depot-to-app lookup into memory so name lookups stay instant, and caches Steam Store game metadata on demand. Reloads after Steam Game Mapping finishes.",
           "gain": "Depot-to-app lookups stay fast and newly discovered PICS mappings are picked up sooner",
           "loss": "Newly discovered PICS mappings may take longer to appear in depot lookups until the next reload"
         },

@@ -271,6 +271,14 @@
   }
 }
 
+/* Navigation row holding the "View Eviction Settings" button on the Eviction Scan
+   card - the reverse counterpart of the management-side "View Schedule" button. */
+.schedule-nav-row {
+  display: flex;
+  justify-content: flex-start;
+  padding-top: 0.25rem;
+}
+
 .schedule-extra-row {
   display: flex;
   flex-direction: column;
