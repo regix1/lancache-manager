@@ -121,11 +121,13 @@ public sealed class GameCacheDetectionDataService
             return new List<string>();
         }
 
+        // Self-heal mirror of the alive test in SaveServicesAsync: a falsely-evicted service whose
+        // named-game (GameName-bearing) cache is back on disk must un-evict. Count ALL non-evicted
+        // service-scoped Downloads including named-game ones - do NOT filter GameName==null here.
         return await context.Downloads
             .Where(d => d.GameAppId == null
                      && d.EpicAppId == null
                      && d.Service != null
-                     && d.GameName == null
                      && !d.IsEvicted
                      && evictedServiceNames.Contains(d.Service!.ToLower()))
             .Select(d => d.Service!.ToLower())
@@ -937,11 +939,17 @@ public sealed class GameCacheDetectionDataService
         // string (translatable, no nested projection) and lowercase with `ToLowerInvariant()` in
         // C# AFTER materializing - NOT `.ToLower()` inside the LINQ-to-SQL query (which would key by
         // DB collation and re-introduce the mismatch).
+        // ALIVE test: count ALL of a service's non-evicted Downloads, including named-game ones
+        // (Blizzard/Riot carry GameName). A service like "riot" whose every Download maps to a named
+        // game (League of Legends / Valorant / Legends of Runeterra) still has its 30+ GB of cache
+        // present on disk - excluding GameName-bearing rows here would leave it with ZERO "live"
+        // downloads and falsely flip it Evicted. The GameName==null filter therefore must NOT be
+        // applied to this query. (The size/accounting queries above DO keep GameName==null to avoid
+        // double-counting named bytes - that's correct and intentional; only the alive test differs.)
         var servicesWithLiveDownloadsList = await dbContext.Downloads
             .Where(d => d.GameAppId == null
                      && d.EpicAppId == null
                      && d.Service != null
-                     && d.GameName == null
                      && !d.IsEvicted)
             .Select(d => d.Service!)
             .Distinct()
