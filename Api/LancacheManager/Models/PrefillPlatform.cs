@@ -6,5 +6,7 @@ namespace LancacheManager.Models;
 public enum PrefillPlatform
 {
     Steam,
-    Epic
+    Epic,
+    BattleNet,
+    Riot
 }

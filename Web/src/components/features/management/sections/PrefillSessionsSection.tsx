@@ -1150,7 +1150,9 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 [
                   { value: 'all', label: 'All Platforms' },
                   { value: 'Steam', label: 'Steam' },
-                  { value: 'Epic', label: 'Epic' }
+                  { value: 'Epic', label: 'Epic' },
+                  { value: 'BattleNet', label: 'Battle.net' },
+                  { value: 'Riot', label: 'Riot' }
                 ] as DropdownOption[]
               }
               value={platformFilter}
