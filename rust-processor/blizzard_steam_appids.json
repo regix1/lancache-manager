@@ -1,0 +1,16 @@
+{
+  "_comment": "GameName -> Steam appId for name-keyed (Blizzard/Riot) games that exist on Steam; consulted before the curated embedded banner. Verified via Steam store API.",
+  "blizzard": {
+    "Overwatch": 2357570,
+    "Diablo IV": 2344520,
+    "Diablo II: Resurrected": 2536520,
+    "Call of Duty": 1938090,
+    "Call of Duty: Black Ops Cold War": 1985810,
+    "Call of Duty: Modern Warfare (2019)": 2000950,
+    "Call of Duty: Vanguard": 1985820,
+    "Crash Bandicoot 4": 1378990,
+    "Avowed": 2457220,
+    "Sea of Thieves": 1172620
+  },
+  "riot": {}
+}

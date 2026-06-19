@@ -114,6 +114,38 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             .Distinct()
             .ToListAsync(stoppingToken);
 
+        // Name-keyed (Blizzard/Riot) downloads have GameAppId == null but some of those games ALSO
+        // exist on Steam. Resolve those to a Steam appId up front so they ride the SAME Steam fetch
+        // path below ("Steam-first"): the row lands under Service="steam", AppId=<steamAppId> and
+        // reuses all the Steam CDN/store URL logic. Pass 3 then SKIPS the curated embedded banner
+        // for these games (only unmapped name-keyed games fall back to the curated path).
+        var nameKeyedDownloads = await db.Downloads
+            .AsNoTracking()
+            .Where(d => d.GameAppId == null
+                && !string.IsNullOrEmpty(d.GameName)
+                && (d.Service == "blizzard" || d.Service == "battle.net" || d.Service == "battlenet"
+                    || d.Service == "riot" || d.Service == "riotgames"))
+            .Select(d => new { d.Service, d.GameName })
+            .Distinct()
+            .ToListAsync(stoppingToken);
+
+        // (canonical service, slug) of name-keyed games that mapped to a Steam appId - used below to
+        // skip the curated embedded fetch for exactly those games.
+        var steamMappedNameKeyedSlugs = new HashSet<(string Service, string Slug)>();
+
+        foreach (var t in nameKeyedDownloads)
+        {
+            var steamAppId = NameKeyedSteamAppIds.TryGetSteamAppId(t.Service, t.GameName);
+            if (steamAppId == null) continue;
+
+            steamAppIds.Add(steamAppId.Value);
+            var canonicalService = NameKeyedBannerSource.NormalizeService(t.Service);
+            if (canonicalService != null)
+            {
+                steamMappedNameKeyedSlugs.Add((canonicalService, NameKeyedBannerSource.Slug(t.GameName!)));
+            }
+        }
+
         var existingSteamIds = await db.GameImages
             .AsNoTracking()
             .Where(g => g.Service == "steam")
@@ -121,6 +153,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             .ToListAsync(stoppingToken);
 
         var missingSteamIds = steamAppIds
+            .Distinct()
             .Select(id => id.ToString())
             .Except(existingSteamIds)
             .ToList();
@@ -215,26 +248,18 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         // 3. NAME-KEYED (Blizzard/Riot): Downloads identified only by GameName (no Steam appId,
         // no Epic catalog id). Source URLs come from the curated official-CDN banner map keyed on
         // the exact GameName. Stored under (AppId = slug(GameName), Service = "blizzard"|"riot").
-        var nameKeyedTargets = await db.Downloads
-            .AsNoTracking()
-            .Where(d => d.GameAppId == null
-                && !string.IsNullOrEmpty(d.GameName)
-                && (d.Service == "blizzard" || d.Service == "battle.net" || d.Service == "battlenet"
-                    || d.Service == "riot" || d.Service == "riotgames"))
-            .Select(d => new { d.Service, d.GameName })
-            .Distinct()
-            .ToListAsync(stoppingToken);
-
-        // Resolve each distinct (service, name) to (canonical service, slug, url) via the curated
-        // map; drop names with no curated entry (no fallback placeholder - just no banner).
-        var nameKeyedJobs = nameKeyedTargets
+        // Games that mapped to a Steam appId above are SKIPPED here - they render Steam's header.jpg
+        // (Steam-first); only unmapped name-keyed games fall back to the curated embedded banner.
+        // Reuses nameKeyedDownloads resolved before the Steam pass (no second query).
+        var nameKeyedJobs = nameKeyedDownloads
             .Select(t => new
             {
                 Service = NameKeyedBannerSource.NormalizeService(t.Service),
                 Slug = NameKeyedBannerSource.Slug(t.GameName!),
                 Url = NameKeyedBannerSource.TryGetUrl(t.Service, t.GameName)
             })
-            .Where(j => j.Service != null && j.Url != null)
+            .Where(j => j.Service != null && j.Url != null
+                && !steamMappedNameKeyedSlugs.Contains((j.Service!, j.Slug)))
             .GroupBy(j => (j.Service!, j.Slug))
             .Select(g => g.First())
             .ToList();

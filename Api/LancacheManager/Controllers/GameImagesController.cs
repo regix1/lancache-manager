@@ -110,6 +110,21 @@ public class GameImagesController : ControllerBase
             return NotFound(new GameImageErrorResponse { Error = $"Unsupported name-keyed service '{service}'" });
         }
 
+        // Steam-first: if this name-keyed game maps to a Steam appId AND a Steam header has been
+        // fetched for it, serve Steam's header.jpg. Falls through to the curated embedded banner
+        // (below) until the Steam fetch lands, or permanently if it never does.
+        var steamAppId = NameKeyedSteamAppIds.TryGetSteamAppIdBySlug(canonicalService, slug);
+        if (steamAppId != null)
+        {
+            var (steamImageData, steamContentType) = await _imageCacheService.GetImageAsync(
+                steamAppId.Value.ToString(), "steam", cancellationToken) ?? default;
+
+            if (steamImageData != null)
+            {
+                return ImageResponse(steamImageData, steamContentType ?? "image/jpeg", steamAppId.Value.ToString());
+            }
+        }
+
         var (imageData, contentType) = await _imageCacheService.GetImageAsync(
             slug, canonicalService, cancellationToken) ?? default;
 

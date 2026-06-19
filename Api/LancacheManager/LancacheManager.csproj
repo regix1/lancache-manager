@@ -35,6 +35,19 @@
   </ItemGroup>
 
   <!--
+    Single-source GameName -> Steam appId map for name-keyed (Blizzard/Riot) games that ALSO
+    exist on Steam. Consulted by NameKeyedSteamAppIds before the curated embedded banner so
+    those games render Steam's header.jpg ("Steam-first, embedded fallback"). Read at runtime
+    via Assembly.GetManifestResourceStream with the LogicalName below. Do NOT copy the data
+    into a second file.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\rust-processor\blizzard_steam_appids.json">
+      <LogicalName>LancacheManager.blizzard_steam_appids.json</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!--
     Curated GameName -> official publisher-CDN banner URL map for name-keyed services
     (Blizzard/Battle.net + Riot) that have no Steam appId / Epic catalog id. Read at runtime by
     GameImageFetchService via Assembly.GetManifestResourceStream with the LogicalName below.
