@@ -495,15 +495,6 @@ export interface EpicMappingStats {
   cdnPatterns: number;
 }
 
-// Blizzard / Battle.net Mapping (static TACT product catalog — no login)
-export interface BlizzardMappingStats {
-  catalogProducts: number;
-  totalBlizzardDownloads: number;
-  namedBlizzardDownloads: number;
-  unnamedBlizzardDownloads: number;
-  lastAppliedUtc: string | null;
-}
-
 export interface EpicDaemonStatusDto {
   dockerAvailable: boolean;
   activeSessions: number;

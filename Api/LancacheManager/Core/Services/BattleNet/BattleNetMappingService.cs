@@ -30,19 +30,16 @@ public class BattleNetMappingService
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly ISignalRNotificationService _notifications;
     private readonly ILogger<BattleNetMappingService> _logger;
-    private readonly IStateService _stateService;
     private readonly Lazy<TactCatalog> _catalog;
 
     public BattleNetMappingService(
         IDbContextFactory<AppDbContext> dbContextFactory,
         ISignalRNotificationService notifications,
-        ILogger<BattleNetMappingService> logger,
-        IStateService stateService)
+        ILogger<BattleNetMappingService> logger)
     {
         _dbContextFactory = dbContextFactory;
         _notifications = notifications;
         _logger = logger;
-        _stateService = stateService;
         _catalog = new Lazy<TactCatalog>(LoadCatalog);
     }
 
@@ -68,7 +65,6 @@ public class BattleNetMappingService
         if (unresolvedDownloads.Count == 0)
         {
             _logger.LogInformation("No unnamed Blizzard downloads with a LastUrl to resolve");
-            _stateService.SetBattleNetMappingLastApplied(DateTime.UtcNow);
             return 0;
         }
 
@@ -129,37 +125,7 @@ public class BattleNetMappingService
                 unresolvedDownloads.Count);
         }
 
-        _stateService.SetBattleNetMappingLastApplied(DateTime.UtcNow);
         return resolvedCount;
-    }
-
-    /// <summary>
-    /// Returns mapping statistics for the Data Configuration UI: number of catalog products,
-    /// count of unnamed Blizzard downloads still awaiting a name, and the last-applied time.
-    /// </summary>
-    public async Task<BattleNetMappingStats> GetStatsAsync(CancellationToken ct = default)
-    {
-        await using var db = await _dbContextFactory.CreateDbContextAsync(ct);
-        const string blizzardServicePattern = "%blizzard%";
-
-        var totalBlizzard = await db.Downloads
-            .CountAsync(d => EF.Functions.Like(d.Service, blizzardServicePattern), ct);
-        var unnamedBlizzard = await db.Downloads
-            .CountAsync(d => EF.Functions.Like(d.Service, blizzardServicePattern)
-                             && d.GameName == null
-                             && d.LastUrl != null, ct);
-        var namedBlizzard = await db.Downloads
-            .CountAsync(d => EF.Functions.Like(d.Service, blizzardServicePattern)
-                             && d.GameName != null, ct);
-
-        return new BattleNetMappingStats
-        {
-            CatalogProducts = _catalog.Value.ProductCount,
-            TotalBlizzardDownloads = totalBlizzard,
-            NamedBlizzardDownloads = namedBlizzard,
-            UnnamedBlizzardDownloads = unnamedBlizzard,
-            LastAppliedUtc = _stateService.GetBattleNetMappingAppliedAt()
-        };
     }
 
     /// <summary>
@@ -281,12 +247,3 @@ public class BattleNetMappingService
     }
 }
 
-/// <summary>Statistics about Blizzard/Battle.net download game-name mapping.</summary>
-public class BattleNetMappingStats
-{
-    public int CatalogProducts { get; set; }
-    public int TotalBlizzardDownloads { get; set; }
-    public int NamedBlizzardDownloads { get; set; }
-    public int UnnamedBlizzardDownloads { get; set; }
-    public DateTime? LastAppliedUtc { get; set; }
-}

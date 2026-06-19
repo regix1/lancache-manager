@@ -791,6 +791,26 @@ public class RustLogProcessorService
                     _logger.LogWarning(ex, "Failed to resolve Epic downloads (non-fatal)");
                 }
 
+                // Resolve Blizzard / Battle.net downloads the same way. Blizzard games are named
+                // from the static, compiled-in TACT catalog at ingest, but downloads ingested
+                // before a catalog entry existed stay unnamed; re-running the re-map after each
+                // log process names them automatically (mirroring Epic above), so no manual
+                // "Apply Now" card is needed. The service singleton no-ops when nothing is
+                // unresolved and emits its own DownloadsRefresh when it renames rows.
+                try
+                {
+                    var battleNetMappingService = _serviceProvider.GetRequiredService<LancacheManager.Core.Services.BattleNet.BattleNetMappingService>();
+                    var resolvedBlizzard = await battleNetMappingService.ResolveDownloadsAsync();
+                    if (resolvedBlizzard > 0)
+                    {
+                        _logger.LogInformation("Resolved {Count} Blizzard downloads to game names after log processing", resolvedBlizzard);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to resolve Blizzard downloads (non-fatal)");
+                }
+
                 // Image fetching can run in background as it's not critical for the UI refresh
                 _ = Task.Run(async () =>
                 {

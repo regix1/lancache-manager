@@ -49,10 +49,6 @@ public interface IStateService
     DateTime? GetLastPicsCrawl();
     void SetLastPicsCrawl(DateTime crawlTime);
 
-    // Battle.net Mapping Last-Applied Methods
-    DateTime? GetBattleNetMappingAppliedAt();
-    void SetBattleNetMappingLastApplied(DateTime appliedTime);
-
     // Epic Mapping Last-Collection Methods
     DateTime? GetEpicMappingCollectedAt();
     void SetEpicMappingLastCollection(DateTime collectionTime);
