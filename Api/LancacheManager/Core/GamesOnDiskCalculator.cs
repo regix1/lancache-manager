@@ -26,10 +26,29 @@ public readonly record struct AttributedCacheResult(
 /// </summary>
 public static class GamesOnDiskCalculator
 {
-    public static string GetGameKey(GameCacheInfo game) =>
-        !string.IsNullOrEmpty(game.EpicAppId)
-            ? $"epic:{game.EpicAppId}"
-            : $"steam:{game.GameAppId}";
+    /// <summary>
+    /// Stable per-game attribution key. Mirrors <c>GameCacheDetectionService.BuildGameIdentityKey</c>
+    /// and the persistence buckets in <c>GameCacheDetectionDataService.SaveGamesAsync</c> exactly.
+    /// Named (Blizzard/Riot) games ALL have <see cref="GameCacheInfo.GameAppId"/> == 0, so keying them
+    /// on <c>steam:0</c> collapsed every named game into a single bucket — each one overwrote the same
+    /// entry and they all read back the last-written game's size. Named games must therefore key on
+    /// <c>(Service, GameName)</c> using the Rust composite-key separator (<c>\x01</c>, which cannot
+    /// appear in a service or game name) so each resolves its OWN on-disk size.
+    /// </summary>
+    public static string GetGameKey(GameCacheInfo game)
+    {
+        if (!string.IsNullOrEmpty(game.EpicAppId))
+        {
+            return $"epic:{game.EpicAppId}";
+        }
+
+        if (game.GameAppId == 0 && game.Service != null && game.GameName != "")
+        {
+            return $"named:{game.Service.ToLowerInvariant()}\x01{game.GameName}";
+        }
+
+        return $"steam:{game.GameAppId}";
+    }
 
     public static string GetServiceKey(ServiceCacheInfo service) =>
         service.ServiceName.ToLowerInvariant();
