@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useDeferredValue } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { useNotifications } from '@contexts/notifications';
@@ -177,10 +177,19 @@ const ManagementTab: React.FC = () => {
     }, 3000);
   }, []);
 
+  // Defer the section used for rendering content. Switching to a heavy section
+  // (e.g. Storage, which mounts the GameCacheDetector card list + several managers)
+  // used to block the click and stutter the fade-in, while light sections like
+  // Schedules swapped instantly. With a deferred value React renders the heavy tree
+  // concurrently (time-sliced) and keeps the previous section painted until it's
+  // ready, so the transition stays smooth. The nav tab still highlights immediately
+  // because ManagementNav reads the urgent `activeSection`.
+  const renderedSection = useDeferredValue(activeSection);
+
   // Render the active section
   const renderActiveSection = () => {
     // Settings section is always available
-    if (activeSection === 'settings') {
+    if (renderedSection === 'settings') {
       return <SettingsSection optimizationsEnabled={optimizationsEnabled} isAdmin={isAdmin} />;
     }
 
@@ -198,7 +207,7 @@ const ManagementTab: React.FC = () => {
       );
     }
 
-    switch (activeSection) {
+    switch (renderedSection) {
       case 'integrations':
         return (
           <IntegrationsSection
