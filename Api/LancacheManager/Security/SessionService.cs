@@ -23,6 +23,14 @@ public class SessionService
     // for any timestamp >= AdminNeverExpiresYear.
     private static readonly DateTime _adminNeverExpiresUtc = new(2099, 12, 31, 0, 0, 0, DateTimeKind.Utc);
 
+    // Process-wide cache of the single admin session minted while authentication is disabled.
+    // SessionService is registered scoped, so these MUST be static to survive across requests.
+    // Reusing one session (instead of minting per anonymous request) prevents unbounded
+    // UserSessions growth from cookie-less callers repeatedly hitting the anonymous
+    // /api/auth/status endpoint (OWASP: do not create needless sessions for anonymous users).
+    private static (Guid SessionId, string RawToken)? _authDisabledAdminSession;
+    private static readonly SemaphoreSlim _authDisabledAdminLock = new(1, 1);
+
     public SessionService(
         IDbContextFactory<AppDbContext> dbContextFactory,
         ApiKeyService apiKeyService,
@@ -77,37 +85,96 @@ public class SessionService
         => _configuration.GetValue<bool>("Security:EnableAuthentication", true);
 
     /// <summary>
-    /// Mints an admin session used when authentication is disabled (Security:EnableAuthentication=false).
-    /// No API key is required because authentication is turned off entirely. This exists so that
-    /// session-scoped surfaces (SignalR download + prefill-daemon hubs, user preferences, prefill access)
-    /// have a real session and cookie to work with under disabled auth, instead of silently failing
-    /// because the frontend is told it is an admin while holding no actual credential.
+    /// Returns the shared admin session used when authentication is disabled
+    /// (Security:EnableAuthentication=false), creating it once on first use. No API key is required
+    /// because authentication is turned off entirely. This exists so that session-scoped surfaces
+    /// (SignalR download + prefill-daemon hubs, user preferences, prefill access) have a real session
+    /// and cookie to work with under disabled auth, instead of silently failing because the frontend
+    /// is told it is an admin while holding no actual credential.
+    ///
+    /// One session is reused for all anonymous callers (rather than minting per request) so a
+    /// cookie-less client cannot flood the UserSessions table. The cached session is revalidated
+    /// against the database on every call, so an admin revoking it simply triggers a fresh one.
     /// </summary>
-    public async Task<(string RawToken, UserSession Session)> CreateAuthDisabledAdminSessionAsync(HttpContext httpContext)
+    public async Task<(string RawToken, UserSession Session)> GetOrCreateAuthDisabledAdminSessionAsync(HttpContext httpContext)
     {
-        var (rawToken, tokenHash) = GenerateSessionToken();
-
-        var session = new UserSession
+        // Defense in depth: never hand out an admin session while authentication is enabled,
+        // regardless of caller. The only caller already gates on this, but this guarantees a future
+        // caller cannot accidentally turn an auth-disabled helper into an authentication bypass.
+        if (IsAuthenticationEnabled())
         {
-            Id = Guid.NewGuid(),
-            SessionTokenHash = tokenHash,
-            SessionType = SessionType.Admin,
-            IpAddress = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-            UserAgent = httpContext.Request.Headers.UserAgent.ToString(),
-            CreatedAtUtc = DateTime.UtcNow,
-            ExpiresAtUtc = _adminNeverExpiresUtc,
-            LastSeenAtUtc = DateTime.UtcNow,
-            IsRevoked = false
-        };
+            throw new InvalidOperationException(
+                "GetOrCreateAuthDisabledAdminSessionAsync called while authentication is enabled.");
+        }
 
-        using var context = _dbContextFactory.CreateDbContext();
-        context.UserSessions.Add(session);
-        await context.SaveChangesAsync();
+        // Fast path: reuse the cached session if its row is still valid (no lock needed).
+        var reused = await TryReuseAuthDisabledAdminSessionAsync();
+        if (reused != null)
+        {
+            return reused.Value;
+        }
 
-        _logger.LogInformation(
-            "Created auth-disabled admin session {SessionId} for IP {IP} (Security:EnableAuthentication=false)",
-            session.Id, session.IpAddress);
-        return (rawToken, session);
+        await _authDisabledAdminLock.WaitAsync();
+        try
+        {
+            // Re-check under the lock in case another request created it while we waited.
+            reused = await TryReuseAuthDisabledAdminSessionAsync();
+            if (reused != null)
+            {
+                return reused.Value;
+            }
+
+            var (rawToken, tokenHash) = GenerateSessionToken();
+
+            var session = new UserSession
+            {
+                Id = Guid.NewGuid(),
+                SessionTokenHash = tokenHash,
+                SessionType = SessionType.Admin,
+                IpAddress = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                UserAgent = httpContext.Request.Headers.UserAgent.ToString(),
+                CreatedAtUtc = DateTime.UtcNow,
+                ExpiresAtUtc = _adminNeverExpiresUtc,
+                LastSeenAtUtc = DateTime.UtcNow,
+                IsRevoked = false
+            };
+
+            using var context = _dbContextFactory.CreateDbContext();
+            context.UserSessions.Add(session);
+            await context.SaveChangesAsync();
+
+            _authDisabledAdminSession = (session.Id, rawToken);
+            _logger.LogInformation(
+                "Created shared auth-disabled admin session {SessionId} (Security:EnableAuthentication=false)",
+                session.Id);
+            return (rawToken, session);
+        }
+        finally
+        {
+            _authDisabledAdminLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Returns the cached auth-disabled admin session if it still exists and is valid in the database,
+    /// else null (signalling the caller to create a fresh one). Keeps a revoked/deleted shared session
+    /// from being handed back out as a live credential.
+    /// </summary>
+    private async Task<(string RawToken, UserSession Session)?> TryReuseAuthDisabledAdminSessionAsync()
+    {
+        var cached = _authDisabledAdminSession;
+        if (cached == null)
+        {
+            return null;
+        }
+
+        var existing = await GetSessionByIdAsync(cached.Value.SessionId);
+        if (existing == null || existing.IsRevoked || existing.ExpiresAtUtc <= DateTime.UtcNow)
+        {
+            return null;
+        }
+
+        return (cached.Value.RawToken, existing);
     }
 
     public async Task<(string RawToken, UserSession Session)?> CreateGuestSessionAsync(HttpContext httpContext)

@@ -56,7 +56,7 @@ public class AuthController : ControllerBase
         var authenticationEnabled = _sessionService.IsAuthenticationEnabled();
         if (!authenticationEnabled && session == null)
         {
-            var (rawToken, adminSession) = await _sessionService.CreateAuthDisabledAdminSessionAsync(HttpContext);
+            var (rawToken, adminSession) = await _sessionService.GetOrCreateAuthDisabledAdminSessionAsync(HttpContext);
             _sessionService.SetSessionCookie(HttpContext, rawToken, adminSession.ExpiresAtUtc);
             session = adminSession;
         }
