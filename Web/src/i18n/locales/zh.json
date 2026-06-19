@@ -3000,7 +3000,7 @@
       },
       "services": {
         "depotMapping": {
-          "displayName": "Steam 仓库映射",
+          "displayName": "Steam 游戏映射",
           "description": "从 Steam PICS 或 GitHub 镜像拉取最新的 Steam 仓库到游戏查找表。游戏检测使用此表为您的缓存文件标记正确的游戏名称。",
           "gain": "新游戏下载被更快识别，减少项目显示为\"未知游戏\"的时间",
           "loss": "已下架或新发布的游戏可能显示为\"未知游戏\"，直到下次映射刷新检测到它们",
@@ -3039,13 +3039,13 @@
           "loss": "扫描间隔期间下载的游戏不会出现在游戏列表中，直到下次检测运行"
         },
         "gameImageFetch": {
-          "displayName": "游戏图片获取",
+          "displayName": "游戏封面",
           "description": "下载每个检测到的游戏旁边的封面艺术。填充缺失的图片并刷新超过 7 天的图片，尝试多个 Steam 和 Epic CDN。",
           "gain": "游戏卡片更快获得其图片，过时图片保持更新",
           "loss": "部分游戏卡片可能更长时间无图片显示，直到下次图片获取周期"
         },
         "steamService": {
-          "displayName": "Steam 应用元数据",
+          "displayName": "Steam 游戏信息",
           "description": "将仓库到应用的查找表加载到内存中，使名称查找保持即时，并按需缓存 Steam 商店游戏元数据。在 Steam 仓库映射完成后重新加载。",
           "gain": "仓库到应用的查找保持快速，新发现的 PICS 映射更快被拾取",
           "loss": "新发现的 PICS 映射可能需要更长时间出现在仓库查找中，直到下次重新加载"
@@ -3069,7 +3069,7 @@
           "loss": "每次收集过程中短暂的 CPU 峰值可能导致后台工作短暂暂停"
         },
         "dashboardCacheWarmer": {
-          "displayName": "仪表板缓存预热",
+          "displayName": "仪表板预加载",
           "description": "在后台预加载仪表板数据（活跃下载、统计、指标），以便页面即时打开，无需等待冷数据库查询。",
           "gain": "即使在服务器空闲后，仪表板也立即打开；用户永远不会看到冷加载旋转器",
           "loss": "每个周期使用少量后台 CPU，缓存值可能略微滞后于实时变化，直到下次预热"
