@@ -695,14 +695,13 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                   isExpanded={evictedDataExpanded}
                   onToggle={() => setEvictedDataExpanded((prev) => !prev)}
                   badge={
-                    <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end">
+                    <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
                       <Button
                         variant="filled"
                         color="gray"
                         size="sm"
                         onClick={handleEvictionExpandCollapseAll}
                         disabled={!evictedDataExpanded}
-                        className="w-full sm:w-auto"
                       >
                         {evictionAllExpanded
                           ? t('management.gameDetection.collapseAll')
@@ -714,7 +713,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                         variant="filled"
                         color="blue"
                         size="sm"
-                        className="w-full sm:w-auto"
                       >
                         {isEvictionScanRunning ? (
                           <LoadingSpinner inline size="sm" />
@@ -731,7 +729,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                         variant="filled"
                         color="red"
                         size="sm"
-                        className="w-full sm:w-auto"
                       >
                         {t('management.sections.data.resetEvictions')}
                       </Button>
@@ -754,7 +751,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                               ? t('common.notifications.willQueueBehindCurrent')
                               : undefined
                           }
-                          className="w-full sm:w-auto"
                         >
                           {t('management.sections.data.evictionRemoveAll', 'Remove All')}
                         </Button>

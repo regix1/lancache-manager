@@ -604,108 +604,91 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Help content
   // Header actions - scan buttons + expand/collapse all
   const headerActions = (
-    <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:flex-wrap sm:items-center sm:justify-end sm:w-auto">
+    <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
       <Button
         variant="filled"
         color="gray"
         size="sm"
         onClick={handleExpandCollapseAll}
         disabled={actionsPending || !sectionExpanded}
-        className="w-full sm:w-auto sm:flex-none sm:basis-auto"
       >
         {allExpanded
           ? t('management.gameDetection.collapseAll')
           : t('management.gameDetection.expandAll')}
       </Button>
 
-      <div className="w-full sm:w-auto">
-        <Tooltip content={t('management.gameDetection.loadPreviousResults')}>
-          <Button
-            onClick={handleLoadData}
-            disabled={loading || mockMode}
-            variant="filled"
-            color="gray"
-            size="sm"
-            className="w-full sm:w-auto"
-          >
-            {loading && scanType === 'load' ? (
-              <LoadingSpinner inline size="sm" />
-            ) : (
-              t('common.load')
-            )}
-          </Button>
-        </Tooltip>
-      </div>
-
-      <div className="w-full sm:w-auto">
-        <Tooltip
-          content={
-            !hasProcessedLogs
-              ? t('management.gameDetection.processLogsFirst')
-              : t('management.gameDetection.quickScan')
-          }
+      <Tooltip content={t('management.gameDetection.loadPreviousResults')}>
+        <Button
+          onClick={handleLoadData}
+          disabled={loading || mockMode}
+          variant="filled"
+          color="gray"
+          size="sm"
         >
-          <Button
-            onClick={handleIncrementalScan}
-            disabled={loading || isDetectionQueued || mockMode || !hasProcessedLogs}
-            variant="filled"
-            color="green"
-            size="sm"
-            className="w-full sm:w-auto"
-          >
-            {loading && scanType === 'incremental' ? (
-              <LoadingSpinner inline size="sm" />
-            ) : (
-              t('management.gameDetection.quick')
-            )}
-          </Button>
-        </Tooltip>
-      </div>
+          {loading && scanType === 'load' ? <LoadingSpinner inline size="sm" /> : t('common.load')}
+        </Button>
+      </Tooltip>
 
-      <div className="w-full sm:w-auto">
-        <Tooltip
-          content={
-            !hasProcessedLogs
-              ? t('management.gameDetection.processLogsFirst')
-              : t('management.gameDetection.fullScan')
-          }
+      <Tooltip
+        content={
+          !hasProcessedLogs
+            ? t('management.gameDetection.processLogsFirst')
+            : t('management.gameDetection.quickScan')
+        }
+      >
+        <Button
+          onClick={handleIncrementalScan}
+          disabled={loading || isDetectionQueued || mockMode || !hasProcessedLogs}
+          variant="filled"
+          color="green"
+          size="sm"
         >
-          <Button
-            onClick={handleFullScan}
-            disabled={loading || isDetectionQueued || mockMode || !hasProcessedLogs}
-            variant="filled"
-            color="blue"
-            size="sm"
-            className="w-full sm:w-auto"
-          >
-            {loading && scanType === 'full' ? (
-              <LoadingSpinner inline size="sm" />
-            ) : (
-              t('management.gameDetection.fullScanButton')
-            )}
-          </Button>
-        </Tooltip>
-      </div>
+          {loading && scanType === 'incremental' ? (
+            <LoadingSpinner inline size="sm" />
+          ) : (
+            t('management.gameDetection.quick')
+          )}
+        </Button>
+      </Tooltip>
+
+      <Tooltip
+        content={
+          !hasProcessedLogs
+            ? t('management.gameDetection.processLogsFirst')
+            : t('management.gameDetection.fullScan')
+        }
+      >
+        <Button
+          onClick={handleFullScan}
+          disabled={loading || isDetectionQueued || mockMode || !hasProcessedLogs}
+          variant="filled"
+          color="blue"
+          size="sm"
+        >
+          {loading && scanType === 'full' ? (
+            <LoadingSpinner inline size="sm" />
+          ) : (
+            t('management.gameDetection.fullScanButton')
+          )}
+        </Button>
+      </Tooltip>
 
       {isAdmin && (
-        <div className="col-span-2 w-full sm:col-span-1 sm:w-auto">
-          <Tooltip content={t('management.sections.data.gameCacheRemoveAll', 'Remove All')}>
-            <Button
-              onClick={() => setShowRemoveAllConfirm(true)}
-              awaitPermissions
-              loading={removeAllRunning || isBulkRemovalRunning}
-              disabled={
-                actionsPending || loading || mockMode || cacheReadOnly || isCacheRemovalActive
-              }
-              variant="filled"
-              color="red"
-              size="sm"
-              className="w-full sm:w-auto"
-            >
-              {t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
-            </Button>
-          </Tooltip>
-        </div>
+        <Tooltip content={t('management.sections.data.gameCacheRemoveAll', 'Remove All')}>
+          <Button
+            onClick={() => setShowRemoveAllConfirm(true)}
+            awaitPermissions
+            loading={removeAllRunning || isBulkRemovalRunning}
+            disabled={
+              actionsPending || loading || mockMode || cacheReadOnly || isCacheRemovalActive
+            }
+            variant="filled"
+            color="red"
+            size="sm"
+          >
+            {t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
+          </Button>
+        </Tooltip>
       )}
     </div>
   );

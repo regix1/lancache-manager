@@ -55,6 +55,26 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
     }
   };
 
+  const chevronButton = (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      className={`flex items-center justify-center w-10 h-10 themed-border-radius transition-all duration-300 flex-shrink-0 ${
+        isExpanded ? 'bg-[var(--theme-accent-subtle)]' : 'bg-transparent hover:bg-themed-tertiary'
+      }`}
+      aria-label={isExpanded ? 'Collapse section' : 'Expand section'}
+    >
+      <ChevronDown
+        className={`w-5 h-5 transition-all duration-300 ease-out ${
+          isExpanded ? 'rotate-180 text-themed-accent' : 'rotate-0 text-themed-muted'
+        }`}
+      />
+    </button>
+  );
+
   return (
     <div
       className={`group themed-border-radius overflow-hidden transition-all duration-300 border ${
@@ -72,7 +92,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         onTouchEnd={handleTouchEnd}
         className="w-full px-4 py-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 text-left transition-all duration-200 group/header bg-transparent cursor-pointer"
       >
-        <div className="flex items-center gap-3 min-w-0 sm:flex-1">
+        <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto sm:flex-1">
           {/* Icon with animated background */}
           {Icon && (
             <div
@@ -120,32 +140,22 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
               {formatCount(count)}
             </span>
           )}
+
+          {/* Mobile-only chevron, pinned to the right of the title row */}
+          <span className="ml-auto sm:hidden flex-shrink-0">{chevronButton}</span>
         </div>
 
-        {/* Badge and Chevron container */}
-        <div className="flex items-center gap-3 justify-end">
+        {/* Action badge — on mobile this is its own full-width row below the title.
+            The chevron lives here only on desktop. */}
+        <div
+          className={`items-center gap-3 sm:w-auto sm:justify-end ${
+            badge ? 'flex w-full justify-end' : 'hidden sm:flex'
+          }`}
+        >
           {badge}
 
-          {/* Chevron with rotation animation */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggle();
-            }}
-            className={`flex items-center justify-center w-10 h-10 themed-border-radius transition-all duration-300 ${
-              isExpanded
-                ? 'bg-[var(--theme-accent-subtle)]'
-                : 'bg-transparent hover:bg-themed-tertiary'
-            }`}
-            aria-label={isExpanded ? 'Collapse section' : 'Expand section'}
-          >
-            <ChevronDown
-              className={`w-5 h-5 transition-all duration-300 ease-out ${
-                isExpanded ? 'rotate-180 text-themed-accent' : 'rotate-0 text-themed-muted'
-              }`}
-            />
-          </button>
+          {/* Desktop-only chevron */}
+          <span className="hidden sm:flex flex-shrink-0">{chevronButton}</span>
         </div>
       </div>
 

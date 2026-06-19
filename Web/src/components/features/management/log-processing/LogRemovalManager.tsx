@@ -293,7 +293,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
 
   // Header badge - Refresh button in AccordionSection header
   const headerBadge = (
-    <div className="flex justify-end sm:contents">
+    <div className="flex w-full justify-start sm:contents">
       <Tooltip content={t('management.logRemoval.refreshServiceCounts')} position="top">
         <Button
           onClick={() => loadData(true)}

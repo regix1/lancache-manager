@@ -273,12 +273,11 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   );
 
   const headerActions = (
-    <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end">
+    <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
       <Button
         variant="filled"
         color="gray"
         size="sm"
-        className="w-full sm:w-auto"
         onClick={() => setResetModal({ datasource: null, all: true })}
         awaitPermissions
         disabled={loading || actionLoading !== null || isProcessing || mockMode || !isAdmin}
@@ -289,7 +288,6 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         variant="filled"
         color="green"
         size="sm"
-        className="w-full sm:w-auto"
         onClick={handleProcessAll}
         awaitPermissions
         disabled={loading || actionLoading !== null || isProcessing || mockMode || !isAdmin}
