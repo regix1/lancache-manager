@@ -84,9 +84,10 @@ RUN dotnet restore LancacheManager.csproj
 
 # Now copy source code (only this rebuilds on code changes)
 COPY Api/LancacheManager/ ./
-# csproj embeds <EmbeddedResource Include="..\..\rust-processor\tact_products.json">; the csproj sits at /src here,
-# so that relative path resolves to /rust-processor/tact_products.json — provide it there.
+# csproj embeds <EmbeddedResource Include="..\..\rust-processor\tact_products.json"> (and blizzard_steam_appids.json);
+# the csproj sits at /src here, so those relative paths resolve to /rust-processor/<file> — provide them there.
 COPY rust-processor/tact_products.json /rust-processor/tact_products.json
+COPY rust-processor/blizzard_steam_appids.json /rust-processor/blizzard_steam_appids.json
 
 # Determine runtime identifier based on target platform
 RUN case "$TARGETPLATFORM" in \
