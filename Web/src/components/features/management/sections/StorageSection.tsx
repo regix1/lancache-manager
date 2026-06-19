@@ -304,30 +304,19 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       const game = partialEvictedTarget as GameCacheInfo;
       const isEpic = game.service === 'epicgames';
       // Named (Blizzard/Riot) games have game_app_id === 0 and no Epic id; their identity is
-      // (service, game_name). They share game_app_id 0, so the Steam evicted endpoint
-      // (cache/evicted/steam?key=0) both collides them and 400s. There is no per-entity
-      // evicted scope for named games, so fall back to the canonical named removal
-      // (runTrackedGameRemoval), mirroring how the all-evicted path handles them.
+      // (service, game_name). They have their own per-entity evicted scope
+      // (cache/evicted/named/{service}/{gameName}), mirroring Steam/Epic partial-evicted removal:
+      // only the evicted records/detection for THIS named game are removed.
       const isNamed =
         !isEpic && game.game_app_id === 0 && !!game.service && game.service !== 'steam';
-      if (isNamed) {
-        setPartialEvictedTarget(null);
-        await runTrackedGameRemoval({
-          game,
-          t,
-          addNotification,
-          updateNotification,
-          scheduleRemovalRefresh,
-          onDataRefresh
-        });
-        return;
-      }
       partialRemovalTargetRef.current = isEpic
         ? {
             epicAppId: game.epic_app_id ?? undefined,
             gameName: game.game_name
           }
-        : { gameAppId: game.game_app_id };
+        : isNamed
+          ? { gameName: game.game_name }
+          : { gameAppId: game.game_app_id };
       setPartialEvictedTarget(null);
       try {
         if (isEpic) {
@@ -337,6 +326,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
             return;
           }
           await ApiService.removeEvictedForEpicGame(game.epic_app_id);
+        } else if (isNamed) {
+          await ApiService.removeEvictedForNamedGame(game.service!, game.game_name);
         } else {
           await ApiService.removeEvictedForGame(game.game_app_id);
         }

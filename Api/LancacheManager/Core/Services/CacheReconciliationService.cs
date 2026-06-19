@@ -792,7 +792,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         string? resolvedGameName,
         string? resolvedGameAppId,
         CancellationToken cancellationToken,
-        string? resolvedEpicAppId = null)
+        string? resolvedEpicAppId = null,
+        string? namedGameName = null)
     {
         var cts = new CancellationTokenSource();
         var metadata = new EvictionRemovalMetadata
@@ -837,7 +838,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             {
                 using var scopeLifetime = _serviceProvider.CreateScope();
                 var context = scopeLifetime.ServiceProvider.GetRequiredService<AppDbContext>();
-                await RemoveEvictedRecordsForEntityAsync(context, scope, key, cts.Token, operationId);
+                await RemoveEvictedRecordsForEntityAsync(context, scope, key, cts.Token, operationId, namedGameName);
             }
             catch (Exception ex)
             {
@@ -1726,12 +1727,21 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         EvictionScope scope,
         string key,
         CancellationToken stoppingToken,
-        Guid? operationId = null)
+        Guid? operationId = null,
+        string? namedGameName = null)
     {
         // Npgsql cannot translate string.Equals(..., StringComparison.OrdinalIgnoreCase);
         // service names are already stored lowercase, so lowercasing `key` once here lets
-        // the EvictionScope.Service branches use plain `==` in the LINQ (SQL-translatable).
+        // the EvictionScope.Service / EvictionScope.Named branches use plain `==` in the LINQ
+        // (SQL-translatable). For Named scope `key` is the lowercased service and the game
+        // name travels in `namedGameName` (case-sensitive, as stored in CachedGameDetection).
         var keyLower = key.ToLowerInvariant();
+
+        if (scope == EvictionScope.Named && string.IsNullOrEmpty(namedGameName))
+        {
+            throw new ArgumentException(
+                "namedGameName is required for EvictionScope.Named", nameof(namedGameName));
+        }
 
         CancellationTokenSource? cts = null;
 
@@ -1763,6 +1773,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalStarted,
                 new EvictionRemovalStarted("signalr.evictionRemove.starting.entity", operationId.Value,
                     new Dictionary<string, object?> { ["scope"] = scope.ToString(), ["key"] = key },
+                    GameName: scope == EvictionScope.Named ? namedGameName : null,
                     EpicAppId: scope == EvictionScope.Epic ? key : null));
         }
 
@@ -1773,7 +1784,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // Step -1: Rewrite nginx access.log files to drop entries for this entity's evicted
             // downloads BEFORE deleting LogEntries/Downloads from the database. Best-effort -
             // failures are logged as warnings and do not block the DB delete.
-            await PurgeLogEntriesForEntityAsync(context, scope, key, opId, stoppingToken);
+            await PurgeLogEntriesForEntityAsync(context, scope, key, opId, stoppingToken, namedGameName);
 
             int logEntriesDeleted = 0;
             int downloadsDeleted = 0;
@@ -1812,6 +1823,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                                       && le.Download.EpicAppId == key)
                             .ExecuteDeleteAsync(stoppingToken),
 
+                        EvictionScope.Named => await context.LogEntries
+                            .Where(le => le.DownloadId != null
+                                      && le.Download != null
+                                      && le.Download.IsEvicted
+                                      && le.Download.GameAppId == null
+                                      && le.Download.EpicAppId == null
+                                      && le.Download.Service == keyLower
+                                      && le.Download.GameName == namedGameName)
+                            .ExecuteDeleteAsync(stoppingToken),
+
                         EvictionScope.Service => await context.LogEntries
                             .Where(le => le.DownloadId != null
                                       && le.Download != null
@@ -1842,6 +1863,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                         EvictionScope.Epic => await context.Downloads
                             .Where(d => d.IsEvicted && d.EpicAppId == key)
+                            .ExecuteDeleteAsync(stoppingToken),
+
+                        EvictionScope.Named => await context.Downloads
+                            .Where(d => d.IsEvicted
+                                     && d.GameAppId == null
+                                     && d.EpicAppId == null
+                                     && d.Service == keyLower
+                                     && d.GameName == namedGameName)
                             .ExecuteDeleteAsync(stoppingToken),
 
                         EvictionScope.Service => await context.Downloads
@@ -1901,6 +1930,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     .AnyAsync(d => d.GameAppId == long.Parse(key) && d.EpicAppId == null, stoppingToken),
                 EvictionScope.Epic => await context.Downloads
                     .AnyAsync(d => d.EpicAppId == key, stoppingToken),
+                EvictionScope.Named => await context.Downloads
+                    .AnyAsync(d => d.GameAppId == null
+                                && d.EpicAppId == null
+                                && d.Service == keyLower
+                                && d.GameName == namedGameName, stoppingToken),
                 EvictionScope.Service => await context.Downloads
                     .AnyAsync(d => d.GameAppId == null
                                 && d.EpicAppId == null
@@ -1919,6 +1953,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                     EvictionScope.Epic => await context.CachedGameDetections
                         .Where(g => g.EpicAppId == key)
+                        .ExecuteDeleteAsync(stoppingToken),
+
+                    // Named detection rows always carry GameAppId == 0 (never null) and EpicAppId == null;
+                    // identity is (Service, GameName). Service is stored lowercase, GameName case-sensitive.
+                    EvictionScope.Named => await context.CachedGameDetections
+                        .Where(g => g.GameAppId == 0
+                                 && g.EpicAppId == null
+                                 && g.Service != null
+                                 && g.Service.ToLower() == keyLower
+                                 && g.GameName == namedGameName)
                         .ExecuteDeleteAsync(stoppingToken),
 
                     EvictionScope.Service => await context.CachedServiceDetections
@@ -1940,6 +1984,15 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                     EvictionScope.Epic => await context.CachedGameDetections
                         .Where(g => g.IsEvicted && g.EpicAppId == key)
+                        .ExecuteUpdateAsync(g => g.SetProperty(x => x.IsEvicted, false), stoppingToken),
+
+                    EvictionScope.Named => await context.CachedGameDetections
+                        .Where(g => g.IsEvicted
+                                 && g.GameAppId == 0
+                                 && g.EpicAppId == null
+                                 && g.Service != null
+                                 && g.Service.ToLower() == keyLower
+                                 && g.GameName == namedGameName)
                         .ExecuteUpdateAsync(g => g.SetProperty(x => x.IsEvicted, false), stoppingToken),
 
                     EvictionScope.Service => await context.CachedServiceDetections
@@ -2035,11 +2088,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         EvictionScope scope,
         string key,
         Guid operationId,
-        CancellationToken stoppingToken)
+        CancellationToken stoppingToken,
+        string? namedGameName = null)
     {
         // Npgsql cannot translate string.Equals(..., StringComparison.OrdinalIgnoreCase);
         // service names are stored lowercase, so lowercasing `key` here lets the
-        // EvictionScope.Service branch use plain `==` in the LINQ.
+        // EvictionScope.Service / EvictionScope.Named branches use plain `==` in the LINQ.
+        // For Named scope `key` is the lowercased service; the game name is in `namedGameName`.
         var keyLower = key.ToLowerInvariant();
 
         try
@@ -2056,6 +2111,15 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                 EvictionScope.Epic => await context.Downloads
                     .Where(d => d.IsEvicted && d.EpicAppId == key)
+                    .Select(d => d.Id)
+                    .ToListAsync(stoppingToken),
+
+                EvictionScope.Named => await context.Downloads
+                    .Where(d => d.IsEvicted
+                             && d.GameAppId == null
+                             && d.EpicAppId == null
+                             && d.Service == keyLower
+                             && d.GameName == namedGameName)
                     .Select(d => d.Id)
                     .ToListAsync(stoppingToken),
 
@@ -2105,6 +2169,17 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     .Distinct()
                     .ToListAsync(stoppingToken),
 
+                EvictionScope.Named => await context.Downloads
+                    .Where(d => d.IsEvicted
+                             && d.GameAppId == null
+                             && d.EpicAppId == null
+                             && d.Service == keyLower
+                             && d.GameName == namedGameName
+                             && d.DepotId != null)
+                    .Select(d => d.DepotId!.Value)
+                    .Distinct()
+                    .ToListAsync(stoppingToken),
+
                 EvictionScope.Service => await context.Downloads
                     .Where(d => d.IsEvicted
                              && d.GameAppId == null
@@ -2144,6 +2219,17 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                     EvictionScope.Epic => await context.Downloads
                         .Where(d => !d.IsEvicted && d.EpicAppId == key && d.DepotId != null)
+                        .Select(d => d.DepotId!.Value)
+                        .Distinct()
+                        .ToListAsync(stoppingToken),
+
+                    EvictionScope.Named => await context.Downloads
+                        .Where(d => !d.IsEvicted
+                                 && d.GameAppId == null
+                                 && d.EpicAppId == null
+                                 && d.Service == keyLower
+                                 && d.GameName == namedGameName
+                                 && d.DepotId != null)
                         .Select(d => d.DepotId!.Value)
                         .Distinct()
                         .ToListAsync(stoppingToken),

@@ -1643,6 +1643,30 @@ class ApiService {
     }
   }
 
+  // Remove only the evicted downloads (and their log entries) for a named (Blizzard/Riot) game
+  // identified by (service, gameName). Named games have no Steam/Epic AppId, so they use a
+  // dedicated two-segment route. Fire-and-forget, requires auth.
+  static async removeEvictedForNamedGame(
+    service: string,
+    gameName: string
+  ): Promise<{ operationId: string; scope: string; service: string; gameName: string }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/cache/evicted/named/${encodeURIComponent(service)}/${encodeURIComponent(gameName)}`,
+        this.getFetchOptions({ method: 'DELETE' })
+      );
+      return await this.handleResponse<{
+        operationId: string;
+        scope: string;
+        service: string;
+        gameName: string;
+      }>(res);
+    } catch (error) {
+      console.error('removeEvictedForNamedGame error:', error);
+      throw error;
+    }
+  }
+
   // Get active cache operations (for recovery on page load)
   // Note: Used by NotificationsContext for operation recovery
 

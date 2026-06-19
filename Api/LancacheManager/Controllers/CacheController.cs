@@ -1368,6 +1368,10 @@ public class CacheController : ControllerBase
 
         // Normalise and validate scope.
         var scopeLower = scope.ToLowerInvariant();
+        if (scopeLower == "named")
+        {
+            return BadRequest(new ErrorResponse { Error = "For named (Blizzard/Riot) games use DELETE evicted/named/{service}/{gameName}." });
+        }
         if (scopeLower != "steam" && scopeLower != "epic" && scopeLower != "service")
         {
             return BadRequest(new ErrorResponse { Error = $"Invalid scope '{scope}'. Must be 'steam', 'epic', or 'service'." });
@@ -1471,5 +1475,73 @@ public class CacheController : ControllerBase
         var operationId = await StartScopedEvictedRemovalAsync();
 
         return Accepted(new { operationId, scope = scopeLower, key });
+    }
+
+    /// <summary>
+    /// DELETE /api/cache/evicted/named/{service}/{gameName}
+    ///
+    /// Removes only the evicted Downloads, their LogEntries, and the evicted detection row
+    /// for a single named (Blizzard/Riot) game, leaving any still-cached Downloads for the
+    /// same game intact. Named games have no Steam AppId and no Epic AppId; their identity is
+    /// (Service, GameName), so they need a dedicated two-segment route (the generic
+    /// <c>evicted/{scope}</c> endpoint cannot carry both halves of the key).
+    ///
+    /// Returns 202 Accepted with { operationId, scope = "named", service, gameName }.
+    /// Returns 202 Accepted with a queued operationId if a conflicting removal is already in progress.
+    /// </summary>
+    [Authorize(Policy = "AdminOnly")]
+    [HttpDelete("evicted/named/{service}/{gameName}")]
+    public async Task<IActionResult> RemoveEvictedForNamedGameAsync(string service, string gameName, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(service))
+        {
+            return BadRequest(new ErrorResponse { Error = "Route parameter 'service' is required and must not be empty." });
+        }
+        if (string.IsNullOrWhiteSpace(gameName))
+        {
+            return BadRequest(new ErrorResponse { Error = "Route parameter 'gameName' is required and must not be empty." });
+        }
+
+        // Service is stored lowercase; the eviction key carries the lowercased service while the
+        // game name (case-sensitive, as stored in CachedGameDetection) travels alongside.
+        var serviceLower = service.ToLowerInvariant();
+
+        var permissionError = EnsureDirectoriesWritable(
+            "remove evicted data", $"[EvictedRemoval] named '{serviceLower}:{gameName}':");
+        if (permissionError != null)
+        {
+            return permissionError;
+        }
+
+        // Scope-aware concurrency check - reuse the same NamedGame conflict scope as full removal.
+        var conflictScope = ConflictScope.NamedGame(serviceLower, gameName);
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.EvictionRemoval,
+            conflictScope,
+            cancellationToken);
+
+        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        // CancellationToken.None in the closure: at promotion the HTTP request is long gone;
+        // the started op runs on its own registered CTS.
+        async Task<Guid?> StartScopedEvictedRemovalAsync() =>
+            await _reconciliationService.StartScopedEvictionRemovalAsync(
+                EvictionScope.Named,
+                serviceLower,
+                resolvedGameName: gameName,
+                resolvedGameAppId: "0",
+                CancellationToken.None,
+                resolvedEpicAppId: null,
+                namedGameName: gameName);
+
+        if (conflict != null)
+        {
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.EvictionRemoval, conflictScope,
+                $"Evicted Data Removal (named: {serviceLower}:{gameName})", StartScopedEvictedRemovalAsync, cancellationToken));
+        }
+
+        var operationId = await StartScopedEvictedRemovalAsync();
+
+        return Accepted(new { operationId, scope = "named", service = serviceLower, gameName });
     }
 }
