@@ -257,14 +257,18 @@ public class ServiceEvictionGateTests
     }
 
     /// <summary>
-    /// Named-game false-eviction regression (the "riot" bug): a service whose ONLY Downloads are
-    /// named-game (GameName set, e.g. League of Legends) and NOT evicted must count as ALIVE and
+    /// Named-game false-eviction regression (the "riot" bug, but SERVICE-AGNOSTIC): a service
+    /// whose ONLY Downloads are named-game (GameName set) and NOT evicted must count as ALIVE and
     /// therefore must NOT be flipped to IsEvicted when absent from the scan. Before the fix the
-    /// alive test filtered GameName==null, so riot had zero "live" downloads and was blind-evicted
-    /// despite its full cache being present on disk.
+    /// alive test filtered GameName==null, so these services had zero "live" downloads and were
+    /// blind-evicted despite their full cache being present on disk. Parameterized over multiple
+    /// service names to prove the production code contains NO per-service allowlist.
     /// </summary>
-    [Fact]
-    public async Task SaveServices_AbsentServiceWithOnlyNamedGameLiveDownloads_IsNotEvictedAsync()
+    [Theory]
+    [InlineData("riot")]
+    [InlineData("blizzard")]
+    [InlineData("riotgames")]
+    public async Task SaveServices_AbsentServiceWithOnlyNamedGameLiveDownloads_IsNotEvictedAsync(string serviceName)
     {
         var options = NewInMemoryOptions();
 
@@ -272,43 +276,47 @@ public class ServiceEvictionGateTests
         {
             seed.CachedServiceDetections.Add(new CachedServiceDetection
             {
-                ServiceName = "riot",
+                ServiceName = serviceName,
                 CacheFilesFound = 10,
                 TotalSizeBytes = 1000,
                 IsEvicted = false,
                 LastDetectedUtc = DateTime.UtcNow.AddHours(-1),
                 CreatedAtUtc = DateTime.UtcNow.AddHours(-1)
             });
-            // Every riot Download maps to a named game and is present (not evicted) on disk.
-            seed.Downloads.Add(NamedGameServiceDownload("riot", "League of Legends", evicted: false));
-            seed.Downloads.Add(NamedGameServiceDownload("riot", "VALORANT", evicted: false));
+            // Every Download for this service maps to a named game and is present (not evicted) on disk.
+            seed.Downloads.Add(NamedGameServiceDownload(serviceName, "Game Title A", evicted: false));
+            seed.Downloads.Add(NamedGameServiceDownload(serviceName, "Game Title B", evicted: false));
             await seed.SaveChangesAsync();
         }
 
         var dataService = NewDataService(options);
 
-        // Empty scan results => riot is "absent" from this scan.
+        // Empty scan results => service is "absent" from this scan.
         await dataService.SaveServicesAsync(new List<ServiceCacheInfo>());
 
         await using var assert = new AppDbContext(options);
-        var row = await assert.CachedServiceDetections.SingleAsync(s => s.ServiceName == "riot");
+        var row = await assert.CachedServiceDetections.SingleAsync(s => s.ServiceName == serviceName);
         Assert.False(row.IsEvicted); // alive via named-game Downloads - NOT blind-evicted
     }
 
     /// <summary>
-    /// Named-game self-heal: a falsely-evicted service whose named-game cache is back on disk
-    /// (Downloads !IsEvicted, GameName set) must be returned by GetServicesToUnevictAsync so it
-    /// un-evicts. Before the fix the GameName==null filter blocked self-heal entirely.
+    /// Named-game self-heal (SERVICE-AGNOSTIC): a falsely-evicted service whose named-game cache
+    /// is back on disk (Downloads !IsEvicted, GameName set) must be returned by
+    /// GetServicesToUnevictAsync so it un-evicts. Before the fix the GameName==null filter blocked
+    /// self-heal entirely. Parameterized to prove no per-service hardcoding.
     /// </summary>
-    [Fact]
-    public async Task GetServicesToUnevict_RecachedNamedGameService_IsReturnedAsync()
+    [Theory]
+    [InlineData("riot")]
+    [InlineData("blizzard")]
+    [InlineData("riotgames")]
+    public async Task GetServicesToUnevict_RecachedNamedGameService_IsReturnedAsync(string serviceName)
     {
         var options = NewInMemoryOptions();
 
         await using (var seed = new AppDbContext(options))
         {
-            seed.CachedServiceDetections.Add(EvictedServiceRow("riot"));
-            seed.Downloads.Add(NamedGameServiceDownload("riot", "Legends of Runeterra", evicted: false));
+            seed.CachedServiceDetections.Add(EvictedServiceRow(serviceName));
+            seed.Downloads.Add(NamedGameServiceDownload(serviceName, "Game Title A", evicted: false));
             await seed.SaveChangesAsync();
         }
 
@@ -317,16 +325,20 @@ public class ServiceEvictionGateTests
         await using var context = new AppDbContext(options);
         var toUnevict = await dataService.GetServicesToUnevictAsync(context, CancellationToken.None);
 
-        Assert.Contains("riot", toUnevict);
+        Assert.Contains(serviceName, toUnevict);
     }
 
     /// <summary>
-    /// Criterion 2 (named-game, all-evicted sub-case): a service whose named-game Downloads are
-    /// ALL evicted must still be marked Evicted - the fix must not make genuinely-gone services
-    /// un-evictable.
+    /// Criterion 2 (named-game, all-evicted sub-case — SERVICE-AGNOSTIC): a service whose
+    /// named-game Downloads are ALL evicted must still be marked Evicted - the fix must not make
+    /// genuinely-gone services un-evictable. Parameterized to prove the eviction path has no
+    /// per-service special-casing either.
     /// </summary>
-    [Fact]
-    public async Task SaveServices_AbsentServiceWithAllNamedGameDownloadsEvicted_IsEvictedAsync()
+    [Theory]
+    [InlineData("riot")]
+    [InlineData("blizzard")]
+    [InlineData("riotgames")]
+    public async Task SaveServices_AbsentServiceWithAllNamedGameDownloadsEvicted_IsEvictedAsync(string serviceName)
     {
         var options = NewInMemoryOptions();
 
@@ -334,15 +346,15 @@ public class ServiceEvictionGateTests
         {
             seed.CachedServiceDetections.Add(new CachedServiceDetection
             {
-                ServiceName = "riot",
+                ServiceName = serviceName,
                 CacheFilesFound = 5,
                 TotalSizeBytes = 500,
                 IsEvicted = false,
                 LastDetectedUtc = DateTime.UtcNow.AddHours(-1),
                 CreatedAtUtc = DateTime.UtcNow.AddHours(-1)
             });
-            seed.Downloads.Add(NamedGameServiceDownload("riot", "League of Legends", evicted: true));
-            seed.Downloads.Add(NamedGameServiceDownload("riot", "VALORANT", evicted: true));
+            seed.Downloads.Add(NamedGameServiceDownload(serviceName, "Game Title A", evicted: true));
+            seed.Downloads.Add(NamedGameServiceDownload(serviceName, "Game Title B", evicted: true));
             await seed.SaveChangesAsync();
         }
 
@@ -351,7 +363,7 @@ public class ServiceEvictionGateTests
         await dataService.SaveServicesAsync(new List<ServiceCacheInfo>());
 
         await using var assert = new AppDbContext(options);
-        var row = await assert.CachedServiceDetections.SingleAsync(s => s.ServiceName == "riot");
+        var row = await assert.CachedServiceDetections.SingleAsync(s => s.ServiceName == serviceName);
         Assert.True(row.IsEvicted);
     }
 
