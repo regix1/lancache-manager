@@ -298,25 +298,27 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
   // Header actions
   const headerActions = (
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      <Tooltip content={t('management.cache.refreshCacheSize')} position="top">
-        <Button
-          onClick={handleRefreshCacheSize}
-          disabled={cacheSizeLoading || isAnyRemovalRunning || isCacheSizeScanRunning}
-          variant="filled"
-          color="gray"
-          size="sm"
-          className="w-full sm:w-auto"
-        >
-          {cacheSizeLoading ? <LoadingSpinner inline size="sm" /> : t('common.refresh')}
-        </Button>
-      </Tooltip>
+    <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end">
+      <div className="col-span-2 sm:col-span-1 w-full sm:w-auto">
+        <Tooltip content={t('management.cache.refreshCacheSize')} position="top">
+          <Button
+            onClick={handleRefreshCacheSize}
+            disabled={cacheSizeLoading || isAnyRemovalRunning || isCacheSizeScanRunning}
+            variant="filled"
+            color="gray"
+            size="sm"
+            className="w-full sm:w-auto"
+          >
+            {cacheSizeLoading ? <LoadingSpinner inline size="sm" /> : t('common.refresh')}
+          </Button>
+        </Tooltip>
+      </div>
       {hasMultipleDatasources && (
         <Button
           variant="filled"
           color="red"
           size="sm"
-          className="w-full sm:w-auto"
+          className="w-full sm:w-auto col-span-2 sm:col-span-1"
           onClick={() => handleClearCache(null)}
           awaitPermissions
           loading={(actionLoading && !clearingDatasource) || isClearAllRunning}
@@ -377,22 +379,25 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     <p className="text-themed-primary font-medium text-sm">
                       {t('management.cache.cacheSize')}
                     </p>
-                    <Tooltip content={t('management.cache.refreshCacheSize')} position="top">
-                      <Button
-                        variant="filled"
-                        color="gray"
-                        size="sm"
-                        className="w-full sm:w-auto"
-                        onClick={handleRefreshCacheSize}
-                        disabled={cacheSizeLoading || isAnyRemovalRunning || isCacheSizeScanRunning}
-                      >
-                        {cacheSizeLoading ? (
-                          <LoadingSpinner inline size="sm" />
-                        ) : (
-                          <RefreshCw className="w-3.5 h-3.5 text-themed-muted" />
-                        )}
-                      </Button>
-                    </Tooltip>
+                    <div className="flex-shrink-0">
+                      <Tooltip content={t('management.cache.refreshCacheSize')} position="top">
+                        <Button
+                          variant="filled"
+                          color="gray"
+                          size="sm"
+                          onClick={handleRefreshCacheSize}
+                          disabled={
+                            cacheSizeLoading || isAnyRemovalRunning || isCacheSizeScanRunning
+                          }
+                        >
+                          {cacheSizeLoading ? (
+                            <LoadingSpinner inline size="sm" />
+                          ) : (
+                            <RefreshCw className="w-3.5 h-3.5 text-themed-muted" />
+                          )}
+                        </Button>
+                      </Tooltip>
+                    </div>
                   </div>
 
                   {cacheSizeError ? (

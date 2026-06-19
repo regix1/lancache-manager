@@ -695,7 +695,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                   isExpanded={evictedDataExpanded}
                   onToggle={() => setEvictedDataExpanded((prev) => !prev)}
                   badge={
-                    <div className="flex flex-wrap items-center justify-end gap-2">
+                    <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end">
                       <Button
                         variant="filled"
                         color="gray"
@@ -821,6 +821,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                                 {t('management.sections.clients.saveChanges')}
                               </Button>
                             </div>
+
                             <p className="text-xs text-themed-muted mt-2 ml-6">
                               {t('management.sections.data.evictionScanNotificationsDescription')}
                             </p>

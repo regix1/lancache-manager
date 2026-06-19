@@ -487,93 +487,103 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
   // Cancel is handled by UniversalNotificationBar via CANCEL_CONFIGS
   const controlSelectors = (
-    <div className="flex flex-wrap items-end gap-3">
-      <EnhancedDropdown
-        variant="button"
-        options={detectionModeOptions}
-        value={detectionMode}
-        onChange={(val: string) => setDetectionMode(val)}
-        disabled={isScanning || isAnyRemovalRunning}
-        dropdownWidth="w-72"
-        alignRight={true}
-        dropdownTitle={t('management.corruption.detectionModeTitle')}
-        compactMode={true}
-      />
-      <EnhancedDropdown
-        variant="button"
-        options={thresholdOptions}
-        value={String(missThreshold)}
-        onChange={(val: string) => setMissThreshold(Number(val))}
-        disabled={isScanning || isAnyRemovalRunning}
-        dropdownWidth="w-72"
-        alignRight={true}
-        dropdownTitle={t('management.corruption.sensitivityTitle')}
-        compactMode={true}
-      />
+    <div className="grid grid-cols-1 gap-3 sm:flex sm:flex-wrap sm:items-end">
+      <div className="w-full sm:w-auto">
+        <EnhancedDropdown
+          variant="button"
+          options={detectionModeOptions}
+          value={detectionMode}
+          onChange={(val: string) => setDetectionMode(val)}
+          disabled={isScanning || isAnyRemovalRunning}
+          dropdownWidth="w-72"
+          alignRight={true}
+          dropdownTitle={t('management.corruption.detectionModeTitle')}
+          compactMode={true}
+        />
+      </div>
+      <div className="w-full sm:w-auto">
+        <EnhancedDropdown
+          variant="button"
+          options={thresholdOptions}
+          value={String(missThreshold)}
+          onChange={(val: string) => setMissThreshold(Number(val))}
+          disabled={isScanning || isAnyRemovalRunning}
+          dropdownWidth="w-72"
+          alignRight={true}
+          dropdownTitle={t('management.corruption.sensitivityTitle')}
+          compactMode={true}
+        />
+      </div>
     </div>
   );
 
   // Header action row (AccordionSection badge): actions stay reachable while the
   // section is collapsed, matching every other Storage section's idiom. The count
-  // badge rides in the same row.
+  // badge rides outside the grid so it never disrupts column flow.
   const headerActions = (
     <div className="flex flex-wrap items-center justify-end gap-2">
       {corruptionList.length > 0 && (
         <Badge variant="warning">{corruptionList.reduce((sum, [, count]) => sum + count, 0)}</Badge>
       )}
-      <Tooltip content={t('management.corruption.loadPreviousResults')} position="top">
+      <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:flex-wrap sm:items-center sm:w-auto">
+        <div className="w-full sm:w-auto">
+          <Tooltip content={t('management.corruption.loadPreviousResults')} position="top">
+            <Button
+              onClick={() => loadCachedData(true)}
+              disabled={isRefreshing || isScanning || isAnyRemovalRunning}
+              variant="filled"
+              color="gray"
+              size="sm"
+              className="w-full sm:w-auto"
+            >
+              {isRefreshing ? <LoadingSpinner inline size="sm" /> : t('common.load')}
+            </Button>
+          </Tooltip>
+        </div>
+        <div className="w-full sm:w-auto">
+          <Tooltip content={t('management.corruption.scanForCorrupted')} position="top">
+            <Button
+              onClick={() => startScan()}
+              disabled={isLoading || isScanning || isAnyRemovalRunning}
+              variant="filled"
+              color="blue"
+              size="sm"
+              className="w-full sm:w-auto"
+            >
+              {isScanning ? <LoadingSpinner inline size="sm" /> : t('common.scan')}
+            </Button>
+          </Tooltip>
+        </div>
         <Button
-          onClick={() => loadCachedData(true)}
-          disabled={isRefreshing || isScanning || isAnyRemovalRunning}
+          onClick={handleRemoveAll}
+          awaitPermissions
+          loading={startingRemoveAll}
+          disabled={
+            (isLoading && !hasInitiallyLoaded) ||
+            corruptionList.length === 0 ||
+            mockMode ||
+            anyCorruptionRemovalPending ||
+            isCorruptionRemovalActive ||
+            authMode !== 'authenticated' ||
+            logsReadOnly ||
+            cacheReadOnly ||
+            !isDockerAvailable
+          }
+          title={
+            isAnyRemovalRunning && !isCorruptionRemovalActive
+              ? t('common.notifications.willQueueBehindCurrent')
+              : undefined
+          }
           variant="filled"
-          color="gray"
+          color="red"
           size="sm"
-          className="w-full sm:w-auto"
+          className="w-full sm:w-auto col-span-2 sm:col-span-1"
         >
-          {isRefreshing ? <LoadingSpinner inline size="sm" /> : t('common.load')}
+          {startingRemoveAll
+            ? t('management.corruption.removing')
+            : t('management.corruption.removeAllServices')}
         </Button>
-      </Tooltip>
-      <Tooltip content={t('management.corruption.scanForCorrupted')} position="top">
-        <Button
-          onClick={() => startScan()}
-          disabled={isLoading || isScanning || isAnyRemovalRunning}
-          variant="filled"
-          color="blue"
-          size="sm"
-          className="w-full sm:w-auto"
-        >
-          {isScanning ? <LoadingSpinner inline size="sm" /> : t('common.scan')}
-        </Button>
-      </Tooltip>
-      <Button
-        onClick={handleRemoveAll}
-        awaitPermissions
-        loading={startingRemoveAll}
-        disabled={
-          (isLoading && !hasInitiallyLoaded) ||
-          corruptionList.length === 0 ||
-          mockMode ||
-          anyCorruptionRemovalPending ||
-          isCorruptionRemovalActive ||
-          authMode !== 'authenticated' ||
-          logsReadOnly ||
-          cacheReadOnly ||
-          !isDockerAvailable
-        }
-        title={
-          isAnyRemovalRunning && !isCorruptionRemovalActive
-            ? t('common.notifications.willQueueBehindCurrent')
-            : undefined
-        }
-        variant="filled"
-        color="red"
-        size="sm"
-        className="w-full sm:w-auto"
-      >
-        {startingRemoveAll
-          ? t('management.corruption.removing')
-          : t('management.corruption.removeAllServices')}
-      </Button>
+      </div>
     </div>
   );
 

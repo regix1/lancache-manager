@@ -70,9 +70,9 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         onClick={handleHeaderClick}
         onKeyDown={handleKeyDown}
         onTouchEnd={handleTouchEnd}
-        className="w-full px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-left transition-all duration-200 group/header bg-transparent cursor-pointer"
+        className="w-full px-4 py-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 text-left transition-all duration-200 group/header bg-transparent cursor-pointer"
       >
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+        <div className="flex items-center gap-3 min-w-0 sm:flex-1">
           {/* Icon with animated background */}
           {Icon && (
             <div
@@ -123,7 +123,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         </div>
 
         {/* Badge and Chevron container */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 justify-end">
           {badge}
 
           {/* Chevron with rotation animation */}

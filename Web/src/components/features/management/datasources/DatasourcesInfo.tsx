@@ -273,7 +273,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   );
 
   const headerActions = (
-    <div className="flex flex-wrap items-center justify-end gap-2">
+    <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end">
       <Button
         variant="filled"
         color="gray"
@@ -332,7 +332,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                     {/* Expanded content - Position info */}
                     <div className="space-y-3">
                       {/* Access Log Section */}
-                      <div className="flex items-center justify-between gap-3 p-3 bg-themed-tertiary rounded-lg">
+                      <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-themed-tertiary rounded-lg">
                         <div className="min-w-0">
                           <div className="font-mono text-sm text-themed-primary">access.log</div>
                           <div className="text-xs text-themed-muted">
