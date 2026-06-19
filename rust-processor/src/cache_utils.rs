@@ -461,6 +461,110 @@ pub fn cache_hash_candidates_for_probe(service: &str, url: &str, max_chunks: usi
     cache_hash_candidates_iter(service, url, max_chunks).collect()
 }
 
+/// Maximum run of CONSECUTIVE absent slices tolerated by the collect-all detection walk before it
+/// concludes the object is fully enumerated and stops. A range-served object (Blizzard `/tpr/` TACT
+/// archive, Riot bundle) occupies MANY contiguous 1 MiB slices, but partial eviction can punch
+/// small holes; this gap tolerance lets the walk bridge those holes and keep counting later slices
+/// instead of stopping at the first miss (which is what the old single-slice `.find_map` did).
+///
+/// PERFORMANCE: this only bounds the PRESENT case (a real multi-slice object). For a genuine
+/// all-miss URL the walk stops after exactly this many index probes (no `no_range`/`noslice` hit and
+/// chunk 0 absent ⇒ at most `CONSECUTIVE_MISS_LIMIT` index lookups, each O(1) on the index / one
+/// `stat` on the fs path), so the incremental/eviction all-miss cost stays tightly bounded and never
+/// walks to `MAX_PROBE_CHUNKS`.
+#[allow(dead_code)]
+pub const CONSECUTIVE_MISS_LIMIT: usize = 8;
+
+/// Collect EVERY md5-hex cache-key hash that EXISTS in `index` for (service, url), covering the
+/// WHOLE on-disk object regardless of the URL's logged `bytes_served`.
+///
+/// Detection's `bytes_served` is `MAX(LogEntries.BytesServed)` per (service, url); for a range-served
+/// object each log row is ONE ~1 MiB range, so MAX can be a single slice and a size-derived chunk
+/// count would undercount. Instead we walk chunk indices 0,1,2,… and collect every present slice,
+/// stopping only after `CONSECUTIVE_MISS_LIMIT` consecutive absences (tolerating partial-eviction
+/// holes) and never past `MAX_PROBE_CHUNKS` (the perf ceiling). Over-enumeration is SAFE because we
+/// only retain candidates that ACTUALLY EXIST — non-existent slices are skipped, not counted.
+///
+/// Always probes the `no_range` + `::noslice` keys first (they have no byte range), then the ranged
+/// slices. Returns the file_name-hash strings that hit (callers map them back to paths via `index`).
+#[allow(dead_code)]
+pub fn existing_cache_hashes_for_url<F>(service: &str, url: &str, mut exists: F) -> Vec<String>
+where
+    F: FnMut(&str) -> bool,
+{
+    let service = service_name_lowercase(service);
+    let url = nginx_cache_uri(url).into_owned();
+    let mut hits: Vec<String> = Vec::new();
+
+    // Range-less keys first: `$cacheidentifier$uri` and `$cacheidentifier$uri::noslice`.
+    let no_range = calculate_md5(&format!("{}{}", service, url));
+    if exists(&no_range) {
+        hits.push(no_range);
+    }
+    let noslice = calculate_md5(&format!("{}{}::noslice", service, url));
+    if exists(&noslice) {
+        hits.push(noslice);
+    }
+
+    // Ranged slices: walk 0,1,2,… collecting every present 1 MiB slice. Stop after a run of
+    // CONSECUTIVE_MISS_LIMIT absences (bridges partial-eviction holes) or at MAX_PROBE_CHUNKS.
+    let mut consecutive_misses = 0usize;
+    let mut chunk = 0usize;
+    while chunk < MAX_PROBE_CHUNKS {
+        let start = chunk as u64 * DEFAULT_SLICE_SIZE;
+        let hash = calculate_md5(&format!("{}{}bytes={}-{}", service, url, start, chunk_end(start)));
+        if exists(&hash) {
+            hits.push(hash);
+            consecutive_misses = 0;
+        } else {
+            consecutive_misses += 1;
+            if consecutive_misses >= CONSECUTIVE_MISS_LIMIT {
+                break;
+            }
+        }
+        chunk += 1;
+    }
+
+    hits
+}
+
+/// Filesystem twin of [`existing_cache_hashes_for_url`]: collect EVERY cache-file PATH that EXISTS
+/// on disk for (service, url), covering the whole object via the same consecutive-miss-bounded walk.
+/// Used by the incremental (no-index) detection path. Same coverage and safety guarantees.
+#[allow(dead_code)]
+pub fn existing_cache_paths_for_url(cache_dir: &Path, service: &str, url: &str) -> Vec<PathBuf> {
+    let service = service_name_lowercase(service);
+    let mut hits: Vec<PathBuf> = Vec::new();
+
+    let no_range = calculate_cache_path_no_range(cache_dir, &service, url);
+    if no_range.exists() {
+        hits.push(no_range);
+    }
+    let noslice = calculate_cache_path_noslice(cache_dir, &service, url);
+    if noslice.exists() {
+        hits.push(noslice);
+    }
+
+    let mut consecutive_misses = 0usize;
+    let mut chunk = 0usize;
+    while chunk < MAX_PROBE_CHUNKS {
+        let start = chunk as u64 * DEFAULT_SLICE_SIZE;
+        let path = calculate_cache_path(cache_dir, &service, url, start, chunk_end(start));
+        if path.exists() {
+            hits.push(path);
+            consecutive_misses = 0;
+        } else {
+            consecutive_misses += 1;
+            if consecutive_misses >= CONSECUTIVE_MISS_LIMIT {
+                break;
+            }
+        }
+        chunk += 1;
+    }
+
+    hits
+}
+
 #[allow(dead_code)]
 pub fn cache_path_candidates_for_probe(
     cache_dir: &Path,

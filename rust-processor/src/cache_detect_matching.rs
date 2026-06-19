@@ -10,8 +10,12 @@ use crate::cache_detect_queries::{DownloadRecord, EpicDownloadRecord, NamedDownl
 use crate::cache_utils;
 use crate::{CacheFileInfo, GameCacheInfo, ServiceCacheInfo};
 
-/// (service, url, bytes_served) — `bytes_served` is the URL's `MAX(LogEntries.BytesServed)`,
-/// used to size the probe chunk count via `cache_utils::probe_chunks_for_bytes` (0 = unknown).
+/// (service, url, bytes_served) — `bytes_served` is the URL's `MAX(LogEntries.BytesServed)`.
+/// Detection IGNORES this value: for range-served objects (Blizzard /tpr/ TACT archives, Riot
+/// bundles) each log row is a single ~1 MiB range, so MAX can be one slice and sizing the probe
+/// from it would undercount a multi-slice object. Matching instead walks slice indices and collects
+/// every slice that actually EXISTS (see `cache_utils::existing_cache_hashes_for_url`). The field is
+/// kept in the tuple because the grouping/query layer populates it uniformly across services.
 type ServiceUrl = (String, String, i64);
 
 struct SteamGameInputs {
@@ -133,17 +137,23 @@ fn match_files_with_index_tracked(
 ) -> HashSet<PathBuf> {
     service_urls
         .par_iter()
-        .filter_map(|(service, url, bytes_served)| {
-            // Lazy iterator early-exits on the first matching hash; the chunk count is sized
-            // from the URL's byte size (clamped to [DEFAULT_MAX_CHUNKS, MAX_PROBE_CHUNKS]).
-            let result = cache_utils::cache_hash_candidates_iter(
-                service,
-                url,
-                cache_utils::probe_chunks_for_bytes(*bytes_served),
-            )
-            .find_map(|hash| cache_files_index.get(&hash).map(|info| info.path.clone()));
+        .flat_map_iter(|(service, url, _bytes_served)| {
+            // Collect EVERY existing slice for this URL, not just the first. Range-served objects
+            // (Blizzard /tpr/ TACT archives, Riot bundles) span many 1 MiB slices; the old
+            // single-slice `.find_map` early-exit undercounted them ~250x. We ignore `bytes_served`
+            // here (it is MAX(BytesServed) per URL and can be a single range for range-served
+            // objects) and instead walk slice indices, collecting all that exist in the index —
+            // safe because non-existent candidates are simply not returned. The all-miss cost is
+            // bounded by CONSECUTIVE_MISS_LIMIT, not MAX_PROBE_CHUNKS (see existing_cache_hashes_for_url).
+            let paths: Vec<PathBuf> = cache_utils::existing_cache_hashes_for_url(service, url, |hash| {
+                cache_files_index.contains_key(hash)
+            })
+            .into_iter()
+            .filter_map(|hash| cache_files_index.get(&hash).map(|info| info.path.clone()))
+            .collect();
             counter.fetch_add(1, Ordering::Relaxed);
-            result
+            // The outer HashSet dedups physical files shared across URLs.
+            paths.into_iter()
         })
         .collect()
 }
@@ -160,19 +170,14 @@ fn match_files_in_cache_tracked(
 ) -> HashSet<PathBuf> {
     service_urls
         .par_iter()
-        .filter_map(|(service, url, bytes_served)| {
-            // Chunk count sized from the URL's byte size (clamped); `.find` early-exits on the
-            // first existing path so only genuine all-misses pay the full candidate cost.
-            let result = cache_utils::cache_path_candidates_for_probe(
-                cache_dir,
-                service,
-                url,
-                cache_utils::probe_chunks_for_bytes(*bytes_served),
-            )
-            .into_iter()
-            .find(|path| path.exists());
+        .flat_map_iter(|(service, url, _bytes_served)| {
+            // Filesystem twin of the index path: collect EVERY existing slice on disk for this URL,
+            // not just the first. `bytes_served` (MAX per URL) is ignored — see the index-side
+            // comment above. The all-miss cost is bounded by CONSECUTIVE_MISS_LIMIT.
+            let paths = cache_utils::existing_cache_paths_for_url(cache_dir, service, url);
             counter.fetch_add(1, Ordering::Relaxed);
-            result
+            // The outer HashSet dedups physical files shared across URLs.
+            paths.into_iter()
         })
         .collect()
 }
@@ -459,6 +464,96 @@ mod tests {
         let riot_diablo = grouped.get("riot\u{1}Diablo").expect("riot diablo present");
         assert_eq!(riot_diablo.0, "riot");
         assert_eq!(riot_diablo.2.len(), 1);
+    }
+
+    /// Build an index keyed by md5-hex filename containing the first `n_slices` ranged slices of
+    /// (service, url), each `slice_size` bytes. Mirrors how the real on-disk index is keyed.
+    fn build_multi_slice_index(
+        service: &str,
+        url: &str,
+        n_slices: usize,
+        slice_size: u64,
+    ) -> HashMap<String, CacheFileInfo> {
+        let mut index = HashMap::new();
+        for chunk in 0..n_slices {
+            let start = chunk as u64 * cache_utils::DEFAULT_SLICE_SIZE;
+            let end = start + cache_utils::DEFAULT_SLICE_SIZE - 1;
+            let key = format!(
+                "{}{}bytes={}-{}",
+                cache_utils::service_name_lowercase(service),
+                cache_utils::nginx_cache_uri(url),
+                start,
+                end
+            );
+            let hash = cache_utils::calculate_md5(&key);
+            index.insert(
+                hash.clone(),
+                CacheFileInfo {
+                    path: PathBuf::from(format!("/cache/xx/yy/{}", hash)),
+                    size: slice_size,
+                },
+            );
+        }
+        index
+    }
+
+    /// THE undercount regression gate: a range-served object spanning MANY 1 MiB slices under a
+    /// SINGLE url must be counted as ALL its present slices (size = sum of every present slice),
+    /// even though `bytes_served` (MAX per URL) is only ~one slice. The old `.find_map` early-exit
+    /// stopped at the first slice → ~250x undercount; this proves the collect-all walk fixes it.
+    #[test]
+    fn multi_slice_url_counts_all_present_slices_not_just_first() {
+        let service = "blizzard";
+        let url = "/tpr/bnt001/data/05/d6/05d6a7b8c9d0e1f2a3b4c5d6e7f8a9b0";
+        let n_slices = 100usize; // 100 contiguous 1 MiB slices, like a TACT archive
+        let slice_size = cache_utils::DEFAULT_SLICE_SIZE;
+        let index = build_multi_slice_index(service, url, n_slices, slice_size);
+
+        // bytes_served is a SINGLE range (~1 MiB) — exactly the range-served undercount trigger.
+        let service_urls: Vec<ServiceUrl> =
+            vec![(service.to_string(), url.to_string(), slice_size as i64)];
+
+        let found = match_files_with_index(&service_urls, &index);
+        assert_eq!(
+            found.len(),
+            n_slices,
+            "all {} present slices must be found, not just the first",
+            n_slices
+        );
+
+        let total = total_size_from_index(&found, &index);
+        assert_eq!(
+            total,
+            n_slices as u64 * slice_size,
+            "total size must be the SUM of all present slices"
+        );
+    }
+
+    /// The walk must bridge a small partial-eviction hole (gap < CONSECUTIVE_MISS_LIMIT) and still
+    /// count slices on the far side of the gap.
+    #[test]
+    fn multi_slice_walk_bridges_small_eviction_holes() {
+        let service = "riot";
+        let url = "/channels/public/bundles/ABCDEF.bundle";
+        let slice_size = cache_utils::DEFAULT_SLICE_SIZE;
+        // Present slices 0..3, a 2-slice hole (3,4 absent), then 5..8 present → 7 present total.
+        let mut index = build_multi_slice_index(service, url, 9, slice_size);
+        for chunk in [3usize, 4usize] {
+            let start = chunk as u64 * cache_utils::DEFAULT_SLICE_SIZE;
+            let end = start + cache_utils::DEFAULT_SLICE_SIZE - 1;
+            let hash = cache_utils::calculate_md5(&format!(
+                "{}{}bytes={}-{}",
+                service,
+                cache_utils::nginx_cache_uri(url),
+                start,
+                end
+            ));
+            index.remove(&hash);
+        }
+
+        let service_urls: Vec<ServiceUrl> = vec![(service.to_string(), url.to_string(), 0)];
+        let found = match_files_with_index(&service_urls, &index);
+        assert_eq!(found.len(), 7, "walk must bridge the 2-slice hole and count slices 0-2 and 5-8");
     }
 
     #[test]
