@@ -5617,6 +5617,9 @@
       "epic": {
         "detecting": "正在检测 Epic 游戏"
       },
+      "named": {
+        "detecting": "正在检测暴雪/Riot 游戏..."
+      },
       "services": {
         "detecting": "正在检测非游戏服务",
         "progress": "正在处理服务 {{processed}}/{{total}}"

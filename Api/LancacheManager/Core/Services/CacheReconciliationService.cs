@@ -1508,7 +1508,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         CancellationToken ct)
     {
         var gamesToUnevict = await detectionDataService.GetGamesToUnevictAsync(context, ct);
-        if (gamesToUnevict.SteamGameAppIds.Count == 0 && gamesToUnevict.EpicAppIds.Count == 0)
+        if (gamesToUnevict.SteamGameAppIds.Count == 0
+            && gamesToUnevict.EpicAppIds.Count == 0
+            && gamesToUnevict.NamedGameKeys.Count == 0)
         {
             return 0;
         }
@@ -1517,6 +1519,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             context,
             gamesToUnevict.SteamGameAppIds,
             gamesToUnevict.EpicAppIds,
+            gamesToUnevict.NamedGameKeys,
             ct);
 
         if (unpreserveResult.SteamGamesUpdated > 0)
@@ -1533,6 +1536,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 unpreserveResult.EpicGamesUpdated);
         }
 
+        if (unpreserveResult.NamedGamesUpdated > 0)
+        {
+            logger.LogInformation(
+                "[GameDetection] Self-healed {Count} named (Blizzard/Riot) games - Downloads no longer all evicted",
+                unpreserveResult.NamedGamesUpdated);
+        }
+
         return unpreserveResult.TotalUpdated;
     }
 
@@ -1543,9 +1553,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     {
         int totalEvicted = 0;
 
-        // Steam: rows matched by GameAppId (EpicAppId is null)
+        // Steam: rows matched by GameAppId (EpicAppId is null). Exclude named (Blizzard/Riot) rows
+        // (GameAppId==0 && Service set) - those are handled by the named arm below.
         var unevictedSteamGameIds = await context.CachedGameDetections
-            .Where(g => !g.IsEvicted && g.EpicAppId == null)
+            .Where(g => !g.IsEvicted && g.EpicAppId == null
+                && !(g.GameAppId == 0 && g.Service != null && g.GameName != ""))
             .Select(g => g.GameAppId)
             .ToListAsync(ct);
 
@@ -1598,6 +1610,60 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 logger.LogInformation(
                     "[GameDetection] Marked {Count} Epic games as evicted - all Downloads now evicted",
                     epicUpdated);
+            }
+        }
+
+        // Named (Blizzard/Riot): rows matched by (Service, GameName); GameAppId always 0.
+        var unevictedNamedRows = await context.CachedGameDetections
+            .Where(g => !g.IsEvicted && g.EpicAppId == null && g.GameAppId == 0 && g.Service != null && g.GameName != "")
+            .Select(g => new { Service = g.Service!.ToLower(), g.GameName })
+            .ToListAsync(ct);
+
+        if (unevictedNamedRows.Count > 0)
+        {
+            var unevictedNamedServices = unevictedNamedRows.Select(g => g.Service).Distinct().ToList();
+
+            // (Service, GameName) groups where every named Download is now evicted.
+            var namedGroupsAllEvicted = await context.Downloads
+                .Where(d => d.GameAppId == null
+                         && d.EpicAppId == null
+                         && d.Service != null
+                         && d.GameName != null
+                         && unevictedNamedServices.Contains(d.Service!.ToLower()))
+                .GroupBy(d => new { Service = d.Service!.ToLower(), GameName = d.GameName! })
+                .Where(g => g.All(d => d.IsEvicted))
+                .Select(g => new { g.Key.Service, g.Key.GameName })
+                .ToListAsync(ct);
+
+            var evictTargets = namedGroupsAllEvicted
+                .Select(x => (x.Service, x.GameName))
+                .ToHashSet();
+
+            if (evictTargets.Count > 0)
+            {
+                var namedRowsToEvict = await context.CachedGameDetections
+                    .Where(g => !g.IsEvicted && g.EpicAppId == null && g.GameAppId == 0 && g.Service != null && g.GameName != ""
+                        && unevictedNamedServices.Contains(g.Service!.ToLower()))
+                    .ToListAsync(ct);
+
+                var namedUpdated = 0;
+                foreach (var row in namedRowsToEvict)
+                {
+                    if (evictTargets.Contains((row.Service!.ToLower(), row.GameName)))
+                    {
+                        row.IsEvicted = true;
+                        namedUpdated++;
+                    }
+                }
+
+                if (namedUpdated > 0)
+                {
+                    await context.SaveChangesAsync(ct);
+                    totalEvicted += namedUpdated;
+                    logger.LogInformation(
+                        "[GameDetection] Marked {Count} named (Blizzard/Riot) games as evicted - all Downloads now evicted",
+                        namedUpdated);
+                }
             }
         }
 

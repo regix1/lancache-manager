@@ -346,7 +346,7 @@ export interface GameCacheInfo {
   sample_urls: string[];
   cache_file_paths: string[];
   datasources: string[];
-  service?: string; // "steam" (default) or "epicgames"
+  service?: string; // "steam" (default), "epicgames", "blizzard", or "riot" — blizzard/riot games have game_app_id 0
   image_url?: string; // Game art URL (Steam header or Epic keyImages)
   epic_app_id?: string; // Epic Games catalog item ID for image proxy
   is_evicted?: boolean; // True if all cache files have been evicted (no longer on disk)

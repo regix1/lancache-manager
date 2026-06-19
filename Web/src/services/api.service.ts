@@ -1519,6 +1519,38 @@ class ApiService {
     }
   }
 
+  // Remove all cache files for a specific named game (Blizzard/Riot) by service + name (fire-and-forget, requires auth)
+  static async removeNamedGameFromCache(
+    service: string,
+    gameName: string
+  ): Promise<{
+    message: string;
+    operationId: string;
+    appId: string;
+    gameName: string;
+    status: string;
+  }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/games/named/${encodeURIComponent(service)}/${encodeURIComponent(gameName)}`,
+        this.getFetchOptions({
+          method: 'DELETE'
+          // Returns immediately with 202 Accepted - removal happens in background
+        })
+      );
+      return await this.handleResponse<{
+        message: string;
+        operationId: string;
+        appId: string;
+        gameName: string;
+        status: string;
+      }>(res);
+    } catch (error) {
+      console.error('removeNamedGameFromCache error:', error);
+      throw error;
+    }
+  }
+
   // Remove all cache files for a specific service (fire-and-forget, requires auth)
   static async removeServiceFromCache(
     serviceName: string

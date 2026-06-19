@@ -238,7 +238,70 @@ public class GamesController : ControllerBase
     }
 
     /// <summary>
-    /// Shared background removal wrapper for both Steam and Epic game removal.
+    /// DELETE /api/games/named/{service}/{gameName} - Remove a named (Blizzard/Riot) game by Service + GameName.
+    /// These games have no Steam AppId and no Epic AppId; their identity is (Service, GameName).
+    /// Uses the Rust cache_named_game_remove binary to delete cache files, log entries,
+    /// and database records - same three-step process as Epic game removal.
+    /// </summary>
+    [HttpDelete("named/{service}/{gameName}")]
+    public async Task<IActionResult> RemoveNamedGameFromCacheAsync(string service, string gameName, CancellationToken cancellationToken)
+    {
+        // Check write permissions before starting
+        var permissionError = EnsureDirectoriesWritable("remove game from cache");
+        if (permissionError != null)
+        {
+            _logger.LogWarning("[RemoveNamedGame] Permission check failed for '{Service}' / '{GameName}'", service, gameName);
+            return permissionError;
+        }
+
+        _logger.LogInformation("Starting background named game removal for: '{Service}' / '{GameName}'", service, gameName);
+
+        // Verify the named game exists in cached detection (by GameName + Service); not strictly required
+        // for the removal to run, but keeps logging/consistency aligned with the Epic precedent.
+        var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
+        _ = cachedResults?.Games?.FirstOrDefault(g =>
+            string.Equals(g.GameName, gameName, StringComparison.Ordinal) &&
+            string.Equals(g.Service, service, StringComparison.OrdinalIgnoreCase));
+
+        // Shared start path so the wait-queue can run it verbatim at promotion time.
+        Task<Guid> StartCoreAsync() => StartRemovalAsync(
+            entityKey: $"{service}:{gameName}",
+            displayName: gameName,
+            operationLabel: $"Game Removal: {gameName}",
+            appId: null,
+            entityKind: "named",
+            epicAppId: null,
+            removeFunc: (Guid opId, CancellationToken ct, Func<double, string, Dictionary<string, object?>?, int, long, Task> onProgress) =>
+                _cacheManagementService.RemoveNamedGameFromCacheAsync(service, gameName, ct, onProgress, opId),
+            onSuccess: null);
+
+        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.GameRemoval,
+            ConflictScope.NamedGame(service, gameName),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.GameRemoval, ConflictScope.NamedGame(service, gameName),
+                $"Game Removal ({gameName})",
+                async () => await StartCoreAsync(), cancellationToken));
+        }
+
+        var operationId = await StartCoreAsync();
+
+        return Accepted(new GameRemovalStartResponse
+        {
+            Message = $"Started removal of game {gameName} from cache",
+            OperationId = operationId,
+            AppId = string.Empty,
+            GameName = gameName,
+            Status = OperationStatus.Running
+        });
+    }
+
+    /// <summary>
+    /// Shared background removal wrapper for Steam, Epic, and named (Blizzard/Riot) game removal.
     /// Handles: tracker registration, Started event, Task.Run with progress/complete/error/cancel.
     /// </summary>
     /// <param name="entityKey">Tracker entity key (e.g., "123" for Steam, "epic-GameName" for Epic)</param>
@@ -257,7 +320,12 @@ public class GamesController : ControllerBase
         Func<Guid, CancellationToken, Func<double, string, Dictionary<string, object?>?, int, long, Task>, Task<CacheManagementService.GameCacheRemovalReport>> removeFunc,
         Func<long, Task>? onSuccess)
     {
+        // Epic drives the epic-specific stageKeys. Named (Blizzard/Riot) games REUSE the Steam
+        // gameRemove.* stageKeys (per contract), so only `isEpic` selects stageKeys.
         var isEpic = entityKind == "epic";
+        // Both Epic and named games are name-keyed: their payloads carry GameAppId=null
+        // (Steam is the only appId-keyed kind).
+        var isNameKeyed = entityKind != "steam";
         var startingStageKey = isEpic ? "signalr.epicRemove.starting" : "signalr.gameRemove.starting";
         var completeStageKey = isEpic ? "signalr.epicRemove.complete" : "signalr.gameRemove.complete";
         var cancelledStageKey = isEpic ? "signalr.epicRemove.cancelled" : "signalr.gameRemove.cancelled";
@@ -283,7 +351,7 @@ public class GamesController : ControllerBase
                 StartedEventName: SignalREvents.GameRemovalStarted,
                 BuildStartedPayload: id => new GameRemovalStarted(
                     OperationId: id,
-                    GameAppId: isEpic ? null : appId,
+                    GameAppId: isNameKeyed ? null : appId,
                     EpicAppId: isEpic ? epicAppId : null,
                     GameName: displayName,
                     StageKey: startingStageKey,
@@ -293,14 +361,14 @@ public class GamesController : ControllerBase
                 InitialStageKey: startingStageKey,
                 BuildInitialProgressPayload: id => new GameRemovalProgress(
                     OperationId: id,
-                    GameAppId: isEpic ? null : appId,
+                    GameAppId: isNameKeyed ? null : appId,
                     EpicAppId: isEpic ? epicAppId : null,
                     GameName: displayName,
                     StageKey: startingStageKey,
                     Context: RemovalContext(displayName, appId, epicAppId)),
                 BuildProgressPayload: (id, update) => new GameRemovalProgress(
                     OperationId: id,
-                    GameAppId: isEpic ? null : appId,
+                    GameAppId: isNameKeyed ? null : appId,
                     EpicAppId: isEpic ? epicAppId : null,
                     GameName: displayName,
                     StageKey: update.StageKey,
@@ -312,7 +380,7 @@ public class GamesController : ControllerBase
                 FinalizingStageKey: "signalr.gameRemove.finalizing",
                 BuildFinalizingProgressPayload: (id, report) => new GameRemovalProgress(
                     OperationId: id,
-                    GameAppId: isEpic ? null : appId,
+                    GameAppId: isNameKeyed ? null : appId,
                     EpicAppId: isEpic ? epicAppId : null,
                     GameName: displayName,
                     StageKey: "signalr.gameRemove.finalizing",
@@ -329,7 +397,7 @@ public class GamesController : ControllerBase
                 BuildSuccessPayload: (id, report) => new GameRemovalComplete(
                     Success: true,
                     OperationId: id,
-                    GameAppId: isEpic ? null : appId,
+                    GameAppId: isNameKeyed ? null : appId,
                     EpicAppId: isEpic ? epicAppId : null,
                     StageKey: completeStageKey,
                     GameName: displayName,
@@ -346,14 +414,14 @@ public class GamesController : ControllerBase
                 BuildCancelledPayload: id => new GameRemovalComplete(
                     Success: false,
                     OperationId: id,
-                    GameAppId: isEpic ? null : appId,
+                    GameAppId: isNameKeyed ? null : appId,
                     EpicAppId: isEpic ? epicAppId : null,
                     StageKey: cancelledStageKey,
                     GameName: displayName,
                     Context: RemovalContext(displayName, appId, epicAppId)),
                 BuildErrorProgressPayload: (id, ex) => new GameRemovalProgress(
                     OperationId: id,
-                    GameAppId: isEpic ? null : appId,
+                    GameAppId: isNameKeyed ? null : appId,
                     EpicAppId: isEpic ? epicAppId : null,
                     GameName: displayName,
                     StageKey: errorStageKey,
@@ -362,7 +430,7 @@ public class GamesController : ControllerBase
                 BuildErrorCompletePayload: (id, ex) => new GameRemovalComplete(
                     Success: false,
                     OperationId: id,
-                    GameAppId: isEpic ? null : appId,
+                    GameAppId: isNameKeyed ? null : appId,
                     EpicAppId: isEpic ? epicAppId : null,
                     StageKey: errorStageKey,
                     GameName: displayName,
@@ -481,6 +549,10 @@ public class GamesController : ControllerBase
                 break;
             case "epic":
                 epicAppId = metrics.EpicAppId ?? metrics.EntityKey;
+                break;
+            case "named":
+                // Named (Blizzard/Riot) games carry no Steam AppId and no Epic AppId.
+                // Identity lives in EntityKey ("service:gameName") + EntityName; leave both ids null.
                 break;
             default:
                 // Legacy rows persisted before EntityKind existed - preserve numeric compat.

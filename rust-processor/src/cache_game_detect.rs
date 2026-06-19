@@ -23,16 +23,20 @@ mod progress_utils;
 use cache_detect_matching::{
     detect_epic_game_cache_info,
     detect_epic_game_cache_info_incremental,
+    detect_named_game_cache_info,
+    detect_named_game_cache_info_incremental,
     detect_service_cache_info,
     detect_service_cache_info_incremental,
     detect_steam_game_cache_info,
     detect_steam_game_cache_info_incremental,
     group_epic_records,
     group_game_records,
+    group_named_records,
 };
 use cache_detect_queries::{
     query_epic_game_downloads,
     query_game_downloads,
+    query_named_game_downloads,
     query_service_downloads,
 };
 use progress_events::ProgressReporter;
@@ -401,7 +405,7 @@ async fn main() -> Result<()> {
                     "cancelled",
                     "signalr.gameDetect.epic.detecting",
                     json!({ "processed": epic_processed, "total": total_epic }),
-                    78.0 + (epic_processed as f64 / total_epic.max(1) as f64) * 2.0,
+                    78.0 + (epic_processed as f64 / total_epic.max(1) as f64) * 1.0,
                     processed_count + epic_processed,
                     total_games + total_epic,
                 )?;
@@ -449,6 +453,80 @@ async fn main() -> Result<()> {
         eprintln!("\n=== Epic Game Scan Complete ===");
     } else {
         eprintln!("No Epic games found in database");
+    }
+
+    // PHASE 3c: Detect name-keyed games (Blizzard/Riot) - same approach as Epic, but
+    // identity = (Service, GameName) and GameAppId stays 0 (no AppId, no EpicAppId).
+    eprintln!("\n=== Phase 3c: Detecting Named (Blizzard/Riot) Games ===");
+    write_progress(progress_path.as_deref(), "matching", "signalr.gameDetect.named.detecting", json!({}), 79.0, 0, 0)?;
+    reporter.emit_progress(79.0, "signalr.gameDetect.named.detecting", json!({}));
+
+    let named_records = query_named_game_downloads(&pool).await?;
+
+    if !named_records.is_empty() {
+        let named_map = group_named_records(&named_records);
+
+        let total_named = named_map.len();
+        eprintln!("Found {} unique named games to check", total_named);
+
+        let mut named_processed = 0;
+        for (_key, (service, game_name, service_urls)) in &named_map {
+            // Cooperative cancel: check between named game iterations
+            if cancel::is_cancelled() {
+                eprintln!("\nCancel requested — stopping named game scan after {}/{} games", named_processed, total_named);
+                write_progress(
+                    progress_path.as_deref(),
+                    "cancelled",
+                    "signalr.gameDetect.named.detecting",
+                    json!({ "processed": named_processed, "total": total_named }),
+                    79.0 + (named_processed as f64 / total_named.max(1) as f64) * 1.0,
+                    processed_count + named_processed,
+                    total_games + total_named,
+                )?;
+                std::process::exit(0);
+            }
+
+            named_processed += 1;
+            eprint!("  [{}/{}] Matching named game {}/{} - {} URLs... ",
+                    named_processed, total_named, service, game_name, service_urls.len());
+
+            let result = if incremental_mode {
+                detect_named_game_cache_info_incremental(service, game_name, service_urls, &cache_dir)
+            } else {
+                let cache_index = cache_files_index
+                    .as_ref()
+                    .context("Cache file index missing during full named game scan")?;
+                detect_named_game_cache_info(service, game_name, service_urls, cache_index)
+            };
+
+            match result {
+                Ok(info) => {
+                    if info.cache_files_found > 0 {
+                        let size_gb = info.total_size_bytes as f64 / 1_073_741_824.0;
+                        let size_mb = info.total_size_bytes as f64 / 1_048_576.0;
+
+                        if size_gb >= 1.0 {
+                            eprintln!("FOUND {} files ({:.2} GB)", info.cache_files_found, size_gb);
+                        } else {
+                            eprintln!("FOUND {} files ({:.2} MB)", info.cache_files_found, size_mb);
+                        }
+
+                        total_files_found += info.cache_files_found;
+                        total_bytes_found += info.total_size_bytes;
+                        detected_games.push(info);
+                    } else {
+                        eprintln!("no cache files found");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("ERROR: {}", e);
+                }
+            }
+        }
+
+        eprintln!("\n=== Named Game Scan Complete ===");
+    } else {
+        eprintln!("No named (Blizzard/Riot) games found in database");
     }
 
     eprintln!("\nTotal game cache files found: {}", total_files_found);
@@ -677,11 +755,22 @@ async fn main() -> Result<()> {
     fs::write(&output_json, json)?;
 
     let epic_game_count = report.games.iter().filter(|g| g.epic_app_id.is_some()).count();
-    let steam_game_count = report.total_games_detected - epic_game_count;
+    // Named (Blizzard/Riot) games: GameAppId 0, no EpicAppId, but carry a non-steam service.
+    let named_game_count = report
+        .games
+        .iter()
+        .filter(|g| {
+            g.epic_app_id.is_none()
+                && g.game_app_id == 0
+                && g.service.as_deref().map(|s| s != "steam").unwrap_or(false)
+        })
+        .count();
+    let steam_game_count = report.total_games_detected - epic_game_count - named_game_count;
 
     eprintln!("\n=== Detection Summary ===");
     eprintln!("Steam games with cache files: {}", steam_game_count);
     eprintln!("Epic games with cache files: {}", epic_game_count);
+    eprintln!("Named (Blizzard/Riot) games with cache files: {}", named_game_count);
     eprintln!("Total games with cache files: {}", report.total_games_detected);
     eprintln!("Services with cache files: {}", report.total_services_detected);
     eprintln!("Total cache files: {}", total_files_found + service_files_found);

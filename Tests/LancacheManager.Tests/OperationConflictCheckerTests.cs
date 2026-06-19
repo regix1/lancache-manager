@@ -103,6 +103,83 @@ public class OperationConflictCheckerTests
         Assert.Null(response);
     }
 
+    [Fact]
+    public async Task Blocks_NamedGameRemoval_When_ServiceRemoval_IsActive_ForSameServiceAsync()
+    {
+        // A service-wide removal for "blizzard" must cover (block) a named Blizzard game removal.
+        using var tracker = new TrackerHarness();
+        RegisterServiceRemoval(tracker.Tracker, serviceName: "blizzard");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.GameRemoval,
+            ConflictScope.NamedGame("blizzard", "Diablo IV"),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.serviceWideActive", response!.StageKey);
+        Assert.Equal("service:blizzard", response.ActiveOperationScope);
+        Assert.Equal(nameof(OperationType.ServiceRemoval), response.ActiveOperationType);
+    }
+
+    [Fact]
+    public async Task Allows_NamedGameRemoval_When_ServiceRemoval_IsActive_ForDifferentServiceAsync()
+    {
+        using var tracker = new TrackerHarness();
+        RegisterServiceRemoval(tracker.Tracker, serviceName: "riot");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.GameRemoval,
+            ConflictScope.NamedGame("blizzard", "Diablo IV"),
+            CancellationToken.None);
+
+        Assert.Null(response);
+    }
+
+    [Fact]
+    public async Task Blocks_NamedGameRemoval_When_SameNamedGameRemoval_IsActiveAsync()
+    {
+        using var tracker = new TrackerHarness();
+        RegisterNamedGameRemoval(tracker.Tracker, service: "blizzard", gameName: "Diablo IV");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.GameRemoval,
+            ConflictScope.NamedGame("blizzard", "Diablo IV"),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.duplicate", response!.StageKey);
+    }
+
+    [Fact]
+    public async Task Allows_NamedGameRemoval_When_DifferentNamedGameRemoval_IsActiveAsync()
+    {
+        using var tracker = new TrackerHarness();
+        RegisterNamedGameRemoval(tracker.Tracker, service: "blizzard", gameName: "Diablo IV");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.GameRemoval,
+            ConflictScope.NamedGame("blizzard", "Overwatch"),
+            CancellationToken.None);
+
+        Assert.Null(response);
+    }
+
+    private static void RegisterNamedGameRemoval(IUnifiedOperationTracker tracker, string service, string gameName)
+    {
+        // Mirrors GamesController.RemoveNamedGameFromCacheAsync: entityKind "named",
+        // entityKey "{service}:{gameName}".
+        tracker.RegisterOperation(
+            OperationType.GameRemoval,
+            $"Game Removal: {gameName}",
+            new CancellationTokenSource(),
+            new RemovalMetrics
+            {
+                EntityKind = "named",
+                EntityKey = $"{service}:{gameName}",
+                EntityName = gameName
+            });
+    }
+
     private static void RegisterLogRemoval(IUnifiedOperationTracker tracker, string serviceName)
     {
         tracker.RegisterOperation(

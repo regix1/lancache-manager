@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::cache_detect_queries::{DownloadRecord, EpicDownloadRecord};
+use crate::cache_detect_queries::{DownloadRecord, EpicDownloadRecord, NamedDownloadRecord};
 use crate::cache_utils;
 use crate::{CacheFileInfo, GameCacheInfo, ServiceCacheInfo};
 
@@ -52,6 +52,37 @@ pub(crate) fn group_epic_records(
     }
 
     epic_map
+}
+
+/// Separator used to build the composite `(service, game_name)` key for named games.
+/// `\u{1}` (Start-of-Heading) cannot appear in a service or game name, so it is a safe
+/// delimiter that keeps the two parts unambiguously recoverable.
+const NAMED_KEY_SEP: char = '\u{1}';
+
+/// Build the composite key for a name-keyed game. Service is lowercased so
+/// "Blizzard" and "blizzard" collapse to one game.
+pub(crate) fn named_game_key(service: &str, game_name: &str) -> String {
+    format!("{}{}{}", service.to_lowercase(), NAMED_KEY_SEP, game_name)
+}
+
+/// Group name-keyed (Blizzard/Riot) download records by `(service, game_name)`.
+/// Mirrors `group_epic_records` but uses a composite string key instead of EpicAppId.
+/// Returns: key -> (service_lowercase, game_name, service_urls).
+pub(crate) fn group_named_records(
+    records: &[NamedDownloadRecord],
+) -> HashMap<String, (String, String, Vec<ServiceUrl>)> {
+    let mut named_map: HashMap<String, (String, String, Vec<ServiceUrl>)> = HashMap::new();
+
+    for record in records {
+        let service_lc = record.service.to_lowercase();
+        let key = named_game_key(&record.service, &record.game_name);
+        let entry = named_map.entry(key).or_insert_with(|| {
+            (service_lc.clone(), record.game_name.clone(), Vec::new())
+        });
+        entry.2.push((service_lc.clone(), record.url.clone(), record.bytes_served));
+    }
+
+    named_map
 }
 
 fn collect_steam_game_inputs(records: &[DownloadRecord]) -> Result<SteamGameInputs> {
@@ -322,4 +353,127 @@ pub(crate) fn detect_epic_game_cache_info_incremental(
         found_files,
         total_size,
     ))
+}
+
+/// Build a `GameCacheInfo` for a name-keyed game (Blizzard/Riot). Unlike Epic, the
+/// GameAppId stays 0 (no synthetic id — banners are name-keyed) and `epic_app_id` is None.
+/// `service` carries the owning service ("blizzard"/"riot") so removal can scope by it.
+fn build_named_game_cache_info(
+    service: &str,
+    game_name: &str,
+    service_urls: &[ServiceUrl],
+    found_files: HashSet<PathBuf>,
+    total_size_bytes: u64,
+) -> GameCacheInfo {
+    let sample_urls =
+        cache_utils::sorted_sample_urls(service_urls.iter().map(|(_, url, _)| url.as_str()), 5);
+
+    GameCacheInfo {
+        game_app_id: 0,
+        game_name: game_name.to_string(),
+        cache_files_found: found_files.len(),
+        total_size_bytes,
+        depot_ids: Vec::new(),
+        sample_urls,
+        cache_file_paths: cache_file_paths(&found_files),
+        service: Some(service.to_lowercase()),
+        epic_app_id: None,
+    }
+}
+
+pub(crate) fn detect_named_game_cache_info(
+    service: &str,
+    game_name: &str,
+    service_urls: &[ServiceUrl],
+    cache_files_index: &HashMap<String, CacheFileInfo>,
+) -> Result<GameCacheInfo> {
+    let found_files = match_files_with_index(service_urls, cache_files_index);
+    let total_size = total_size_from_index(&found_files, cache_files_index);
+
+    Ok(build_named_game_cache_info(
+        service,
+        game_name,
+        service_urls,
+        found_files,
+        total_size,
+    ))
+}
+
+pub(crate) fn detect_named_game_cache_info_incremental(
+    service: &str,
+    game_name: &str,
+    service_urls: &[ServiceUrl],
+    cache_dir: &Path,
+) -> Result<GameCacheInfo> {
+    let found_files = match_files_in_cache(service_urls, cache_dir);
+    let total_size = total_size_from_filesystem(&found_files);
+
+    Ok(build_named_game_cache_info(
+        service,
+        game_name,
+        service_urls,
+        found_files,
+        total_size,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache_detect_queries::NamedDownloadRecord;
+
+    fn rec(service: &str, game_name: &str, url: &str, bytes: i64) -> NamedDownloadRecord {
+        NamedDownloadRecord {
+            service: service.to_string(),
+            game_name: game_name.to_string(),
+            url: url.to_string(),
+            bytes_served: bytes,
+        }
+    }
+
+    #[test]
+    fn named_key_is_service_lowercased_plus_name() {
+        // Service is lowercased; game name preserved verbatim.
+        assert_eq!(named_game_key("Blizzard", "Diablo IV"), "blizzard\u{1}Diablo IV");
+        assert_eq!(named_game_key("blizzard", "Diablo IV"), "blizzard\u{1}Diablo IV");
+    }
+
+    #[test]
+    fn group_named_records_keeps_distinct_games_separate() {
+        // Same game name under two services must NOT collapse (Blizzard "X" vs Riot "X").
+        let records = vec![
+            rec("Blizzard", "Diablo", "http://b/1", 100),
+            rec("Blizzard", "Diablo", "http://b/2", 200),
+            rec("riot", "Diablo", "http://r/1", 50),
+            rec("blizzard", "Overwatch", "http://b/3", 300),
+        ];
+        let grouped = group_named_records(&records);
+        // 3 distinct (service, game) keys.
+        assert_eq!(grouped.len(), 3);
+
+        let blizz_diablo = grouped.get("blizzard\u{1}Diablo").expect("blizzard diablo present");
+        assert_eq!(blizz_diablo.0, "blizzard");
+        assert_eq!(blizz_diablo.1, "Diablo");
+        assert_eq!(blizz_diablo.2.len(), 2);
+
+        let riot_diablo = grouped.get("riot\u{1}Diablo").expect("riot diablo present");
+        assert_eq!(riot_diablo.0, "riot");
+        assert_eq!(riot_diablo.2.len(), 1);
+    }
+
+    #[test]
+    fn build_named_game_cache_info_keeps_app_id_zero_and_no_epic_id() {
+        let info = build_named_game_cache_info(
+            "Blizzard",
+            "Diablo",
+            &[("blizzard".to_string(), "http://b/1".to_string(), 0)],
+            HashSet::new(),
+            0,
+        );
+        assert_eq!(info.game_app_id, 0);
+        assert_eq!(info.epic_app_id, None);
+        assert_eq!(info.service.as_deref(), Some("blizzard"));
+        assert!(info.depot_ids.is_empty());
+        assert_eq!(info.game_name, "Diablo");
+    }
 }

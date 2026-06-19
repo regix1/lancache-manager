@@ -56,7 +56,45 @@ public sealed class GameCacheDetectionDataService
                 .Distinct()
                 .ToListAsync(cancellationToken);
 
-        return new CachedGameUnevictTargets(steamGameIdsToUnevict, epicAppIdsToUnevict);
+        // Named (Blizzard/Riot) arm: evicted named detections keyed by (Service, GameName), matched
+        // to non-evicted named Downloads (GameAppId/EpicAppId both null, GameName set). Without this
+        // a re-cached Blizzard/Riot game would never self-heal (the Steam arm above only matches
+        // Downloads with a non-null GameAppId, which named games never have).
+        var evictedNamedKeys = await context.CachedGameDetections
+            .Where(g => g.IsEvicted && g.EpicAppId == null && g.GameAppId == 0 && g.Service != null
+                     && g.GameName != null && g.GameName != "")
+            .Select(g => new { Service = g.Service!.ToLower(), g.GameName })
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        var namedKeysToUnevict = new List<NamedGameKey>();
+        if (evictedNamedKeys.Count > 0)
+        {
+            var evictedNamedServices = evictedNamedKeys.Select(k => k.Service).Distinct().ToList();
+            var liveNamedDownloads = await context.Downloads
+                .Where(d => d.GameAppId == null
+                         && d.EpicAppId == null
+                         && d.Service != null
+                         && d.GameName != null
+                         && d.GameName != ""
+                         && !d.IsEvicted
+                         && evictedNamedServices.Contains(d.Service!.ToLower()))
+                .Select(d => new { Service = d.Service!.ToLower(), GameName = d.GameName! })
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            var liveNamedSet = liveNamedDownloads
+                .Select(d => (d.Service, d.GameName))
+                .ToHashSet();
+
+            namedKeysToUnevict = evictedNamedKeys
+                .Where(k => liveNamedSet.Contains((k.Service, k.GameName)))
+                .Select(k => new NamedGameKey(k.Service, k.GameName))
+                .Distinct()
+                .ToList();
+        }
+
+        return new CachedGameUnevictTargets(steamGameIdsToUnevict, epicAppIdsToUnevict, namedKeysToUnevict);
     }
 
     /// <summary>
@@ -87,6 +125,7 @@ public sealed class GameCacheDetectionDataService
             .Where(d => d.GameAppId == null
                      && d.EpicAppId == null
                      && d.Service != null
+                     && d.GameName == null
                      && !d.IsEvicted
                      && evictedServiceNames.Contains(d.Service!.ToLower()))
             .Select(d => d.Service!.ToLower())
@@ -127,8 +166,12 @@ public sealed class GameCacheDetectionDataService
             })
             .ToDictionaryAsync(x => x.Key, x => (x.Count, x.Bytes), cancellationToken);
 
+        // Service evicted accounting: only NULL-GameName service-residual Downloads (shared/agnostic
+        // paths). Named (Blizzard/Riot) games carry GameName, so they are excluded here and counted
+        // separately via namedEvictedMap below - otherwise they'd be double-claimed by both the
+        // service and the game eviction accounting.
         var serviceEvictedMap = await dbContext.Downloads
-            .Where(d => d.IsEvicted && d.GameAppId == null && d.EpicAppId == null && d.Service != null)
+            .Where(d => d.IsEvicted && d.GameAppId == null && d.EpicAppId == null && d.Service != null && d.GameName == null)
             .GroupBy(d => d.Service!.ToLower())
             .Select(g => new
             {
@@ -138,6 +181,22 @@ public sealed class GameCacheDetectionDataService
             })
             .ToDictionaryAsync(x => x.Key, x => (x.Count, x.Bytes), cancellationToken);
 
+        // Named (Blizzard/Riot) evicted accounting keyed by (Service, GameName).
+        var namedEvictedFlat = await dbContext.Downloads
+            .Where(d => d.IsEvicted && d.GameAppId == null && d.EpicAppId == null && d.Service != null && d.GameName != null)
+            .GroupBy(d => new { Service = d.Service!.ToLower(), GameName = d.GameName! })
+            .Select(g => new
+            {
+                g.Key.Service,
+                g.Key.GameName,
+                Count = g.Count(),
+                Bytes = (ulong)g.Sum(x => x.CacheHitBytes + x.CacheMissBytes)
+            })
+            .ToListAsync(cancellationToken);
+
+        var namedEvictedMap = namedEvictedFlat
+            .ToDictionary(x => (x.Service, x.GameName), x => (x.Count, x.Bytes));
+
         foreach (var game in games)
         {
             if (game.EpicAppId != null)
@@ -146,6 +205,14 @@ public sealed class GameCacheDetectionDataService
                 {
                     game.EvictedDownloadsCount = epicEntry.Count;
                     game.EvictedBytes = epicEntry.Bytes;
+                }
+            }
+            else if (game.GameAppId == 0 && game.Service != null)
+            {
+                if (namedEvictedMap.TryGetValue((game.Service.ToLower(), game.GameName), out var namedEntry))
+                {
+                    game.EvictedDownloadsCount = namedEntry.Count;
+                    game.EvictedBytes = namedEntry.Bytes;
                 }
             }
             else if (steamEvictedMap.TryGetValue(game.GameAppId, out var steamEntry))
@@ -201,13 +268,31 @@ public sealed class GameCacheDetectionDataService
                 && le.Download.IsEvicted
                 && le.Download.GameAppId == null
                 && le.Download.EpicAppId == null
-                && le.Download.Service != null)
+                && le.Download.Service != null
+                && le.Download.GameName == null)
             .Select(le => new { le.Download!.Service, le.Url })
             .Distinct()
             .ToListAsync(cancellationToken);
 
         var serviceEvictedUrlMap = serviceEvictedUrlFlat
             .GroupBy(x => x.Service!.ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.Select(x => x.Url).Take(20).ToList());
+
+        var namedEvictedUrlFlat = await dbContext.LogEntries
+            .AsNoTracking()
+            .Where(le => le.DownloadId != null
+                && le.Download != null
+                && le.Download.IsEvicted
+                && le.Download.GameAppId == null
+                && le.Download.EpicAppId == null
+                && le.Download.Service != null
+                && le.Download.GameName != null)
+            .Select(le => new { le.Download!.Service, le.Download.GameName, le.Url })
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        var namedEvictedUrlMap = namedEvictedUrlFlat
+            .GroupBy(x => (x.Service!.ToLowerInvariant(), x.GameName!))
             .ToDictionary(g => g.Key, g => g.Select(x => x.Url).Take(20).ToList());
 
         var steamEvictedDepotFlat = await dbContext.Downloads
@@ -228,6 +313,14 @@ public sealed class GameCacheDetectionDataService
                 if (epicEvictedUrlMap.TryGetValue(game.EpicAppId, out var epicUrls))
                 {
                     game.EvictedSampleUrls = epicUrls;
+                }
+            }
+            else if (game.GameAppId == 0 && game.Service != null)
+            {
+                // Named (Blizzard/Riot) game: no depots; sample URLs keyed by (Service, GameName).
+                if (namedEvictedUrlMap.TryGetValue((game.Service.ToLowerInvariant(), game.GameName), out var namedUrls))
+                {
+                    game.EvictedSampleUrls = namedUrls;
                 }
             }
             else
@@ -478,20 +571,61 @@ public sealed class GameCacheDetectionDataService
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
+        // Discriminator for named (Blizzard/Riot) games: GameAppId==0 && EpicAppId==null && Service != null
+        // && GameName != "". These have no Steam AppId and no Epic AppId; identity is (Service, GameName).
+        static bool IsNamed(GameCacheInfo g) =>
+            g.EpicAppId == null && g.GameAppId == 0 && g.Service != null && g.GameName != "";
+
+        // Composite (Service, GameName) key for named games. The separator () cannot appear in
+        // a service name or game name, matching Rust's '\u{1}' composite-key separator so the build
+        // side and lookup side can never collide ambiguously. Always use this helper on BOTH sides.
+        static string MakeNamedKey(string service, string gameName) =>
+            service.ToLower() + "" + gameName;
+
         if (!incremental)
         {
-            var incomingSteamIds = games.Where(g => g.EpicAppId == null).Select(g => g.GameAppId).ToList();
+            var incomingSteamIds = games
+                .Where(g => g.EpicAppId == null && !IsNamed(g))
+                .Select(g => g.GameAppId)
+                .ToList();
             var incomingEpicIds = games.Where(g => g.EpicAppId != null).Select(g => g.EpicAppId!).ToList();
+            // Named keys present in this scan, so the non-incremental delete below preserves them.
+            var incomingNamedKeys = games
+                .Where(IsNamed)
+                .Select(g => MakeNamedKey(g.Service!, g.GameName))
+                .ToHashSet();
 
-            await dbContext.CachedGameDetections
+            // Materialize candidate-for-deletion rows, then filter named rows in memory (EF can't
+            // translate the composite (Service,GameName) HashSet membership) so incoming named games
+            // are preserved exactly like Steam/Epic.
+            var deletionCandidates = await dbContext.CachedGameDetections
                 .Where(g => !g.IsEvicted
-                    && (g.EpicAppId == null ? !incomingSteamIds.Contains(g.GameAppId)
-                                            : !incomingEpicIds.Contains(g.EpicAppId!)))
-                .ExecuteDeleteAsync(cancellationToken);
+                    && (g.EpicAppId == null
+                            ? (g.GameAppId == 0 && g.Service != null && g.GameName != ""
+                                // Named row: keep only if NOT in the incoming named set (handled in memory).
+                                ? true
+                                : !incomingSteamIds.Contains(g.GameAppId))
+                            : !incomingEpicIds.Contains(g.EpicAppId!)))
+                .Select(g => new { g.Id, g.GameAppId, g.EpicAppId, g.Service, g.GameName })
+                .ToListAsync(cancellationToken);
+
+            var idsToDelete = deletionCandidates
+                .Where(g => !(g.EpicAppId == null && g.GameAppId == 0 && g.Service != null && g.GameName != ""
+                              && incomingNamedKeys.Contains(MakeNamedKey(g.Service!, g.GameName))))
+                .Select(g => g.Id)
+                .ToList();
+
+            if (idsToDelete.Count > 0)
+            {
+                await dbContext.CachedGameDetections
+                    .Where(g => idsToDelete.Contains(g.Id))
+                    .ExecuteDeleteAsync(cancellationToken);
+            }
         }
 
-        var steamGames = games.Where(g => g.EpicAppId == null).ToList();
+        var steamGames = games.Where(g => g.EpicAppId == null && !IsNamed(g)).ToList();
         var epicGames = games.Where(g => g.EpicAppId != null).ToList();
+        var namedGames = games.Where(IsNamed).ToList();
 
         var uniqueSteamGames = steamGames
             .GroupBy(g => g.GameAppId)
@@ -503,15 +637,24 @@ public sealed class GameCacheDetectionDataService
             .Select(group => group.Last())
             .ToList();
 
-        var uniqueGames = uniqueSteamGames.Concat(uniqueEpicGames).ToList();
+        var uniqueNamedGames = namedGames
+            .GroupBy(g => (g.Service!.ToLower(), g.GameName))
+            .Select(group => group.Last())
+            .ToList();
+
+        var uniqueGames = uniqueSteamGames
+            .Concat(uniqueEpicGames)
+            .Concat(uniqueNamedGames)
+            .ToList();
 
         if (uniqueGames.Count < games.Count)
         {
             _logger.LogWarning(
-                "[GameDetection] Removed {DuplicateCount} duplicate entries from detection results ({Steam} Steam, {Epic} Epic unique)",
+                "[GameDetection] Removed {DuplicateCount} duplicate entries from detection results ({Steam} Steam, {Epic} Epic, {Named} named unique)",
                 games.Count - uniqueGames.Count,
                 uniqueSteamGames.Count,
-                uniqueEpicGames.Count);
+                uniqueEpicGames.Count,
+                uniqueNamedGames.Count);
         }
 
         var now = DateTime.UtcNow;
@@ -519,7 +662,9 @@ public sealed class GameCacheDetectionDataService
         var existingSteamDict = incomingSteamAppIds.Count == 0
             ? new Dictionary<long, CachedGameDetection>()
             : await dbContext.CachedGameDetections
-                .Where(g => g.EpicAppId == null && incomingSteamAppIds.Contains(g.GameAppId))
+                .Where(g => g.EpicAppId == null
+                    && !(g.GameAppId == 0 && g.Service != null && g.GameName != "")
+                    && incomingSteamAppIds.Contains(g.GameAppId))
                 .ToDictionaryAsync(g => g.GameAppId, cancellationToken);
 
         var incomingEpicAppIds = uniqueEpicGames.Select(g => g.EpicAppId!).ToList();
@@ -528,6 +673,28 @@ public sealed class GameCacheDetectionDataService
             : await dbContext.CachedGameDetections
                 .Where(g => g.EpicAppId != null && incomingEpicAppIds.Contains(g.EpicAppId!))
                 .ToDictionaryAsync(g => g.EpicAppId!, cancellationToken);
+
+        // Existing named rows keyed by (Service.ToLower(), GameName). EF can't key a dictionary on a
+        // tuple from SQL, so we pull the candidate rows (services in the incoming set) and build the
+        // dict in memory.
+        var incomingNamedServices = uniqueNamedGames.Select(g => g.Service!.ToLower()).Distinct().ToList();
+        var existingNamedDict = new Dictionary<(string Service, string GameName), CachedGameDetection>();
+        if (incomingNamedServices.Count > 0)
+        {
+            var existingNamedRows = await dbContext.CachedGameDetections
+                .Where(g => g.EpicAppId == null
+                    && g.GameAppId == 0
+                    && g.Service != null
+                    && g.GameName != ""
+                    && incomingNamedServices.Contains(g.Service!.ToLower()))
+                .ToListAsync(cancellationToken);
+
+            foreach (var row in existingNamedRows)
+            {
+                var key = (row.Service!.ToLower(), row.GameName);
+                existingNamedDict[key] = row;
+            }
+        }
 
         foreach (var game in uniqueGames)
         {
@@ -551,6 +718,11 @@ public sealed class GameCacheDetectionDataService
             if (cachedGame.EpicAppId != null)
             {
                 existingEpicDict.TryGetValue(cachedGame.EpicAppId, out existing);
+            }
+            else if (cachedGame.GameAppId == 0 && cachedGame.Service != null && cachedGame.GameName != "")
+            {
+                // Named (Blizzard/Riot) game: key on (Service, GameName), not GameAppId (always 0).
+                existingNamedDict.TryGetValue((cachedGame.Service!.ToLower(), cachedGame.GameName), out existing);
             }
             else
             {
@@ -769,6 +941,7 @@ public sealed class GameCacheDetectionDataService
             .Where(d => d.GameAppId == null
                      && d.EpicAppId == null
                      && d.Service != null
+                     && d.GameName == null
                      && !d.IsEvicted)
             .Select(d => d.Service!)
             .Distinct()
@@ -985,4 +1158,11 @@ public sealed class GameCacheDetectionDataService
 
 internal readonly record struct CachedGameUnevictTargets(
     IReadOnlyList<long> SteamGameAppIds,
-    IReadOnlyList<string> EpicAppIds);
+    IReadOnlyList<string> EpicAppIds,
+    IReadOnlyList<NamedGameKey> NamedGameKeys);
+
+/// <summary>
+/// Identity of a named (Blizzard/Riot) game in the detection/eviction layer:
+/// (lowercased Service, GameName). Used where neither GameAppId nor EpicAppId exists.
+/// </summary>
+internal readonly record struct NamedGameKey(string Service, string GameName);

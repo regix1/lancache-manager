@@ -5647,6 +5647,9 @@
       "epic": {
         "detecting": "Detecting Epic games"
       },
+      "named": {
+        "detecting": "Detecting Blizzard/Riot games..."
+      },
       "services": {
         "detecting": "Detecting non-game services",
         "progress": "Processing service {{processed}}/{{total}}"

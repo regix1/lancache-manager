@@ -10,6 +10,7 @@ namespace LancacheManager.Models;
 /// <list type="bullet">
 ///   <item><description><c>Kind="steam"</c>, <c>Key=appId.ToString(InvariantCulture)</c></description></item>
 ///   <item><description><c>Kind="epic"</c>,  <c>Key=epicAppId ?? gameName</c> (case-sensitive - Epic slugs are lowercase)</description></item>
+///   <item><description><c>Kind="named"</c>, <c>Key="{service.ToLowerInvariant()}:{gameName}"</c> (Blizzard/Riot games keyed by Service+GameName)</description></item>
 ///   <item><description><c>Kind="service"</c>, <c>Key=serviceName.ToLowerInvariant()</c></description></item>
 ///   <item><description><c>Kind="bulk"</c>,  <c>Key=""</c> (sentinel - bulk never <see cref="Matches"/> any entity)</description></item>
 /// </list>
@@ -18,6 +19,7 @@ public readonly record struct ConflictScope(string Kind, string Key)
 {
     public static ConflictScope SteamGame(long appId) => new("steam", appId.ToString(CultureInfo.InvariantCulture));
     public static ConflictScope EpicGame(string? epicAppId, string gameName) => new("epic", epicAppId ?? gameName);
+    public static ConflictScope NamedGame(string service, string gameName) => new("named", $"{service.ToLowerInvariant()}:{gameName}");
     public static ConflictScope Service(string serviceName) => new("service", serviceName.ToLowerInvariant());
     public static ConflictScope Bulk() => new("bulk", string.Empty);
 
@@ -29,8 +31,9 @@ public readonly record struct ConflictScope(string Kind, string Key)
 
     /// <summary>
     /// True if <c>this</c> is a service-level scope that covers <paramref name="other"/>
-    /// (a steam/epic game belonging to that service). The caller must pass the game's service name
-    /// (derivable from <see cref="Kind"/>: "steam" → "steam", "epic" → "epicgames").
+    /// (a steam/epic/named game belonging to that service). The caller must pass the game's service name
+    /// (derivable from <see cref="Kind"/>: "steam" → "steam", "epic" → "epicgames", "named" → the
+    /// blizzard/riot service the game belongs to).
     /// </summary>
     public bool Covers(ConflictScope other, string? otherGameService) =>
         Kind == "service" && otherGameService != null &&

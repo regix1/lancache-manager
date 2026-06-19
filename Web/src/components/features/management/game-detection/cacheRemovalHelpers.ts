@@ -121,12 +121,15 @@ export async function runTrackedGameRemoval({
   const gameAppId = game.game_app_id;
   const gameName = game.game_name;
   const isEpic = game.service === 'epicgames';
+  const isNamed = !isEpic && gameAppId === 0 && !!game.service && game.service !== 'steam';
   const epicAppId = game.epic_app_id;
 
   try {
     const response = isEpic
       ? await ApiService.removeEpicGameFromCache(gameName)
-      : await ApiService.removeGameFromCache(gameAppId);
+      : isNamed
+        ? await ApiService.removeNamedGameFromCache(game.service!, gameName)
+        : await ApiService.removeGameFromCache(gameAppId);
 
     addNotification({
       type: 'game_removal',
@@ -135,7 +138,13 @@ export async function runTrackedGameRemoval({
       details: {
         operationId: response.operationId,
         gameName,
-        ...(isEpic ? (epicAppId ? { epicAppId } : {}) : { gameAppId })
+        ...(isEpic
+          ? epicAppId
+            ? { epicAppId }
+            : {}
+          : isNamed
+            ? { service: game.service }
+            : { gameAppId })
       }
     });
 

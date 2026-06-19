@@ -144,6 +144,11 @@ public interface IPathResolver
     string GetRustEpicRemoverPath();
 
     /// <summary>
+    /// Gets the path to the Rust named-game (Blizzard/Riot) remover executable
+    /// </summary>
+    string GetRustNamedGameRemoverPath();
+
+    /// <summary>
     /// Gets the path to the Rust service remover executable
     /// </summary>
     string GetRustServiceRemoverPath();

@@ -69,8 +69,8 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
     private static OperationConflictResponse? Evaluate(OperationType newType, ConflictScope newScope, OperationInfo activeOp)
     {
         var activeScope = DeriveScope(activeOp);
-        var activeService = ServiceForKind(activeScope.Kind);
-        var newService = ServiceForKind(newScope.Kind);
+        var activeService = ServiceForScope(activeScope);
+        var newService = ServiceForScope(newScope);
 
         // ---- 1. Global-catastrophic: DatabaseReset / CacheClearing ----
         // Any new op is blocked by an active global; a new global blocks any active op.
@@ -429,21 +429,35 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
     };
 
     /// <summary>
-    /// Hardcoded mapping from game kind → service name for the <c>Covers</c> check.
+    /// Maps a game scope → the service name it belongs to, for the <c>Covers</c> check.
     /// ServiceRemoval svc="steam" covers GameRemoval steam:480 (service = "steam").
     /// ServiceRemoval svc="epicgames" covers GameRemoval epic:fn (service = "epicgames").
+    /// Named (Blizzard/Riot) games encode their service in the Key prefix
+    /// (<c>"{service}:{gameName}"</c>), so a ServiceRemoval svc="blizzard" covers
+    /// a named GameRemoval named:"blizzard:Diablo".
     /// </summary>
-    private static string? ServiceForKind(string kind) => kind switch
+    private static string? ServiceForScope(ConflictScope scope) => scope.Kind switch
     {
         "steam" => "steam",
         "epic" => "epicgames",
+        "named" => NamedScopeService(scope.Key),
         "service" => null,   // a service scope IS a service, not a member of one
         "bulk" => null,
         _ => null
     };
 
+    /// <summary>
+    /// Extracts the lowercased service name from a named scope Key (<c>"{service}:{gameName}"</c>).
+    /// The service is the prefix up to the FIRST ':' (gameName may itself contain ':').
+    /// </summary>
+    private static string? NamedScopeService(string key)
+    {
+        var idx = key.IndexOf(':');
+        return idx <= 0 ? null : key[..idx];
+    }
+
     private static bool IsEntityScoped(ConflictScope scope) =>
-        scope.Kind == "steam" || scope.Kind == "epic";
+        scope.Kind == "steam" || scope.Kind == "epic" || scope.Kind == "named";
 
     /// <summary>
     /// Operation types that may not overlap a CacheSizeScan (in either direction):

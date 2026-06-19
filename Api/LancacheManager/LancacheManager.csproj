@@ -163,6 +163,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_epic_remove.exe</Link>
     </None>
+    <None Include="..\..\rust-processor\target\release\cache_named_game_remove.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_named_game_remove.exe</Link>
+    </None>
     <None Include="..\..\rust-processor\target\release\cache_purge_log_entries.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_purge_log_entries.exe</Link>
@@ -218,6 +222,10 @@
     <None Include="..\..\rust-processor\bin\win-x64\cache_epic_remove.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_epic_remove.exe</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\win-x64\cache_named_game_remove.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_named_game_remove.exe</Link>
     </None>
     <None Include="..\..\rust-processor\bin\win-x64\cache_purge_log_entries.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -275,6 +283,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_epic_remove</Link>
     </None>
+    <None Include="..\..\rust-processor\bin\linux-x64\cache_named_game_remove">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_named_game_remove</Link>
+    </None>
     <None Include="..\..\rust-processor\bin\linux-x64\cache_purge_log_entries">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_purge_log_entries</Link>
@@ -331,6 +343,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_epic_remove</Link>
     </None>
+    <None Include="..\..\rust-processor\bin\linux-arm64\cache_named_game_remove">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_named_game_remove</Link>
+    </None>
     <None Include="..\..\rust-processor\bin\linux-arm64\cache_purge_log_entries">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_purge_log_entries</Link>
@@ -386,6 +402,10 @@
     <None Include="../../rust-processor/target/release/cache_epic_remove">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor/cache_epic_remove</Link>
+    </None>
+    <None Include="../../rust-processor/target/release/cache_named_game_remove">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor/cache_named_game_remove</Link>
     </None>
     <None Include="../../rust-processor/target/release/cache_purge_log_entries">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

@@ -26,6 +26,18 @@ pub(crate) struct EpicDownloadRecord {
     pub(crate) bytes_served: i64,
 }
 
+/// Name-keyed game record for services without an AppId or EpicAppId (Blizzard, Riot).
+/// Identity = (Service, GameName); GameAppId/EpicAppId are both NULL on the Download.
+/// Mirrors `EpicDownloadRecord` but drops the `epic_app_id` column.
+#[derive(Debug)]
+pub(crate) struct NamedDownloadRecord {
+    pub(crate) service: String,
+    pub(crate) game_name: String,
+    pub(crate) url: String,
+    /// Max bytes observed for this URL (`MAX(LogEntries.BytesServed)`); sizes the probe chunk count.
+    pub(crate) bytes_served: i64,
+}
+
 pub(crate) async fn query_game_downloads(
     pool: &PgPool,
     max_urls_per_game: Option<usize>,
@@ -233,10 +245,15 @@ pub(crate) async fn query_service_downloads(
 ) -> Result<HashMap<String, Vec<(String, String, i64)>>> {
     eprintln!("Querying LogEntries for non-game services...");
 
-    // Anti-join against both mapping paths so URLs already handled per-game in
-    // Phase 3 (mapped Steam depots) or Phase 3b (Epic downloads) are not
-    // re-probed here. Without this, the "steam" bucket re-scans every URL
-    // already matched per-game - typically millions of redundant probes.
+    // Anti-join against all per-game mapping paths so URLs already handled per-game in
+    // Phase 3 (mapped Steam depots), Phase 3b (Epic downloads), or Phase 3c (name-keyed
+    // Blizzard/Riot games) are not re-probed here. Without these, the service bucket
+    // re-scans every URL already matched per-game - typically millions of redundant
+    // probes - AND double-counts named-game URLs as both a game and the service.
+    //
+    // The `dn` anti-join excludes ONLY Downloads that resolved to a named game
+    // (GameName IS NOT NULL). Shared/agnostic paths with NULL GameName (e.g. shared
+    // Blizzard TACT segments) legitimately stay in the service bucket - that is correct.
     //
     // GROUP BY (Service, Url) + MAX(BytesServed) replaces the old SELECT DISTINCT so each
     // (service, url) carries the URL's largest observed size for probe-chunk sizing.
@@ -247,12 +264,18 @@ pub(crate) async fn query_service_downloads(
             ON le.\"DepotId\" = sdm.\"DepotId\" AND sdm.\"IsOwner\" = true
         LEFT JOIN \"Downloads\" d
             ON le.\"DownloadId\" = d.\"Id\" AND d.\"EpicAppId\" IS NOT NULL
+        LEFT JOIN \"Downloads\" dn
+            ON le.\"DownloadId\" = dn.\"Id\"
+           AND dn.\"GameAppId\" IS NULL
+           AND dn.\"EpicAppId\" IS NULL
+           AND dn.\"GameName\" IS NOT NULL
         WHERE le.\"Service\" IS NOT NULL
           AND le.\"Url\" IS NOT NULL
           AND LOWER(le.\"Service\") NOT IN ('unknown', 'localhost')
           AND le.\"Service\" != ''
           AND sdm.\"DepotId\" IS NULL
           AND d.\"Id\" IS NULL
+          AND dn.\"Id\" IS NULL
         GROUP BY le.\"Service\", le.\"Url\"
         ORDER BY le.\"Service\"
     ";
@@ -314,5 +337,49 @@ pub(crate) async fn query_epic_game_downloads(pool: &PgPool) -> Result<Vec<EpicD
         .collect();
 
     eprintln!("Found {} Epic game URLs", records.len());
+    Ok(records)
+}
+
+/// Query LogEntries for name-keyed game URLs (Blizzard, Riot) - games that have a
+/// GameName but neither a Steam AppId nor an Epic AppId. Identity = (Service, GameName).
+/// Mirrors `query_epic_game_downloads` but gates on
+/// `GameAppId IS NULL AND EpicAppId IS NULL AND GameName IS NOT NULL` instead of EpicAppId.
+pub(crate) async fn query_named_game_downloads(
+    pool: &PgPool,
+) -> Result<Vec<NamedDownloadRecord>> {
+    eprintln!("Querying LogEntries for named (Blizzard/Riot) game URLs...");
+
+    // GROUP BY (Service, Url, GameName) + MAX(BytesServed) so each named (service, url)
+    // carries the URL's largest observed size for probe-chunk sizing.
+    // Service is taken from d."Service" (the Downloads service) on ALL of SELECT/GROUP BY/ORDER BY
+    // so the detected service value matches the column the removal binary (cache_named_game_remove)
+    // gates on (LOWER(d."Service") = $service). d."Service" is NOT NULL and equals le."Service" at
+    // ingest, but Downloads.Service is the authoritative removal key.
+    let rows = sqlx::query(
+        "SELECT d.\"Service\", le.\"Url\", d.\"GameName\", MAX(le.\"BytesServed\") AS \"MaxBytes\"
+         FROM \"LogEntries\" le
+         INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
+         WHERE d.\"GameAppId\" IS NULL
+           AND d.\"EpicAppId\" IS NULL
+           AND d.\"GameName\" IS NOT NULL
+           AND d.\"IsEvicted\" = false
+           AND le.\"Url\" IS NOT NULL
+         GROUP BY d.\"Service\", le.\"Url\", d.\"GameName\"
+         ORDER BY d.\"Service\", d.\"GameName\"",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let records: Vec<NamedDownloadRecord> = rows
+        .iter()
+        .map(|row| NamedDownloadRecord {
+            service: row.get::<String, _>("Service"),
+            url: row.get::<String, _>("Url"),
+            game_name: row.get::<String, _>("GameName"),
+            bytes_served: row.get::<Option<i64>, _>("MaxBytes").unwrap_or(0),
+        })
+        .collect();
+
+    eprintln!("Found {} named game URLs", records.len());
     Ok(records)
 }

@@ -21,6 +21,7 @@ $Binaries = @(
     "cache_game_detect",       # Detect games in cache (was game_cache_detector)
     "cache_game_remove",       # Remove game from cache (was game_cache_remover)
     "cache_epic_remove",       # Remove Epic game from cache by name
+    "cache_named_game_remove", # Remove Blizzard/Riot named game from cache by name
     "cache_service_remove",    # Remove service from cache (was service_remover)
     "cache_eviction_scan",     # Scan cache and mark evicted downloads
     "cache_purge_log_entries", # Bulk-purge access.log entries for evicted games

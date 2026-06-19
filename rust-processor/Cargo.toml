@@ -61,6 +61,11 @@ path = "src/cache_game_remove.rs"
 name = "cache_epic_remove"
 path = "src/cache_epic_remove.rs"
 
+# Remove all cache files for a specific name-keyed (Blizzard/Riot) game by service + name
+[[bin]]
+name = "cache_named_game_remove"
+path = "src/cache_named_game_remove.rs"
+
 # Remove all cache files for a specific service (non-Steam)
 [[bin]]
 name = "cache_service_remove"
