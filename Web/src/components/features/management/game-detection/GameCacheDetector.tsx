@@ -610,7 +610,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         color="gray"
         size="sm"
         onClick={handleExpandCollapseAll}
-        disabled={actionsPending}
+        disabled={actionsPending || !sectionExpanded}
         className="w-full sm:w-auto"
       >
         {allExpanded

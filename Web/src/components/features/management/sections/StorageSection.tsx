@@ -691,6 +691,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                         color="gray"
                         size="sm"
                         onClick={handleEvictionExpandCollapseAll}
+                        disabled={!evictedDataExpanded}
                         className="w-full sm:w-auto"
                       >
                         {evictionAllExpanded
