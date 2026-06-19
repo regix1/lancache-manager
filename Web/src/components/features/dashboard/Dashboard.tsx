@@ -19,7 +19,7 @@ import {
   Move,
   Check
 } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
+import { useTranslation, Trans } from 'react-i18next';
 import {
   useStats,
   useDownloads,
@@ -855,7 +855,9 @@ const Dashboard: React.FC = () => {
           <div className="flex items-center justify-between py-3 px-4 themed-border-radius bg-themed-secondary text-themed-muted text-sm">
             <div className="flex items-center gap-2">
               <span>💡</span>
-              <span dangerouslySetInnerHTML={{ __html: t('dashboard.dragHint') }} />
+              <span>
+                <Trans i18nKey="dashboard.dragHint" components={{ strong: <strong /> }} />
+              </span>
             </div>
             <button
               onClick={hideDragHint}

@@ -422,6 +422,11 @@ public class AuthController : ControllerBase
             return BadRequest(new { error = "Duration must be 1 or 2 hours" });
         }
 
+        if (request.MaxThreadCount.HasValue && (request.MaxThreadCount < 1 || request.MaxThreadCount > 32))
+        {
+            return BadRequest(new { error = "Max thread count must be between 1 and 32" });
+        }
+
         _sessionService.SetSteamGuestPrefillEnabled(request.EnabledByDefault);
         _sessionService.SetGuestPrefillDurationHours(request.DurationHours);
         _stateService.SetDefaultGuestMaxThreadCount(request.MaxThreadCount);
@@ -471,6 +476,11 @@ public class AuthController : ControllerBase
         if (request.DurationHours != 1 && request.DurationHours != 2)
         {
             return BadRequest(new { error = "Duration must be 1 or 2 hours" });
+        }
+
+        if (request.MaxThreadCount.HasValue && (request.MaxThreadCount < 1 || request.MaxThreadCount > 32))
+        {
+            return BadRequest(new { error = "Max thread count must be between 1 and 32" });
         }
 
         _stateService.SetEpicGuestPrefillEnabledByDefault(request.EnabledByDefault);

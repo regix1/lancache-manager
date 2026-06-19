@@ -418,7 +418,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Clears cache for a specific app (for force re-download).
     /// </summary>
-    [Authorize(Policy = "AnyPrefillAccess")]
+    [Authorize(Policy = "AdminOnly")]
     [HttpDelete("cache/{appId}")]
     public async Task<ActionResult> ClearAppCacheAsync(long appId)
     {
@@ -430,7 +430,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Clears the entire prefill cache.
     /// </summary>
-    [Authorize(Policy = "AnyPrefillAccess")]
+    [Authorize(Policy = "AdminOnly")]
     [HttpDelete("cache")]
     public async Task<ActionResult> ClearAllCacheAsync()
     {

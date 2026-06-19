@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { Activity, Clock, HardDrive, TrendingUp, RefreshCw } from 'lucide-react';
 import { type TFunction } from 'i18next';
-import { useTranslation } from 'react-i18next';
+import { useTranslation, Trans } from 'react-i18next';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
 import BadgesRow from '../downloads/BadgesRow';
 import { Card } from '@components/ui/Card';
@@ -1287,15 +1287,16 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
       {viewMode === 'recent' && groupedItems.totalGroups > displayCount && (
         <div className="panel-footer">
-          <div
-            className="footer-stat"
-            dangerouslySetInnerHTML={{
-              __html: t('dashboard.downloadsPanel.showing', {
+          <div className="footer-stat">
+            <Trans
+              i18nKey="dashboard.downloadsPanel.showing"
+              values={{
                 displayed: Math.min(displayCount, groupedItems.displayedItems.length),
                 total: groupedItems.totalGroups
-              })
-            }}
-          />
+              }}
+              components={{ strong: <strong /> }}
+            />
+          </div>
           <div className="footer-stat">
             <strong>{stats.totalDownloads}</strong> {t('dashboard.downloadsPanel.totalDownloads')}
           </div>

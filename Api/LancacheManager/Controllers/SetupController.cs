@@ -122,7 +122,9 @@ public class SetupController : ControllerBase
             }
 
             var tempPath = configPath + ".tmp";
-            await System.IO.File.WriteAllTextAsync(tempPath, json);
+
+            await WriteOwnerOnlyFileAsync(tempPath, json);
+
             System.IO.File.Move(tempPath, configPath, true);
 
             // Restrict to owner read/write only on POSIX. On Windows, ACLs are managed separately
@@ -246,7 +248,9 @@ public class SetupController : ControllerBase
             }
 
             var tempPath = configPath + ".tmp";
-            await System.IO.File.WriteAllTextAsync(tempPath, json);
+
+            await WriteOwnerOnlyFileAsync(tempPath, json);
+
             System.IO.File.Move(tempPath, configPath, true);
 
             if (!OperatingSystem.IsWindows())
@@ -277,5 +281,32 @@ public class SetupController : ControllerBase
             Message = "External database credentials saved. Restart the container to apply.",
             RestartRequired = true
         });
+    }
+
+    /// <summary>
+    /// Writes <paramref name="contents"/> to <paramref name="path"/> with owner-only (0600)
+    /// permissions applied BEFORE the bytes are written, so a plaintext password never has a
+    /// world-readable window on POSIX. On Windows UnixCreateMode is unsupported (throws), so we
+    /// fall back to a plain write there - ACLs are managed separately. Callers are expected to
+    /// File.Move this into place and re-apply SetUnixFileMode(0600) post-move as defense-in-depth.
+    /// </summary>
+    private static async Task WriteOwnerOnlyFileAsync(string path, string contents)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            var tempStreamOptions = new FileStreamOptions
+            {
+                Mode = FileMode.Create,
+                Access = FileAccess.Write,
+                UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite
+            };
+            await using var tempStream = new FileStream(path, tempStreamOptions);
+            await using var tempWriter = new StreamWriter(tempStream);
+            await tempWriter.WriteAsync(contents);
+        }
+        else
+        {
+            await System.IO.File.WriteAllTextAsync(path, contents);
+        }
     }
 }

@@ -1011,8 +1011,9 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             // Update the database record with the username
             await _sessionService.SetUsernameAsync(sessionId, credential);
 
-            _logger.LogInformation("Captured username for session {SessionId}: {Username}",
-                sessionId, credential);
+            // Do not log the username at Information level - it is PII. The value is
+            // persisted via SetUsernameAsync above; keep only the session id in the log.
+            _logger.LogDebug("Captured username for session {SessionId}", sessionId);
 
             // Broadcast session update to all clients for real-time updates (both hubs)
             var updatedDto = DaemonSessionDto.FromSession(session);

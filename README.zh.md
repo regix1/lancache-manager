@@ -344,6 +344,7 @@ volumes:
 | `Security__ApiKeyPath` | `/data/security/api_key.txt` | 覆盖管理员 API 密钥读写的文件路径。当从 `/data` 外部绑定挂载密钥时很有用。 |
 | `Security__KnownProxyNetworks` | （空） | 逗号分隔的可信代理网络 CIDR 列表，用于 `X-Forwarded-For`（例如 `172.16.0.0/12,10.0.0.0/8`）。当 nginx、Traefik 或其他反向代理前置时设置此项，以便正确报告客户端 IP。回环地址始终受信任。 |
 | `Security__TrustAllProxies` | `false` | 无条件信任所有上游代理。方便本地开发。**切勿在暴露于 Internet 的主机上启用**——任何人都可以伪造客户端 IP。 |
+| `Security__ForceSecureCookies` | `false` | 即使请求未被识别为 HTTPS，也强制在会话 cookie 上设置 `Secure` 标志。在 TLS 终止反向代理后运行时启用。 |
 
 #### 访问级别
 

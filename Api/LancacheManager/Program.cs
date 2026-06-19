@@ -407,7 +407,14 @@ builder.Services.AddHttpClient("SteamImages", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(15); // Shorter timeout for image fetches
     client.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
-});
+    // Cap the buffered response so a hostile/oversized image URL can't exhaust memory.
+    client.MaxResponseContentBufferSize = 16 * 1024 * 1024; // 16 MB
+})
+// Follow redirects (legitimate image URLs often respond 301/302 for http->https or CDN edge
+// hops, and GameImageFetchService treats any non-2xx as failure), but cap the chain at 3 to
+// bound the redirect surface - far tighter than the framework default of 50 and with no
+// functional regression. The MaxResponseContentBufferSize cap above remains the primary DoS guard.
+.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { MaxAutomaticRedirections = 3 });
 
 // Register Authentication Services
 builder.Services.AddSingleton<ApiKeyService>();
@@ -837,7 +844,6 @@ app.UseForwardedHeaders();
 
 // Security headers - applied to every HTTP response (API, SignalR negotiate, static files,
 // SPA fallback). Placed before UseStaticFiles so OnPrepareResponse overrides do not drop these.
-// CSP is intentionally NOT set here: the SPA bundle would need an inline-script audit first.
 app.Use(async (context, next) =>
 {
     var headers = context.Response.Headers;
@@ -846,6 +852,12 @@ app.Use(async (context, next) =>
     headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
     // OWASP-recommended denial of sensor/device features the admin UI never uses.
     headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()";
+    // Content-Security-Policy is REPORT-ONLY for now: it surfaces violations without blocking,
+    // so it cannot break the SPA bundle. Promote to the enforcing "Content-Security-Policy"
+    // header once an inline-script audit of the bundle confirms nothing relies on inline JS.
+    headers["Content-Security-Policy-Report-Only"] =
+        "default-src 'self'; img-src 'self' https: data:; connect-src 'self' ws: wss:; " +
+        "frame-ancestors 'none'; object-src 'none'; base-uri 'self'";
     await next();
 });
 

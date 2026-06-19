@@ -9,6 +9,7 @@ using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.RegularExpressions;
 
 namespace LancacheManager.Controllers;
 
@@ -21,6 +22,10 @@ namespace LancacheManager.Controllers;
 [Authorize]
 public class CacheController : ControllerBase
 {
+    // Mirrors DatasourceService's datasource-name validation: only safe service identifiers,
+    // so a malicious {service} route value can't traverse paths via Path.Combine downstream.
+    private static readonly Regex _serviceNameRegex = new("^[A-Za-z0-9._-]+$", RegexOptions.Compiled);
+
     private readonly CacheManagementService _cacheService;
     private readonly CacheClearingService _cacheClearingService;
     private readonly ILogger<CacheController> _logger;
@@ -393,6 +398,11 @@ public class CacheController : ControllerBase
         [FromQuery] bool compareToCacheLogs = true,
         [FromQuery] string detectionMode = "miss_count")
     {
+        if (!_serviceNameRegex.IsMatch(service))
+        {
+            return BadRequest(new ErrorResponse { Error = "Invalid service name" });
+        }
+
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.CorruptionDetection,
             ConflictScope.Service(service),
@@ -446,6 +456,11 @@ public class CacheController : ControllerBase
     [HttpDelete("services/{service}/corruption")]
     public async Task<IActionResult> RemoveCorruptedChunksAsync(string service, CancellationToken cancellationToken, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
     {
+        if (!_serviceNameRegex.IsMatch(service))
+        {
+            return BadRequest(new ErrorResponse { Error = "Invalid service name" });
+        }
+
         var datasources = _datasourceService.GetDatasources();
 
         // CRITICAL: Check write permissions BEFORE starting (or queueing) the operation

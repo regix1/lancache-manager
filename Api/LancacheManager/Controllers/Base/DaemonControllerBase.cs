@@ -3,6 +3,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Middleware;
 using LancacheManager.Infrastructure.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers.Base;
@@ -50,6 +51,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     /// <summary>
     /// Gets all active daemon sessions (admin only)
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("sessions")]
     public ActionResult<IEnumerable<DaemonSessionDto>> GetAllSessions()
     {

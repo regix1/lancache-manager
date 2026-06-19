@@ -463,10 +463,14 @@ public class SessionService
 
     public void SetSessionCookie(HttpContext httpContext, string rawToken, DateTime expiresAtUtc)
     {
+        // Default-false opt-in: when true, force the Secure flag even on plain-HTTP requests
+        // (e.g. behind a TLS-terminating reverse proxy). Defaults to false so plain-HTTP LAN
+        // deployments keep working — the cookie is only marked Secure on real HTTPS requests.
+        var forceSecure = _configuration.GetValue<bool>("Security:ForceSecureCookies");
         httpContext.Response.Cookies.Append(CookieName, rawToken, new CookieOptions
         {
             HttpOnly = true,
-            Secure = httpContext.Request.IsHttps,
+            Secure = forceSecure || httpContext.Request.IsHttps,
             SameSite = SameSiteMode.Lax,
             Path = "/",
             Expires = new DateTimeOffset(expiresAtUtc)
@@ -475,10 +479,11 @@ public class SessionService
 
     public void ClearSessionCookie(HttpContext httpContext)
     {
+        var forceSecure = _configuration.GetValue<bool>("Security:ForceSecureCookies");
         httpContext.Response.Cookies.Delete(CookieName, new CookieOptions
         {
             HttpOnly = true,
-            Secure = httpContext.Request.IsHttps,
+            Secure = forceSecure || httpContext.Request.IsHttps,
             SameSite = SameSiteMode.Lax,
             Path = "/"
         });
