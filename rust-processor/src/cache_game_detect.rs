@@ -304,7 +304,7 @@ async fn main() -> Result<()> {
         // Cooperative cancel: check between Steam game iterations (read-only, safe to stop here)
         if cancel::is_cancelled() {
             eprintln!("\nCancel requested — stopping Steam game scan after {}/{} games", processed_count, total_games);
-            let partial_percent = 30.0 + (processed_count as f64 / total_games.max(1) as f64) * 50.0;
+            let partial_percent = 30.0 + (processed_count as f64 / total_games.max(1) as f64) * 40.0;
             write_progress(
                 progress_path.as_deref(),
                 "cancelled",
@@ -330,7 +330,7 @@ async fn main() -> Result<()> {
             0
         };
         if processed_count % 5 == 0 || current_percent >= last_progress_update + 10 || processed_count == total_games {
-            let progress_percent = 30.0 + (processed_count as f64 / total_games.max(1) as f64) * 50.0;
+            let progress_percent = 30.0 + (processed_count as f64 / total_games.max(1) as f64) * 40.0;
             write_progress(
                 progress_path.as_deref(),
                 "matching",
@@ -383,9 +383,12 @@ async fn main() -> Result<()> {
     eprintln!("Total Steam game cache size: {:.2} GB", total_bytes_found as f64 / 1_073_741_824.0);
 
     // PHASE 3b: Detect Epic games using cache file scanning (same approach as Steam)
+    // Band 70.0 -> 75.0 so the phase advances perceptibly with per-game ticks
+    // (matching Steam's `processed`/`totalGames` context shape) instead of a
+    // single flash at one percent.
     eprintln!("\n=== Phase 3b: Detecting Epic Games ===");
-    write_progress(progress_path.as_deref(), "matching", "signalr.gameDetect.epic.detecting", json!({}), 78.0, 0, 0)?;
-    reporter.emit_progress(78.0, "signalr.gameDetect.epic.detecting", json!({}));
+    write_progress(progress_path.as_deref(), "matching", "signalr.gameDetect.epic.detecting", json!({}), 70.0, 0, 0)?;
+    reporter.emit_progress(70.0, "signalr.gameDetect.epic.detecting", json!({}));
 
     let epic_records = query_epic_game_downloads(&pool).await?;
 
@@ -403,9 +406,9 @@ async fn main() -> Result<()> {
                 write_progress(
                     progress_path.as_deref(),
                     "cancelled",
-                    "signalr.gameDetect.epic.detecting",
-                    json!({ "processed": epic_processed, "total": total_epic }),
-                    78.0 + (epic_processed as f64 / total_epic.max(1) as f64) * 1.0,
+                    "signalr.gameDetect.epic.progress",
+                    json!({ "processed": epic_processed, "totalGames": total_epic, "name": game_name }),
+                    70.0 + (epic_processed as f64 / total_epic.max(1) as f64) * 5.0,
                     processed_count + epic_processed,
                     total_games + total_epic,
                 )?;
@@ -415,6 +418,24 @@ async fn main() -> Result<()> {
             epic_processed += 1;
             eprint!("  [{}/{}] Matching Epic game {} ({}) - {} URLs... ",
                     epic_processed, total_epic, epic_id, game_name, service_urls.len());
+
+            // Per-game progress so the Epic phase visibly advances across its band.
+            let epic_percent = 70.0 + (epic_processed as f64 / total_epic.max(1) as f64) * 5.0;
+            let epic_context = json!({
+                "processed": epic_processed,
+                "totalGames": total_epic,
+                "name": game_name,
+            });
+            write_progress(
+                progress_path.as_deref(),
+                "matching",
+                "signalr.gameDetect.epic.progress",
+                epic_context.clone(),
+                epic_percent,
+                processed_count + epic_processed,
+                total_games + total_epic,
+            )?;
+            reporter.emit_progress(epic_percent, "signalr.gameDetect.epic.progress", epic_context);
 
             let result = if incremental_mode {
                 detect_epic_game_cache_info_incremental(epic_id, game_name, service_urls, &cache_dir)
@@ -457,9 +478,11 @@ async fn main() -> Result<()> {
 
     // PHASE 3c: Detect name-keyed games (Blizzard/Riot) - same approach as Epic, but
     // identity = (Service, GameName) and GameAppId stays 0 (no AppId, no EpicAppId).
+    // Band 75.0 -> 80.0 with per-game ticks so the Blizzard/Riot phase is as
+    // visible as Steam/Epic (was a single flash inside a 1% band, 79->80).
     eprintln!("\n=== Phase 3c: Detecting Named (Blizzard/Riot) Games ===");
-    write_progress(progress_path.as_deref(), "matching", "signalr.gameDetect.named.detecting", json!({}), 79.0, 0, 0)?;
-    reporter.emit_progress(79.0, "signalr.gameDetect.named.detecting", json!({}));
+    write_progress(progress_path.as_deref(), "matching", "signalr.gameDetect.named.detecting", json!({}), 75.0, 0, 0)?;
+    reporter.emit_progress(75.0, "signalr.gameDetect.named.detecting", json!({}));
 
     let named_records = query_named_game_downloads(&pool).await?;
 
@@ -477,9 +500,9 @@ async fn main() -> Result<()> {
                 write_progress(
                     progress_path.as_deref(),
                     "cancelled",
-                    "signalr.gameDetect.named.detecting",
-                    json!({ "processed": named_processed, "total": total_named }),
-                    79.0 + (named_processed as f64 / total_named.max(1) as f64) * 1.0,
+                    "signalr.gameDetect.named.progress",
+                    json!({ "processed": named_processed, "totalGames": total_named, "name": game_name }),
+                    75.0 + (named_processed as f64 / total_named.max(1) as f64) * 5.0,
                     processed_count + named_processed,
                     total_games + total_named,
                 )?;
@@ -489,6 +512,24 @@ async fn main() -> Result<()> {
             named_processed += 1;
             eprint!("  [{}/{}] Matching named game {}/{} - {} URLs... ",
                     named_processed, total_named, service, game_name, service_urls.len());
+
+            // Per-game progress so the named phase visibly advances across its band.
+            let named_percent = 75.0 + (named_processed as f64 / total_named.max(1) as f64) * 5.0;
+            let named_context = json!({
+                "processed": named_processed,
+                "totalGames": total_named,
+                "name": game_name,
+            });
+            write_progress(
+                progress_path.as_deref(),
+                "matching",
+                "signalr.gameDetect.named.progress",
+                named_context.clone(),
+                named_percent,
+                processed_count + named_processed,
+                total_games + total_named,
+            )?;
+            reporter.emit_progress(named_percent, "signalr.gameDetect.named.progress", named_context);
 
             let result = if incremental_mode {
                 detect_named_game_cache_info_incremental(service, game_name, service_urls, &cache_dir)

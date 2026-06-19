@@ -5645,10 +5645,12 @@
         "progress": "Processing game {{processed}}/{{totalGames}}"
       },
       "epic": {
-        "detecting": "Detecting Epic games"
+        "detecting": "Detecting Epic games",
+        "progress": "Detecting Epic game {{processed}}/{{totalGames}}: {{name}}"
       },
       "named": {
-        "detecting": "Detecting Blizzard/Riot games..."
+        "detecting": "Detecting Blizzard/Riot games...",
+        "progress": "Detecting Blizzard/Riot game {{processed}}/{{totalGames}}: {{name}}"
       },
       "services": {
         "detecting": "Detecting non-game services",

@@ -5615,10 +5615,12 @@
         "progress": "正在处理游戏 {{processed}}/{{totalGames}}"
       },
       "epic": {
-        "detecting": "正在检测 Epic 游戏"
+        "detecting": "正在检测 Epic 游戏",
+        "progress": "正在检测 Epic 游戏 {{processed}}/{{totalGames}}：{{name}}"
       },
       "named": {
-        "detecting": "正在检测暴雪/Riot 游戏..."
+        "detecting": "正在检测暴雪/Riot 游戏...",
+        "progress": "正在检测暴雪/Riot 游戏 {{processed}}/{{totalGames}}：{{name}}"
       },
       "services": {
         "detecting": "正在检测非游戏服务",
