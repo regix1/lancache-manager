@@ -22,22 +22,19 @@ public class AuthController : ControllerBase
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly StateService _stateService;
     private readonly ISignalRNotificationService _signalR;
-    private readonly IConfiguration _configuration;
 
     public AuthController(
         SessionService sessionService,
         ILogger<AuthController> logger,
         IDbContextFactory<AppDbContext> dbContextFactory,
         StateService stateService,
-        ISignalRNotificationService signalR,
-        IConfiguration configuration)
+        ISignalRNotificationService signalR)
     {
         _sessionService = sessionService;
         _logger = logger;
         _dbContextFactory = dbContextFactory;
         _stateService = stateService;
         _signalR = signalR;
-        _configuration = configuration;
     }
 
     [AllowAnonymous]
@@ -49,6 +46,20 @@ public class AuthController : ControllerBase
         Response.Headers["Expires"] = "0";
 
         var session = HttpContext.GetUserSession();
+
+        // When authentication is disabled via config, the frontend is told it is an admin, but no
+        // real session/cookie is ever created. Every session-scoped surface (SignalR download +
+        // prefill-daemon hubs, user preferences, prefill access) then silently fails: the hubs reject
+        // the connection "without session" and preferences return 400. Mint a real admin session (and
+        // set its cookie) on first contact so those features work under disabled auth. Subsequent
+        // requests carry the cookie, so GetUserSession() resolves it and we do not mint again.
+        var authenticationEnabled = _sessionService.IsAuthenticationEnabled();
+        if (!authenticationEnabled && session == null)
+        {
+            var (rawToken, adminSession) = await _sessionService.CreateAuthDisabledAdminSessionAsync(HttpContext);
+            _sessionService.SetSessionCookie(HttpContext, rawToken, adminSession.ExpiresAtUtc);
+            session = adminSession;
+        }
 
         bool hasData = false;
         bool hasBeenInitialized = false;
@@ -117,10 +128,8 @@ public class AuthController : ControllerBase
             token = rotatedToken ?? SessionService.TokenFromCookie(HttpContext);
         }
 
-        // When authentication is disabled via config, treat the anonymous caller as an admin
-        // so the frontend grants admin mode and skips the login prompt + setup wizard.
-        var authenticationEnabled = _configuration.GetValue<bool>("Security:EnableAuthentication", true);
-
+        // authenticationEnabled was resolved above (it gates the admin-session mint). When disabled,
+        // the minted session makes IsAuthenticated/SessionType below resolve to a real admin session.
         return Ok(new AuthStatusResponse
         {
             AuthenticationEnabled = authenticationEnabled,

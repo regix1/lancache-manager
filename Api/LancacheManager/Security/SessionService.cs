@@ -69,6 +69,47 @@ public class SessionService
         return (rawToken, session);
     }
 
+    /// <summary>
+    /// True when authentication is enabled (the default). When false (Security:EnableAuthentication=false),
+    /// every endpoint allows anonymous access and the frontend is treated as an admin.
+    /// </summary>
+    public bool IsAuthenticationEnabled()
+        => _configuration.GetValue<bool>("Security:EnableAuthentication", true);
+
+    /// <summary>
+    /// Mints an admin session used when authentication is disabled (Security:EnableAuthentication=false).
+    /// No API key is required because authentication is turned off entirely. This exists so that
+    /// session-scoped surfaces (SignalR download + prefill-daemon hubs, user preferences, prefill access)
+    /// have a real session and cookie to work with under disabled auth, instead of silently failing
+    /// because the frontend is told it is an admin while holding no actual credential.
+    /// </summary>
+    public async Task<(string RawToken, UserSession Session)> CreateAuthDisabledAdminSessionAsync(HttpContext httpContext)
+    {
+        var (rawToken, tokenHash) = GenerateSessionToken();
+
+        var session = new UserSession
+        {
+            Id = Guid.NewGuid(),
+            SessionTokenHash = tokenHash,
+            SessionType = SessionType.Admin,
+            IpAddress = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            UserAgent = httpContext.Request.Headers.UserAgent.ToString(),
+            CreatedAtUtc = DateTime.UtcNow,
+            ExpiresAtUtc = _adminNeverExpiresUtc,
+            LastSeenAtUtc = DateTime.UtcNow,
+            IsRevoked = false
+        };
+
+        using var context = _dbContextFactory.CreateDbContext();
+        context.UserSessions.Add(session);
+        await context.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "Created auth-disabled admin session {SessionId} for IP {IP} (Security:EnableAuthentication=false)",
+            session.Id, session.IpAddress);
+        return (rawToken, session);
+    }
+
     public async Task<(string RawToken, UserSession Session)?> CreateGuestSessionAsync(HttpContext httpContext)
     {
         if (!IsGuestAccessEnabled())
