@@ -385,7 +385,8 @@
         "lancachePics": "游戏图片资源库，用于将 Steam 仓库下载映射到游戏图标",
         "steamPrefillDaemon": "用于定时预填充 Steam 游戏和预热缓存的后台守护进程",
         "epicPrefillDaemon": "用于定时预填充 Epic 游戏和预热缓存的后台守护进程",
-        "battlenetPrefillDaemon": "用于定时预填充 Battle.net 游戏和预热缓存的后台守护进程"
+        "battlenetPrefillDaemon": "用于定时预填充 Battle.net 游戏和预热缓存的后台守护进程",
+        "riotPrefillDaemon": "用于定时预填充 Riot 游戏和预热缓存的后台守护进程"
       }
     }
   },

@@ -461,6 +461,22 @@ const DEPENDENCY_REPOS: GitHubRepo[] = [
     descriptionKey: 'nav.githubProjects.repos.epicPrefillDaemon',
     type: 'dependency',
     isFork: true
+  },
+  {
+    name: 'Battle.net Prefill Daemon',
+    shortName: 'battlenet-prefill-daemon',
+    url: 'https://github.com/regix1/battlenet-prefill-daemon',
+    descriptionKey: 'nav.githubProjects.repos.battlenetPrefillDaemon',
+    type: 'dependency',
+    isFork: true
+  },
+  {
+    name: 'Riot Prefill Daemon',
+    shortName: 'riot-prefill-daemon',
+    url: 'https://github.com/regix1/riot-prefill-daemon',
+    descriptionKey: 'nav.githubProjects.repos.riotPrefillDaemon',
+    type: 'dependency',
+    isFork: true
   }
 ];
 

@@ -385,7 +385,8 @@
         "lancachePics": "Game artwork repository for mapping Steam depot downloads to game icons",
         "steamPrefillDaemon": "Background daemon for scheduled Steam game prefilling and cache warming",
         "epicPrefillDaemon": "Background daemon for scheduled Epic Games prefilling and cache warming",
-        "battlenetPrefillDaemon": "Background daemon for scheduled Battle.net game prefilling and cache warming"
+        "battlenetPrefillDaemon": "Background daemon for scheduled Battle.net game prefilling and cache warming",
+        "riotPrefillDaemon": "Background daemon for scheduled Riot Games prefilling and cache warming"
       }
     }
   },
