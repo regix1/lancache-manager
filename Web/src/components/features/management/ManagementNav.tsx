@@ -101,6 +101,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
       descriptionKey: 'management.nav.prefillSessionsDesc'
     }
   ];
+
   return (
     <div className="management-nav-container mb-6">
       {/* Desktop Navigation */}
@@ -130,43 +131,18 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
                     management-nav-tab
                     relative flex-grow flex-shrink-0 flex items-center justify-center gap-2
                     px-5 py-3.5 font-medium text-sm
-                    transition-all duration-200 ease-out
                     border-r last:border-r-0
                     ${isFirst ? 'rounded-l-lg' : ''}
                     ${isLast ? 'rounded-r-lg' : ''}
                     ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
                   `}
-                  style={{
-                    backgroundColor: isActive ? 'var(--theme-bg-primary)' : 'transparent',
-                    color: isActive
-                      ? 'var(--theme-nav-tab-active)'
-                      : 'var(--theme-nav-tab-inactive)',
-                    borderColor: 'var(--theme-border-primary)'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isActive && !isDisabled) {
-                      e.currentTarget.style.color = 'var(--theme-nav-tab-hover)';
-                      e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive && !isDisabled) {
-                      e.currentTarget.style.color = 'var(--theme-nav-tab-inactive)';
-                      e.currentTarget.style.backgroundColor = 'transparent';
-                    }
-                  }}
                 >
-                  <Icon
-                    className="w-4 h-4 flex-shrink-0"
-                    style={{
-                      color: isActive ? 'var(--theme-nav-tab-active)' : 'inherit'
-                    }}
-                  />
+                  <Icon className="w-4 h-4 flex-shrink-0 nav-tab-icon" />
                   <span className="whitespace-nowrap">{t(tab.labelKey)}</span>
 
                   {/* Active indicator bar */}
                   {isActive && (
-                    <div className="nav-indicator absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-themed-nav-tab-active-border" />
+                    <div className="nav-indicator absolute bottom-0 left-2 right-2 h-0.5 rounded bg-themed-nav-tab-active-border" />
                   )}
                 </button>
               );
@@ -180,7 +156,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
         {/* Active section header */}
         <div className="flex items-center gap-3 px-4 py-3 rounded-t-lg border border-b-0 bg-themed-secondary border-themed-primary">
           {(() => {
-            const activeTab = tabs.find((t) => t.id === activeSection);
+            const activeTab = tabs.find((tabItem) => tabItem.id === activeSection);
             const Icon = activeTab?.icon || Settings;
             return (
               <>
@@ -214,29 +190,13 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
                 disabled={isDisabled}
                 onClick={() => !isDisabled && onSectionChange(tab.id)}
                 className={`
+                  management-nav-tab management-nav-tab--mobile
                   flex-shrink-0 flex items-center justify-center gap-1.5
-                  px-3 py-2 rounded-md text-xs font-medium
-                  transition-all duration-200
+                  px-3 text-xs font-medium rounded-md
                   ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
                 `}
-                style={{
-                  backgroundColor: isActive ? 'var(--theme-primary)' : 'transparent',
-                  color: isActive ? 'var(--theme-button-text)' : 'var(--theme-nav-tab-inactive)'
-                }}
-                onMouseEnter={(e) => {
-                  if (!isActive && !isDisabled) {
-                    e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-                    e.currentTarget.style.color = 'var(--theme-nav-tab-hover)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isActive && !isDisabled) {
-                    e.currentTarget.style.backgroundColor = 'transparent';
-                    e.currentTarget.style.color = 'var(--theme-nav-tab-inactive)';
-                  }
-                }}
               >
-                <Icon className="w-3.5 h-3.5" />
+                <Icon className="w-3.5 h-3.5 nav-tab-icon" />
                 <span className="whitespace-nowrap">{t(tab.shortLabelKey)}</span>
               </button>
             );

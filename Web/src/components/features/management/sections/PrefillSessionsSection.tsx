@@ -187,15 +187,34 @@ const StatusBadge: React.FC<{ status: string; isLive?: boolean }> = ({ status, i
 // Summary stat card component
 const StatCard: React.FC<{
   icon: React.ReactNode;
-  value: number;
+  value: number | null | undefined;
   label: string;
   iconBgClass: string;
 }> = ({ icon, value, label, iconBgClass }) => (
   <div className="prefill-stat-card">
     <div className={`prefill-stat-icon ${iconBgClass}`}>{icon}</div>
     <div className="prefill-stat-content">
-      <div className="prefill-stat-value">{value}</div>
+      <div className="prefill-stat-value">{value == null ? '—' : value}</div>
       <div className="prefill-stat-label">{label}</div>
+    </div>
+  </div>
+);
+
+// In-view error + retry block, shared by the Live Sessions / Session History / Banned Users views
+const PrefillErrorBlock: React.FC<{
+  title: string;
+  message: string;
+  retryLabel: string;
+  onRetry: () => void;
+}> = ({ title, message, retryLabel, onRetry }) => (
+  <div className="prefill-error-state">
+    <Alert color="red" title={title}>
+      <p className="text-sm">{message}</p>
+    </Alert>
+    <div className="prefill-error-retry">
+      <Button variant="filled" color="gray" size="md" onClick={onRetry}>
+        {retryLabel}
+      </Button>
     </div>
   </div>
 );
@@ -427,7 +446,7 @@ const SessionCard: React.FC<{
               <Button
                 variant="filled"
                 color="gray"
-                size="sm"
+                size="md"
                 onClick={onToggleHistory}
                 className="prefill-expand-btn"
               >
@@ -446,7 +465,7 @@ const SessionCard: React.FC<{
                     <Tooltip content={t('management.prefillSessions.tooltips.banUser')}>
                       <Button
                         variant="filled"
-                        size="sm"
+                        size="md"
                         color="red"
                         onClick={onBan}
                         disabled={isBanning}
@@ -463,7 +482,7 @@ const SessionCard: React.FC<{
                     <Tooltip content={t('management.prefillSessions.tooltips.terminateSession')}>
                       <Button
                         variant="filled"
-                        size="sm"
+                        size="md"
                         color="red"
                         onClick={onTerminate}
                         disabled={isTerminating}
@@ -645,7 +664,7 @@ const BannedUserCard: React.FC<{
           <Button
             variant="filled"
             color="gray"
-            size="sm"
+            size="md"
             onClick={onLiftBan}
             disabled={isLifting}
             className="prefill-ban-action"
@@ -681,6 +700,10 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   const [statusFilter, setStatusFilter] = useState<PrefillSessionStatus | ''>('');
   const [platformFilter, setPlatformFilter] = useState<string>('all');
 
+  // In-view load-error states (per data view; null = no error)
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [bansError, setBansError] = useState<string | null>(null);
+
   // Bans state
   const [bans, setBans] = useState<BannedSteamUserDto[]>([]);
   const [loadingBans, setLoadingBans] = useState(true);
@@ -706,6 +729,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   // Load sessions and pre-fetch history
   const loadSessions = useCallback(async () => {
     setLoadingSessions(true);
+    setSessionsError(null);
     try {
       const [sessionsRes, activeRes] = await Promise.all([
         ApiService.getPrefillSessions(
@@ -747,6 +771,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         setHistoryData((prev) => ({ ...prev, ...newHistoryData }));
       });
     } catch (error) {
+      setSessionsError(getErrorMessage(error));
       onError(getErrorMessage(error));
     } finally {
       setLoadingSessions(false);
@@ -756,11 +781,13 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   // Load bans
   const loadBans = useCallback(async () => {
     setLoadingBans(true);
+    setBansError(null);
     try {
       // Always fetch full ban list so toggling the filter doesn't trigger reloads.
       const bansRes = await ApiService.getSteamBans(true);
       setBans(bansRes);
     } catch (error) {
+      setBansError(getErrorMessage(error));
       onError(getErrorMessage(error));
     } finally {
       setLoadingBans(false);
@@ -1000,7 +1027,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           <Button
             variant="filled"
             color="gray"
-            size="sm"
+            size="md"
             onClick={() => {
               loadSessions();
               loadBans();
@@ -1016,7 +1043,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             <Button
               variant="filled"
               color="red"
-              size="sm"
+              size="md"
               onClick={() => setTerminateAllConfirm(true)}
               disabled={terminatingAll}
             >
@@ -1066,6 +1093,13 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             <LoadingSpinner inline size="lg" className="text-themed-muted" />
             <span>{t('management.prefillSessions.loadingSessions')}</span>
           </div>
+        ) : sessionsError && activeSessions.length === 0 ? (
+          <PrefillErrorBlock
+            title={t('management.prefillSessions.errors.loadSessions')}
+            message={sessionsError}
+            retryLabel={t('common.retry')}
+            onRetry={loadSessions}
+          />
         ) : activeSessions.length === 0 ? (
           <div className="prefill-empty-state">
             <Container className="w-12 h-12 opacity-50" />
@@ -1148,11 +1182,14 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               variant="button"
               options={
                 [
-                  { value: 'all', label: 'All Platforms' },
-                  { value: 'Steam', label: 'Steam' },
-                  { value: 'Epic', label: 'Epic' },
-                  { value: 'BattleNet', label: 'Battle.net' },
-                  { value: 'Riot', label: 'Riot' }
+                  { value: 'all', label: t('management.prefillSessions.platformFilters.all') },
+                  { value: 'Steam', label: t('management.prefillSessions.platformFilters.steam') },
+                  { value: 'Epic', label: t('management.prefillSessions.platformFilters.epic') },
+                  {
+                    value: 'BattleNet',
+                    label: t('management.prefillSessions.platformFilters.battlenet')
+                  },
+                  { value: 'Riot', label: t('management.prefillSessions.platformFilters.riot') }
                 ] as DropdownOption[]
               }
               value={platformFilter}
@@ -1160,7 +1197,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 setPlatformFilter(value);
                 setPage(1);
               }}
-              placeholder="All Platforms"
+              placeholder={t('management.prefillSessions.platformFilters.all')}
               className="min-w-[90px] sm:min-w-[120px]"
               dropdownWidth="140px"
             />
@@ -1172,9 +1209,20 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             <LoadingSpinner inline size="lg" className="text-themed-muted" />
             <span>{t('management.prefillSessions.loading')}</span>
           </div>
+        ) : sessionsError && sessions.length === 0 ? (
+          <PrefillErrorBlock
+            title={t('management.prefillSessions.errors.loadHistory')}
+            message={sessionsError}
+            retryLabel={t('common.retry')}
+            onRetry={loadSessions}
+          />
         ) : sessions.length === 0 ? (
           <div className="prefill-empty-state">
-            <p>{t('management.prefillSessions.noSessionsFound')}</p>
+            <Clock className="w-12 h-12 opacity-50" />
+            <p className="prefill-empty-title">{t('management.prefillSessions.noSessionsFound')}</p>
+            <p className="prefill-empty-desc">
+              {t('management.prefillSessions.noSessionsFoundDesc')}
+            </p>
           </div>
         ) : (
           <>
@@ -1244,6 +1292,13 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             <LoadingSpinner inline size="lg" className="text-themed-muted" />
             <span>{t('management.prefillSessions.bannedUsers.loadingBans')}</span>
           </div>
+        ) : bansError && !hasVisibleBans ? (
+          <PrefillErrorBlock
+            title={t('management.prefillSessions.errors.loadBans')}
+            message={bansError}
+            retryLabel={t('common.retry')}
+            onRetry={loadBans}
+          />
         ) : !loadingBans && !hasVisibleBans ? (
           <div className="prefill-empty-state">
             <Shield className="w-12 h-12 opacity-50" />

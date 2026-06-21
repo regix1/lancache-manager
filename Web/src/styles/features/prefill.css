@@ -164,7 +164,9 @@
     border: 1px solid var(--theme-border-primary);
     background: var(--theme-card-bg);
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition:
+      background-color 0.15s ease,
+      border-color 0.15s ease;
     text-align: left;
     width: 100%;
   }
@@ -175,7 +177,12 @@
   }
 
   .cmd-tile:active:not(:disabled) {
-    transform: scale(0.98);
+    background-color: var(--theme-bg-surface-active);
+  }
+
+  .cmd-tile:focus-visible {
+    outline: 2px solid var(--theme-border-focus);
+    outline-offset: 2px;
   }
 
   .cmd-tile:disabled {
@@ -212,11 +219,6 @@
     height: 2rem;
     border-radius: 0.5rem;
     flex-shrink: 0;
-    transition: transform 0.15s ease;
-  }
-
-  .cmd-tile:hover:not(:disabled) .cmd-tile-icon {
-    transform: scale(1.05);
   }
 
   /* Settings inline panel - integrated look */
@@ -250,7 +252,7 @@
     height: 1.375rem;
     padding: 0 0.4rem;
     margin-left: 0.375rem;
-    border-radius: 9999px;
+    border-radius: var(--theme-border-radius);
     font-size: 0.6875rem;
     font-weight: 700;
     line-height: 1;
@@ -278,5 +280,22 @@
   }
   .cmd-tile-enter:nth-child(6) {
     animation-delay: 150ms;
+  }
+
+  /* Reduced-motion: disable cmd-tile stagger and app-bar grow animation */
+  @media (prefers-reduced-motion: reduce) {
+    .cmd-tile-enter {
+      animation: none;
+    }
+
+    .prefill-app-bar-enter {
+      animation: none;
+    }
+
+    .cmd-tile {
+      transition:
+        background-color 0.01ms,
+        border-color 0.01ms;
+    }
   }
 }

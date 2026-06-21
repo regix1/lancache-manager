@@ -3132,12 +3132,25 @@
       "sessionHistory": "会话历史",
       "loading": "加载中...",
       "noSessionsFound": "未找到会话",
+      "noSessionsFoundDesc": "没有符合当前筛选条件的预填充会话",
       "statusFilters": {
         "all": "所有状态",
         "active": "活跃",
         "terminated": "已终止",
         "orphaned": "孤儿",
         "cleaned": "已清理"
+      },
+      "platformFilters": {
+        "all": "所有平台",
+        "steam": "Steam",
+        "epic": "Epic",
+        "battlenet": "Battle.net",
+        "riot": "Riot"
+      },
+      "errors": {
+        "loadSessions": "加载会话失败",
+        "loadHistory": "加载会话历史失败",
+        "loadBans": "加载封禁用户失败"
       },
       "statusBadges": {
         "active": "活跃",

@@ -170,7 +170,7 @@ export function PrefillProgressCard({
                 </div>
                 <div className="h-2 rounded-full overflow-hidden bg-[var(--theme-progress-bg)]">
                   <div
-                    className="h-full rounded-full transition-all duration-300 ease-out bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-accent)] prefill-progress-bar"
+                    className="h-full rounded-full transition-[width] duration-300 ease-out bg-[var(--theme-primary)] prefill-progress-bar"
                     style={{ '--progress-width': `${overallPercent}%` } as React.CSSProperties}
                   />
                 </div>
@@ -181,7 +181,7 @@ export function PrefillProgressCard({
             <div className="space-y-2">
               <div className="h-3 rounded-full overflow-hidden bg-[var(--theme-progress-bg)]">
                 {isReconnecting ? (
-                  <div className="h-full rounded-full animate-pulse w-full opacity-50 bg-gradient-to-r from-[var(--theme-warning)] to-[var(--theme-primary)]" />
+                  <div className="h-full rounded-full animate-pulse w-full opacity-50 bg-[var(--theme-warning)]" />
                 ) : progress.state === 'already_cached' ? (
                   <div
                     key={`cached-${progress.currentAppId}`}
@@ -191,11 +191,11 @@ export function PrefillProgressCard({
                 ) : progress.state === 'downloading' || progress.state === 'app_completed' ? (
                   <div
                     key={`download-${progress.currentAppId}`}
-                    className="h-full rounded-full transition-all duration-300 ease-out bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-accent)] prefill-progress-bar prefill-app-bar-enter"
+                    className="h-full rounded-full transition-[width] duration-300 ease-out bg-[var(--theme-primary)] prefill-progress-bar prefill-app-bar-enter"
                     style={{ '--progress-width': `${appPercent}%` } as React.CSSProperties}
                   />
                 ) : (
-                  <div className="h-full rounded-full animate-pulse w-full opacity-50 bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-accent)]" />
+                  <div className="h-full rounded-full animate-pulse w-full opacity-50 bg-[var(--theme-primary)]" />
                 )}
               </div>
 

@@ -62,8 +62,7 @@
   overflow: hidden;
   transition:
     border-color 0.3s ease,
-    box-shadow 0.3s ease,
-    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    background-color 0.3s ease;
   animation: fadeInUp 0.4s ease-out both;
 }
 
@@ -75,7 +74,7 @@
   animation-delay: 160ms;
 }
 
-/* Accent top bar */
+/* Accent top bar — static, no hover animation */
 .prefill-service-card::before {
   content: '';
   position: absolute;
@@ -85,38 +84,11 @@
   height: 3px;
   background: var(--service-accent);
   opacity: 0.5;
-  transition: opacity 0.3s ease;
-}
-
-.prefill-service-card:hover::before {
-  opacity: 1;
-}
-
-/* Background glow on hover */
-.prefill-service-card::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 8rem;
-  background: linear-gradient(180deg, var(--service-accent-faint) 0%, transparent 100%);
-  opacity: 0;
-  transition: opacity 0.4s ease;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.prefill-service-card:hover::after {
-  opacity: 1;
 }
 
 .prefill-service-card:hover {
   border-color: var(--service-accent-on-border);
-  transform: translateY(-2px);
-  box-shadow:
-    0 4px 16px var(--service-accent-faint),
-    0 1px 3px rgba(0, 0, 0, 0.08);
+  background-color: var(--theme-bg-surface-hover);
 }
 
 /* Service accent colors */
@@ -174,7 +146,6 @@
   border-radius: 0.75rem;
   background: var(--service-accent);
   flex-shrink: 0;
-  box-shadow: 0 2px 8px var(--service-accent-strong);
 }
 
 .prefill-service-meta {
@@ -212,7 +183,7 @@
 
 .prefill-service-status-dot--ready {
   background: var(--theme-success);
-  box-shadow: 0 0 4px var(--theme-success-strong);
+  border: 1px solid var(--theme-success-muted);
 }
 
 /* --- Description --- */
@@ -300,15 +271,7 @@
 
 /* --- Light mode card shadow --- */
 [data-theme='light'] .prefill-service-card {
-  box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.08),
-    0 1px 2px rgba(0, 0, 0, 0.04);
-}
-
-[data-theme='light'] .prefill-service-card:hover {
-  box-shadow:
-    0 4px 16px var(--service-accent-subtle),
-    0 2px 4px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--theme-shadow-sm, 0 1px 3px var(--theme-border));
 }
 
 /* --- Responsive: mobile stack --- */
@@ -343,4 +306,18 @@
 /* Prefill progress card */
 .prefill-progress-card {
   border-color: var(--theme-primary-strong);
+}
+
+/* Reduced-motion: disable fadeIn / fadeInUp stagger animations */
+@media (prefers-reduced-motion: reduce) {
+  .prefill-home {
+    animation: none;
+  }
+
+  .prefill-service-card {
+    animation: none;
+    transition:
+      border-color 0.01ms,
+      background-color 0.01ms;
+  }
 }

@@ -76,7 +76,7 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
         {/* Clickable Header */}
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className="flex items-center gap-3 w-full text-left hover:opacity-80 transition-opacity"
+          className="flex items-center gap-3 w-full text-left rounded-lg transition-[background-color] duration-150 hover:bg-[var(--theme-bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-border-focus)]"
         >
           <div
             className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 prefill-network-status-bg"

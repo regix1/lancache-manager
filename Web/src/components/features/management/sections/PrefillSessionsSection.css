@@ -74,8 +74,8 @@
   gap: 0.75rem;
   padding: 0.875rem;
   border-radius: var(--theme-border-radius-lg, 0.75rem);
-  background-color: var(--theme-bg-secondary);
-  border: 1px solid var(--theme-border-secondary);
+  background-color: var(--theme-card-bg);
+  border: 1px solid var(--theme-card-border);
 }
 
 .prefill-stat-icon {
@@ -104,6 +104,7 @@
   font-weight: 700;
   color: var(--theme-text-primary);
   line-height: 1.2;
+  font-variant-numeric: tabular-nums lining-nums;
 }
 
 @media (min-width: 640px) {
@@ -315,7 +316,8 @@
 }
 
 .prefill-expand-btn {
-  padding: 0.375rem;
+  min-width: 44px;
+  min-height: 44px;
 }
 
 /* Status Badges */
@@ -328,27 +330,27 @@
 
 .prefill-session-active {
   background-color: var(--theme-icon-green);
-  color: #fff;
+  color: var(--theme-button-text);
 }
 
 .prefill-session-pending {
   background-color: var(--theme-icon-orange);
-  color: #fff;
+  color: var(--theme-button-text);
 }
 
 .prefill-session-terminated {
   background-color: var(--theme-icon-red);
-  color: #fff;
+  color: var(--theme-button-text);
 }
 
 .prefill-session-orphaned {
   background-color: var(--theme-icon-purple);
-  color: #fff;
+  color: var(--theme-button-text);
 }
 
 .prefill-session-cleaned {
   background-color: var(--theme-text-muted);
-  color: #fff;
+  color: var(--theme-button-text);
 }
 
 .prefill-session-default {
@@ -386,6 +388,16 @@
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .prefill-live-indicator {
+    animation: none;
+  }
+
+  .prefill-bans-list {
+    transition: none;
+  }
+}
+
 /* History Status Badges */
 .prefill-status-badge {
   padding: 0.0625rem 0.375rem;
@@ -396,27 +408,27 @@
 
 .prefill-status-completed {
   background-color: var(--theme-icon-green);
-  color: #fff;
+  color: var(--theme-button-text);
 }
 
 .prefill-status-progress {
   background-color: var(--theme-primary);
-  color: #fff;
+  color: var(--theme-button-text);
 }
 
 .prefill-status-failed {
   background-color: var(--theme-icon-red);
-  color: #fff;
+  color: var(--theme-button-text);
 }
 
 .prefill-status-cancelled {
   background-color: var(--theme-icon-orange);
-  color: #fff;
+  color: var(--theme-button-text);
 }
 
 .prefill-status-cached {
   background-color: var(--theme-text-muted);
-  color: #fff;
+  color: var(--theme-button-text);
 }
 
 .prefill-status-default {
@@ -604,12 +616,12 @@
 
 .prefill-ban-status.active {
   background-color: var(--theme-icon-red);
-  color: #fff;
+  color: var(--theme-button-text);
 }
 
 .prefill-ban-status.lifted {
   background-color: var(--theme-text-muted);
-  color: #fff;
+  color: var(--theme-button-text);
 }
 
 .prefill-ban-meta {
@@ -642,9 +654,15 @@
 }
 
 /* Loading & Empty States */
-.prefill-loading-state {
+/* Shared layout for the per-view data-state blocks (loading / empty / error) */
+.prefill-loading-state,
+.prefill-empty-state,
+.prefill-error-state {
   display: flex;
   flex-direction: column;
+}
+
+.prefill-loading-state {
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
@@ -653,8 +671,6 @@
 }
 
 .prefill-empty-state {
-  display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
@@ -670,6 +686,18 @@
 
 .prefill-empty-desc {
   font-size: 0.875rem;
+}
+
+/* In-view error state (per data view) */
+.prefill-error-state {
+  align-items: stretch;
+  gap: 0.75rem;
+  padding: 1.5rem;
+}
+
+.prefill-error-retry {
+  display: flex;
+  justify-content: center;
 }
 
 /* Pagination */

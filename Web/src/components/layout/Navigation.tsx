@@ -184,7 +184,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
             <Icon className="w-5 h-5" />
             <span>{tab.label}</span>
             {isActive && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-themed-nav-tab-active-border" />
+              <div className="absolute bottom-0 left-3 right-3 h-0.5 rounded-lg bg-themed-nav-tab-active-border" />
             )}
           </button>
         );
@@ -201,7 +201,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
         <div className="container mx-auto px-4">
           {/* Desktop Navigation */}
           <div
-            className="hidden md:flex space-x-1 h-12 items-center"
+            className="hidden lg:flex space-x-1 h-12 items-center"
             aria-label={t('nav.mainNavigation')}
           >
             {tabs.map((tab) => (
@@ -217,7 +217,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
           </div>
 
           {/* Mobile Navigation */}
-          <div className="md:hidden">
+          <div className="lg:hidden">
             <div className="flex items-center justify-between h-12">
               <div className="flex items-center space-x-2">
                 <span className="font-medium text-themed-primary">

@@ -3132,12 +3132,25 @@
       "sessionHistory": "Session History",
       "loading": "Loading...",
       "noSessionsFound": "No sessions found",
+      "noSessionsFoundDesc": "No prefill sessions match the current filters",
       "statusFilters": {
         "all": "All Statuses",
         "active": "Active",
         "terminated": "Terminated",
         "orphaned": "Orphaned",
         "cleaned": "Cleaned"
+      },
+      "platformFilters": {
+        "all": "All Platforms",
+        "steam": "Steam",
+        "epic": "Epic",
+        "battlenet": "Battle.net",
+        "riot": "Riot"
+      },
+      "errors": {
+        "loadSessions": "Failed to load sessions",
+        "loadHistory": "Failed to load session history",
+        "loadBans": "Failed to load banned users"
       },
       "statusBadges": {
         "active": "Active",

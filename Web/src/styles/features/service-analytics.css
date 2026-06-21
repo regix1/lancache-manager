@@ -349,6 +349,21 @@
   margin-top: 0.3rem;
 }
 
+/* When the panel is ≤700px wide the donut is in a half-column (row layout) and
+   its hole is only ~100–140px across. Scale the center text down so it fits cleanly.
+   This fires at desktop 1024–1440px (panel ≈490–670px) where the row layout applies. */
+@container (max-width: 700px) {
+  .chart-center-value {
+    font-size: 1.3rem;
+  }
+
+  .chart-center-label {
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+    margin-top: 0.2rem;
+  }
+}
+
 .data-side {
   flex: 1;
   display: flex;
@@ -726,6 +741,11 @@
     gap: 1rem;
   }
 
+  /* Allow heading description to use full width when the panel is full-width */
+  .service-analytics-heading p {
+    max-width: none;
+  }
+
   .analytics-chart-container,
   .analytics-list-container {
     flex: 1 1 auto;
@@ -799,6 +819,31 @@
 
   .analytics-insight:nth-child(odd) {
     padding-left: 0.15rem;
+  }
+}
+
+/* Tablet range (640–820px): the panel is full-width but the 5 mode-tabs still hog enough
+   horizontal space to crush the heading text to one-word-per-line. Stack header at this
+   range so the description reads normally. Desktop (≥1024px) is unaffected since the
+   @media (min-width:1024px) layout rule kicks in above this threshold. */
+@media (max-width: 820px) {
+  .service-analytics-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .service-analytics-controls {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+  }
+
+  .service-analytics-controls > * {
+    flex-shrink: 0;
   }
 }
 

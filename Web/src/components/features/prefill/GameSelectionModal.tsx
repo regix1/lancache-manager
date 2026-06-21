@@ -205,7 +205,7 @@ export function GameSelectionModal({
               placeholder={t('prefill.placeholders.searchGames')}
               value={search}
               onChange={(e: ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-sm rounded-lg smooth-transition bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] outline-none focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-primary)]/20"
+              className="w-full pl-9 pr-3 py-2 text-sm rounded-lg transition-[border-color,background-color] duration-150 ease-out bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-border-focus)]"
             />
           </div>
           {isUsingCache && (
@@ -280,7 +280,7 @@ export function GameSelectionModal({
                 setImportResult(null);
               }}
               placeholder={t('prefill.placeholders.bulkInput')}
-              className="w-full px-3 py-2 text-sm rounded-lg resize-none smooth-transition bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] outline-none min-h-[70px] focus:border-[var(--theme-primary)]"
+              className="w-full px-3 py-2 text-sm rounded-lg resize-none transition-[border-color] duration-150 ease-out bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-secondary)] text-[var(--theme-text-primary)] focus:outline-none focus:border-[var(--theme-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-border-focus)] min-h-[70px]"
             />
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 mt-2">
               <Button
@@ -415,7 +415,7 @@ export function GameSelectionModal({
                             <button
                               key={game.appId}
                               onClick={() => toggleGame(game.appId)}
-                              className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition bg-[var(--theme-primary-faint)] border-b border-[var(--theme-border-secondary)] hover:bg-[var(--theme-primary-subtle)]"
+                              className="w-full flex items-center gap-3 px-4 py-3 text-left min-h-[44px] transition-[background-color] duration-150 ease-out bg-[var(--theme-primary-faint)] border-b border-[var(--theme-border-secondary)] hover:bg-[var(--theme-primary-subtle)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
                             >
                               <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-[var(--theme-primary)] border-2 border-[var(--theme-primary)]">
                                 <Check className="h-3 w-3 text-white" />
@@ -467,7 +467,7 @@ export function GameSelectionModal({
                             <button
                               key={game.appId}
                               onClick={() => toggleGame(game.appId)}
-                              className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition bg-transparent border-b border-[var(--theme-border-secondary)] hover:bg-[var(--theme-bg-hover)]"
+                              className="w-full flex items-center gap-3 px-4 py-3 text-left min-h-[44px] transition-[background-color] duration-150 ease-out bg-transparent border-b border-[var(--theme-border-secondary)] hover:bg-[var(--theme-bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
                             >
                               <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-transparent border-2 border-[var(--theme-border-primary)]" />
                               <div className="flex-1 min-w-0">

@@ -13,6 +13,65 @@
 .management-nav-tab {
   position: relative;
   overflow: hidden;
+  /* Base (inactive) colors */
+  background-color: transparent;
+  color: var(--theme-nav-tab-inactive);
+  border-color: var(--theme-border-primary);
+  /* Named transition — never transition: all */
+  transition:
+    background-color 0.15s ease-out,
+    color 0.15s ease-out;
+}
+
+/* Hover — only when not active and not disabled */
+@media (hover: hover) {
+  .management-nav-tab:not([aria-selected='true']):not(:disabled):hover {
+    background-color: var(--theme-bg-hover);
+    color: var(--theme-nav-tab-hover);
+  }
+}
+
+/* Active / selected tab */
+.management-nav-tab[aria-selected='true'] {
+  background-color: var(--theme-bg-primary);
+  color: var(--theme-nav-tab-active);
+}
+
+/* Icon inherits the button text color automatically; boost it for active */
+.management-nav-tab[aria-selected='true'] .nav-tab-icon {
+  color: var(--theme-nav-tab-active);
+}
+
+/* Focus-visible ring — scoped here in case a more-specific selector overrides
+   the global reset.css rule for these particular buttons */
+.management-nav-tab:focus-visible {
+  outline: 2px solid var(--theme-border-focus);
+  outline-offset: -2px; /* inset so it doesn't get clipped by the parent border-box */
+  z-index: 1;
+}
+
+/* Mobile variant - sized for ≥44px touch targets */
+.management-nav-tab--mobile {
+  min-height: 44px;
+  /* Mobile active: primary filled pill */
+  background-color: transparent;
+  color: var(--theme-nav-tab-inactive);
+}
+
+.management-nav-tab--mobile[aria-selected='true'] {
+  background-color: var(--theme-primary);
+  color: var(--theme-button-text);
+}
+
+.management-nav-tab--mobile[aria-selected='true'] .nav-tab-icon {
+  color: var(--theme-button-text);
+}
+
+@media (hover: hover) {
+  .management-nav-tab--mobile:not([aria-selected='true']):not(:disabled):hover {
+    background-color: var(--theme-bg-hover);
+    color: var(--theme-nav-tab-hover);
+  }
 }
 
 /* Section transition animation */
