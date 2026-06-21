@@ -43,6 +43,7 @@ import {
   type EvictionSettingsChangedDetail
 } from '@/components/features/management/sections/managementStorageKeys';
 import StatCard from '@components/common/StatCard';
+import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { HelpSection } from '@components/ui/HelpPopover';
@@ -685,22 +686,26 @@ const Dashboard: React.FC = () => {
           {/* Mobile Edit Mode Toggle */}
           <div className="md:hidden">
             {isEditMode ? (
-              <button
+              <Button
+                variant="filled"
+                color="green"
+                size="md"
                 onClick={exitEditMode}
-                className="edit-mode-done flex items-center gap-2 px-4 py-2 text-sm themed-border-radius"
+                leftSection={<Check className="w-4 h-4" />}
               >
-                <Check className="w-4 h-4" />
-                <span>{t('dashboard.done')}</span>
-              </button>
+                {t('dashboard.done')}
+              </Button>
             ) : (
               <Tooltip content={t('tooltips.rearrangeCards')} strategy="overlay">
-                <button
+                <Button
+                  variant="filled"
+                  color="gray"
+                  size="md"
                   onClick={toggleEditMode}
-                  className="edit-mode-toggle flex items-center gap-2 px-3 py-2 text-sm themed-border-radius border text-themed-secondary bg-themed-secondary border-themed-primary"
+                  leftSection={<Move className="w-4 h-4" />}
                 >
-                  <Move className="w-4 h-4" />
-                  <span>{t('dashboard.edit')}</span>
-                </button>
+                  {t('dashboard.edit')}
+                </Button>
               </Tooltip>
             )}
           </div>
@@ -726,16 +731,20 @@ const Dashboard: React.FC = () => {
                 content={t('dashboard.hiddenCardsTooltip', { count: hiddenCardsCount })}
                 strategy="overlay"
               >
-                <button
+                <Button
+                  variant="filled"
+                  color="gray"
+                  size="md"
                   onClick={() => setDropdownOpen(!dropdownOpen)}
-                  className="hover-btn-trigger flex items-center gap-2 px-3 py-2 text-sm themed-border-radius border text-themed-secondary bg-themed-secondary border-themed-primary"
+                  leftSection={<EyeOff className="w-4 h-4" />}
+                  rightSection={
+                    <ChevronDown
+                      className={`w-3 h-3 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`}
+                    />
+                  }
                 >
-                  <EyeOff className="w-4 h-4" />
-                  <span>{t('dashboard.hidden')}</span>
-                  <ChevronDown
-                    className={`w-3 h-3 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`}
-                  />
-                </button>
+                  {t('dashboard.hidden')}
+                </Button>
               </Tooltip>
 
               {/* Hidden Cards Dropdown */}
@@ -825,13 +834,15 @@ const Dashboard: React.FC = () => {
 
           {/* Reset Layout Button */}
           <Tooltip content={t('tooltips.resetCardLayout')} strategy="overlay">
-            <button
+            <Button
+              variant="filled"
+              color="gray"
+              size="md"
               onClick={resetCardOrder}
-              className="hover-btn-trigger flex items-center gap-2 px-3 py-2 text-sm transition-colors themed-border-radius border text-themed-secondary bg-themed-secondary border-themed-primary hover:bg-themed-hover hover:text-themed-primary"
+              leftSection={<LayoutGrid className="w-4 h-4" />}
             >
-              <LayoutGrid className="w-4 h-4" />
               <span className="hidden sm:inline">{t('dashboard.resetLayout')}</span>
-            </button>
+            </Button>
           </Tooltip>
         </div>
       </div>

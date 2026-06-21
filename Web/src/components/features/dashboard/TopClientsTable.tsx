@@ -9,6 +9,7 @@ import { EmptyState } from '@components/ui/ManagerCard';
 import { useTimezone } from '@contexts/useTimezone';
 import { getEffectiveTimezone, formatShortDate } from '@utils/timezone';
 import { Users, ArrowDown } from 'lucide-react';
+import Badge from '@components/ui/Badge';
 import type { ClientStat } from '@/types';
 
 interface TopClientsTableProps {
@@ -76,13 +77,9 @@ const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
         {formatBytes(client.totalCacheMissBytes)}
       </td>
       <td className="py-3 text-right tabular-nums">
-        <span
-          className={`px-2 py-1 rounded text-xs hit-rate-badge whitespace-nowrap ${
-            client.cacheHitPercent > 50 ? 'high' : 'warning'
-          }`}
-        >
+        <Badge variant={client.cacheHitPercent > 50 ? 'success' : 'warning'}>
           {formatPercent(client.cacheHitPercent)}
-        </span>
+        </Badge>
       </td>
       <td className="py-3 text-right text-themed-muted hidden lg:table-cell whitespace-nowrap">
         {formattedLastActivity}

@@ -1653,12 +1653,13 @@ const DownloadsTab: React.FC = () => {
                         <Button
                           variant="filled"
                           color="gray"
-                          size="sm"
+                          size="md"
+                          className="!px-0 w-10 justify-center"
                           onClick={() => setShowExportOptions(!showExportOptions)}
                           disabled={exportLoading || itemsToDisplay.length === 0}
                           loading={exportLoading}
                         >
-                          <DownloadIcon size={18} />
+                          <DownloadIcon className="w-4 h-4" />
                         </Button>
                       </Tooltip>
                     }
@@ -1686,10 +1687,11 @@ const DownloadsTab: React.FC = () => {
                       <Button
                         variant="filled"
                         color="gray"
-                        size="sm"
+                        size="md"
+                        className="!px-0 w-10 justify-center"
                         onClick={() => retroViewRef.current?.resetWidths()}
                       >
-                        <Maximize2 size={18} />
+                        <Maximize2 className="w-4 h-4" />
                       </Button>
                     </Tooltip>
                   )}
@@ -1699,11 +1701,14 @@ const DownloadsTab: React.FC = () => {
                       <Button
                         variant="filled"
                         color="gray"
-                        size="sm"
+                        size="md"
+                        className="!px-0 w-10 justify-center"
                         onClick={handleClearImageCache}
                         disabled={imageCacheClearing}
                       >
-                        <RefreshCw size={18} className={imageCacheClearing ? 'animate-spin' : ''} />
+                        <RefreshCw
+                          className={`w-4 h-4${imageCacheClearing ? ' animate-spin' : ''}`}
+                        />
                       </Button>
                     </Tooltip>
                   )}
@@ -1712,11 +1717,12 @@ const DownloadsTab: React.FC = () => {
                     <Button
                       variant="filled"
                       color="gray"
-                      size="sm"
+                      size="md"
+                      className="!px-0 w-10 justify-center"
                       onClick={() => setSettingsOpened(!settingsOpened)}
                       data-settings-button="true"
                     >
-                      <Settings size={18} />
+                      <Settings className="w-4 h-4" />
                     </Button>
                   </Tooltip>
                 </div>

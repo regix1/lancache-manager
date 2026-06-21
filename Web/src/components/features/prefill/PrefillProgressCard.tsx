@@ -121,7 +121,7 @@ export function PrefillProgressCard({
             <Button
               variant="filled"
               color="gray"
-              size="sm"
+              size="md"
               onClick={onCancel}
               disabled={isCancelling}
             >

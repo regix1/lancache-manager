@@ -230,14 +230,18 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                 <Button
                   variant="filled"
                   color="gray"
-                  size="xs"
+                  size="sm"
                   onClick={handleToggleList}
                   aria-pressed={!showList}
                   aria-label={toggleAriaLabel}
                   title={toggleAriaLabel}
-                  className="service-analytics-toggle"
+                  className="service-analytics-toggle !px-0 w-8 justify-center"
                 >
-                  {showList ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                  {showList ? (
+                    <Minimize2 className="w-3.5 h-3.5" />
+                  ) : (
+                    <Maximize2 className="w-3.5 h-3.5" />
+                  )}
                 </Button>
               </Tooltip>
             )}

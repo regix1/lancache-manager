@@ -1062,9 +1062,9 @@ function ServicePrefillPanel({
         </div>
 
         <div className="flex items-center gap-3 w-full sm:w-auto">
-          {/* Session Timer */}
+          {/* Session Timer — non-interactive chip, h-10 matches End Session size="md" (~40px) */}
           <div
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg flex-1 sm:flex-initial justify-center border ${
+            className={`inline-flex items-center gap-2 h-10 px-4 rounded-lg flex-1 sm:flex-initial justify-center border ${
               signalR.timeRemaining < 600
                 ? 'bg-[var(--theme-warning-subtle)] border-[var(--theme-warning-strong)]'
                 : 'bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)]'
@@ -1093,7 +1093,7 @@ function ServicePrefillPanel({
             <Button
               variant="filled"
               color="red"
-              size="sm"
+              size="md"
               onClick={handleEndSession}
               className="flex-shrink-0"
             >
@@ -1151,6 +1151,7 @@ function ServicePrefillPanel({
                 {!signalR.isLoggedIn && !isSessionExpired && (
                   <Button
                     variant="filled"
+                    size="md"
                     onClick={handleOpenAuthModal}
                     className="flex-shrink-0 w-full sm:w-auto"
                   >

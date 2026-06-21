@@ -10,8 +10,6 @@ import {
   AlertTriangle,
   Clock,
   RefreshCw,
-  Network,
-  Monitor,
   User,
   ChevronDown,
   ChevronUp,
@@ -376,34 +374,54 @@ const SessionCard: React.FC<{
                 </div>
               )}
 
-              {/* Container name */}
-              {containerName && (
-                <div className="prefill-session-container">
-                  <Container className="w-3 h-3 flex-shrink-0" />
-                  <span className="font-mono truncate">{containerName}</span>
+              {/* Session stats — games prefilled + data transferred (compact readouts) */}
+              {(gamesCount > 0 ||
+                totalBytesFromHistory > 0 ||
+                (!isPrefilling && (totalBytesTransferred ?? 0) > 0)) && (
+                <div className="prefill-session-stats">
+                  {gamesCount > 0 && (
+                    <Tooltip
+                      content={t('management.prefillSessions.tooltips.gamesPrefilled', {
+                        count: gamesCount
+                      })}
+                    >
+                      <span className="prefill-stat-badge prefill-stat-games">
+                        <Gamepad2 className="w-3.5 h-3.5" />
+                        <span>{gamesCount}</span>
+                      </span>
+                    </Tooltip>
+                  )}
+                  {(totalBytesFromHistory > 0 ||
+                    (!isPrefilling && (totalBytesTransferred ?? 0) > 0)) && (
+                    <Tooltip content={t('management.prefillSessions.tooltips.totalDataDownloaded')}>
+                      <span className="prefill-stat-badge prefill-stat-bytes">
+                        {formatBytes(totalBytesFromHistory || totalBytesTransferred || 0)}
+                      </span>
+                    </Tooltip>
+                  )}
                 </div>
               )}
 
-              {/* Metadata row */}
+              {/* Metadata — single muted line, middot-separated */}
               <div className="prefill-session-meta">
+                {containerName && (
+                  <span className="prefill-meta-item font-mono">{containerName}</span>
+                )}
                 <span className="prefill-meta-item">
-                  <Clock className="w-3 h-3" />
                   <FormattedTimestamp timestamp={createdAt} />
                 </span>
                 {endedAt && (
                   <span className="prefill-meta-item">
-                    → <FormattedTimestamp timestamp={endedAt} />
+                    <FormattedTimestamp timestamp={endedAt} />
                   </span>
                 )}
                 {ipAddress && (
-                  <span className="prefill-meta-item hidden sm:flex">
-                    <Network className="w-3 h-3" />
-                    <span className="font-mono">{cleanIpAddress(ipAddress)}</span>
+                  <span className="prefill-meta-item font-mono hidden sm:inline-flex">
+                    {cleanIpAddress(ipAddress)}
                   </span>
                 )}
                 {(operatingSystem || browser) && (
-                  <span className="prefill-meta-item hidden md:flex">
-                    <Monitor className="w-3 h-3" />
+                  <span className="prefill-meta-item hidden md:inline-flex">
                     {operatingSystem || browser}
                   </span>
                 )}
@@ -411,54 +429,10 @@ const SessionCard: React.FC<{
             </div>
           </div>
 
-          {/* Right side: Stats and actions */}
+          {/* Right side: action buttons only (stats moved into the session details) */}
           <div className="prefill-session-actions">
-            {/* Stats badges */}
-            {(gamesCount > 0 ||
-              totalBytesFromHistory > 0 ||
-              (!isPrefilling && (totalBytesTransferred ?? 0) > 0)) && (
-              <div className="prefill-session-stats">
-                {gamesCount > 0 && (
-                  <Tooltip
-                    content={t('management.prefillSessions.tooltips.gamesPrefilled', {
-                      count: gamesCount
-                    })}
-                  >
-                    <span className="prefill-stat-badge prefill-stat-games">
-                      <Gamepad2 className="w-3.5 h-3.5" />
-                      <span>{gamesCount}</span>
-                    </span>
-                  </Tooltip>
-                )}
-                {(totalBytesFromHistory > 0 ||
-                  (!isPrefilling && (totalBytesTransferred ?? 0) > 0)) && (
-                  <Tooltip content={t('management.prefillSessions.tooltips.totalDataDownloaded')}>
-                    <span className="prefill-stat-badge prefill-stat-bytes">
-                      {formatBytes(totalBytesFromHistory || totalBytesTransferred || 0)}
-                    </span>
-                  </Tooltip>
-                )}
-              </div>
-            )}
-
-            {/* Action buttons */}
+            {/* Action buttons — destructive actions first, expand/collapse chevron last (far right) */}
             <div className="prefill-action-buttons">
-              <Button
-                variant="filled"
-                color="gray"
-                size="md"
-                onClick={onToggleHistory}
-                className="prefill-expand-btn"
-              >
-                {isLoadingHistory ? (
-                  <LoadingSpinner inline size="sm" />
-                ) : isHistoryExpanded ? (
-                  <ChevronUp className="w-4 h-4" />
-                ) : (
-                  <ChevronDown className="w-4 h-4" />
-                )}
-              </Button>
-
               {isAdmin && isLive && (
                 <>
                   {onBan && (
@@ -497,6 +471,22 @@ const SessionCard: React.FC<{
                   )}
                 </>
               )}
+
+              <Button
+                variant="filled"
+                color="gray"
+                size="md"
+                onClick={onToggleHistory}
+                className="prefill-expand-btn"
+              >
+                {isLoadingHistory ? (
+                  <LoadingSpinner inline size="sm" />
+                ) : isHistoryExpanded ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )}
+              </Button>
             </div>
           </div>
         </div>
@@ -1175,7 +1165,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 setPage(1);
               }}
               placeholder={t('management.prefillSessions.statusFilters.all')}
-              className="min-w-[90px] sm:min-w-[120px]"
+              className="min-w-[90px] sm:min-w-[120px] h-10"
               dropdownWidth="140px"
             />
             <EnhancedDropdown
@@ -1198,7 +1188,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 setPage(1);
               }}
               placeholder={t('management.prefillSessions.platformFilters.all')}
-              className="min-w-[90px] sm:min-w-[120px]"
+              className="min-w-[90px] sm:min-w-[120px] h-10"
               dropdownWidth="140px"
             />
           </div>
