@@ -1000,10 +1000,6 @@ public sealed class GameCacheDetectionDataService
             {
                 var existing = kvp.Value;
 
-                // Always refresh the snapshot columns so the UI shows an honest "0 files this scan"
-                // regardless of the badge decision below.
-                existing.CacheFilesFound = 0;
-                existing.TotalSizeBytes = 0;
                 existing.LastDetectedUtc = now;
 
                 // Only flip the Evicted badge when there is POSITIVE eviction evidence: the service
@@ -1014,6 +1010,10 @@ public sealed class GameCacheDetectionDataService
                 // → GetServicesToUnevictAsync) recovers any that legitimately re-cache later.
                 if (!servicesWithLiveDownloads.Contains(kvp.Key))
                 {
+                    // Positive eviction evidence: zero the snapshot columns and badge it Evicted so
+                    // it moves to the Evicted list (CacheFilesFound=0 + IsEvicted=true are consistent).
+                    existing.CacheFilesFound = 0;
+                    existing.TotalSizeBytes = 0;
                     existing.IsEvicted = true;
                     _logger.LogInformation(
                         "[ServiceDetection] Marked {Name} as evicted - absent from latest scan and all Downloads already evicted",
@@ -1021,8 +1021,15 @@ public sealed class GameCacheDetectionDataService
                 }
                 else
                 {
+                    // Scan false-negative: the service is absent from this scan's Rust report but
+                    // still has non-evicted Downloads, so the files are believed present on disk.
+                    // PRESERVE the last-known CacheFilesFound/TotalSizeBytes - zeroing them would drop
+                    // the row below the frontend's active-list filter (getActiveServices requires
+                    // cache_files_found > 0) and make the service silently vanish until the next full
+                    // rescan re-detects it. Leave the badge and counts untouched; the Downloads-keyed
+                    // self-heal reconciles any that legitimately change later.
                     _logger.LogDebug(
-                        "[ServiceDetection] {Name} absent from latest scan but has non-evicted Downloads - NOT evicting (likely scan false-negative)",
+                        "[ServiceDetection] {Name} absent from latest scan but has non-evicted Downloads - preserving last-known counts (likely scan false-negative)",
                         existing.ServiceName);
                 }
             }
