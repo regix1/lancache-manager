@@ -1,6 +1,9 @@
 # Firecrawl cache
 .firecrawl/
 
+# Playwright MCP output (screenshots, snapshots)
+.playwright-mcp/
+
 # Build results
 [Dd]ebug/
 [Dd]ebugPublic/
