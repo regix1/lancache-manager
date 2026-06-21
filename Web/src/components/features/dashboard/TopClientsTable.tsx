@@ -5,9 +5,10 @@ import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { CacheInfoTooltip, Tooltip } from '@components/ui/Tooltip';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { EmptyState } from '@components/ui/ManagerCard';
 import { useTimezone } from '@contexts/useTimezone';
 import { getEffectiveTimezone, formatShortDate } from '@utils/timezone';
-import { Users } from 'lucide-react';
+import { Users, ArrowDown } from 'lucide-react';
 import type { ClientStat } from '@/types';
 
 interface TopClientsTableProps {
@@ -47,7 +48,7 @@ const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
         : undefined;
 
   return (
-    <tr className="hover:bg-themed-hover transition-colors">
+    <tr>
       <td className="py-3 text-themed-primary whitespace-nowrap">
         <div className="flex items-center gap-2">
           {client.isGrouped && <Users className="w-4 h-4 text-themed-muted flex-shrink-0" />}
@@ -65,16 +66,16 @@ const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
           )}
         </div>
       </td>
-      <td className="py-3 text-themed-secondary hidden sm:table-cell whitespace-nowrap">
+      <td className="py-3 text-right tabular-nums text-themed-secondary hidden sm:table-cell whitespace-nowrap">
         {formatBytes(client.totalBytes)}
       </td>
-      <td className="py-3 cache-hit hidden md:table-cell whitespace-nowrap">
+      <td className="py-3 text-right tabular-nums cache-hit hidden md:table-cell whitespace-nowrap">
         {formatBytes(client.totalCacheHitBytes)}
       </td>
-      <td className="py-3 cache-miss hidden md:table-cell whitespace-nowrap">
+      <td className="py-3 text-right tabular-nums cache-miss hidden md:table-cell whitespace-nowrap">
         {formatBytes(client.totalCacheMissBytes)}
       </td>
-      <td className="py-3">
+      <td className="py-3 text-right tabular-nums">
         <span
           className={`px-2 py-1 rounded text-xs hit-rate-badge whitespace-nowrap ${
             client.cacheHitPercent > 50 ? 'high' : 'warning'
@@ -83,7 +84,7 @@ const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
           {formatPercent(client.cacheHitPercent)}
         </span>
       </td>
-      <td className="py-3 text-themed-muted hidden lg:table-cell whitespace-nowrap">
+      <td className="py-3 text-right text-themed-muted hidden lg:table-cell whitespace-nowrap">
         {formattedLastActivity}
       </td>
     </tr>
@@ -162,35 +163,89 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
         </div>
 
         {loading ? (
-          <div className="space-y-3">
-            {Array.from({ length: 5 }, (_, i) => (
-              <div key={i} className="flex items-center gap-4">
-                <div className="h-4 w-24 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
-                <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse hidden sm:block" />
-                <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse hidden md:block" />
-                <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse hidden md:block" />
-                <div className="h-4 w-12 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
-                <div className="h-4 w-20 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse hidden lg:block" />
-              </div>
-            ))}
+          <div className="overflow-x-auto -mx-2 px-2">
+            <table className="w-full top-clients-table">
+              <thead>
+                <tr className="text-left text-xs text-themed-muted uppercase tracking-wider sticky top-0 z-[1] bg-[var(--theme-card-bg)]">
+                  <th scope="col" className="pb-3">
+                    {t('dashboard.topClients.columns.client')}
+                  </th>
+                  <th scope="col" className="pb-3 text-right hidden sm:table-cell">
+                    {t('dashboard.topClients.columns.total')}
+                  </th>
+                  <th scope="col" className="pb-3 text-right hidden md:table-cell">
+                    {t('dashboard.topClients.columns.hits')}
+                  </th>
+                  <th scope="col" className="pb-3 text-right hidden md:table-cell">
+                    {t('dashboard.topClients.columns.misses')}
+                  </th>
+                  <th scope="col" className="pb-3 text-right">
+                    {t('dashboard.topClients.columns.hitRate')}
+                  </th>
+                  <th scope="col" className="pb-3 text-right hidden lg:table-cell">
+                    {t('dashboard.topClients.columns.lastSeen')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="text-sm">
+                {Array.from({ length: 5 }, (_, i) => (
+                  <tr key={i}>
+                    <td className="py-3">
+                      <div className="h-4 w-24 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
+                    </td>
+                    <td className="py-3 hidden sm:table-cell">
+                      <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
+                    </td>
+                    <td className="py-3 hidden md:table-cell">
+                      <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
+                    </td>
+                    <td className="py-3 hidden md:table-cell">
+                      <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
+                    </td>
+                    <td className="py-3">
+                      <div className="h-4 w-12 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
+                    </td>
+                    <td className="py-3 text-right hidden lg:table-cell">
+                      <div className="h-4 w-20 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         ) : displayClients.length > 0 ? (
           <div className="overflow-x-auto -mx-2 px-2">
-            <table className="w-full">
+            <table className="w-full top-clients-table">
               <thead>
-                <tr className="text-left text-xs text-themed-muted uppercase tracking-wider">
-                  <th className="pb-3">{t('dashboard.topClients.columns.client')}</th>
-                  <th className="pb-3 hidden sm:table-cell">
-                    {t('dashboard.topClients.columns.total')}
+                <tr className="text-left text-xs text-themed-muted uppercase tracking-wider sticky top-0 z-[1] bg-[var(--theme-card-bg)]">
+                  <th scope="col" className="pb-3">
+                    {t('dashboard.topClients.columns.client')}
                   </th>
-                  <th className="pb-3 hidden md:table-cell">
-                    {t('dashboard.topClients.columns.hits')}
+                  <th scope="col" className="pb-3 text-right hidden sm:table-cell">
+                    <span className="inline-flex items-center justify-end gap-1">
+                      {t('dashboard.topClients.columns.total')}
+                      {sortBy === 'total' && <ArrowDown className="w-3 h-3" />}
+                    </span>
                   </th>
-                  <th className="pb-3 hidden md:table-cell">
-                    {t('dashboard.topClients.columns.misses')}
+                  <th scope="col" className="pb-3 text-right hidden md:table-cell">
+                    <span className="inline-flex items-center justify-end gap-1">
+                      {t('dashboard.topClients.columns.hits')}
+                      {sortBy === 'hits' && <ArrowDown className="w-3 h-3" />}
+                    </span>
                   </th>
-                  <th className="pb-3">{t('dashboard.topClients.columns.hitRate')}</th>
-                  <th className="pb-3 hidden lg:table-cell">
+                  <th scope="col" className="pb-3 text-right hidden md:table-cell">
+                    <span className="inline-flex items-center justify-end gap-1">
+                      {t('dashboard.topClients.columns.misses')}
+                      {sortBy === 'misses' && <ArrowDown className="w-3 h-3" />}
+                    </span>
+                  </th>
+                  <th scope="col" className="pb-3 text-right">
+                    <span className="inline-flex items-center justify-end gap-1">
+                      {t('dashboard.topClients.columns.hitRate')}
+                      {sortBy === 'hitRate' && <ArrowDown className="w-3 h-3" />}
+                    </span>
+                  </th>
+                  <th scope="col" className="pb-3 text-right hidden lg:table-cell">
                     {t('dashboard.topClients.columns.lastSeen')}
                   </th>
                 </tr>
@@ -203,9 +258,11 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
             </table>
           </div>
         ) : (
-          <div className="flex items-center justify-center h-32 text-themed-muted">
-            {t('dashboard.topClients.noData')}
-          </div>
+          <EmptyState
+            icon={Users}
+            title={t('dashboard.topClients.noData')}
+            subtitle={t('dashboard.topClients.noDataHint')}
+          />
         )}
       </Card>
     );

@@ -347,7 +347,10 @@
     border: none;
     border-radius: var(--theme-border-radius);
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition:
+      color 0.2s ease,
+      background-color 0.2s ease,
+      box-shadow 0.2s ease;
   }
 
   .downloads-header .tab-button:hover:not(.active) {
@@ -832,7 +835,10 @@
     border: none;
     border-radius: 7px;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition:
+      color 0.2s ease,
+      background-color 0.2s ease,
+      box-shadow 0.2s ease;
   }
 
   .active-downloads-view .view-toggle-btn:hover:not(.active) {
@@ -863,7 +869,10 @@
     border: 1px solid var(--theme-border-secondary);
     border-radius: 6px;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition:
+      color 0.2s ease,
+      background-color 0.2s ease,
+      border-color 0.2s ease;
   }
 
   .active-downloads-view .refresh-btn:hover {
@@ -891,7 +900,9 @@
     border-radius: 12px;
     background: var(--theme-bg-secondary);
     border: 1px solid var(--theme-border-secondary);
-    transition: all 0.2s ease;
+    transition:
+      border-color 0.2s ease,
+      box-shadow 0.2s ease;
   }
 
   .active-downloads-view .download-item:hover {

@@ -77,6 +77,10 @@
     "jumpTo": "跳转至...",
     "hideThisHint": "隐藏此提示",
     "remove": "移除",
+    "retry": "重试",
+    "failedToLoad": "加载失败",
+    "tryAgain": "再试一次",
+    "noData": "无数据",
     "evicted": "已淘汰",
     "partiallyEvicted": "部分已淘汰",
     "bytes": {
@@ -359,6 +363,7 @@
     "revoked": "已撤销"
   },
   "nav": {
+    "mainNavigation": "主导航",
     "dashboard": "仪表板",
     "downloads": "下载",
     "clients": "客户端",
@@ -455,7 +460,8 @@
       "scannedAt": "扫描于 {{time}}",
       "staleScanData": "扫描数据已过期",
       "evictedIncluded": "{{count}} 个已淘汰",
-      "onDisk": "磁盘 {{size}}"
+      "onDisk": "磁盘 {{size}}",
+      "liveNow": "实时"
     },
     "statCards": {
       "totalCache": {
@@ -566,6 +572,7 @@
       "ipsTooltip": "IP：{{ips}}",
       "ipTooltip": "IP：{{ip}}",
       "noData": "所选时间范围内无客户端数据",
+      "noDataHint": "一旦您的局域网缓存开始提供下载服务，客户端数据将显示在此处。",
       "timeRanges": {
         "15m": "最近15分钟",
         "30m": "最近30分钟",
@@ -631,7 +638,8 @@
       },
       "empty": {
         "title": "无可用数据",
-        "description": "服务统计将显示在此处"
+        "description": "服务统计将显示在此处",
+        "action": "查看日志"
       }
     }
   },

@@ -6,6 +6,9 @@ import Sparkline from '../components/Sparkline';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useCacheGrowth } from '@contexts/DashboardDataContext/hooks';
+import { Button } from '@components/ui/Button';
+import LoadingSpinner from '@components/common/LoadingSpinner';
+import { EmptyState } from '@components/ui/ManagerCard';
 
 interface CacheGrowthTrendProps {
   /** Current used cache size in bytes (from cacheInfo) */
@@ -21,7 +24,7 @@ interface CacheGrowthTrendProps {
  * Uses real API data from /api/stats/cache-growth
  */
 const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
-  ({ usedCacheSize, totalCacheSize, glassmorphism = true }) => {
+  ({ usedCacheSize, totalCacheSize, glassmorphism = false }) => {
     const { t } = useTranslation();
     const { timeRange } = useTimeFilter();
 
@@ -30,8 +33,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
     const isHistoricalView = timeRange !== 'live';
 
     // Consume cache growth data from batched context
-    const { cacheGrowth: displayData, loading } = useCacheGrowth();
-    const error: string | null = null;
+    const { cacheGrowth: displayData, loading, error, refetch } = useCacheGrowth();
 
     // Extract sparkline data from API response
     const sparklineData = useMemo(() => {
@@ -72,8 +74,8 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
       return 'var(--theme-success)';
     };
 
-    // Loading state - show skeleton on initial load and every refresh
-    if (loading) {
+    // Loading state — skeleton only on initial load (no prior data); SWR refetch keeps existing chart
+    if (loading && !displayData) {
       return (
         <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
           <div className="flex items-center gap-2 mb-3">
@@ -108,8 +110,8 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
       );
     }
 
-    // Error state
-    if (error) {
+    // Error state — shown when no data is available and an error occurred
+    if (error && !displayData) {
       return (
         <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
           <div className="flex items-center gap-2 mb-3">
@@ -118,7 +120,16 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
               {t('widgets.cacheGrowthTrend.title')}
             </h3>
           </div>
-          <p className="text-sm text-themed-muted">{t('widgets.cacheGrowthTrend.failedToLoad')}</p>
+          <EmptyState
+            icon={TrendingUp}
+            title={t('common.failedToLoad')}
+            subtitle={t('common.tryAgain')}
+            action={
+              <Button size="sm" onClick={refetch}>
+                {t('common.retry')}
+              </Button>
+            }
+          />
         </div>
       );
     }
@@ -132,6 +143,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
             <h3 className="text-sm font-semibold text-themed-primary">
               {t('widgets.cacheGrowthTrend.title')}
             </h3>
+            {loading && displayData && <LoadingSpinner size="xs" inline />}
             <HelpPopover width={320}>
               <HelpSection title={t('widgets.cacheGrowthTrend.help.termsTitle')} variant="subtle">
                 <HelpDefinition

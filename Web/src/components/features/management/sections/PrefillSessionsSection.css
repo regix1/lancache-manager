@@ -699,8 +699,14 @@
   transition: border-color 0.15s ease-out;
 }
 
-.prefill-input:focus {
+.prefill-input:focus:not(:focus-visible) {
   outline: none;
+  border-color: var(--theme-border-focus);
+}
+
+.prefill-input:focus-visible {
+  outline: 2px solid var(--theme-border-focus);
+  outline-offset: 2px;
   border-color: var(--theme-border-focus);
 }
 

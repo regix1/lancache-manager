@@ -19,7 +19,12 @@
 
   .themed-input:focus {
     border-color: var(--theme-input-focus);
-    outline-color: var(--theme-input-focus);
+  }
+
+  .themed-input:focus-visible {
+    outline: 2px solid var(--theme-border-focus);
+    outline-offset: 2px;
+    border-color: var(--theme-input-focus);
   }
 
   /* Theme-aware focus outline utility for interactive controls */
@@ -33,39 +38,42 @@
     outline-color: var(--theme-border-focus);
   }
 
-  /* Remove blue outline on click, keep for keyboard navigation */
-  /* Only apply when user has disabled focus outlines */
+  /* Remove click/touch outline on .no-click-outline elements when user pref is active */
   [data-disable-focus-outlines='true'] .no-click-outline {
-    outline: none !important;
-    box-shadow: none !important;
+    outline: none;
+    box-shadow: none;
   }
 
-  [data-disable-focus-outlines='true'] .no-click-outline:focus {
-    outline: none !important;
-    box-shadow: none !important;
+  [data-disable-focus-outlines='true'] .no-click-outline:focus:not(:focus-visible) {
+    outline: none;
+    box-shadow: none;
   }
 
   [data-disable-focus-outlines='true'] .no-click-outline:focus-visible {
-    outline: 2px solid var(--theme-card-outline) !important;
-    outline-offset: 2px !important;
-    box-shadow: none !important;
+    outline: 2px solid var(--theme-card-outline);
+    outline-offset: 2px;
+    box-shadow: none;
   }
 
-  /* Also apply to buttons and interactive elements when disabled */
-  [data-disable-focus-outlines='true'] button:focus,
-  [data-disable-focus-outlines='true'] a:focus,
-  [data-disable-focus-outlines='true'] input:focus:not([type='checkbox']):not([type='range']),
-  [data-disable-focus-outlines='true'] select:focus,
-  [data-disable-focus-outlines='true'] textarea:focus {
-    outline: none !important;
-    box-shadow: none !important;
+  /* Suppress click/touch focus rings when user has disabled focus outlines */
+  [data-disable-focus-outlines='true'] button:focus:not(:focus-visible),
+  [data-disable-focus-outlines='true'] a:focus:not(:focus-visible),
+  [data-disable-focus-outlines='true']
+    input:focus:not(:focus-visible):not([type='checkbox']):not([type='range']),
+  [data-disable-focus-outlines='true'] select:focus:not(:focus-visible),
+  [data-disable-focus-outlines='true'] textarea:focus:not(:focus-visible) {
+    outline: none;
+    box-shadow: none;
   }
 
-  /* Keep focus-visible for accessibility */
+  /* Keep focus-visible for accessibility even with focus outlines disabled */
   [data-disable-focus-outlines='true'] button:focus-visible,
-  [data-disable-focus-outlines='true'] a:focus-visible {
-    outline: 2px solid var(--theme-primary) !important;
-    outline-offset: 2px !important;
+  [data-disable-focus-outlines='true'] a:focus-visible,
+  [data-disable-focus-outlines='true'] input:focus-visible,
+  [data-disable-focus-outlines='true'] select:focus-visible,
+  [data-disable-focus-outlines='true'] textarea:focus-visible {
+    outline: 2px solid var(--theme-border-focus);
+    outline-offset: 2px;
   }
 
   /* Themed Checkbox Styling - Simplified */
@@ -142,8 +150,14 @@
     box-shadow: 0 0 0 3px rgba(var(--theme-primary-rgb), 0.1);
   }
 
-  input[type='checkbox']:focus {
+  input[type='checkbox']:focus:not(:focus-visible) {
     outline: none;
+    box-shadow: 0 0 0 3px rgba(var(--theme-primary-rgb), 0.2);
+  }
+
+  input[type='checkbox']:focus-visible {
+    outline: 2px solid var(--theme-border-focus);
+    outline-offset: 2px;
     box-shadow: 0 0 0 3px rgba(var(--theme-primary-rgb), 0.2);
   }
 
@@ -225,7 +239,7 @@
   }
 
   /* Active/focus state */
-  input[type='range']:focus {
+  input[type='range']:focus:not(:focus-visible) {
     outline: none;
   }
 

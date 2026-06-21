@@ -321,7 +321,9 @@
   transform: translate(-50%, -50%);
   text-align: center;
   pointer-events: none;
-  z-index: 2;
+  /* Sit BEHIND the canvas (z-index:1) so chart.js tooltips drawn near the
+     donut hole render on top; the text still shows through the transparent hole. */
+  z-index: 0;
 }
 
 .chart-center-value {

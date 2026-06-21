@@ -8,6 +8,9 @@ import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/
 import { useTimezone } from '@contexts/useTimezone';
 import { useHourlyActivity } from '@contexts/DashboardDataContext/hooks';
 import { getCurrentHour } from '@utils/timezone';
+import { Button } from '@components/ui/Button';
+import LoadingSpinner from '@components/common/LoadingSpinner';
+import { EmptyState } from '@components/ui/ManagerCard';
 
 interface PeakUsageHoursProps {
   /** Whether to use glassmorphism style */
@@ -20,13 +23,12 @@ interface PeakUsageHoursProps {
  * Uses backend aggregation for efficiency
  * Intelligently handles multi-day ranges by showing averages
  */
-const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = true }) => {
+const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = false }) => {
   const { t } = useTranslation();
   const { use24HourFormat, useLocalTimezone } = useTimezone();
 
   // Consume hourly activity data from batched context
-  const { hourlyActivity: displayData, loading } = useHourlyActivity();
-  const error: string | null = null;
+  const { hourlyActivity: displayData, loading, error, refetch } = useHourlyActivity();
 
   // Get current hour based on timezone preference
   const currentHour = useMemo(() => {
@@ -144,8 +146,8 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = tr
     }
   };
 
-  // Loading state - show skeleton on initial load and every refresh
-  if (loading) {
+  // Loading state — skeleton only on initial load (no prior data); SWR refetch keeps existing chart
+  if (loading && !displayData) {
     return (
       <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
         <div className="flex items-center gap-2 mb-3">
@@ -188,8 +190,8 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = tr
     );
   }
 
-  // Error or empty state
-  if (error || totalDownloads === 0) {
+  // Error state — shown when no data is available and an error occurred
+  if (error && !displayData) {
     return (
       <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
         <div className="flex items-center gap-2 mb-3">
@@ -198,9 +200,31 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = tr
             {t('widgets.peakUsageHours.title')}
           </h3>
         </div>
-        <p className="text-sm text-themed-muted">
-          {error || t('widgets.peakUsageHours.noDataAvailable')}
-        </p>
+        <EmptyState
+          icon={Clock}
+          title={t('common.failedToLoad')}
+          subtitle={t('common.tryAgain')}
+          action={
+            <Button size="sm" onClick={refetch}>
+              {t('common.retry')}
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
+
+  // Empty state — data loaded but no downloads yet
+  if (totalDownloads === 0) {
+    return (
+      <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
+        <div className="flex items-center gap-2 mb-3">
+          <Clock className="w-5 h-5 text-themed-muted" />
+          <h3 className="text-sm font-semibold text-themed-primary">
+            {t('widgets.peakUsageHours.title')}
+          </h3>
+        </div>
+        <EmptyState icon={Clock} title={t('widgets.peakUsageHours.noDataAvailable')} />
       </div>
     );
   }
@@ -218,6 +242,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = tr
           <h3 className="text-sm font-semibold text-themed-primary">
             {t('widgets.peakUsageHours.title')}
           </h3>
+          {loading && displayData && <LoadingSpinner size="xs" inline />}
           <HelpPopover width={320}>
             <HelpSection title={t('widgets.peakUsageHours.help.aboutTitle')}>
               {t('widgets.peakUsageHours.description')}

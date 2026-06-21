@@ -165,23 +165,12 @@
     background-color: transparent;
   }
 
-  /* Remove default browser focus styles globally and use theme colors */
-  button:focus,
-  button:focus:not(:focus-visible),
-  select:focus,
-  select:focus:not(:focus-visible),
-  a:focus,
-  a:focus:not(:focus-visible) {
-    outline: none !important;
-    box-shadow: none;
-  }
-
-  /* Apply theme-based focus border only for keyboard navigation */
+  /* Keyboard focus ring for buttons, selects and links — global cascade handles suppression on click */
   button:focus-visible,
   select:focus-visible,
   a:focus-visible {
-    outline: 2px solid var(--theme-border-focus) !important;
-    outline-offset: 2px !important;
+    outline: 2px solid var(--theme-border-focus);
+    outline-offset: 2px;
     box-shadow: none;
   }
 }

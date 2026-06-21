@@ -95,6 +95,8 @@ export const useHourlyActivity = (): {
   hourlyActivity: HourlyActivityResponse | null;
   loading: boolean;
   isRefreshing: boolean;
+  error: string | null;
+  refetch: () => Promise<void>;
 } => {
   const context = useContext(DashboardDataContext);
   if (!context) {
@@ -103,7 +105,9 @@ export const useHourlyActivity = (): {
   return {
     hourlyActivity: context.hourlyActivity,
     loading: context.loading,
-    isRefreshing: context.isRefreshing
+    isRefreshing: context.isRefreshing,
+    error: context.error,
+    refetch: () => context.refreshData(true)
   };
 };
 
@@ -127,6 +131,8 @@ export const useCacheGrowth = (): {
   cacheGrowth: CacheGrowthResponse | null;
   loading: boolean;
   isRefreshing: boolean;
+  error: string | null;
+  refetch: () => Promise<void>;
 } => {
   const context = useContext(DashboardDataContext);
   if (!context) {
@@ -135,6 +141,8 @@ export const useCacheGrowth = (): {
   return {
     cacheGrowth: context.cacheGrowth,
     loading: context.loading,
-    isRefreshing: context.isRefreshing
+    isRefreshing: context.isRefreshing,
+    error: context.error,
+    refetch: () => context.refreshData(true)
   };
 };

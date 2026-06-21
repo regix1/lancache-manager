@@ -162,6 +162,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
         return (
           <button
             onClick={onClick}
+            aria-current={isActive ? 'page' : undefined}
             className={`flex items-center space-x-2 px-3 py-2 rounded-lg font-medium transition-all duration-200 bg-transparent ${className}`}
             style={{
               color: isActive ? 'var(--theme-nav-tab-active)' : 'var(--theme-nav-tab-inactive)'
@@ -199,7 +200,10 @@ const Navigation: React.FC<NavigationProps> = React.memo(
       <nav className="border-b sticky top-0 z-50 md:relative bg-themed-nav border-themed-nav">
         <div className="container mx-auto px-4">
           {/* Desktop Navigation */}
-          <div className="hidden md:flex space-x-1 h-12 items-center">
+          <div
+            className="hidden md:flex space-x-1 h-12 items-center"
+            aria-label={t('nav.mainNavigation')}
+          >
             {tabs.map((tab) => (
               <div key={tab.id} className="relative">
                 <TabButton

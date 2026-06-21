@@ -72,14 +72,14 @@ const DEFAULT_CARD_VISIBILITY: CardVisibility = {
 };
 
 const DEFAULT_CARD_ORDER: string[] = [
-  'totalCache',
-  'usedSpace',
   'bandwidthSaved',
+  'cacheHitRatio',
+  'activeDownloads',
+  'usedSpace',
+  'totalCache',
   'addedToCache',
   'totalServed',
-  'activeDownloads',
   'activeClients',
-  'cacheHitRatio',
   'cacheFiles',
   'gamesOnDisk'
 ];
@@ -464,7 +464,7 @@ const Dashboard: React.FC = () => {
       totalCache: {
         key: 'totalCache',
         title: t('dashboard.cards.totalCache'),
-        value: cacheInfo ? formatBytes(cacheInfo.totalCacheSize) : '0 B',
+        value: cacheInfo ? formatBytes(cacheInfo.totalCacheSize) : '—',
         subtitle:
           cacheInfo?.configuredCacheSize && cacheInfo.configuredCacheSize > 0
             ? t('dashboard.cards.driveCapacityValue', {
@@ -488,7 +488,7 @@ const Dashboard: React.FC = () => {
             : t('common.noDataAvailable')
           : cacheInfo
             ? formatBytes(cacheInfo.usedCacheSize)
-            : '0 B',
+            : '—',
         subtitle: isHistoricalView
           ? cacheSnapshot?.hasData
             ? t('dashboard.cards.startedAt', { size: formatBytes(cacheSnapshot.startUsedSize) }) +
@@ -502,39 +502,39 @@ const Dashboard: React.FC = () => {
                   percent: formatPercent(cacheInfo.usagePercent)
                 })
               : formatPercent(cacheInfo.usagePercent)
-            : '0%',
+            : '—',
         icon: HardDrive,
-        color: 'green' as const,
+        color: 'blue' as const,
         visible: cardVisibility.usedSpace,
         tooltip: statTooltips.usedSpace
       },
       bandwidthSaved: {
         key: 'bandwidthSaved',
         title: t('dashboard.cards.bandwidthSaved'),
-        value: formatBytes(stats.bandwidthSaved),
+        value: stats.bandwidthSaved != null && !loading ? formatBytes(stats.bandwidthSaved) : '—',
         subtitle: getTimeRangeLabel().toLowerCase(),
         icon: TrendingUp,
-        color: 'emerald' as const,
+        color: 'green' as const,
         visible: cardVisibility.bandwidthSaved,
         tooltip: statTooltips.bandwidthSaved
       },
       addedToCache: {
         key: 'addedToCache',
         title: t('dashboard.cards.addedToCache'),
-        value: formatBytes(stats.addedToCache),
+        value: stats.addedToCache != null && !loading ? formatBytes(stats.addedToCache) : '—',
         subtitle: getTimeRangeLabel().toLowerCase(),
         icon: Zap,
-        color: 'purple' as const,
+        color: 'teal' as const,
         visible: cardVisibility.addedToCache,
         tooltip: statTooltips.addedToCache
       },
       totalServed: {
         key: 'totalServed',
         title: t('dashboard.cards.totalServed'),
-        value: formatBytes(stats.totalServed),
+        value: stats.totalServed != null && !loading ? formatBytes(stats.totalServed) : '—',
         subtitle: getTimeRangeLabel().toLowerCase(),
         icon: Server,
-        color: 'indigo' as const,
+        color: 'teal' as const,
         visible: cardVisibility.totalServed,
         tooltip: statTooltips.totalServed
       },
@@ -544,10 +544,13 @@ const Dashboard: React.FC = () => {
         value: isHistoricalView ? t('dashboard.cards.disabled') : stats.totalActiveDownloads,
         subtitle: isHistoricalView
           ? t('dashboard.cards.liveDataOnly')
-          : t('dashboard.cards.downloadsInRange', {
-              count: stats.periodDownloads,
-              period: periodLabel
-            }),
+          : [
+              t('dashboard.cards.liveNow'),
+              t('dashboard.cards.downloadsInRange', {
+                count: stats.periodDownloads,
+                period: periodLabel
+              })
+            ].join(' · '),
         icon: Download,
         color: 'orange' as const,
         visible: cardVisibility.activeDownloads,
@@ -559,29 +562,32 @@ const Dashboard: React.FC = () => {
         value: isHistoricalView ? t('dashboard.cards.disabled') : stats.activeClients,
         subtitle: isHistoricalView
           ? t('dashboard.cards.liveDataOnly')
-          : t('dashboard.cards.uniqueClientsInRange', {
-              count: stats.uniqueClients,
-              period: periodLabel
-            }),
+          : [
+              t('dashboard.cards.liveNow'),
+              t('dashboard.cards.uniqueClientsInRange', {
+                count: stats.uniqueClients,
+                period: periodLabel
+              })
+            ].join(' · '),
         icon: Users,
-        color: 'yellow' as const,
+        color: 'orange' as const,
         visible: cardVisibility.activeClients,
         tooltip: statTooltips.activeClients
       },
       cacheHitRatio: {
         key: 'cacheHitRatio',
         title: t('dashboard.cards.cacheHitRatio'),
-        value: formatPercent(stats.cacheHitRatio),
+        value: stats.cacheHitRatio != null && !loading ? formatPercent(stats.cacheHitRatio) : '—',
         subtitle: getTimeRangeLabel().toLowerCase(),
         icon: Activity,
-        color: 'cyan' as const,
+        color: 'green' as const,
         visible: cardVisibility.cacheHitRatio,
         tooltip: statTooltips.cacheHitRatio
       },
       cacheFiles: {
         key: 'cacheFiles',
         title: t('dashboard.cards.cacheFiles'),
-        value: cacheInfo ? formatCount(cacheInfo.totalFiles) : '0',
+        value: cacheInfo ? formatCount(cacheInfo.totalFiles) : '—',
         subtitle: [
           t('dashboard.cards.filesOnDisk'),
           formattedCacheScanTime
@@ -629,7 +635,7 @@ const Dashboard: React.FC = () => {
             </>
           ) : undefined,
         icon: HardDrive,
-        color: 'cyan' as const,
+        color: 'blue' as const,
         visible: cardVisibility.gamesOnDisk ?? false,
         tooltip: statTooltips.gamesOnDisk
       }
@@ -640,6 +646,7 @@ const Dashboard: React.FC = () => {
       cacheSnapshot,
       cardVisibility,
       stats,
+      loading,
       periodLabel,
       getTimeRangeLabel,
       isHistoricalView,
@@ -740,10 +747,11 @@ const Dashboard: React.FC = () => {
                       <div className="relative">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-themed-muted" />
                         <input
-                          type="text"
+                          type="search"
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                           placeholder={t('dashboard.searchHiddenCards')}
+                          aria-label={t('dashboard.searchHiddenCards')}
                           className="w-full pl-10 pr-3 py-2 themed-border-radius text-sm bg-themed-tertiary text-themed-primary border border-themed-primary"
                           autoFocus
                         />
@@ -790,7 +798,7 @@ const Dashboard: React.FC = () => {
                             className="hover-btn w-full p-2.5 themed-border-radius flex items-center gap-3 group"
                           >
                             <div
-                              className="stat-card-icon p-1.5 themed-border-radius group-hover:scale-105 transition-transform"
+                              className="stat-card-icon p-1.5 themed-border-radius"
                               data-color={card.color}
                             >
                               <Icon className="w-4 h-4 text-[var(--theme-button-text)]" />
@@ -863,6 +871,7 @@ const Dashboard: React.FC = () => {
               onClick={hideDragHint}
               className="ml-2 p-1 themed-border-radius hover:bg-themed-hover transition-colors flex-shrink-0 text-themed-muted"
               title={t('dashboard.hideThisHint')}
+              aria-label={t('dashboard.hideThisHint')}
             >
               <X className="w-4 h-4" />
             </button>
@@ -918,7 +927,7 @@ const Dashboard: React.FC = () => {
                 <Tooltip
                   content={t('tooltips.dragToReorder')}
                   strategy="overlay"
-                  className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-all hidden md:block z-[5]"
+                  className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity hidden md:block z-[5]"
                 >
                   <div className="p-1 themed-border-radius cursor-grab hover:bg-themed-hover">
                     <GripVertical className="w-4 h-4 text-themed-muted" />
@@ -928,7 +937,7 @@ const Dashboard: React.FC = () => {
 
               {/* Mobile edit mode indicator - shows grab handle in edit mode */}
               {isEditMode && (
-                <div className="absolute top-2 left-2 transition-all md:hidden z-[5] edit-mode-handle">
+                <div className="absolute top-2 left-2 md:hidden z-[5] edit-mode-handle">
                   <div
                     className={`edit-mode-handle-inner p-1.5 themed-border-radius ${
                       draggedCard === card.key ? 'handle-active' : ''
@@ -956,7 +965,6 @@ const Dashboard: React.FC = () => {
                 icon={card.icon}
                 color={card.color}
                 tooltip={card.tooltip}
-                glassmorphism={true}
                 loading={loading}
                 animateValue={!loading}
                 sparklineData={cardSparklineData}
@@ -965,14 +973,15 @@ const Dashboard: React.FC = () => {
               <Tooltip
                 content={t('tooltips.hideThisCard')}
                 strategy="overlay"
-                className="absolute top-2 right-2 z-20 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                className="absolute top-2 right-2 z-20 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity"
               >
                 <button
                   onClick={(event) => {
                     event.stopPropagation();
                     toggleCardVisibility(card.key);
                   }}
-                  className="p-1.5 themed-border-radius transition-colors hover:bg-themed-hover"
+                  className="p-2.5 themed-border-radius transition-colors hover:bg-themed-hover focus-visible:opacity-100"
+                  aria-label={t('tooltips.hideThisCard')}
                 >
                   <EyeOff className="w-3.5 h-3.5 text-themed-muted" />
                 </button>
@@ -997,7 +1006,6 @@ const Dashboard: React.FC = () => {
           <div className="w-full h-full">
             <ServiceAnalyticsChart
               serviceStats={serviceStats}
-              glassmorphism={true}
               loading={loading}
               onExpandedChange={setIsChartExpanded}
             />
@@ -1011,7 +1019,6 @@ const Dashboard: React.FC = () => {
               downloads={filteredLatestDownloads}
               loading={loading}
               timeRange={timeRange}
-              glassmorphism={true}
               detectionLookup={detectionLookup}
               detectionByName={detectionByName}
               detectionByService={detectionByService}
@@ -1022,11 +1029,10 @@ const Dashboard: React.FC = () => {
 
       {/* Analytics Widgets Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <PeakUsageHours glassmorphism={true} />
+        <PeakUsageHours />
         <CacheGrowthTrend
           usedCacheSize={cacheInfo?.usedCacheSize || 0}
           totalCacheSize={cacheInfo?.totalCacheSize || 0}
-          glassmorphism={true}
         />
       </div>
 
@@ -1037,7 +1043,6 @@ const Dashboard: React.FC = () => {
           timeRange={timeRange}
           customStartDate={customStartDate}
           customEndDate={customEndDate}
-          glassmorphism={true}
           loading={loading}
         />
       </div>

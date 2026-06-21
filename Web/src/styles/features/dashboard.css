@@ -112,10 +112,16 @@
   background-color: var(--theme-icon-red);
 }
 
+/* ===== STAT CARD VALUE ===== */
+.stat-card-value {
+  font-variant-numeric: tabular-nums;
+}
+
 /* ===== DASHBOARD EDIT MODE BANNER ===== */
 .edit-mode-instruction-banner {
   background-color: var(--theme-primary-subtle);
-  border-left: 3px solid var(--theme-primary);
+  border: 1px solid var(--theme-primary-muted);
+  border-radius: var(--theme-border-radius);
 }
 
 .edit-mode-instruction-text {
@@ -454,5 +460,70 @@
 @media (min-width: 1536px) {
   .stat-cards-5col {
     grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+/* Top Clients table — themed, rounded row hover.
+   Uses var(--theme-bg-hover) for the highlight and var(--theme-border-radius) for the
+   corners, so it follows the app's square/rounded theme toggle automatically.
+   Rounding a table row needs border-collapse: separate; the right corner follows the
+   last VISIBLE column, which is Hit Rate below lg and Last Seen at lg+. */
+.top-clients-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.top-clients-table tbody tr > td {
+  transition: background-color 0.15s ease;
+}
+
+.top-clients-table tbody tr:hover > td {
+  background-color: var(--theme-bg-hover);
+}
+
+.top-clients-table tbody tr > td:first-child {
+  border-top-left-radius: var(--theme-border-radius);
+  border-bottom-left-radius: var(--theme-border-radius);
+}
+
+.top-clients-table tbody tr > td:nth-last-child(2) {
+  border-top-right-radius: var(--theme-border-radius);
+  border-bottom-right-radius: var(--theme-border-radius);
+}
+
+@media (min-width: 1024px) {
+  .top-clients-table tbody tr > td:nth-last-child(2) {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .top-clients-table tbody tr > td:last-child {
+    border-top-right-radius: var(--theme-border-radius);
+    border-bottom-right-radius: var(--theme-border-radius);
+  }
+}
+
+/* Horizontal breathing room at the row ends so the rounded hover highlight isn't
+   flush against the text. Applied to header + body cells so columns stay aligned;
+   the right inset follows the last VISIBLE column (Hit Rate below lg, Last Seen at lg+). */
+.top-clients-table th:first-child,
+.top-clients-table td:first-child {
+  padding-left: 0.75rem;
+}
+
+.top-clients-table th:nth-last-child(2),
+.top-clients-table td:nth-last-child(2) {
+  padding-right: 0.75rem;
+}
+
+@media (min-width: 1024px) {
+  .top-clients-table th:nth-last-child(2),
+  .top-clients-table td:nth-last-child(2) {
+    padding-right: 0;
+  }
+
+  .top-clients-table th:last-child,
+  .top-clients-table td:last-child {
+    padding-right: 0.75rem;
   }
 }

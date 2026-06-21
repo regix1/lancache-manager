@@ -277,6 +277,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                       total={chartData.total}
                       centerLabel={centerLabel}
                       gameSliceExtras={chartData.gameSliceExtras}
+                      ariaLabel={t('dashboard.serviceAnalytics.tabs.serviceDistribution')}
                     />
                   </div>
 
@@ -320,6 +321,20 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
             </div>
             <div className="empty-title">{t('dashboard.serviceAnalytics.empty.title')}</div>
             <div className="empty-desc">{t('dashboard.serviceAnalytics.empty.description')}</div>
+            <div className="mt-4">
+              <Button
+                variant="filled"
+                color="gray"
+                size="sm"
+                onClick={() =>
+                  window.dispatchEvent(
+                    new CustomEvent('navigate-to-tab', { detail: { tab: 'downloads' } })
+                  )
+                }
+              >
+                {t('dashboard.serviceAnalytics.empty.action', 'View Logs')}
+              </Button>
+            </div>
           </div>
         )}
       </Card>

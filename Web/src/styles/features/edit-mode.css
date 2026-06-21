@@ -75,7 +75,10 @@
 
 /* Edit mode button styles */
 .edit-mode-toggle {
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .edit-mode-toggle:active {
@@ -94,7 +97,10 @@
   color: var(--theme-button-text);
   font-weight: 600;
   box-shadow: 0 4px 12px var(--theme-primary-strong);
-  transition: all 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
 }
 
 .edit-mode-done:hover {
@@ -111,7 +117,9 @@
 .edit-mode-handle {
   opacity: 0;
   transform: scale(0.8);
-  transition: all 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
 }
 
 .edit-mode-active .edit-mode-handle {

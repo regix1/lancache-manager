@@ -591,7 +591,10 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           border: none;
           border-radius: var(--theme-border-radius);
           cursor: pointer;
-          transition: all 0.2s ease;
+          transition:
+            color 0.2s ease,
+            background-color 0.2s ease,
+            box-shadow 0.2s ease;
         }
 
         .tab-btn:hover:not(.active) {
@@ -729,7 +732,9 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           border-radius: var(--theme-border-radius-lg);
           background: var(--theme-bg-secondary);
           border: 1px solid var(--theme-border-secondary);
-          transition: all 0.2s ease;
+          transition:
+            border-color 0.2s ease,
+            box-shadow 0.2s ease;
           /* backwards fill + from-keyframe: the final state keeps NO transform,
              so the item drops its compositing layer and the corner border
              renders crisp instead of being shaved at the clip edge. */
@@ -1030,7 +1035,9 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           border: 1px solid var(--theme-border-secondary);
           border-radius: var(--theme-border-radius);
           cursor: pointer;
-          transition: all 0.2s ease;
+          transition:
+            color 0.2s ease,
+            border-color 0.2s ease;
         }
 
         .refresh-btn:hover {

@@ -77,6 +77,10 @@
     "jumpTo": "Jump to...",
     "hideThisHint": "Hide this hint",
     "remove": "Remove",
+    "retry": "Retry",
+    "failedToLoad": "Failed to load",
+    "tryAgain": "Try again",
+    "noData": "No data",
     "evicted": "Evicted",
     "partiallyEvicted": "Partially Evicted",
     "bytes": {
@@ -359,6 +363,7 @@
     "revoked": "Revoked"
   },
   "nav": {
+    "mainNavigation": "Main navigation",
     "dashboard": "Dashboard",
     "downloads": "Downloads",
     "clients": "Clients",
@@ -455,7 +460,8 @@
       "scannedAt": "scanned {{time}}",
       "staleScanData": "Scan outdated",
       "evictedIncluded": "{{count}} evicted",
-      "onDisk": "{{size}} on disk"
+      "onDisk": "{{size}} on disk",
+      "liveNow": "Live now"
     },
     "statCards": {
       "totalCache": {
@@ -566,6 +572,7 @@
       "ipsTooltip": "IPs: {{ips}}",
       "ipTooltip": "IP: {{ip}}",
       "noData": "No client data available for selected time range",
+      "noDataHint": "Client data appears here once your LAN cache starts serving downloads.",
       "timeRanges": {
         "15m": "Last 15 Minutes",
         "30m": "Last 30 Minutes",
@@ -631,7 +638,8 @@
       },
       "empty": {
         "title": "No Data Available",
-        "description": "Service statistics will appear here"
+        "description": "Service statistics will appear here",
+        "action": "View Logs"
       }
     }
   },

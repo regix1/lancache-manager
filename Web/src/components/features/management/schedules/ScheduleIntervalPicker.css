@@ -44,6 +44,11 @@
   border-color: var(--theme-border-focus);
 }
 
+.schedule-interval-picker-input:focus-visible {
+  outline: 2px solid var(--theme-border-focus);
+  outline-offset: 2px;
+}
+
 .schedule-interval-picker-input.has-error {
   border-color: var(--theme-error);
 }

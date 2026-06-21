@@ -9,7 +9,9 @@
   border-radius: var(--theme-border-radius-xl);
   background: var(--theme-bg-secondary);
   border: 1px solid var(--theme-border-secondary);
-  transition: all 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
   cursor: pointer;
 }
 
@@ -218,7 +220,7 @@
 
 /* Rounded row "cards" */
 .session-table-row {
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease;
 }
 
 .session-table-row td {
@@ -248,11 +250,11 @@
 
 /* Left accent color matches user type */
 .session-table-row--admin td:first-child {
-  border-left: 3px solid var(--theme-user-session);
+  border-left-color: var(--theme-user-session);
 }
 
 .session-table-row--guest td:first-child {
-  border-left: 3px solid var(--theme-guest-session);
+  border-left-color: var(--theme-guest-session);
 }
 
 /* ==============================================
@@ -405,7 +407,10 @@
   background: transparent;
   border: 1px solid var(--theme-border-secondary);
   color: var(--theme-text-muted);
-  transition: all 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
   user-select: none;
 }
 

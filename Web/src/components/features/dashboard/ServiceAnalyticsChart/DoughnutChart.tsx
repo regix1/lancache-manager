@@ -32,7 +32,7 @@ function useThemeRevision(): number {
 }
 
 const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
-  ({ labels, datasets, total, centerLabel, gameSliceExtras }) => {
+  ({ labels, datasets, total, centerLabel, gameSliceExtras, ariaLabel }) => {
     const themeRevision = useThemeRevision();
     // Prepare chart data with stable reference. The slice border color is read
     // from the new flat `.chart-wrapper` background (var(--theme-bg-secondary))
@@ -124,7 +124,7 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
     }, [total, gameSliceExtras, themeRevision]);
 
     return (
-      <div className="chart-wrapper">
+      <div className="chart-wrapper" role="img" aria-label={ariaLabel ?? 'Service analytics chart'}>
         <Doughnut
           data={chartData}
           options={options}

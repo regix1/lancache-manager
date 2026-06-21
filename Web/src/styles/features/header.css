@@ -29,13 +29,17 @@
 }
 
 .header-shadow-pulse {
-  background: radial-gradient(
-    ellipse at center,
-    var(--theme-text-primary-emphasis) 0%,
-    var(--theme-text-primary-strong) 40%,
-    transparent 70%
-  );
   animation: header-shadow-pulse 2.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .header-float-bounce {
+    animation: none;
+  }
+
+  .header-shadow-pulse {
+    animation: none;
+  }
 }
 
 .header-guest-pill {
