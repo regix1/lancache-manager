@@ -2,7 +2,7 @@
 
 **English** | [中文](README.zh.md)
 
-[![License: FSL-1.1-MIT](https://img.shields.io/badge/License-FSL--1.1--MIT-blue)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue)](LICENSE)
 
 A web UI for [LANCache](https://lancache.net/). Watch downloads as they happen, see what's already cached, track bandwidth saved, and prefill Steam, Epic, Battle.net, and Riot games before your next LAN party. The web UI is available in English and 简体中文.
 
@@ -1107,12 +1107,12 @@ If LANCache Manager has been useful to you and you'd like to support development
 
 ### License
 
-LANCache Manager is **source-available** under the [Functional Source License (FSL-1.1-MIT)](LICENSE).
+LANCache Manager is licensed under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
 
 In plain terms:
 
-- **Self-host it, modify it, use it however you like** for yourself, your LAN, your business, or your gaming cafe. That's always allowed.
-- **You may not** repackage it and sell it, or host it, as a competing product or service.
-- **Every release converts to the MIT License two years after it ships** automatically, so older versions become fully open source over time.
+- **Self-host it, modify it, use it however you like** for yourself, your LAN, your business, or your gaming cafe.
+- **If you run a modified version for other people** (including as a hosted service), you must make your modified source available to them under the same license, with the original copyright intact.
+- This keeps the project open: anyone who builds on it has to share their changes back, so it can't be turned into a closed, proprietary reskin.
 
-Versions up to and including `1.10.3` were released under the MIT License and stay MIT forever (see [LICENSE-MIT](LICENSE-MIT)). The project name and logo are covered separately by the [Trademark Policy](TRADEMARK.md). Contributions are accepted under [these terms](CONTRIBUTING.md).
+Versions up to and including `1.10.3` were released under the MIT License and stay MIT. The project name and logo are covered separately by the [Trademark Policy](TRADEMARK.md). Contributions are accepted under [these terms](CONTRIBUTING.md).

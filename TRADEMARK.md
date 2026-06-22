@@ -1,8 +1,8 @@
 # Trademark and Branding Policy
 
-The source code of LANCache Manager is licensed under the Functional Source
-License (see [LICENSE](LICENSE)). **This license covers the code. It does not
-grant any rights to the project's name, branding, or identity.**
+The source code of LANCache Manager is licensed under the GNU Affero General
+Public License v3.0 (see [LICENSE](LICENSE)). **That license covers the code. It
+does not grant any rights to the project's name, branding, or identity.**
 
 The name **"LANCache Manager"**, the project logo, and the associated visual
 identity are trademarks of Regix, whether or not they are formally registered.
@@ -11,8 +11,7 @@ identity are trademarks of Regix, whether or not they are formally registered.
 
 You **may**:
 
-- Use, self-host, and modify the software for any Permitted Purpose under the
-  license.
+- Use, self-host, and modify the software under the terms of the AGPL.
 - Truthfully state that your fork or deployment is *"based on LANCache Manager"*
   or *"a fork of LANCache Manager"*.
 - Refer to the project by name when linking to it, reviewing it, or writing
@@ -29,13 +28,13 @@ You **may not**, without prior written permission:
 
 If you distribute a modified version, please give it your own name and remove
 the LANCache Manager branding, while keeping the copyright and license notices
-required by the LICENSE and LICENSE-MIT files.
+required by the LICENSE file.
 
 ## Why
 
-The code license protects the work. This policy protects users from confusion
-about which version is the real one and who stands behind it. They are separate
-tools and both apply.
+The AGPL protects the code and keeps it open. This policy protects users from
+confusion about which version is the real one and who stands behind it. They are
+separate tools and both apply.
 
 Questions about permitted uses of the name or logo:
 [open an issue](https://github.com/regix1/lancache-manager/issues).
