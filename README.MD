@@ -1103,4 +1103,14 @@ If LANCache Manager has been useful to you and you'd like to support development
 
 </div>
 
-Released under the [MIT License](https://github.com/regix1/lancache-manager/blob/main/LICENSE).
+### License
+
+LANCache Manager is **source-available** under the [Functional Source License (FSL-1.1-MIT)](LICENSE).
+
+In plain terms:
+
+- **Self-host it, modify it, use it however you like** for yourself, your LAN, your business, or your gaming cafe. That's always allowed.
+- **You may not** repackage it and sell it, or host it, as a competing product or service.
+- **Every release converts to the MIT License two years after it ships** automatically, so older versions become fully open source over time.
+
+Versions up to and including `1.10.3` were released under the MIT License and stay MIT forever (see [LICENSE-MIT](LICENSE-MIT)). The project name and logo are covered separately by the [Trademark Policy](TRADEMARK.md). Contributions are accepted under [these terms](CONTRIBUTING.md).
