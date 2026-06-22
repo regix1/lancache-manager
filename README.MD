@@ -2,6 +2,8 @@
 
 **English** | [中文](README.zh.md)
 
+[![License: FSL-1.1-MIT](https://img.shields.io/badge/License-FSL--1.1--MIT-blue)](LICENSE)
+
 A web UI for [LANCache](https://lancache.net/). Watch downloads as they happen, see what's already cached, track bandwidth saved, and prefill Steam, Epic, Battle.net, and Riot games before your next LAN party. The web UI is available in English and 简体中文.
 
 **What it does:**
