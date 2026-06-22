@@ -153,15 +153,6 @@ docker run -d \
 
 *Calendar view of download activity and LAN events*
 
-### Prefill
-<img alt="Prefill Home" src="docs/images/prefill-home.png" />
-
-*Pick between Steam, Epic, Battle.net, and Riot to start a prefill session*
-
-<img alt="Prefill Session" src="docs/images/prefill-session.png" />
-
-*Game selection, download settings, and real-time activity log*
-
 ### Management
 <img alt="Management - Settings" src="docs/images/management-settings.png" />
 
@@ -171,11 +162,6 @@ docker run -d \
 <img alt="Management - Cache Operations" src="docs/images/management-cache.png" />
 
 *Log processing, corruption detection, and game cache detection*
-
-<img alt="Management - Themes" src="docs/images/management-themes.png" />
-<img alt="Management - Theme Editor" src="docs/images/management-theme-editor.png" />
-
-*Browse installed themes or create your own with the theme editor*
 
 <img alt="Management - Client Nicknames" src="docs/images/management-clients.png" />
 
@@ -480,6 +466,16 @@ Prefill downloads games into your cache *before* people connect. When guests sho
 
 Steam, Epic, Battle.net, and Riot each run in their own container, so you can prefill all of them at the same time without them interfering. Progress streams live to the UI.
 
+<div align="center">
+<img alt="Prefill - Platform Picker" src="docs/images/prefill-home.png" />
+
+*Pick between Steam, Epic, Battle.net, and Riot to start a prefill session*
+
+<img alt="Prefill - Session" src="docs/images/prefill-session.png" />
+
+*Game selection, download settings, and a real-time activity log*
+</div>
+
 ### Requirements
 
 - Docker socket mounted (`/var/run/docker.sock`)
@@ -657,6 +653,16 @@ Open **Management > Preferences > Theme Management** to:
 - Build themes from scratch with a live preview
 - Browse and install community themes
 - Import and export themes as TOML
+
+<div align="center">
+<img alt="Theme Management" src="docs/images/management-themes.png" />
+
+*Browse installed themes, switch the active theme, or import community themes*
+
+<img alt="Theme Editor" src="docs/images/management-theme-editor.png" />
+
+*Build your own theme with 160 customizable colors across 16 groups*
+</div>
 
 Themes live in `/data/themes/`. Here's the minimum format:
 

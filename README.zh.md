@@ -159,15 +159,6 @@ docker run -d \
 
 *下载活动和 LAN 事件的日历视图*
 
-### 预填充
-<img alt="预填充首页" src="docs/images/prefill-home.png" />
-
-*选择 Steam、Epic、Battle.net 或 Riot 开始预填充会话*
-
-<img alt="预填充会话" src="docs/images/prefill-session.png" />
-
-*游戏选择、下载设置和实时活动日志*
-
 ### 管理
 <img alt="管理 - 设置" src="docs/images/management-settings.png" />
 
@@ -177,11 +168,6 @@ docker run -d \
 <img alt="管理 - 缓存操作" src="docs/images/management-cache.png" />
 
 *日志处理、损坏检测和游戏缓存检测*
-
-<img alt="管理 - 主题" src="docs/images/management-themes.png" />
-<img alt="管理 - 主题编辑器" src="docs/images/management-theme-editor.png" />
-
-*浏览已安装的主题或使用主题编辑器创建自己的主题*
 
 <img alt="管理 - 客户端昵称" src="docs/images/management-clients.png" />
 
@@ -486,6 +472,16 @@ services:
 
 Steam、Epic、Battle.net 和 Riot 各自在自己的容器中运行，因此你可以同时预填充它们而不会相互干扰。进度实时流式传输到 UI。
 
+<div align="center">
+<img alt="预填充 - 平台选择" src="docs/images/prefill-home.png" />
+
+*选择 Steam、Epic、Battle.net 或 Riot 开始预填充会话*
+
+<img alt="预填充 - 会话" src="docs/images/prefill-session.png" />
+
+*游戏选择、下载设置和实时活动日志*
+</div>
+
 ### 要求
 
 - 已挂载 Docker 套接字（`/var/run/docker.sock`）
@@ -663,6 +659,16 @@ flowchart TD
 - 从零开始构建主题，实时预览
 - 浏览和安装社区主题
 - 以 TOML 格式导入和导出主题
+
+<div align="center">
+<img alt="主题管理" src="docs/images/management-themes.png" />
+
+*浏览已安装的主题、切换当前主题或导入社区主题*
+
+<img alt="主题编辑器" src="docs/images/management-theme-editor.png" />
+
+*使用 16 个分组中的 160 种可自定义颜色构建你自己的主题*
+</div>
 
 主题保存在 `/data/themes/`。最低格式如下：
 
