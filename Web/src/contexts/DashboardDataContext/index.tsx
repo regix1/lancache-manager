@@ -430,6 +430,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       setServiceStats(mockData.serviceStats);
       setDashboardStats(mockData.dashboardStats);
       setLatestDownloads(mockData.latestDownloads);
+      setHourlyActivity(MockDataService.generateMockHourlyActivity());
       setGameDetectionData(mockDetection);
       setGameDetectionLookup(byAppId);
       setGameDetectionByName(byName);
