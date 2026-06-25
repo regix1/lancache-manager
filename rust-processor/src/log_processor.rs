@@ -10,8 +10,9 @@ use std::env;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+mod cache_utils;
 mod cancel;
 mod db;
 mod log_discovery;
@@ -62,6 +63,8 @@ use session::SessionTracker;
 const BULK_BATCH_SIZE: usize = 5_000;
 const SESSION_GAP_MINUTES: i64 = 5;
 const LINE_BUFFER_CAPACITY: usize = 1024;
+/// Throttle interval for reloading the Xbox CDN fragment patterns from the DB during a run.
+const XBOX_PATTERN_RELOAD: Duration = Duration::from_secs(60);
 
 /// Buffered log entry ready for bulk INSERT - owns its data to avoid lifetime issues across session groups
 struct PendingLogEntry {
@@ -127,6 +130,17 @@ struct Processor {
     datasource_name: String,
     depot_map: HashMap<u32, (u32, Option<String>)>,
     skip_dedup: bool, // True when table is empty - skip duplicate checks for max speed
+    /// Xbox CDN fragment -> (title, product_id), longest fragment first. Xbox content arrives as
+    /// lancache-tagged `wsus` traffic over opaque /filestreamingservice/files/<GUID> URLs;
+    /// a stored XboxCdnPattern.UrlFragment match canonicalizes the Download to Service='xbox'
+    /// + GameName=title + XboxProductId=id at ingest. Reloaded periodically (the tables fill as
+    /// daemons contribute fragments). Empty until the first wsus line triggers a load.
+    xbox_patterns: Vec<(String, String, String)>,
+    /// Last time `xbox_patterns` was loaded; throttles reloads to once per `XBOX_PATTERN_RELOAD`.
+    last_xbox_pattern_load: Option<Instant>,
+    /// Per-URL Xbox resolution cache: url -> Some((title, product_id)) or None (confirmed no
+    /// match → stays generic wsus). None is cached too, so a non-match is never re-walked.
+    xbox_url_cache: HashMap<String, Option<(String, String)>>,
 }
 
 impl Processor {
@@ -171,6 +185,9 @@ impl Processor {
             datasource_name,
             depot_map,
             skip_dedup: false,
+            xbox_patterns: Vec::new(),
+            last_xbox_pattern_load: None,
+            xbox_url_cache: HashMap::new(),
         }
     }
 
@@ -517,13 +534,30 @@ impl Processor {
         // Begin a transaction
         let mut tx = self.pool.begin().await?;
 
+        // Pre-resolve the Xbox title for each entry (aligned by index) so the grouping loop below
+        // can key matched Xbox traffic per-title without holding a mutable borrow of `self`.
+        // wsus entries that match no Xbox fragment resolve to None and stay generic Windows Update.
+        let mut entry_xbox_titles: Vec<Option<String>> = Vec::with_capacity(entries.len());
+        for entry in entries {
+            if Self::is_wsus_service(&entry.service) {
+                entry_xbox_titles.push(self.lookup_xbox_game(&entry.url).await.map(|(title, _pid)| title));
+            } else {
+                entry_xbox_titles.push(None);
+            }
+        }
+
         // Group entries by client_ip + service + depot_id to prevent different games from being merged
         // For Epic services without a depot_id, use the URL path prefix as a discriminator
         // so different Epic games get separate sessions instead of being merged into one
         let mut grouped: HashMap<String, Vec<&LogEntry>> = HashMap::new();
-        for entry in entries {
+        for (entry, xbox_title) in entries.iter().zip(entry_xbox_titles.iter()) {
             let depot_suffix = if let Some(id) = entry.depot_id {
                 format!("_{}", id)
+            } else if let Some(title) = xbox_title {
+                // Xbox content is tagged `wsus` over opaque /filestreamingservice/files/<GUID> URLs;
+                // key the session on the resolved title so distinct Xbox games (and distinct from
+                // generic Windows Update, which keeps `_nodepot`) get distinct sessions.
+                format!("_xboxgame:{}", title)
             } else if entry.service.to_lowercase().contains("epic") {
                 // For Epic entries, use the CDN path prefix (e.g., /Builds/Org/o-xxx/hash/default)
                 // as the session discriminator to keep different games in separate sessions
@@ -583,6 +617,139 @@ impl Processor {
 
     fn lookup_depot_mapping(&self, depot_id: u32) -> Option<(u32, Option<String>)> {
         self.depot_map.get(&depot_id).cloned()
+    }
+
+    /// True for lancache service tags that carry Xbox / Microsoft Store delivery traffic.
+    /// Xbox content is tagged `wsus` (the canonical lancache tag, shared with generic Windows
+    /// Update); we only canonicalize the rows whose URL also matches a stored Xbox fragment, so
+    /// generic OS updates are untouched. Only `wsus` is matched - `windows` is not a lancache
+    /// service tag, so widening to it would only enlarge the candidate set for no benefit.
+    fn is_wsus_service(service: &str) -> bool {
+        service.to_lowercase().contains("wsus")
+    }
+
+    /// Reload the Xbox CDN fragment -> title patterns from the DB, throttled to
+    /// `XBOX_PATTERN_RELOAD`. The tables fill over time as daemons contribute fragments, so we
+    /// reload periodically during a long run. Errors (e.g. tables not created yet) are ignored.
+    async fn load_xbox_patterns(&mut self) {
+        if let Some(last) = self.last_xbox_pattern_load {
+            if last.elapsed() < XBOX_PATTERN_RELOAD {
+                return;
+            }
+        }
+
+        let result = sqlx::query(
+            "SELECT p.\"UrlFragment\", COALESCE(m.\"Title\", p.\"Title\") AS \"Title\", p.\"ProductId\" \
+             FROM \"XboxCdnPatterns\" p \
+             LEFT JOIN \"XboxGameMappings\" m ON p.\"ProductId\" = m.\"ProductId\" \
+             ORDER BY LENGTH(p.\"UrlFragment\") DESC"
+        )
+        .fetch_all(&self.pool)
+        .await;
+
+        match result {
+            Ok(rows) => {
+                self.xbox_patterns = rows
+                    .iter()
+                    .filter_map(|row| {
+                        let fragment: Option<String> = row.get("UrlFragment");
+                        let title: Option<String> = row.get("Title");
+                        let product_id: Option<String> = row.get("ProductId");
+                        match (fragment, title, product_id) {
+                            // Keep ONLY well-formed /filestreamingservice/files/<GUID> fragments.
+                            // Empty / "/" / non-GUID fragments would `contains()`-match generic wsus
+                            // URLs and relabel Windows Update traffic as a game — same shape guard the
+                            // C# resolver (XboxMappingService.IsValidFragment) applies. This Rust path
+                            // is the PRIMARY canonicalizer, so the guard MUST live here too.
+                            (Some(frag), Some(name), Some(pid)) if cache_utils::is_valid_xbox_fragment(&frag) => {
+                                Some((frag, name, pid))
+                            }
+                            _ => None,
+                        }
+                    })
+                    .collect();
+                self.last_xbox_pattern_load = Some(Instant::now());
+                // Active-session safety: PRESERVE negative (None) decisions across a reload. A URL
+                // that already resolved to generic Windows Update must STAY wsus for the rest of this
+                // run, even if a daemon contributes its fragment mid-download — otherwise a still
+                // in-flight `wsus` download would flip to `xbox` on the next batch, the active lookup
+                // (keyed on Service='xbox') would miss the live `wsus` row, and the download would
+                // SPLIT into two rows. New URLs first seen AFTER the pattern exists resolve normally;
+                // the next process run (a natural session gap) re-evaluates everything against the
+                // now-populated table. Positive entries are cleared so a renamed title can refresh.
+                self.xbox_url_cache.retain(|_, decision| decision.is_none());
+            }
+            Err(_) => {
+                // Silently ignore (tables may not exist yet); wsus stays generic.
+            }
+        }
+    }
+
+    /// Resolve a `wsus` URL to its Xbox `(title, product_id)` via a stored fragment match
+    /// (longest-first), or None if it is generic Windows Update. Per-URL cached (None caches too,
+    /// so a confirmed non-match is never re-walked). Loads the patterns on first use.
+    async fn lookup_xbox_game(&mut self, url: &str) -> Option<(String, String)> {
+        if let Some(cached) = self.xbox_url_cache.get(url) {
+            return cached.clone();
+        }
+
+        self.load_xbox_patterns().await;
+
+        let result = Self::match_xbox_fragment(&self.xbox_patterns, url)
+            .map(|(_, name, pid)| (name.clone(), pid.clone()));
+
+        self.xbox_url_cache.insert(url.to_string(), result.clone());
+        result
+    }
+
+    /// ASCII-case-insensitively find the (longest-first) Xbox pattern whose fragment is contained in
+    /// `url`. Xbox CDN fragments are `/filestreamingservice/files/<GUID>` paths; the GUID hex casing
+    /// the daemon stores (from the manifest URI) can differ from the casing in the nginx access-log
+    /// URL, so a case-sensitive `contains` would miss a real match and leave the row generic `wsus`.
+    /// The C# resolver (XboxMappingService.cs) already compares with `StringComparison.OrdinalIgnoreCase`;
+    /// this keeps the primary Rust canonicalizer consistent. ASCII lowercasing is exact for these
+    /// paths, and `lookup_xbox_game`'s per-URL cache means each unique URL is lowercased at most once.
+    fn match_xbox_fragment<'a>(
+        patterns: &'a [(String, String, String)],
+        url: &str,
+    ) -> Option<&'a (String, String, String)> {
+        let url_lower = url.to_ascii_lowercase();
+        patterns
+            .iter()
+            .find(|(fragment, _, _)| url_lower.contains(&fragment.to_ascii_lowercase()))
+    }
+
+    /// For a batch of `wsus` entries, pick the dominant resolved Xbox game (most frequent match).
+    /// Returns `("xbox", Some(title), Some(product_id))` when the batch is a recognized Xbox
+    /// download, else `(service, None, None)` so unmatched wsus traffic stays generic Windows
+    /// Update. Splitting the IDENTITY service (`xbox`, on Downloads) from the cache-hash service
+    /// (`wsus`, on LogEntries) is load-bearing — see the brief identity model.
+    async fn resolve_xbox_canonicalization(
+        &mut self,
+        service: &str,
+        new_entries: &[&LogEntry],
+    ) -> (String, Option<String>, Option<String>) {
+        if !Self::is_wsus_service(service) {
+            return (service.to_string(), None, None);
+        }
+
+        // Count matches by (title, product_id); pick the most frequent (ties broken by title) so a
+        // batch interleaving a game's files with a stray Office/Defender chunk names the game.
+        let mut game_counts: HashMap<(String, String), usize> = HashMap::new();
+        for entry in new_entries {
+            if let Some(game) = self.lookup_xbox_game(&entry.url).await {
+                *game_counts.entry(game).or_insert(0) += 1;
+            }
+        }
+
+        match game_counts
+            .into_iter()
+            .max_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)))
+            .map(|((title, product_id), _)| (title, product_id))
+        {
+            Some((title, product_id)) => ("xbox".to_string(), Some(title), Some(product_id)),
+            None => (service.to_string(), None, None),
+        }
     }
 
     async fn process_session_group(
@@ -728,9 +895,26 @@ impl Processor {
 
         let last_url = new_entries.last().map(|e| e.url.as_str());
 
+        // Xbox canonicalization (INGEST-PRIMARY, active-session-safe). When this batch of `wsus`
+        // traffic matches a stored Xbox fragment, the Downloads-side IDENTITY service becomes `xbox`
+        // and GameName becomes the resolved title — while LogEntries.Service / ServiceStats stay
+        // `wsus` (the cache-hash service). Every Downloads lookup/insert/deactivate below keys on
+        // `download_service`, so an Xbox download is consistently looked up under `xbox` across
+        // batches (deterministic per-URL resolution → no mid-session split). Unmatched `wsus` keeps
+        // `service` and is generic Windows Update. Backfilling already-ingested still-`wsus` rows is
+        // the C# post-pass's job, not ours.
+        let (download_service_owned, xbox_game_name, xbox_product_id) =
+            self.resolve_xbox_canonicalization(service, &new_entries).await;
+        let download_service: &str = &download_service_owned;
+
         // Lookup depot mappings during log processing (auto_map_depots = true)
         // This ensures Downloads have GameAppId/GameName set immediately, avoiding "Unknown Game" in UI
-        let (game_app_id, game_name) = if self.auto_map_depots && service.to_lowercase() == "steam" {
+        let (game_app_id, game_name) = if let Some(ref title) = xbox_game_name {
+            // Matched Xbox content: GameAppId stays None (named-style identity, like Blizzard/Riot),
+            // GameName = the resolved title. The Download was already canonicalized to Service='xbox'
+            // via `download_service`. Unmatched wsus never reaches here (xbox_game_name is None).
+            (None, Some(title.clone()))
+        } else if self.auto_map_depots && service.to_lowercase() == "steam" {
             if let Some(depot_id) = primary_depot_id {
                 match self.lookup_depot_mapping(depot_id) {
                     Some((app_id, app_name)) => {
@@ -831,12 +1015,14 @@ impl Processor {
 
         // Find or create download session
         let download_id = if should_create_new {
-            // Mark ALL old active sessions as inactive for this client/service
+            // Mark ALL old active sessions as inactive for this client/service. Uses the
+            // download-side identity service so an Xbox session deactivates prior `xbox` sessions
+            // (not unrelated generic `wsus` Windows Update sessions for the same client).
             sqlx::query(
                 "UPDATE \"Downloads\" SET \"IsActive\" = false WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"IsActive\" = true"
             )
             .bind(client_ip)
-            .bind(service)
+            .bind(download_service)
             .execute(&mut **tx)
             .await?;
 
@@ -850,11 +1036,11 @@ impl Processor {
             let last_local_dt = Utc.from_utc_datetime(&self.utc_to_local(last_timestamp));
 
             let row = sqlx::query(
-                "INSERT INTO \"Downloads\" (\"Service\", \"ClientIp\", \"StartTimeUtc\", \"EndTimeUtc\", \"StartTimeLocal\", \"EndTimeLocal\", \"CacheHitBytes\", \"CacheMissBytes\", \"IsActive\", \"LastUrl\", \"DepotId\", \"GameAppId\", \"GameName\", \"GameImageUrl\", \"Datasource\")
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11, $12, $13, $14)
+                "INSERT INTO \"Downloads\" (\"Service\", \"ClientIp\", \"StartTimeUtc\", \"EndTimeUtc\", \"StartTimeLocal\", \"EndTimeLocal\", \"CacheHitBytes\", \"CacheMissBytes\", \"IsActive\", \"LastUrl\", \"DepotId\", \"GameAppId\", \"GameName\", \"GameImageUrl\", \"Datasource\", \"XboxProductId\")
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11, $12, $13, $14, $15)
                  RETURNING \"Id\""
             )
-            .bind(service)
+            .bind(download_service)
             .bind(client_ip)
             .bind(first_utc_dt)
             .bind(last_utc_dt)
@@ -868,6 +1054,7 @@ impl Processor {
             .bind(&game_name)
             .bind(&game_image_url)
             .bind(&self.datasource_name)
+            .bind(&xbox_product_id)
             .fetch_one(&mut **tx)
             .await?;
 
@@ -914,7 +1101,23 @@ impl Processor {
             download_id
         } else {
             // Try to find existing active download for this specific depot/game
-            let download_id_opt: Option<i64> = if let Some(depot_id) = primary_depot_id {
+            let download_id_opt: Option<i64> = if let Some(ref xbox_title) = xbox_game_name {
+                // Matched Xbox content. Match the existing active session under the IDENTITY service
+                // (`xbox`, via download_service) by the resolved title OR a still-NULL GameName. The
+                // `_xboxgame:<title>` session grouping already guarantees this batch belongs to this
+                // one title, so adopting a previously-NULL xbox row is safe and lets the COALESCE
+                // UPDATE name it in this batch. Keying on download_service (not the raw wsus service)
+                // is what keeps Xbox sessions from colliding with generic Windows Update rows.
+                sqlx::query(
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND (\"GameName\" = $3 OR \"GameName\" IS NULL) ORDER BY (\"GameName\" = $3) DESC, \"StartTimeUtc\" DESC LIMIT 1"
+                )
+                .bind(client_ip)
+                .bind(download_service)
+                .bind(xbox_title)
+                .fetch_optional(&mut **tx)
+                .await?
+                .map(|r| r.get::<i64, _>("Id"))
+            } else if let Some(depot_id) = primary_depot_id {
                 sqlx::query(
                     "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" = $3 AND \"IsActive\" = true ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                 )
@@ -1038,10 +1241,10 @@ impl Processor {
                 let last_local_dt = Utc.from_utc_datetime(&self.utc_to_local(last_timestamp));
 
                 let row = sqlx::query(
-                    "INSERT INTO \"Downloads\" (\"ClientIp\", \"Service\", \"StartTimeUtc\", \"EndTimeUtc\", \"StartTimeLocal\", \"EndTimeLocal\", \"CacheHitBytes\", \"CacheMissBytes\", \"IsActive\", \"GameAppId\", \"GameName\", \"GameImageUrl\", \"LastUrl\", \"DepotId\", \"Datasource\") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11, $12, $13, $14) RETURNING \"Id\""
+                    "INSERT INTO \"Downloads\" (\"ClientIp\", \"Service\", \"StartTimeUtc\", \"EndTimeUtc\", \"StartTimeLocal\", \"EndTimeLocal\", \"CacheHitBytes\", \"CacheMissBytes\", \"IsActive\", \"GameAppId\", \"GameName\", \"GameImageUrl\", \"LastUrl\", \"DepotId\", \"Datasource\", \"XboxProductId\") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11, $12, $13, $14, $15) RETURNING \"Id\""
                 )
                 .bind(client_ip)
-                .bind(service)
+                .bind(download_service)
                 .bind(first_utc_dt)
                 .bind(last_utc_dt)
                 .bind(first_local_dt)
@@ -1054,6 +1257,7 @@ impl Processor {
                 .bind(last_url)
                 .bind(primary_depot_id.map(|d| d as i64))
                 .bind(&self.datasource_name)
+                .bind(&xbox_product_id)
                 .fetch_one(&mut **tx)
                 .await?;
                 (row.get::<i64, _>("Id"), true)
@@ -1063,10 +1267,12 @@ impl Processor {
             let last_utc_dt = Utc.from_utc_datetime(&last_timestamp);
             let last_local_dt = Utc.from_utc_datetime(&self.utc_to_local(last_timestamp));
 
-            // Only update if we found existing download (not if we just created it)
+            // Only update if we found existing download (not if we just created it).
+            // XboxProductId is COALESCE'd in so a matched Xbox session that adopted a still-NULL
+            // row gets its product id named in this batch (same pattern as GameName).
             if !is_new {
                 sqlx::query(
-                    "UPDATE \"Downloads\" SET \"EndTimeUtc\" = $1, \"EndTimeLocal\" = $2, \"CacheHitBytes\" = \"CacheHitBytes\" + $3, \"CacheMissBytes\" = \"CacheMissBytes\" + $4, \"LastUrl\" = $5, \"DepotId\" = COALESCE($6, \"DepotId\"), \"GameAppId\" = COALESCE($7, \"GameAppId\"), \"GameName\" = COALESCE($8, \"GameName\"), \"GameImageUrl\" = COALESCE($9, \"GameImageUrl\") WHERE \"Id\" = $10"
+                    "UPDATE \"Downloads\" SET \"EndTimeUtc\" = $1, \"EndTimeLocal\" = $2, \"CacheHitBytes\" = \"CacheHitBytes\" + $3, \"CacheMissBytes\" = \"CacheMissBytes\" + $4, \"LastUrl\" = $5, \"DepotId\" = COALESCE($6, \"DepotId\"), \"GameAppId\" = COALESCE($7, \"GameAppId\"), \"GameName\" = COALESCE($8, \"GameName\"), \"GameImageUrl\" = COALESCE($9, \"GameImageUrl\"), \"XboxProductId\" = COALESCE($10, \"XboxProductId\") WHERE \"Id\" = $11"
                 )
                 .bind(last_utc_dt)
                 .bind(last_local_dt)
@@ -1077,6 +1283,7 @@ impl Processor {
                 .bind(game_app_id.map(|id| id as i64))
                 .bind(&game_name)
                 .bind(&game_image_url)
+                .bind(&xbox_product_id)
                 .bind(download_id)
                 .execute(&mut **tx)
                 .await?;
@@ -1281,5 +1488,120 @@ async fn main() -> Result<()> {
             reporter.emit_failed("signalr.logProcessor.error.fatal", serde_json::json!({ "errorDetail": format!("{}", e) }));
             Err(e)
         }
+    }
+}
+
+#[cfg(test)]
+mod xbox_fragment_guard_tests {
+    use super::Processor;
+    // The shape guard now lives in the shared `cache_utils` module so `log_processor` and
+    // `speed_tracker` apply ONE identical check. These tests exercise it through the same path
+    // the log_processor pattern loader uses.
+    use crate::cache_utils::is_valid_xbox_fragment;
+
+    const GUID: &str = "12345678-90ab-cdef-1234-567890abcdef";
+
+    #[test]
+    fn accepts_filestreaming_files_guid() {
+        let frag = format!("/filestreamingservice/files/{}", GUID);
+        assert!(is_valid_xbox_fragment(&frag));
+    }
+
+    #[test]
+    fn accepts_full_url_containing_the_fragment() {
+        let url = format!(
+            "http://assets1.xboxlive.com/filestreamingservice/files/{}?P1=123",
+            GUID
+        );
+        assert!(is_valid_xbox_fragment(&url));
+    }
+
+    #[test]
+    fn rejects_empty_and_root() {
+        assert!(!is_valid_xbox_fragment(""));
+        assert!(!is_valid_xbox_fragment("/"));
+    }
+
+    #[test]
+    fn rejects_non_filestreaming_fragments() {
+        // A short generic wsus path that the old `len > 1` guard would have ACCEPTED, which would
+        // then `contains()`-match unrelated Windows Update traffic.
+        assert!(!is_valid_xbox_fragment("/files/"));
+        assert!(!is_valid_xbox_fragment("/c/msdownload/update/abc"));
+        assert!(!is_valid_xbox_fragment("microsoft"));
+    }
+
+    #[test]
+    fn rejects_filestreaming_without_a_valid_guid() {
+        assert!(!is_valid_xbox_fragment("/filestreamingservice/files/not-a-guid"));
+        // Truncated GUID (too short).
+        assert!(!is_valid_xbox_fragment("/filestreamingservice/files/12345678-90ab"));
+        // Hyphens in the wrong positions.
+        assert!(!is_valid_xbox_fragment(
+            "/filestreamingservice/files/1234567890-ab-cdef-1234-567890abcdef"
+        ));
+    }
+
+    #[test]
+    fn accepts_uppercase_hex_guid() {
+        let frag = "/filestreamingservice/files/ABCDEF12-3456-7890-ABCD-EF1234567890";
+        assert!(is_valid_xbox_fragment(frag));
+    }
+
+    // --- case-insensitive fragment matching (mirrors the C# OrdinalIgnoreCase resolver) ---
+
+    fn pattern(frag: &str, title: &str) -> (String, String, String) {
+        (frag.to_string(), title.to_string(), "9PXBOX".to_string())
+    }
+
+    #[test]
+    fn match_is_case_insensitive_on_guid_hex() {
+        // Stored fragment has lowercase GUID hex; access-log URL has UPPERCASE hex. A case-sensitive
+        // contains would miss this; the resolver must still name the game.
+        let patterns = vec![pattern(
+            "/filestreamingservice/files/abcdef12-3456-7890-abcd-ef1234567890",
+            "Halo",
+        )];
+        let url = "http://assets1.xboxlive.com/filestreamingservice/files/ABCDEF12-3456-7890-ABCD-EF1234567890?P1=1";
+        let m = Processor::match_xbox_fragment(&patterns, url);
+        assert!(m.is_some(), "uppercase-URL vs lowercase-fragment must match");
+        assert_eq!(m.unwrap().1, "Halo");
+    }
+
+    #[test]
+    fn match_is_case_insensitive_when_fragment_is_uppercase() {
+        let patterns = vec![pattern(
+            "/FileStreamingService/Files/ABCDEF12-3456-7890-ABCD-EF1234567890",
+            "Forza",
+        )];
+        let url = "http://cdn/filestreamingservice/files/abcdef12-3456-7890-abcd-ef1234567890";
+        assert_eq!(Processor::match_xbox_fragment(&patterns, url).unwrap().1, "Forza");
+    }
+
+    #[test]
+    fn match_picks_longest_first_when_multiple_match() {
+        // Patterns are stored longest-first (ORDER BY LENGTH DESC); the more specific one wins.
+        let patterns = vec![
+            pattern(
+                "/filestreamingservice/files/abcdef12-3456-7890-abcd-ef1234567890/extra",
+                "Specific",
+            ),
+            pattern(
+                "/filestreamingservice/files/abcdef12-3456-7890-abcd-ef1234567890",
+                "Generic",
+            ),
+        ];
+        let url = "/FILESTREAMINGSERVICE/FILES/ABCDEF12-3456-7890-ABCD-EF1234567890/EXTRA";
+        assert_eq!(Processor::match_xbox_fragment(&patterns, url).unwrap().1, "Specific");
+    }
+
+    #[test]
+    fn no_match_returns_none() {
+        let patterns = vec![pattern(
+            "/filestreamingservice/files/abcdef12-3456-7890-abcd-ef1234567890",
+            "Halo",
+        )];
+        let url = "http://cdn/c/msdownload/update/software/secu/2024/01/something.cab";
+        assert!(Processor::match_xbox_fragment(&patterns, url).is_none());
     }
 }

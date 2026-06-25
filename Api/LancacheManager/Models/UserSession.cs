@@ -48,6 +48,7 @@ public class UserSession
     public DateTime? EpicPrefillExpiresAtUtc { get; set; }
     public DateTime? BattleNetPrefillExpiresAtUtc { get; set; }
     public DateTime? RiotPrefillExpiresAtUtc { get; set; }
+    public DateTime? XboxPrefillExpiresAtUtc { get; set; }
 
     // Token rotation - previous token remains valid during grace period
     public string? PreviousSessionTokenHash { get; set; }

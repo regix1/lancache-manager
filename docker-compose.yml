@@ -160,6 +160,9 @@ services:
       # Docker image for Battle.net prefill containers
       # - Prefill__BattlenetDockerImage=ghcr.io/regix1/battlenet-prefill-daemon:latest
 
+      # Docker image for Xbox prefill containers
+      # - Prefill__XboxDockerImage=ghcr.io/regix1/xbox-prefill-daemon:latest
+
       # Session timeout in minutes (inactive sessions get cleaned up)
       # - Prefill__SessionTimeoutMinutes=120
 

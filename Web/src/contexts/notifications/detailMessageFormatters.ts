@@ -21,7 +21,9 @@ import type {
   DataImportProgressEvent,
   DataImportCompleteEvent,
   EpicMappingProgressEvent,
-  EpicGameMappingsUpdatedEvent
+  EpicGameMappingsUpdatedEvent,
+  XboxMappingProgressEvent,
+  XboxGameMappingsUpdatedEvent
 } from '../SignalRContext/types';
 import i18n from '@/i18n';
 
@@ -588,6 +590,48 @@ export const formatEpicMappingCompleteMessage = (event: EpicMappingProgressEvent
  */
 export const formatEpicGameMappingsUpdatedMessage = (
   event: EpicGameMappingsUpdatedEvent
+): string => {
+  const parts: string[] = [];
+  if (event.newGames > 0) {
+    parts.push(`${event.newGames} new game${event.newGames !== 1 ? 's' : ''} discovered`);
+  }
+  if (event.updatedGames > 0) {
+    parts.push(`${event.updatedGames} game${event.updatedGames !== 1 ? 's' : ''} updated`);
+  }
+  const detail = parts.join(', ');
+  return detail ? `${detail}, ${event.totalGames} total` : `${event.totalGames} total`;
+};
+
+/**
+ * Formats the progress message for Xbox game mapping.
+ * @param event - The Xbox mapping progress event from SignalR
+ * @returns Formatted progress message string
+ */
+export const formatXboxMappingProgressMessage = (event: XboxMappingProgressEvent): string => {
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.xboxMapping.starting');
+};
+
+/**
+ * Formats the completion message for Xbox game mapping progress.
+ * @param event - The Xbox mapping progress event from SignalR
+ * @returns Formatted completion message string
+ */
+export const formatXboxMappingCompleteMessage = (event: XboxMappingProgressEvent): string => {
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.xboxMapping.gamesDiscovered', { gamesDiscovered: event.gamesDiscovered });
+};
+
+/**
+ * Formats the detail message for Xbox game mappings updated.
+ * Shows new/updated game counts and total.
+ * @param event - The Xbox game mappings updated event from SignalR
+ * @returns Formatted detail message string
+ */
+export const formatXboxGameMappingsUpdatedMessage = (
+  event: XboxGameMappingsUpdatedEvent
 ): string => {
   const parts: string[] = [];
   if (event.newGames > 0) {

@@ -4,6 +4,7 @@ import { Card, CardContent } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
+import { XboxAuthModal } from '@components/modals/auth/XboxAuthModal';
 import { usePrefillSteamAuth } from '@hooks/usePrefillSteamAuth';
 import { ActivityLog } from './ActivityLog';
 import { GameSelectionModal, type OwnedGame } from './GameSelectionModal';
@@ -14,6 +15,7 @@ import { useAuth } from '@contexts/useAuth';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
+import { XboxIcon } from '@components/ui/XboxIcon';
 import { API_BASE } from '@utils/constants';
 
 import { ScrollText, X, Timer, LogIn, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -113,7 +115,8 @@ function ServicePrefillPanel({
     steamPrefillEnabled,
     epicPrefillEnabled,
     battlenetPrefillEnabled,
-    riotPrefillEnabled
+    riotPrefillEnabled,
+    xboxPrefillEnabled
   } = useAuth();
 
   // Main SignalR hub for system-level events (PrefillDefaultsChanged)
@@ -941,6 +944,14 @@ function ServicePrefillPanel({
             actions={authActions}
             onCancelLogin={handleCancelLogin}
           />
+        ) : serviceId === 'xbox' ? (
+          <XboxAuthModal
+            opened={showAuthModal}
+            onClose={() => setShowAuthModal(false)}
+            state={authState}
+            actions={authActions}
+            onCancelLogin={handleCancelLogin}
+          />
         ) : (
           <SteamAuthModal
             opened={showAuthModal}
@@ -960,6 +971,7 @@ function ServicePrefillPanel({
           epicPrefillEnabled={epicPrefillEnabled}
           battlenetPrefillEnabled={battlenetPrefillEnabled}
           riotPrefillEnabled={riotPrefillEnabled}
+          xboxPrefillEnabled={xboxPrefillEnabled}
         />
       </>
     );
@@ -977,6 +989,14 @@ function ServicePrefillPanel({
       {/* Auth Modal - Battle.net and Riot are anonymous, so no modal */}
       {serviceId === 'battlenet' || serviceId === 'riot' ? null : serviceId === 'epic' ? (
         <EpicAuthModal
+          opened={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          state={authState}
+          actions={authActions}
+          onCancelLogin={handleCancelLogin}
+        />
+      ) : serviceId === 'xbox' ? (
+        <XboxAuthModal
           opened={showAuthModal}
           onClose={() => setShowAuthModal(false)}
           state={authState}
@@ -1055,7 +1075,9 @@ function ServicePrefillPanel({
                   ? t('prefill.titleBattlenet')
                   : serviceId === 'riot'
                     ? t('prefill.titleRiot')
-                    : t('prefill.title')}
+                    : serviceId === 'xbox'
+                      ? t('prefill.titleXbox')
+                      : t('prefill.title')}
             </h1>
             <p className="text-sm text-themed-muted">{t('prefill.subtitle')}</p>
           </div>
@@ -1157,12 +1179,16 @@ function ServicePrefillPanel({
                   >
                     {serviceId === 'epic' ? (
                       <EpicIcon size={18} className="text-[var(--theme-button-text)]" />
+                    ) : serviceId === 'xbox' ? (
+                      <XboxIcon size={18} className="text-[var(--theme-button-text)]" />
                     ) : (
                       <SteamIcon size={18} />
                     )}
                     {serviceId === 'epic'
                       ? t('prefill.auth.loginToEpic', 'Login to Epic')
-                      : t('prefill.auth.loginToSteam')}
+                      : serviceId === 'xbox'
+                        ? t('prefill.auth.loginToXbox', 'Login to Xbox')
+                        : t('prefill.auth.loginToSteam')}
                   </Button>
                 )}
               </div>
@@ -1221,7 +1247,11 @@ function ServicePrefillPanel({
               </div>
             </div>
             <CardContent className="p-0">
-              <ActivityLog entries={logEntries} className="border-0 rounded-none" />
+              <ActivityLog
+                entries={logEntries}
+                className="border-0 rounded-none"
+                serviceId={serviceId}
+              />
             </CardContent>
           </Card>
         </div>

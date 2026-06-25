@@ -162,6 +162,18 @@ public static class SignalREvents
     public const string RiotPrefillHistoryUpdated = "RiotPrefillHistoryUpdated";
     public const string RiotSessionEnded = "RiotSessionEnded";
 
+    // Xbox / Microsoft Store Prefill Daemon Events (login-required - Microsoft OAuth device-code)
+    public const string XboxDaemonSessionCreated = "XboxDaemonSessionCreated";
+    public const string XboxDaemonSessionUpdated = "XboxDaemonSessionUpdated";
+    public const string XboxDaemonSessionTerminated = "XboxDaemonSessionTerminated";
+    public const string XboxAuthStateChanged = "XboxAuthStateChanged";
+    public const string XboxCredentialChallenge = "XboxCredentialChallenge";
+    public const string XboxStatusChanged = "XboxStatusChanged";
+    public const string XboxPrefillStateChanged = "XboxPrefillStateChanged";
+    public const string XboxPrefillProgress = "XboxPrefillProgress";
+    public const string XboxPrefillHistoryUpdated = "XboxPrefillHistoryUpdated";
+    public const string XboxSessionEnded = "XboxSessionEnded";
+
     // Epic Guest Prefill Config
     public const string EpicGuestPrefillConfigChanged = "EpicGuestPrefillConfigChanged";
 
@@ -171,12 +183,19 @@ public static class SignalREvents
     // Riot Guest Prefill Config
     public const string RiotGuestPrefillConfigChanged = "RiotGuestPrefillConfigChanged";
 
+    // Xbox Guest Prefill Config
+    public const string XboxGuestPrefillConfigChanged = "XboxGuestPrefillConfigChanged";
+
     // Epic Game Mapping
     public const string EpicGameMappingsUpdated = "EpicGameMappingsUpdated";
     public const string EpicMappingProgress = "EpicMappingProgress";
 
     // Battle.net Game Mapping
     public const string BlizzardGameMappingsUpdated = "BlizzardGameMappingsUpdated";
+
+    // Xbox Game Mapping
+    public const string XboxGameMappingsUpdated = "XboxGameMappingsUpdated";
+    public const string XboxMappingProgress = "XboxMappingProgress";
 
     // Directory Permissions
     public const string DirectoryPermissionsChanged = "DirectoryPermissionsChanged";

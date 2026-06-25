@@ -1117,7 +1117,7 @@ public class CacheManagementService
         {
             _logger.LogInformation("[GameRemoval] Starting game cache removal for AppID {AppId}", gameAppId);
 
-            var rustBinaryPath = _pathResolver.GetRustGameRemoverPath();
+            var rustBinaryPath = _pathResolver.GetRustSteamRemoverPath();
             var executionPlan = PrepareRemovalExecutionPlan(
                 "[GameRemoval]",
                 rustBinaryPath,
@@ -1406,8 +1406,9 @@ public class CacheManagementService
 
     /// <summary>
     /// Remove all cache files, log entries, and database records for a named game
-    /// (Blizzard/Riot - keyed by Service + GameName, with GameAppId/EpicAppId both null).
-    /// Uses the Rust cache_named_game_remove binary which mirrors the Epic game removal flow:
+    /// (Blizzard/Riot/Xbox - keyed by Service + GameName, with GameAppId/EpicAppId both null).
+    /// Dispatches to the per-service Rust binary (cache_{service}_remove), each a thin wrapper
+    /// over the shared named-removal core, which mirrors the Epic game removal flow:
     /// 1. Deletes cache files from disk (via MD5 cache path calculation)
     /// 2. Removes matching lines from access log text files
     /// 3. Deletes LogEntry and Download records from the database
@@ -1428,7 +1429,7 @@ public class CacheManagementService
         {
             _logger.LogInformation("[NamedGameRemoval] Starting removal for '{Service}' / '{GameName}'", service, gameName);
 
-            var rustBinaryPath = _pathResolver.GetRustNamedGameRemoverPath();
+            var rustBinaryPath = _pathResolver.GetRustNamedGameRemoverPath(service);
             var executionPlan = PrepareRemovalExecutionPlan(
                 "[NamedGameRemoval]",
                 rustBinaryPath,
@@ -1448,10 +1449,12 @@ public class CacheManagementService
             {
                 var datasource = execution.Datasource;
 
-                // Rust positional args (LOCKED CONTRACT): log_dir cache_dir service game_name output_json progress_json
+                // Rust positional args (LOCKED CONTRACT): log_dir cache_dir game_name output_json progress_json.
+                // The owning service is pinned by the per-service binary (cache_{service}_remove), so it is
+                // NOT passed as a positional arg — the contract matches the Epic remover.
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                     rustBinaryPath,
-                    $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{service}\" \"{gameName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\"");
+                    $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{gameName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\"");
 
                 _logger.LogInformation("[NamedGameRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
                     datasource.Name, rustBinaryPath, startInfo.Arguments);
@@ -1460,7 +1463,7 @@ public class CacheManagementService
                     "[NamedGameRemoval]",
                     execution,
                     startInfo,
-                    "cache_named_game_remove",
+                    Path.GetFileNameWithoutExtension(rustBinaryPath),
                     cancellationToken,
                     operationId,
                     async progressData =>

@@ -379,6 +379,14 @@
     color: var(--theme-blizzard);
   }
 
+  .text-riot {
+    color: var(--theme-riot);
+  }
+
+  .text-xbox {
+    color: var(--theme-xbox);
+  }
+
   /* Semantic text content colors (for readable text in alert boxes) */
   .text-info-text {
     color: var(--theme-info-text);

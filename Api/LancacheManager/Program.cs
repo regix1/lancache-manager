@@ -457,6 +457,7 @@ builder.Services.AddAuthorization(options =>
                      "EpicPrefillAccess",
                      "BattleNetPrefillAccess",
                      "RiotPrefillAccess",
+                     "XboxPrefillAccess",
                      "AnyPrefillAccess"
                  })
         {
@@ -492,12 +493,16 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("RiotPrefillAccess", policy =>
         policy.RequireClaim("RiotPrefillActive", "true"));
 
+    options.AddPolicy("XboxPrefillAccess", policy =>
+        policy.RequireClaim("XboxPrefillActive", "true"));
+
     options.AddPolicy("AnyPrefillAccess", policy =>
         policy.RequireAssertion(context =>
             context.User.HasClaim("SteamPrefillActive", "true") ||
             context.User.HasClaim("EpicPrefillActive", "true") ||
             context.User.HasClaim("BattleNetPrefillActive", "true") ||
-            context.User.HasClaim("RiotPrefillActive", "true")));
+            context.User.HasClaim("RiotPrefillActive", "true") ||
+            context.User.HasClaim("XboxPrefillActive", "true")));
 });
 
 // Register SignalR connection tracking service for targeted messaging
@@ -577,6 +582,9 @@ builder.Services.AddSingletonHostedService<BattleNetDaemonService>();
 // Register RiotDaemonService for anonymous Riot daemon-based prefill management
 builder.Services.AddSingletonHostedService<RiotDaemonService>();
 
+// Register XboxPrefillDaemonService for login-required Xbox / Microsoft Store daemon-based prefill management
+builder.Services.AddSingletonHostedService<XboxPrefillDaemonService>();
+
 // Register EpicApiDirectClient for direct HTTP calls to Epic APIs (no Docker needed)
 builder.Services.AddHttpClient<EpicApiDirectClient>();
 
@@ -589,6 +597,18 @@ builder.Services.AddSingletonHostedService<EpicMappingService>();
 // Register BattleNetMappingService for re-mapping existing Blizzard downloads to game
 // names from the single-sourced TACT catalog (anonymous/static - no login, no schedule).
 builder.Services.AddSingleton<LancacheManager.Core.Services.BattleNet.BattleNetMappingService>();
+
+// Register XboxApiDirectClient for direct HTTP calls to the public Microsoft Store DisplayCatalog
+// (no auth, no Docker) - used to fetch Xbox game banner art by ProductId at mapping time.
+builder.Services.AddHttpClient<LancacheManager.Services.Xbox.XboxApiDirectClient>();
+
+// Register XboxAuthStorageService for the manager's own Xbox refresh-token persistence
+// (encrypted via SecureStateEncryptionService, NOT DPAPI - Linux container).
+builder.Services.AddSingleton<LancacheManager.Services.Xbox.XboxAuthStorageService>();
+
+// Register XboxMappingService for re-tagging existing wsus downloads to Xbox titles by matching
+// the per-file CDN path fragments the authenticated daemon contributed (backfill of INACTIVE rows).
+builder.Services.AddSingleton<LancacheManager.Services.Xbox.XboxMappingService>();
 
 // Register GcScheduledService - runs on a user-configurable interval (managed through the
 // unified Schedules page) and performs aggressive GC when the working set exceeds the
@@ -934,6 +954,7 @@ app.MapHub<SteamDaemonHub>("/hubs/steam-daemon");
 app.MapHub<EpicPrefillDaemonHub>("/hubs/epic-prefill-daemon");
 app.MapHub<BattleNetDaemonHub>("/hubs/battlenet-prefill-daemon");
 app.MapHub<RiotDaemonHub>("/hubs/riot-prefill-daemon");
+app.MapHub<XboxPrefillDaemonHub>("/hubs/xbox-prefill-daemon");
 
 // Map Prometheus metrics endpoint for Grafana.
 // AllowAnonymous bypasses the FallbackPolicy; MetricsAuthenticationMiddleware enforces

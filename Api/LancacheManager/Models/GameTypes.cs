@@ -58,6 +58,15 @@ public class CdnInfo
 
     [JsonPropertyName("chunkBaseUrl")]
     public string ChunkBaseUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Stable per-file path fragments (e.g. <c>/filestreamingservice/files/&lt;GUID&gt;</c>, query
+    /// string stripped) for each downloadable package file. Xbox uses these to map an opaque
+    /// <c>wsus</c> cache hit back to its product; empty for Steam/Epic (their identity comes from
+    /// <see cref="ChunkBaseUrl"/>). Mirrors the daemon-side <c>CdnInfo.FilePathFragments</c>.
+    /// </summary>
+    [JsonPropertyName("filePathFragments")]
+    public List<string> FilePathFragments { get; set; } = new();
 }
 
 public class CdnInfoResult

@@ -24,6 +24,12 @@ export interface SteamLoginFlowState {
   authorizationUrl: string;
   /** Epic OAuth: the authorization code entered by the user */
   authorizationCode: string;
+  /** Xbox device-code: whether we're waiting for the user to approve via the device flow */
+  needsDeviceCode: boolean;
+  /** Xbox device-code: the short user code to enter at the verification URL */
+  deviceUserCode: string;
+  /** Xbox device-code: the URL the user opens to enter the device user code */
+  deviceVerificationUri: string;
 }
 
 export interface SteamAuthActions {
@@ -271,7 +277,10 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
     emailCode,
     needsAuthorizationCode: false,
     authorizationUrl: '',
-    authorizationCode: ''
+    authorizationCode: '',
+    needsDeviceCode: false,
+    deviceUserCode: '',
+    deviceVerificationUri: ''
   };
 
   const actions: SteamAuthActions = {

@@ -69,21 +69,28 @@ pub(crate) fn named_game_key(service: &str, game_name: &str) -> String {
     format!("{}{}{}", service.to_lowercase(), NAMED_KEY_SEP, game_name)
 }
 
-/// Group name-keyed (Blizzard/Riot) download records by `(service, game_name)`.
+/// Group name-keyed (Blizzard/Riot/Xbox) download records by `(service, game_name)`.
 /// Mirrors `group_epic_records` but uses a composite string key instead of EpicAppId.
-/// Returns: key -> (service_lowercase, game_name, service_urls).
+/// Returns: key -> (identity_service_lowercase, game_name, service_urls).
+///
+/// IDENTITY vs CACHE-HASH split: the map key and the returned identity service use
+/// `record.service` (Downloads.Service) — the detection/removal identity — while each
+/// `ServiceUrl` tuple carries `record.cache_service` (LogEntries.Service), which is what
+/// `existing_cache_*_for_url` hashes to find the on-disk slices. For Blizzard/Riot the two are
+/// equal; for Xbox identity=`xbox` but cache-hash=`wsus`, so the cache lookup must use the latter.
 pub(crate) fn group_named_records(
     records: &[NamedDownloadRecord],
 ) -> HashMap<String, (String, String, Vec<ServiceUrl>)> {
     let mut named_map: HashMap<String, (String, String, Vec<ServiceUrl>)> = HashMap::new();
 
     for record in records {
-        let service_lc = record.service.to_lowercase();
+        let identity_service_lc = record.service.to_lowercase();
+        let cache_service_lc = record.cache_service.to_lowercase();
         let key = named_game_key(&record.service, &record.game_name);
         let entry = named_map.entry(key).or_insert_with(|| {
-            (service_lc.clone(), record.game_name.clone(), Vec::new())
+            (identity_service_lc.clone(), record.game_name.clone(), Vec::new())
         });
-        entry.2.push((service_lc.clone(), record.url.clone(), record.bytes_served));
+        entry.2.push((cache_service_lc, record.url.clone(), record.bytes_served));
     }
 
     named_map
@@ -427,9 +434,22 @@ mod tests {
     use super::*;
     use crate::cache_detect_queries::NamedDownloadRecord;
 
+    /// Same-service record (Blizzard/Riot): identity service == cache-hash service.
     fn rec(service: &str, game_name: &str, url: &str, bytes: i64) -> NamedDownloadRecord {
+        rec_split(service, service, game_name, url, bytes)
+    }
+
+    /// Split record (Xbox): identity service differs from the cache-hash (LogEntries) service.
+    fn rec_split(
+        service: &str,
+        cache_service: &str,
+        game_name: &str,
+        url: &str,
+        bytes: i64,
+    ) -> NamedDownloadRecord {
         NamedDownloadRecord {
             service: service.to_string(),
+            cache_service: cache_service.to_string(),
             game_name: game_name.to_string(),
             url: url.to_string(),
             bytes_served: bytes,
@@ -464,6 +484,29 @@ mod tests {
         let riot_diablo = grouped.get("riot\u{1}Diablo").expect("riot diablo present");
         assert_eq!(riot_diablo.0, "riot");
         assert_eq!(riot_diablo.2.len(), 1);
+    }
+
+    #[test]
+    fn group_named_records_splits_identity_from_cache_hash_service() {
+        // Xbox: identity service = `xbox` (keys the game + the removal gate), but cache files are
+        // hashed under the LogEntries service `wsus`. The grouped key + identity service must be
+        // `xbox`, while every ServiceUrl tuple must carry `wsus` so the cache lookup hashes correctly.
+        let records = vec![
+            rec_split("xbox", "wsus", "Halo Infinite", "http://x/filestreamingservice/files/abc", 100),
+            rec_split("xbox", "wsus", "Halo Infinite", "http://x/filestreamingservice/files/def", 200),
+        ];
+        let grouped = group_named_records(&records);
+        assert_eq!(grouped.len(), 1);
+
+        let halo = grouped.get("xbox\u{1}Halo Infinite").expect("xbox halo present");
+        // Identity service drives detection + removal.
+        assert_eq!(halo.0, "xbox");
+        assert_eq!(halo.1, "Halo Infinite");
+        assert_eq!(halo.2.len(), 2);
+        // Every ServiceUrl tuple hashes under the cache-hash service, NOT the identity.
+        for (cache_service, _url, _bytes) in &halo.2 {
+            assert_eq!(cache_service, "wsus");
+        }
     }
 
     /// Build an index keyed by md5-hex filename containing the first `n_slices` ranged slices of

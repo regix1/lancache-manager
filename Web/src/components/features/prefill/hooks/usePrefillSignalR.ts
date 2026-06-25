@@ -450,7 +450,9 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
                   'prefill.log.loginToEpicPrompt',
                   'Please log in to Epic Games to start prefilling'
                 )
-              : t('prefill.log.loginToSteamPrompt')
+              : serviceId === 'xbox'
+                ? t('prefill.log.loginToXboxPrompt', 'Please log in to Xbox to start prefilling')
+                : t('prefill.log.loginToSteamPrompt')
           );
         }
 
@@ -611,7 +613,12 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
                     'prefill.log.loginToEpicBeforePrefill',
                     'Please log in to Epic Games before starting prefill'
                   )
-                : t('prefill.log.loginToSteamBeforePrefill')
+                : serviceId === 'xbox'
+                  ? t(
+                      'prefill.log.loginToXboxBeforePrefill',
+                      'Please log in to Xbox before starting prefill'
+                    )
+                  : t('prefill.log.loginToSteamBeforePrefill')
             );
           }
         }

@@ -45,6 +45,7 @@ const ManagementTab: React.FC = () => {
   const [highlightSteamApi, setHighlightSteamApi] = useState(false);
   const [highlightEpic, setHighlightEpic] = useState(false);
   const [highlightBattleNet, setHighlightBattleNet] = useState(false);
+  const [highlightXbox, setHighlightXbox] = useState(false);
   const [highlightScheduleKey, setHighlightScheduleKey] = useState<string | null>(null);
   const [highlightEviction, setHighlightEviction] = useState(false);
 
@@ -156,6 +157,17 @@ const ManagementTab: React.FC = () => {
     }, 2000);
   }, []);
 
+  // Handle navigation to the Xbox daemon status card in the Integrations section.
+  // Xbox login happens on the Prefill page, so this only highlights the daemon card.
+  const handleNavigateToXboxLogin = useCallback(() => {
+    setActiveSection('integrations');
+    setHighlightXbox(true);
+    // Clear highlight after animation completes
+    setTimeout(() => {
+      setHighlightXbox(false);
+    }, 2000);
+  }, []);
+
   // Handle navigation to a specific schedule card in the Schedules section
   const handleNavigateToSchedule = useCallback((scheduleKey: string) => {
     setActiveSection('schedules');
@@ -219,6 +231,7 @@ const ManagementTab: React.FC = () => {
             highlightSteamApi={highlightSteamApi}
             highlightEpic={highlightEpic}
             highlightBattleNet={highlightBattleNet}
+            highlightXbox={highlightXbox}
           />
         );
 
@@ -253,6 +266,7 @@ const ManagementTab: React.FC = () => {
             onNavigateToSteamApi={handleNavigateToSteamApi}
             onNavigateToEpicLogin={handleNavigateToEpicLogin}
             onNavigateToBattleNetLogin={handleNavigateToBattleNetLogin}
+            onNavigateToXboxLogin={handleNavigateToXboxLogin}
             onNavigateToSchedule={handleNavigateToSchedule}
           />
         );

@@ -1,11 +1,11 @@
 /**
- * Name-keyed banner slug + service helpers for Blizzard/Riot games that are identified only by
+ * Name-keyed banner slug + service helpers for Blizzard/Riot/Xbox games that are identified only by
  * GameName (no Steam appId, no Epic catalog id). MUST stay in lockstep with the backend
  * NameKeyedBannerSource.Slug / NameKeyedBannerSource.NormalizeService so the frontend requests
  * the exact (service, slug) the GameImageFetchService stored under.
  */
 
-type NameKeyedService = 'blizzard' | 'riot';
+type NameKeyedService = 'blizzard' | 'riot' | 'xbox';
 
 /**
  * Normalizes a raw service string to the canonical name-keyed service key, or null if the
@@ -21,6 +21,9 @@ function normalizeNameKeyedService(service: string | null | undefined): NameKeye
     case 'riot':
     case 'riotgames':
       return 'riot';
+    case 'xbox':
+    case 'xboxlive':
+      return 'xbox';
     default:
       return null;
   }

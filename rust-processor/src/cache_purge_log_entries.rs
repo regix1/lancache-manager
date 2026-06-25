@@ -8,7 +8,7 @@
 // entries for the evicted games, which prevents a subsequent `ResetLogPosition`
 // from resurrecting them on log re-parse.
 //
-// Mirrors the single-game flow in `cache_game_remove`, but batches N games into
+// Mirrors the single-game flow in `cache_steam_remove`, but batches N games into
 // a single pass for drastically better performance when the user bulk-removes
 // evicted data.
 
@@ -227,7 +227,7 @@ fn run_purge(args: &Args, progress_path: Option<&Path>) -> Result<PurgeReport> {
         anyhow::bail!("Log directory does not exist: {}", args.log_dir);
     }
 
-    // Call the shared helper (same function used by cache_game_remove).
+    // Call the shared helper (same function used by cache_steam_remove).
     // Pass a progress callback that maps per-file completion into the 15%-95% range
     // so the host's progress-file poller sees granular progress between the existing ticks.
     let progress_cb = |files_done: usize, total_files: usize| {

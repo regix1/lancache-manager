@@ -188,14 +188,26 @@ public abstract class PathResolverBase : IPathResolver
     public string GetRustGameDetectorPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", $"cache_game_detect{RustExecutableExtension}");
 
-    public string GetRustGameRemoverPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", $"cache_game_remove{RustExecutableExtension}");
+    public string GetRustSteamRemoverPath() =>
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", $"cache_steam_remove{RustExecutableExtension}");
 
     public string GetRustEpicRemoverPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", $"cache_epic_remove{RustExecutableExtension}");
 
-    public string GetRustNamedGameRemoverPath() =>
-        Path.Combine(AppContext.BaseDirectory, "rust-processor", $"cache_named_game_remove{RustExecutableExtension}");
+    public string GetRustNamedGameRemoverPath(string service)
+    {
+        // Each name-keyed service has its own thin binary over the shared named-removal core.
+        // The service string is the owning Downloads.Service identity ("blizzard"/"riot"/"xbox").
+        var binary = (service ?? string.Empty).ToLowerInvariant() switch
+        {
+            "blizzard" => "cache_blizzard_remove",
+            "riot" => "cache_riot_remove",
+            "xbox" => "cache_xbox_remove",
+            _ => throw new ArgumentException(
+                $"No named-game removal binary registered for service '{service}'.", nameof(service))
+        };
+        return Path.Combine(AppContext.BaseDirectory, "rust-processor", $"{binary}{RustExecutableExtension}");
+    }
 
     public string GetRustServiceRemoverPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", $"cache_service_remove{RustExecutableExtension}");

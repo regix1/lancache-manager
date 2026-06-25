@@ -12,6 +12,7 @@ use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+mod cache_utils;
 mod db;
 mod riot_hosts;
 mod service_utils;
@@ -261,6 +262,9 @@ struct SpeedTracker {
     epic_cdn_cache: HashMap<String, Option<String>>, // url -> game_name (None = no match)
     epic_patterns: Vec<(String, String)>,            // (ChunkBaseUrl trimmed, GameName)
     last_epic_pattern_load: Option<Instant>,
+    xbox_cdn_cache: HashMap<String, Option<String>>, // url -> game_name (None = no match)
+    xbox_patterns: Vec<(String, String)>,            // (UrlFragment, Title), longest-first
+    last_xbox_pattern_load: Option<Instant>,
 }
 
 impl SpeedTracker {
@@ -278,6 +282,9 @@ impl SpeedTracker {
             epic_cdn_cache: HashMap::new(),
             epic_patterns: Vec::new(),
             last_epic_pattern_load: None,
+            xbox_cdn_cache: HashMap::new(),
+            xbox_patterns: Vec::new(),
+            last_xbox_pattern_load: None,
         }
     }
 
@@ -479,6 +486,22 @@ impl SpeedTracker {
                 for (game_name, sub_entries) in sub_groups {
                     resolved_groups.entry((game_name, client_ip.clone())).or_default().extend(sub_entries);
                 }
+            } else if service.contains("wsus") {
+                // Xbox / Microsoft Store content is delivered as lancache-tagged `wsus` traffic
+                // (the same tag as generic Windows Update / Office / Defender) over opaque
+                // /filestreamingservice/files/<GUID> URLs. Sub-group each entry by the Xbox title
+                // resolved from a stored XboxCdnPattern.UrlFragment (like Epic); entries that match
+                // no Xbox fragment are generic Windows Update and fall back to the service label, so
+                // a real OS update never gets mislabeled as a game.
+                let mut sub_groups: HashMap<String, Vec<SpeedLogEntry>> = HashMap::new();
+                for entry in entries {
+                    let game_name = self.lookup_xbox_game(&entry.request_url).await
+                        .unwrap_or_else(|| get_service_display_name(&service));
+                    sub_groups.entry(game_name).or_default().push(entry);
+                }
+                for (game_name, sub_entries) in sub_groups {
+                    resolved_groups.entry((game_name, client_ip.clone())).or_default().extend(sub_entries);
+                }
             } else {
                 let display_name = get_service_display_name(&service);
                 resolved_groups.entry((display_name, client_ip)).or_default().extend(entries);
@@ -599,6 +622,79 @@ impl SpeedTracker {
 
         // Cache the result (including None for no match)
         self.epic_cdn_cache.insert(url.to_string(), result.clone());
+
+        result
+    }
+
+    async fn load_xbox_patterns(&mut self) {
+        // Only reload every 60 seconds (mirrors load_epic_patterns).
+        if let Some(last) = self.last_xbox_pattern_load {
+            if last.elapsed() < Duration::from_secs(60) {
+                return;
+            }
+        }
+
+        // Load Xbox fragment -> title, longest UrlFragment first so the most specific
+        // fragment wins. Prefer the (richer) mapping title, falling back to the pattern title.
+        let result = sqlx::query(
+            "SELECT p.\"UrlFragment\", COALESCE(m.\"Title\", p.\"Title\") AS \"Title\" \
+             FROM \"XboxCdnPatterns\" p \
+             LEFT JOIN \"XboxGameMappings\" m ON p.\"ProductId\" = m.\"ProductId\" \
+             ORDER BY LENGTH(p.\"UrlFragment\") DESC"
+        )
+        .fetch_all(&self.pool)
+        .await;
+
+        match result {
+            Ok(rows) => {
+                self.xbox_patterns = rows.iter()
+                    .filter_map(|row| {
+                        let fragment: Option<String> = row.get("UrlFragment");
+                        let title: Option<String> = row.get("Title");
+                        match (fragment, title) {
+                            // Keep ONLY well-formed /filestreamingservice/files/<GUID> fragments,
+                            // using the SAME shared shape guard as log_processor (the primary
+                            // canonicalizer) and the C# resolver (XboxMappingService.IsValidFragment).
+                            // A malformed / short / non-GUID fragment would `contains()`-match generic
+                            // wsus URLs and relabel Windows Update traffic as a game.
+                            (Some(frag), Some(name)) if cache_utils::is_valid_xbox_fragment(&frag) => {
+                                Some((frag, name))
+                            }
+                            _ => None,
+                        }
+                    })
+                    .collect();
+
+                self.last_xbox_pattern_load = Some(Instant::now());
+                self.xbox_cdn_cache.clear(); // Clear cache when patterns reload
+            }
+            Err(_) => {
+                // Silently ignore errors (tables may not exist yet).
+            }
+        }
+    }
+
+    async fn lookup_xbox_game(&mut self, url: &str) -> Option<String> {
+        // Check cache first.
+        if let Some(cached) = self.xbox_cdn_cache.get(url) {
+            return cached.clone();
+        }
+
+        // Reload patterns if needed.
+        self.load_xbox_patterns().await;
+
+        // Match URL against fragments (longest first for the most specific match).
+        // Case-insensitive: the Xbox GUID hex casing in the stored fragment can differ from the
+        // access-log URL casing, and the C# resolver compares with OrdinalIgnoreCase, so a
+        // case-sensitive match here would inconsistently miss real Xbox content. ASCII lowercasing
+        // is exact for these paths; the per-URL cache means each unique URL is lowercased once.
+        let url_lower = url.to_ascii_lowercase();
+        let result = self.xbox_patterns.iter()
+            .find(|(fragment, _)| url_lower.contains(&fragment.to_ascii_lowercase()))
+            .map(|(_, name)| name.clone());
+
+        // Cache the result (including None for no match).
+        self.xbox_cdn_cache.insert(url.to_string(), result.clone());
 
         result
     }

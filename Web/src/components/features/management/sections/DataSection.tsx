@@ -12,6 +12,7 @@ import { type AuthMode } from '@services/auth.service';
 import ApiService from '@services/api.service';
 import DepotMappingManager from '../depot/DepotMappingManager';
 import EpicMappingManager from '../epic/EpicMappingManager';
+import XboxMappingManager from '../xbox/XboxMappingManager';
 import DataImporter from '../data/DataImporter';
 interface DataSectionProps {
   isAdmin: boolean;
@@ -27,6 +28,9 @@ interface DataSectionProps {
   // Battle.net is anonymous (no login); this navigates to / highlights the
   // Battle.net daemon status card in the Integrations section.
   onNavigateToBattleNetLogin?: () => void;
+  // Xbox login lives on the Prefill page; this navigates to / highlights the
+  // Xbox daemon status card in the Integrations section.
+  onNavigateToXboxLogin?: () => void;
   onNavigateToSchedule?: (scheduleKey: string) => void;
 }
 
@@ -41,6 +45,7 @@ const DataSection: React.FC<DataSectionProps> = ({
   onDataRefresh,
   onNavigateToSteamApi,
   onNavigateToEpicLogin,
+  onNavigateToXboxLogin,
   onNavigateToSchedule
 }) => {
   const { t } = useTranslation();
@@ -195,6 +200,20 @@ const DataSection: React.FC<DataSectionProps> = ({
       description: t('management.sections.data.tables.epicCdnPatterns.description'),
       details: t('management.sections.data.tables.epicCdnPatterns.details'),
       affectedPages: t('management.sections.data.tables.epicCdnPatterns.affectedPages')
+    },
+    {
+      name: 'XboxGameMappings',
+      label: t('management.sections.data.tables.xboxGameMappings.label'),
+      description: t('management.sections.data.tables.xboxGameMappings.description'),
+      details: t('management.sections.data.tables.xboxGameMappings.details'),
+      affectedPages: t('management.sections.data.tables.xboxGameMappings.affectedPages')
+    },
+    {
+      name: 'XboxCdnPatterns',
+      label: t('management.sections.data.tables.xboxCdnPatterns.label'),
+      description: t('management.sections.data.tables.xboxCdnPatterns.description'),
+      details: t('management.sections.data.tables.xboxCdnPatterns.details'),
+      affectedPages: t('management.sections.data.tables.xboxCdnPatterns.affectedPages')
     }
   ];
 
@@ -324,6 +343,25 @@ const DataSection: React.FC<DataSectionProps> = ({
           onNavigateToSchedule={
             onNavigateToSchedule ? () => onNavigateToSchedule('epicMapping') : undefined
           }
+        />
+      </div>
+
+      {/* Subsection: Xbox Game Mapping */}
+      <div className="mb-8">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-xbox)]" />
+          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            {t('management.sections.data.xboxGameMapping')}
+          </h3>
+        </div>
+
+        <XboxMappingManager
+          isAdmin={isAdmin}
+          mockMode={mockMode}
+          onError={onError}
+          onSuccess={onSuccess}
+          onDataRefresh={onDataRefresh}
+          onNavigateToXboxLogin={onNavigateToXboxLogin}
         />
       </div>
 
@@ -537,6 +575,12 @@ const DataSection: React.FC<DataSectionProps> = ({
                 )}
                 {selectedTables.includes('EpicCdnPatterns') && (
                   <li>{t('management.sections.data.confirmClearWarnings.epicCdnPatterns')}</li>
+                )}
+                {selectedTables.includes('XboxGameMappings') && (
+                  <li>{t('management.sections.data.confirmClearWarnings.xboxGameMappings')}</li>
+                )}
+                {selectedTables.includes('XboxCdnPatterns') && (
+                  <li>{t('management.sections.data.confirmClearWarnings.xboxCdnPatterns')}</li>
                 )}
               </ul>
             </div>

@@ -284,7 +284,9 @@ public sealed class SocketDaemonClient : IDaemonClient
                 }
 
                 var json = Encoding.UTF8.GetString(messageBuffer);
-                _logger?.LogDebug("Received from daemon: {Json}", json.Length > 500 ? json[..500] + "..." : json);
+                // Do NOT log the raw JSON body: daemon messages can carry credential challenges
+                // (device userCode + verification URL) and tokens. Log only the size.
+                _logger?.LogDebug("Received {Bytes}-byte message from daemon", json.Length);
 
                 ProcessMessage(json);
             }

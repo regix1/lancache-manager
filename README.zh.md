@@ -10,13 +10,13 @@
 
 # LANCache Manager
 
-[LANCache](https://lancache.net/) 的 Web 管理界面。实时查看下载进度、查看已缓存内容、追踪节省的带宽，以及在下次 LAN 聚会前预填充 Steam、Epic、Battle.net 和 Riot 游戏。Web 界面支持英语和简体中文。
+[LANCache](https://lancache.net/) 的 Web 管理界面。实时查看下载进度、查看已缓存内容、追踪节省的带宽，以及在下次 LAN 聚会前预填充 Steam、Epic、Battle.net、Riot 和 Xbox 游戏。Web 界面支持英语和简体中文。
 
 **功能一览：**
 
 - **实时仪表盘**——实时下载、节省的带宽、热门客户端、服务分析
 - **缓存浏览器**——查看每个已缓存的游戏，包括封面图、大小和按客户端的历史记录
-- **预填充**——在客人到来*之前*将 Steam、Epic、Battle.net 和 Riot 游戏下载到你的缓存
+- **预填充**——在客人到来*之前*将 Steam、Epic、Battle.net、Riot 和 Xbox 游戏下载到你的缓存
 - **管理**——处理日志、清除缓存、检测损坏、查找已缓存内容、管理主题
 - **监控**——开箱即用的 Prometheus 指标，随时接入 Grafana
 
@@ -43,7 +43,7 @@
   - [路径与数据源](#paths-and-datasources)
   - [Nginx 日志轮转](#nginx-log-rotation)
   - [API 与高级设置](#api-and-advanced)
-- [预填充（Steam、Epic、Battle.net 和 Riot）](#prefill-steam--epic)
+- [预填充（Steam、Epic、Battle.net、Riot 和 Xbox）](#prefill-steam--epic)
 - [自定义主题](#custom-themes)
 - [多数据源](#multiple-datasources)
 - [反向代理（Nginx）](#nginx-reverse-proxy)
@@ -102,7 +102,7 @@ docker compose up -d
 关于挂载的两点说明：
 
 - 如果想从 UI 清除缓存或删除单个游戏，请去掉 `/cache` 挂载的 `:ro`。
-- Docker 套接字是可选的——只有 nginx 日志轮转和 Steam/Epic/Battle.net/Riot 预填充需要它。
+- Docker 套接字是可选的——只有 nginx 日志轮转和 Steam/Epic/Battle.net/Riot/Xbox 预填充需要它。
 
 <details>
 <summary><strong>想用 <code>docker run</code> 快速测试？</strong></summary>
@@ -288,7 +288,7 @@ volumes:
 | `/data` | PostgreSQL 数据库、安全、状态和配置、主题、缓存的图片 | 必需 |
 | `/logs` | LANCache 访问日志 | 添加 `:ro` 可设为只读 |
 | `/cache` | LANCache 缓存文件 | 添加 `:ro` 可只监控而不修改文件 |
-| `/var/run/docker.sock` | Docker API 访问 | 可选。nginx 日志轮转和 Steam/Epic/Battle.net/Riot 预填充时需要 |
+| `/var/run/docker.sock` | Docker API 访问 | 可选。nginx 日志轮转和 Steam/Epic/Battle.net/Riot/Xbox 预填充时需要 |
 
 <a id="required-settings"></a>
 ### 必需设置
@@ -357,6 +357,7 @@ volumes:
 | `Prefill__EpicDockerImage` | `ghcr.io/regix1/epic-prefill-daemon:latest` | 用于 Epic 预填充容器的 Docker 镜像。 |
 | `Prefill__BattlenetDockerImage` | `ghcr.io/regix1/battlenet-prefill-daemon:latest` | 用于 Battle.net 预填充容器的 Docker 镜像。 |
 | `Prefill__RiotDockerImage` | `ghcr.io/regix1/riot-prefill-daemon:latest` | 用于 Riot 预填充容器的 Docker 镜像。 |
+| `Prefill__XboxDockerImage` | `ghcr.io/regix1/xbox-prefill-daemon:latest` | 用于 Xbox 预填充容器的 Docker 镜像。 |
 | `Prefill__SessionTimeoutMinutes` | `120` | 空闲预填充会话在清理前的不活动分钟数。 |
 | `Prefill__DaemonBasePath` | `/data/prefill` | 存储预填充会话状态的容器路径。 |
 | `Prefill__HostDataPath` | `auto` | 映射到管理器 `/data` 数据卷的主机路径。从管理器的挂载配置检测；仅在检测失败时显式设置（不常见的平台、自定义数据卷驱动）。 |
@@ -431,7 +432,7 @@ services:
       # - Security__ProtectSwagger=true
       # - Security__AllowedOrigins=
 
-      # 预填充（Steam、Epic、Battle.net 和 Riot） - 参见 配置 > 预填充 获取完整参考
+      # 预填充（Steam、Epic、Battle.net、Riot 和 Xbox） - 参见 配置 > 预填充 获取完整参考
       # 大多数安装无需任何设置；自动检测已覆盖常见场景。
       # - Prefill__LancacheIp=192.168.1.10        # 缓存服务器 IP。最可靠的覆写。
       # - Prefill__LancacheDnsIp=192.168.1.20     # DNS 服务器 IP。仅 bridge 模式。
@@ -440,6 +441,7 @@ services:
       # - Prefill__EpicDockerImage=ghcr.io/regix1/epic-prefill-daemon:latest
       # - Prefill__BattlenetDockerImage=ghcr.io/regix1/battlenet-prefill-daemon:latest
       # - Prefill__RiotDockerImage=ghcr.io/regix1/riot-prefill-daemon:latest
+      # - Prefill__XboxDockerImage=ghcr.io/regix1/xbox-prefill-daemon:latest
 
       # Nginx 日志轮转
       # - NginxLogRotation__Enabled=true
@@ -466,16 +468,16 @@ services:
 -----
 
 <a id="prefill-steam--epic"></a>
-## 预填充（Steam、Epic、Battle.net 和 Riot）
+## 预填充（Steam、Epic、Battle.net、Riot 和 Xbox）
 
 预填充会在用户连接**之前**将游戏下载到你的缓存中。当客人到来时，每个安装都从你的缓存读取，而不是公共互联网——全 LAN 速度，无带宽瓶颈。
 
-Steam、Epic、Battle.net 和 Riot 各自在自己的容器中运行，因此你可以同时预填充它们而不会相互干扰。进度实时流式传输到 UI。
+Steam、Epic、Battle.net、Riot 和 Xbox 各自在自己的容器中运行，因此你可以同时预填充它们而不会相互干扰。进度实时流式传输到 UI。
 
 <div align="center">
 <img alt="预填充 - 平台选择" src="docs/images/prefill-home.png" />
 
-*选择 Steam、Epic、Battle.net 或 Riot 开始预填充会话*
+*选择 Steam、Epic、Battle.net、Riot 或 Xbox 开始预填充会话*
 
 <img alt="预填充 - 会话" src="docs/images/prefill-session.png" />
 
@@ -492,15 +494,15 @@ Steam、Epic、Battle.net 和 Riot 各自在自己的容器中运行，因此你
 
 两种服务的流程相同：
 
-1. 打开**预填充**标签页，选择 **Steam**、**Epic Games**、**Battle.net** 或 **Riot**
-2. 登录（Steam 使用 Steam Guard，Epic 使用 OAuth；Battle.net 和 Riot 无需登录）
+1. 打开**预填充**标签页，选择 **Steam**、**Epic Games**、**Battle.net**、**Riot** 或 **Xbox**
+2. 登录（Steam 使用 Steam Guard，Epic 使用 OAuth，Xbox 使用 Microsoft 设备代码；Battle.net 和 Riot 无需登录）
 3. 从你的库中选择游戏
 4. 点击**开始**
 
 就这样。让它运行——当客人到达时，一切已缓存。
 
 > [!NOTE]
-> Steam 预填充基于 [steam-prefill-daemon](https://github.com/regix1/steam-prefill-daemon)，它是 [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) 的分支，原作者 [@tpill90](https://github.com/tpill90)。Epic 预填充使用 [epic-prefill-daemon](https://github.com/regix1/epic-prefill-daemon)。Battle.net 预填充使用 [battlenet-prefill-daemon](https://github.com/regix1/battlenet-prefill-daemon)，完全匿名——无需账号登录。Riot 预填充使用 [riot-prefill-daemon](https://github.com/regix1/riot-prefill-daemon)（[riot-lancache-prefill](https://github.com/tpill90/riot-lancache-prefill) 的分支），完全匿名——无需账号登录；支持英雄联盟和无畏契约。
+> Steam 预填充基于 [steam-prefill-daemon](https://github.com/regix1/steam-prefill-daemon)，它是 [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) 的分支，原作者 [@tpill90](https://github.com/tpill90)。Epic 预填充使用 [epic-prefill-daemon](https://github.com/regix1/epic-prefill-daemon)。Battle.net 预填充使用 [battlenet-prefill-daemon](https://github.com/regix1/battlenet-prefill-daemon)，完全匿名——无需账号登录。Riot 预填充使用 [riot-prefill-daemon](https://github.com/regix1/riot-prefill-daemon)（[riot-lancache-prefill](https://github.com/tpill90/riot-lancache-prefill) 的分支），完全匿名——无需账号登录；支持英雄联盟和无畏契约。Xbox 预填充使用 [xbox-prefill-daemon](https://github.com/regix1/xbox-prefill-daemon)，通过 Microsoft 设备代码登录（与 Epic 一样需要账号登录）。
 
 ### 导入 Steam App ID
 

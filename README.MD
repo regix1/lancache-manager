@@ -4,13 +4,13 @@
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue)](LICENSE)
 
-A web UI for [LANCache](https://lancache.net/). Watch downloads as they happen, see what's already cached, track bandwidth saved, and prefill Steam, Epic, Battle.net, and Riot games before your next LAN party. The web UI is available in English and 简体中文.
+A web UI for [LANCache](https://lancache.net/). Watch downloads as they happen, see what's already cached, track bandwidth saved, and prefill Steam, Epic, Battle.net, Riot, and Xbox games before your next LAN party. The web UI is available in English and 简体中文.
 
 **What it does:**
 
 - **Live dashboard** - downloads as they happen, bandwidth saved, top clients, service analytics
 - **Cache browser** - see every cached game with cover art, sizes, and per-client history
-- **Prefill** - download Steam, Epic, Battle.net, and Riot games into your cache *before* guests arrive
+- **Prefill** - download Steam, Epic, Battle.net, Riot, and Xbox games into your cache *before* guests arrive
 - **Management** - process logs, clear cache, detect corruption, find what's cached, manage themes
 - **Monitoring** - Prometheus metrics out of the box, Grafana-ready
 
@@ -37,7 +37,7 @@ A web UI for [LANCache](https://lancache.net/). Watch downloads as they happen, 
   - [Paths and Datasources](#paths-and-datasources)
   - [Nginx Log Rotation](#nginx-log-rotation)
   - [API and Advanced](#api-and-advanced)
-- [Prefill (Steam, Epic, Battle.net & Riot)](#prefill-steam--epic)
+- [Prefill (Steam, Epic, Battle.net, Riot & Xbox)](#prefill-steam--epic)
 - [Custom Themes](#custom-themes)
 - [Multiple Datasources](#multiple-datasources)
 - [Reverse Proxy (Nginx)](#nginx-reverse-proxy)
@@ -96,7 +96,7 @@ Then:
 Two notes on the mounts:
 
 - Drop `:ro` from the `/cache` mount if you want to clear cache or remove individual games from the UI.
-- The Docker socket is optional - you only need it for nginx log rotation and Steam/Epic/Battle.net/Riot prefill.
+- The Docker socket is optional - you only need it for nginx log rotation and Steam/Epic/Battle.net/Riot/Xbox prefill.
 
 <details>
 <summary><strong>Prefer <code>docker run</code> for a quick test?</strong></summary>
@@ -282,7 +282,7 @@ Everything in this section is a lookup table - skim the headers and dig in where
 | `/data` | PostgreSQL database, security, state and config, themes, cached images | Required |
 | `/logs` | LANCache access logs | Add `:ro` for read-only |
 | `/cache` | LANCache cached files | Add `:ro` to monitor without touching files |
-| `/var/run/docker.sock` | Docker API access | Optional. Needed for nginx log rotation and Steam/Epic/Battle.net/Riot prefill |
+| `/var/run/docker.sock` | Docker API access | Optional. Needed for nginx log rotation and Steam/Epic/Battle.net/Riot/Xbox prefill |
 
 <a id="required-settings"></a>
 ### Required Settings
@@ -351,6 +351,7 @@ For setup decisions (when do I need which override?), see [Prefill → Network s
 | `Prefill__EpicDockerImage` | `ghcr.io/regix1/epic-prefill-daemon:latest` | Docker image used for Epic prefill containers. |
 | `Prefill__BattlenetDockerImage` | `ghcr.io/regix1/battlenet-prefill-daemon:latest` | Docker image used for Battle.net prefill containers. |
 | `Prefill__RiotDockerImage` | `ghcr.io/regix1/riot-prefill-daemon:latest` | Docker image used for Riot prefill containers. |
+| `Prefill__XboxDockerImage` | `ghcr.io/regix1/xbox-prefill-daemon:latest` | Docker image used for Xbox prefill containers. |
 | `Prefill__SessionTimeoutMinutes` | `120` | Minutes of inactivity before an idle prefill session is cleaned up. |
 | `Prefill__DaemonBasePath` | `/data/prefill` | Container path where prefill session state is stored. |
 | `Prefill__HostDataPath` | `auto` | Host path that maps to the manager's `/data` volume. Detected from the manager's mount config; set explicitly only when detection fails (unusual platforms, custom volume drivers). |
@@ -425,7 +426,7 @@ services:
       # - Security__ProtectSwagger=true
       # - Security__AllowedOrigins=
 
-      # Prefill (Steam, Epic, Battle.net & Riot) - see Configuration > Prefill for the full reference
+      # Prefill (Steam, Epic, Battle.net, Riot & Xbox) - see Configuration > Prefill for the full reference
       # Most installs need none of these; auto-detection covers the common cases.
       # - Prefill__LancacheIp=192.168.1.10        # Cache server IP. The single most reliable override.
       # - Prefill__LancacheDnsIp=192.168.1.20     # DNS server IP. Bridge mode only.
@@ -434,6 +435,7 @@ services:
       # - Prefill__EpicDockerImage=ghcr.io/regix1/epic-prefill-daemon:latest
       # - Prefill__BattlenetDockerImage=ghcr.io/regix1/battlenet-prefill-daemon:latest
       # - Prefill__RiotDockerImage=ghcr.io/regix1/riot-prefill-daemon:latest
+      # - Prefill__XboxDockerImage=ghcr.io/regix1/xbox-prefill-daemon:latest
 
       # Nginx Log Rotation
       # - NginxLogRotation__Enabled=true
@@ -460,16 +462,16 @@ services:
 -----
 
 <a id="prefill-steam--epic"></a>
-## Prefill (Steam, Epic, Battle.net & Riot)
+## Prefill (Steam, Epic, Battle.net, Riot & Xbox)
 
 Prefill downloads games into your cache *before* people connect. When guests show up, every install reads from your cache instead of the public internet - full LAN speed, no bandwidth bottleneck.
 
-Steam, Epic, Battle.net, and Riot each run in their own container, so you can prefill all of them at the same time without them interfering. Progress streams live to the UI.
+Steam, Epic, Battle.net, Riot, and Xbox each run in their own container, so you can prefill all of them at the same time without them interfering. Progress streams live to the UI.
 
 <div align="center">
 <img alt="Prefill - Platform Picker" src="docs/images/prefill-home.png" />
 
-*Pick between Steam, Epic, Battle.net, and Riot to start a prefill session*
+*Pick between Steam, Epic, Battle.net, Riot, and Xbox to start a prefill session*
 
 <img alt="Prefill - Session" src="docs/images/prefill-session.png" />
 
@@ -486,15 +488,15 @@ Steam, Epic, Battle.net, and Riot each run in their own container, so you can pr
 
 The flow is the same for both services:
 
-1. Open the **Prefill** tab and pick **Steam**, **Epic Games**, **Battle.net**, or **Riot**
-2. Sign in (Steam Guard for Steam, OAuth for Epic; Battle.net and Riot need no login)
+1. Open the **Prefill** tab and pick **Steam**, **Epic Games**, **Battle.net**, **Riot**, or **Xbox**
+2. Sign in (Steam Guard for Steam, OAuth for Epic, a Microsoft device code for Xbox; Battle.net and Riot need no login)
 3. Pick games from your library
 4. Hit **Start**
 
 That's it. Leave it running - when guests arrive, everything's cached.
 
 > [!NOTE]
-> Steam prefill is built on [steam-prefill-daemon](https://github.com/regix1/steam-prefill-daemon), a fork of [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) by [@tpill90](https://github.com/tpill90). Epic prefill uses [epic-prefill-daemon](https://github.com/regix1/epic-prefill-daemon). Battle.net prefill uses [battlenet-prefill-daemon](https://github.com/regix1/battlenet-prefill-daemon) and is fully anonymous - no account login required. Riot prefill uses [riot-prefill-daemon](https://github.com/regix1/riot-prefill-daemon) (a fork of [riot-lancache-prefill](https://github.com/tpill90/riot-lancache-prefill)) and is fully anonymous - no account login required; it supports League of Legends and Valorant.
+> Steam prefill is built on [steam-prefill-daemon](https://github.com/regix1/steam-prefill-daemon), a fork of [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) by [@tpill90](https://github.com/tpill90). Epic prefill uses [epic-prefill-daemon](https://github.com/regix1/epic-prefill-daemon). Battle.net prefill uses [battlenet-prefill-daemon](https://github.com/regix1/battlenet-prefill-daemon) and is fully anonymous - no account login required. Riot prefill uses [riot-prefill-daemon](https://github.com/regix1/riot-prefill-daemon) (a fork of [riot-lancache-prefill](https://github.com/tpill90/riot-lancache-prefill)) and is fully anonymous - no account login required; it supports League of Legends and Valorant. Xbox prefill uses [xbox-prefill-daemon](https://github.com/regix1/xbox-prefill-daemon) and signs in with a Microsoft device code (like Epic, it requires an account login).
 
 ### Importing Steam App IDs
 

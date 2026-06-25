@@ -110,6 +110,26 @@ public interface ISignalRNotificationService
     /// </summary>
     Task NotifyRiotHubAsync(string eventName, object? data = null);
 
+    // ===== Xbox Prefill Hub Methods =====
+
+    /// <summary>
+    /// Send a notification to a specific client on the XboxPrefillDaemonHub.
+    /// Errors are caught and logged; does not throw.
+    /// </summary>
+    Task NotifyXboxPrefillClientAsync(string connectionId, string eventName, object? data = null);
+
+    /// <summary>
+    /// Send a notification to a specific client on the XboxPrefillDaemonHub.
+    /// Throws exceptions on failure so caller can handle them.
+    /// </summary>
+    Task SendToXboxPrefillClientRawAsync(string connectionId, string eventName, object? data = null);
+
+    /// <summary>
+    /// Send a notification to all clients on the DownloadHub and the Xbox daemon hub only.
+    /// Used for Xbox-specific daemon events that should not be sent to the Steam/Epic/Battle.net/Riot hubs.
+    /// </summary>
+    Task NotifyXboxHubAsync(string eventName, object? data = null);
+
     // ===== DownloadHub Group Methods =====
 
     /// <summary>

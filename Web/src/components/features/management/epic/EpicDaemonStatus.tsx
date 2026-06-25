@@ -217,8 +217,10 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
           </div>
         </div>
 
-        {/* Game Library (aggregated across all discovery sources) */}
-        <EpicGameMappings />
+        {/* Game Library (aggregated across all discovery sources) - collapsible dropdown */}
+        <div className="mt-4">
+          <EpicGameMappings />
+        </div>
       </Card>
 
       {/* Auth Modal */}

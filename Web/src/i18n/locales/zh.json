@@ -169,6 +169,7 @@
       "cancelDatabaseReset": "取消数据库重置",
       "cancelDataImport": "取消数据导入",
       "cancelEpicGameMapping": "取消 Epic 游戏映射",
+      "cancelXboxGameMapping": "取消 Xbox 游戏映射",
       "cancelEvictionScan": "取消淘汰扫描",
       "cancelCacheSizeScan": "取消缓存文件扫描",
       "cancelEvictionRemoval": "取消淘汰移除",
@@ -391,7 +392,8 @@
         "steamPrefillDaemon": "用于定时预填充 Steam 游戏和预热缓存的后台守护进程",
         "epicPrefillDaemon": "用于定时预填充 Epic 游戏和预热缓存的后台守护进程",
         "battlenetPrefillDaemon": "用于定时预填充 Battle.net 游戏和预热缓存的后台守护进程",
-        "riotPrefillDaemon": "用于定时预填充 Riot 游戏和预热缓存的后台守护进程"
+        "riotPrefillDaemon": "用于定时预填充 Riot 游戏和预热缓存的后台守护进程",
+        "xboxPrefillDaemon": "用于定时预填充 Xbox 游戏和预热缓存的后台守护进程"
       }
     }
   },
@@ -1487,6 +1489,7 @@
         "depotMapping": "仓库映射",
         "steamDepotMapping": "Steam 游戏映射",
         "epicGameMapping": "Epic Games 映射",
+        "xboxGameMapping": "Xbox 游戏映射",
         "epicResolve": {
           "applyNow": "立即应用",
           "resolving": "解析中...",
@@ -1560,7 +1563,9 @@
           "prefillSessions": "所有预填充会话将被永久删除",
           "bannedSteamUsers": "所有被封禁的 Steam 用户将被解封并可以再次预填充",
           "epicGameMappings": "Epic 游戏将显示为\"未知\"，直到重新建立映射",
-          "epicCdnPatterns": "在重新获取 CDN 模式之前，Epic 游戏检测可能无法工作"
+          "epicCdnPatterns": "在重新获取 CDN 模式之前，Epic 游戏检测可能无法工作",
+          "xboxGameMappings": "Xbox 游戏将显示为\"未知\"，直到重新建立映射",
+          "xboxCdnPatterns": "在重新获取 CDN 模式之前，Xbox 游戏检测可能无法工作"
         },
         "clearTables": "清除 {{count}} 个表",
         "clearTables_plural": "清除 {{count}} 个表",
@@ -1684,6 +1689,18 @@
             "description": "用于游戏检测的 Epic Games CDN URL 模式",
             "details": "用于识别 Epic 游戏下载的 CDN 主机和块 URL 模式",
             "affectedPages": "Epic 游戏检测 • 缓存标签页"
+          },
+          "xboxGameMappings": {
+            "label": "Xbox 游戏映射",
+            "description": "Xbox / Microsoft Store 游戏名称关联",
+            "details": "Microsoft Store 产品 ID 与游戏名称、图片和元数据之间的映射",
+            "affectedPages": "仪表板 • 下载 • Xbox 游戏名称显示"
+          },
+          "xboxCdnPatterns": {
+            "label": "Xbox CDN 模式",
+            "description": "用于游戏检测的 Xbox / Microsoft Store CDN URL 模式",
+            "details": "用于识别 Xbox 游戏下载的 CDN 主机和文件 URL 模式",
+            "affectedPages": "Xbox 游戏检测 • 缓存标签页"
           }
         }
       },
@@ -1875,6 +1892,19 @@
             "daemon": "由预填充守护进程服务自动发现",
             "unknown": "未知的发现方法"
           }
+        },
+        "xboxGameMappings": {
+          "title": "游戏库",
+          "description": "从已连接的账户和用户预填充会话收集的 Microsoft Store 游戏",
+          "noGames": "尚未发现游戏。在预填充页面使用 Xbox 账户登录以开始构建目录。",
+          "search": "按游戏名称搜索...",
+          "productId": "产品 ID",
+          "name": "游戏",
+          "discovered": "首次出现",
+          "lastSeen": "最后出现",
+          "gamesInLibrary_one": "库中有 {{count}} 个游戏，收集自已连接的账户和用户预填充会话",
+          "gamesInLibrary_other": "库中有 {{count}} 个游戏，收集自已连接的账户和用户预填充会话",
+          "noResults": "没有游戏匹配您的搜索"
         }
       },
       "clients": {
@@ -2564,6 +2594,30 @@
           "description": "重新从 Epic 获取您拥有的游戏和 CDN 模式，然后将未匹配的下载 URL 解析为游戏名称。"
         },
         "note": "Epic 没有像 Steam 的 PICS 那样的公开游戏数据库。游戏发现至少需要一个 Epic 账户登录。"
+      }
+    },
+    "xboxMapping": {
+      "title": "Xbox 游戏映射",
+      "subtitle": "从 Microsoft Store CDN 模式识别 Xbox 游戏",
+      "configureLogin": "查看 Xbox 守护进程",
+      "status": {
+        "gamesDiscovered": "已发现的游戏：",
+        "lastUpdated": "最后更新："
+      },
+      "buttons": {
+        "applyNow": "立即解析",
+        "resolving": "解析中..."
+      },
+      "help": {
+        "howItWorks": {
+          "title": "工作原理",
+          "description": "Xbox 游戏在处理日志时自动解析：用户在预填充页面登录后会贡献其 Microsoft Store 游戏库，匹配的下载将从通用的 Windows 更新条目重命名为其游戏名称。"
+        },
+        "applyNow": {
+          "title": "立即解析",
+          "description": "使用存储的 Xbox CDN 模式针对仍未匹配的下载重新运行解析器。主解析路径在每次日志处理后自动运行。"
+        },
+        "note": "只有有人预填充或拥有的游戏才能自动命名。游戏发现至少需要在预填充页面进行一次 Xbox 账户登录。"
       }
     },
     "depotMapping": {
@@ -5552,6 +5606,12 @@
       "completed": "Epic 目录刷新完成 - {{gamesDiscovered}} 个游戏",
       "cancelled": "Epic 游戏目录刷新已取消",
       "failed": "Epic 游戏目录刷新失败: {{errorDetail}}"
+    },
+    "xboxMapping": {
+      "starting": "正在解析 Xbox 游戏目录...",
+      "gamesDiscovered": "发现 {{gamesDiscovered}} 个游戏",
+      "cancelled": "Xbox 目录解析已取消",
+      "failed": "Xbox 目录解析失败: {{errorDetail}}"
     },
     "epicRemove": {
       "starting": "开始移除 Epic 游戏 '{{gameName}}'",

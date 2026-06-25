@@ -134,9 +134,9 @@ public interface IPathResolver
     string GetRustGameDetectorPath();
 
     /// <summary>
-    /// Gets the path to the Rust game cache remover executable
+    /// Gets the path to the Rust Steam game cache remover executable
     /// </summary>
-    string GetRustGameRemoverPath();
+    string GetRustSteamRemoverPath();
 
     /// <summary>
     /// Gets the path to the Rust Epic game remover executable
@@ -144,9 +144,11 @@ public interface IPathResolver
     string GetRustEpicRemoverPath();
 
     /// <summary>
-    /// Gets the path to the Rust named-game (Blizzard/Riot) remover executable
+    /// Gets the path to the per-service Rust named-game (Blizzard/Riot/Xbox) remover
+    /// executable for the given owning service (e.g. "blizzard", "riot", "xbox").
+    /// Each service has its own thin binary (cache_{service}_remove) over a shared core.
     /// </summary>
-    string GetRustNamedGameRemoverPath();
+    string GetRustNamedGameRemoverPath(string service);
 
     /// <summary>
     /// Gets the path to the Rust service remover executable

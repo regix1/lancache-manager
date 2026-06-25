@@ -87,6 +87,8 @@ public class AuthController : ControllerBase
         DateTime? battlenetPrefillExpiresAt = null;
         var riotPrefillEnabled = false;
         DateTime? riotPrefillExpiresAt = null;
+        var xboxPrefillEnabled = false;
+        DateTime? xboxPrefillExpiresAt = null;
 
         if (session != null)
         {
@@ -96,6 +98,7 @@ public class AuthController : ControllerBase
                 epicPrefillEnabled = true;
                 battlenetPrefillEnabled = true;
                 riotPrefillEnabled = true;
+                xboxPrefillEnabled = true;
             }
             else if (session.SessionType == SessionType.Guest)
             {
@@ -114,11 +117,15 @@ public class AuthController : ControllerBase
                 riotPrefillEnabled = session.RiotPrefillExpiresAtUtc != null && session.RiotPrefillExpiresAtUtc > DateTime.UtcNow;
                 riotPrefillExpiresAt = riotPrefillEnabled
                     ? DateTime.SpecifyKind(session.RiotPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null;
+
+                xboxPrefillEnabled = session.XboxPrefillExpiresAtUtc != null && session.XboxPrefillExpiresAtUtc > DateTime.UtcNow;
+                xboxPrefillExpiresAt = xboxPrefillEnabled
+                    ? DateTime.SpecifyKind(session.XboxPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null;
             }
         }
 
         // Backward-compat: prefillEnabled is true if any service is active
-        var prefillEnabled = steamPrefillEnabled || epicPrefillEnabled || battlenetPrefillEnabled || riotPrefillEnabled;
+        var prefillEnabled = steamPrefillEnabled || epicPrefillEnabled || battlenetPrefillEnabled || riotPrefillEnabled || xboxPrefillEnabled;
 
         // Token rotation: provide a fresh token for SignalR accessTokenFactory (mobile support)
         string? token = null;
@@ -151,6 +158,8 @@ public class AuthController : ControllerBase
             BattlenetPrefillExpiresAt = battlenetPrefillExpiresAt,
             RiotPrefillEnabled = riotPrefillEnabled,
             RiotPrefillExpiresAt = riotPrefillExpiresAt,
+            XboxPrefillEnabled = xboxPrefillEnabled,
+            XboxPrefillExpiresAt = xboxPrefillExpiresAt,
             Token = token
         });
     }
@@ -240,6 +249,11 @@ public class AuthController : ControllerBase
         if (_sessionService.IsRiotPrefillEnabled())
         {
             await _sessionService.GrantRiotPrefillAccessAsync(session.Id, _stateService.GetRiotGuestPrefillDurationHours());
+        }
+
+        if (_stateService.GetXboxGuestPrefillEnabledByDefault())
+        {
+            await _sessionService.GrantXboxPrefillAccessAsync(session.Id, _stateService.GetXboxGuestPrefillDurationHours());
         }
 
         // Broadcast session created
@@ -577,6 +591,51 @@ public class AuthController : ControllerBase
         });
     }
 
+    // --- Xbox Guest Prefill Endpoints (login-required - mirrors Epic, has a thread limit) ---
+
+    [AllowAnonymous]
+    [HttpGet("guest/xbox-prefill/config")]
+    public IActionResult GetXboxPrefillConfig()
+    {
+        return Ok(new
+        {
+            enabledByDefault = _stateService.GetXboxGuestPrefillEnabledByDefault(),
+            durationHours = _stateService.GetXboxGuestPrefillDurationHours(),
+            maxThreadCount = _stateService.GetXboxDefaultGuestMaxThreadCount()
+        });
+    }
+
+    [Authorize(Policy = "AdminOnly")]
+    [HttpPost("guest/xbox-prefill/config")]
+    public async Task<IActionResult> SetXboxPrefillConfigAsync([FromBody] XboxGuestPrefillConfigRequest request)
+    {
+        if (request.DurationHours != 1 && request.DurationHours != 2)
+        {
+            return BadRequest(new { error = "Duration must be 1 or 2 hours" });
+        }
+
+        _stateService.SetXboxGuestPrefillEnabledByDefault(request.EnabledByDefault);
+        _stateService.SetXboxGuestPrefillDurationHours(request.DurationHours);
+        _stateService.SetXboxDefaultGuestMaxThreadCount(request.MaxThreadCount);
+
+        _logger.LogInformation("Default Xbox guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads} (existing sessions unchanged)",
+            request.EnabledByDefault, request.DurationHours, request.MaxThreadCount);
+
+        await _signalR.NotifyAllAsync(SignalREvents.XboxGuestPrefillConfigChanged, new
+        {
+            enabledByDefault = _stateService.GetXboxGuestPrefillEnabledByDefault(),
+            durationHours = _stateService.GetXboxGuestPrefillDurationHours(),
+            xboxMaxThreadCount = _stateService.GetXboxDefaultGuestMaxThreadCount()
+        });
+
+        return Ok(new {
+            success = true,
+            enabledByDefault = _stateService.GetXboxGuestPrefillEnabledByDefault(),
+            durationHours = _stateService.GetXboxGuestPrefillDurationHours(),
+            maxThreadCount = _stateService.GetXboxDefaultGuestMaxThreadCount()
+        });
+    }
+
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/prefill/toggle/{sessionId:guid}")]
     public async Task<IActionResult> ToggleGuestPrefillAsync(Guid sessionId, [FromBody] GuestPrefillToggleRequest request, [FromQuery] string service = "steam")
@@ -606,6 +665,14 @@ public class AuthController : ControllerBase
             else
                 await _sessionService.RevokeRiotPrefillAccessAsync(sessionId);
         }
+        else if (normalizedService == "xbox")
+        {
+            // Xbox is login-required (Microsoft device-code); this grant gates feature access
+            if (request.Enabled)
+                await _sessionService.GrantXboxPrefillAccessAsync(sessionId, _stateService.GetXboxGuestPrefillDurationHours());
+            else
+                await _sessionService.RevokeXboxPrefillAccessAsync(sessionId);
+        }
         else
         {
             // Default to steam for backward compatibility
@@ -634,6 +701,12 @@ public class AuthController : ControllerBase
         {
             prefillExpiresAt = updatedSession?.RiotPrefillExpiresAtUtc != null
                 ? DateTime.SpecifyKind(updatedSession.RiotPrefillExpiresAtUtc.Value, DateTimeKind.Utc)
+                : (DateTime?)null;
+        }
+        else if (normalizedService == "xbox")
+        {
+            prefillExpiresAt = updatedSession?.XboxPrefillExpiresAtUtc != null
+                ? DateTime.SpecifyKind(updatedSession.XboxPrefillExpiresAtUtc.Value, DateTimeKind.Utc)
                 : (DateTime?)null;
         }
         else
@@ -702,4 +775,11 @@ public class RiotGuestPrefillConfigRequest
 {
     public bool EnabledByDefault { get; set; }
     public int DurationHours { get; set; } = 2;
+}
+
+public class XboxGuestPrefillConfigRequest
+{
+    public bool EnabledByDefault { get; set; }
+    public int DurationHours { get; set; } = 2;
+    public int? MaxThreadCount { get; set; }
 }

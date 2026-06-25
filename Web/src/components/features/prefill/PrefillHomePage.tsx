@@ -5,6 +5,7 @@ import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { RiotIcon } from '@components/ui/RiotIcon';
+import { XboxIcon } from '@components/ui/XboxIcon';
 import { ArrowRight, Shield, AlertCircle } from 'lucide-react';
 import type { GameServiceId } from '@/types/gameService';
 import './PrefillHomePage.css';
@@ -18,6 +19,7 @@ interface PrefillHomePageProps {
   epicPrefillEnabled: boolean;
   battlenetPrefillEnabled: boolean;
   riotPrefillEnabled: boolean;
+  xboxPrefillEnabled: boolean;
 }
 
 export function PrefillHomePage({
@@ -28,7 +30,8 @@ export function PrefillHomePage({
   steamPrefillEnabled,
   epicPrefillEnabled,
   battlenetPrefillEnabled,
-  riotPrefillEnabled
+  riotPrefillEnabled,
+  xboxPrefillEnabled
 }: PrefillHomePageProps) {
   const { t } = useTranslation();
 
@@ -36,13 +39,15 @@ export function PrefillHomePage({
   const showEpic = isAdmin || epicPrefillEnabled;
   const showBattlenet = isAdmin || battlenetPrefillEnabled;
   const showRiot = isAdmin || riotPrefillEnabled;
+  const showXbox = isAdmin || xboxPrefillEnabled;
 
   // Number of services a guest has access to (admins always see all cards).
   const enabledServiceCount =
     Number(steamPrefillEnabled) +
     Number(epicPrefillEnabled) +
     Number(battlenetPrefillEnabled) +
-    Number(riotPrefillEnabled);
+    Number(riotPrefillEnabled) +
+    Number(xboxPrefillEnabled);
 
   // If the user is a guest with access to exactly one service, skip the home page
   // and go directly to that service's panel.
@@ -60,6 +65,8 @@ export function PrefillHomePage({
       onServiceStart('battlenet');
     } else if (riotPrefillEnabled) {
       onServiceStart('riot');
+    } else if (xboxPrefillEnabled) {
+      onServiceStart('xbox');
     }
   }, [
     isAdmin,
@@ -67,6 +74,7 @@ export function PrefillHomePage({
     epicPrefillEnabled,
     battlenetPrefillEnabled,
     riotPrefillEnabled,
+    xboxPrefillEnabled,
     enabledServiceCount,
     onServiceStart,
     error
@@ -277,7 +285,7 @@ export function PrefillHomePage({
               <li>
                 {t('prefill.home.riotFeature1', 'Prefill all products or select specific titles')}
               </li>
-              <li>{t('prefill.home.riotFeature2', 'No account or login required')}</li>
+              <li>{t('prefill.home.riotFeature2', 'League of Legends and VALORANT content')}</li>
               <li>{t('prefill.home.riotFeature3', 'Force re-download and cache management')}</li>
             </ul>
 
@@ -294,6 +302,57 @@ export function PrefillHomePage({
                 {t('prefill.home.riotNoLogin', 'No account login required')}
               </span>
               <Button variant="filled" size="md" onClick={() => onServiceStart('riot')}>
+                <ArrowRight size={16} />
+                {t('prefill.home.startSession', 'Start Session')}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Xbox Card */}
+        {showXbox && (
+          <div className="prefill-service-card prefill-service-card--xbox">
+            <div className="prefill-service-card-top">
+              <div className="prefill-service-icon">
+                <XboxIcon size={28} className="text-white" />
+              </div>
+              <div className="prefill-service-meta">
+                <h2 className="prefill-service-name">Xbox</h2>
+                <div className="prefill-service-status">
+                  <span className="prefill-service-status-dot prefill-service-status-dot--ready" />
+                  <span>{t('prefill.home.ready', 'Ready')}</span>
+                </div>
+              </div>
+            </div>
+
+            <p className="prefill-service-description">
+              {t(
+                'prefill.home.xboxDescription',
+                'Prefill your Xbox and Microsoft Store library, pre-downloading game content for the titles in your account.'
+              )}
+            </p>
+
+            <ul className="prefill-service-features">
+              <li>
+                {t('prefill.home.xboxFeature1', 'Prefill entire library or select specific games')}
+              </li>
+              <li>{t('prefill.home.xboxFeature2', 'Microsoft Store and Game Pass titles')}</li>
+              <li>{t('prefill.home.xboxFeature3', 'Force re-download and cache management')}</li>
+            </ul>
+
+            {error && errorService === 'xbox' && (
+              <div className="prefill-service-error">
+                <AlertCircle size={16} />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <div className="prefill-service-action">
+              <span className="prefill-service-note">
+                <Shield size={14} />
+                {t('prefill.home.requiresXboxLogin', 'Browser-based device code login')}
+              </span>
+              <Button variant="filled" size="md" onClick={() => onServiceStart('xbox')}>
                 <ArrowRight size={16} />
                 {t('prefill.home.startSession', 'Start Session')}
               </Button>

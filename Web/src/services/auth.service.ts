@@ -22,6 +22,8 @@ interface AuthStatusResponse {
   battlenetPrefillExpiresAt: string | null;
   riotPrefillEnabled: boolean;
   riotPrefillExpiresAt: string | null;
+  xboxPrefillEnabled: boolean;
+  xboxPrefillExpiresAt: string | null;
   token?: string;
 }
 
@@ -124,7 +126,9 @@ class AuthService {
         battlenetPrefillEnabled: false,
         battlenetPrefillExpiresAt: null,
         riotPrefillEnabled: false,
-        riotPrefillExpiresAt: null
+        riotPrefillExpiresAt: null,
+        xboxPrefillEnabled: false,
+        xboxPrefillExpiresAt: null
       };
     } finally {
       clearTimeout(timeoutId);

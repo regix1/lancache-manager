@@ -6,7 +6,7 @@ use serde::Serialize;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 mod cache_utils;
 mod cancel;
@@ -18,15 +18,18 @@ mod models;
 mod parser;
 mod progress_events;
 mod progress_utils;
+mod removal_core;
 mod service_utils;
 mod tact_products;
 
-use log_purge::remove_log_entries_for_urls;
+use removal_core::{LogScope, ProgressCadence, RemovalStageKeys};
 
 /// Epic game cache removal utility - removes all cache files, log entries,
 /// and database records for a specific Epic game identified by name.
-/// Mirrors the Steam game removal flow (cache_game_remove) but queries
-/// Downloads by GameName + EpicAppId instead of SteamDepotMappings.
+///
+/// Identity is `(GameName, EpicAppId IS NOT NULL)`. The shared delete/cleanup/
+/// purge/permission tail lives in `removal_core`; this bin owns only the Epic
+/// HEAD: the `GameName + EpicAppId` URL query and the matching DB-row delete.
 #[derive(clap::Parser, Debug)]
 #[command(name = "cache_epic_remove")]
 #[command(about = "Removes all cache files for a specific Epic game by name")]
@@ -48,42 +51,12 @@ struct Args {
 
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProgressData {
-    status: String,
-    stage_key: String,
-    context: serde_json::Value,
-    #[serde(rename = "percentComplete")]
-    percent_complete: f64,
-    #[serde(rename = "filesProcessed")]
-    files_processed: usize,
-    #[serde(rename = "totalFiles")]
-    total_files: usize,
-    timestamp: String,
-}
-
-fn write_progress(
-    progress_path: &Path,
-    status: &str,
-    stage_key: &str,
-    context: serde_json::Value,
-    percent_complete: f64,
-    files_processed: usize,
-    total_files: usize,
-) -> Result<()> {
-    let progress = ProgressData {
-        status: status.to_string(),
-        stage_key: stage_key.to_string(),
-        context,
-        percent_complete,
-        files_processed,
-        total_files,
-        timestamp: progress_utils::current_timestamp(),
-    };
-
-    progress_utils::write_progress_json(progress_path, &progress)
-}
+/// Epic removal stage keys (`signalr.epicRemove.*`). Only the per-file cache progress
+/// key is consumed by `removal_core`; the remaining lifecycle keys are emitted directly
+/// in `main` below with the same literal strings as before.
+const EPIC_STAGE_KEYS: RemovalStageKeys = RemovalStageKeys {
+    cache_file_progress: "signalr.epicRemove.cache.file.progress",
+};
 
 #[derive(Debug, Serialize)]
 struct RemovalReport {
@@ -188,145 +161,6 @@ async fn delete_epic_game_from_database(pool: &PgPool, game_name: &str) -> Resul
     Ok((log_entries_deleted, downloads_deleted))
 }
 
-/// Remove cache files for the Epic game. Same logic as cache_game_remove but
-/// without depot ID tracking (Epic games have no depots).
-fn remove_cache_files_for_epic_game(
-    cache_dir: &Path,
-    url_data: &HashMap<String, (String, i64)>,
-    progress_path: &Path,
-) -> Result<(usize, u64, HashSet<PathBuf>, usize)> {
-    use rayon::prelude::*;
-    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-    use std::sync::Mutex;
-
-    let deleted_files = AtomicUsize::new(0);
-    let bytes_freed = AtomicU64::new(0);
-    let permission_errors = AtomicUsize::new(0);
-    let parent_dirs = Mutex::new(HashSet::new());
-    eprintln!("Collecting cache file paths for deletion...");
-
-    // Collect all paths to delete
-    let paths_to_check: Vec<_> = url_data
-        .par_iter()
-        .flat_map(|(url, (service, total_bytes))| {
-            cache_utils::cache_path_candidates_for_bytes(cache_dir, service, url, *total_bytes)
-        })
-        .collect();
-
-    let total_paths = paths_to_check.len();
-    eprintln!("Checking {} potential cache file locations...", total_paths);
-
-    let paths_checked = AtomicUsize::new(0);
-    let last_reported_percent = AtomicUsize::new(0);
-
-    // Parallel deletion with progress reporting
-    paths_to_check.par_iter().for_each(|path| {
-        // Cooperative cancellation: skip remaining files if cancel was requested.
-        if cancel::is_cancelled() {
-            return;
-        }
-
-        let checked = paths_checked.fetch_add(1, Ordering::Relaxed) + 1;
-
-        if path.exists() {
-            // Refuse to follow symlinks or delete anything outside the cache root.
-            if let Err(e) = cache_utils::safe_path_under_root(cache_dir, path) {
-                eprintln!("  skipping unsafe path {}: {}", path.display(), e);
-                return;
-            }
-
-            if let Ok(metadata) = fs::metadata(path) {
-                bytes_freed.fetch_add(metadata.len(), Ordering::Relaxed);
-            }
-
-            match fs::remove_file(path) {
-                Ok(_) => {
-                    let count = deleted_files.fetch_add(1, Ordering::Relaxed) + 1;
-
-                    if let Some(parent) = path.parent() {
-                        match parent_dirs.lock() {
-                            Ok(mut dirs) => {
-                                dirs.insert(parent.to_path_buf());
-                            }
-                            Err(err) => {
-                                eprintln!("  Warning: failed to track parent directory after delete: {}", err);
-                            }
-                        }
-                    }
-
-                    if count % 100 == 0 {
-                        let bytes = bytes_freed.load(Ordering::Relaxed);
-                        eprintln!(
-                            "  Deleted {} cache files... ({:.2} MB freed)",
-                            count,
-                            bytes as f64 / 1_048_576.0
-                        );
-                    }
-                }
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::PermissionDenied {
-                        let err_count = permission_errors.fetch_add(1, Ordering::Relaxed) + 1;
-                        if err_count <= 5 {
-                            eprintln!("  ERROR: Permission denied deleting {}: {}", path.display(), e);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Report progress (10% - 70% range during cache removal)
-        if total_paths > 0 {
-            let current_pct = (checked * 100) / total_paths;
-            let prev_pct = last_reported_percent.load(Ordering::Relaxed);
-            if current_pct > prev_pct {
-                if last_reported_percent.compare_exchange(prev_pct, current_pct, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
-                    let overall_percent = 10.0 + (checked as f64 / total_paths as f64) * 60.0;
-                    let del_count = deleted_files.load(Ordering::Relaxed);
-                    let _ = bytes_freed.load(Ordering::Relaxed);
-                    let _ = write_progress(progress_path, "removing_cache", "signalr.epicRemove.cache.file.progress", json!({ "n": del_count, "total": total_paths }), overall_percent, del_count, total_paths);
-                }
-            }
-        }
-    });
-
-    let final_deleted = deleted_files.load(Ordering::Relaxed);
-    let final_bytes = bytes_freed.load(Ordering::Relaxed);
-    let final_dirs = match parent_dirs.into_inner() {
-        Ok(dirs) => dirs,
-        Err(err) => {
-            eprintln!(
-                "  Warning: parent directory tracker was poisoned; continuing with recovered set"
-            );
-            err.into_inner()
-        }
-    };
-    let final_permission_errors = permission_errors.load(Ordering::Relaxed);
-
-    if final_permission_errors > 5 {
-        eprintln!("  ... and {} more permission errors", final_permission_errors - 5);
-    }
-    if final_permission_errors > 0 {
-        eprintln!("  Total permission errors: {}", final_permission_errors);
-    }
-
-    // After the parallel deletion phase: flush partial progress on cancel.
-    if cancel::is_cancelled() {
-        eprintln!("Cancellation requested — flushing partial progress and stopping.");
-        let _ = write_progress(
-            progress_path,
-            "removing_cache",
-            "signalr.epicRemove.cache.file.progress",
-            json!({ "n": final_deleted, "total": total_paths }),
-            10.0 + (paths_checked.load(Ordering::Relaxed) as f64 / total_paths.max(1) as f64) * 60.0,
-            final_deleted,
-            total_paths,
-        );
-        return Ok((final_deleted, final_bytes, final_dirs, final_permission_errors));
-    }
-
-    Ok((final_deleted, final_bytes, final_dirs, final_permission_errors))
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     cancel::install();
@@ -355,10 +189,10 @@ async fn main() -> Result<()> {
 
     let pool = db::create_pool().await?;
 
-    write_progress(&progress_path, "starting", "signalr.epicRemove.starting", json!({ "gameName": game_name }), 0.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, "starting", "signalr.epicRemove.starting", json!({ "gameName": game_name }), 0.0, 0, 0)?;
 
     // Query database for URLs
-    write_progress(&progress_path, "querying_database", "signalr.epicRemove.db.querying", json!({}), 5.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, "querying_database", "signalr.epicRemove.db.querying", json!({}), 5.0, 0, 0)?;
     let url_data = get_epic_game_urls_from_db(&pool, game_name).await?;
 
     if url_data.is_empty() {
@@ -375,7 +209,7 @@ async fn main() -> Result<()> {
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
 
-        write_progress(&progress_path, "completed", "signalr.epicRemove.noUrls", json!({}), 100.0, 0, 0)?;
+        removal_core::write_progress(&progress_path, "completed", "signalr.epicRemove.noUrls", json!({}), 100.0, 0, 0)?;
         return Ok(());
     }
 
@@ -383,67 +217,69 @@ async fn main() -> Result<()> {
 
     // Step 1: Remove cache files
     let url_count = url_data.len();
-    write_progress(&progress_path, "removing_cache", "signalr.epicRemove.cache.removing", json!({ "count": url_count }), 10.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, "removing_cache", "signalr.epicRemove.cache.removing", json!({ "count": url_count }), 10.0, 0, 0)?;
     eprintln!("\nRemoving cache files...");
-    let (deleted_files, bytes_freed, parent_dirs, cache_permission_errors) =
-        remove_cache_files_for_epic_game(&cache_dir, &url_data, &progress_path)?;
+    let outcome = removal_core::remove_cache_files(
+        &cache_dir,
+        &url_data,
+        &progress_path,
+        &EPIC_STAGE_KEYS,
+        ProgressCadence::OnPercentAdvance,
+    )?;
 
     // If cancellation arrived during cache removal, do directory cleanup and exit 0.
     if cancel::is_cancelled() {
         eprintln!("Cancellation confirmed — cleaning up partial directories and exiting.");
-        cache_utils::cleanup_empty_directories(&cache_dir, parent_dirs);
+        cache_utils::cleanup_empty_directories(&cache_dir, outcome.parent_dirs);
         return Ok(());
     }
 
     // Step 2: Clean up empty directories
-    write_progress(&progress_path, "cleaning_directories", "signalr.epicRemove.dirs.cleaning", json!({}), 70.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, "cleaning_directories", "signalr.epicRemove.dirs.cleaning", json!({}), 70.0, 0, 0)?;
     eprintln!("\nCleaning up empty directories...");
-    let empty_dirs_removed = cache_utils::cleanup_empty_directories(&cache_dir, parent_dirs);
+    let empty_dirs_removed = cache_utils::cleanup_empty_directories(&cache_dir, outcome.parent_dirs);
 
     // Step 3: Remove log entries from access log text files
-    write_progress(&progress_path, "removing_logs", "signalr.epicRemove.logs.removing", json!({}), 80.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, "removing_logs", "signalr.epicRemove.logs.removing", json!({}), 80.0, 0, 0)?;
     eprintln!("\nRemoving log entries...");
     let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
-    let (log_entries_removed, log_permission_errors) = remove_log_entries_for_urls(&log_dir, &urls_to_remove)?;
+    let (log_entries_removed, log_permission_errors) =
+        removal_core::purge_log_entries(&log_dir, &urls_to_remove, &LogScope::Urls)?;
 
     // Step 4: Check for permission errors before touching database
-    let total_permission_errors = cache_permission_errors + log_permission_errors;
+    let total_permission_errors = outcome.permission_errors + log_permission_errors;
     if total_permission_errors > 0 {
-        let puid = std::env::var("PUID").unwrap_or_else(|_| "1000".to_string());
-        let pgid = std::env::var("PGID").unwrap_or_else(|_| "1000".to_string());
-        let error_msg = format!(
-            "ABORTED: Cannot delete database records because {} file(s) could not be modified due to permission errors. \
-            This is likely caused by incorrect PUID/PGID settings. The lancache container is configured to run as UID/GID {}:{}. \
-            Please check your docker-compose.yml and ensure PUID and PGID match the cache file ownership. \
-            Cache permission errors: {}, Log permission errors: {}",
-            total_permission_errors, puid, pgid, cache_permission_errors, log_permission_errors
+        let error_msg = removal_core::permission_error_message(
+            total_permission_errors,
+            outcome.permission_errors,
+            log_permission_errors,
         );
         eprintln!("\n{}", error_msg);
 
         let report = RemovalReport {
             game_name: game_name.to_string(),
-            cache_files_deleted: deleted_files,
-            total_bytes_freed: bytes_freed,
+            cache_files_deleted: outcome.deleted_files,
+            total_bytes_freed: outcome.bytes_freed,
             empty_dirs_removed,
             log_entries_removed,
         };
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
 
-        write_progress(&progress_path, "failed", "signalr.epicRemove.error.fatal", json!({ "errorDetail": error_msg }), 90.0, 0, 0)?;
+        removal_core::write_progress(&progress_path, "failed", "signalr.epicRemove.error.fatal", json!({ "errorDetail": error_msg }), 90.0, 0, 0)?;
         anyhow::bail!("{}", error_msg);
     }
 
     // Step 5: Delete database records
-    write_progress(&progress_path, "removing_database", "signalr.epicRemove.db.deleting", json!({}), 90.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, "removing_database", "signalr.epicRemove.db.deleting", json!({}), 90.0, 0, 0)?;
     eprintln!("\nRemoving database records...");
     let (_log_records, _download_records) = delete_epic_game_from_database(&pool, game_name).await?;
 
     // Write final report
     let report = RemovalReport {
         game_name: game_name.clone(),
-        cache_files_deleted: deleted_files,
-        total_bytes_freed: bytes_freed,
+        cache_files_deleted: outcome.deleted_files,
+        total_bytes_freed: outcome.bytes_freed,
         empty_dirs_removed,
         log_entries_removed,
     };
@@ -451,7 +287,7 @@ async fn main() -> Result<()> {
     let json = serde_json::to_string_pretty(&report)?;
     fs::write(&output_json, json)?;
 
-    write_progress(&progress_path, "completed", "signalr.epicRemove.complete", json!({ "files": report.cache_files_deleted, "gb": report.total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": report.log_entries_removed, "gameName": game_name }), 100.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, "completed", "signalr.epicRemove.complete", json!({ "files": report.cache_files_deleted, "gb": report.total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": report.log_entries_removed, "gameName": game_name }), 100.0, 0, 0)?;
 
     eprintln!("\n=== Removal Summary ===");
     eprintln!("Cache files deleted: {}", report.cache_files_deleted);

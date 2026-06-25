@@ -68,6 +68,10 @@
     background-color: var(--theme-riot-subtle);
   }
 
+  .prefill-loading-icon--xbox {
+    background-color: var(--theme-xbox-subtle);
+  }
+
   .prefill-loading-spinner--steam {
     color: var(--theme-steam);
   }
@@ -82,6 +86,10 @@
 
   .prefill-loading-spinner--riot {
     color: var(--theme-riot);
+  }
+
+  .prefill-loading-spinner--xbox {
+    color: var(--theme-xbox);
   }
 
   /* ===== COMMAND CENTER STYLES ===== */

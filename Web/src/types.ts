@@ -495,6 +495,23 @@ export interface EpicMappingStats {
   cdnPatterns: number;
 }
 
+/**
+ * Xbox / Microsoft Store game mapping. Keyed by Microsoft Store ProductId + resolved title;
+ * unlike Epic there is no per-mapping discovery `source` (resolution is the Rust ingest pass).
+ */
+export interface XboxGameMappingDto {
+  productId: string;
+  title: string;
+  discoveredAtUtc: string;
+  lastSeenAtUtc: string;
+  imageUrl?: string;
+}
+
+export interface XboxMappingStats {
+  totalGames: number;
+  lastUpdatedUtc: string | null;
+}
+
 export interface EpicDaemonStatusDto {
   dockerAvailable: boolean;
   activeSessions: number;

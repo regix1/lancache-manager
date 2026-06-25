@@ -1,4 +1,4 @@
-// Shared log-purge helper used by `cache_game_remove`, `cache_purge_log_entries`
+// Shared log-purge helper used by `cache_steam_remove`, `cache_purge_log_entries`
 // and `cache_corruption`.
 //
 // This module contains `remove_log_entries_for_game`, which walks all nginx
@@ -6,7 +6,7 @@
 // file to exclude lines matching the given URL set or depot-ID set, and
 // atomically replaces the originals.
 //
-// It was extracted from `cache_game_remove.rs` so that both the single-game
+// It was extracted from `cache_steam_remove.rs` so that both the single-game
 // remover and the bulk evicted purge binary can share the exact same logic
 // without duplication.
 //

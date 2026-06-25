@@ -63,6 +63,10 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
             || (session.RiotPrefillExpiresAtUtc != null && session.RiotPrefillExpiresAtUtc > DateTime.UtcNow))
             claims.Add(new Claim("RiotPrefillActive", "true"));
 
+        if (session.SessionType == SessionType.Admin
+            || (session.XboxPrefillExpiresAtUtc != null && session.XboxPrefillExpiresAtUtc > DateTime.UtcNow))
+            claims.Add(new Claim("XboxPrefillActive", "true"));
+
         var identity = new ClaimsIdentity(claims, SchemeName);
         var principal = new ClaimsPrincipal(identity);
         var ticket = new AuthenticationTicket(principal, SchemeName);

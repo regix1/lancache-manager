@@ -8,5 +8,6 @@ public enum PrefillPlatform
     Steam,
     Epic,
     BattleNet,
-    Riot
+    Riot,
+    Xbox
 }

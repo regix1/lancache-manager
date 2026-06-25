@@ -27,6 +27,7 @@ import { Modal } from '@components/ui/Modal';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
+import { XboxIcon } from '@components/ui/XboxIcon';
 import { Alert } from '@components/ui/Alert';
 import { HelpPopover, HelpSection, HelpDefinition } from '@components/ui/HelpPopover';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -48,7 +49,10 @@ import { getErrorMessage } from '@utils/error';
 import { useAuth } from '@contexts/useAuth';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import type { EpicGuestPrefillConfigChangedEvent } from '@contexts/SignalRContext/types';
+import type {
+  EpicGuestPrefillConfigChangedEvent,
+  XboxGuestPrefillConfigChangedEvent
+} from '@contexts/SignalRContext/types';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import { useDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { useActivityTracker } from '@hooks/useActivityTracker';
@@ -205,6 +209,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const [pendingBattlenetPrefillChange, setPendingBattlenetPrefillChange] = useState<
     boolean | null
   >(null);
+  const [pendingXboxPrefillChange, setPendingXboxPrefillChange] = useState<boolean | null>(null);
   const [loadingPreferences, setLoadingPreferences] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
 
@@ -362,6 +367,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     setPendingSteamPrefillChange(null);
     setPendingEpicPrefillChange(null);
     setPendingBattlenetPrefillChange(null);
+    setPendingXboxPrefillChange(null);
     setLoadingPreferences(true);
     try {
       const prefs = await ApiService.getSessionPreferences<UserPreferences>(session.id);
@@ -430,6 +436,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         if (pendingBattlenetPrefillChange !== null) {
           prefillToggles.push({ service: 'battlenet', enabled: pendingBattlenetPrefillChange });
         }
+        if (pendingXboxPrefillChange !== null) {
+          prefillToggles.push({ service: 'xbox', enabled: pendingXboxPrefillChange });
+        }
         await Promise.all(
           prefillToggles.map(({ service, enabled }: { service: string; enabled: boolean }) =>
             ApiService.toggleGuestPrefillService(editingSession.id, service, enabled)
@@ -442,6 +451,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       setPendingSteamPrefillChange(null);
       setPendingEpicPrefillChange(null);
       setPendingBattlenetPrefillChange(null);
+      setPendingXboxPrefillChange(null);
       loadSessions(false);
     } catch (err: unknown) {
       showToast('error', getErrorMessage(err) || t('activeSessions.errors.savePreferences'));
@@ -540,6 +550,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               battlenetPrefillEnabled: data.enabled,
               battlenetPrefillExpiresAt: data.prefillExpiresAt || null
             };
+          } else if (data.service === 'xbox') {
+            return {
+              ...s,
+              xboxPrefillEnabled: data.enabled,
+              xboxPrefillExpiresAt: data.prefillExpiresAt || null
+            };
           } else {
             return {
               ...s,
@@ -581,6 +597,14 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const handleBattlenetGuestPrefillConfigChanged = useCallback(() => {
     loadSessions(false);
   }, [loadSessions]);
+
+  // Xbox is login-required (mirrors Epic, has a thread limit); refresh sessions on config change.
+  const handleXboxGuestPrefillConfigChanged = useCallback(
+    (_data: XboxGuestPrefillConfigChangedEvent) => {
+      loadSessions(false);
+    },
+    [loadSessions]
+  );
 
   const handleGuestRefreshRateUpdated = useCallback(() => {
     loadSessions(false);
@@ -720,6 +744,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     on('GuestPrefillConfigChanged', handleGuestPrefillConfigChanged);
     on('EpicGuestPrefillConfigChanged', handleEpicGuestPrefillConfigChanged);
     on('BattleNetGuestPrefillConfigChanged', handleBattlenetGuestPrefillConfigChanged);
+    on('XboxGuestPrefillConfigChanged', handleXboxGuestPrefillConfigChanged);
     on('GuestRefreshRateUpdated', handleGuestRefreshRateUpdated);
 
     return () => {
@@ -734,6 +759,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       off('GuestPrefillConfigChanged', handleGuestPrefillConfigChanged);
       off('EpicGuestPrefillConfigChanged', handleEpicGuestPrefillConfigChanged);
       off('BattleNetGuestPrefillConfigChanged', handleBattlenetGuestPrefillConfigChanged);
+      off('XboxGuestPrefillConfigChanged', handleXboxGuestPrefillConfigChanged);
       off('GuestRefreshRateUpdated', handleGuestRefreshRateUpdated);
     };
   }, [
@@ -751,6 +777,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     handleGuestPrefillConfigChanged,
     handleEpicGuestPrefillConfigChanged,
     handleBattlenetGuestPrefillConfigChanged,
+    handleXboxGuestPrefillConfigChanged,
     handleGuestRefreshRateUpdated
   ]);
 
@@ -1094,6 +1121,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         <BlizzardIcon size={10} />
                         Battle.net
                       </span>
+                      <span
+                        className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.xboxPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                      >
+                        <XboxIcon size={10} />
+                        Xbox
+                      </span>
                     </div>
                   )}
                 </div>
@@ -1358,6 +1391,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   >
                     <BlizzardIcon size={10} />
                     Battle.net
+                  </span>
+                  <span
+                    className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.xboxPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                  >
+                    <XboxIcon size={10} />
+                    Xbox
                   </span>
                 </div>
               )}
@@ -2045,6 +2084,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             setPendingSteamPrefillChange(null);
             setPendingEpicPrefillChange(null);
             setPendingBattlenetPrefillChange(null);
+            setPendingXboxPrefillChange(null);
           }
         }}
         title={
@@ -2376,6 +2416,47 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         </div>
                       );
                     })()}
+
+                    {/* Xbox Prefill Row (login-required - mirrors Epic) */}
+                    {(() => {
+                      const current = editingSession.xboxPrefillEnabled;
+                      const effective =
+                        pendingXboxPrefillChange !== null ? pendingXboxPrefillChange : current;
+                      const hasChange =
+                        pendingXboxPrefillChange !== null && pendingXboxPrefillChange !== current;
+                      return (
+                        <div className="prefill-service-row">
+                          <div className="prefill-service-row-label">
+                            <XboxIcon size={16} className="prefill-service-row-icon" />
+                            <span className="text-sm text-themed-secondary">Xbox</span>
+                            {hasChange && (
+                              <span className="text-xs text-themed-accent italic">
+                                ({t('common.unsaved')})
+                              </span>
+                            )}
+                          </div>
+                          <div className="prefill-service-row-controls">
+                            <span
+                              className={`px-2 py-0.5 text-xs rounded-full font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
+                            >
+                              {effective
+                                ? t('activeSessions.prefill.status.enabled')
+                                : t('activeSessions.prefill.status.disabled')}
+                            </span>
+                            <Button
+                              variant="default"
+                              color={effective ? 'orange' : 'green'}
+                              size="sm"
+                              onClick={() => setPendingXboxPrefillChange(!effective)}
+                            >
+                              {effective
+                                ? t('activeSessions.prefill.actions.revoke')
+                                : t('activeSessions.prefill.actions.grant')}
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 
@@ -2694,6 +2775,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 setPendingSteamPrefillChange(null);
                 setPendingEpicPrefillChange(null);
                 setPendingBattlenetPrefillChange(null);
+                setPendingXboxPrefillChange(null);
               }}
               disabled={savingPreferences}
             >

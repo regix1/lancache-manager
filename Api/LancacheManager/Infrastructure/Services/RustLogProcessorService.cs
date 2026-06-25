@@ -811,6 +811,25 @@ public class RustLogProcessorService
                     _logger.LogWarning(ex, "Failed to resolve Blizzard downloads (non-fatal)");
                 }
 
+                // Resolve Xbox / Microsoft Store downloads the same way. The Rust ingest path is the
+                // primary, active-session-safe canonicalizer (wsus -> Service='xbox'); this post-pass
+                // is BACKFILL ONLY for already-ingested, still-wsus INACTIVE rows the daemon later
+                // contributed a CDN pattern for. The service re-tags inactive rows only (re-tagging an
+                // active row would split the in-flight download) and no-ops when nothing matches.
+                try
+                {
+                    var xboxMappingService = _serviceProvider.GetRequiredService<LancacheManager.Services.Xbox.XboxMappingService>();
+                    var resolvedXbox = await xboxMappingService.ResolveDownloadsAsync();
+                    if (resolvedXbox > 0)
+                    {
+                        _logger.LogInformation("Re-tagged {Count} wsus downloads to Xbox titles after log processing", resolvedXbox);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to resolve Xbox downloads (non-fatal)");
+                }
+
                 // Image fetching can run in background as it's not critical for the UI refresh
                 _ = Task.Run(async () =>
                 {

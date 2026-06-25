@@ -26,12 +26,20 @@ pub(crate) struct EpicDownloadRecord {
     pub(crate) bytes_served: i64,
 }
 
-/// Name-keyed game record for services without an AppId or EpicAppId (Blizzard, Riot).
+/// Name-keyed game record for services without an AppId or EpicAppId (Blizzard, Riot, Xbox).
 /// Identity = (Service, GameName); GameAppId/EpicAppId are both NULL on the Download.
 /// Mirrors `EpicDownloadRecord` but drops the `epic_app_id` column.
+///
+/// `service` (Downloads.Service) is the IDENTITY used for the (service, game_name) key and the
+/// removal gate. `cache_service` (LogEntries.Service) is the CACHE-HASH service used to derive
+/// cache file paths, because cache files are hashed `(service, url)`. For Blizzard/Riot the two
+/// are equal; for Xbox the identity is `xbox` while the cache-hash service stays `wsus` (Xbox
+/// content is delivered as lancache-tagged `wsus` traffic). Splitting them is load-bearing — using
+/// the identity for hashing would miss every Xbox cache file.
 #[derive(Debug)]
 pub(crate) struct NamedDownloadRecord {
     pub(crate) service: String,
+    pub(crate) cache_service: String,
     pub(crate) game_name: String,
     pub(crate) url: String,
     /// Max bytes observed for this URL (`MAX(LogEntries.BytesServed)`); sizes the probe chunk count.
@@ -349,14 +357,20 @@ pub(crate) async fn query_named_game_downloads(
 ) -> Result<Vec<NamedDownloadRecord>> {
     eprintln!("Querying LogEntries for named (Blizzard/Riot) game URLs...");
 
-    // GROUP BY (Service, Url, GameName) + MAX(BytesServed) so each named (service, url)
-    // carries the URL's largest observed size for probe-chunk sizing.
-    // Service is taken from d."Service" (the Downloads service) on ALL of SELECT/GROUP BY/ORDER BY
-    // so the detected service value matches the column the removal binary (cache_named_game_remove)
-    // gates on (LOWER(d."Service") = $service). d."Service" is NOT NULL and equals le."Service" at
-    // ingest, but Downloads.Service is the authoritative removal key.
+    // GROUP BY (d.Service, le.Service, Url, GameName) + MAX(BytesServed) so each named
+    // (identity-service, url) carries the URL's largest observed size for probe-chunk sizing.
+    //
+    // IDENTITY vs CACHE-HASH split (load-bearing for Xbox):
+    //   - d."Service" (aliased "Service") is the IDENTITY — it matches the column the removal
+    //     binary (cache_{service}_remove) gates on (LOWER(d."Service") = $service) and is what
+    //     the (service, game_name) detection key uses.
+    //   - le."Service" (aliased "CacheService") is the CACHE-HASH service — cache files are hashed
+    //     `(service, url)`, so file paths must be derived from the LogEntries service.
+    // For Blizzard/Riot the two are equal (d.Service == le.Service at ingest). For Xbox the identity
+    // is `xbox` while the cache-hash service stays `wsus` — selecting le."Service" separately is what
+    // lets Xbox detection find its cache files under the wsus hash.
     let rows = sqlx::query(
-        "SELECT d.\"Service\", le.\"Url\", d.\"GameName\", MAX(le.\"BytesServed\") AS \"MaxBytes\"
+        "SELECT d.\"Service\", le.\"Service\" AS \"CacheService\", le.\"Url\", d.\"GameName\", MAX(le.\"BytesServed\") AS \"MaxBytes\"
          FROM \"LogEntries\" le
          INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
          WHERE d.\"GameAppId\" IS NULL
@@ -364,7 +378,7 @@ pub(crate) async fn query_named_game_downloads(
            AND d.\"GameName\" IS NOT NULL
            AND d.\"IsEvicted\" = false
            AND le.\"Url\" IS NOT NULL
-         GROUP BY d.\"Service\", le.\"Url\", d.\"GameName\"
+         GROUP BY d.\"Service\", le.\"Service\", le.\"Url\", d.\"GameName\"
          ORDER BY d.\"Service\", d.\"GameName\"",
     )
     .fetch_all(pool)
@@ -374,6 +388,7 @@ pub(crate) async fn query_named_game_downloads(
         .iter()
         .map(|row| NamedDownloadRecord {
             service: row.get::<String, _>("Service"),
+            cache_service: row.get::<String, _>("CacheService"),
             url: row.get::<String, _>("Url"),
             game_name: row.get::<String, _>("GameName"),
             bytes_served: row.get::<Option<i64>, _>("MaxBytes").unwrap_or(0),

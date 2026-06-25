@@ -201,6 +201,9 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             case "riot":
                 await _notifications.SendToRiotPrefillClientRawAsync(connectionId, eventName, data);
                 break;
+            case "xbox":
+                await _notifications.SendToXboxPrefillClientRawAsync(connectionId, eventName, data);
+                break;
             default:
                 await _notifications.SendToPrefillClientRawAsync(connectionId, eventName, data);
                 break;
@@ -223,6 +226,9 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 break;
             case "riot":
                 await _notifications.NotifyRiotHubAsync(eventName, data);
+                break;
+            case "xbox":
+                await _notifications.NotifyXboxHubAsync(eventName, data);
                 break;
             default:
                 await _notifications.NotifySteamHubAsync(eventName, data);
@@ -381,9 +387,12 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                             cancellationToken);
                     }
 
+                    // RemoveVolumes: a login-required daemon (Xbox/Epic) stores its anonymous token
+                    // in an anonymous container volume; without RemoveVolumes those volumes linger
+                    // after teardown and accumulate. Force kills it if still running.
                     await _dockerClient.Containers.RemoveContainerAsync(
                         container.ID,
-                        new ContainerRemoveParameters { Force = true },
+                        new ContainerRemoveParameters { Force = true, RemoveVolumes = true },
                         cancellationToken);
 
                     _logger.LogInformation("Cleaned up orphaned container: {Name} ({Id})",
@@ -1437,14 +1446,35 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                     _logger.LogInformation("Stopped container {ContainerId} for session {SessionId}",
                         session.ContainerId, sessionId);
                 }
+
+                // Remove the (now stopped/killed) container AND its anonymous volume. Containers are
+                // created with AutoRemove=false, so a normal teardown that only stops/kills would
+                // leave the container plus its anonymous token volume lingering until the next
+                // orphan sweep. A login-required daemon (Xbox/Epic) stores its anonymous refresh
+                // token in that volume; RemoveVolumes=true ensures it does not survive the session
+                // (brief security requirement). Force=true is a no-op once already stopped/killed.
+                try
+                {
+                    await _dockerClient.Containers.RemoveContainerAsync(
+                        session.ContainerId,
+                        new ContainerRemoveParameters { Force = true, RemoveVolumes = true });
+
+                    _logger.LogInformation("Removed container {ContainerId} (with volumes) for session {SessionId}",
+                        session.ContainerId, sessionId);
+                }
+                catch (DockerApiException removeEx) when (removeEx.Message.Contains("removal") && removeEx.Message.Contains("already in progress"))
+                {
+                    // Another teardown/orphan sweep is already removing this container - that's fine.
+                    _logger.LogDebug("Container {ContainerId} removal already in progress", session.ContainerId);
+                }
             }
             catch (DockerContainerNotFoundException)
             {
-                // Container already removed (AutoRemove)
+                // Container already removed (AutoRemove or a concurrent sweep)
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error stopping container {ContainerId}", session.ContainerId);
+                _logger.LogWarning(ex, "Error stopping/removing container {ContainerId}", session.ContainerId);
             }
         }
 

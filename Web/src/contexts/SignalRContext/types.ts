@@ -177,6 +177,18 @@ export const SIGNALR_EVENTS = [
   'RiotPrefillHistoryUpdated',
   'RiotSessionEnded',
 
+  // Xbox Prefill Daemon Events
+  'XboxDaemonSessionCreated',
+  'XboxDaemonSessionUpdated',
+  'XboxDaemonSessionTerminated',
+  'XboxAuthStateChanged',
+  'XboxCredentialChallenge',
+  'XboxStatusChanged',
+  'XboxPrefillStateChanged',
+  'XboxPrefillProgress',
+  'XboxPrefillHistoryUpdated',
+  'XboxSessionEnded',
+
   // Epic Guest Prefill Config
   'EpicGuestPrefillConfigChanged',
 
@@ -186,12 +198,19 @@ export const SIGNALR_EVENTS = [
   // Riot Guest Prefill Config
   'RiotGuestPrefillConfigChanged',
 
+  // Xbox Guest Prefill Config
+  'XboxGuestPrefillConfigChanged',
+
   // Epic Game Mappings
   'EpicMappingProgress',
   'EpicGameMappingsUpdated',
 
   // Blizzard / Battle.net Game Mappings
   'BlizzardGameMappingsUpdated',
+
+  // Xbox Game Mappings
+  'XboxMappingProgress',
+  'XboxGameMappingsUpdated',
 
   // Eviction Scan
   'EvictionScanStarted',
@@ -833,6 +852,16 @@ export interface BattleNetGuestPrefillConfigChangedEvent {
   durationHours: number;
 }
 
+/**
+ * Xbox guest prefill config changed (login-required service - mirrors Epic, has thread limit).
+ * Handled by GuestConfiguration.tsx and ActiveSessions.tsx for local state updates.
+ */
+export interface XboxGuestPrefillConfigChangedEvent {
+  enabledByDefault: boolean;
+  durationHours: number;
+  xboxMaxThreadCount: number;
+}
+
 // ============================================================================
 // Epic Game Mapping Events
 // ============================================================================
@@ -850,6 +879,29 @@ export interface EpicMappingProgressEvent {
 }
 
 export interface EpicGameMappingsUpdatedEvent {
+  totalGames: number;
+  newGames: number;
+  updatedGames: number;
+  lastUpdatedUtc: string;
+}
+
+// ============================================================================
+// Xbox Game Mapping Events
+// ============================================================================
+
+export interface XboxMappingProgressEvent {
+  operationId: string;
+  status: OperationStatus;
+  percentComplete: number;
+  gamesDiscovered: number;
+  stageKey?: string;
+  context?: Record<string, string | number | boolean>;
+  /** @deprecated use stageKey instead */
+  message: string;
+  cancelled?: boolean;
+}
+
+export interface XboxGameMappingsUpdatedEvent {
   totalGames: number;
   newGames: number;
   updatedGames: number;

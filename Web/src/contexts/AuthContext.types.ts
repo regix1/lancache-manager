@@ -21,6 +21,7 @@ interface AuthContextType {
   epicPrefillEnabled: boolean;
   battlenetPrefillEnabled: boolean;
   riotPrefillEnabled: boolean;
+  xboxPrefillEnabled: boolean;
   isBanned: boolean;
 }
 

@@ -133,6 +133,8 @@ const resolveServiceId = (platform: string): GameServiceId => {
     case 'riot':
     case 'riotgames':
       return 'riot';
+    case 'xbox':
+      return 'xbox';
     case 'steam':
     default:
       return 'steam';
@@ -1179,7 +1181,8 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                     value: 'BattleNet',
                     label: t('management.prefillSessions.platformFilters.battlenet')
                   },
-                  { value: 'Riot', label: t('management.prefillSessions.platformFilters.riot') }
+                  { value: 'Riot', label: t('management.prefillSessions.platformFilters.riot') },
+                  { value: 'Xbox', label: t('management.prefillSessions.platformFilters.xbox') }
                 ] as DropdownOption[]
               }
               value={platformFilter}

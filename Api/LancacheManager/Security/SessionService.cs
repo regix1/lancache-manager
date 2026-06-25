@@ -688,6 +688,30 @@ public class SessionService
         }
     }
 
+    public async Task GrantXboxPrefillAccessAsync(Guid sessionId, int durationHours)
+    {
+        using var context = _dbContextFactory.CreateDbContext();
+        var session = await context.UserSessions.FindAsync(sessionId);
+        if (session != null)
+        {
+            session.XboxPrefillExpiresAtUtc = DateTime.UtcNow.AddHours(durationHours);
+            await context.SaveChangesAsync();
+            _logger.LogInformation("Granted Xbox prefill access to session {SessionId}, expires at {ExpiresAt}", sessionId, session.XboxPrefillExpiresAtUtc);
+        }
+    }
+
+    public async Task RevokeXboxPrefillAccessAsync(Guid sessionId)
+    {
+        using var context = _dbContextFactory.CreateDbContext();
+        var session = await context.UserSessions.FindAsync(sessionId);
+        if (session != null)
+        {
+            session.XboxPrefillExpiresAtUtc = null;
+            await context.SaveChangesAsync();
+            _logger.LogInformation("Revoked Xbox prefill access for session {SessionId}", sessionId);
+        }
+    }
+
     private static (string RawToken, string TokenHash) GenerateSessionToken()
     {
         var tokenBytes = new byte[64];

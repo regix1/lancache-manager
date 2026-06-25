@@ -116,7 +116,8 @@ class MockDataService {
         origin: 180000000000,
         blizzard: 150000000000,
         wsus: 100000000000,
-        riot: 50000000000
+        riot: 50000000000,
+        xbox: 80000000000
       } as Record<string, number>
     };
 

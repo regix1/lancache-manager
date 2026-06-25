@@ -53,9 +53,12 @@ public abstract partial class PrefillDaemonServiceBase
 
             session.AuthState = newAuthState;
 
-            // Capture Epic display name from daemon status updates
+            // Capture the login-required service display name (Epic account name / Xbox gamertag)
+            // from daemon status updates. This populates session.Username AND persists it via
+            // SetUsernameAsync so it drives both the admin display AND username-banning. Anonymous
+            // services (Battle.net/Riot) never report a DisplayName and ban via the UserId GUID path.
             if (newAuthState == DaemonAuthState.Authenticated
-                && session.Platform == "Epic"
+                && (session.Platform == "Epic" || session.Platform == "Xbox")
                 && !string.IsNullOrEmpty(status.DisplayName))
             {
                 session.Username = status.DisplayName;

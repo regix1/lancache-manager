@@ -101,9 +101,13 @@ public class ServiceEvictionGateTests
 
     /// <summary>
     /// Criterion 1 + 3: a service ABSENT from the scan results but with at least one
-    /// non-evicted Download must NOT be flipped to IsEvicted, yet its snapshot columns
-    /// (CacheFilesFound / TotalSizeBytes) must still be refreshed to 0 (honest snapshot).
-    /// This is the wsus false-positive case.
+    /// non-evicted Download must NOT be flipped to IsEvicted. This is the wsus
+    /// false-positive case. In this scan false-negative branch the last-known snapshot
+    /// columns (CacheFilesFound / TotalSizeBytes) are deliberately PRESERVED, not zeroed:
+    /// zeroing them would drop the row below the frontend's active-list filter
+    /// (getActiveServices requires cache_files_found > 0) and make the service silently
+    /// vanish until the next full rescan re-detects it (see SaveServicesAsync's
+    /// "scan false-negative" branch). The Downloads-keyed self-heal reconciles later.
     /// </summary>
     [Fact]
     public async Task SaveServices_AbsentServiceWithLiveDownload_IsNotEvicted_ButSnapshotRefreshedAsync()
@@ -134,8 +138,10 @@ public class ServiceEvictionGateTests
         await using var assert = new AppDbContext(options);
         var row = await assert.CachedServiceDetections.SingleAsync(s => s.ServiceName == "wsus");
         Assert.False(row.IsEvicted); // NOT blind-evicted - has a live Download
-        Assert.Equal(0, row.CacheFilesFound); // snapshot still refreshed
-        Assert.Equal(0UL, row.TotalSizeBytes);
+        // Scan false-negative branch PRESERVES the last-known counts (does not zero them) so the
+        // service stays on the active list until a full rescan re-detects it.
+        Assert.Equal(42, row.CacheFilesFound);
+        Assert.Equal(1000UL, row.TotalSizeBytes);
     }
 
     /// <summary>

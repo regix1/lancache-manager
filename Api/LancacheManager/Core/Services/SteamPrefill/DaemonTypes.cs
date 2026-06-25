@@ -109,6 +109,21 @@ public class CredentialChallenge
     [JsonPropertyName("authUrl")]
     public string? AuthUrl { get; set; }
 
+    /// <summary>
+    /// Device-code shown to the user for an out-of-band login (Xbox / Microsoft OAuth device-code flow).
+    /// The user enters this code at <see cref="VerificationUri"/> in their own browser, so no
+    /// password ever enters the daemon container. Null for credential types that do not use device-code.
+    /// </summary>
+    [JsonPropertyName("userCode")]
+    public string? UserCode { get; set; }
+
+    /// <summary>
+    /// Verification URL the user opens to enter the <see cref="UserCode"/> (device-code flow).
+    /// Distinct from <see cref="AuthUrl"/> (Epic's authorization-URL paste flow). Null when unused.
+    /// </summary>
+    [JsonPropertyName("verificationUri")]
+    public string? VerificationUri { get; set; }
+
     [JsonPropertyName("createdAt")]
     public DateTime CreatedAt { get; set; }
 

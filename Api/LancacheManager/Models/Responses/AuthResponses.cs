@@ -23,6 +23,8 @@ public class AuthStatusResponse
     public DateTime? BattlenetPrefillExpiresAt { get; set; }
     public bool RiotPrefillEnabled { get; set; }
     public DateTime? RiotPrefillExpiresAt { get; set; }
+    public bool XboxPrefillEnabled { get; set; }
+    public DateTime? XboxPrefillExpiresAt { get; set; }
     public string? Token { get; set; }
 }
 
@@ -62,6 +64,8 @@ public class SessionDto
     public DateTime? BattlenetPrefillExpiresAt { get; set; }
     public bool RiotPrefillEnabled { get; set; }
     public DateTime? RiotPrefillExpiresAt { get; set; }
+    public bool XboxPrefillEnabled { get; set; }
+    public DateTime? XboxPrefillExpiresAt { get; set; }
 
     // Client-reported + GeoIP-enriched metadata. All optional.
     public string? PublicIpAddress { get; set; }

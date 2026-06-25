@@ -846,6 +846,14 @@
   color: var(--theme-riot);
 }
 
+/* Xbox platform badge (login-required prefill).
+   ServiceName casing may surface as "xbox" or "Xbox" — cover the
+   lowercased form so the badge tints regardless of backend display string. */
+.prefill-platform-xbox {
+  background-color: var(--theme-xbox-subtle);
+  color: var(--theme-xbox);
+}
+
 /* Platform-aware username icon colors */
 .prefill-session-username.platform-steam svg {
   color: var(--theme-steam);
@@ -863,6 +871,10 @@
 .prefill-session-username.platform-riot svg,
 .prefill-session-username.platform-riotgames svg {
   color: var(--theme-riot);
+}
+
+.prefill-session-username.platform-xbox svg {
+  color: var(--theme-xbox);
 }
 
 /* Accordion spacing */

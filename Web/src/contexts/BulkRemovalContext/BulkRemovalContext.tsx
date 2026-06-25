@@ -178,11 +178,13 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             const isNamed =
               !isEpic && gameAppId === 0 && !!game.service && game.service !== 'steam';
             const epicAppId = game.epic_app_id ?? undefined;
+            const namedService = isNamed ? game.service : undefined;
             let currentOperationId: string | null = null;
             const matchesGame = (payload?: {
               gameAppId?: number | null;
               epicAppId?: string | null;
               gameName?: string;
+              service?: string | null;
               operationId?: string;
             }): boolean => {
               if (!payload) {
@@ -201,10 +203,16 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
                 return payload.gameName === gameName;
               }
 
-              // Named games carry gameAppId=null and epicAppId=null in their event
-              // payload; gameName is the only distinguishing identity.
+              // Named games (Blizzard/Riot/Xbox) all carry gameAppId=null/0 and epicAppId=null
+              // in their event payload; their identity is (service, gameName). Matching on
+              // gameName alone lets a same-named game on a DIFFERENT named service (e.g. an Xbox
+              // title sharing a name with a Blizzard one) cross-complete, so when the payload
+              // carries a service it must also match.
               if (isNamed) {
-                return payload.gameName === gameName;
+                if (payload.gameName !== gameName) {
+                  return false;
+                }
+                return payload.service == null || payload.service === namedService;
               }
 
               return payload.gameAppId === gameAppId;
@@ -214,12 +222,14 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
                 gameAppId?: number | null;
                 epicAppId?: string | null;
                 gameName?: string;
+                service?: string | null;
                 operationId?: string;
               },
               {
                 gameAppId?: number | null;
                 epicAppId?: string | null;
                 gameName?: string;
+                service?: string | null;
                 operationId?: string;
               },
               { operationId?: string; percentComplete?: number }

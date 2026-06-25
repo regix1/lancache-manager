@@ -11,30 +11,34 @@ interface PrefillLoadingStateProps {
 // rules in the production build. Building them dynamically (e.g. `prefill-loading-spinner--${x}`)
 // hides the class strings from the scanner, which then purges the color/background rules and
 // the spinner renders with no accent color (white).
-const LOADING_ICON_CLASS: Record<'steam' | 'epic' | 'battlenet' | 'riot', string> = {
+const LOADING_ICON_CLASS: Record<'steam' | 'epic' | 'battlenet' | 'riot' | 'xbox', string> = {
   steam: 'prefill-loading-icon--steam',
   epic: 'prefill-loading-icon--epic',
   battlenet: 'prefill-loading-icon--battlenet',
-  riot: 'prefill-loading-icon--riot'
+  riot: 'prefill-loading-icon--riot',
+  xbox: 'prefill-loading-icon--xbox'
 };
 
-const LOADING_SPINNER_CLASS: Record<'steam' | 'epic' | 'battlenet' | 'riot', string> = {
+const LOADING_SPINNER_CLASS: Record<'steam' | 'epic' | 'battlenet' | 'riot' | 'xbox', string> = {
   steam: 'prefill-loading-spinner--steam',
   epic: 'prefill-loading-spinner--epic',
   battlenet: 'prefill-loading-spinner--battlenet',
-  riot: 'prefill-loading-spinner--riot'
+  riot: 'prefill-loading-spinner--riot',
+  xbox: 'prefill-loading-spinner--xbox'
 };
 
 export function PrefillLoadingState({ status, serviceId }: PrefillLoadingStateProps) {
   const { t } = useTranslation();
-  const accent: 'steam' | 'epic' | 'battlenet' | 'riot' =
+  const accent: 'steam' | 'epic' | 'battlenet' | 'riot' | 'xbox' =
     serviceId === 'epic'
       ? 'epic'
       : serviceId === 'battlenet'
         ? 'battlenet'
         : serviceId === 'riot'
           ? 'riot'
-          : 'steam';
+          : serviceId === 'xbox'
+            ? 'xbox'
+            : 'steam';
 
   const title =
     status === 'creating'

@@ -81,6 +81,16 @@ export const SPECIAL_NOTIFICATION_CONTRACTS: SpecialNotificationContract[] = [
     ]
   },
   {
+    key: 'xbox_game_mapping',
+    subscribe: (h) => [
+      { event: 'XboxMappingProgress', handler: h.handleXboxMappingProgress as EventHandler },
+      {
+        event: 'XboxGameMappingsUpdated',
+        handler: h.handleXboxGameMappingsUpdated as EventHandler
+      }
+    ]
+  },
+  {
     key: 'steam_session_error',
     subscribe: (h) => [
       { event: 'SteamSessionError', handler: h.handleSteamSessionError as EventHandler }

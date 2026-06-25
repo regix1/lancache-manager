@@ -9,6 +9,7 @@ import GrafanaEndpoints from '../grafana/GrafanaEndpoints';
 import EpicDaemonStatus from '../epic/EpicDaemonStatus';
 import BattleNetDaemonStatus from '../battlenet/BattleNetDaemonStatus';
 import RiotDaemonStatus from '../riot/RiotDaemonStatus';
+import XboxDaemonStatus from '../xbox/XboxDaemonStatus';
 
 interface IntegrationsSectionProps {
   authMode: AuthMode;
@@ -19,6 +20,7 @@ interface IntegrationsSectionProps {
   highlightSteamApi?: boolean;
   highlightEpic?: boolean;
   highlightBattleNet?: boolean;
+  highlightXbox?: boolean;
 }
 
 const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
@@ -29,7 +31,8 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
   onSuccess,
   highlightSteamApi,
   highlightEpic,
-  highlightBattleNet
+  highlightBattleNet,
+  highlightXbox
 }) => {
   const { t } = useTranslation();
 
@@ -100,6 +103,16 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
             {t('management.sections.integrations.riotIntegration', 'Riot Integration')}
           </h3>
           <RiotDaemonStatus onError={onError} />
+        </section>
+
+        {/* Xbox - login-required prefill daemon status (device-code login on the Prefill page) */}
+        <section>
+          <h3 className="integrations-group-label">
+            {t('management.sections.integrations.xboxIntegration', 'Xbox Integration')}
+          </h3>
+          <HighlightGlow enabled={highlightXbox}>
+            <XboxDaemonStatus onError={onError} />
+          </HighlightGlow>
         </section>
 
         {/* Monitoring - Grafana endpoints */}

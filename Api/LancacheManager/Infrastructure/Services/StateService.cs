@@ -115,6 +115,11 @@ public class StateService : IStateService
         public bool RiotGuestPrefillEnabledByDefault { get; set; } = false;
         public int RiotGuestPrefillDurationHours { get; set; } = 2;
 
+        // Xbox prefill settings (login-required service - mirrors Epic, has a thread limit)
+        public bool XboxGuestPrefillEnabledByDefault { get; set; } = false;
+        public int XboxGuestPrefillDurationHours { get; set; } = 2;
+        public int? XboxDefaultGuestMaxThreadCount { get; set; } = null;
+
         // PICS viability check caching
         public bool RequiresFullScan { get; set; } = false;
         public DateTime? LastViabilityCheck { get; set; }
@@ -915,6 +920,10 @@ public class StateService : IStateService
             // Riot prefill settings
             RiotGuestPrefillEnabledByDefault = persisted.RiotGuestPrefillEnabledByDefault,
             RiotGuestPrefillDurationHours = persisted.RiotGuestPrefillDurationHours,
+            // Xbox prefill settings
+            XboxGuestPrefillEnabledByDefault = persisted.XboxGuestPrefillEnabledByDefault,
+            XboxGuestPrefillDurationHours = persisted.XboxGuestPrefillDurationHours,
+            XboxDefaultGuestMaxThreadCount = persisted.XboxDefaultGuestMaxThreadCount,
             // PICS viability check caching
             RequiresFullScan = persisted.RequiresFullScan,
             LastViabilityCheck = persisted.LastViabilityCheck,
@@ -1001,6 +1010,10 @@ public class StateService : IStateService
             // Riot prefill settings
             RiotGuestPrefillEnabledByDefault = state.RiotGuestPrefillEnabledByDefault,
             RiotGuestPrefillDurationHours = state.RiotGuestPrefillDurationHours,
+            // Xbox prefill settings
+            XboxGuestPrefillEnabledByDefault = state.XboxGuestPrefillEnabledByDefault,
+            XboxGuestPrefillDurationHours = state.XboxGuestPrefillDurationHours,
+            XboxDefaultGuestMaxThreadCount = state.XboxDefaultGuestMaxThreadCount,
             // PICS viability check caching
             RequiresFullScan = state.RequiresFullScan,
             LastViabilityCheck = state.LastViabilityCheck,
@@ -1528,6 +1541,47 @@ public class StateService : IStateService
             hours = 2; // Default to 2 hours
         }
         UpdateState(state => state.RiotGuestPrefillDurationHours = hours);
+    }
+
+    // Xbox Guest Prefill Permission Methods (login-required - mirrors Epic, has a thread limit)
+    public bool GetXboxGuestPrefillEnabledByDefault()
+    {
+        return GetState().XboxGuestPrefillEnabledByDefault;
+    }
+
+    public void SetXboxGuestPrefillEnabledByDefault(bool enabled)
+    {
+        UpdateState(state => state.XboxGuestPrefillEnabledByDefault = enabled);
+    }
+
+    public int GetXboxGuestPrefillDurationHours()
+    {
+        return GetState().XboxGuestPrefillDurationHours;
+    }
+
+    public void SetXboxGuestPrefillDurationHours(int hours)
+    {
+        // Validate hours (1 or 2)
+        if (hours != 1 && hours != 2)
+        {
+            hours = 2; // Default to 2 hours
+        }
+        UpdateState(state => state.XboxGuestPrefillDurationHours = hours);
+    }
+
+    public int? GetXboxDefaultGuestMaxThreadCount()
+    {
+        return GetState().XboxDefaultGuestMaxThreadCount;
+    }
+
+    public void SetXboxDefaultGuestMaxThreadCount(int? value)
+    {
+        if (value.HasValue)
+        {
+            if (value.Value < 1) value = 1;
+            value = Math.Min(value.Value, 256);
+        }
+        UpdateState(state => state.XboxDefaultGuestMaxThreadCount = value);
     }
 
     public int? GetEpicDefaultGuestMaxThreadCount()

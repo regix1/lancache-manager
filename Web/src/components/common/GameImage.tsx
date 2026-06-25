@@ -11,7 +11,7 @@ interface GameImageProps {
   onError: (gameAppId: string) => void;
   sizes?: string;
   epicAppId?: string;
-  /** Canonical name-keyed service ("blizzard" | "riot") for games identified only by GameName. */
+  /** Canonical name-keyed service ("blizzard" | "riot" | "xbox") for games identified only by GameName. */
   nameKeyedService?: string;
   /** Normalized GameName slug, paired with nameKeyedService. */
   nameKeyedSlug?: string;

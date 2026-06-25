@@ -11,6 +11,10 @@ interface CredentialChallenge {
   serverPublicKey: string;
   email?: string;
   authUrl?: string;
+  /** Microsoft device-code (Xbox): short code the user types at the verification URL. */
+  userCode?: string;
+  /** Microsoft device-code (Xbox): URL the user opens to enter the userCode. */
+  verificationUri?: string;
   createdAt: string;
   expiresAt: string;
 }
@@ -70,6 +74,12 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   const [authorizationUrl, setAuthorizationUrl] = useState('');
   const [authorizationCode, setAuthorizationCode] = useState('');
 
+  // Xbox device-code state (Microsoft OAuth device flow):
+  // the user opens deviceVerificationUri and enters deviceUserCode in their own browser.
+  const [needsDeviceCode, setNeedsDeviceCode] = useState(false);
+  const [deviceUserCode, setDeviceUserCode] = useState('');
+  const [deviceVerificationUri, setDeviceVerificationUri] = useState('');
+
   // Listen for AuthStateChanged - this is the reliable way to know when login succeeds
   useEffect(() => {
     if (!hubConnection || !sessionId) return;
@@ -92,6 +102,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         isWaitingForDeviceConfirmationRef.current = false;
         isWaitingForAuthCodeProcessingRef.current = false;
         setWaitingForMobileConfirmation(false);
+        setNeedsDeviceCode(false);
         setLoading(false);
 
         // Note: PrefillPanel's handleAuthStateChanged handles the log entry,
@@ -111,6 +122,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         isWaitingForDeviceConfirmationRef.current = false;
         isWaitingForAuthCodeProcessingRef.current = false;
         setWaitingForMobileConfirmation(false);
+        setNeedsDeviceCode(false);
         setNeedsTwoFactor(false);
         setNeedsEmailCode(false);
         setLoading(false);
@@ -214,6 +226,18 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
             console.error('Failed to send device confirmation acknowledgement:', err);
           }
           break;
+        case 'device-code':
+          // Microsoft OAuth device flow (Xbox): surface the user code + verification URL and
+          // wait for AuthStateChanged once the user approves in their own browser.
+          setNeedsDeviceCode(true);
+          setDeviceUserCode(challenge.userCode ?? '');
+          setDeviceVerificationUri(challenge.verificationUri ?? challenge.authUrl ?? '');
+          setNeedsTwoFactor(false);
+          setNeedsEmailCode(false);
+          setNeedsAuthorizationCode(false);
+          setWaitingForMobileConfirmation(false);
+          isWaitingForDeviceConfirmationRef.current = true;
+          break;
       }
 
       setLoading(false);
@@ -280,6 +304,9 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     setLoading(false);
     setWaitingForMobileConfirmation(false);
     setNeedsAuthorizationCode(false);
+    setNeedsDeviceCode(false);
+    setDeviceUserCode('');
+    setDeviceVerificationUri('');
     isWaitingForDeviceConfirmationRef.current = false;
     isWaitingForAuthCodeProcessingRef.current = false;
     setPendingChallenge(null);
@@ -300,6 +327,9 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     setNeedsEmailCode(false);
     setNeedsAuthorizationCode(false);
     setWaitingForMobileConfirmation(false);
+    setNeedsDeviceCode(false);
+    setDeviceUserCode('');
+    setDeviceVerificationUri('');
     setUseManualCode(false);
     setLoading(false);
     setPendingChallenge(null);
@@ -554,6 +584,65 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       }
     }
 
+    // Xbox: Microsoft OAuth device flow - start login to get the device-code challenge.
+    // No password ever enters the container; the user approves in their own browser.
+    if (serviceId === 'xbox') {
+      setLoading(true);
+      hasStartedAuthRef.current = true;
+
+      try {
+        const challenge = await hubConnection.invoke<CredentialChallenge | null>(
+          'StartLoginAsync',
+          sessionId
+        );
+
+        if (challenge && challenge.credentialType === 'device-code') {
+          setPendingChallenge(challenge);
+          handleChallengeType(challenge);
+          setLoading(false);
+          return false; // Modal stays open while the user approves in their browser
+        }
+
+        if (!challenge) {
+          // Challenge may arrive via event shortly after StartLogin.
+          const eventChallenge = await hubConnection.invoke<CredentialChallenge | null>(
+            'WaitForChallengeAsync',
+            sessionId,
+            10
+          );
+          if (eventChallenge && eventChallenge.credentialType === 'device-code') {
+            setPendingChallenge(eventChallenge);
+            handleChallengeType(eventChallenge);
+            setLoading(false);
+            return false;
+          }
+
+          // No challenge at all - might already be authenticated.
+          resetAuthForm();
+          onSuccess?.();
+          setLoading(false);
+          return true;
+        }
+
+        // Unexpected challenge type - surface it via the generic handler.
+        setPendingChallenge(challenge);
+        handleChallengeType(challenge);
+        setLoading(false);
+        return false;
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to start Xbox login';
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: errorMessage,
+          details: { notificationType: 'error' }
+        });
+        onError?.(errorMessage);
+        setLoading(false);
+        return false;
+      }
+    }
+
     // Steam: Initial login - start the login process
     if (!username.trim() || !password.trim()) {
       addNotification({
@@ -718,6 +807,18 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         setNeedsAuthorizationCode(false);
         isWaitingForDeviceConfirmationRef.current = true;
         break;
+      case 'device-code':
+        // Microsoft OAuth device flow (Xbox): show the user code + verification URL and
+        // wait for AuthStateChanged once the user approves in their own browser.
+        setNeedsDeviceCode(true);
+        setDeviceUserCode(challenge.userCode ?? '');
+        setDeviceVerificationUri(challenge.verificationUri ?? challenge.authUrl ?? '');
+        setNeedsTwoFactor(false);
+        setNeedsEmailCode(false);
+        setNeedsAuthorizationCode(false);
+        setWaitingForMobileConfirmation(false);
+        isWaitingForDeviceConfirmationRef.current = true;
+        break;
     }
   }, []);
 
@@ -749,7 +850,10 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     emailCode,
     needsAuthorizationCode,
     authorizationUrl,
-    authorizationCode
+    authorizationCode,
+    needsDeviceCode,
+    deviceUserCode,
+    deviceVerificationUri
   };
 
   const actions: SteamAuthActions = {

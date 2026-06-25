@@ -218,12 +218,12 @@ namespace LancacheManager.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("LastDetectedUtc")
+                        .HasDatabaseName("IX_CachedGameDetection_LastDetectedUtc");
+
                     b.HasIndex("GameAppId", "EpicAppId")
                         .IsUnique()
                         .HasDatabaseName("IX_CachedGameDetection_GameAppId_EpicAppId");
-
-                    b.HasIndex("LastDetectedUtc")
-                        .HasDatabaseName("IX_CachedGameDetection_LastDetectedUtc");
 
                     b.ToTable("CachedGameDetections");
                 });
@@ -433,6 +433,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Property<DateTime>("StartTimeUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("XboxProductId")
+                        .HasColumnType("text");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Datasource")
@@ -453,6 +456,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.HasIndex("StartTimeUtc")
                         .IsDescending()
                         .HasDatabaseName("IX_Downloads_StartTime");
+
+                    b.HasIndex("XboxProductId")
+                        .HasDatabaseName("IX_Downloads_XboxProductId");
 
                     b.HasIndex("IsEvicted", "StartTimeUtc")
                         .HasDatabaseName("IX_Downloads_IsEvicted_StartTimeUtc");
@@ -1166,6 +1172,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("XboxPrefillExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ExpiresAtUtc")
@@ -1182,6 +1191,88 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .HasDatabaseName("IX_UserSessions_SessionType");
 
                     b.ToTable("UserSessions");
+                });
+
+            modelBuilder.Entity("LancacheManager.Models.XboxCdnPattern", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("CdnHost")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("DiscoveredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastSeenAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProductId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UrlFragment")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId")
+                        .HasDatabaseName("IX_XboxCdnPatterns_ProductId");
+
+                    b.HasIndex("UrlFragment")
+                        .IsUnique()
+                        .HasDatabaseName("IX_XboxCdnPatterns_UrlFragment");
+
+                    b.ToTable("XboxCdnPatterns");
+                });
+
+            modelBuilder.Entity("LancacheManager.Models.XboxGameMapping", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("DiscoveredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("LastSeenAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProductId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DiscoveredAtUtc")
+                        .HasDatabaseName("IX_XboxGameMappings_DiscoveredAtUtc");
+
+                    b.HasIndex("ProductId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_XboxGameMappings_ProductId");
+
+                    b.HasIndex("Title")
+                        .HasDatabaseName("IX_XboxGameMappings_Title");
+
+                    b.ToTable("XboxGameMappings");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.ClientGroupMember", b =>

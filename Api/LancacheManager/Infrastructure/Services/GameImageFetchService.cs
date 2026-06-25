@@ -124,7 +124,8 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             .Where(d => d.GameAppId == null
                 && !string.IsNullOrEmpty(d.GameName)
                 && (d.Service == "blizzard" || d.Service == "battle.net" || d.Service == "battlenet"
-                    || d.Service == "riot" || d.Service == "riotgames"))
+                    || d.Service == "riot" || d.Service == "riotgames"
+                    || d.Service == "xbox" || d.Service == "xboxlive" || d.Service == "microsoft"))
             .Select(d => new { d.Service, d.GameName })
             .Distinct()
             .ToListAsync(stoppingToken);
@@ -245,18 +246,53 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             db.ChangeTracker.Clear();
         }
 
-        // 3. NAME-KEYED (Blizzard/Riot): Downloads identified only by GameName (no Steam appId,
-        // no Epic catalog id). Source URLs come from the curated official-CDN banner map keyed on
-        // the exact GameName. Stored under (AppId = slug(GameName), Service = "blizzard"|"riot").
-        // Games that mapped to a Steam appId above are SKIPPED here - they render Steam's header.jpg
-        // (Steam-first); only unmapped name-keyed games fall back to the curated embedded banner.
+        // Xbox banners are NOT curated/embedded - they are fetched from the Microsoft Store
+        // DisplayCatalog at mapping time and stored on XboxGameMapping.ImageUrl. Pre-load that
+        // GameName-slug -> ImageUrl map so the name-keyed pass below can fetch + store an Xbox
+        // GameImage under (Service = "xbox", AppId = slug), the same way it does for Blizzard/Riot.
+        var xboxImageUrlBySlug = new Dictionary<string, string>(StringComparer.Ordinal);
+        var xboxGameNames = nameKeyedDownloads
+            .Where(t => NameKeyedBannerSource.NormalizeService(t.Service) == NameKeyedBannerSource.XboxService
+                        && !string.IsNullOrEmpty(t.GameName))
+            .Select(t => t.GameName!)
+            .Distinct()
+            .ToList();
+        if (xboxGameNames.Count > 0)
+        {
+            var xboxMappings = await db.XboxGameMappings
+                .AsNoTracking()
+                .Where(m => m.ImageUrl != null && m.ImageUrl != "" && xboxGameNames.Contains(m.Title))
+                .Select(m => new { m.Title, m.ImageUrl })
+                .ToListAsync(stoppingToken);
+
+            foreach (var m in xboxMappings)
+            {
+                var slug = NameKeyedBannerSource.Slug(m.Title);
+                if (!xboxImageUrlBySlug.ContainsKey(slug))
+                {
+                    xboxImageUrlBySlug[slug] = m.ImageUrl!;
+                }
+            }
+        }
+
+        // 3. NAME-KEYED (Blizzard/Riot/Xbox): Downloads identified only by GameName (no Steam appId,
+        // no Epic catalog id). Source URLs come from the curated official-CDN banner map keyed on the
+        // exact GameName (Blizzard/Riot) or the DisplayCatalog ImageUrl (Xbox). Stored under
+        // (AppId = slug(GameName), Service = "blizzard"|"riot"|"xbox"). Games that mapped to a Steam
+        // appId above are SKIPPED here - they render Steam's header.jpg (Steam-first); only unmapped
+        // name-keyed games fall back to the curated/DisplayCatalog banner.
         // Reuses nameKeyedDownloads resolved before the Steam pass (no second query).
         var nameKeyedJobs = nameKeyedDownloads
-            .Select(t => new
+            .Select(t =>
             {
-                Service = NameKeyedBannerSource.NormalizeService(t.Service),
-                Slug = NameKeyedBannerSource.Slug(t.GameName!),
-                Url = NameKeyedBannerSource.TryGetUrl(t.Service, t.GameName)
+                var service = NameKeyedBannerSource.NormalizeService(t.Service);
+                var slug = NameKeyedBannerSource.Slug(t.GameName!);
+                // Xbox draws its URL from the DisplayCatalog ImageUrl map; the others from the
+                // curated banner source.
+                var url = service == NameKeyedBannerSource.XboxService
+                    ? (xboxImageUrlBySlug.TryGetValue(slug, out var xboxUrl) ? xboxUrl : null)
+                    : NameKeyedBannerSource.TryGetUrl(t.Service, t.GameName);
+                return new { Service = service, Slug = slug, Url = url };
             })
             .Where(j => j.Service != null && j.Url != null
                 && !steamMappedNameKeyedSlugs.Contains((j.Service!, j.Slug)))
@@ -267,7 +303,8 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         var existingNameKeyedIds = await db.GameImages
             .AsNoTracking()
             .Where(g => g.Service == NameKeyedBannerSource.BlizzardService
-                || g.Service == NameKeyedBannerSource.RiotService)
+                || g.Service == NameKeyedBannerSource.RiotService
+                || g.Service == NameKeyedBannerSource.XboxService)
             .Select(g => new { g.Service, g.AppId })
             .ToListAsync(stoppingToken);
 

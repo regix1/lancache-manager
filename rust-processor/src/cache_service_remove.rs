@@ -83,7 +83,7 @@ fn write_progress(
 }
 
 /// Returns each unique URL for the service along with the max BytesServed observed for it,
-/// mirroring cache_game_remove's (url, total_bytes) shape so the cache probe can derive a
+/// mirroring cache_steam_remove's (url, total_bytes) shape so the cache probe can derive a
 /// real chunk count instead of always probing DEFAULT_MAX_CHUNKS candidates per URL.
 async fn get_service_urls_from_db(pool: &PgPool, service: &str) -> Result<HashMap<String, i64>> {
     eprintln!("Querying database for {} URLs...", service);
@@ -127,22 +127,14 @@ fn remove_cache_files_for_service(
     eprintln!("Removing cache files for service '{}'...", service);
     eprintln!("Collecting cache file paths for deletion...");
 
-    // Candidate paths per URL: chunk count derived from the URL's real max BytesServed
-    // (a handful of candidates), exactly like cache_game_remove. URLs without a usable
-    // size fall back to the full DEFAULT_MAX_CHUNKS probe list — no functionality loss.
+    // All-slice existence walk (matches detection coverage) instead of the size-derived
+    // candidate list, so range-served objects that log each ~1 MiB range as a separate
+    // row are fully enumerated rather than truncated to slice 0. `existing_cache_paths_for_url`
+    // stat-walks every on-disk slice for the URL, so the per-URL `total_bytes` is unused here.
     let paths_to_check: Vec<PathBuf> = urls
         .par_iter()
-        .flat_map(|(url, total_bytes)| {
-            if *total_bytes > 0 {
-                cache_utils::cache_path_candidates_for_bytes(cache_dir, service, url, *total_bytes)
-            } else {
-                cache_utils::cache_path_candidates_for_probe(
-                    cache_dir,
-                    service,
-                    url,
-                    cache_utils::DEFAULT_MAX_CHUNKS,
-                )
-            }
+        .flat_map(|(url, _total_bytes)| {
+            cache_utils::existing_cache_paths_for_url(cache_dir, service, url)
         })
         .collect();
 

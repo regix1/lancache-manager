@@ -40,6 +40,8 @@ import type {
   EpicDaemonStatusDto,
   EpicMappingAuthStatus,
   EpicScheduleStatus,
+  XboxGameMappingDto,
+  XboxMappingStats,
   PicsStatus
 } from '../types';
 import type { DashboardBatchResponse } from '../contexts/DashboardDataContext/types';
@@ -2306,6 +2308,47 @@ class ApiService {
     return ApiService.handleResponse<EpicDaemonStatusDto>(response);
   }
 
+  // Xbox daemon exposes the same service-agnostic status shape as Epic.
+  static async getXboxDaemonStatus(): Promise<EpicDaemonStatusDto> {
+    const response = await fetch(`${API_BASE}/xbox-daemon/status`, {
+      credentials: 'include'
+    });
+    return ApiService.handleResponse<EpicDaemonStatusDto>(response);
+  }
+
+  // Xbox game mappings share Epic's SHARED-catalog model (AdminOnly read). Unlike Epic, login
+  // lives on the Xbox prefill daemon, so there is no auth-status/login/logout here - just the
+  // catalog, stats, search and a manual resolve trigger.
+  static async getXboxGameMappings(): Promise<XboxGameMappingDto[]> {
+    const response = await fetch(`${API_BASE}/xbox/game-mappings`, {
+      credentials: 'include'
+    });
+    return ApiService.handleResponse<XboxGameMappingDto[]>(response);
+  }
+
+  static async getXboxMappingStats(): Promise<XboxMappingStats> {
+    const response = await fetch(`${API_BASE}/xbox/game-mappings/stats`, {
+      credentials: 'include'
+    });
+    return ApiService.handleResponse<XboxMappingStats>(response);
+  }
+
+  static async searchXboxGames(query: string): Promise<XboxGameMappingDto[]> {
+    const response = await fetch(
+      `${API_BASE}/xbox/game-mappings/search?q=${encodeURIComponent(query)}`,
+      { credentials: 'include' }
+    );
+    return ApiService.handleResponse<XboxGameMappingDto[]>(response);
+  }
+
+  static async resolveXboxDownloads(): Promise<{ resolved: number; message: string }> {
+    const response = await fetch(`${API_BASE}/xbox/game-mappings/resolve`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    return ApiService.handleResponse<{ resolved: number; message: string }>(response);
+  }
+
   static async getEpicGameMappings(): Promise<EpicGameMappingDto[]> {
     const response = await fetch(`${API_BASE}/epic/game-mappings`, {
       credentials: 'include'
@@ -2532,7 +2575,7 @@ class ApiService {
   }
 
   static async getGuestPrefillConfig<T>(
-    service: 'prefill' | 'epic-prefill' | 'battlenet-prefill'
+    service: 'prefill' | 'epic-prefill' | 'battlenet-prefill' | 'xbox-prefill'
   ): Promise<T> {
     const response = await fetch(
       `${API_BASE}/auth/guest/${service}/config`,
@@ -2674,7 +2717,7 @@ class ApiService {
   }
 
   static async updateGuestPrefillConfig<T>(
-    service: 'prefill' | 'epic-prefill' | 'battlenet-prefill',
+    service: 'prefill' | 'epic-prefill' | 'battlenet-prefill' | 'xbox-prefill',
     body: Record<string, unknown>
   ): Promise<T> {
     const response = await fetch(

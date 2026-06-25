@@ -22,6 +22,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [battlenetPrefillExpiresAt, setBattlenetPrefillExpiresAt] = useState<string | null>(null);
   const [riotPrefillEnabled, setRiotPrefillEnabled] = useState(false);
   const [riotPrefillExpiresAt, setRiotPrefillExpiresAt] = useState<string | null>(null);
+  const [xboxPrefillEnabled, setXboxPrefillEnabled] = useState(false);
+  const [xboxPrefillExpiresAt, setXboxPrefillExpiresAt] = useState<string | null>(null);
   const signalR = useSignalR();
 
   // Derive isAdmin and hasSession from authMode
@@ -66,6 +68,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setBattlenetPrefillExpiresAt(data.battlenetPrefillExpiresAt ?? null);
       setRiotPrefillEnabled(data.riotPrefillEnabled);
       setRiotPrefillExpiresAt(data.riotPrefillExpiresAt ?? null);
+      setXboxPrefillEnabled(data.xboxPrefillEnabled);
+      setXboxPrefillExpiresAt(data.xboxPrefillExpiresAt ?? null);
 
       if (data.isAuthenticated && data.sessionType === 'admin') {
         setAuthMode('authenticated');
@@ -89,6 +93,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setBattlenetPrefillExpiresAt(null);
       setRiotPrefillEnabled(false);
       setRiotPrefillExpiresAt(null);
+      setXboxPrefillEnabled(false);
+      setXboxPrefillExpiresAt(null);
     } finally {
       setIsLoading(false);
       notifyAuthSessionUpdated();
@@ -132,6 +138,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setBattlenetPrefillExpiresAt(null);
     setRiotPrefillEnabled(false);
     setRiotPrefillExpiresAt(null);
+    setXboxPrefillEnabled(false);
+    setXboxPrefillExpiresAt(null);
     notifyAuthSessionUpdated();
   }, [notifyAuthSessionUpdated]);
 
@@ -175,6 +183,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setBattlenetPrefillExpiresAt(null);
       setRiotPrefillEnabled(false);
       setRiotPrefillExpiresAt(null);
+      setXboxPrefillEnabled(false);
+      setXboxPrefillExpiresAt(null);
     };
 
     const handleSessionRevoked = (data: { sessionId: string; sessionType: string }) => {
@@ -213,6 +223,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         } else if (data.service === 'riot') {
           setRiotPrefillEnabled(isEnabled);
           setRiotPrefillExpiresAt(expiresAt);
+        } else if (data.service === 'xbox') {
+          setXboxPrefillEnabled(isEnabled);
+          setXboxPrefillExpiresAt(expiresAt);
         } else {
           // 'steam' or legacy (no service field) - default to steam
           setSteamPrefillEnabled(isEnabled);
@@ -249,7 +262,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Derive combined prefillEnabled as OR of all services (for backward compat - nav tab visibility)
   const prefillEnabled =
-    steamPrefillEnabled || epicPrefillEnabled || battlenetPrefillEnabled || riotPrefillEnabled;
+    steamPrefillEnabled ||
+    epicPrefillEnabled ||
+    battlenetPrefillEnabled ||
+    riotPrefillEnabled ||
+    xboxPrefillEnabled;
 
   // Calculate time remaining - use the earliest expiring active service
   const calcTimeRemaining = (expiresAt: string | null): number | null => {
@@ -265,6 +282,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     ? calcTimeRemaining(battlenetPrefillExpiresAt)
     : null;
   const riotTimeRemaining = riotPrefillEnabled ? calcTimeRemaining(riotPrefillExpiresAt) : null;
+  const xboxTimeRemaining = xboxPrefillEnabled ? calcTimeRemaining(xboxPrefillExpiresAt) : null;
 
   // prefillTimeRemaining: minimum non-null remaining time across active services
   const prefillTimeRemaining = (() => {
@@ -272,7 +290,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       steamTimeRemaining,
       epicTimeRemaining,
       battlenetTimeRemaining,
-      riotTimeRemaining
+      riotTimeRemaining,
+      xboxTimeRemaining
     ].filter((v): v is number => v !== null);
     return values.length > 0 ? Math.min(...values) : null;
   })();
@@ -299,6 +318,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         epicPrefillEnabled,
         battlenetPrefillEnabled,
         riotPrefillEnabled,
+        xboxPrefillEnabled,
         isBanned: false
       }}
     >

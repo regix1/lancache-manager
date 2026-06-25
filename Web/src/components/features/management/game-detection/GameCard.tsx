@@ -82,7 +82,7 @@ const GameCard: React.FC<GameCardProps> = ({
   // name-keyed service) get a per-service modifier when one exists, falling back to a neutral
   // named modifier so they never masquerade as Steam.
   const namedBadgeModifier =
-    game.service === 'blizzard' || game.service === 'riot'
+    game.service === 'blizzard' || game.service === 'riot' || game.service === 'xbox'
       ? `game-card-service-badge--${game.service}`
       : 'game-card-service-badge--named';
   const serviceBadgeClass = isEpic

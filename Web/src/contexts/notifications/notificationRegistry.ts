@@ -301,6 +301,7 @@ const CANCEL_TOOLTIP = {
   depotMapping: 'common.notifications.cancelDepotMapping',
   databaseReset: 'common.notifications.cancelDatabaseReset',
   epicGameMapping: 'common.notifications.cancelEpicGameMapping',
+  xboxGameMapping: 'common.notifications.cancelXboxGameMapping',
   bulkRemoval: 'common.notifications.cancelBulkRemoval'
 } as const;
 
@@ -1177,6 +1178,20 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       }),
       staleMessage: 'Epic game mapping completed'
     } satisfies SimpleRecoveryConfig<EpicGameMappingScheduleResponse>
+  },
+
+  // ========== Xbox Game Mapping (special) ==========
+  // Mirrors epic_game_mapping but Xbox titles resolve automatically during Rust ingest, so there
+  // is NO schedule/recovery endpoint - a missed in-flight resolve simply isn't re-surfaced on
+  // refresh (recovery 'none'). Driven by XboxMappingProgress + XboxGameMappingsUpdated.
+  {
+    type: 'xbox_game_mapping',
+    id: NOTIFICATION_IDS.XBOX_GAME_MAPPING,
+    storageKey: NOTIFICATION_STORAGE_KEYS.XBOX_GAME_MAPPING,
+    wiring: 'special',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.xboxGameMapping,
+    recovery: { kind: 'none' }
   },
 
   // ========== Steam Session Error (special; toast, no recovery, no cancel) ==========

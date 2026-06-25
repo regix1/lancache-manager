@@ -26,6 +26,7 @@ public static class NameKeyedBannerSource
     /// <summary>Canonical service keys this source covers.</summary>
     public const string BlizzardService = "blizzard";
     public const string RiotService = "riot";
+    public const string XboxService = "xbox";
 
     // (service, slug) -> source url. Slug is the normalized GameName.
     private static readonly Lazy<Dictionary<(string Service, string Slug), string>> _bySlug =
@@ -55,6 +56,10 @@ public static class NameKeyedBannerSource
             // Well-known aliases mapping an nginx/request service name to its game_banners.json key.
             "blizzard" or "battle.net" or "battlenet" => BlizzardService,
             "riot" or "riotgames" => RiotService,
+            // Xbox is name-keyed but its banners come from the DisplayCatalog at runtime (NOT the
+            // curated game_banners.json / embedded JPEGs), so it is recognized by alias here even
+            // though it has no curated section. Its GameImage rows are fetched + stored dynamically.
+            "xbox" or "xboxlive" or "microsoft" => XboxService,
             // Any OTHER service with a curated section in game_banners.json is name-keyed too, so a
             // new name-keyed service needs only a JSON section + embedded JPEGs (no code change).
             _ => _services.Value.Contains(lower) ? lower : null

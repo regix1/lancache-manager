@@ -238,10 +238,10 @@ public class GamesController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/games/named/{service}/{gameName} - Remove a named (Blizzard/Riot) game by Service + GameName.
+    /// DELETE /api/games/named/{service}/{gameName} - Remove a named (Blizzard/Riot/Xbox) game by Service + GameName.
     /// These games have no Steam AppId and no Epic AppId; their identity is (Service, GameName).
-    /// Uses the Rust cache_named_game_remove binary to delete cache files, log entries,
-    /// and database records - same three-step process as Epic game removal.
+    /// Dispatches to the per-service Rust binary (cache_{service}_remove) to delete cache files, log
+    /// entries, and database records - same three-step process as Epic game removal.
     /// </summary>
     [HttpDelete("named/{service}/{gameName}")]
     public async Task<IActionResult> RemoveNamedGameFromCacheAsync(string service, string gameName, CancellationToken cancellationToken)

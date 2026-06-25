@@ -132,6 +132,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         corruption_detection: NOTIFICATION_IDS.CORRUPTION_DETECTION,
         data_import: NOTIFICATION_IDS.DATA_IMPORT,
         epic_game_mapping: NOTIFICATION_IDS.EPIC_GAME_MAPPING,
+        xbox_game_mapping: NOTIFICATION_IDS.XBOX_GAME_MAPPING,
         eviction_scan: NOTIFICATION_IDS.EVICTION_SCAN,
         eviction_removal: NOTIFICATION_IDS.EVICTION_REMOVAL
       };

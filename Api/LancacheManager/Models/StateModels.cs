@@ -67,6 +67,11 @@ public class AppState
     public bool RiotGuestPrefillEnabledByDefault { get; set; } = false;
     public int RiotGuestPrefillDurationHours { get; set; } = 2;
 
+    // Xbox prefill settings (login-required service - mirrors Epic, has a thread limit)
+    public bool XboxGuestPrefillEnabledByDefault { get; set; } = false;
+    public int XboxGuestPrefillDurationHours { get; set; } = 2;
+    public int? XboxDefaultGuestMaxThreadCount { get; set; } = null;
+
     // PICS viability check caching (prevents repeated Steam API calls)
     public bool RequiresFullScan { get; set; } = false; // True if Steam requires full scan due to large change gap
     public DateTime? LastViabilityCheck { get; set; } // When we last checked with Steam

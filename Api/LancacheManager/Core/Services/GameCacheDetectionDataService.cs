@@ -859,6 +859,45 @@ public sealed class GameCacheDetectionDataService
             totalRecovered += evictedEpicGames.Count;
         }
 
+        // FIX (Q2): recover evicted NAMED games (xbox/blizzard/riot) as (Service, GameName) detection rows.
+        var evictedNamedGames = await dbContext.Downloads
+            .Where(d => d.IsEvicted
+                     && d.GameAppId == null
+                     && d.EpicAppId == null
+                     && d.Service != null
+                     && d.GameName != null
+                     && !dbContext.CachedGameDetections.Any(
+                         g => g.GameAppId == 0 && g.Service == d.Service && g.GameName == d.GameName))
+            .GroupBy(d => new { d.Service, d.GameName })
+            .Select(g => new { g.Key.Service, g.Key.GameName })
+            .ToListAsync(cancellationToken);
+
+        if (evictedNamedGames.Count > 0)
+        {
+            foreach (var game in evictedNamedGames)
+            {
+                dbContext.CachedGameDetections.Add(new CachedGameDetection
+                {
+                    GameAppId = 0,                     // detection-side named sentinel (Downloads col is NULL; detection row is 0)
+                    GameName = game.GameName ?? "Unknown",
+                    CacheFilesFound = 0,
+                    TotalSizeBytes = 0,
+                    Service = game.Service!,           // 'xbox' | 'blizzard' | 'riot'
+                    EpicAppId = null,
+                    IsEvicted = true,
+                    LastDetectedUtc = now,
+                    CreatedAtUtc = now
+                });
+            }
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "[GameDetection] Recovered {Count} evicted named games from already-evicted Downloads",
+                evictedNamedGames.Count);
+            totalRecovered += evictedNamedGames.Count;
+        }
+
         return totalRecovered;
     }
 
@@ -871,6 +910,7 @@ public sealed class GameCacheDetectionDataService
                      && d.GameAppId == null
                      && d.EpicAppId == null
                      && d.Service != null
+                     && d.GameName == null            // FIX (Q2): named games recover as (Service,GameName), not a service row
                      && !dbContext.CachedServiceDetections.Any(
                          s => s.ServiceName == d.Service!))
             .GroupBy(d => d.Service!)

@@ -41,6 +41,12 @@
   color: var(--theme-riot);
 }
 
+/* Xbox service badge (named game) */
+.game-card-service-badge--xbox {
+  background-color: var(--theme-xbox-subtle);
+  color: var(--theme-xbox);
+}
+
 /* Generic named-service badge (Blizzard/Riot/other name-keyed services without a theme color) */
 .game-card-service-badge--named {
   background-color: var(--theme-bg-elevated);

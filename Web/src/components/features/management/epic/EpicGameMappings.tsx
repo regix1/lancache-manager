@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next';
 import { Gamepad2, Search } from 'lucide-react';
 import { DataTable, type DataTableColumn } from '@components/ui/DataTable';
+import { AccordionSection } from '@components/ui/AccordionSection';
 import { Tooltip } from '@components/ui/Tooltip';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -73,6 +74,7 @@ const EpicGameMappings: React.FC = () => {
   const [stats, setStats] = useState<EpicMappingStats | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const loadData = useCallback(async () => {
@@ -217,69 +219,73 @@ const EpicGameMappings: React.FC = () => {
   );
 
   return (
-    <div className="epic-library-section">
-      {/* Section Header */}
-      <div>
-        <h4 className="text-sm font-semibold text-themed-primary">
-          {t('management.sections.integrations.epicGameMappings.title')}
-        </h4>
-        <p className="text-xs text-themed-muted mt-0.5">
+    <AccordionSection
+      title={t('management.sections.integrations.epicGameMappings.title')}
+      icon={Gamepad2}
+      iconColor="var(--theme-epic)"
+      count={stats?.totalGames}
+      isExpanded={expanded}
+      onToggle={() => setExpanded((prev) => !prev)}
+    >
+      <div className="space-y-3">
+        {/* Description */}
+        <p className="text-xs text-themed-muted">
           {stats && stats.totalGames > 0
             ? t('management.sections.integrations.epicGameMappings.gamesInLibrary', {
                 count: stats.totalGames
               })
             : t('management.sections.integrations.epicGameMappings.description')}
         </p>
+
+        {/* Error / Info Message */}
+        {error && <div className="p-4 text-center text-[var(--theme-error)]">{error}</div>}
+
+        {/* Empty State */}
+        {mappings.length === 0 && !searchQuery && (
+          <p className="text-xs text-themed-secondary text-center py-6">
+            {t('management.sections.integrations.epicGameMappings.noGames')}
+          </p>
+        )}
+
+        {/* Search and Table */}
+        {(mappings.length > 0 || searchQuery) && (
+          <>
+            {/* Search */}
+            <div className="relative">
+              <Search
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-themed-muted pointer-events-none"
+              />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleSearch(e.target.value)}
+                placeholder={t('management.sections.integrations.epicGameMappings.search')}
+                className="w-full py-2 pl-8 pr-3 border border-[var(--theme-border)] rounded-lg bg-themed-secondary text-themed-primary text-xs outline-none focus:border-[var(--theme-primary)]"
+              />
+            </div>
+
+            {/* DataTable */}
+            {mappings.length === 0 ? (
+              <p className="text-xs text-themed-secondary text-center py-4">
+                {t('management.sections.integrations.epicGameMappings.noResults')}
+              </p>
+            ) : (
+              <DataTable<EpicGameMappingDto>
+                columns={columns}
+                data={mappings}
+                keyExtractor={(mapping: EpicGameMappingDto) => mapping.appId}
+                maxHeight="400px"
+                accentColor={() => 'var(--theme-epic)'}
+                resizable
+                storageKey="epic-game-mappings-column-widths-v2"
+                compact
+              />
+            )}
+          </>
+        )}
       </div>
-
-      {/* Error / Info Message */}
-      {error && <div className="p-4 text-center text-[var(--theme-error)]">{error}</div>}
-
-      {/* Empty State */}
-      {mappings.length === 0 && !searchQuery && (
-        <p className="text-xs text-themed-secondary text-center py-6">
-          {t('management.sections.integrations.epicGameMappings.noGames')}
-        </p>
-      )}
-
-      {/* Search and Table */}
-      {(mappings.length > 0 || searchQuery) && (
-        <>
-          {/* Search */}
-          <div className="relative">
-            <Search
-              size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-themed-muted pointer-events-none"
-            />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleSearch(e.target.value)}
-              placeholder={t('management.sections.integrations.epicGameMappings.search')}
-              className="w-full py-2 pl-8 pr-3 border border-[var(--theme-border)] rounded-lg bg-themed-secondary text-themed-primary text-xs outline-none focus:border-[var(--theme-primary)]"
-            />
-          </div>
-
-          {/* DataTable */}
-          {mappings.length === 0 ? (
-            <p className="text-xs text-themed-secondary text-center py-4">
-              {t('management.sections.integrations.epicGameMappings.noResults')}
-            </p>
-          ) : (
-            <DataTable<EpicGameMappingDto>
-              columns={columns}
-              data={mappings}
-              keyExtractor={(mapping: EpicGameMappingDto) => mapping.appId}
-              maxHeight="400px"
-              accentColor={() => 'var(--theme-epic)'}
-              resizable
-              storageKey="epic-game-mappings-column-widths-v2"
-              compact
-            />
-          )}
-        </>
-      )}
-    </div>
+    </AccordionSection>
   );
 };
 

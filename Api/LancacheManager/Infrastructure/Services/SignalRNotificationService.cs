@@ -17,6 +17,7 @@ public class SignalRNotificationService : ISignalRNotificationService
     private readonly IHubContext<EpicPrefillDaemonHub> _epicHubContext;
     private readonly IHubContext<BattleNetDaemonHub> _battleNetHubContext;
     private readonly IHubContext<RiotDaemonHub> _riotHubContext;
+    private readonly IHubContext<XboxPrefillDaemonHub> _xboxHubContext;
     private readonly ILogger<SignalRNotificationService> _logger;
     private readonly IServiceProvider _serviceProvider;
 
@@ -26,6 +27,7 @@ public class SignalRNotificationService : ISignalRNotificationService
         IHubContext<EpicPrefillDaemonHub> epicHubContext,
         IHubContext<BattleNetDaemonHub> battleNetHubContext,
         IHubContext<RiotDaemonHub> riotHubContext,
+        IHubContext<XboxPrefillDaemonHub> xboxHubContext,
         ILogger<SignalRNotificationService> logger,
         IServiceProvider serviceProvider)
     {
@@ -34,6 +36,7 @@ public class SignalRNotificationService : ISignalRNotificationService
         _epicHubContext = epicHubContext;
         _battleNetHubContext = battleNetHubContext;
         _riotHubContext = riotHubContext;
+        _xboxHubContext = xboxHubContext;
         _logger = logger;
         _serviceProvider = serviceProvider;
     }
@@ -212,6 +215,35 @@ public class SignalRNotificationService : ISignalRNotificationService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to send SignalR notification (downloads + riot): {EventName}", eventName);
+        }
+    }
+
+    // ===== Xbox Prefill Hub Methods =====
+
+    public async Task NotifyXboxPrefillClientAsync(string connectionId, string eventName, object? data = null)
+    {
+        await NotifyClientAsync(_xboxHubContext.Clients, connectionId, eventName, data, "Xbox prefill");
+    }
+
+    public async Task SendToXboxPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
+    {
+        // This method throws on failure - caller is responsible for handling exceptions
+        await _xboxHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
+    }
+
+    public async Task NotifyXboxHubAsync(string eventName, object? data = null)
+    {
+        try
+        {
+            await Task.WhenAll(
+                _downloadHubContext.Clients.All.SendAsync(eventName, data),
+                _xboxHubContext.Clients.All.SendAsync(eventName, data)
+            );
+            _logger.LogDebug("SignalR notification sent (downloads + xbox): {EventName}", eventName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send SignalR notification (downloads + xbox): {EventName}", eventName);
         }
     }
 

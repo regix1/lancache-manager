@@ -680,10 +680,92 @@ pub(crate) fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet
     removed_count
 }
 
+/// Shape guard for a stored Xbox CDN fragment, mirroring the C# `XboxMappingService.IsValidFragment`
+/// regex `/filestreamingservice/files/<GUID>`. A fragment is usable ONLY if it contains a
+/// `/filestreamingservice/files/` segment immediately followed by a canonical 8-4-4-4-12 hex GUID.
+/// This rejects empty / `/` / generic-wsus fragments so a malformed DB row can never `contains()`
+/// -match unrelated Windows Update traffic and relabel it as a game. Pure byte scan (no regex) to
+/// keep the ingest/speed hot paths allocation-free.
+///
+/// Shared by both `log_processor` (the primary canonicalizer) and `speed_tracker` so the two Xbox
+/// pattern loaders apply ONE identical shape check — there is exactly one implementation.
+#[allow(dead_code)]
+pub fn is_valid_xbox_fragment(fragment: &str) -> bool {
+    const MARKER: &str = "/filestreamingservice/files/";
+    let bytes = fragment.as_bytes();
+    let marker = MARKER.as_bytes();
+
+    // Find every occurrence of the marker; accept if any is followed by a well-formed GUID.
+    let mut start = 0;
+    while let Some(rel) = fragment[start..].find(MARKER) {
+        let guid_start = start + rel + marker.len();
+        if is_guid_at(bytes, guid_start) {
+            return true;
+        }
+        start = start + rel + 1;
+    }
+    false
+}
+
+/// True if `bytes[at..]` begins with a canonical 8-4-4-4-12 lowercase/uppercase hex GUID.
+#[allow(dead_code)]
+fn is_guid_at(bytes: &[u8], at: usize) -> bool {
+    // 8-4-4-4-12 hex with hyphens = 36 chars.
+    const GUID_LEN: usize = 36;
+    if at + GUID_LEN > bytes.len() {
+        return false;
+    }
+    for (i, &b) in bytes[at..at + GUID_LEN].iter().enumerate() {
+        let is_hyphen_pos = i == 8 || i == 13 || i == 18 || i == 23;
+        if is_hyphen_pos {
+            if b != b'-' {
+                return false;
+            }
+        } else if !b.is_ascii_hexdigit() {
+            return false;
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::Path;
+
+    /// The shared Xbox fragment shape guard used by BOTH `log_processor::load_xbox_patterns` and
+    /// `speed_tracker::load_xbox_patterns`. It must reject the malformed / short / non-GUID
+    /// fragments that the old `frag.len() > 1` check in speed_tracker would have wrongly accepted
+    /// (and then `contains()`-matched generic Windows Update traffic), while still accepting a real
+    /// `/filestreamingservice/files/<36-char-GUID>` fragment, case-insensitively on the hex.
+    #[test]
+    fn xbox_fragment_guard_rejects_malformed_accepts_real_guid() {
+        const GUID: &str = "12345678-90ab-cdef-1234-567890abcdef";
+
+        // Rejected: things the weak len>1 guard let through.
+        assert!(!is_valid_xbox_fragment(""), "empty must be rejected");
+        assert!(!is_valid_xbox_fragment("/"), "root must be rejected");
+        assert!(!is_valid_xbox_fragment("/files/"), "short generic path must be rejected");
+        assert!(!is_valid_xbox_fragment("/c/msdownload/update/abc"), "generic wsus path must be rejected");
+        assert!(
+            !is_valid_xbox_fragment("/filestreamingservice/files/not-a-guid"),
+            "marker without a valid GUID must be rejected"
+        );
+        assert!(
+            !is_valid_xbox_fragment("/filestreamingservice/files/12345678-90ab"),
+            "truncated GUID must be rejected"
+        );
+
+        // Accepted: a well-formed fragment and one embedded in a full access-log URL, both
+        // lower- and upper-case hex (speed_tracker / log_processor lowercase before matching).
+        assert!(is_valid_xbox_fragment(&format!("/filestreamingservice/files/{GUID}")));
+        assert!(is_valid_xbox_fragment(&format!(
+            "http://assets1.xboxlive.com/filestreamingservice/files/{GUID}?P1=1"
+        )));
+        assert!(is_valid_xbox_fragment(
+            "/filestreamingservice/files/ABCDEF12-3456-7890-ABCD-EF1234567890"
+        ));
+    }
 
     /// Equivalence guarantee for the filename-keyed eviction probe: the hash candidates
     /// produced by `cache_hash_candidates_for_probe` must equal, element-for-element, the
@@ -916,6 +998,56 @@ mod tests {
             first_slice,
             service,
             url
+        );
+    }
+
+    /// §12 Q1 REMOVAL all-slice gate. A range-served object (Xbox /filestreamingservice/files/<GUID>,
+    /// Blizzard /tpr/ archive, Riot bundle) is logged as many ~1 MiB ranges under ONE url, so
+    /// `MAX(BytesServed)` ≈ a single slice. The removal bins used to size candidates from that max
+    /// (`cache_path_candidates_for_bytes`) and so generated ~1 ranged candidate → deleted only slice
+    /// 0 and orphaned slices 1..N. The fix swaps removal to `existing_cache_paths_for_url`, which
+    /// stat-walks EVERY on-disk slice. This writes real slice files for an Xbox wsus object (cache
+    /// hash uses LogEntries.Service = `wsus`, per the identity split) and asserts the all-slice walk
+    /// returns them all, while the old size-derived list would have under-covered.
+    #[test]
+    fn removal_walk_enumerates_all_range_slices_xbox_wsus() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        // Xbox content is cache-hashed under the `wsus` service (the cache-service split).
+        let service = "wsus";
+        let url = "/filestreamingservice/files/2c1f8b3a-0d4e-4a5b-9c6d-7e8f9a0b1c2d";
+        let n_slices = 64usize; // a multi-slice range object
+
+        // Materialize the no_range location + the first `n_slices` ranged slices on disk.
+        let mut written: Vec<PathBuf> = Vec::new();
+        written.push(calculate_cache_path_no_range(cache_dir, service, url));
+        for chunk in 0..n_slices {
+            let start = chunk as u64 * DEFAULT_SLICE_SIZE;
+            written.push(calculate_cache_path(cache_dir, service, url, start, chunk_end(start)));
+        }
+        for path in &written {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"x").unwrap();
+        }
+
+        // The all-slice existence walk (what removal now uses) must find EVERY written slice.
+        let found = existing_cache_paths_for_url(cache_dir, service, url);
+        assert_eq!(
+            found.len(),
+            written.len(),
+            "all-slice walk must enumerate every on-disk slice for removal (no orphans)"
+        );
+
+        // Control: the OLD size-derived candidate list, sized from a single ~1 MiB range
+        // (MAX(BytesServed) for a range object), would have produced far fewer ranged candidates —
+        // demonstrating the §12 Q1 under-delete the walk fixes.
+        let one_range = DEFAULT_SLICE_SIZE as i64;
+        let old_candidates = cache_path_candidates_for_bytes(cache_dir, service, url, one_range);
+        assert!(
+            old_candidates.len() < written.len(),
+            "size-derived candidates ({}) must be fewer than the {} real slices — the under-delete §12 Q1 fixes",
+            old_candidates.len(),
+            written.len()
         );
     }
 }

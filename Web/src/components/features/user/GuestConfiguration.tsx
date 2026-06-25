@@ -7,12 +7,14 @@ import { getErrorMessage } from '@utils/error';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type {
   EpicGuestPrefillConfigChangedEvent,
-  BattleNetGuestPrefillConfigChangedEvent
+  BattleNetGuestPrefillConfigChangedEvent,
+  XboxGuestPrefillConfigChangedEvent
 } from '@contexts/SignalRContext/types';
 import { useAuth } from '@contexts/useAuth';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
+import { XboxIcon } from '@components/ui/XboxIcon';
 import { type ThemeOption, durationOptions, refreshRateOptions, showToast } from './types';
 import AccessSecurityCard from './AccessSecurityCard';
 import PrefillServicePanel from './PrefillServicePanel';
@@ -119,6 +121,15 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   });
   const [loadingBattlenetPrefillConfig, setLoadingBattlenetPrefillConfig] = useState(false);
   const [updatingBattlenetPrefillConfig, setUpdatingBattlenetPrefillConfig] = useState(false);
+
+  // Xbox Prefill permission state (login-required - mirrors Epic, has a thread limit)
+  const [xboxPrefillConfig, setXboxPrefillConfig] = useState({
+    enabledByDefault: false,
+    durationHours: 2,
+    maxThreadCount: null as number | null
+  });
+  const [loadingXboxPrefillConfig, setLoadingXboxPrefillConfig] = useState(false);
+  const [updatingXboxPrefillConfig, setUpdatingXboxPrefillConfig] = useState(false);
 
   // Helper to update default time format based on a format value
   const updateDefaultTimeFormat = async (format: TimeSettingValue) => {
@@ -318,6 +329,14 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     },
     []
   );
+
+  const handleXboxPrefillConfigChanged = useCallback((data: XboxGuestPrefillConfigChangedEvent) => {
+    setXboxPrefillConfig({
+      enabledByDefault: data.enabledByDefault,
+      durationHours: data.durationHours,
+      maxThreadCount: data.xboxMaxThreadCount ?? null
+    });
+  }, []);
 
   const handleAllowedFormatsChange = async (formats: string[]) => {
     if (authMode !== 'authenticated') return;
@@ -547,6 +566,73 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     }
   };
 
+  // Xbox Prefill config functions (login-required - mirrors Epic, enabled + duration + threads)
+  const loadXboxPrefillConfig = async () => {
+    try {
+      setLoadingXboxPrefillConfig(true);
+      const configResponse = await fetch(
+        '/api/auth/guest/xbox-prefill/config',
+        ApiService.getFetchOptions()
+      );
+      if (configResponse.ok) {
+        const data = (await configResponse.json()) as GuestPrefillConfigResponse;
+        setXboxPrefillConfig({
+          enabledByDefault: data.enabledByDefault,
+          durationHours: data.durationHours,
+          maxThreadCount: data.maxThreadCount ?? null
+        });
+      }
+    } catch (err) {
+      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.loadConfig'));
+    } finally {
+      setLoadingXboxPrefillConfig(false);
+    }
+  };
+
+  const updateXboxPrefillConfig = async (
+    enabledByDefault: boolean,
+    durationHours: number,
+    maxThreadCount?: number | null
+  ) => {
+    if (authMode !== 'authenticated') return;
+    try {
+      setUpdatingXboxPrefillConfig(true);
+      const body: Record<string, unknown> = { enabledByDefault, durationHours };
+      if (maxThreadCount !== undefined) {
+        body.maxThreadCount = maxThreadCount;
+      } else {
+        body.maxThreadCount = xboxPrefillConfig.maxThreadCount;
+      }
+      const response = await fetch(
+        '/api/auth/guest/xbox-prefill/config',
+        ApiService.getFetchOptions({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(body)
+        })
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setXboxPrefillConfig({
+          enabledByDefault: data.enabledByDefault,
+          durationHours: data.durationHours,
+          maxThreadCount: data.maxThreadCount ?? null
+        });
+        showToast('success', t('user.guest.prefill.updated'));
+      } else {
+        const errorData = await response.json();
+        showToast('error', errorData.error || t('user.guest.prefill.errors.update'));
+      }
+    } catch (err: unknown) {
+      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.update'));
+    } finally {
+      setUpdatingXboxPrefillConfig(false);
+    }
+  };
+
   // Handler callbacks for PrefillServicePanel
   const handleSteamToggleEnabled = () => {
     updatePrefillConfig(!prefillConfig.enabledByDefault, prefillConfig.durationHours);
@@ -593,17 +679,35 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     void threads;
   }, []);
 
+  const handleXboxToggleEnabled = () => {
+    updateXboxPrefillConfig(!xboxPrefillConfig.enabledByDefault, xboxPrefillConfig.durationHours);
+  };
+
+  const handleXboxDurationChange = (hours: number) => {
+    updateXboxPrefillConfig(xboxPrefillConfig.enabledByDefault, hours);
+  };
+
+  const handleXboxMaxThreadsChange = (threads: number | null) => {
+    updateXboxPrefillConfig(
+      xboxPrefillConfig.enabledByDefault,
+      xboxPrefillConfig.durationHours,
+      threads
+    );
+  };
+
   useEffect(() => {
     loadDefaultGuestPreferences();
     loadPrefillConfig();
     loadEpicPrefillConfig();
     loadBattlenetPrefillConfig();
+    loadXboxPrefillConfig();
 
     on('DefaultGuestPreferencesChanged', handleDefaultGuestPreferencesChanged);
     on('AllowedTimeFormatsChanged', handleAllowedTimeFormatsChanged);
     on('GuestPrefillConfigChanged', handlePrefillConfigChanged);
     on('EpicGuestPrefillConfigChanged', handleEpicPrefillConfigChanged);
     on('BattleNetGuestPrefillConfigChanged', handleBattlenetPrefillConfigChanged);
+    on('XboxGuestPrefillConfigChanged', handleXboxPrefillConfigChanged);
 
     return () => {
       off('DefaultGuestPreferencesChanged', handleDefaultGuestPreferencesChanged);
@@ -611,6 +715,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       off('GuestPrefillConfigChanged', handlePrefillConfigChanged);
       off('EpicGuestPrefillConfigChanged', handleEpicPrefillConfigChanged);
       off('BattleNetGuestPrefillConfigChanged', handleBattlenetPrefillConfigChanged);
+      off('XboxGuestPrefillConfigChanged', handleXboxPrefillConfigChanged);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -620,7 +725,8 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     handleAllowedTimeFormatsChanged,
     handlePrefillConfigChanged,
     handleEpicPrefillConfigChanged,
-    handleBattlenetPrefillConfigChanged
+    handleBattlenetPrefillConfigChanged,
+    handleXboxPrefillConfigChanged
   ]);
 
   return (
@@ -700,6 +806,25 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
             enableDescription={t('user.guest.prefill.enableByDefault.description')}
             prefillDurationOptions={prefillDurationOptions}
             showMaxThreads={false}
+          />
+          <PrefillServicePanel
+            serviceName="Xbox"
+            serviceNameClass="text-xbox"
+            serviceIcon={<XboxIcon size={14} />}
+            accentClass="settings-group--xbox"
+            config={xboxPrefillConfig}
+            onToggleEnabled={handleXboxToggleEnabled}
+            onDurationChange={handleXboxDurationChange}
+            onMaxThreadsChange={handleXboxMaxThreadsChange}
+            loading={loadingXboxPrefillConfig}
+            updating={updatingXboxPrefillConfig}
+            warningText={t('user.guest.prefill.warning')}
+            durationLabel={t('user.guest.prefill.duration.label')}
+            maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
+            enableLabel={t('user.guest.prefill.enableByDefault.label')}
+            enableDescription={t('user.guest.prefill.enableByDefault.description')}
+            prefillDurationOptions={prefillDurationOptions}
+            maxThreadOptions={maxThreadOptions}
           />
         </div>
       </Card>

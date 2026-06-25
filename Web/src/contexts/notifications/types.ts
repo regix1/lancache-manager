@@ -22,6 +22,7 @@ export type NotificationType =
   | 'game_detection'
   | 'data_import'
   | 'epic_game_mapping'
+  | 'xbox_game_mapping'
   | 'eviction_scan'
   | 'eviction_removal'
   | 'cache_size_scan'
@@ -114,6 +115,11 @@ export interface UnifiedNotification {
     totalEpicGames?: number;
     newEpicGames?: number;
     updatedEpicGames?: number;
+
+    // For xbox_game_mapping
+    totalXboxGames?: number;
+    newXboxGames?: number;
+    updatedXboxGames?: number;
 
     // For generic notifications
     notificationType?: NotificationVariant;

@@ -464,6 +464,14 @@
   border-left-color: var(--theme-blizzard);
 }
 
+.settings-group--riot {
+  border-left-color: var(--theme-riot);
+}
+
+.settings-group--xbox {
+  border-left-color: var(--theme-xbox);
+}
+
 .settings-group--look {
   border-left-color: var(--theme-icon-blue);
 }

@@ -344,6 +344,7 @@ public class DownloadsController : ControllerBase
                     GameName = g.Max(d => d.GameName),
                     GameAppId = g.Max(d => d.GameAppId),
                     EpicAppId = g.Max(d => d.EpicAppId),
+                    XboxProductId = g.Max(d => d.XboxProductId),
                     CacheHitBytes = g.Sum(d => d.CacheHitBytes),
                     CacheMissBytes = g.Sum(d => d.CacheMissBytes),
                     StartTimeUtc = g.Min(d => d.StartTimeUtc),
@@ -589,6 +590,7 @@ public class DownloadsController : ControllerBase
         public string? GameName { get; set; }
         public long? GameAppId { get; set; }
         public string? EpicAppId { get; set; }
+        public string? XboxProductId { get; set; }
         public long CacheHitBytes { get; set; }
         public long CacheMissBytes { get; set; }
         public DateTime StartTimeUtc { get; set; }
@@ -705,6 +707,19 @@ public class DownloadsController : ControllerBase
                 .ToDictionaryAsync(m => m.AppId, m => m.Name)
             : new Dictionary<string, string>();
 
+        var xboxProductIds = rows
+            .Where(r => string.IsNullOrEmpty(r.GameName) && !string.IsNullOrEmpty(r.XboxProductId))
+            .Select(r => r.XboxProductId!)
+            .Distinct()
+            .ToList();
+
+        var xboxMappings = xboxProductIds.Count > 0
+            ? await _context.XboxGameMappings
+                .AsNoTracking()
+                .Where(m => xboxProductIds.Contains(m.ProductId))
+                .ToDictionaryAsync(m => m.ProductId, m => m.Title)
+            : new Dictionary<string, string>();
+
         foreach (var r in rows)
         {
             if (string.IsNullOrEmpty(r.GameName) && r.DepotId.HasValue
@@ -718,6 +733,12 @@ public class DownloadsController : ControllerBase
                 && epicMappings.TryGetValue(r.EpicAppId, out var epicName))
             {
                 r.GameName = epicName;
+            }
+
+            if (string.IsNullOrEmpty(r.GameName) && !string.IsNullOrEmpty(r.XboxProductId)
+                && xboxMappings.TryGetValue(r.XboxProductId, out var xboxTitle))
+            {
+                r.GameName = xboxTitle;
             }
 
             if (string.IsNullOrEmpty(r.GameName))
@@ -816,7 +837,22 @@ public class DownloadsController : ControllerBase
                 .ToDictionaryAsync(m => m.AppId, m => m.Name)
             : new Dictionary<string, string>();
 
-        // Apply name resolution priority: existing GameName → Steam AppName → Epic Name → fallback to Service
+        // Build Xbox game name lookup for Xbox downloads (named-style: GameName from the shared
+        // XboxGameMapping catalog keyed by XboxProductId metadata).
+        var xboxProductIds = downloads
+            .Where(d => !string.IsNullOrEmpty(d.XboxProductId))
+            .Select(d => d.XboxProductId!)
+            .Distinct()
+            .ToList();
+
+        var xboxMappings = xboxProductIds.Count > 0
+            ? await _context.XboxGameMappings
+                .AsNoTracking()
+                .Where(m => xboxProductIds.Contains(m.ProductId))
+                .ToDictionaryAsync(m => m.ProductId, m => m.Title)
+            : new Dictionary<string, string>();
+
+        // Apply name resolution priority: existing GameName → Steam AppName → Epic Name → Xbox Title → fallback to Service
         foreach (var d in downloads)
         {
             // Fill from Steam mapping if game name is missing
@@ -832,6 +868,13 @@ public class DownloadsController : ControllerBase
                 && epicMappings.TryGetValue(d.EpicAppId, out var epicName))
             {
                 d.GameName = epicName;
+            }
+
+            // Fill from Xbox mapping if still missing
+            if (string.IsNullOrEmpty(d.GameName) && !string.IsNullOrEmpty(d.XboxProductId)
+                && xboxMappings.TryGetValue(d.XboxProductId, out var xboxTitle))
+            {
+                d.GameName = xboxTitle;
             }
 
             // Final fallback: use service name

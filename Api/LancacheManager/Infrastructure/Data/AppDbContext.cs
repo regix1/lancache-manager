@@ -28,6 +28,8 @@ public class AppDbContext : DbContext
     public DbSet<CacheSnapshot> CacheSnapshots { get; set; }
     public DbSet<EpicGameMapping> EpicGameMappings { get; set; }
     public DbSet<EpicCdnPattern> EpicCdnPatterns { get; set; }
+    public DbSet<XboxGameMapping> XboxGameMappings { get; set; }
+    public DbSet<XboxCdnPattern> XboxCdnPatterns { get; set; }
     public DbSet<GameImage> GameImages { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -68,6 +70,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Download>()
             .HasIndex(d => d.EpicAppId)
             .HasDatabaseName("IX_Downloads_EpicAppId");
+
+        // XboxProductId index for Xbox / Microsoft Store download resolution (metadata + art lookup)
+        modelBuilder.Entity<Download>()
+            .HasIndex(d => d.XboxProductId)
+            .HasDatabaseName("IX_Downloads_XboxProductId");
 
         // Composite indexes for dashboard query performance
         modelBuilder.Entity<Download>()
@@ -366,6 +373,30 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<EpicCdnPattern>()
             .HasIndex(p => p.ChunkBaseUrl)
             .HasDatabaseName("IX_EpicCdnPatterns_ChunkBaseUrl")
+            .IsUnique();
+
+        // XboxGameMapping indexes
+        modelBuilder.Entity<XboxGameMapping>()
+            .HasIndex(m => m.ProductId)
+            .HasDatabaseName("IX_XboxGameMappings_ProductId")
+            .IsUnique();
+
+        modelBuilder.Entity<XboxGameMapping>()
+            .HasIndex(m => m.Title)
+            .HasDatabaseName("IX_XboxGameMappings_Title");
+
+        modelBuilder.Entity<XboxGameMapping>()
+            .HasIndex(m => m.DiscoveredAtUtc)
+            .HasDatabaseName("IX_XboxGameMappings_DiscoveredAtUtc");
+
+        // XboxCdnPattern indexes
+        modelBuilder.Entity<XboxCdnPattern>()
+            .HasIndex(p => p.ProductId)
+            .HasDatabaseName("IX_XboxCdnPatterns_ProductId");
+
+        modelBuilder.Entity<XboxCdnPattern>()
+            .HasIndex(p => p.UrlFragment)
+            .HasDatabaseName("IX_XboxCdnPatterns_UrlFragment")
             .IsUnique();
 
         // GameImage indexes

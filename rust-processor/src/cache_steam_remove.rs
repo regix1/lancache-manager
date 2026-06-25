@@ -6,7 +6,7 @@ use serde::Serialize;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 mod cache_utils;
 mod cancel;
@@ -18,15 +18,23 @@ mod models;
 mod parser;
 mod progress_events;
 mod progress_utils;
+mod removal_core;
 mod service_utils;
 mod tact_products;
 
-use log_purge::remove_log_entries_for_game;
+use removal_core::{ProgressCadence, RemovalStageKeys};
 
-/// Game cache removal utility - removes all cache files for a specific game
+/// Steam game cache removal utility - removes all cache files for a specific game.
+///
+/// Unlike the other removal bins, Steam removal carries a depot-safety HEAD: cache-file
+/// URL selection and the access.log purge are both narrowed to depots EXCLUSIVELY owned
+/// by the target game, so removing one game never strips another game's cache slices or
+/// HIT/MISS log lines (depots are many-to-one with AppId). The shared delete/cleanup/
+/// purge/permission tail lives in `removal_core`; this bin owns the depot head, the
+/// `--skip-file-probe` fast path, and the depot-bearing report.
 #[derive(clap::Parser, Debug)]
-#[command(name = "cache_game_remove")]
-#[command(about = "Removes all cache files for a specific game by scanning logs")]
+#[command(name = "cache_steam_remove")]
+#[command(about = "Removes all cache files for a specific Steam game by scanning logs")]
 struct Args {
     /// Directory containing log files
     log_dir: String,
@@ -51,42 +59,12 @@ struct Args {
     skip_file_probe: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProgressData {
-    status: String,
-    stage_key: String,
-    context: serde_json::Value,
-    #[serde(rename = "percentComplete")]
-    percent_complete: f64,
-    #[serde(rename = "filesProcessed")]
-    files_processed: usize,
-    #[serde(rename = "totalFiles")]
-    total_files: usize,
-    timestamp: String,
-}
-
-fn write_progress(
-    progress_path: &Path,
-    status: &str,
-    stage_key: &str,
-    context: serde_json::Value,
-    percent_complete: f64,
-    files_processed: usize,
-    total_files: usize,
-) -> Result<()> {
-    let progress = ProgressData {
-        status: status.to_string(),
-        stage_key: stage_key.to_string(),
-        context,
-        percent_complete,
-        files_processed,
-        total_files,
-        timestamp: progress_utils::current_timestamp(),
-    };
-
-    progress_utils::write_progress_json(progress_path, &progress)
-}
+/// Steam removal stage keys (`signalr.gameRemove.*`). Only the per-file cache progress
+/// key is consumed by `removal_core`; the remaining lifecycle keys are emitted directly
+/// in `main` below with the same literal strings as before.
+const STEAM_STAGE_KEYS: RemovalStageKeys = RemovalStageKeys {
+    cache_file_progress: "signalr.gameRemove.cache.file.progress",
+};
 
 #[derive(Debug, Serialize)]
 struct RemovalReport {
@@ -115,6 +93,9 @@ async fn get_game_name_from_db(pool: &PgPool, game_app_id: u32) -> Result<String
     Ok(game_name)
 }
 
+/// Query the database for all URLs (and their depot ids) owned by this Steam game.
+/// Returns: HashMap<URL, (service_lowercase, max_bytes_served, depot_ids)>. The depot
+/// set rides along for the final report; cache-file deletion uses only (service, url).
 async fn get_game_urls_from_db(pool: &PgPool, game_app_id: u32) -> Result<HashMap<String, (String, i64, HashSet<u32>)>> {
     eprintln!("Querying database for game URLs and depot IDs...");
 
@@ -124,7 +105,7 @@ async fn get_game_urls_from_db(pool: &PgPool, game_app_id: u32) -> Result<HashMa
     // DepotId is many-to-one with AppId (shared / mis-mapped depots; SteamDepotMappings has no
     // unique index on DepotId, and orphan-resolution `depotId-1/-2` can attach a depot to the
     // wrong app). A bare DepotId join therefore pulls in URLs that ANOTHER game downloaded from a
-    // depot that also maps to this AppId, and `remove_cache_files_for_game` would then delete that
+    // depot that also maps to this AppId, and `remove_cache_files` would then delete that
     // other game's cache files. Mirror the C# `safeDepotIds` idea here at the source: exclude any
     // DepotId that ALSO belongs to a different AppId so cache-file URL selection stays anchored to
     // depots EXCLUSIVELY owned by this game.
@@ -332,171 +313,6 @@ async fn delete_game_from_database(pool: &PgPool, game_app_id: u32) -> Result<u6
     Ok(downloads_deleted)
 }
 
-fn remove_cache_files_for_game(
-    cache_dir: &Path,
-    url_data: &HashMap<String, (String, i64, HashSet<u32>)>,
-    progress_path: &Path,
-) -> Result<(usize, u64, HashSet<PathBuf>, usize)> {  // Returns (deleted, bytes, dirs, permission_errors)
-    use rayon::prelude::*;
-    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-    use std::sync::Mutex;
-
-    let deleted_files = AtomicUsize::new(0);
-    let bytes_freed = AtomicU64::new(0);
-    let permission_errors = AtomicUsize::new(0);
-    let parent_dirs = Mutex::new(HashSet::new());
-
-    eprintln!("Collecting cache file paths for deletion...");
-
-    // Collect all paths to delete (without actually checking existence yet)
-    let paths_to_check: Vec<_> = url_data
-        .par_iter()
-        .flat_map(|(url, (service, total_bytes, _depot_ids))| {
-            cache_utils::cache_path_candidates_for_bytes(cache_dir, service, url, *total_bytes)
-                .into_iter()
-                .map(|path| (path, false))
-                .collect::<Vec<_>>()
-        })
-        .collect();
-
-    let total_paths = paths_to_check.len();
-    eprintln!("Checking {} potential cache file locations...", total_paths);
-
-    // Track how many paths have been checked for progress (not just deleted)
-    let paths_checked = AtomicUsize::new(0);
-    // Track last reported percent to avoid writing progress too frequently
-    let last_reported_percent = AtomicUsize::new(0);
-
-    // Parallel deletion with progress reporting
-    paths_to_check.par_iter().for_each(|(path, _is_chunked)| {
-        // Cooperative cancellation: skip remaining files if cancel was requested.
-        // Already-deleted files stay deleted — consistent partial state that C# reconciles.
-        if cancel::is_cancelled() {
-            return;
-        }
-
-        let checked = paths_checked.fetch_add(1, Ordering::Relaxed) + 1;
-
-        if path.exists() {
-            // Refuse to follow symlinks or delete anything outside the cache root.
-            if let Err(e) = cache_utils::safe_path_under_root(cache_dir, path) {
-                eprintln!("  skipping unsafe path {}: {}", path.display(), e);
-                return;
-            }
-
-            // Get size before deleting
-            if let Ok(metadata) = fs::metadata(path) {
-                bytes_freed.fetch_add(metadata.len(), Ordering::Relaxed);
-            }
-
-            // Delete the file
-            match fs::remove_file(path) {
-                Ok(_) => {
-                    let count = deleted_files.fetch_add(1, Ordering::Relaxed) + 1;
-
-                    // Track parent directory for cleanup
-                    if let Some(parent) = path.parent() {
-                        match parent_dirs.lock() {
-                            Ok(mut dirs) => {
-                                dirs.insert(parent.to_path_buf());
-                            }
-                            Err(err) => {
-                                eprintln!("  Warning: failed to track parent directory after delete: {}", err);
-                            }
-                        }
-                    }
-
-                    // Progress reporting every 100 files
-                    if count % 100 == 0 {
-                        let bytes = bytes_freed.load(Ordering::Relaxed);
-                        eprintln!(
-                            "  Deleted {} cache files... ({:.2} MB freed)",
-                            count,
-                            bytes as f64 / 1_048_576.0
-                        );
-                    }
-                }
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::PermissionDenied {
-                        let err_count = permission_errors.fetch_add(1, Ordering::Relaxed) + 1;
-                        if err_count <= 5 {
-                            eprintln!("  ERROR: Permission denied deleting {}: {}", path.display(), e);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Report granular progress during the removal phase (10% - 70%).
-        // Write on EITHER an integer-percent advance OR every 8th file probed,
-        // so small games still emit motion during the short window where the
-        // C# poller (500ms) and frontend SignalR can observe updates.
-        if total_paths > 0 {
-            let current_pct = (checked * 100) / total_paths;
-            let prev_pct = last_reported_percent.load(Ordering::Relaxed);
-            let advanced_percent = current_pct > prev_pct;
-            let every_n_files = checked & 0x7 == 0; // every 8 files
-            if advanced_percent || every_n_files {
-                let should_write = if advanced_percent {
-                    last_reported_percent
-                        .compare_exchange(prev_pct, current_pct, Ordering::SeqCst, Ordering::Relaxed)
-                        .is_ok()
-                } else {
-                    true
-                };
-                if should_write {
-                    let overall_percent = 10.0 + (checked as f64 / total_paths as f64) * 60.0;
-                    let del_count = deleted_files.load(Ordering::Relaxed);
-                    let _ = bytes_freed.load(Ordering::Relaxed);
-                    let _ = write_progress(progress_path, "removing_cache", "signalr.gameRemove.cache.file.progress", json!({ "n": del_count, "total": total_paths }), overall_percent, del_count, total_paths);
-                }
-            }
-        }
-    });
-
-    let final_deleted = deleted_files.load(Ordering::Relaxed);
-    let final_bytes = bytes_freed.load(Ordering::Relaxed);
-    let final_dirs = match parent_dirs.into_inner() {
-        Ok(dirs) => dirs,
-        Err(err) => {
-            eprintln!(
-                "  Warning: parent directory tracker was poisoned; continuing with recovered set"
-            );
-            err.into_inner()
-        }
-    };
-    let final_permission_errors = permission_errors.load(Ordering::Relaxed);
-
-    if final_permission_errors > 5 {
-        eprintln!("  ... and {} more permission errors", final_permission_errors - 5);
-    }
-    if final_permission_errors > 0 {
-        eprintln!("  Total permission errors: {}", final_permission_errors);
-    }
-
-    // After the parallel deletion phase: if cancellation was requested, flush a partial
-    // progress event with real counts and return so main() can exit 0.
-    // The C# side will re-run detection/reconciliation after a cancelled remove.
-    if cancel::is_cancelled() {
-        eprintln!("Cancellation requested — flushing partial progress and stopping.");
-        let _ = write_progress(
-            progress_path,
-            "removing_cache",
-            "signalr.gameRemove.cache.file.progress",
-            json!({ "n": final_deleted, "total": total_paths }),
-            10.0 + (paths_checked.load(Ordering::Relaxed) as f64 / total_paths.max(1) as f64) * 60.0,
-            final_deleted,
-            total_paths,
-        );
-        return Ok((final_deleted, final_bytes, final_dirs, final_permission_errors));
-    }
-
-    Ok((final_deleted, final_bytes, final_dirs, final_permission_errors))
-}
-
-// `remove_log_entries_for_game` now lives in `log_purge.rs` and is shared with
-// `cache_purge_log_entries`. See the top-of-file `use log_purge::...` import.
-
 #[tokio::main]
 async fn main() -> Result<()> {
     cancel::install();
@@ -529,10 +345,10 @@ async fn main() -> Result<()> {
     let game_name = get_game_name_from_db(&pool, game_app_id).await?;
     eprintln!("Game: {}", game_name);
 
-    write_progress(&progress_path, "starting", "signalr.gameRemove.starting", json!({ "gameName": game_name, "gameAppId": game_app_id }), 0.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, "starting", "signalr.gameRemove.starting", json!({ "gameName": game_name, "gameAppId": game_app_id }), 0.0, 0, 0)?;
 
     // Get valid depot IDs for this game from database
-    write_progress(&progress_path, "querying_database", "signalr.gameRemove.db.querying", json!({}), 5.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, "querying_database", "signalr.gameRemove.db.querying", json!({}), 5.0, 0, 0)?;
     let valid_depot_ids = get_game_depot_ids(&pool, game_app_id).await?;
     eprintln!("Valid depot IDs for this game: {:?}", valid_depot_ids);
 
@@ -540,7 +356,7 @@ async fn main() -> Result<()> {
     // The log predicate (log_purge.rs) removes any line whose `depot_id ∈ valid_depot_ids`, so a
     // depot shared with another AppId (SteamDepotMappings AppId<>$1) or another game's Downloads
     // (GameAppId<>$1) would strip THAT game's HIT/MISS lines. Subtract the shared set; the result
-    // (`safe_depot_ids`) is what we hand to remove_log_entries_for_game below. This mirrors the C#
+    // (`safe_depot_ids`) is what we hand to the log purge below. This mirrors the C#
     // `safeDepotIds` guard. Cache-file URL selection is narrowed separately inside
     // get_game_urls_from_db (Query 1), so deletion and the log rewrite stay in the same scope.
     //
@@ -583,7 +399,7 @@ async fn main() -> Result<()> {
         fs::write(&output_json, json)?;
         eprintln!("Report saved to: {}", output_json.display());
 
-        write_progress(&progress_path, "completed", "signalr.gameRemove.noUrls", json!({}), 100.0, 0, 0)?;
+        removal_core::write_progress(&progress_path, "completed", "signalr.gameRemove.noUrls", json!({}), 100.0, 0, 0)?;
         return Ok(());
     }
 
@@ -595,38 +411,52 @@ async fn main() -> Result<()> {
     // The log rewrite and DB cleanup below still run unconditionally.
     let (deleted_files, bytes_freed, empty_dirs_removed, cache_permission_errors) = if args.skip_file_probe {
         eprintln!("\nSkipping cache file probe for {} URLs (fully evicted game)", url_data.len());
-        write_progress(&progress_path, "removing_cache", "signalr.gameRemove.cache.skippedEvicted", json!({}), 10.0, 0, 0)?;
-        write_progress(&progress_path, "cleaning_directories", "signalr.gameRemove.dirs.skippedEvicted", json!({}), 70.0, 0, 0)?;
+        removal_core::write_progress(&progress_path, "removing_cache", "signalr.gameRemove.cache.skippedEvicted", json!({}), 10.0, 0, 0)?;
+        removal_core::write_progress(&progress_path, "cleaning_directories", "signalr.gameRemove.dirs.skippedEvicted", json!({}), 70.0, 0, 0)?;
         (0usize, 0u64, 0usize, 0usize)
     } else {
         let count = url_data.len();
-        write_progress(&progress_path, "removing_cache", "signalr.gameRemove.cache.removing", json!({ "count": count }), 10.0, 0, 0)?;
+        removal_core::write_progress(&progress_path, "removing_cache", "signalr.gameRemove.cache.removing", json!({ "count": count }), 10.0, 0, 0)?;
         eprintln!("\nRemoving cache files...");
-        let (deleted, bytes, parent_dirs, cache_errs) =
-            remove_cache_files_for_game(&cache_dir, &url_data, &progress_path)?;
+
+        // Steam shares the parallel-delete tail with every other bin; it just feeds a
+        // (service, bytes) view of its (service, bytes, depots) map and uses the Steam
+        // cadence (percent-advance OR every 8th probe). The depot set rides along in the
+        // report below; cache-file deletion is purely (service, url) based.
+        let url_data_for_delete: HashMap<String, (String, i64)> = url_data
+            .iter()
+            .map(|(url, (service, bytes, _depots))| (url.clone(), (service.clone(), *bytes)))
+            .collect();
+        let outcome = removal_core::remove_cache_files(
+            &cache_dir,
+            &url_data_for_delete,
+            &progress_path,
+            &STEAM_STAGE_KEYS,
+            ProgressCadence::OnPercentAdvanceOrEveryEighth,
+        )?;
 
         // If cancellation arrived during cache removal, finish directory cleanup of dirs
         // already collected, then exit 0.  Log/DB work is skipped — C# re-runs detection.
         if cancel::is_cancelled() {
             eprintln!("Cancellation confirmed — cleaning up partial directories and exiting.");
-            cache_utils::cleanup_empty_directories(&cache_dir, parent_dirs);
+            cache_utils::cleanup_empty_directories(&cache_dir, outcome.parent_dirs);
             return Ok(());
         }
 
-        write_progress(&progress_path, "cleaning_directories", "signalr.gameRemove.dirs.cleaning", json!({}), 70.0, 0, 0)?;
+        removal_core::write_progress(&progress_path, "cleaning_directories", "signalr.gameRemove.dirs.cleaning", json!({}), 70.0, 0, 0)?;
         eprintln!("\nCleaning up empty directories...");
-        let empty_dirs = cache_utils::cleanup_empty_directories(&cache_dir, parent_dirs);
-        (deleted, bytes, empty_dirs, cache_errs)
+        let empty_dirs = cache_utils::cleanup_empty_directories(&cache_dir, outcome.parent_dirs);
+        (outcome.deleted_files, outcome.bytes_freed, empty_dirs, outcome.permission_errors)
     };
 
     // Remove log entries for this game. Per-file progress fills the 80-90% band
     // so fast --skip-file-probe runs still surface visible stages.
-    write_progress(&progress_path, "removing_logs", "signalr.gameRemove.logs.removing", json!({}), 80.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, "removing_logs", "signalr.gameRemove.logs.removing", json!({}), 80.0, 0, 0)?;
     eprintln!("\nRemoving log entries...");
     let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
     let log_file_progress = |processed: usize, total: usize| {
         let percent = 80.0 + (processed as f64 / total.max(1) as f64) * 10.0;
-        let _ = write_progress(
+        let _ = removal_core::write_progress(
             &progress_path,
             "removing_logs",
             "signalr.gameRemove.logs.fileProgress",
@@ -638,20 +468,24 @@ async fn main() -> Result<()> {
     };
     // Use the narrowed `safe_depot_ids` (exclusively-owned depots) for the log purge so shared-depot
     // lines belonging to OTHER games are not stripped. This call runs for both the normal and the
-    // `--skip-file-probe` fast path, so the fast path inherits the same cross-game safety.
-    let (log_entries_removed, log_permission_errors) = remove_log_entries_for_game(&log_dir, &urls_to_remove, &safe_depot_ids, Some(&log_file_progress))?;
+    // `--skip-file-probe` fast path, so the fast path inherits the same cross-game safety. This
+    // depot-scoped purge is the one tail divergence Steam carries; every other bin purges url-only
+    // (removal_core::LogScope::Urls). Steam calls log_purge directly so it can also pass the
+    // per-file progress callback that fills the 80-90% band.
+    let (log_entries_removed, log_permission_errors) = log_purge::remove_log_entries_for_game(
+        &log_dir,
+        &urls_to_remove,
+        &safe_depot_ids,
+        Some(&log_file_progress),
+    )?;
 
     // CRITICAL: Check for permission errors before deleting database records
     let total_permission_errors = cache_permission_errors + log_permission_errors;
     if total_permission_errors > 0 {
-        let puid = std::env::var("PUID").unwrap_or_else(|_| "1000".to_string());
-        let pgid = std::env::var("PGID").unwrap_or_else(|_| "1000".to_string());
-        let error_msg = format!(
-            "ABORTED: Cannot delete database records because {} file(s) could not be modified due to permission errors. \
-            This is likely caused by incorrect PUID/PGID settings. The lancache container is configured to run as UID/GID {}:{}. \
-            Please check your docker-compose.yml and ensure PUID and PGID match the cache file ownership. \
-            Cache permission errors: {}, Log permission errors: {}",
-            total_permission_errors, puid, pgid, cache_permission_errors, log_permission_errors
+        let error_msg = removal_core::permission_error_message(
+            total_permission_errors,
+            cache_permission_errors,
+            log_permission_errors,
         );
         eprintln!("\n{}", error_msg);
 
@@ -668,12 +502,12 @@ async fn main() -> Result<()> {
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
 
-        write_progress(&progress_path, "failed", "signalr.gameRemove.error.fatal", json!({ "errorDetail": error_msg }), 90.0, 0, 0)?;
+        removal_core::write_progress(&progress_path, "failed", "signalr.gameRemove.error.fatal", json!({ "errorDetail": error_msg }), 90.0, 0, 0)?;
         anyhow::bail!("{}", error_msg);
     }
 
     // Delete database records for this game (only if no permission errors)
-    write_progress(&progress_path, "removing_database", "signalr.gameRemove.db.deleting", json!({}), 90.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, "removing_database", "signalr.gameRemove.db.deleting", json!({}), 90.0, 0, 0)?;
     eprintln!("\nRemoving database records...");
     let _db_records_deleted = delete_game_from_database(&pool, game_app_id).await?;
 
@@ -696,7 +530,7 @@ async fn main() -> Result<()> {
     let json = serde_json::to_string_pretty(&report)?;
     fs::write(&output_json, json)?;
 
-    write_progress(&progress_path, "completed", "signalr.gameRemove.complete", json!({ "files": report.cache_files_deleted, "gb": report.total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": report.log_entries_removed, "gameName": game_name, "gameAppId": game_app_id }), 100.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, "completed", "signalr.gameRemove.complete", json!({ "files": report.cache_files_deleted, "gb": report.total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": report.log_entries_removed, "gameName": game_name, "gameAppId": game_app_id }), 100.0, 0, 0)?;
 
     eprintln!("\n=== Removal Summary ===");
     eprintln!("Cache files deleted: {}", report.cache_files_deleted);

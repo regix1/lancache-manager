@@ -477,6 +477,14 @@ const DEPENDENCY_REPOS: GitHubRepo[] = [
     descriptionKey: 'nav.githubProjects.repos.riotPrefillDaemon',
     type: 'dependency',
     isFork: true
+  },
+  {
+    name: 'Xbox Prefill Daemon',
+    shortName: 'xbox-prefill-daemon',
+    url: 'https://github.com/regix1/xbox-prefill-daemon',
+    descriptionKey: 'nav.githubProjects.repos.xboxPrefillDaemon',
+    type: 'dependency',
+    isFork: true
   }
 ];
 

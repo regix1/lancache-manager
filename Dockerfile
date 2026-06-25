@@ -24,9 +24,11 @@ RUN mkdir src && \
     echo "fn main() {}" > src/cache_clear.rs && \
     echo "fn main() {}" > src/cache_corruption.rs && \
     echo "fn main() {}" > src/cache_game_detect.rs && \
-    echo "fn main() {}" > src/cache_game_remove.rs && \
+    echo "fn main() {}" > src/cache_steam_remove.rs && \
     echo "fn main() {}" > src/cache_epic_remove.rs && \
-    echo "fn main() {}" > src/cache_named_game_remove.rs && \
+    echo "fn main() {}" > src/cache_blizzard_remove.rs && \
+    echo "fn main() {}" > src/cache_riot_remove.rs && \
+    echo "fn main() {}" > src/cache_xbox_remove.rs && \
     echo "fn main() {}" > src/cache_service_remove.rs && \
     echo "fn main() {}" > src/cache_eviction_scan.rs && \
     echo "fn main() {}" > src/cache_purge_log_entries.rs && \
@@ -50,9 +52,11 @@ RUN cargo build --release && \
     cp target/release/cache_clear /build/output/ && \
     cp target/release/cache_corruption /build/output/ && \
     cp target/release/cache_game_detect /build/output/ && \
-    cp target/release/cache_game_remove /build/output/ && \
+    cp target/release/cache_steam_remove /build/output/ && \
     cp target/release/cache_epic_remove /build/output/ && \
-    cp target/release/cache_named_game_remove /build/output/ && \
+    cp target/release/cache_blizzard_remove /build/output/ && \
+    cp target/release/cache_riot_remove /build/output/ && \
+    cp target/release/cache_xbox_remove /build/output/ && \
     cp target/release/cache_service_remove /build/output/ && \
     cp target/release/cache_eviction_scan /build/output/ && \
     cp target/release/cache_purge_log_entries /build/output/ && \

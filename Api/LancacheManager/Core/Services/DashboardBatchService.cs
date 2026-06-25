@@ -1053,7 +1053,22 @@ public class DashboardBatchService : IDashboardBatchService
                 .ToDictionaryAsync(m => m.AppId, m => m.Name)
             : new Dictionary<string, string>();
 
-        // Apply name resolution priority: existing GameName -> Steam AppName -> Epic Name -> fallback to Service
+        // Build Xbox game name lookup for Xbox downloads (named-style: GameName from the shared
+        // XboxGameMapping catalog keyed by XboxProductId metadata).
+        var xboxProductIds = downloads
+            .Where(d => !string.IsNullOrEmpty(d.XboxProductId))
+            .Select(d => d.XboxProductId!)
+            .Distinct()
+            .ToList();
+
+        var xboxMappings = xboxProductIds.Count > 0
+            ? await context.XboxGameMappings
+                .AsNoTracking()
+                .Where(m => xboxProductIds.Contains(m.ProductId))
+                .ToDictionaryAsync(m => m.ProductId, m => m.Title)
+            : new Dictionary<string, string>();
+
+        // Apply name resolution priority: existing GameName -> Steam AppName -> Epic Name -> Xbox Title -> fallback to Service
         foreach (var d in downloads)
         {
             if (string.IsNullOrEmpty(d.GameName) && d.DepotId.HasValue
@@ -1067,6 +1082,12 @@ public class DashboardBatchService : IDashboardBatchService
                 && epicMappings.TryGetValue(d.EpicAppId, out var epicName))
             {
                 d.GameName = epicName;
+            }
+
+            if (string.IsNullOrEmpty(d.GameName) && !string.IsNullOrEmpty(d.XboxProductId)
+                && xboxMappings.TryGetValue(d.XboxProductId, out var xboxTitle))
+            {
+                d.GameName = xboxTitle;
             }
 
             if (string.IsNullOrEmpty(d.GameName))

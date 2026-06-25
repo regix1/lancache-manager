@@ -51,20 +51,29 @@ path = "src/cache_corruption.rs"
 name = "cache_game_detect"
 path = "src/cache_game_detect.rs"
 
-# Remove all cache files for a specific game
+# Remove all cache files for a specific Steam game (depot-safety scoped)
 [[bin]]
-name = "cache_game_remove"
-path = "src/cache_game_remove.rs"
+name = "cache_steam_remove"
+path = "src/cache_steam_remove.rs"
 
 # Remove all cache files for a specific Epic game by name
 [[bin]]
 name = "cache_epic_remove"
 path = "src/cache_epic_remove.rs"
 
-# Remove all cache files for a specific name-keyed (Blizzard/Riot) game by service + name
+# Per-service name-keyed removal bins (Blizzard/Riot/Xbox). Each is a thin wrapper
+# over the shared named-removal core (src/named_remove_core.rs); only the service is pinned.
 [[bin]]
-name = "cache_named_game_remove"
-path = "src/cache_named_game_remove.rs"
+name = "cache_blizzard_remove"
+path = "src/cache_blizzard_remove.rs"
+
+[[bin]]
+name = "cache_riot_remove"
+path = "src/cache_riot_remove.rs"
+
+[[bin]]
+name = "cache_xbox_remove"
+path = "src/cache_xbox_remove.rs"
 
 # Remove all cache files for a specific service (non-Steam)
 [[bin]]

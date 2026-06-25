@@ -75,6 +75,21 @@ const RIOT_EVENT_MAP: Record<string, string> = {
   CredentialChallenge: 'RiotCredentialChallenge'
 };
 
+/** Maps generic event names to service-specific event names for Xbox */
+const XBOX_EVENT_MAP: Record<string, string> = {
+  AuthStateChanged: 'XboxAuthStateChanged',
+  SessionSubscribed: 'SessionSubscribed',
+  SessionEnded: 'XboxSessionEnded',
+  DaemonSessionTerminated: 'XboxDaemonSessionTerminated',
+  PrefillProgress: 'XboxPrefillProgress',
+  StatusChanged: 'XboxStatusChanged',
+  PrefillStateChanged: 'XboxPrefillStateChanged',
+  DaemonSessionCreated: 'XboxDaemonSessionCreated',
+  DaemonSessionUpdated: 'XboxDaemonSessionUpdated',
+  PrefillHistoryUpdated: 'XboxPrefillHistoryUpdated',
+  CredentialChallenge: 'XboxCredentialChallenge'
+};
+
 /** Resolves a generic SignalR event name to a service-specific name */
 export function getEventName(base: string, serviceId: string): string {
   if (serviceId === 'epic') {
@@ -85,6 +100,9 @@ export function getEventName(base: string, serviceId: string): string {
   }
   if (serviceId === 'riot') {
     return RIOT_EVENT_MAP[base] ?? base;
+  }
+  if (serviceId === 'xbox') {
+    return XBOX_EVENT_MAP[base] ?? base;
   }
   return base;
 }

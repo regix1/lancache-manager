@@ -33,6 +33,14 @@ public class Download : IUtcMarkable
     public string? EpicAppId { get; set; } // Epic Games app ID (string, unlike Steam's uint)
 
     /// <summary>
+    /// Xbox / Microsoft Store ProductId (e.g. "9N..."). METADATA ONLY - carried for the
+    /// DisplayCatalog art fetch and the GUID-to-name mapping. It is NOT the detection identity:
+    /// a matched Xbox download canonicalizes to Service='xbox' + GameName=&lt;title&gt; with
+    /// GameAppId=NULL and EpicAppId=NULL (named-style, like Blizzard/Riot). No synthetic appId.
+    /// </summary>
+    public string? XboxProductId { get; set; }
+
+    /// <summary>
     /// The datasource this download belongs to (for multi-datasource support).
     /// Defaults to "default" for backward compatibility.
     /// </summary>

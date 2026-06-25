@@ -586,6 +586,7 @@ class ThemeService {
     const epic = colors.epicColor!;
     const blizzard = colors.blizzardColor!;
     const riot = colors.riotColor!;
+    const xbox = colors.xboxColor!;
     const buttonBg = colors.buttonBg!;
     const actionDelete = colors.actionDeleteBg!;
     const actionProcess = colors.actionProcessBg!;
@@ -696,6 +697,10 @@ class ThemeService {
       --theme-riot-faint: ${v('riotFaint', rgba(riot, 0.1))};
       --theme-riot-on-border: ${v('riotOnBorder', rgba(riot, 0.5))};
       --theme-riot-strong: ${v('riotStrong', rgba(riot, 0.3))};
+      --theme-xbox-subtle: ${v('xboxSubtle', rgba(xbox, 0.15))};
+      --theme-xbox-faint: ${v('xboxFaint', rgba(xbox, 0.1))};
+      --theme-xbox-on-border: ${v('xboxOnBorder', rgba(xbox, 0.5))};
+      --theme-xbox-strong: ${v('xboxStrong', rgba(xbox, 0.3))};
 
       /* Icon Backgrounds */
       --theme-icon-blue-subtle: ${v('iconBlueSubtle', rgba(iconBlue, 0.15))};

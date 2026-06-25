@@ -20,7 +20,21 @@ import type { LogEntryType, LogEntry } from './ActivityLog.utils';
 interface ActivityLogProps {
   entries: LogEntry[];
   className?: string;
+  /** Service whose accent colors the auth-log rows (defaults to Steam). */
+  serviceId?: string;
 }
+
+// Per-service accent variables for the auth log row, set on the ActivityLog root so the Xbox
+// device-code (and Epic/Riot/BN) auth entries aren't tinted Steam-blue. Unknown ids fall back
+// to Steam. The `auth` typeStyle reads these vars (with a Steam default) so the memoized
+// module-level LogIcon stays untouched.
+const AUTH_ACCENT_VARS: Record<string, { color: string; bgColor: string }> = {
+  steam: { color: 'var(--theme-steam)', bgColor: 'var(--theme-steam-subtle)' },
+  epic: { color: 'var(--theme-epic)', bgColor: 'var(--theme-epic-subtle)' },
+  battlenet: { color: 'var(--theme-blizzard)', bgColor: 'var(--theme-blizzard-subtle)' },
+  riot: { color: 'var(--theme-riot)', bgColor: 'var(--theme-riot-subtle)' },
+  xbox: { color: 'var(--theme-xbox)', bgColor: 'var(--theme-xbox-subtle)' }
+};
 
 // Type-to-style mapping using theme-aware CSS custom properties for backgrounds
 const typeStyles: Record<LogEntryType, { color: string; bgColor: string; icon: typeof Info }> = {
@@ -45,8 +59,8 @@ const typeStyles: Record<LogEntryType, { color: string; bgColor: string; icon: t
     icon: Download
   },
   auth: {
-    color: 'var(--theme-steam)',
-    bgColor: 'var(--theme-steam-subtle)',
+    color: 'var(--prefill-auth-accent, var(--theme-steam))',
+    bgColor: 'var(--prefill-auth-accent-bg, var(--theme-steam-subtle))',
     icon: LogIn
   },
   progress: {
@@ -139,11 +153,12 @@ LogEntryRow.displayName = 'LogEntryRow';
 
 const ENTRIES_PER_PAGE = 10;
 
-export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
+export function ActivityLog({ entries, className = '', serviceId = 'steam' }: ActivityLogProps) {
   const { t, i18n } = useTranslation();
   const shouldAutoScroll = useRef(true);
   const [currentPage, setCurrentPage] = useState(1);
   const locale = i18n.language || 'en-US';
+  const authAccent = AUTH_ACCENT_VARS[serviceId] ?? AUTH_ACCENT_VARS.steam;
 
   // Controlled pagination via shared hook; hook handles clamping and slice math.
   const { totalPages, paginatedItems: visibleEntries } = usePaginatedList<LogEntry>({
@@ -175,6 +190,12 @@ export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
   return (
     <div
       className={`${className} bg-[var(--theme-bg-tertiary)] rounded-xl border border-[var(--theme-border-secondary)] overflow-hidden`}
+      style={
+        {
+          '--prefill-auth-accent': authAccent.color,
+          '--prefill-auth-accent-bg': authAccent.bgColor
+        } as React.CSSProperties
+      }
     >
       {entries.length === 0 ? (
         /* Empty State */

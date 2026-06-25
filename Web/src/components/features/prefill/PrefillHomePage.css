@@ -124,6 +124,14 @@
   --service-accent-subtle: var(--theme-riot-subtle);
 }
 
+.prefill-service-card--xbox {
+  --service-accent: var(--theme-xbox);
+  --service-accent-on-border: var(--theme-xbox-on-border);
+  --service-accent-faint: var(--theme-xbox-faint);
+  --service-accent-strong: var(--theme-xbox-strong);
+  --service-accent-subtle: var(--theme-xbox-subtle);
+}
+
 /* Z-index for card content above glow */
 .prefill-service-card > * {
   position: relative;

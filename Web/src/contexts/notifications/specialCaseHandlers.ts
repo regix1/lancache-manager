@@ -14,6 +14,8 @@ import type {
   DatabaseResetProgressEvent,
   EpicMappingProgressEvent,
   EpicGameMappingsUpdatedEvent,
+  XboxMappingProgressEvent,
+  XboxGameMappingsUpdatedEvent,
   SteamSessionErrorEvent
 } from '../SignalRContext/types';
 
@@ -42,7 +44,10 @@ import {
   formatDepotMappingProgressMessage,
   formatEpicMappingProgressMessage,
   formatEpicMappingCompleteMessage,
-  formatEpicGameMappingsUpdatedMessage
+  formatEpicGameMappingsUpdatedMessage,
+  formatXboxMappingProgressMessage,
+  formatXboxMappingCompleteMessage,
+  formatXboxGameMappingsUpdatedMessage
 } from './detailMessageFormatters';
 
 /**
@@ -72,6 +77,8 @@ export interface SpecialCaseHandlers {
   handleDatabaseResetComplete: (event: DatabaseResetCompleteEvent) => void;
   handleEpicMappingProgress: (event: EpicMappingProgressEvent) => void;
   handleEpicGameMappingsUpdated: (event: EpicGameMappingsUpdatedEvent) => void;
+  handleXboxMappingProgress: (event: XboxMappingProgressEvent) => void;
+  handleXboxGameMappingsUpdated: (event: XboxGameMappingsUpdatedEvent) => void;
   handleSteamSessionError: (event: SteamSessionErrorEvent) => void;
 }
 
@@ -246,6 +253,57 @@ export function createSpecialCaseHandlers(
     scheduleAutoDismiss(NOTIFICATION_IDS.EPIC_GAME_MAPPING);
   };
 
+  // ========== Xbox Game Mapping (progress only via createStatusAwareProgressHandler) ==========
+  const handleXboxMappingProgress = createStatusAwareProgressHandler<XboxMappingProgressEvent>(
+    {
+      type: 'xbox_game_mapping',
+      getId: () => NOTIFICATION_IDS.XBOX_GAME_MAPPING,
+      storageKey: NOTIFICATION_STORAGE_KEYS.XBOX_GAME_MAPPING,
+      getMessage: formatXboxMappingProgressMessage,
+      getProgress: (e) => e.percentComplete || 0,
+      getStatus: (e) =>
+        e.status === 'completed' ? 'completed' : e.status === 'failed' ? 'failed' : undefined,
+      getCompletedMessage: (e) =>
+        e.cancelled ? i18n.t('signalr.xboxMapping.cancelled') : formatXboxMappingCompleteMessage(e),
+      getErrorMessage: (e) => i18n.t(e.stageKey ?? 'signalr.xboxMapping.failed', e.context ?? {}),
+      supportFastCompletion: true,
+      getDetails: (e) => ({ operationId: e.operationId, cancelled: e.cancelled })
+    },
+    setNotifications,
+    scheduleAutoDismiss,
+    cancelAutoDismissTimer
+  );
+
+  // ========== Xbox Game Mappings Updated ==========
+  // Simple one-shot completion notification: no start/progress phases, just a completion event.
+  // Only shows a notification when there are actual changes (new or updated games).
+  const handleXboxGameMappingsUpdated = (event: XboxGameMappingsUpdatedEvent) => {
+    if (!event.newGames && !event.updatedGames) return;
+
+    const detailMessage = formatXboxGameMappingsUpdatedMessage(event);
+
+    setNotifications((prev: UnifiedNotification[]) => {
+      const filtered = prev.filter((n) => n.id !== NOTIFICATION_IDS.XBOX_GAME_MAPPING);
+      const newNotification: UnifiedNotification = {
+        id: NOTIFICATION_IDS.XBOX_GAME_MAPPING,
+        type: 'xbox_game_mapping',
+        status: 'completed',
+        message: 'Xbox Games Updated',
+        detailMessage,
+        startedAt: new Date(),
+        progress: 100,
+        details: {
+          totalXboxGames: event.totalGames,
+          newXboxGames: event.newGames,
+          updatedXboxGames: event.updatedGames
+        }
+      };
+      return [...filtered, newNotification];
+    });
+
+    scheduleAutoDismiss(NOTIFICATION_IDS.XBOX_GAME_MAPPING);
+  };
+
   // ========== Steam Session Error ==========
   // One-shot error display with auto-dismiss; uses fixed ID to prevent duplicates
   const handleSteamSessionError = (event: SteamSessionErrorEvent) => {
@@ -315,6 +373,8 @@ export function createSpecialCaseHandlers(
     handleDatabaseResetComplete,
     handleEpicMappingProgress,
     handleEpicGameMappingsUpdated,
+    handleXboxMappingProgress,
+    handleXboxGameMappingsUpdated,
     handleSteamSessionError
   };
 }

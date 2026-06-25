@@ -19,9 +19,11 @@ $Binaries = @(
     "cache_clear",             # Clear entire cache (was cache_cleaner)
     "cache_corruption",        # Detect/remove corrupted chunks (was corruption_manager)
     "cache_game_detect",       # Detect games in cache (was game_cache_detector)
-    "cache_game_remove",       # Remove game from cache (was game_cache_remover)
+    "cache_steam_remove",      # Remove Steam game from cache (depot-safety scoped; was cache_game_remove)
     "cache_epic_remove",       # Remove Epic game from cache by name
-    "cache_named_game_remove", # Remove Blizzard/Riot named game from cache by name
+    "cache_blizzard_remove",   # Remove Blizzard named game from cache by name (thin wrapper over named core)
+    "cache_riot_remove",       # Remove Riot named game from cache by name (thin wrapper over named core)
+    "cache_xbox_remove",       # Remove Xbox named game from cache by name (thin wrapper over named core)
     "cache_service_remove",    # Remove service from cache (was service_remover)
     "cache_eviction_scan",     # Scan cache and mark evicted downloads
     "cache_purge_log_entries", # Bulk-purge access.log entries for evicted games

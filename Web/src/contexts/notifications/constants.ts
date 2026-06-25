@@ -24,6 +24,7 @@ export const OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE: Record<string, Notificati
   databaseReset: 'database_reset',
   logRemoval: 'log_removal',
   epicMapping: 'epic_game_mapping',
+  xboxMapping: 'xbox_game_mapping',
   evictionScan: 'eviction_scan',
   evictionRemoval: 'eviction_removal',
   cacheSizeScan: 'cache_size_scan'
@@ -87,6 +88,8 @@ export const NOTIFICATION_STORAGE_KEYS = {
   DATA_IMPORT: 'notification_data_import',
   /** Key for Epic game mapping operation state */
   EPIC_GAME_MAPPING: 'notification_epic_game_mapping',
+  /** Key for Xbox game mapping operation state */
+  XBOX_GAME_MAPPING: 'notification_xbox_game_mapping',
   /** Key for eviction scan operation state */
   EVICTION_SCAN: 'eviction-scan-storage',
   /** Key for eviction removal operation state */
@@ -129,6 +132,8 @@ export const NOTIFICATION_IDS = {
   DATA_IMPORT: 'data_import',
   /** ID for Epic game mapping updates */
   EPIC_GAME_MAPPING: 'epic_game_mapping',
+  /** ID for Xbox game mapping updates */
+  XBOX_GAME_MAPPING: 'xbox_game_mapping',
   /** ID for Steam session errors */
   STEAM_SESSION_ERROR: 'steam_session_error',
   /** ID for eviction scan operations */
