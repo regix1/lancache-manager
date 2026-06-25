@@ -874,9 +874,18 @@ app.Use(async (context, next) =>
     headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()";
     // Content-Security-Policy is REPORT-ONLY for now: it surfaces violations without blocking,
     // so it cannot break the SPA bundle. Promote to the enforcing "Content-Security-Policy"
-    // header once an inline-script audit of the bundle confirms nothing relies on inline JS.
+    // header once this has run clean in production for a while.
+    //   script-src pins the single inline bootstrap script in index.html (the anti-FOUC theme
+    //     preloader) by sha256 hash, so scripts stay locked down without 'unsafe-inline'.
+    //     Regenerate this hash if that <script> block ever changes.
+    //   style-src needs 'unsafe-inline': React and chart.js mutate element styles at runtime,
+    //     which CSP hashes/nonces cannot cover.
+    //   img-src needs blob: for the runtime-generated themed SVG favicon (Web/src/utils/favicon.ts).
     headers["Content-Security-Policy-Report-Only"] =
-        "default-src 'self'; img-src 'self' https: data:; connect-src 'self' ws: wss:; " +
+        "default-src 'self'; " +
+        "script-src 'self' 'sha256-SAxvfk+K4MeDHgAOLmC2tPmuwi84LZJI2iuI05nbePc='; " +
+        "style-src 'self' 'unsafe-inline'; " +
+        "img-src 'self' https: data: blob:; connect-src 'self' ws: wss:; " +
         "frame-ancestors 'none'; object-src 'none'; base-uri 'self'";
     await next();
 });
