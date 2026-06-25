@@ -1762,6 +1762,7 @@
         "monitoringMetrics": "Monitoring & Metrics",
         "epicIntegration": "Epic Games Integration",
         "riotIntegration": "Riot Integration",
+        "xboxIntegration": "Xbox Integration",
         "loadingEndpoints": "Loading endpoints...",
         "epicDaemonStatus": {
           "title": "Epic Games",
@@ -1859,6 +1860,41 @@
               }
             },
             "note": "No login required. The daemon container only needs Docker to be available to run prefill sessions."
+          }
+        },
+        "xboxDaemonStatus": {
+          "title": "Xbox",
+          "ready": "Ready",
+          "unavailable": "Unavailable",
+          "connected": "Connected",
+          "notConnected": "Not Connected",
+          "connectedAs": "Connected as {{name}}",
+          "connectedDesc": "This account's library is synced into the shared game library below",
+          "notConnectedDesc": "Log in to discover Xbox games and identify downloads",
+          "dockerStatus": "Docker Service",
+          "dockerAvailableDesc": "Docker is available and ready for Xbox prefill sessions",
+          "dockerUnavailableDesc": "Start Docker Desktop to enable Xbox authentication",
+          "loginButton": "Login with Xbox",
+          "loginDesc": "Sign in with your Microsoft account to discover your Xbox and Microsoft Store library for download identification",
+          "logout": "Logout",
+          "prefillSessions": "Prefill Sessions",
+          "loadError": "Failed to load Xbox status. Displaying default values.",
+          "noActiveSessions": "No active sessions",
+          "activeSessions": "{{count}} active session",
+          "activeSessions_plural": "{{count}} active sessions",
+          "help": {
+            "authentication": {
+              "title": "Xbox Authentication",
+              "loginRequired": {
+                "term": "Login Required",
+                "description": "Xbox requires a Microsoft account login to discover your Microsoft Store library. Sign-in uses a device code entered in your own browser, so no password is shared with this application."
+              },
+              "gameDiscovery": {
+                "term": "Game Discovery",
+                "description": "Once connected, your Microsoft Store library is scanned to identify cached downloads and match them to game titles."
+              }
+            },
+            "note": "An encrypted token is stored locally to allow automatic reconnection. It is used only for game library discovery."
           }
         },
         "epicGameMappings": {
@@ -3199,7 +3235,8 @@
         "steam": "Steam",
         "epic": "Epic",
         "battlenet": "Battle.net",
-        "riot": "Riot"
+        "riot": "Riot",
+        "xbox": "Xbox"
       },
       "errors": {
         "loadSessions": "Failed to load sessions",
@@ -3463,6 +3500,7 @@
     "titleEpic": "Epic Prefill",
     "titleBattlenet": "Battle.net Prefill",
     "titleRiot": "Riot Prefill",
+    "titleXbox": "Xbox Prefill",
     "subtitle": "Pre-download games to your cache",
     "endSession": "End Session",
     "home": {
@@ -3490,7 +3528,12 @@
       "riotFeature2": "No account or login required",
       "riotFeature3": "Force re-download and cache management",
       "riotNoLogin": "No account login required",
-      "requiresRiotLogin": "No account login required"
+      "requiresRiotLogin": "No account login required",
+      "xboxDescription": "Prefill your Xbox and Microsoft Store library, pre-downloading game content for the titles in your account.",
+      "xboxFeature1": "Prefill entire library or select specific games",
+      "xboxFeature2": "Microsoft Store and Game Pass titles",
+      "xboxFeature3": "Force re-download and cache management",
+      "requiresXboxLogin": "Browser-based device code login"
     },
     "startScreen": {
       "description": "Pre-download Steam games to your cache for faster LAN party downloads. Connect to your Steam library and prefill games before the event.",
@@ -3508,7 +3551,8 @@
       "loginRequired": "Steam Login Required",
       "canUsePrefill": "You can now use prefill commands",
       "authenticateToAccess": "Authenticate to access your game library",
-      "loginToSteam": "Login to Steam"
+      "loginToSteam": "Login to Steam",
+      "loginToXbox": "Login to Xbox"
     },
     "activityLog": {
       "title": "Activity Log",
@@ -3794,7 +3838,9 @@
       "creatingSession": "Creating prefill session...",
       "connectedExistingSession": "Connected to existing session",
       "sessionCreated": "Session created successfully",
-      "loginToSteamBeforePrefill": "Click \"Login to Steam\" to authenticate before using prefill commands"
+      "loginToSteamBeforePrefill": "Click \"Login to Steam\" to authenticate before using prefill commands",
+      "loginToXboxPrompt": "Please log in to Xbox to start prefilling",
+      "loginToXboxBeforePrefill": "Please log in to Xbox before starting prefill"
     },
     "gameSelection": {
       "title": "Select Games to Prefill",
@@ -3997,6 +4043,23 @@
       "actions": {
         "authenticating": "Authenticating...",
         "submitCode": "Submit Code",
+        "connecting": "Connecting...",
+        "continue": "Continue"
+      }
+    },
+    "xboxAuth": {
+      "title": "Xbox Authentication",
+      "signInTitle": "Sign in with your Microsoft account",
+      "signInDescription": "You'll get a short code to enter on Microsoft's verification page in your browser. After you approve, this app connects to your Xbox and Microsoft Store library.",
+      "securityNote": "Sign-in uses Microsoft's official device code flow. You enter your password only on Microsoft's website, and it is never shared with this application.",
+      "connectingTitle": "Connecting to Xbox...",
+      "connectingSubtitle": "Requesting a device code from Microsoft",
+      "enterCodeTitle": "Enter the Code on Microsoft",
+      "enterCodeDescription": "Open the Microsoft verification page and enter the code below to authorize access.",
+      "userCodeLabel": "Your Code",
+      "openVerification": "Open Microsoft Verification",
+      "waitingMessage": "Waiting for you to approve sign-in...",
+      "actions": {
         "connecting": "Connecting...",
         "continue": "Continue"
       }

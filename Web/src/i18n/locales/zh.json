@@ -1762,6 +1762,7 @@
         "monitoringMetrics": "监控与指标",
         "epicIntegration": "Epic Games 集成",
         "riotIntegration": "Riot 集成",
+        "xboxIntegration": "Xbox 集成",
         "loadingEndpoints": "加载端点中...",
         "epicDaemonStatus": {
           "title": "Epic Games",
@@ -1859,6 +1860,41 @@
               }
             },
             "note": "无需登录。守护进程容器仅需 Docker 可用即可运行预填充会话。"
+          }
+        },
+        "xboxDaemonStatus": {
+          "title": "Xbox",
+          "ready": "就绪",
+          "unavailable": "不可用",
+          "connected": "已连接",
+          "notConnected": "未连接",
+          "connectedAs": "已连接为 {{name}}",
+          "connectedDesc": "此账户的游戏库已同步到下方的共享游戏库",
+          "notConnectedDesc": "登录以发现 Xbox 游戏并识别下载",
+          "dockerStatus": "Docker 服务",
+          "dockerAvailableDesc": "Docker 可用并已准备好进行 Xbox 预填充会话",
+          "dockerUnavailableDesc": "启动 Docker Desktop 以启用 Xbox 认证",
+          "loginButton": "使用 Xbox 登录",
+          "loginDesc": "使用您的 Microsoft 账户登录以发现您的 Xbox 和 Microsoft Store 库用于下载识别",
+          "logout": "登出",
+          "prefillSessions": "预填充会话",
+          "loadError": "加载 Xbox 状态失败。显示默认值。",
+          "noActiveSessions": "没有活跃会话",
+          "activeSessions": "{{count}} 个活跃会话",
+          "activeSessions_plural": "{{count}} 个活跃会话",
+          "help": {
+            "authentication": {
+              "title": "Xbox 认证",
+              "loginRequired": {
+                "term": "需要登录",
+                "description": "Xbox 需要 Microsoft 账户登录才能发现您的 Microsoft Store 库。登录使用在您自己浏览器中输入的设备代码，因此不会与此应用共享密码。"
+              },
+              "gameDiscovery": {
+                "term": "游戏发现",
+                "description": "连接后，您的 Microsoft Store 库将被扫描以识别缓存的下载并将其匹配到游戏标题。"
+              }
+            },
+            "note": "加密的令牌存储在本地以允许自动重新连接。它仅用于游戏库发现。"
           }
         },
         "epicGameMappings": {
@@ -3199,7 +3235,8 @@
         "steam": "Steam",
         "epic": "Epic",
         "battlenet": "Battle.net",
-        "riot": "Riot"
+        "riot": "Riot",
+        "xbox": "Xbox"
       },
       "errors": {
         "loadSessions": "加载会话失败",
@@ -3463,6 +3500,7 @@
     "titleEpic": "Epic 预填充",
     "titleBattlenet": "Battle.net 预填充",
     "titleRiot": "Riot 预填充",
+    "titleXbox": "Xbox 预填充",
     "subtitle": "预下载游戏到缓存",
     "endSession": "结束会话",
     "home": {
@@ -3490,7 +3528,12 @@
       "riotFeature2": "无需账号或登录",
       "riotFeature3": "强制重新下载和缓存管理",
       "riotNoLogin": "无需账号登录",
-      "requiresRiotLogin": "无需账号登录"
+      "requiresRiotLogin": "无需账号登录",
+      "xboxDescription": "预填充您的 Xbox 和 Microsoft Store 库，为您账户中的游戏预先下载游戏内容。",
+      "xboxFeature1": "预填充整个库或选择特定游戏",
+      "xboxFeature2": "Microsoft Store 和 Game Pass 游戏",
+      "xboxFeature3": "强制重新下载和缓存管理",
+      "requiresXboxLogin": "基于浏览器的设备代码登录"
     },
     "startScreen": {
       "description": "将 Steam 游戏预下载到缓存，以加快 LAN 聚会下载速度。连接您的 Steam 库，在活动之前预填充游戏。",
@@ -3508,7 +3551,8 @@
       "loginRequired": "需要登录 Steam",
       "canUsePrefill": "您现在可以使用预填充命令",
       "authenticateToAccess": "验证身份以访问您的游戏库",
-      "loginToSteam": "登录 Steam"
+      "loginToSteam": "登录 Steam",
+      "loginToXbox": "登录 Xbox"
     },
     "activityLog": {
       "title": "活动日志",
@@ -3794,7 +3838,9 @@
       "creatingSession": "正在创建预填充会话...",
       "connectedExistingSession": "已连接到现有会话",
       "sessionCreated": "会话已成功创建",
-      "loginToSteamBeforePrefill": "在使用预填充命令前，点击\"登录 Steam\"进行身份验证"
+      "loginToSteamBeforePrefill": "在使用预填充命令前，点击\"登录 Steam\"进行身份验证",
+      "loginToXboxPrompt": "请登录 Xbox 以开始预填充",
+      "loginToXboxBeforePrefill": "请在开始预填充前登录 Xbox"
     },
     "gameSelection": {
       "title": "选择要预填充的游戏",
@@ -3997,6 +4043,23 @@
       "actions": {
         "authenticating": "认证中...",
         "submitCode": "提交代码",
+        "connecting": "连接中...",
+        "continue": "继续"
+      }
+    },
+    "xboxAuth": {
+      "title": "Xbox 认证",
+      "signInTitle": "使用您的 Microsoft 账户登录",
+      "signInDescription": "您将获得一个短代码，用于在浏览器中的 Microsoft 验证页面上输入。批准后，此应用将连接到您的 Xbox 和 Microsoft Store 库。",
+      "securityNote": "登录使用 Microsoft 的官方设备代码流程。您仅在 Microsoft 网站上输入密码，绝不会与此应用共享。",
+      "connectingTitle": "正在连接 Xbox...",
+      "connectingSubtitle": "正在向 Microsoft 请求设备代码",
+      "enterCodeTitle": "在 Microsoft 上输入代码",
+      "enterCodeDescription": "打开 Microsoft 验证页面并输入下方代码以授权访问。",
+      "userCodeLabel": "您的代码",
+      "openVerification": "打开 Microsoft 验证",
+      "waitingMessage": "正在等待您批准登录...",
+      "actions": {
         "connecting": "连接中...",
         "continue": "继续"
       }
