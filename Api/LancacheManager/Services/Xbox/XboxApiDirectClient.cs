@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -20,8 +22,8 @@ public class XboxApiDirectClient
 
     // Public, unauthenticated DisplayCatalog endpoint. fieldsTemplate=Details returns the
     // LocalizedProperties[].Images[] array that carries the banner art.
-    private const string DisplayCatalogUrlFormat =
-        "https://displaycatalog.mp.microsoft.com/v7.0/products?bigIds={0}&market=US&languages=en-us&fieldsTemplate=Details";
+    private static readonly CompositeFormat _displayCatalogUrlFormat = CompositeFormat.Parse(
+        "https://displaycatalog.mp.microsoft.com/v7.0/products?bigIds={0}&market=US&languages=en-us&fieldsTemplate=Details");
 
     // Resize the protocol-relative DisplayCatalog image to a Steam-quality banner width. GET only.
     private const string ImageResizeQuery = "?w=460&q=90&format=jpg";
@@ -64,7 +66,7 @@ public class XboxApiDirectClient
         DisplayCatalogResponse? catalog;
         try
         {
-            var url = string.Format(DisplayCatalogUrlFormat, Uri.EscapeDataString(productId));
+            var url = string.Format(CultureInfo.InvariantCulture, _displayCatalogUrlFormat, Uri.EscapeDataString(productId));
             var response = await _httpClient.GetAsync(url, ct);
             if (!response.IsSuccessStatusCode)
             {
