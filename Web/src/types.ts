@@ -515,6 +515,12 @@ export interface XboxMappingStats {
 export interface EpicDaemonStatusDto {
   dockerAvailable: boolean;
   activeSessions: number;
+  /**
+   * Count of active daemon sessions that have authenticated. Login-required cards (Xbox) use this
+   * to reflect a logged-in state and hide/swap their login control. Optional: older daemon
+   * responses (and the daemon-free Epic OAuth path) omit it.
+   */
+  authenticatedSessions?: number;
   maxSessionsPerUser: number;
   sessionTimeoutMinutes: number;
 }

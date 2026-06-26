@@ -351,6 +351,9 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
         {
             dockerAvailable = _daemonService.IsDockerAvailable,
             activeSessions = sessions.Count,
+            // Authenticated session count lets login-required daemon cards (e.g. Xbox) reflect a
+            // logged-in state and swap/hide their login control, rather than always showing "Login".
+            authenticatedSessions = sessions.Count(s => s.AuthState == DaemonAuthState.Authenticated),
             maxSessionsPerUser = 1,
             sessionTimeoutMinutes = 120
         });

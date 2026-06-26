@@ -105,13 +105,18 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
           <RiotDaemonStatus onError={onError} />
         </section>
 
-        {/* Xbox - login-required prefill daemon status (device-code login on the Prefill page) */}
+        {/* Xbox - login-required mapping status (admin signs in here via device-code, no prefill) */}
         <section>
           <h3 className="integrations-group-label">
             {t('management.sections.integrations.xboxIntegration', 'Xbox Integration')}
           </h3>
           <HighlightGlow enabled={highlightXbox}>
-            <XboxDaemonStatus onError={onError} />
+            <XboxDaemonStatus
+              authMode={authMode}
+              mockMode={mockMode}
+              onError={onError}
+              onSuccess={onSuccess}
+            />
           </HighlightGlow>
         </section>
 

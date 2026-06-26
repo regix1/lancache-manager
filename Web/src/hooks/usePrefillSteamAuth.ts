@@ -31,6 +31,11 @@ interface UsePrefillSteamAuthOptions {
 // Timeout for device confirmation (60 seconds - users need time to notice and approve)
 const DEVICE_CONFIRMATION_TIMEOUT_MS = 60000;
 
+// Fallback cap for the Xbox device-code (Microsoft OAuth device flow) timeout when the challenge
+// carries no usable expiry. Microsoft device codes typically last ~15 minutes; the user has to
+// open a browser, sign in, and approve, so this is far longer than the mobile-confirmation window.
+const DEVICE_CODE_TIMEOUT_MS = 15 * 60 * 1000;
+
 /**
  * Hook for Steam authentication within a prefill Docker container.
  * Uses SignalR hub methods to handle encrypted credential exchange.
@@ -296,6 +301,65 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     waitingForMobileConfirmation,
     hubConnection,
     sessionId,
+    addNotification,
+    onDeviceConfirmationTimeout
+  ]);
+
+  // Timeout for the Xbox device-code flow. Unlike Steam's device-confirmation, Xbox sets
+  // `needsDeviceCode` (and leaves `waitingForMobileConfirmation` false), so the effect above never
+  // fires for it. Without this, an unapproved device code would poll the daemon forever. We honour
+  // the challenge's real `expiresAt` when present, capped by DEVICE_CODE_TIMEOUT_MS. Reuses the
+  // shared timeout ref (device-code and device-confirmation are mutually exclusive), so the
+  // AuthStateChanged / cancel / reset paths already clear it on success or teardown.
+  useEffect(() => {
+    if (!needsDeviceCode || !hubConnection || !sessionId) return;
+
+    const expiresAtMs = pendingChallenge?.expiresAt
+      ? new Date(pendingChallenge.expiresAt).getTime()
+      : Number.NaN;
+    const remainingMs = Number.isFinite(expiresAtMs)
+      ? expiresAtMs - Date.now()
+      : DEVICE_CODE_TIMEOUT_MS;
+    const delayMs = Math.min(Math.max(remainingMs, 0), DEVICE_CODE_TIMEOUT_MS);
+
+    deviceConfirmationTimeoutRef.current = setTimeout(async () => {
+      try {
+        await hubConnection.invoke('CancelLoginAsync', sessionId);
+      } catch (err) {
+        console.error(
+          '[usePrefillSteamAuth] Failed to cancel Xbox device-code login on daemon:',
+          err
+        );
+      }
+
+      setNeedsDeviceCode(false);
+      setDeviceUserCode('');
+      setDeviceVerificationUri('');
+      setLoading(false);
+      setPendingChallenge(null);
+      isWaitingForDeviceConfirmationRef.current = false;
+      hasStartedAuthRef.current = false;
+
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: 'Xbox sign-in code expired. Please try logging in again.',
+        details: { notificationType: 'warning' }
+      });
+      onDeviceConfirmationTimeout?.();
+    }, delayMs);
+
+    return () => {
+      if (deviceConfirmationTimeoutRef.current) {
+        clearTimeout(deviceConfirmationTimeoutRef.current);
+        deviceConfirmationTimeoutRef.current = null;
+      }
+    };
+  }, [
+    needsDeviceCode,
+    hubConnection,
+    sessionId,
+    pendingChallenge,
     addNotification,
     onDeviceConfirmationTimeout
   ]);
