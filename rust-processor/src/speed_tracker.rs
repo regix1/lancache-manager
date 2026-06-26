@@ -486,13 +486,15 @@ impl SpeedTracker {
                 for (game_name, sub_entries) in sub_groups {
                     resolved_groups.entry((game_name, client_ip.clone())).or_default().extend(sub_entries);
                 }
-            } else if service.contains("wsus") {
-                // Xbox / Microsoft Store content is delivered as lancache-tagged `wsus` traffic
-                // (the same tag as generic Windows Update / Office / Defender) over opaque
-                // /filestreamingservice/files/<GUID> URLs. Sub-group each entry by the Xbox title
-                // resolved from a stored XboxCdnPattern.UrlFragment (like Epic); entries that match
-                // no Xbox fragment are generic Windows Update and fall back to the service label, so
-                // a real OS update never gets mislabeled as a game.
+            } else if service.contains("wsus") || service.contains("xboxlive") {
+                // Xbox / Microsoft Store content reaches the cache two ways: Delivery-Optimization
+                // CLIENT traffic tagged `wsus` (shared with generic Windows Update / Office /
+                // Defender) over /filestreamingservice/files/<GUID>, and prefill-daemon traffic
+                // tagged `xboxlive` pulled direct from assets1.xboxlive.com. Sub-group each entry by
+                // the Xbox title resolved from a stored XboxCdnPattern.UrlFragment (like Epic);
+                // entries that match no Xbox fragment are generic Windows Update / Xbox Live and fall
+                // back to the service label, so real OS updates never get mislabeled as a game. This
+                // mirrors log_processor's is_xbox_cache_service guard.
                 let mut sub_groups: HashMap<String, Vec<SpeedLogEntry>> = HashMap::new();
                 for entry in entries {
                     let game_name = self.lookup_xbox_game(&entry.request_url).await

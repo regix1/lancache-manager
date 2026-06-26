@@ -536,10 +536,10 @@ impl Processor {
 
         // Pre-resolve the Xbox title for each entry (aligned by index) so the grouping loop below
         // can key matched Xbox traffic per-title without holding a mutable borrow of `self`.
-        // wsus entries that match no Xbox fragment resolve to None and stay generic Windows Update.
+        // wsus/xboxlive entries that match no Xbox fragment resolve to None and stay generic.
         let mut entry_xbox_titles: Vec<Option<String>> = Vec::with_capacity(entries.len());
         for entry in entries {
-            if Self::is_wsus_service(&entry.service) {
+            if Self::is_xbox_cache_service(&entry.service) {
                 entry_xbox_titles.push(self.lookup_xbox_game(&entry.url).await.map(|(title, _pid)| title));
             } else {
                 entry_xbox_titles.push(None);
@@ -554,9 +554,10 @@ impl Processor {
             let depot_suffix = if let Some(id) = entry.depot_id {
                 format!("_{}", id)
             } else if let Some(title) = xbox_title {
-                // Xbox content is tagged `wsus` over opaque /filestreamingservice/files/<GUID> URLs;
-                // key the session on the resolved title so distinct Xbox games (and distinct from
-                // generic Windows Update, which keeps `_nodepot`) get distinct sessions.
+                // Xbox content is tagged `wsus` (DO-client) or `xboxlive` (prefill, assets1) over
+                // opaque CDN URLs; key the session on the resolved title so distinct Xbox games (and
+                // distinct from generic Windows Update / Xbox Live, which keep `_nodepot`) get
+                // distinct sessions.
                 format!("_xboxgame:{}", title)
             } else if entry.service.to_lowercase().contains("epic") {
                 // For Epic entries, use the CDN path prefix (e.g., /Builds/Org/o-xxx/hash/default)
@@ -619,13 +620,16 @@ impl Processor {
         self.depot_map.get(&depot_id).cloned()
     }
 
-    /// True for lancache service tags that carry Xbox / Microsoft Store delivery traffic.
-    /// Xbox content is tagged `wsus` (the canonical lancache tag, shared with generic Windows
-    /// Update); we only canonicalize the rows whose URL also matches a stored Xbox fragment, so
-    /// generic OS updates are untouched. Only `wsus` is matched - `windows` is not a lancache
-    /// service tag, so widening to it would only enlarge the candidate set for no benefit.
-    fn is_wsus_service(service: &str) -> bool {
-        service.to_lowercase().contains("wsus")
+    /// True for lancache service tags that carry Xbox / Microsoft Store delivery traffic. Two shapes
+    /// reach the cache: Delivery-Optimization CLIENT traffic tagged `wsus` (shared with generic
+    /// Windows Update, over `/filestreamingservice/files/<GUID>`), and prefill-daemon traffic pulled
+    /// direct from assets1.xboxlive.com tagged `xboxlive` (over `/<d>/<guid>/<guid>/<ver>.<guid>/<pkg>`).
+    /// Both must be considered, but we only canonicalize the rows whose URL also matches a stored
+    /// Xbox fragment, so generic OS updates and generic Xbox Live traffic are untouched. Mirrors the
+    /// C# `ResolveDownloadsAsync` candidate filter (`%wsus%` OR `%xboxlive%`).
+    fn is_xbox_cache_service(service: &str) -> bool {
+        let s = service.to_lowercase();
+        s.contains("wsus") || s.contains("xboxlive")
     }
 
     /// Reload the Xbox CDN fragment -> title patterns from the DB, throttled to
@@ -685,9 +689,9 @@ impl Processor {
         }
     }
 
-    /// Resolve a `wsus` URL to its Xbox `(title, product_id)` via a stored fragment match
-    /// (longest-first), or None if it is generic Windows Update. Per-URL cached (None caches too,
-    /// so a confirmed non-match is never re-walked). Loads the patterns on first use.
+    /// Resolve a `wsus`/`xboxlive` URL to its Xbox `(title, product_id)` via a stored fragment match
+    /// (longest-first), or None if it is generic Windows Update / Xbox Live. Per-URL cached (None
+    /// caches too, so a confirmed non-match is never re-walked). Loads the patterns on first use.
     async fn lookup_xbox_game(&mut self, url: &str) -> Option<(String, String)> {
         if let Some(cached) = self.xbox_url_cache.get(url) {
             return cached.clone();
@@ -719,17 +723,17 @@ impl Processor {
             .find(|(fragment, _, _)| url_lower.contains(&fragment.to_ascii_lowercase()))
     }
 
-    /// For a batch of `wsus` entries, pick the dominant resolved Xbox game (most frequent match).
-    /// Returns `("xbox", Some(title), Some(product_id))` when the batch is a recognized Xbox
-    /// download, else `(service, None, None)` so unmatched wsus traffic stays generic Windows
-    /// Update. Splitting the IDENTITY service (`xbox`, on Downloads) from the cache-hash service
-    /// (`wsus`, on LogEntries) is load-bearing — see the brief identity model.
+    /// For a batch of `wsus`/`xboxlive` entries, pick the dominant resolved Xbox game (most frequent
+    /// match). Returns `("xbox", Some(title), Some(product_id))` when the batch is a recognized Xbox
+    /// download, else `(service, None, None)` so unmatched traffic stays generic Windows Update /
+    /// Xbox Live. Splitting the IDENTITY service (`xbox`, on Downloads) from the cache-hash service
+    /// (the original `wsus`/`xboxlive` tag, on LogEntries) is load-bearing — see the identity model.
     async fn resolve_xbox_canonicalization(
         &mut self,
         service: &str,
         new_entries: &[&LogEntry],
     ) -> (String, Option<String>, Option<String>) {
-        if !Self::is_wsus_service(service) {
+        if !Self::is_xbox_cache_service(service) {
             return (service.to_string(), None, None);
         }
 
@@ -1548,6 +1552,19 @@ mod xbox_fragment_guard_tests {
         assert!(is_valid_xbox_fragment(frag));
     }
 
+    // SHARED FIXTURE (mirrored in C# XboxFragmentValidationTests). The marker itself is uppercased and
+    // there is exactly ONE GUID, so this can ONLY validate via the case-insensitive marker branch (the
+    // >=2-GUID branch does not apply). This locks the C#<->Rust equivalence: C#'s
+    // _filestreamingFragmentRegex is RegexOptions.IgnoreCase, so the Rust marker scan must be too.
+    #[test]
+    fn accepts_uppercase_filestreamingservice_marker() {
+        let frag = "/FILESTREAMINGSERVICE/FILES/12345678-90AB-CDEF-1234-567890ABCDEF";
+        assert!(
+            is_valid_xbox_fragment(frag),
+            "uppercase filestreamingservice marker (1 GUID) must validate, matching C# IgnoreCase"
+        );
+    }
+
     // --- case-insensitive fragment matching (mirrors the C# OrdinalIgnoreCase resolver) ---
 
     fn pattern(frag: &str, title: &str) -> (String, String, String) {
@@ -1603,5 +1620,54 @@ mod xbox_fragment_guard_tests {
         )];
         let url = "http://cdn/c/msdownload/update/software/secu/2024/01/something.cab";
         assert!(Processor::match_xbox_fragment(&patterns, url).is_none());
+    }
+
+    // --- assets1.xboxlive.com prefill fragment shape (the naming-bug fix) ---
+    // The prefill daemon pulls direct from assets1.xboxlive.com over
+    // /<digit>/<guid>/<guid>/<version>.<guid>/<packageName> (NOT the /filestreamingservice/files/<GUID>
+    // DO-client shape). The validator must accept it via the ">=2 GUIDs" rule. This is the SAME fixture
+    // string used by the C# `XboxFragmentValidationTests` so the two mirrors stay in sync.
+    const BO4_FRAGMENT: &str = "/4/e4393384-8ff0-4d92-aac1-bad1fb53178a/cdaa6a83-240e-4888-b462-5a0d2c5aa90e/1.0.23.1.04470f65-eb47-428d-89de-d70e05f73369/bo4-ww-en-fr_1.0.23.1_x64__ht1qfjb0gaftw";
+    const BO4_TITLE: &str = "Call of Duty\u{00ae}: Black Ops 4";
+
+    #[test]
+    fn accepts_real_assets1_prefill_fragment() {
+        // 3 GUIDs (content + version + version-segment) → accepted via the >=2-GUID branch.
+        assert!(
+            is_valid_xbox_fragment(BO4_FRAGMENT),
+            "real BO4 assets1.xboxlive.com fragment (>=2 GUIDs) must be accepted"
+        );
+    }
+
+    #[test]
+    fn rejects_paths_with_too_few_guids() {
+        // No marker and <2 GUIDs → rejected, so generic Xbox Live / WSUS traffic is never relabeled.
+        assert!(!is_valid_xbox_fragment("/4/foo/bar"));
+        assert!(!is_valid_xbox_fragment("/4/foo/bar/baz"));
+        assert!(!is_valid_xbox_fragment("/c/msdownload/update/abc"));
+        // Exactly ONE GUID and no filestreamingservice marker is still not enough.
+        assert!(!is_valid_xbox_fragment("/4/e4393384-8ff0-4d92-aac1-bad1fb53178a/pkg"));
+    }
+
+    #[test]
+    fn match_round_trips_the_bo4_fragment() {
+        // Store the daemon-emitted fragment; the access-log URL (same path, host prefix + query the
+        // consumer strips) must resolve back to the title.
+        let patterns = vec![pattern(BO4_FRAGMENT, BO4_TITLE)];
+        let url = format!("http://assets1.xboxlive.com{}?P1=1", BO4_FRAGMENT);
+        let m = Processor::match_xbox_fragment(&patterns, &url);
+        assert!(m.is_some(), "stored BO4 fragment must match the same access-log URL");
+        assert_eq!(m.unwrap().1, BO4_TITLE);
+    }
+
+    #[test]
+    fn xbox_cache_service_guard_includes_xboxlive_and_wsus_not_steam() {
+        // The consumer guard must fire for BOTH tags Xbox traffic lands under, and never for an
+        // unrelated service (so a steam row is never relabeled).
+        assert!(Processor::is_xbox_cache_service("xboxlive"));
+        assert!(Processor::is_xbox_cache_service("XBOXLIVE"));
+        assert!(Processor::is_xbox_cache_service("wsus"));
+        assert!(!Processor::is_xbox_cache_service("steam"));
+        assert!(!Processor::is_xbox_cache_service("epicgames"));
     }
 }

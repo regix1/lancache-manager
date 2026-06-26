@@ -27,11 +27,23 @@ namespace LancacheManager.Services.Xbox;
 /// </summary>
 public class XboxMappingService
 {
-    // The opaque, stable Xbox object path. A valid fragment MUST be of this shape, or matching it
-    // against generic wsus URLs would mislabel unrelated Windows Update traffic.
-    // /filestreamingservice/files/<36-char GUID>
+    // Two distinct Xbox content-URL shapes reach the cache and must BOTH validate:
+    //   1. Delivery-Optimization CLIENT traffic (dl.delivery.mp, tagged `wsus`): the opaque, stable
+    //      /filestreamingservice/files/<36-char GUID> object (marker + exactly one GUID).
+    //   2. Prefill-daemon traffic pulled direct from assets1.xboxlive.com (tagged `xboxlive`):
+    //      /<digit>/<guid>/<guid>/<version>.<guid>/<packageName> (no filestreamingservice marker,
+    //      but >=2 well-formed GUIDs). The daemon emits exactly this path.
+    // A valid fragment MUST be one of these shapes, or matching it against generic wsus/xboxlive
+    // URLs would mislabel unrelated Windows Update / Xbox Live traffic.
     private static readonly Regex _filestreamingFragmentRegex = new(
         @"/filestreamingservice/files/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // A single canonical 8-4-4-4-12 hex GUID. The assets1 package path carries >=2 of these (a
+    // content GUID + a version GUID), which generic wsus / Windows-Update / other-service paths do
+    // not, so requiring two keeps the validator specific. Mirrors the Rust `is_guid_at` shape.
+    private static readonly Regex _guidRegex = new(
+        @"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
@@ -60,7 +72,7 @@ public class XboxMappingService
     }
 
     /// <summary>
-    /// Resolves still-<c>wsus</c>, INACTIVE downloads against stored Xbox CDN patterns. On match,
+    /// Resolves still-<c>wsus</c>/<c>xboxlive</c>, INACTIVE downloads against stored Xbox CDN patterns. On match,
     /// canonicalizes the row to <c>Service='xbox'</c>, sets <c>GameName</c> + <c>XboxProductId</c>,
     /// best-effort fetches/stores the DisplayCatalog banner, persists, and emits
     /// <see cref="SignalREvents.XboxGameMappingsUpdated"/> + <see cref="SignalREvents.DownloadsRefresh"/>.
@@ -87,12 +99,15 @@ public class XboxMappingService
             return 0;
         }
 
-        // Candidate rows: still tagged wsus, no game name yet, have a LastUrl, and INACTIVE.
+        // Candidate rows: still tagged wsus (DO-client traffic) OR xboxlive (prefill-daemon traffic
+        // direct from assets1.xboxlive.com), no game name yet, have a LastUrl, and INACTIVE.
         // Re-tagging an active row would split the in-flight download (the Rust ingest path owns
         // active rows), so we never touch them here.
         const string wsusServicePattern = "%wsus%";
+        const string xboxliveServicePattern = "%xboxlive%";
         var candidates = await db.Downloads
-            .Where(d => EF.Functions.Like(d.Service, wsusServicePattern)
+            .Where(d => (EF.Functions.Like(d.Service, wsusServicePattern)
+                            || EF.Functions.Like(d.Service, xboxliveServicePattern))
                         && d.GameName == null
                         && d.LastUrl != null
                         && !d.IsActive)
@@ -118,7 +133,7 @@ public class XboxMappingService
             {
                 if (!unmatchedSampleLogged)
                 {
-                    _logger.LogDebug("Unmatched wsus download stays generic (sample url: '{Url}')", download.LastUrl);
+                    _logger.LogDebug("Unmatched wsus/xboxlive download stays generic (sample url: '{Url}')", download.LastUrl);
                     unmatchedSampleLogged = true;
                 }
                 continue;
@@ -140,7 +155,7 @@ public class XboxMappingService
 
         await db.SaveChangesAsync(ct);
         _logger.LogInformation(
-            "Re-tagged {Count}/{Total} wsus downloads to Xbox titles",
+            "Re-tagged {Count}/{Total} wsus/xboxlive downloads to Xbox titles",
             resolvedCount, candidates.Count);
 
         // Best-effort: fetch banner art for the newly-resolved products via DisplayCatalog and
@@ -338,15 +353,18 @@ public class XboxMappingService
     }
 
     /// <summary>
-    /// Fragment-shape guard: a fragment is usable ONLY if it is a non-empty
-    /// <c>/filestreamingservice/files/&lt;GUID&gt;</c> path. This rejects empty, bare "/", and any
-    /// non-filestreaming fragment so a <c>Contains</c> can never match unrelated Windows Update
-    /// (or Office/Defender) wsus traffic.
+    /// Fragment-shape guard: a fragment is usable ONLY if it is a well-formed Xbox content path,
+    /// i.e. either the Delivery-Optimization <c>/filestreamingservice/files/&lt;GUID&gt;</c> marker
+    /// (marker + 1 GUID), OR an assets1.xboxlive.com package path carrying &gt;=2 canonical
+    /// 8-4-4-4-12 GUIDs. This rejects empty, bare "/", and generic single-/zero-GUID paths so a
+    /// <c>Contains</c> can never match unrelated Windows Update / Xbox Live traffic. Kept
+    /// behaviorally byte-for-byte equivalent to Rust <c>cache_utils::is_valid_xbox_fragment</c>.
     /// </summary>
     internal static bool IsValidFragment(string? fragment)
     {
         if (string.IsNullOrWhiteSpace(fragment)) return false;
         if (fragment == "/") return false;
-        return _filestreamingFragmentRegex.IsMatch(fragment);
+        if (_filestreamingFragmentRegex.IsMatch(fragment)) return true; // DO-client path (marker + 1 GUID)
+        return _guidRegex.Count(fragment) >= 2;                         // assets1 package path (>=2 GUIDs)
     }
 }

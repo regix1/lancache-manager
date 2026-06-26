@@ -680,31 +680,73 @@ pub(crate) fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet
     removed_count
 }
 
-/// Shape guard for a stored Xbox CDN fragment, mirroring the C# `XboxMappingService.IsValidFragment`
-/// regex `/filestreamingservice/files/<GUID>`. A fragment is usable ONLY if it contains a
-/// `/filestreamingservice/files/` segment immediately followed by a canonical 8-4-4-4-12 hex GUID.
-/// This rejects empty / `/` / generic-wsus fragments so a malformed DB row can never `contains()`
-/// -match unrelated Windows Update traffic and relabel it as a game. Pure byte scan (no regex) to
-/// keep the ingest/speed hot paths allocation-free.
+/// Shape guard for a stored Xbox CDN fragment, mirroring the C# `XboxMappingService.IsValidFragment`.
+/// Two distinct Xbox content-URL shapes must validate:
+///   1. Delivery-Optimization CLIENT traffic (dl.delivery.mp, tagged `wsus`):
+///      `/filestreamingservice/files/<GUID>` — the marker immediately followed by ONE canonical
+///      8-4-4-4-12 hex GUID.
+///   2. Prefill-daemon traffic pulled direct from assets1.xboxlive.com (tagged `xboxlive`):
+///      `/<digit>/<guid>/<guid>/<version>.<guid>/<packageName>` — no marker, but >=2 GUIDs.
+/// A fragment is usable if it matches EITHER shape. Everything else (empty / `/` / generic-wsus /
+/// single-GUID paths) is rejected so a malformed DB row can never `contains()`-match unrelated
+/// Windows Update / Xbox Live traffic and relabel it as a game. Pure byte scan (no regex) to keep
+/// the ingest/speed hot paths allocation-free.
 ///
 /// Shared by both `log_processor` (the primary canonicalizer) and `speed_tracker` so the two Xbox
-/// pattern loaders apply ONE identical shape check — there is exactly one implementation.
+/// pattern loaders apply ONE identical shape check — there is exactly one implementation. Kept
+/// behaviorally byte-for-byte equivalent to the C# `XboxMappingService.IsValidFragment`.
 #[allow(dead_code)]
 pub fn is_valid_xbox_fragment(fragment: &str) -> bool {
-    const MARKER: &str = "/filestreamingservice/files/";
-    let bytes = fragment.as_bytes();
-    let marker = MARKER.as_bytes();
+    has_filestreaming_guid(fragment) || count_guids(fragment) >= 2
+}
 
-    // Find every occurrence of the marker; accept if any is followed by a well-formed GUID.
-    let mut start = 0;
-    while let Some(rel) = fragment[start..].find(MARKER) {
-        let guid_start = start + rel + marker.len();
-        if is_guid_at(bytes, guid_start) {
+/// True if the fragment contains a `/filestreamingservice/files/` marker immediately followed by a
+/// canonical 8-4-4-4-12 hex GUID (the Delivery-Optimization client object path).
+///
+/// The marker scan is ASCII-case-INSENSITIVE to mirror the C# `_filestreamingFragmentRegex`
+/// (`RegexOptions.IgnoreCase`), so an uppercase `/FILESTREAMINGSERVICE/FILES/<GUID>` validates on
+/// both sides. Still a pure byte scan (no allocation) on the ingest/speed hot paths.
+#[allow(dead_code)]
+fn has_filestreaming_guid(fragment: &str) -> bool {
+    const MARKER: &[u8] = b"/filestreamingservice/files/";
+    let bytes = fragment.as_bytes();
+    if bytes.len() < MARKER.len() {
+        return false;
+    }
+
+    // Scan every offset for a case-insensitive marker match; accept if any is followed by a
+    // well-formed GUID. The marker bytes are ASCII so `eq_ignore_ascii_case` compares the letters
+    // case-insensitively while the literal `/` separators compare exactly.
+    let last = bytes.len() - MARKER.len();
+    for i in 0..=last {
+        let matches_marker = bytes[i..i + MARKER.len()]
+            .iter()
+            .zip(MARKER.iter())
+            .all(|(b, m)| b.eq_ignore_ascii_case(m));
+        if matches_marker && is_guid_at(bytes, i + MARKER.len()) {
             return true;
         }
-        start = start + rel + 1;
     }
     false
+}
+
+/// Count the non-overlapping canonical 8-4-4-4-12 hex GUIDs in the fragment. REUSES `is_guid_at`
+/// so the GUID shape is defined in exactly one place (no duplicated 8-4-4-4-12 definition). Matches
+/// the C# `_guidRegex.Matches(fragment).Count` semantics (non-overlapping left-to-right scan).
+#[allow(dead_code)]
+fn count_guids(fragment: &str) -> usize {
+    let bytes = fragment.as_bytes();
+    let mut count = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        if is_guid_at(bytes, i) {
+            count += 1;
+            i += 36; // advance past the 36-char GUID (non-overlapping)
+        } else {
+            i += 1;
+        }
+    }
+    count
 }
 
 /// True if `bytes[at..]` begins with a canonical 8-4-4-4-12 lowercase/uppercase hex GUID.
@@ -764,6 +806,11 @@ mod tests {
         )));
         assert!(is_valid_xbox_fragment(
             "/filestreamingservice/files/ABCDEF12-3456-7890-ABCD-EF1234567890"
+        ));
+        // Uppercase MARKER (not just hex) with exactly one GUID — only the case-insensitive marker
+        // branch can accept this, mirroring C#'s RegexOptions.IgnoreCase. SHARED with the C# test.
+        assert!(is_valid_xbox_fragment(
+            "/FILESTREAMINGSERVICE/FILES/12345678-90AB-CDEF-1234-567890ABCDEF"
         ));
     }
 
