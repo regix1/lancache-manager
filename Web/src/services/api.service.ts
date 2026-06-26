@@ -42,6 +42,7 @@ import type {
   EpicScheduleStatus,
   XboxGameMappingDto,
   XboxMappingStats,
+  XboxMappingAuthStatus,
   PicsStatus
 } from '../types';
 import type { DashboardBatchResponse } from '../contexts/DashboardDataContext/types';
@@ -2365,6 +2366,48 @@ class ApiService {
     return ApiService.handleResponse<{ newPatterns: number; resolved: number; message: string }>(
       response
     );
+  }
+
+  // Xbox mapping auth — mirrors Epic's auth-status/login/logout shape (daemon-free MSA device-code).
+  static async getXboxMappingAuthStatus(): Promise<XboxMappingAuthStatus> {
+    const response = await fetch(`${API_BASE}/xbox/game-mappings/auth-status`, {
+      credentials: 'include'
+    });
+    return ApiService.handleResponse<XboxMappingAuthStatus>(response);
+  }
+
+  static async startXboxMappingLogin(
+    signal?: AbortSignal
+  ): Promise<{ userCode: string; verificationUri: string; expiresIn: number; interval: number }> {
+    const response = await fetch(`${API_BASE}/xbox/game-mappings/auth/login`, {
+      method: 'POST',
+      credentials: 'include',
+      signal
+    });
+    return ApiService.handleResponse<{
+      userCode: string;
+      verificationUri: string;
+      expiresIn: number;
+      interval: number;
+    }>(response);
+  }
+
+  static async logoutXboxMapping(): Promise<void> {
+    const response = await fetch(`${API_BASE}/xbox/game-mappings/auth`, {
+      method: 'DELETE',
+      credentials: 'include'
+    });
+    await ApiService.handleResponse(response);
+  }
+
+  // Cancels a pending device-code login poll (e.g. when the login modal is closed) WITHOUT clearing
+  // credentials or signing out an already-authenticated account. Distinct from logoutXboxMapping.
+  static async cancelXboxMappingLogin(): Promise<void> {
+    const response = await fetch(`${API_BASE}/xbox/game-mappings/auth/cancel`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    await ApiService.handleResponse(response);
   }
 
   static async getEpicGameMappings(): Promise<EpicGameMappingDto[]> {

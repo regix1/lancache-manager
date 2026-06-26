@@ -123,7 +123,7 @@ const XboxMappingManager: React.FC<XboxMappingManagerProps> = ({
           onNavigateToXboxLogin && (
             <Button
               variant="filled"
-              color="green"
+              color="blue"
               size="sm"
               onClick={onNavigateToXboxLogin}
               rightSection={<ExternalLink className="w-3.5 h-3.5" />}
@@ -160,7 +160,7 @@ const XboxMappingManager: React.FC<XboxMappingManagerProps> = ({
       <div className="flex">
         <Button
           variant="filled"
-          color="green"
+          color="blue"
           onClick={handleRefreshCatalog}
           disabled={isBusy || mockMode || !isAdmin}
           loading={isBusy}

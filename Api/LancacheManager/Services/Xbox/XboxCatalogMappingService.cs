@@ -1,5 +1,6 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Base;
 
 namespace LancacheManager.Services.Xbox;
@@ -24,10 +25,15 @@ namespace LancacheManager.Services.Xbox;
 /// never by a user starting a prefill download. Storage/naming are REUSED unchanged
 /// (<see cref="XboxMappingService.MergeDaemonCatalogAsync"/> + <see cref="XboxMappingService.ResolveDownloadsAsync"/>).
 /// </summary>
-public class XboxCatalogMappingService : ConfigurableScheduledService
+public partial class XboxCatalogMappingService : ConfigurableScheduledService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly XboxMappingService _mappingService;
+
+    // Manager-side daemon-free login dependencies (see XboxCatalogMappingService.Authentication.cs).
+    private readonly XboxAuthClient _authClient;
+    private readonly XboxAuthStorageService _authStorage;
+    private readonly ISignalRNotificationService _notifications;
 
     // Serializes the scheduled tick, the manual refresh endpoint, and the on-authentication nudge so
     // concurrent triggers never double-poll the daemon's get-cdn-info at the same time.
@@ -50,11 +56,17 @@ public class XboxCatalogMappingService : ConfigurableScheduledService
         ILogger<XboxCatalogMappingService> logger,
         IServiceScopeFactory scopeFactory,
         XboxMappingService mappingService,
+        XboxAuthClient authClient,
+        XboxAuthStorageService authStorage,
+        ISignalRNotificationService notifications,
         IStateService stateService)
         : base(logger, TimeSpan.FromHours(12)) // Default: 12h refresh interval (mirrors EpicMappingService)
     {
         _scopeFactory = scopeFactory;
         _mappingService = mappingService;
+        _authClient = authClient;
+        _authStorage = authStorage;
+        _notifications = notifications;
 
         // Apply user-saved interval + run-on-startup overrides before the loop starts (mirrors Epic).
         LoadStateOverrides(stateService, ScheduleServiceKey);
@@ -67,6 +79,30 @@ public class XboxCatalogMappingService : ConfigurableScheduledService
         // old prefill->mapping coupling: the daemon no longer calls the mapping service; the scheduled
         // service LISTENS for auth and schedules itself. Mirrors EpicMappingService.SubscribeDaemonEvents.
         SubscribeDaemonEvents();
+
+        // Manager-side daemon-free login: silently refresh saved MSA credentials on startup (mirrors
+        // EpicMappingService.InitializeAsync). No daemon, no browser - just a token refresh that lights up
+        // the auth-status surface and lets the next scheduled tick harvest the catalog.
+        if (_authStorage.HasSavedCredentials())
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(3), _shutdownCts.Token);
+                    await TryAutoReconnectAsync();
+                }
+                catch (OperationCanceledException)
+                {
+                    // Host shutting down - nothing to do.
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Xbox mapping startup auto-reconnect failed");
+                }
+            }, CancellationToken.None);
+        }
+
         return Task.CompletedTask;
     }
 
@@ -99,14 +135,27 @@ public class XboxCatalogMappingService : ConfigurableScheduledService
         await _refreshGate.WaitAsync(ct);
         try
         {
-            var daemon = ResolveDaemonService();
-            if (daemon == null)
+            var newPatterns = 0;
+
+            // Source 1: the manager-side daemon-free login (Epic-style). Refreshes the saved MSA token,
+            // re-harvests titlehub titles + packagespc CDN fragments, and merges them. No daemon needed.
+            if (IsAuthenticated)
             {
-                _logger.LogDebug("XboxPrefillDaemonService unavailable - skipping Xbox catalog refresh");
-                return new XboxCatalogRefreshResult { NewPatterns = 0, Resolved = 0 };
+                newPatterns += await HarvestManagerCatalogAsync(ct);
             }
 
-            var newPatterns = await daemon.RefreshCatalogFromActiveSessionsAsync(ct);
+            // Source 2: authenticated prefill daemon session(s). PRESERVED so prefill still feeds the SAME
+            // shared library (the Epic two-source model) - a prefill login contributes its owned catalog too.
+            var daemon = ResolveDaemonService();
+            if (daemon != null)
+            {
+                newPatterns += await daemon.RefreshCatalogFromActiveSessionsAsync(ct);
+            }
+            else
+            {
+                _logger.LogDebug("XboxPrefillDaemonService unavailable - skipping the daemon catalog source");
+            }
+
             var resolved = await _mappingService.ResolveDownloadsAsync(ct);
 
             _logger.LogInformation(
@@ -219,6 +268,7 @@ public class XboxCatalogMappingService : ConfigurableScheduledService
         }
         UnsubscribeDaemonEvents();
         _refreshGate.Dispose();
+        _loginStartLock.Dispose();
         _shutdownCts.Dispose();
         base.Dispose();
     }

@@ -532,6 +532,13 @@ export interface EpicMappingAuthStatus {
   gamesDiscovered: number;
 }
 
+export interface XboxMappingAuthStatus {
+  isAuthenticated: boolean;
+  displayName: string | null;
+  lastCollectionUtc: string | null;
+  gamesDiscovered: number;
+}
+
 export interface EpicScheduleStatus {
   refreshIntervalHours: number;
   isProcessing: boolean;

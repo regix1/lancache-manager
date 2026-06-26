@@ -4,14 +4,29 @@ import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import { type SteamLoginFlowState, type SteamAuthActions } from '@hooks/useSteamAuthentication';
 import { useTranslation } from 'react-i18next';
+
+// The Xbox modal only consumes the device-code slice of an auth flow. Both the prefill-daemon
+// flow (SteamLoginFlowState/SteamAuthActions, a superset) and the manager-side useXboxMappingAuth
+// hook satisfy these narrow shapes structurally, so the modal stays decoupled from either stack.
+interface XboxAuthModalState {
+  loading: boolean;
+  needsDeviceCode: boolean;
+  deviceUserCode: string;
+  deviceVerificationUri: string;
+}
+
+interface XboxAuthModalActions {
+  handleAuthenticate: () => Promise<boolean>;
+  resetAuthForm: () => void;
+  cancelPendingRequest: () => void;
+}
 
 interface XboxAuthModalProps {
   opened: boolean;
   onClose: () => void;
-  state: SteamLoginFlowState;
-  actions: SteamAuthActions;
+  state: XboxAuthModalState;
+  actions: XboxAuthModalActions;
   onCancelLogin?: () => void;
 }
 

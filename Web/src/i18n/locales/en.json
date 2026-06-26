@@ -5712,6 +5712,15 @@
       "cancelled": "Xbox catalog resolve cancelled",
       "failed": "Xbox catalog resolve failed: {{errorDetail}}"
     },
+    "xbox": {
+      "mapping": {
+        "authenticating": "Waiting for Microsoft sign-in...",
+        "collecting": "Collecting Xbox library...",
+        "completed": "Xbox login complete",
+        "cancelled": "Xbox login cancelled",
+        "failed": "Xbox login failed"
+      }
+    },
     "epicRemove": {
       "starting": "Starting removal for Epic game '{{gameName}}'",
       "noUrls": "No URLs found for this game",

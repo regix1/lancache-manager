@@ -197,6 +197,20 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
+    /// Services whose cache log entries are written under a DIFFERENT Service name than their
+    /// Downloads. Xbox downloads are tagged <c>Service='xbox'</c> but their cache (and therefore
+    /// their LogEntries) live under <c>'wsus'</c> because cache files key on (service, url). Such a
+    /// service never appears in the log-file service names under its own name, so it must NOT be
+    /// treated as orphaned - doing so would delete every Xbox download (a real named service).
+    /// Maps <c>Downloads.Service</c> -&gt; the LogEntries/cache Service alias that proves it is in use.
+    /// </summary>
+    private static readonly Dictionary<string, string> _cacheSplitServiceAliases =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["xbox"] = "wsus"
+        };
+
+    /// <summary>
     /// Removes database records for services that no longer exist in log files.
     /// This cleans up orphaned data left behind when log entries were removed but database wasn't updated.
     /// </summary>
@@ -230,72 +244,9 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
                 await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, stoppingToken);
                 try
                 {
-                    // Get unique services from Downloads table (within transaction)
-                    var dbServices = await context.Downloads
-                        .Select(d => d.Service.ToLower())
-                        .Distinct()
-                        .ToListAsync(stoppingToken);
-
-                    _logger.LogInformation("Found {Count} services in database: {Services}",
-                        dbServices.Count, string.Join(", ", dbServices.Take(10)));
-
-                    // SAFETY CHECK: Don't delete if most services would be removed
-                    // This protects against edge cases where log scanning returns partial results
-                    var orphanedServices = dbServices
-                        .Where(s => !logServiceNames.Contains(s.ToLowerInvariant()))
-                        .ToList();
-
-                    if (dbServices.Count > 0 && orphanedServices.Count >= dbServices.Count)
-                    {
-                        _logger.LogWarning("All {Count} database services would be marked as orphaned - this looks like a log scanning issue. Skipping cleanup.", dbServices.Count);
-                        await transaction.RollbackAsync(stoppingToken);
-                        return 0;
-                    }
-
-                    if (!orphanedServices.Any())
-                    {
-                        _logger.LogInformation("No orphaned services found");
-                        await transaction.CommitAsync(stoppingToken);
-                        return 0;
-                    }
-
-                    _logger.LogInformation("Found {Count} orphaned services to clean up: {Services}",
-                        orphanedServices.Count, string.Join(", ", orphanedServices));
-
-                    var totalDeleted = 0;
-
-                    foreach (var service in orphanedServices)
-                    {
-                        var serviceLower = service.ToLowerInvariant();
-
-                        // Delete LogEntries first (foreign key constraint)
-                        var logEntriesDeleted = await context.LogEntries
-                            .Where(le => le.Service.ToLower() == serviceLower)
-                            .ExecuteDeleteAsync(stoppingToken);
-
-                        // Delete Downloads
-                        var downloadsDeleted = await context.Downloads
-                            .Where(d => d.Service.ToLower() == serviceLower)
-                            .ExecuteDeleteAsync(stoppingToken);
-
-                        // Delete ServiceStats
-                        var serviceStatsDeleted = await context.ServiceStats
-                            .Where(s => s.Service.ToLower() == serviceLower)
-                            .ExecuteDeleteAsync(stoppingToken);
-
-                        var serviceTotal = logEntriesDeleted + downloadsDeleted + serviceStatsDeleted;
-                        totalDeleted += serviceTotal;
-
-                        _logger.LogInformation("Cleaned up orphaned service '{Service}': {Downloads} downloads, {LogEntries} log entries, {ServiceStats} service stats",
-                            service, downloadsDeleted, logEntriesDeleted, serviceStatsDeleted);
-                    }
-
+                    var orphansRemoved = await CleanupOrphanedServicesCoreAsync(context, logServiceNames, _logger, stoppingToken);
                     await transaction.CommitAsync(stoppingToken);
-
-                    _logger.LogInformation("Orphaned service cleanup complete: removed {Total} total records from {Count} services",
-                        totalDeleted, orphanedServices.Count);
-
-                    return orphanedServices.Count;
+                    return orphansRemoved;
                 }
                 catch
                 {
@@ -309,6 +260,129 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
             _logger.LogError(ex, "Error cleaning up orphaned services");
             return 0;
         }
+    }
+
+    /// <summary>
+    /// Detects orphaned services and removes their data (LogEntries / Downloads / ServiceStats)
+    /// inside the caller's transaction. Returns the number of orphaned services removed. Child
+    /// LogEntries are re-pointed off the Downloads being removed (by DownloadId) BEFORE the parent
+    /// Downloads are deleted, so the FK_LogEntries_Downloads_DownloadId constraint is never violated.
+    /// Extracted as an internal seam so the orphan detection and FK-safe deletion can be unit tested
+    /// directly. Exceptions propagate to the caller, which owns the transaction and rolls back.
+    /// </summary>
+    internal static async Task<int> CleanupOrphanedServicesCoreAsync(
+        AppDbContext context,
+        IReadOnlySet<string> logServiceNames,
+        ILogger logger,
+        CancellationToken stoppingToken)
+    {
+        // Get unique services from Downloads table (within the caller's transaction)
+        var dbServices = await context.Downloads
+            .Select(d => d.Service.ToLower())
+            .Distinct()
+            .ToListAsync(stoppingToken);
+
+        logger.LogInformation("Found {Count} services in database: {Services}",
+            dbServices.Count, string.Join(", ", dbServices.Take(10)));
+
+        var orphanedServices = ComputeOrphanedServices(dbServices, logServiceNames);
+
+        // SAFETY CHECK: Don't delete if most services would be removed
+        // This protects against edge cases where log scanning returns partial results
+        if (dbServices.Count > 0 && orphanedServices.Count >= dbServices.Count)
+        {
+            logger.LogWarning("All {Count} database services would be marked as orphaned - this looks like a log scanning issue. Skipping cleanup.", dbServices.Count);
+            return 0;
+        }
+
+        if (orphanedServices.Count == 0)
+        {
+            logger.LogInformation("No orphaned services found");
+            return 0;
+        }
+
+        logger.LogInformation("Found {Count} orphaned services to clean up: {Services}",
+            orphanedServices.Count, string.Join(", ", orphanedServices));
+
+        var totalDeleted = 0;
+
+        foreach (var service in orphanedServices)
+        {
+            var serviceLower = service.ToLowerInvariant();
+
+            // Re-point child LogEntries off the Downloads being removed BEFORE deleting the parents.
+            // LogEntries reference Downloads via DownloadId (FK_LogEntries_Downloads_DownloadId, NO
+            // ACTION), and a service's cache LogEntries can be stored under a DIFFERENT Service name
+            // than its Downloads (cache-split identities such as xbox -> wsus). Matching children by
+            // Service name alone misses those rows, so deleting the parent Downloads would violate the
+            // FK. Nullify by DownloadId instead, mirroring DatabaseService's reset path.
+            var downloadIds = await context.Downloads
+                .Where(d => d.Service.ToLower() == serviceLower)
+                .Select(d => d.Id)
+                .ToListAsync(stoppingToken);
+
+            if (downloadIds.Count > 0)
+            {
+                await context.LogEntries
+                    .Where(le => le.DownloadId != null && downloadIds.Contains(le.DownloadId.Value))
+                    .ExecuteUpdateAsync(s => s.SetProperty(le => le.DownloadId, (long?)null), stoppingToken);
+            }
+
+            // Delete LogEntries recorded under this service name
+            var logEntriesDeleted = await context.LogEntries
+                .Where(le => le.Service.ToLower() == serviceLower)
+                .ExecuteDeleteAsync(stoppingToken);
+
+            // Delete Downloads (children already re-pointed above, so the FK is satisfied)
+            var downloadsDeleted = await context.Downloads
+                .Where(d => d.Service.ToLower() == serviceLower)
+                .ExecuteDeleteAsync(stoppingToken);
+
+            // Delete ServiceStats
+            var serviceStatsDeleted = await context.ServiceStats
+                .Where(s => s.Service.ToLower() == serviceLower)
+                .ExecuteDeleteAsync(stoppingToken);
+
+            var serviceTotal = logEntriesDeleted + downloadsDeleted + serviceStatsDeleted;
+            totalDeleted += serviceTotal;
+
+            logger.LogInformation("Cleaned up orphaned service '{Service}': {Downloads} downloads, {LogEntries} log entries, {ServiceStats} service stats",
+                service, downloadsDeleted, logEntriesDeleted, serviceStatsDeleted);
+        }
+
+        logger.LogInformation("Orphaned service cleanup complete: removed {Total} total records from {Count} services",
+            totalDeleted, orphanedServices.Count);
+
+        return orphanedServices.Count;
+    }
+
+    /// <summary>
+    /// Returns the DB services that are absent from the log-file service names and therefore orphaned.
+    /// A service is considered present (not orphaned) when its own name OR its cache-split alias
+    /// (see <see cref="_cacheSplitServiceAliases"/>) appears in the log services, so cache-split
+    /// identities such as Xbox (cache stored under 'wsus') are never wrongly flagged and deleted.
+    /// </summary>
+    internal static List<string> ComputeOrphanedServices(
+        IEnumerable<string> dbServices,
+        IReadOnlySet<string> logServiceNames)
+    {
+        return dbServices
+            .Where(service => !IsServicePresentInLogs(service, logServiceNames))
+            .ToList();
+    }
+
+    private static bool IsServicePresentInLogs(string service, IReadOnlySet<string> logServiceNames)
+    {
+        var serviceLower = service.ToLowerInvariant();
+
+        if (logServiceNames.Contains(serviceLower))
+        {
+            return true;
+        }
+
+        // Cache-split service: present if the Service its cache lives under is present in the logs.
+        return _cacheSplitServiceAliases.TryGetValue(serviceLower, out var cacheAlias)
+            && logServiceNames.Contains(cacheAlias.ToLowerInvariant());
     }
 
     /// <summary>

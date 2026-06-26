@@ -606,6 +606,14 @@ builder.Services.AddHttpClient<LancacheManager.Services.Xbox.XboxApiDirectClient
 // the per-file CDN path fragments the authenticated daemon contributed (backfill of INACTIVE rows).
 builder.Services.AddSingleton<LancacheManager.Services.Xbox.XboxMappingService>();
 
+// Register XboxAuthClient - the typed HttpClient for the manager-side, daemon-free Xbox MSA device-code
+// login + catalog harvest (mirrors EpicApiDirectClient; no Docker, no prefill container).
+builder.Services.AddHttpClient<LancacheManager.Services.Xbox.XboxAuthClient>();
+
+// Register XboxAuthStorageService - encrypted persistence of the Xbox MSA refresh token + device key
+// (mirrors EpicAuthStorageService; ENC2: via SecureStateEncryptionService).
+builder.Services.AddSingleton<LancacheManager.Infrastructure.Services.XboxAuthStorageService>();
+
 // Register XboxCatalogMappingService - the SCHEDULED Xbox catalog mapping service (mirrors
 // EpicMappingService's scheduling idea). Keeps XboxCdnPatterns/XboxGameMappings populated on a
 // runtime-configurable schedule + manual trigger + on-authentication nudge, decoupled from prefill,

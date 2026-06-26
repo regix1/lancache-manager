@@ -899,6 +899,8 @@ export interface XboxMappingProgressEvent {
   /** @deprecated use stageKey instead */
   message: string;
   cancelled?: boolean;
+  /** True only on the final success/failure/cancel event; interim progress ticks are false. */
+  isTerminal?: boolean;
 }
 
 // Mirrors the backend payload emitted by XboxMappingService.MergeDaemonCatalogCoreAsync

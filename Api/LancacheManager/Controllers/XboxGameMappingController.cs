@@ -94,6 +94,68 @@ public class XboxGameMappingController : ControllerBase
     }
 
     /// <summary>
+    /// Gets the current manager-side mapping auth status (authenticated, gamertag, last collection, count).
+    /// Mirrors Epic's <c>GET auth-status</c>. Synchronous, no I/O.
+    /// </summary>
+    [HttpGet("auth-status")]
+    public ActionResult<XboxMappingAuthStatus> GetAuthStatus()
+    {
+        return Ok(_xboxCatalogMappingService.GetAuthStatus());
+    }
+
+    /// <summary>
+    /// Starts the daemon-free Xbox MSA device-code login: returns the <c>userCode</c>/<c>verificationUri</c>
+    /// for the user to approve in their browser and kicks a background poll loop. No Docker container and no
+    /// prefill daemon are created. Completion is surfaced via the <c>XboxMappingProgress</c> SignalR event
+    /// (there is no code-paste complete step - the backend polls the token endpoint).
+    /// </summary>
+    [HttpPost("auth/login")]
+    public async Task<ActionResult> StartLoginAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            // A stale in-flight login is superseded inside StartLoginAsync (last-writer-wins), so
+            // re-clicking Login after abandoning a prior attempt always starts fresh - it never 409s.
+            var challenge = await _xboxCatalogMappingService.StartLoginAsync(ct);
+            return Ok(new
+            {
+                userCode = challenge.UserCode,
+                verificationUri = challenge.VerificationUri,
+                expiresIn = challenge.ExpiresIn,
+                interval = challenge.Interval,
+                operationId = challenge.OperationId
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to start Xbox mapping login");
+            return StatusCode(500, ApiResponse.Error("Failed to start Xbox login: " + ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// Cancels a pending (not-yet-approved) device-code login poll, e.g. when the user closes the login
+    /// modal. Does NOT clear credentials or sign out an already-authenticated account - unlike
+    /// <see cref="LogoutAsync"/>, this only stops a poll that has not completed.
+    /// </summary>
+    [HttpPost("auth/cancel")]
+    public ActionResult CancelLogin()
+    {
+        _xboxCatalogMappingService.CancelLogin();
+        return Ok(ApiResponse.Message("Xbox login cancelled"));
+    }
+
+    /// <summary>
+    /// Logs out the manager-side mapping session and clears saved credentials. No Docker container to stop.
+    /// </summary>
+    [HttpDelete("auth")]
+    public async Task<ActionResult> LogoutAsync()
+    {
+        await _xboxCatalogMappingService.LogoutAsync();
+        return Ok(ApiResponse.Message("Xbox mapping logged out"));
+    }
+
+    /// <summary>
     /// Search games by title (case-insensitive partial match).
     /// </summary>
     [HttpGet("search")]

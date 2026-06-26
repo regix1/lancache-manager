@@ -6,20 +6,19 @@ import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import type { XboxMappingProgressEvent } from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
+import type { XboxMappingAuthStatus } from '../../../../types';
 import XboxGameMappings from './XboxGameMappings';
 import XboxMappingLoginModal from './XboxMappingLoginModal';
-import type { EpicDaemonStatusDto } from '../../../../types';
+import { useXboxMappingAuth } from '@hooks/useXboxMappingAuth';
 
-// Xbox mapping is login-required (Microsoft account device-code). An admin signs in HERE - on the
-// mapping admin card - to discover their library and populate the shared mapping table WITHOUT
-// starting a prefill, mirroring Epic's admin-page login (EpicDaemonStatus). Because Xbox has no
-// daemon-free auth client, the login reuses the prefill daemon device-code flow (XboxMappingLoginModal);
-// the same login is also available on the Prefill page for users without admin access. This card
-// reports daemon connectivity (Docker availability + active session count) and embeds the shared
-// Xbox game library. Status is read from /api/xbox-daemon and refreshed live via the
-// /xbox-prefill-daemon hub events.
+// Xbox mapping is login-required (Microsoft account device-code). An admin signs in HERE — on the
+// mapping admin card — to discover their library and populate the shared mapping table WITHOUT
+// starting a prefill, mirroring Epic's admin-page login (EpicDaemonStatus). Login is daemon-free:
+// the manager hosts the MSA OAuth device-code flow directly, so Docker is NOT required to sign in.
+// Status is refreshed live via XboxMappingProgress and XboxGameMappingsUpdated SignalR events.
 
 interface XboxDaemonStatusProps {
   authMode: AuthMode;
@@ -36,48 +35,60 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
 }) => {
   const { t } = useTranslation();
   const { on, off, connectionState } = useSignalR();
-  const [status, setStatus] = useState<EpicDaemonStatusDto | null>(null);
+  const [authStatus, setAuthStatus] = useState<XboxMappingAuthStatus | null>(null);
   const [hasError, setHasError] = useState(false);
-  const [showLogin, setShowLogin] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const loadStatus = useCallback(async () => {
+    // Demo/mock mode has no admin session, and auth-status is AdminOnly, so a fetch would 401/403
+    // and permanently error the card. Surface a clean empty status instead of hitting the endpoint.
+    if (mockMode) {
+      setAuthStatus({
+        isAuthenticated: false,
+        displayName: null,
+        lastCollectionUtc: null,
+        gamesDiscovered: 0
+      });
+      setHasError(false);
+      return;
+    }
     try {
-      const data = await ApiService.getXboxDaemonStatus();
-      setStatus(data);
+      const auth = await ApiService.getXboxMappingAuthStatus();
+      setAuthStatus(auth);
       setHasError(false);
     } catch {
       setHasError(true);
-      setStatus({
-        dockerAvailable: false,
-        activeSessions: 0,
-        maxSessionsPerUser: 1,
-        sessionTimeoutMinutes: 120
+      setAuthStatus({
+        isAuthenticated: false,
+        displayName: null,
+        lastCollectionUtc: null,
+        gamesDiscovered: 0
       });
-      onError?.(
-        t(
-          'management.sections.integrations.xboxDaemonStatus.loadError',
-          'Failed to load Xbox status. Displaying default values.'
-        )
-      );
     }
-  }, [onError, t]);
+  }, [mockMode]);
 
   useEffect(() => {
     loadStatus();
   }, [loadStatus]);
 
-  // Refresh when the daemon reports a status change over the Xbox hub
+  // Refresh on relevant events
   useEffect(() => {
-    const handleUpdate = () => {
+    const handleMappingsUpdated = () => {
       loadStatus();
     };
-    on('XboxStatusChanged', handleUpdate);
-    on('XboxDaemonSessionCreated', handleUpdate);
-    on('XboxDaemonSessionTerminated', handleUpdate);
+    // Only the terminal login event changes auth status; interim 10%/40% ticks would redundantly
+    // re-fetch the AdminOnly auth-status endpoint.
+    const handleProgress = (event: XboxMappingProgressEvent) => {
+      if (event.isTerminal) {
+        loadStatus();
+      }
+    };
+    on('XboxGameMappingsUpdated', handleMappingsUpdated);
+    on('XboxMappingProgress', handleProgress);
     return () => {
-      off('XboxStatusChanged', handleUpdate);
-      off('XboxDaemonSessionCreated', handleUpdate);
-      off('XboxDaemonSessionTerminated', handleUpdate);
+      off('XboxGameMappingsUpdated', handleMappingsUpdated);
+      off('XboxMappingProgress', handleProgress);
     };
   }, [on, off, loadStatus]);
 
@@ -88,161 +99,190 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
     }
   }, [connectionState, loadStatus]);
 
-  const isReady = status?.dockerAvailable ?? false;
-  const activeSessions = status?.activeSessions ?? 0;
-  // An authenticated daemon session means the admin is already signed in for mapping, so the login
-  // control is hidden (mirroring Epic, which swaps Login for Logout when connected). The field is
-  // optional on older daemon responses, so default to 0.
-  const isAuthenticated = (status?.authenticatedSessions ?? 0) > 0;
+  const {
+    state: loginState,
+    actions: loginActions,
+    startLogin,
+    cancelLogin
+  } = useXboxMappingAuth({
+    onSuccess: () => {
+      setShowAuthModal(false);
+      loadStatus();
+      onSuccess?.('Xbox authentication successful.');
+    },
+    onError: (message: string) => {
+      console.error('Xbox mapping login error:', message);
+      onError?.(message);
+    }
+  });
+
+  const handleLoginClick = async () => {
+    setShowAuthModal(true);
+    await startLogin();
+  };
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await ApiService.logoutXboxMapping();
+      await loadStatus();
+      onSuccess?.('Logged out of Xbox.');
+    } catch (err) {
+      console.error('Logout failed:', err);
+      onError?.('Failed to logout from Xbox.');
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
+  const isAuthenticated = authStatus?.isAuthenticated ?? false;
 
   return (
-    <Card>
-      {/* Header: Xbox icon + Title + HelpPopover */}
-      <div className="flex items-center gap-3 mb-4">
-        <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--theme-xbox-subtle)] text-[var(--theme-xbox)]">
-          <XboxIcon size={20} />
-        </div>
-        <h3 className="text-lg font-semibold text-themed-primary">
-          {t('management.sections.integrations.xboxDaemonStatus.title', 'Xbox')}
-        </h3>
-        <HelpPopover position="left" width={320}>
-          <HelpSection
-            title={t(
-              'management.sections.integrations.xboxDaemonStatus.help.authentication.title',
-              'Xbox Authentication'
-            )}
-            variant="subtle"
-          >
-            <HelpDefinition
-              items={[
-                {
-                  term: t(
-                    'management.sections.integrations.xboxDaemonStatus.help.authentication.loginRequired.term',
-                    'Login Required'
-                  ),
-                  description: t(
-                    'management.sections.integrations.xboxDaemonStatus.help.authentication.loginRequired.description',
-                    'Xbox requires a Microsoft account login to discover your game library. Sign-in uses a device code entered in your own browser, so no password ever enters the container.'
-                  )
-                },
-                {
-                  term: t(
-                    'management.sections.integrations.xboxDaemonStatus.help.authentication.gameDiscovery.term',
-                    'Game Discovery'
-                  ),
-                  description: t(
-                    'management.sections.integrations.xboxDaemonStatus.help.authentication.gameDiscovery.description',
-                    'Once connected, your Xbox and Microsoft Store library is scanned to identify cached downloads and match them to game titles.'
-                  )
-                }
-              ]}
-            />
-          </HelpSection>
-          <HelpNote type="info">
-            {t(
-              'management.sections.integrations.xboxDaemonStatus.help.note',
-              'Sign in on the Prefill page. The daemon container needs Docker to be available to run prefill sessions.'
-            )}
-          </HelpNote>
-        </HelpPopover>
-        <div className="ml-auto flex-shrink-0">
-          {isReady ? (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
-              <CheckCircle size={14} />
-              {t('management.sections.integrations.xboxDaemonStatus.connected', 'Connected')}
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
-              <XCircle size={14} />
-              {t('management.sections.integrations.xboxDaemonStatus.notConnected', 'Not Connected')}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Error Warning */}
-      {hasError && (
-        <div className="p-2 mb-2 rounded-lg bg-themed-warning text-themed-warning text-xs">
-          {t(
-            'management.sections.integrations.xboxDaemonStatus.loadError',
-            'Failed to load Xbox status. Displaying default values.'
-          )}
-        </div>
-      )}
-
-      {/* Status Row */}
-      <div className="p-3 rounded-lg bg-themed-tertiary">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            <p className="text-themed-primary text-sm font-medium mb-1">
-              {isReady
-                ? t(
-                    'management.sections.integrations.xboxDaemonStatus.dockerStatus',
-                    'Docker Service'
-                  )
-                : t(
-                    'management.sections.integrations.xboxDaemonStatus.notConnected',
-                    'Not Connected'
-                  )}
-            </p>
-            <p className="text-xs text-themed-muted">
-              {isReady
-                ? t(
-                    'management.sections.integrations.xboxDaemonStatus.dockerAvailableDesc',
-                    'Docker is available and ready for Xbox prefill sessions.'
-                  )
-                : t(
-                    'management.sections.integrations.xboxDaemonStatus.dockerUnavailableDesc',
-                    'Start Docker Desktop to enable Xbox authentication.'
-                  )}
-            </p>
+    <>
+      <Card>
+        {/* Header: Xbox icon + Title + HelpPopover */}
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--theme-xbox-subtle)] text-[var(--theme-xbox)]">
+            <XboxIcon size={20} />
           </div>
-          <div className="flex-shrink-0 flex flex-col items-start sm:items-end gap-2">
-            <span className="text-xs text-themed-muted">
-              {activeSessions > 0
-                ? t('management.sections.integrations.xboxDaemonStatus.activeSessions', {
-                    count: activeSessions,
-                    defaultValue: '{{count}} active session'
-                  })
-                : t(
-                    'management.sections.integrations.xboxDaemonStatus.noActiveSessions',
-                    'No active sessions'
-                  )}
-            </span>
-            {authMode === 'authenticated' && !mockMode && !isAuthenticated && (
-              <Button
-                onClick={() => setShowLogin(true)}
-                variant="filled"
-                color="green"
-                size="sm"
-                disabled={!isReady}
-              >
+          <h3 className="text-lg font-semibold text-themed-primary">
+            {t('management.sections.integrations.xboxDaemonStatus.title', 'Xbox')}
+          </h3>
+          <HelpPopover position="left" width={320}>
+            <HelpSection
+              title={t(
+                'management.sections.integrations.xboxDaemonStatus.help.authentication.title',
+                'Xbox Authentication'
+              )}
+              variant="subtle"
+            >
+              <HelpDefinition
+                items={[
+                  {
+                    term: t(
+                      'management.sections.integrations.xboxDaemonStatus.help.authentication.loginRequired.term',
+                      'Login Required'
+                    ),
+                    description: t(
+                      'management.sections.integrations.xboxDaemonStatus.help.authentication.loginRequired.description',
+                      'Xbox requires a Microsoft account login to discover your game library. Sign-in uses a device code entered in your own browser — no password ever enters the server.'
+                    )
+                  },
+                  {
+                    term: t(
+                      'management.sections.integrations.xboxDaemonStatus.help.authentication.gameDiscovery.term',
+                      'Game Discovery'
+                    ),
+                    description: t(
+                      'management.sections.integrations.xboxDaemonStatus.help.authentication.gameDiscovery.description',
+                      'Once connected, your Xbox and Microsoft Store library is scanned to identify cached downloads and match them to game titles.'
+                    )
+                  }
+                ]}
+              />
+            </HelpSection>
+            <HelpNote type="info">
+              {t(
+                'management.sections.integrations.xboxDaemonStatus.help.note',
+                'Sign in to enable Xbox game discovery. Docker is not required — authentication runs directly in the manager.'
+              )}
+            </HelpNote>
+          </HelpPopover>
+          <div className="ml-auto flex-shrink-0">
+            {isAuthenticated ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
+                <CheckCircle size={14} />
+                {t('management.sections.integrations.xboxDaemonStatus.connected', 'Connected')}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
+                <XCircle size={14} />
                 {t(
-                  'management.sections.integrations.xboxDaemonStatus.loginButton',
-                  'Login with Xbox'
+                  'management.sections.integrations.xboxDaemonStatus.notConnected',
+                  'Not Connected'
                 )}
-              </Button>
+              </span>
             )}
           </div>
         </div>
-      </div>
 
-      {/* Game Library (aggregated across all discovery sources) - collapsible dropdown */}
-      <div className="mt-4">
-        <XboxGameMappings />
-      </div>
+        {/* Error Warning */}
+        {hasError && (
+          <div className="p-2 mb-2 rounded-lg bg-themed-warning text-themed-warning text-xs">
+            {t(
+              'management.sections.integrations.xboxDaemonStatus.loadError',
+              'Failed to load Xbox status. Displaying default values.'
+            )}
+          </div>
+        )}
 
-      {/* Device-code login flow (mounts only while open, so the daemon hub is not connected on
-          every Integrations-tab view). On success it collects the shared catalog - no prefill. */}
-      {showLogin && (
-        <XboxMappingLoginModal
-          onClose={() => setShowLogin(false)}
-          onAuthenticated={loadStatus}
-          onError={onError}
-          onSuccess={onSuccess}
-        />
-      )}
-    </Card>
+        {/* Auth Status Row */}
+        <div className="p-3 rounded-lg bg-themed-tertiary">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <p className="text-themed-primary text-sm font-medium mb-1">
+                {isAuthenticated
+                  ? t('management.sections.integrations.xboxDaemonStatus.connectedAs', {
+                      name: authStatus?.displayName ?? 'Xbox User',
+                      defaultValue: 'Connected as {{name}}'
+                    })
+                  : t(
+                      'management.sections.integrations.xboxDaemonStatus.notConnected',
+                      'Not Connected'
+                    )}
+              </p>
+              <p className="text-xs text-themed-muted">
+                {isAuthenticated
+                  ? t(
+                      'management.sections.integrations.xboxDaemonStatus.connectedDesc',
+                      'Library synced — game detection is active.'
+                    )
+                  : t(
+                      'management.sections.integrations.xboxDaemonStatus.notConnectedDesc',
+                      'Sign in with your Microsoft account to enable Xbox game discovery.'
+                    )}
+              </p>
+            </div>
+            {authMode === 'authenticated' && !mockMode && (
+              <div className="flex-shrink-0">
+                {isAuthenticated ? (
+                  <Button
+                    onClick={handleLogout}
+                    loading={loggingOut}
+                    variant="filled"
+                    color="red"
+                    size="sm"
+                  >
+                    {t('management.sections.integrations.xboxDaemonStatus.logout', 'Logout')}
+                  </Button>
+                ) : (
+                  <Button onClick={handleLoginClick} variant="filled" color="blue" size="sm">
+                    {t(
+                      'management.sections.integrations.xboxDaemonStatus.loginButton',
+                      'Login with Xbox'
+                    )}
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Game Library (aggregated across all discovery sources) - collapsible dropdown */}
+        <div className="mt-4">
+          <XboxGameMappings />
+        </div>
+      </Card>
+
+      {/* Auth Modal */}
+      <XboxMappingLoginModal
+        opened={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        state={loginState}
+        actions={loginActions}
+        onCancelLogin={cancelLogin}
+      />
+    </>
   );
 };
 
