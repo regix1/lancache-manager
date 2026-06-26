@@ -70,6 +70,24 @@ public class XboxNamedDetectionEvictionTests
             Datasource = "default"
         };
 
+    /// <summary>
+    /// An ACTIVE named-game detection row (GameAppId=0, EpicAppId=null, Service+GameName set),
+    /// the shape that shows in the Game Cache Detection grid and that named-game removal must delete.
+    /// </summary>
+    private static CachedGameDetection NamedDetectionRow(string service, string gameName)
+        => new CachedGameDetection
+        {
+            GameAppId = 0,
+            EpicAppId = null,
+            Service = service,
+            GameName = gameName,
+            CacheFilesFound = 1,
+            TotalSizeBytes = 1,
+            IsEvicted = false,
+            LastDetectedUtc = DateTime.UtcNow,
+            CreatedAtUtc = DateTime.UtcNow
+        };
+
     // -----------------------------------------------------------------------------------------
     // Criterion 2: identity key. Xbox flows through the named arm of GamesOnDiskCalculator.GetGameKey
     // (the public twin of the private GameCacheDetectionService.BuildGameIdentityKey, per its
@@ -274,5 +292,109 @@ public class XboxNamedDetectionEvictionTests
         Assert.True(row.IsEvicted);
         // And it did NOT leak into the game-detection table.
         Assert.False(await assert.CachedGameDetections.AnyAsync(g => g.Service == "wsus"));
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Active named-game REMOVAL detection-row cleanup. Regression guard for the bug where removing
+    // an Xbox named game (e.g. "Minecraft for Windows") succeeded on disk/DB but the detection row
+    // survived, so the game kept showing in the Game Cache Detection grid after the frontend refetch.
+    // The Steam removal deleted its row by GameAppId; the named removal was missing the equivalent
+    // (Service, GameName) cleanup. Parameterized to prove the fix is service-agnostic.
+    // -----------------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("xbox", "Minecraft for Windows")]
+    [InlineData("blizzard", "Diablo IV")]
+    [InlineData("riot", "VALORANT")]
+    public async Task RemoveNamedGameFromCache_DeletesOnlyTargetRow(string service, string gameName)
+    {
+        var options = NewInMemoryOptions();
+        var otherNamedService = service == "xbox" ? "blizzard" : "xbox";
+
+        await using (var seed = new AppDbContext(options))
+        {
+            seed.CachedGameDetections.Add(NamedDetectionRow(service, gameName));                 // target
+            seed.CachedGameDetections.Add(NamedDetectionRow(service, "Some Other Game"));         // same service, other game
+            seed.CachedGameDetections.Add(NamedDetectionRow(otherNamedService, gameName));        // same name, other service
+            // Steam + Epic rows that happen to share the name must survive (identity differs).
+            seed.CachedGameDetections.Add(new CachedGameDetection
+            {
+                GameAppId = 730,
+                EpicAppId = null,
+                Service = "steam",
+                GameName = gameName,
+                LastDetectedUtc = DateTime.UtcNow,
+                CreatedAtUtc = DateTime.UtcNow
+            });
+            seed.CachedGameDetections.Add(new CachedGameDetection
+            {
+                GameAppId = 0,
+                EpicAppId = "epic-123",
+                Service = "epicgames",
+                GameName = gameName,
+                LastDetectedUtc = DateTime.UtcNow,
+                CreatedAtUtc = DateTime.UtcNow
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        var dataService = NewDataService(options);
+
+        await dataService.RemoveNamedGameFromCacheAsync(service, gameName);
+
+        await using var assert = new AppDbContext(options);
+
+        // Target named row is gone.
+        Assert.False(await assert.CachedGameDetections.AnyAsync(
+            g => g.GameAppId == 0 && g.EpicAppId == null && g.Service == service && g.GameName == gameName));
+        // Same-service, different-game survives.
+        Assert.True(await assert.CachedGameDetections.AnyAsync(
+            g => g.Service == service && g.GameName == "Some Other Game"));
+        // Same-name, different named service survives.
+        Assert.True(await assert.CachedGameDetections.AnyAsync(
+            g => g.GameAppId == 0 && g.EpicAppId == null && g.Service == otherNamedService && g.GameName == gameName));
+        // Steam + Epic decoys survive.
+        Assert.True(await assert.CachedGameDetections.AnyAsync(g => g.GameAppId == 730));
+        Assert.True(await assert.CachedGameDetections.AnyAsync(g => g.EpicAppId == "epic-123"));
+    }
+
+    [Fact]
+    public async Task RemoveNamedGameFromCache_MatchesServiceCaseInsensitively()
+    {
+        var options = NewInMemoryOptions();
+
+        await using (var seed = new AppDbContext(options))
+        {
+            // Stored lowercase, as the Xbox cache-split writes it.
+            seed.CachedGameDetections.Add(NamedDetectionRow("xbox", "Forza Horizon 5"));
+            await seed.SaveChangesAsync();
+        }
+
+        var dataService = NewDataService(options);
+
+        // Caller passes mixed case; the stored row is lowercase.
+        await dataService.RemoveNamedGameFromCacheAsync("Xbox", "Forza Horizon 5");
+
+        await using var assert = new AppDbContext(options);
+        Assert.Empty(assert.CachedGameDetections);
+    }
+
+    [Fact]
+    public async Task RemoveNamedGameFromCache_NoMatchingRow_IsNoOp()
+    {
+        var options = NewInMemoryOptions();
+
+        await using (var seed = new AppDbContext(options))
+        {
+            seed.CachedGameDetections.Add(NamedDetectionRow("xbox", "Halo Infinite"));
+            await seed.SaveChangesAsync();
+        }
+
+        var dataService = NewDataService(options);
+
+        await dataService.RemoveNamedGameFromCacheAsync("xbox", "Not Present");
+
+        await using var assert = new AppDbContext(options);
+        Assert.Equal(1, await assert.CachedGameDetections.CountAsync());
     }
 }

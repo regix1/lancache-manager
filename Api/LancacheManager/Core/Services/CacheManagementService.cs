@@ -1390,6 +1390,15 @@ public class CacheManagementService
                 gameName, datasourcesProcessed, executionPlan.DatasourcesSkipped,
                 aggregatedReport.CacheFilesDeleted, aggregatedReport.TotalBytesFreed);
 
+            // Remove this Epic game from cached detection results so page reload shows correct data.
+            // Epic detection rows carry EpicAppId != null; removal is keyed by GameName (mirrors the
+            // Rust cache_epic_remove delete). Mirrors the Steam/named detection-row cleanup; without it
+            // the Epic detection row only got pruned later by the Epic mapping loop's full re-detection.
+            await _gameCacheDetectionService.RemoveEpicGameFromCacheAsync(gameName);
+
+            // Refresh persisted disk-summary totals so dashboard reads reflect post-removal state
+            await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(cancellationToken);
+
             // Invalidate service counts cache since logs were modified
             await InvalidateServiceCountsAsync();
 
@@ -1521,6 +1530,16 @@ public class CacheManagementService
                 "Total: {Files} files removed, {Bytes} bytes freed",
                 service, gameName, datasourcesProcessed, executionPlan.DatasourcesSkipped,
                 aggregatedReport.CacheFilesDeleted, aggregatedReport.TotalBytesFreed);
+
+            // Remove this named game from cached detection results so page reload shows correct data.
+            // Identity is (Service, GameName) with both Steam and Epic ids null. Mirrors the Steam
+            // removal's detection-row cleanup above; without it the (xbox/blizzard/riot) detection row
+            // survives and the game keeps showing in the Game Cache Detection grid after the frontend
+            // refetch (the Xbox cache-split stores Service='xbox' lowercase, matched case-insensitively).
+            await _gameCacheDetectionService.RemoveNamedGameFromCacheAsync(service, gameName);
+
+            // Refresh persisted disk-summary totals so dashboard reads reflect post-removal state
+            await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(cancellationToken);
 
             // Invalidate service counts cache since logs were modified
             await InvalidateServiceCountsAsync();

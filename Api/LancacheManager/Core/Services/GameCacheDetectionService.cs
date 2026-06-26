@@ -1094,6 +1094,18 @@ public class GameCacheDetectionService : IDisposable
         InvalidateDetectionCache();
     }
 
+    public async Task RemoveNamedGameFromCacheAsync(string service, string gameName)
+    {
+        await _detectionDataService.RemoveNamedGameFromCacheAsync(service, gameName);
+        InvalidateDetectionCache();
+    }
+
+    public async Task RemoveEpicGameFromCacheAsync(string gameName)
+    {
+        await _detectionDataService.RemoveEpicGameFromCacheAsync(gameName);
+        InvalidateDetectionCache();
+    }
+
     /// <summary>
     /// Resolve unknown games in the cache by looking up their depot IDs in SteamDepotMappings.
     /// This updates cached "Unknown Game (Depot X)" entries when mappings become available.
