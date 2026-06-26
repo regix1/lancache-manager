@@ -11,7 +11,7 @@ namespace LancacheManager.Core.Services;
 /// <summary>
 /// Service for running game cache detection as a background operation
 /// </summary>
-public class GameCacheDetectionService : IDisposable
+public partial class GameCacheDetectionService : IDisposable
 {
     private readonly ILogger<GameCacheDetectionService> _logger;
     private readonly IPathResolver _pathResolver;
@@ -1079,30 +1079,6 @@ public class GameCacheDetectionService : IDisposable
     public async Task InvalidateCacheAsync()
     {
         await _detectionDataService.InvalidateCacheAsync();
-        InvalidateDetectionCache();
-    }
-
-    public async Task RemoveGameFromCacheAsync(long gameAppId)
-    {
-        await _detectionDataService.RemoveGameFromCacheAsync(gameAppId);
-        InvalidateDetectionCache();
-    }
-
-    public async Task RemoveServiceFromCacheAsync(string serviceName)
-    {
-        await _detectionDataService.RemoveServiceFromCacheAsync(serviceName);
-        InvalidateDetectionCache();
-    }
-
-    public async Task RemoveNamedGameFromCacheAsync(string service, string gameName)
-    {
-        await _detectionDataService.RemoveNamedGameFromCacheAsync(service, gameName);
-        InvalidateDetectionCache();
-    }
-
-    public async Task RemoveEpicGameFromCacheAsync(string gameName)
-    {
-        await _detectionDataService.RemoveEpicGameFromCacheAsync(gameName);
         InvalidateDetectionCache();
     }
 
