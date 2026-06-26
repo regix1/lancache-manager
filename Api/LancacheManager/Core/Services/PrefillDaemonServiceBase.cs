@@ -60,6 +60,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
     // Configuration defaults
     private const int DefaultSessionTimeoutMinutes = 120;
+    private const int DefaultStallTimeoutSeconds = 180;
     private const int DefaultTcpPort = 45555;
 
     /// <summary>
@@ -1710,8 +1711,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
     private void CleanupExpiredSessions(object? state)
     {
+        var nowUtc = DateTime.UtcNow;
+
         var expiredSessions = _sessions.Values
-            .Where(s => s.Status == DaemonSessionStatus.Active && DateTime.UtcNow > s.ExpiresAt)
+            .Where(s => s.Status == DaemonSessionStatus.Active && nowUtc > s.ExpiresAt)
             .ToList();
 
         foreach (var session in expiredSessions)
@@ -1719,6 +1722,47 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             _logger.LogInformation("Session expired: {SessionId}", session.Id);
             _ = TerminateSessionAsync(session.Id, "Session expired");
         }
+
+        // Stall watchdog: fail any actively-prefilling session that has transferred no new bytes
+        // for longer than the configured threshold. Routes through the existing idempotent terminal
+        // funnel — no DbContext is touched on this timer thread.
+        var stallThreshold = TimeSpan.FromSeconds(GetStallTimeoutSeconds());
+        var stalledSessions = _sessions.Values
+            .Where(s => s.Status == DaemonSessionStatus.Active &&
+                        (s.PrefillState == PrefillState.Started || s.PrefillState == PrefillState.Downloading) &&
+                        IsPrefillStalled(s, nowUtc, stallThreshold))
+            .ToList();
+
+        foreach (var session in stalledSessions)
+        {
+            _logger.LogWarning(
+                "Prefill stall detected for session {SessionId}: no new bytes for >{ThresholdSeconds}s. Failing the run.",
+                session.Id, stallThreshold.TotalSeconds);
+            session.ErrorMessage = $"Prefill stalled: no bytes transferred for {(int)stallThreshold.TotalSeconds} seconds.";
+            _ = TransitionToTerminalAsync(session, PrefillState.Failed);
+        }
+    }
+
+    /// <summary>
+    /// Returns true when a session is actively prefilling but has transferred no new bytes
+    /// for longer than <paramref name="stallThreshold"/>. Pure function — no side effects.
+    /// </summary>
+    internal static bool IsPrefillStalled(DaemonSession session, DateTime nowUtc, TimeSpan stallThreshold)
+    {
+        if (!session.IsPrefilling)
+        {
+            return false;
+        }
+
+        // Volatile read pairs with the Volatile.Write on the progress/terminal threads so this
+        // timer thread never observes a torn or stale tick value. 0 = no prefill clock set.
+        var lastProgressTicks = Volatile.Read(ref session.LastProgressTicksUtc);
+        if (lastProgressTicks == 0L)
+        {
+            return false;
+        }
+
+        return nowUtc - new DateTime(lastProgressTicks, DateTimeKind.Utc) > stallThreshold;
     }
 
     private string GetDaemonBasePath()
@@ -1883,6 +1927,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     private int GetSessionTimeoutMinutes()
     {
         return _configuration.GetValue<int>("Prefill:SessionTimeoutMinutes", DefaultSessionTimeoutMinutes);
+    }
+
+    private int GetStallTimeoutSeconds()
+    {
+        return _configuration.GetValue<int>("Prefill:StallTimeoutSeconds", DefaultStallTimeoutSeconds);
     }
 
     /// <summary>

@@ -33,6 +33,24 @@ public class DaemonSession
     public PrefillProgress? LastProgress { get; set; }
 
     /// <summary>
+    /// UTC ticks of the last progress tick that transferred new bytes (i.e. where
+    /// <see cref="TotalBytesTransferred"/> increased), or 0 when no prefill clock is set.
+    /// Stored as a plain <see cref="long"/> field (not a <c>DateTime?</c> property) so the
+    /// stall watchdog on the cleanup-timer thread and the socket/progress thread can read and
+    /// write it atomically via <see cref="System.Threading.Volatile"/>; a torn read of the
+    /// multi-field <c>DateTime?</c> struct could otherwise mis-fire the watchdog. Seeded when a
+    /// prefill starts, advanced only on byte-increasing ticks, and reset to 0 by the terminal
+    /// funnel so a completed/failed session is never re-flagged.
+    /// </summary>
+    public long LastProgressTicksUtc;
+
+    /// <summary>
+    /// Snapshot of <see cref="TotalBytesTransferred"/> at the last byte-increasing tick.
+    /// Used by the stall watchdog to detect zero-progress prefill sessions.
+    /// </summary>
+    public long LastProgressBytes { get; set; }
+
+    /// <summary>
     /// Per-run idempotency guard for the terminal funnel. 0 = not yet terminal, 1 = terminal
     /// already fired. Reset to 0 at the start of each prefill run; flipped once via
     /// <see cref="System.Threading.Interlocked.CompareExchange(ref int, int, int)"/> so a

@@ -199,6 +199,10 @@ public abstract partial class PrefillDaemonServiceBase
         session.LastPrefillCompletedAt = null;
         session.LastPrefillDurationSeconds = null;
         session.LastPrefillStatus = null;
+        // Seed stall-watchdog state so a prefill that never moves is detectable from the start.
+        // Written via Volatile so the cleanup-timer thread observes a torn-free tick value.
+        Volatile.Write(ref session.LastProgressTicksUtc, DateTime.UtcNow.Ticks);
+        session.LastProgressBytes = 0;
 
         var state = PrefillProgressState.Started.ToWireString();
         await BroadcastToSubscribersAsync(session, EventPrefillStateChanged,
@@ -241,6 +245,7 @@ public abstract partial class PrefillDaemonServiceBase
         session.IsPrefilling = false;
         session.PrefillState = terminalState;
         session.LastProgress = null;
+        Volatile.Write(ref session.LastProgressTicksUtc, 0L);
         session.CurrentAppId = null;
         session.CurrentAppName = null;
         session.PreviousAppId = null;
@@ -561,6 +566,14 @@ public abstract partial class PrefillDaemonServiceBase
         // connects/refreshes/reconnects mid-prefill can immediately re-hydrate the bar
         // (GetCurrentPrefillProgress / subscribe replay) without waiting for the next tick.
         session.LastProgress = progress;
+        // Advance stall-watchdog clock ONLY when bytes actually increased, so a zero-progress
+        // session is detectable as stalled rather than being refreshed on every tick. Written via
+        // Volatile so the cleanup-timer thread reads a torn-free tick value.
+        if (session.TotalBytesTransferred > session.LastProgressBytes)
+        {
+            session.LastProgressBytes = session.TotalBytesTransferred;
+            Volatile.Write(ref session.LastProgressTicksUtc, DateTime.UtcNow.Ticks);
+        }
         if (session.PrefillState == PrefillState.Started)
         {
             session.PrefillState = PrefillState.Downloading;
