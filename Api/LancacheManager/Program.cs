@@ -602,13 +602,16 @@ builder.Services.AddSingleton<LancacheManager.Core.Services.BattleNet.BattleNetM
 // (no auth, no Docker) - used to fetch Xbox game banner art by ProductId at mapping time.
 builder.Services.AddHttpClient<LancacheManager.Services.Xbox.XboxApiDirectClient>();
 
-// Register XboxAuthStorageService for the manager's own Xbox refresh-token persistence
-// (encrypted via SecureStateEncryptionService, NOT DPAPI - Linux container).
-builder.Services.AddSingleton<LancacheManager.Services.Xbox.XboxAuthStorageService>();
-
 // Register XboxMappingService for re-tagging existing wsus downloads to Xbox titles by matching
 // the per-file CDN path fragments the authenticated daemon contributed (backfill of INACTIVE rows).
 builder.Services.AddSingleton<LancacheManager.Services.Xbox.XboxMappingService>();
+
+// Register XboxCatalogMappingService - the SCHEDULED Xbox catalog mapping service (mirrors
+// EpicMappingService's scheduling idea). Keeps XboxCdnPatterns/XboxGameMappings populated on a
+// runtime-configurable schedule + manual trigger + on-authentication nudge, decoupled from prefill,
+// by re-reading the daemon's already-authenticated session. Surfaces on the Schedules page as
+// "xboxMapping" (auto-discovered by ServiceScheduleRegistry as a ConfigurableScheduledService).
+builder.Services.AddSingletonHostedService<LancacheManager.Services.Xbox.XboxCatalogMappingService>();
 
 // Register GcScheduledService - runs on a user-configurable interval (managed through the
 // unified Schedules page) and performs aggressive GC when the working set exceeds the

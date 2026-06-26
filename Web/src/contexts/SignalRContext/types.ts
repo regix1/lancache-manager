@@ -901,11 +901,14 @@ export interface XboxMappingProgressEvent {
   cancelled?: boolean;
 }
 
+// Mirrors the backend payload emitted by XboxMappingService.MergeDaemonCatalogCoreAsync
+// ({ source, newMappings, newPatterns }). Xbox tracks newly discovered games (newMappings) and
+// newly stored CDN URL fragments (newPatterns); it does NOT compute a running total / updated count
+// like Epic, so this intentionally diverges from EpicGameMappingsUpdatedEvent.
 export interface XboxGameMappingsUpdatedEvent {
-  totalGames: number;
-  newGames: number;
-  updatedGames: number;
-  lastUpdatedUtc: string;
+  source: string;
+  newMappings: number;
+  newPatterns: number;
 }
 
 export interface EvictionScanStartedEvent {

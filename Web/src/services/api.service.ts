@@ -2349,6 +2349,24 @@ class ApiService {
     return ApiService.handleResponse<{ resolved: number; message: string }>(response);
   }
 
+  // Collects fresh product->title mappings + CDN patterns from any signed-in Xbox daemon session
+  // (via get-cdn-info), then resolves unmatched downloads. Mirrors Epic's manual refresh and, unlike
+  // resolveXboxDownloads (which only re-runs the resolver over EXISTING patterns), this discovers new
+  // ones. Same collection also runs on the xboxMapping schedule and when a session authenticates.
+  static async refreshXboxCatalog(): Promise<{
+    newPatterns: number;
+    resolved: number;
+    message: string;
+  }> {
+    const response = await fetch(`${API_BASE}/xbox/game-mappings/refresh-catalog`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    return ApiService.handleResponse<{ newPatterns: number; resolved: number; message: string }>(
+      response
+    );
+  }
+
   static async getEpicGameMappings(): Promise<EpicGameMappingDto[]> {
     const response = await fetch(`${API_BASE}/epic/game-mappings`, {
       credentials: 'include'

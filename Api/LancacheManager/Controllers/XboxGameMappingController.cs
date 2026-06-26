@@ -23,15 +23,18 @@ public class XboxGameMappingController : ControllerBase
 {
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly XboxMappingService _xboxMappingService;
+    private readonly XboxCatalogMappingService _xboxCatalogMappingService;
     private readonly ILogger<XboxGameMappingController> _logger;
 
     public XboxGameMappingController(
         IDbContextFactory<AppDbContext> dbContextFactory,
         XboxMappingService xboxMappingService,
+        XboxCatalogMappingService xboxCatalogMappingService,
         ILogger<XboxGameMappingController> logger)
     {
         _dbContextFactory = dbContextFactory;
         _xboxMappingService = xboxMappingService;
+        _xboxCatalogMappingService = xboxCatalogMappingService;
         _logger = logger;
     }
 
@@ -119,6 +122,33 @@ public class XboxGameMappingController : ControllerBase
             .ToListAsync(ct);
 
         return Ok(dtos);
+    }
+
+    /// <summary>
+    /// Manually refreshes the Xbox catalog: collects product-&gt;title + CDN fragments from the daemon's
+    /// already-authenticated session(s) via <c>get-cdn-info</c>, then resolves unmatched downloads.
+    /// Mirrors Epic's <c>POST /refresh</c> manual trigger and is decoupled from prefill - it re-reads the
+    /// existing session (no prefill download needed). The same collection also runs on a schedule
+    /// (Schedules page, key <c>xboxMapping</c>) and opportunistically when a session authenticates.
+    /// </summary>
+    [HttpPost("refresh-catalog")]
+    public async Task<ActionResult> RefreshCatalogAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var result = await _xboxCatalogMappingService.RefreshNowAsync(ct);
+            return Ok(new
+            {
+                newPatterns = result.NewPatterns,
+                resolved = result.Resolved,
+                message = $"Collected {result.NewPatterns} new CDN pattern(s); re-tagged {result.Resolved} download(s)"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to refresh Xbox catalog");
+            return StatusCode(500, ApiResponse.Error("Failed to refresh Xbox catalog: " + ex.Message));
+        }
     }
 
     /// <summary>

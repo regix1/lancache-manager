@@ -22,10 +22,11 @@ interface XboxMappingManagerProps {
 }
 
 /**
- * Xbox game mapping manager (Data section). Unlike Epic there is no login or scheduled refresh -
- * Xbox titles resolve automatically during the Rust log ingest; this card exposes the discovered
- * catalog stats plus a manual "Resolve Now" backfill that re-runs the resolver against still-wsus
- * downloads. Progress is tracked via the xbox_game_mapping SignalR notification.
+ * Xbox game mapping manager (Data section). Xbox titles resolve automatically during the Rust log
+ * ingest, and the catalog is kept current by the scheduled XboxCatalogMappingService (key
+ * `xboxMapping`) plus an on-login nudge. This card exposes the discovered catalog stats plus a manual
+ * "Refresh Catalog" trigger that collects fresh titles + CDN patterns from any signed-in Xbox daemon
+ * session and resolves unmatched downloads. Stats refresh via the XboxGameMappingsUpdated SignalR event.
  */
 const XboxMappingManager: React.FC<XboxMappingManagerProps> = ({
   isAdmin,
@@ -38,6 +39,11 @@ const XboxMappingManager: React.FC<XboxMappingManagerProps> = ({
 
   // Derive Xbox mapping operation state from notifications (standardized pattern)
   const isXboxMappingFromNotification = useOperationBusy({ types: ['xbox_game_mapping'] });
+
+  // The refresh-catalog call is a synchronous request that does not emit a progress notification,
+  // so track its in-flight state locally to drive the button spinner.
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const isBusy = isRefreshing || isXboxMappingFromNotification;
 
   const [stats, setStats] = useState<XboxMappingStats | null>(null);
 
@@ -76,14 +82,20 @@ const XboxMappingManager: React.FC<XboxMappingManagerProps> = ({
 
   const formattedLastUpdated = useFormattedDateTime(stats?.lastUpdatedUtc ?? null);
 
-  const handleResolve = async () => {
-    if (isXboxMappingFromNotification) return;
+  const handleRefreshCatalog = async () => {
+    if (isBusy) return;
 
+    setIsRefreshing(true);
     try {
-      await ApiService.resolveXboxDownloads();
-      // Progress is tracked via SignalR notification bar - no inline success message needed
+      // Collect fresh game titles + CDN patterns from any signed-in daemon session, then resolve.
+      // When new games/patterns are found the backend emits XboxGameMappingsUpdated, which both
+      // refreshes these stats and raises a completion toast.
+      await ApiService.refreshXboxCatalog();
+      await loadStats();
     } catch (err) {
-      onError?.(err instanceof Error ? err.message : 'Failed to resolve Xbox downloads');
+      onError?.(err instanceof Error ? err.message : 'Failed to refresh Xbox catalog');
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -149,12 +161,12 @@ const XboxMappingManager: React.FC<XboxMappingManagerProps> = ({
         <Button
           variant="filled"
           color="green"
-          onClick={handleResolve}
-          disabled={isXboxMappingFromNotification || mockMode || !isAdmin}
-          loading={isXboxMappingFromNotification}
+          onClick={handleRefreshCatalog}
+          disabled={isBusy || mockMode || !isAdmin}
+          loading={isBusy}
           fullWidth
         >
-          {isXboxMappingFromNotification
+          {isBusy
             ? t('management.xboxMapping.buttons.resolving')
             : t('management.xboxMapping.buttons.applyNow')}
         </Button>

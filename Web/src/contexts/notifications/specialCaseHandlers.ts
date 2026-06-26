@@ -276,9 +276,10 @@ export function createSpecialCaseHandlers(
 
   // ========== Xbox Game Mappings Updated ==========
   // Simple one-shot completion notification: no start/progress phases, just a completion event.
-  // Only shows a notification when there are actual changes (new or updated games).
+  // The backend only emits this when the catalog merge actually persisted something, so a toast
+  // shows when new games (newMappings) or new CDN fragments (newPatterns) were discovered.
   const handleXboxGameMappingsUpdated = (event: XboxGameMappingsUpdatedEvent) => {
-    if (!event.newGames && !event.updatedGames) return;
+    if (!event.newMappings && !event.newPatterns) return;
 
     const detailMessage = formatXboxGameMappingsUpdatedMessage(event);
 
@@ -293,9 +294,8 @@ export function createSpecialCaseHandlers(
         startedAt: new Date(),
         progress: 100,
         details: {
-          totalXboxGames: event.totalGames,
-          newXboxGames: event.newGames,
-          updatedXboxGames: event.updatedGames
+          newXboxGames: event.newMappings,
+          newXboxPatterns: event.newPatterns
         }
       };
       return [...filtered, newNotification];

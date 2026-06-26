@@ -626,7 +626,7 @@ export const formatXboxMappingCompleteMessage = (event: XboxMappingProgressEvent
 
 /**
  * Formats the detail message for Xbox game mappings updated.
- * Shows new/updated game counts and total.
+ * Shows newly discovered game + CDN-pattern counts (the backend payload's newMappings/newPatterns).
  * @param event - The Xbox game mappings updated event from SignalR
  * @returns Formatted detail message string
  */
@@ -634,12 +634,11 @@ export const formatXboxGameMappingsUpdatedMessage = (
   event: XboxGameMappingsUpdatedEvent
 ): string => {
   const parts: string[] = [];
-  if (event.newGames > 0) {
-    parts.push(`${event.newGames} new game${event.newGames !== 1 ? 's' : ''} discovered`);
+  if (event.newMappings > 0) {
+    parts.push(`${event.newMappings} new game${event.newMappings !== 1 ? 's' : ''} discovered`);
   }
-  if (event.updatedGames > 0) {
-    parts.push(`${event.updatedGames} game${event.updatedGames !== 1 ? 's' : ''} updated`);
+  if (event.newPatterns > 0) {
+    parts.push(`${event.newPatterns} new CDN pattern${event.newPatterns !== 1 ? 's' : ''}`);
   }
-  const detail = parts.join(', ');
-  return detail ? `${detail}, ${event.totalGames} total` : `${event.totalGames} total`;
+  return parts.join(', ');
 };

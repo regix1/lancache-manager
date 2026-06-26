@@ -80,6 +80,11 @@ public class XboxPrefillDaemonService : PrefillDaemonServiceBase
     /// After authentication, check for banned Xbox users. Mirrors Epic: Xbox uses device-code auth
     /// (no credential paste), so the username ban cannot be checked at credential time - it must be
     /// enforced once the daemon reports the authenticated gamertag/display name.
+    ///
+    /// NOTE: catalog mapping is deliberately NOT driven from here. Mapping is owned by the scheduled
+    /// <see cref="LancacheManager.Services.Xbox.XboxCatalogMappingService"/> (a schedule + manual trigger
+    /// + an on-authentication nudge it wires via <c>OnDaemonAuthenticated</c>), so prefill is no longer
+    /// the mapping mechanic - a game downloaded on a real Xbox/PC gets named without any prefill.
     /// </summary>
     protected override Task OnAuthenticatedAsync()
     {
@@ -88,14 +93,10 @@ public class XboxPrefillDaemonService : PrefillDaemonServiceBase
             try
             {
                 await KickBannedSessionsAsync();
-
-                // Collect the Xbox catalog (product->title + per-file CDN fragments) the authenticated
-                // session can see, so the resolver can later map opaque wsus cache hits back to titles.
-                await CollectSessionGameMappingsAsync();
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to enforce Xbox username bans / collect mappings after authentication");
+                _logger.LogWarning(ex, "Failed to enforce Xbox username bans after authentication");
             }
         });
 
@@ -130,16 +131,21 @@ public class XboxPrefillDaemonService : PrefillDaemonServiceBase
 
     /// <summary>
     /// Collects the Xbox catalog from every authenticated session via the daemon's <c>get-cdn-info</c>
-    /// command and persists it (product-&gt;title mappings + per-file CDN URL fragments) so the
-    /// resolver can map opaque <c>wsus</c> cache hits back to Xbox titles. This is the PRODUCER side
-    /// of the Xbox naming feature - without it the XboxCdnPatterns/XboxGameMappings tables stay empty
-    /// and downloads never auto-name. Mirrors EpicPrefillDaemonService.CollectSessionGameMappingsAsync
-    /// (same contract; Xbox's get-cdn-info already returns the owned catalog with titles AND
-    /// fragments, so a single merge covers both - no separate get-owned-games call needed).
-    /// Best-effort: a failure here never affects the prefill session.
+    /// command and persists it (product-&gt;title mappings + per-file CDN URL fragments) via
+    /// <see cref="XboxMappingService.MergeDaemonCatalogAsync"/>, so the resolver can map opaque
+    /// <c>wsus</c>/<c>xboxlive</c> cache hits back to Xbox titles. This is the PRODUCER side of the Xbox
+    /// naming feature - without it the XboxCdnPatterns/XboxGameMappings tables stay empty and downloads
+    /// never auto-name. It is DRIVEN BY <see cref="LancacheManager.Services.Xbox.XboxCatalogMappingService"/>
+    /// (a schedule + manual trigger + an on-authentication nudge), NOT by a user prefill, so a game
+    /// downloaded on a real Xbox/PC is named on the next pass (get-cdn-info returns the FULL owned catalog,
+    /// not just prefilled titles). The method lives here because it needs the protected session set.
+    /// Best-effort: a failure here never affects the prefill session. Returns the total number of CDN
+    /// patterns newly persisted across all authenticated sessions.
     /// </summary>
-    private async Task CollectSessionGameMappingsAsync()
+    public async Task<int> RefreshCatalogFromActiveSessionsAsync(CancellationToken ct = default)
     {
+        var totalNewPatterns = 0;
+
         foreach (var session in _sessions.Values)
         {
             if (session.AuthState != DaemonAuthState.Authenticated) continue;
@@ -150,14 +156,15 @@ public class XboxPrefillDaemonService : PrefillDaemonServiceBase
                     "Collecting Xbox CDN patterns from session {SessionId}",
                     session.Id);
 
-                var cdnInfos = await session.Client.GetCdnInfoAsync();
+                var cdnInfos = await session.Client.GetCdnInfoAsync(ct);
                 if (cdnInfos.Count == 0)
                 {
                     _logger.LogInformation("No Xbox CDN info returned from session {SessionId}", session.Id);
                     continue;
                 }
 
-                var newPatterns = await _mappingService.MergeDaemonCatalogAsync(cdnInfos);
+                var newPatterns = await _mappingService.MergeDaemonCatalogAsync(cdnInfos, ct);
+                totalNewPatterns += newPatterns;
                 _logger.LogInformation(
                     "Xbox catalog collected from session {SessionId}: {Apps} apps, {NewPatterns} new CDN patterns",
                     session.Id, cdnInfos.Count, newPatterns);
@@ -169,6 +176,8 @@ public class XboxPrefillDaemonService : PrefillDaemonServiceBase
                     session.Id);
             }
         }
+
+        return totalNewPatterns;
     }
 
     /// <summary>

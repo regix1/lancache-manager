@@ -117,9 +117,8 @@ export interface UnifiedNotification {
     updatedEpicGames?: number;
 
     // For xbox_game_mapping
-    totalXboxGames?: number;
     newXboxGames?: number;
-    updatedXboxGames?: number;
+    newXboxPatterns?: number;
 
     // For generic notifications
     notificationType?: NotificationVariant;
