@@ -40,10 +40,10 @@
    to fewer columns on narrower screens. Each card gets a min width via minmax. */
 .prefill-home-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
   gap: 1.25rem;
   width: 100%;
-  max-width: 90rem;
+  max-width: 96rem;
   position: relative;
   z-index: 1;
 }
