@@ -48,6 +48,23 @@ public interface IDaemonClient : IDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Request a non-interactive auto-login (ECDH) challenge from the daemon.
+    /// </summary>
+    Task<CredentialChallenge?> GetAutoLoginChallengeAsync(
+        string sessionId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Perform a non-interactive auto-login by encrypting a {username, refreshToken}
+    /// payload and sending it to the daemon. Returns true on success.
+    /// </summary>
+    Task<bool> ProvideAutoLoginAsync(
+        string sessionId,
+        string username,
+        string refreshToken,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Wait for next credential challenge.
     /// </summary>
     Task<CredentialChallenge?> WaitForChallengeAsync(

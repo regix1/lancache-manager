@@ -18,6 +18,7 @@ import { useManagerLoading } from '@hooks/useManagerLoading';
 import type { ServiceScheduleInfo } from './types';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
+import { ScheduledPrefillScheduleDetail } from './scheduled-prefill/ScheduledPrefillScheduleDetail';
 
 interface SchedulesSectionProps {
   isAdmin: boolean;
@@ -177,6 +178,7 @@ const ScheduleCard = memo(function ScheduleCard({
   const formattedNextRun = useFormattedDateTime(service.nextRunUtc);
 
   const isDepotMapping = service.key === 'depotMapping';
+  const isScheduledPrefill = service.key === 'scheduledPrefill';
   const isCacheReconciliation = service.key === 'cacheReconciliation';
   const isRunningThis = runningKey === service.key;
 
@@ -327,6 +329,8 @@ const ScheduleCard = memo(function ScheduleCard({
             </div>
           </div>
         )}
+
+        {isScheduledPrefill && <ScheduledPrefillScheduleDetail disabled={isDisabled} />}
 
         {/* Reverse of the management-side "View Schedule" button: jumps to the Eviction
           Detection and Removal card in the Storage section and glows it into view. */}

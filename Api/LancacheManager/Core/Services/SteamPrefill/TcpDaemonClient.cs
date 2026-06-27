@@ -540,6 +540,92 @@ public sealed class TcpDaemonClient : IDaemonClient
         }, timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
     }
 
+    public async Task<CredentialChallenge?> GetAutoLoginChallengeAsync(
+        string sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        ClearPendingChallenges();
+
+        var challengeTcs = new TaskCompletionSource<CredentialChallenge>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_challengeLock)
+        {
+            _challengeWaiter = challengeTcs;
+        }
+
+        try
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await SendCommandAsync("get-auto-login-challenge", new Dictionary<string, string>
+                    {
+                        ["sessionId"] = sessionId
+                    }, timeout: TimeSpan.FromMinutes(10), cancellationToken: cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogDebug(ex, "Auto-login challenge command completed or failed");
+                }
+            }, cancellationToken);
+
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+            using var reg = linkedCts.Token.Register(() => challengeTcs.TrySetCanceled());
+
+            return await challengeTcs.Task;
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+        finally
+        {
+            lock (_challengeLock)
+            {
+                _challengeWaiter = null;
+            }
+        }
+    }
+
+    public async Task<bool> ProvideAutoLoginAsync(
+        string sessionId,
+        string username,
+        string refreshToken,
+        CancellationToken cancellationToken = default)
+    {
+        var challenge = await GetAutoLoginChallengeAsync(sessionId, cancellationToken);
+        if (challenge == null)
+        {
+            _logger?.LogWarning("Failed to obtain auto-login challenge for session {SessionId}", sessionId);
+            return false;
+        }
+
+        var payload = JsonSerializer.Serialize(new AutoLoginPayload
+        {
+            Username = username,
+            RefreshToken = refreshToken
+        }, _jsonOptions);
+
+        var encrypted = SecureCredentialExchange.Encrypt(
+            challenge.ChallengeId,
+            challenge.ServerPublicKey,
+            payload,
+            HkdfInfo);
+
+        var response = await SendCommandAsync("provide-auto-login", new Dictionary<string, string>
+        {
+            ["sessionId"] = sessionId,
+            ["challengeId"] = encrypted.ChallengeId,
+            ["clientPublicKey"] = encrypted.ClientPublicKey,
+            ["encryptedCredential"] = encrypted.EncryptedCredential,
+            ["nonce"] = encrypted.Nonce,
+            ["tag"] = encrypted.Tag
+        }, timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+
+        return response.Success;
+    }
+
     public async Task<CredentialChallenge?> WaitForChallengeAsync(
         TimeSpan? timeout = null,
         CancellationToken cancellationToken = default)

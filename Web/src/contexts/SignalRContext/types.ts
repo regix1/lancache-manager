@@ -236,6 +236,9 @@ export const SIGNALR_EVENTS = [
 
   // Schedules
   'SchedulesUpdated',
+  'ScheduledPrefillStarted',
+  'ScheduledPrefillProgress',
+  'ScheduledPrefillCompleted',
 
   // Metrics Security
   'MetricsSecurityUpdated'

@@ -47,6 +47,10 @@ import type {
 } from '../types';
 import type { DashboardBatchResponse } from '../contexts/DashboardDataContext/types';
 import type { ServiceScheduleInfo } from '../components/features/management/schedules/types';
+import type {
+  ScheduledPrefillAuthStatusItem,
+  ScheduledPrefillConfigDto
+} from '../components/features/management/schedules/scheduled-prefill/types';
 import type { MetricsSecurityResponse } from '../components/features/management/grafana/GrafanaEndpoints.types';
 import type { GuestDurationResponse } from '../components/features/user/AccessSecurityCard.types';
 
@@ -2920,6 +2924,59 @@ class ApiService {
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
       console.error('resetSchedules error:', error);
+      throw error;
+    }
+  }
+
+  static async getScheduledPrefillConfig(signal?: AbortSignal): Promise<ScheduledPrefillConfigDto> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/schedules/scheduledPrefill/config`,
+        this.getFetchOptions({ signal })
+      );
+      return await this.handleResponse<ScheduledPrefillConfigDto>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else {
+        console.error('getScheduledPrefillConfig error:', error);
+      }
+      throw error;
+    }
+  }
+
+  static async updateScheduledPrefillConfig(config: ScheduledPrefillConfigDto): Promise<void> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/schedules/scheduledPrefill/config`,
+        this.getFetchOptions({
+          method: 'PUT',
+          body: JSON.stringify(config),
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      await this.handleResponse<void>(res);
+    } catch (error: unknown) {
+      console.error('updateScheduledPrefillConfig error:', error);
+      throw error;
+    }
+  }
+
+  static async getScheduledPrefillAuthStatus(
+    signal?: AbortSignal
+  ): Promise<ScheduledPrefillAuthStatusItem[]> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/schedules/scheduledPrefill/auth-status`,
+        this.getFetchOptions({ signal })
+      );
+      return await this.handleResponse<ScheduledPrefillAuthStatusItem[]>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else {
+        console.error('getScheduledPrefillAuthStatus error:', error);
+      }
       throw error;
     }
   }

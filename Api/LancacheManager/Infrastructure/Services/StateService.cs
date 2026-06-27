@@ -156,6 +156,12 @@ public class StateService : IStateService
         // Absent key = use the service's hardcoded DefaultRunOnStartup.
         public Dictionary<string, bool> ServiceRunOnStartup { get; set; } = new();
 
+        // Scheduled prefill config (per-service settings + per-run runtime guards).
+        // Nullable on disk so a pre-feature state.json deserializes to null and is migrated to a
+        // default-constructed config on load. The schedule INTERVAL is NOT here; it lives in
+        // ServiceIntervals["scheduledPrefill"] (hours) like every other ConfigurableScheduledService.
+        public ScheduledPrefillConfigDto? ScheduledPrefill { get; set; }
+
         // LEGACY: SteamAuth migrated to separate file - kept for reading old state.json during migration
         // JsonIgnore(Condition = WhenWritingNull) excludes it when saving (always null after migration)
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -794,6 +800,24 @@ public class StateService : IStateService
         });
     }
 
+    // Scheduled Prefill Config Methods
+    public ScheduledPrefillConfigDto GetScheduledPrefillConfig()
+    {
+        // GetState() already returns a config normalized/validated via ResolveScheduledPrefillConfig
+        // in FromPersisted; revalidate so callers always receive a known-good object.
+        return ScheduledPrefillConfigFactory.Validate(GetState().ScheduledPrefill);
+    }
+
+    public void SetScheduledPrefillConfig(ScheduledPrefillConfigDto config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        // Validate before mutating state so an invalid config surfaces an explicit error to the
+        // caller and never gets persisted. ToPersisted re-validates as a final guard.
+        var validated = ScheduledPrefillConfigFactory.Validate(config);
+        UpdateState(state => state.ScheduledPrefill = validated);
+    }
+
     // Depot Processing Methods
     public DepotProcessingState GetDepotProcessingState()
     {
@@ -868,6 +892,30 @@ public class StateService : IStateService
         }
 
         return state;
+    }
+
+    /// <summary>
+    /// Normalizes a persisted scheduled prefill config: default-constructs when missing (migration
+    /// from a pre-feature state.json) and falls back to defaults when an existing config fails
+    /// validation, so a corrupt block never blocks state load. All rules live in
+    /// <see cref="ScheduledPrefillConfigFactory"/>.
+    /// </summary>
+    private ScheduledPrefillConfigDto ResolveScheduledPrefillConfig(ScheduledPrefillConfigDto? config)
+    {
+        if (config is null)
+        {
+            return ScheduledPrefillConfigFactory.CreateDefault();
+        }
+
+        try
+        {
+            return ScheduledPrefillConfigFactory.Validate(config);
+        }
+        catch (ScheduledPrefillConfigValidationException ex)
+        {
+            _logger.LogWarning(ex, "Invalid scheduled prefill config in state; reverting to defaults");
+            return ScheduledPrefillConfigFactory.CreateDefault();
+        }
     }
 
     /// <summary>
@@ -946,6 +994,10 @@ public class StateService : IStateService
             ServiceIntervals = persisted.ServiceIntervals ?? new Dictionary<string, double>(),
             // Per-service "run on startup" overrides
             ServiceRunOnStartup = persisted.ServiceRunOnStartup ?? new Dictionary<string, bool>(),
+            // Scheduled prefill config: default-construct when missing (migration from pre-feature
+            // state.json), and normalize an invalid persisted config back to defaults instead of
+            // crashing state load. All validation lives in ScheduledPrefillConfigFactory.
+            ScheduledPrefill = ResolveScheduledPrefillConfig(persisted.ScheduledPrefill),
             // LEGACY: Only load SteamAuth if present (for migration from old state.json)
             SteamAuth = persisted.SteamAuth != null ? new SteamAuthState
             {
@@ -1036,6 +1088,8 @@ public class StateService : IStateService
             ServiceIntervals = state.ServiceIntervals ?? new Dictionary<string, double>(),
             // Per-service "run on startup" overrides
             ServiceRunOnStartup = state.ServiceRunOnStartup ?? new Dictionary<string, bool>(),
+            // Scheduled prefill config: validate (default-construct when missing) before persisting.
+            ScheduledPrefill = ResolveScheduledPrefillConfig(state.ScheduledPrefill),
             // LEGACY: Only persist SteamAuth if not null (will be null after migration)
             // JsonIgnore(WhenWritingNull) on property will exclude from JSON when null
             SteamAuth = state.SteamAuth != null ? new SteamAuthState

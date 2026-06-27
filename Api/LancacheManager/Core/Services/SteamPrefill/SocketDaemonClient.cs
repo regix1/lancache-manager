@@ -641,6 +641,105 @@ public sealed class SocketDaemonClient : IDaemonClient
     }
 
     /// <summary>
+    /// Request a non-interactive auto-login (ECDH) challenge from the daemon.
+    /// Mirrors <see cref="StartLoginAsync"/> but sends the <c>get-auto-login-challenge</c> command.
+    /// </summary>
+    public async Task<CredentialChallenge?> GetAutoLoginChallengeAsync(
+        string sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        // Clear any pending challenges
+        ClearPendingChallenges();
+
+        // Set up waiter before sending command
+        var challengeTcs = new TaskCompletionSource<CredentialChallenge>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_challengeLock)
+        {
+            _challengeWaiter = challengeTcs;
+        }
+
+        try
+        {
+            // Send auto-login challenge command (don't await the response - the challenge arrives as an event)
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await SendCommandAsync("get-auto-login-challenge", new Dictionary<string, string>
+                    {
+                        ["sessionId"] = sessionId
+                    }, timeout: TimeSpan.FromMinutes(10), cancellationToken: cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogDebug(ex, "Auto-login challenge command completed or failed");
+                }
+            }, cancellationToken);
+
+            // Wait for credential challenge with timeout
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+            using var reg = linkedCts.Token.Register(() => challengeTcs.TrySetCanceled());
+
+            return await challengeTcs.Task;
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+        finally
+        {
+            lock (_challengeLock)
+            {
+                _challengeWaiter = null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Perform a non-interactive auto-login by encrypting a <c>{username, refreshToken}</c>
+    /// payload with the daemon's public key and sending the <c>provide-auto-login</c> command.
+    /// Reuses the same <see cref="SecureCredentialExchange.Encrypt"/> helper as <see cref="ProvideCredentialAsync"/>.
+    /// </summary>
+    public async Task<bool> ProvideAutoLoginAsync(
+        string sessionId,
+        string username,
+        string refreshToken,
+        CancellationToken cancellationToken = default)
+    {
+        var challenge = await GetAutoLoginChallengeAsync(sessionId, cancellationToken);
+        if (challenge == null)
+        {
+            _logger?.LogWarning("Failed to obtain auto-login challenge for session {SessionId}", sessionId);
+            return false;
+        }
+
+        var payload = JsonSerializer.Serialize(new AutoLoginPayload
+        {
+            Username = username,
+            RefreshToken = refreshToken
+        }, _jsonOptions);
+
+        var encrypted = SecureCredentialExchange.Encrypt(
+            challenge.ChallengeId,
+            challenge.ServerPublicKey,
+            payload,
+            HkdfInfo);
+
+        var response = await SendCommandAsync("provide-auto-login", new Dictionary<string, string>
+        {
+            ["sessionId"] = sessionId,
+            ["challengeId"] = encrypted.ChallengeId,
+            ["clientPublicKey"] = encrypted.ClientPublicKey,
+            ["encryptedCredential"] = encrypted.EncryptedCredential,
+            ["nonce"] = encrypted.Nonce,
+            ["tag"] = encrypted.Tag
+        }, timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+
+        return response.Success;
+    }
+
+    /// <summary>
     /// Wait for next credential challenge.
     /// </summary>
     public async Task<CredentialChallenge?> WaitForChallengeAsync(
@@ -1026,4 +1125,17 @@ public class SocketDepotManifestInfo
 
     [JsonPropertyName("totalBytes")]
     public long TotalBytes { get; set; }
+}
+
+/// <summary>
+/// Cleartext payload encrypted and sent to the daemon for non-interactive auto-login.
+/// Matches the daemon's expected <c>{username, refreshToken}</c> shape.
+/// </summary>
+public class AutoLoginPayload
+{
+    [JsonPropertyName("username")]
+    public string Username { get; set; } = string.Empty;
+
+    [JsonPropertyName("refreshToken")]
+    public string RefreshToken { get; set; } = string.Empty;
 }

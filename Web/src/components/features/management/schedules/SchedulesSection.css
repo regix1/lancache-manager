@@ -310,6 +310,197 @@
   min-width: 0;
 }
 
+/* Scheduled prefill card detail */
+.scheduled-prefill-card-summary {
+  padding-top: 0.25rem;
+}
+
+.scheduled-prefill-card-summary__content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.scheduled-prefill-card-summary__loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--theme-text-muted);
+}
+
+.scheduled-prefill-card-summary__text {
+  color: var(--theme-text-secondary);
+}
+
+.scheduled-prefill-card-summary__warning,
+.scheduled-prefill-card-summary__error {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.scheduled-prefill-card-summary__warning {
+  color: var(--theme-warning-text);
+}
+
+.scheduled-prefill-card-summary__error {
+  color: var(--theme-error-text);
+}
+
+.scheduled-prefill-card-summary__actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+/* Scheduled prefill modal */
+.scheduled-prefill-config-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.scheduled-prefill-config-modal__loading {
+  min-height: 14rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  color: var(--theme-text-muted);
+  font-size: 0.875rem;
+}
+
+.scheduled-prefill-config-modal__message,
+.scheduled-prefill-config-modal__empty {
+  padding: 0.75rem;
+  border-radius: var(--theme-border-radius);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.scheduled-prefill-config-modal__message--error {
+  background-color: var(--theme-error-bg);
+  border: 1px solid var(--theme-error);
+  color: var(--theme-error-text);
+}
+
+.scheduled-prefill-config-modal__message--warning {
+  background-color: var(--theme-warning-bg);
+  border: 1px solid var(--theme-warning);
+  color: var(--theme-warning-text);
+}
+
+.scheduled-prefill-config-modal__empty {
+  background-color: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-secondary);
+  color: var(--theme-text-muted);
+}
+
+.scheduled-prefill-config-modal__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.scheduled-prefill-config-modal__row {
+  min-width: 0;
+}
+
+.scheduled-prefill-config-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+.scheduled-prefill-auth-status,
+.scheduled-prefill-service-row {
+  min-width: 0;
+}
+
+.scheduled-prefill-auth-status__header,
+.scheduled-prefill-service-row__header {
+  min-width: 0;
+}
+
+.scheduled-prefill-auth-status__chip {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.scheduled-prefill-auth-status__action {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.scheduled-prefill-auth-status__item {
+  border: 1px solid var(--theme-border-secondary);
+}
+
+.scheduled-prefill-auth-status__expiry {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--theme-text-muted);
+}
+
+.scheduled-prefill-auth-status__expiry--soon {
+  color: var(--theme-warning-text);
+  font-weight: 600;
+}
+
+.scheduled-prefill-auth-status__expiry--expired {
+  color: var(--theme-error-text);
+  font-weight: 600;
+}
+
+.scheduled-prefill-service-row__field {
+  min-width: 0;
+}
+
+.scheduled-prefill-service-row__field legend {
+  padding: 0;
+}
+
+.scheduled-prefill-service-row__toggle,
+.scheduled-prefill-service-row__os-option,
+.scheduled-prefill-service-row__force {
+  cursor: pointer;
+}
+
+.scheduled-prefill-service-row__toggle:has(input:disabled),
+.scheduled-prefill-service-row__os-option:has(input:disabled),
+.scheduled-prefill-service-row__force:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+@media (min-width: 640px) {
+  .scheduled-prefill-card-summary {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+
+  .scheduled-prefill-card-summary__actions {
+    justify-content: flex-end;
+    flex-shrink: 0;
+  }
+}
+
+@media (max-width: 639px) {
+  .scheduled-prefill-config-modal__actions {
+    flex-direction: column-reverse;
+  }
+
+  .scheduled-prefill-config-modal__actions > * {
+    width: 100%;
+  }
+}
+
 /* Run-on-startup row sits between the controls row and the expandable section */
 .schedule-startup-row {
   display: flex;

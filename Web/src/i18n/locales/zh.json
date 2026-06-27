@@ -3003,6 +3003,133 @@
           "scanModeHelp": "控制自动运行和此卡片的\"立即运行\"按钮。",
           "scanModeFailed": "更新 {{service}} 的计划扫描模式失败"
         },
+        "scheduledPrefill": {
+          "displayName": "计划预填充",
+          "description": "使用此计划和下面的按服务下载设置，自动运行选定的预填充服务。",
+          "gain": "可以在用户需要前将游戏内容预热到缓存中；配置登录后也支持账号游戏库。",
+          "loss": "已禁用的服务或需要登录的服务会被跳过，直到配置完成。",
+          "config": {
+            "summary": "已启用 {{enabled}} / {{total}} 个服务",
+            "configure": "配置",
+            "modalTitle": "配置计划预填充",
+            "modalDescription": "选择哪些服务按此计划运行，以及每个预填充如何启动。",
+            "servicesTitle": "服务",
+            "enabled": "启用",
+            "service": "服务",
+            "preset": "预设",
+            "presetAll": "全部",
+            "presetRecent": "最近",
+            "presetTop": "前 {{count}}",
+            "topCount": "前 N 项数量",
+            "targetPlatforms": "目标平台",
+            "force": "强制重新下载",
+            "maxConcurrency": "连接数",
+            "maxConcurrencyAuto": "自动",
+            "maxConcurrencyFixed": "固定",
+            "authStatus": "认证状态",
+            "authenticatedAs": "已登录为 {{name}}",
+            "loginRequired": "需要登录",
+            "loginPending": "登录处理中",
+            "anonymousReady": "无需登录",
+            "logIn": "登录",
+            "loginToSteam": "登录 Steam",
+            "loginToEpic": "登录 Epic",
+            "loginToXbox": "登录 Xbox",
+            "save": "保存配置",
+            "saving": "保存中...",
+            "saveFailed": "保存计划预填充配置失败",
+            "loadFailed": "加载计划预填充配置失败",
+            "authLoadFailed": "加载计划预填充认证状态失败",
+            "needsLoginWarning": "{{service}} 需要登录后才能运行计划预填充。",
+            "allEnabledServicesBlocked": "所有已启用的账号服务都需要登录。",
+            "lastSaved": "上次保存于 {{time}}",
+            "title": "配置计划预填充",
+            "loading": "正在加载计划预填充配置...",
+            "loadError": "加载计划预填充配置失败：{{error}}",
+            "saveError": "保存计划预填充配置失败：{{error}}",
+            "empty": "计划预填充配置不可用。",
+            "label": "计划预填充",
+            "authWarning": "一个或多个已启用的账号服务需要登录后才能运行计划预填充。",
+            "summaryError": "加载计划预填充摘要失败：{{error}}",
+            "actions": {
+              "configure": "配置",
+              "save": "保存配置",
+              "saving": "保存中...",
+              "forceDownload": "即使已缓存也下载"
+            },
+            "services": {
+              "steam": "Steam",
+              "epic": "Epic",
+              "xbox": "Xbox",
+              "battleNet": "Battle.net",
+              "riot": "Riot"
+            },
+            "fields": {
+              "enabled": "启用",
+              "preset": "预设",
+              "topCount": "前 N 项数量",
+              "operatingSystems": "目标平台",
+              "force": "强制重新下载",
+              "maxConcurrency": "连接数",
+              "maxConcurrencyValue": "固定连接数"
+            },
+            "presets": {
+              "all": "全部",
+              "recent": "最近",
+              "top": "前 N 项"
+            },
+            "operatingSystems": {
+              "windows": "Windows",
+              "linux": "Linux",
+              "macos": "macOS"
+            },
+            "maxConcurrency": {
+              "auto": "自动",
+              "fixed": "固定"
+            },
+            "validation": {
+              "topCount": "{{service}} 的前 N 项数量必须至少为 1。",
+              "operatingSystems": "{{service}} 需要至少一个目标平台。",
+              "maxConcurrency": "{{service}} 的连接数必须介于 {{min}} 和 {{max}} 之间。"
+            },
+            "auth": {
+              "title": "认证",
+              "loading": "正在检查认证...",
+              "displayName": "已登录为 {{displayName}}",
+              "loginExpires": "{{service}} 登录将于 {{date}} 过期",
+              "loginExpiresSoon": "{{service}} 登录即将于 {{date}} 过期",
+              "loginExpired": "{{service}} 登录已于 {{date}} 过期",
+              "services": {
+                "steam": "Steam",
+                "epic": "Epic",
+                "xbox": "Xbox",
+                "battleNet": "Battle.net",
+                "riot": "Riot"
+              },
+              "states": {
+                "noLoginRequired": "无需登录",
+                "unknown": "未知",
+                "unsupported": "不支持",
+                "loginRequired": "需要登录",
+                "loginPending": "登录处理中",
+                "ready": "就绪",
+                "notAuthenticated": "未认证"
+              },
+              "actions": {
+                "logIn": "登录"
+              }
+            }
+          },
+          "events": {
+            "started": "计划预填充已开始",
+            "progress": "计划预填充{{stage}}",
+            "completed": "计划预填充已完成",
+            "cancelled": "计划预填充已取消",
+            "failed": "计划预填充失败",
+            "skipped": "{{service}} 已跳过：{{reason}}",
+            "needsLogin": "{{service}} 需要登录后才能继续计划预填充"
+          }
+        },
         "epicMapping": {
           "displayName": "Epic 游戏映射",
           "description": "刷新用于识别缓存中 Epic 下载的 Epic 游戏商店目录：游戏标题、CDN URL 模式和仓库映射。",

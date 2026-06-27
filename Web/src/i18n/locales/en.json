@@ -3003,6 +3003,133 @@
           "scanModeHelp": "Controls automatic runs and this card's Run Now button.",
           "scanModeFailed": "Failed to update scheduled scan mode for {{service}}"
         },
+        "scheduledPrefill": {
+          "displayName": "Scheduled Prefill",
+          "description": "Runs selected prefill services automatically using the schedule and per-service download settings below.",
+          "gain": "Game content can be warmed into the cache before users need it, including account libraries when login is configured.",
+          "loss": "Disabled services or services needing login will be skipped until their configuration is completed.",
+          "config": {
+            "summary": "{{enabled}} of {{total}} services enabled",
+            "configure": "Configure",
+            "modalTitle": "Configure Scheduled Prefill",
+            "modalDescription": "Choose which services run on this schedule and how each prefill should be started.",
+            "servicesTitle": "Services",
+            "enabled": "Enabled",
+            "service": "Service",
+            "preset": "Preset",
+            "presetAll": "All",
+            "presetRecent": "Recent",
+            "presetTop": "Top {{count}}",
+            "topCount": "Top count",
+            "targetPlatforms": "Target platforms",
+            "force": "Force re-download",
+            "maxConcurrency": "Connections",
+            "maxConcurrencyAuto": "Auto",
+            "maxConcurrencyFixed": "Fixed",
+            "authStatus": "Auth status",
+            "authenticatedAs": "Logged in as {{name}}",
+            "loginRequired": "Login required",
+            "loginPending": "Login pending",
+            "anonymousReady": "No login required",
+            "logIn": "Log in",
+            "loginToSteam": "Log in to Steam",
+            "loginToEpic": "Log in to Epic",
+            "loginToXbox": "Log in to Xbox",
+            "save": "Save configuration",
+            "saving": "Saving...",
+            "saveFailed": "Failed to save scheduled prefill configuration",
+            "loadFailed": "Failed to load scheduled prefill configuration",
+            "authLoadFailed": "Failed to load scheduled prefill authentication status",
+            "needsLoginWarning": "{{service}} needs login before scheduled prefill can run.",
+            "allEnabledServicesBlocked": "All enabled account services need login.",
+            "lastSaved": "Last saved {{time}}",
+            "title": "Configure Scheduled Prefill",
+            "loading": "Loading scheduled prefill configuration...",
+            "loadError": "Failed to load scheduled prefill configuration: {{error}}",
+            "saveError": "Failed to save scheduled prefill configuration: {{error}}",
+            "empty": "Scheduled prefill configuration is not available.",
+            "label": "Scheduled prefill",
+            "authWarning": "One or more enabled account services need login before scheduled prefill can run.",
+            "summaryError": "Failed to load scheduled prefill summary: {{error}}",
+            "actions": {
+              "configure": "Configure",
+              "save": "Save configuration",
+              "saving": "Saving...",
+              "forceDownload": "Download even if already cached"
+            },
+            "services": {
+              "steam": "Steam",
+              "epic": "Epic",
+              "xbox": "Xbox",
+              "battleNet": "Battle.net",
+              "riot": "Riot"
+            },
+            "fields": {
+              "enabled": "Enabled",
+              "preset": "Preset",
+              "topCount": "Top count",
+              "operatingSystems": "Target platforms",
+              "force": "Force re-download",
+              "maxConcurrency": "Connections",
+              "maxConcurrencyValue": "Fixed connection count"
+            },
+            "presets": {
+              "all": "All",
+              "recent": "Recent",
+              "top": "Top"
+            },
+            "operatingSystems": {
+              "windows": "Windows",
+              "linux": "Linux",
+              "macos": "macOS"
+            },
+            "maxConcurrency": {
+              "auto": "Auto",
+              "fixed": "Fixed"
+            },
+            "validation": {
+              "topCount": "{{service}} needs a top count of at least 1.",
+              "operatingSystems": "{{service}} needs at least one target platform.",
+              "maxConcurrency": "{{service}} connections must be between {{min}} and {{max}}."
+            },
+            "auth": {
+              "title": "Authentication",
+              "loading": "Checking authentication...",
+              "displayName": "Logged in as {{displayName}}",
+              "loginExpires": "{{service}} login expires {{date}}",
+              "loginExpiresSoon": "{{service}} login expires soon: {{date}}",
+              "loginExpired": "{{service}} login expired {{date}}",
+              "services": {
+                "steam": "Steam",
+                "epic": "Epic",
+                "xbox": "Xbox",
+                "battleNet": "Battle.net",
+                "riot": "Riot"
+              },
+              "states": {
+                "noLoginRequired": "No login required",
+                "unknown": "Unknown",
+                "unsupported": "Unsupported",
+                "loginRequired": "Login required",
+                "loginPending": "Login pending",
+                "ready": "Ready",
+                "notAuthenticated": "Not authenticated"
+              },
+              "actions": {
+                "logIn": "Log in"
+              }
+            }
+          },
+          "events": {
+            "started": "Scheduled prefill started",
+            "progress": "Scheduled prefill {{stage}}",
+            "completed": "Scheduled prefill completed",
+            "cancelled": "Scheduled prefill cancelled",
+            "failed": "Scheduled prefill failed",
+            "skipped": "{{service}} skipped: {{reason}}",
+            "needsLogin": "{{service}} needs login before scheduled prefill can continue"
+          }
+        },
         "epicMapping": {
           "displayName": "Epic Game Mapping",
           "description": "Refreshes the Epic Games Store catalog used to identify Epic downloads in your cache: game titles, CDN URL patterns, and depot mappings.",

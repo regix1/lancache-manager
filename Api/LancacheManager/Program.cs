@@ -627,6 +627,11 @@ builder.Services.AddSingletonHostedService<LancacheManager.Services.Xbox.XboxCat
 // only when IsScheduleVisible() returns true.
 builder.Services.AddSingletonHostedService<GcScheduledService>();
 
+// Register Scheduled Prefill - orchestrates prefill runs across all enabled services on a
+// user-configurable interval (managed through the unified Schedules page) as "scheduledPrefill".
+builder.Services.AddSingleton<IScheduledPrefillAuthService, ScheduledPrefillAuthService>();
+builder.Services.AddSingletonHostedService<ScheduledPrefillService>();
+
 // Register OperationStateService
 builder.Services.AddSingletonHostedService<OperationStateService>();
 

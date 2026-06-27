@@ -63,6 +63,12 @@ public interface IStateService
     void SetServiceRunOnStartup(string serviceKey, bool runOnStartup);
     void ClearServiceRunOnStartup(string serviceKey);
 
+    // Scheduled Prefill Config Methods
+    // Get returns a validated, default-constructed-if-missing config; Set validates before persisting
+    // (both throw ScheduledPrefillConfigValidationException on invalid config).
+    ScheduledPrefillConfigDto GetScheduledPrefillConfig();
+    void SetScheduledPrefillConfig(ScheduledPrefillConfigDto config);
+
     // Crawl Interval Methods
     double GetCrawlIntervalHours();
     void SetCrawlIntervalHours(double hours);

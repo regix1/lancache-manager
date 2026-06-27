@@ -109,6 +109,13 @@ public class AppState
     // Absent key = use the service's hardcoded DefaultRunOnStartup. The user controls
     // this via the Schedules UI and the value is loaded by each service in its constructor.
     public Dictionary<string, bool> ServiceRunOnStartup { get; set; } = new();
+
+    // Scheduled prefill configuration (per-service settings + per-run runtime guards).
+    // NOTE: the schedule INTERVAL itself is stored in ServiceIntervals["scheduledPrefill"]
+    // (hours) like every other ConfigurableScheduledService; this object never holds the interval.
+    // Always non-null in memory: StateService default-constructs and validates it via
+    // ScheduledPrefillConfigFactory at the read/write boundaries.
+    public ScheduledPrefillConfigDto ScheduledPrefill { get; set; } = ScheduledPrefillConfigFactory.CreateDefault();
 }
 
 /// <summary>

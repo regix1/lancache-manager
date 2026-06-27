@@ -23,8 +23,9 @@ public partial class XboxCatalogMappingService
 
     // MSA device-code refresh tokens carry no returned expiry; ~90 days is Microsoft's documented
     // inactivity lifetime. The login auto-renews on startup reconnect and the 12h schedule refresh,
-    // so this expiry slides forward while the server is running.
-    private static readonly TimeSpan _xboxLoginValidity = TimeSpan.FromDays(90);
+    // so this expiry slides forward while the server is running. Public so the scheduled-prefill
+    // auth surfaces reuse the SAME validity window as the Integrations card (single source of truth).
+    public static readonly TimeSpan XboxLoginValidity = TimeSpan.FromDays(90);
 
     // Serializes auth-state mutations so a completing login and a logout cannot interleave.
     private readonly SemaphoreSlim _authSessionLock = new(1, 1);
@@ -52,7 +53,7 @@ public partial class XboxCatalogMappingService
             LastCollectionUtc = _lastCollectionUtc,
             GamesDiscovered = _gamesDiscovered,
             ExpiresAtUtc = _isAuthenticated && _lastCollectionUtc.HasValue
-                ? _lastCollectionUtc.Value.Add(_xboxLoginValidity)
+                ? _lastCollectionUtc.Value.Add(XboxLoginValidity)
                 : null
         };
     }

@@ -207,4 +207,9 @@ public static class SignalREvents
     public const string SteamSessionError = "SteamSessionError";
     public const string SteamAutoLogout = "SteamAutoLogout";
     public const string AutomaticScanSkipped = "AutomaticScanSkipped";
+
+    // Scheduled Prefill
+    public const string ScheduledPrefillStarted = "ScheduledPrefillStarted";
+    public const string ScheduledPrefillProgress = "ScheduledPrefillProgress";
+    public const string ScheduledPrefillCompleted = "ScheduledPrefillCompleted";
 }
