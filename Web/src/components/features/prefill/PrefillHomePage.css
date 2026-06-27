@@ -36,15 +36,14 @@
 }
 
 /* --- Service Cards Grid --- */
-/* 2×2 CSS grid so all four cards are always the same width regardless of count.
-   Each card gets exactly 1fr — no flex-grow imbalance when rows have different
-   numbers of items. max-width caps the two-column layout on very wide screens. */
+/* Responsive grid that fits all service cards across on wide screens and wraps
+   to fewer columns on narrower screens. Each card gets a min width via minmax. */
 .prefill-home-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
   gap: 1.25rem;
   width: 100%;
-  max-width: 62rem;
+  max-width: 90rem;
   position: relative;
   z-index: 1;
 }

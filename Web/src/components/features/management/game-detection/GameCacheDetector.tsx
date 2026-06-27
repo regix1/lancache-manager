@@ -640,7 +640,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           onClick={handleIncrementalScan}
           disabled={loading || isDetectionQueued || mockMode || !hasProcessedLogs}
           variant="filled"
-          color="green"
+          color="blue"
           size="sm"
         >
           {loading && scanType === 'incremental' ? (

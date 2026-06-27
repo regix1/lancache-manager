@@ -131,62 +131,67 @@ export function PrefillCommandButtons({
 
   return (
     <Card padding="md" className="cmd-center">
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
-        {/* Game Selection */}
-        <div
-          className={`cmd-section cmd-section--select p-4 ${isGlobalDisabled ? 'cmd-section--disabled' : ''}`}
-        >
-          <div className="cmd-section-header mb-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted">
-              {t('prefill.sections.gameSelection')}
-            </h3>
-          </div>
-          <div className="grid grid-cols-1 gap-2">{SELECTION_COMMANDS.map(renderCommandTile)}</div>
-        </div>
-
-        {/* Download Settings */}
-        <div
-          className={`cmd-section cmd-section--settings p-4 ${isGlobalDisabled ? 'cmd-section--disabled' : ''}`}
-        >
-          <div className="cmd-section-header mb-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted">
-              {t('prefill.sections.downloadSettings')}
-            </h3>
-          </div>
-          <div className="grid grid-cols-1 gap-4">
-            <div className="cmd-settings-field">
-              <label className="cmd-settings-label flex items-center gap-1.5">
-                <Monitor className="h-3 w-3" />
-                {t('prefill.settings.targetPlatforms')}
-              </label>
-              <MultiSelectDropdown
-                options={OS_OPTIONS.map((opt) => ({
-                  ...opt,
-                  label: t(`prefill.settings.os.${opt.value}.label`),
-                  description: t(`prefill.settings.os.${opt.value}.description`)
-                }))}
-                values={selectedOS}
-                onChange={onSelectedOSChange}
-                disabled={isGlobalDisabled}
-                minSelections={1}
-                placeholder={t('prefill.placeholders.selectPlatforms')}
-              />
+      <div className="space-y-4">
+        {/* Top Row: Game Selection + Download Settings side-by-side */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Game Selection */}
+          <div
+            className={`cmd-section cmd-section--select p-4 ${isGlobalDisabled ? 'cmd-section--disabled' : ''}`}
+          >
+            <div className="cmd-section-header mb-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted">
+                {t('prefill.sections.gameSelection')}
+              </h3>
             </div>
-            <div className="cmd-settings-field">
-              <label className="cmd-settings-label flex items-center gap-1.5">
-                <Link className="w-3 h-3" />
-                {t('prefill.settings.downloadThreads')}
-              </label>
-              <EnhancedDropdown
-                options={getThreadOptions(maxThreadLimit).map((opt) => ({
-                  ...opt,
-                  label: t(`prefill.settings.threads.${opt.value}.label`),
-                  description: t(`prefill.settings.threads.${opt.value}.description`)
-                }))}
-                value={maxConcurrency}
-                onChange={onMaxConcurrencyChange}
-                disabled={isGlobalDisabled}
-              />
+            <div className="grid grid-cols-1 gap-2">
+              {SELECTION_COMMANDS.map(renderCommandTile)}
+            </div>
+          </div>
+
+          {/* Download Settings - spans 2 columns on large */}
+          <div
+            className={`cmd-section cmd-section--settings p-4 lg:col-span-2 ${isGlobalDisabled ? 'cmd-section--disabled' : ''}`}
+          >
+            <div className="cmd-section-header mb-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted">
+                {t('prefill.sections.downloadSettings')}
+              </h3>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="cmd-settings-field">
+                <label className="cmd-settings-label flex items-center gap-1.5">
+                  <Monitor className="h-3 w-3" />
+                  {t('prefill.settings.targetPlatforms')}
+                </label>
+                <MultiSelectDropdown
+                  options={OS_OPTIONS.map((opt) => ({
+                    ...opt,
+                    label: t(`prefill.settings.os.${opt.value}.label`),
+                    description: t(`prefill.settings.os.${opt.value}.description`)
+                  }))}
+                  values={selectedOS}
+                  onChange={onSelectedOSChange}
+                  disabled={isGlobalDisabled}
+                  minSelections={1}
+                  placeholder={t('prefill.placeholders.selectPlatforms')}
+                />
+              </div>
+              <div className="cmd-settings-field">
+                <label className="cmd-settings-label flex items-center gap-1.5">
+                  <Link className="w-3 h-3" />
+                  {t('prefill.settings.downloadThreads')}
+                </label>
+                <EnhancedDropdown
+                  options={getThreadOptions(maxThreadLimit).map((opt) => ({
+                    ...opt,
+                    label: t(`prefill.settings.threads.${opt.value}.label`),
+                    description: t(`prefill.settings.threads.${opt.value}.description`)
+                  }))}
+                  value={maxConcurrency}
+                  onChange={onMaxConcurrencyChange}
+                  disabled={isGlobalDisabled}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -200,7 +205,9 @@ export function PrefillCommandButtons({
               {t('prefill.sections.prefillOptions')}
             </h3>
           </div>
-          <div className="grid grid-cols-1 gap-2">{PREFILL_COMMANDS.map(renderCommandTile)}</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {PREFILL_COMMANDS.map(renderCommandTile)}
+          </div>
         </div>
 
         {/* Utilities - compact bottom row */}
@@ -212,7 +219,7 @@ export function PrefillCommandButtons({
               {t('prefill.sections.utilities')}
             </h3>
           </div>
-          <div className="grid grid-cols-1 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {UTILITY_COMMANDS.filter(
               (cmd: CommandButton) => !cmd.authOnly || isUserAuthenticated
             ).map(renderCommandTile)}
@@ -221,7 +228,7 @@ export function PrefillCommandButtons({
 
         {/* Login Required Notice */}
         {!isLoggedIn && (
-          <div className="cmd-login-notice p-4 md:col-span-2 xl:col-span-4">
+          <div className="cmd-login-notice p-4">
             <p className="font-medium text-sm text-warning-text">
               {t('prefill.loginNotice.title')}
             </p>
