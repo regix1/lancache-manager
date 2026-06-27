@@ -2636,6 +2636,7 @@
       "title": "Xbox Game Mapping",
       "subtitle": "Identifies Xbox games from Microsoft Store CDN patterns",
       "configureLogin": "View Xbox Daemon",
+      "loginRequired": "Log in to Xbox to refresh the catalog.",
       "status": {
         "gamesDiscovered": "Games discovered:",
         "lastUpdated": "Last updated:"

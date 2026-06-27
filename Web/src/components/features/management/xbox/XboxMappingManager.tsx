@@ -47,6 +47,10 @@ const XboxMappingManager: React.FC<XboxMappingManagerProps> = ({
 
   const [stats, setStats] = useState<XboxMappingStats | null>(null);
 
+  // The manual catalog refresh has no source until an Xbox login is active (its only sources are the
+  // manager-side login and active prefill sessions), so gate the button on the mapping auth status.
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
   const loadStats = useCallback(async () => {
     try {
       const statsData = await ApiService.getXboxMappingStats();
@@ -56,14 +60,31 @@ const XboxMappingManager: React.FC<XboxMappingManagerProps> = ({
     }
   }, []);
 
+  const loadAuthStatus = useCallback(async () => {
+    // auth-status is AdminOnly; skip the fetch in demo/non-admin (the button is disabled there anyway).
+    if (mockMode || !isAdmin) {
+      setIsAuthenticated(false);
+      return;
+    }
+    try {
+      const status = await ApiService.getXboxMappingAuthStatus();
+      setIsAuthenticated(status.isAuthenticated);
+    } catch {
+      setIsAuthenticated(false);
+    }
+  }, [mockMode, isAdmin]);
+
   useEffect(() => {
     loadStats();
-  }, [loadStats]);
+    loadAuthStatus();
+  }, [loadStats, loadAuthStatus]);
 
-  // Refresh on SignalR events
+  // Refresh on SignalR events (XboxMappingProgress also fires on login/logout terminal events, so it
+  // keeps the auth-gated button in sync as soon as the user signs in or out).
   useEffect(() => {
     const handleUpdate = () => {
       loadStats();
+      loadAuthStatus();
     };
     on('XboxGameMappingsUpdated', handleUpdate);
     on('XboxMappingProgress', handleUpdate);
@@ -71,14 +92,15 @@ const XboxMappingManager: React.FC<XboxMappingManagerProps> = ({
       off('XboxGameMappingsUpdated', handleUpdate);
       off('XboxMappingProgress', handleUpdate);
     };
-  }, [on, off, loadStats]);
+  }, [on, off, loadStats, loadAuthStatus]);
 
   // Refresh data when SignalR reconnects (catches events missed during disconnect)
   useEffect(() => {
     if (connectionState === 'connected') {
       loadStats();
+      loadAuthStatus();
     }
-  }, [connectionState, loadStats]);
+  }, [connectionState, loadStats, loadAuthStatus]);
 
   const formattedLastUpdated = useFormattedDateTime(stats?.lastUpdatedUtc ?? null);
 
@@ -156,13 +178,13 @@ const XboxMappingManager: React.FC<XboxMappingManagerProps> = ({
         </div>
       </div>
 
-      {/* Resolve Now Button */}
-      <div className="flex">
+      {/* Resolve Now Button — disabled until an Xbox login is active (no catalog source otherwise) */}
+      <div className="flex flex-col gap-2">
         <Button
           variant="filled"
           color="blue"
           onClick={handleRefreshCatalog}
-          disabled={isBusy || mockMode || !isAdmin}
+          disabled={isBusy || mockMode || !isAdmin || !isAuthenticated}
           loading={isBusy}
           fullWidth
         >
@@ -170,6 +192,11 @@ const XboxMappingManager: React.FC<XboxMappingManagerProps> = ({
             ? t('management.xboxMapping.buttons.resolving')
             : t('management.xboxMapping.buttons.applyNow')}
         </Button>
+        {isAdmin && !mockMode && !isAuthenticated && (
+          <p className="text-xs text-themed-muted text-center">
+            {t('management.xboxMapping.loginRequired')}
+          </p>
+        )}
       </div>
     </Card>
   );

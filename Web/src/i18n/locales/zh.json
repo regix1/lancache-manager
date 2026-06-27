@@ -2636,6 +2636,7 @@
       "title": "Xbox 游戏映射",
       "subtitle": "从 Microsoft Store CDN 模式识别 Xbox 游戏",
       "configureLogin": "查看 Xbox 守护进程",
+      "loginRequired": "登录 Xbox 以刷新目录。",
       "status": {
         "gamesDiscovered": "已发现的游戏：",
         "lastUpdated": "最后更新："
