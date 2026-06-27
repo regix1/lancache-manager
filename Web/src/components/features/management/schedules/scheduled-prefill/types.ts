@@ -28,6 +28,7 @@ export interface ScheduledPrefillServiceConfigDto {
   serviceId: ScheduledPrefillServiceId;
   enabled: boolean;
   preset: ScheduledPrefillPreset;
+  selectedAppIds: string[];
   topCount?: number | null;
   operatingSystems: ScheduledPrefillOperatingSystem[];
   force: boolean;

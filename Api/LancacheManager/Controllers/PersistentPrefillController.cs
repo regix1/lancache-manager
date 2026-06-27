@@ -24,6 +24,7 @@ public class PersistentPrefillController : ControllerBase
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly IStateService _stateService;
+    private readonly PrefillCacheService _cacheService;
 
     /// <summary>
     /// Deterministic pseudo-user Guid that owns every persistent session, derived identically to
@@ -32,10 +33,14 @@ public class PersistentPrefillController : ControllerBase
     /// </summary>
     private readonly Guid _systemUserId = DeriveSystemUserId();
 
-    public PersistentPrefillController(IServiceProvider serviceProvider, IStateService stateService)
+    public PersistentPrefillController(
+        IServiceProvider serviceProvider,
+        IStateService stateService,
+        PrefillCacheService cacheService)
     {
         _serviceProvider = serviceProvider;
         _stateService = stateService;
+        _cacheService = cacheService;
     }
 
     /// <summary>
@@ -111,6 +116,60 @@ public class PersistentPrefillController : ControllerBase
         }
 
         return Ok(results);
+    }
+
+    /// <summary>
+    /// Lists the owned games (and up-to-date cached app ids) for the RUNNING persistent session of a
+    /// platform. This is the AdminOnly analogue of the user-scoped
+    /// <c>GET {service}/sessions/{id}/games</c> route: that route enforces
+    /// <c>ValidateSessionOwnership</c> (session.UserId == caller), which always 403s for persistent
+    /// system-owned sessions whose owner is the derived system user, not the admin's session id.
+    /// Bypassing ownership is safe here because the endpoint is <c>[Authorize(Policy = "AdminOnly")]</c>
+    /// and is hard-restricted to sessions whose <see cref="DaemonSession.IsPersistent"/> is true.
+    /// Reuses the exact same daemon method the user route calls
+    /// (<see cref="PrefillDaemonServiceBase.GetOwnedGamesAsync(string, CancellationToken)"/>) so there
+    /// is no game-list duplication.
+    /// </summary>
+    [HttpGet("games")]
+    public async Task<ActionResult<PersistentPrefillGamesDto>> GetGamesAsync(
+        [FromQuery] PrefillPlatform service,
+        CancellationToken cancellationToken)
+    {
+        var daemon = ResolveDaemon(_serviceProvider, service);
+        if (daemon is null)
+        {
+            return BadRequest($"No daemon registered for service '{service}'");
+        }
+
+        var session = daemon.GetAllSessions()
+            .FirstOrDefault(s => s.IsPersistent && s.Status == DaemonSessionStatus.Active);
+        if (session is null)
+        {
+            return NotFound($"No running persistent session for service '{service}'");
+        }
+
+        // Defense-in-depth: never operate on a non-persistent session here.
+        if (!session.IsPersistent)
+        {
+            return Forbid();
+        }
+
+        var games = await daemon.GetOwnedGamesAsync(session.Id, cancellationToken);
+
+        var cachedAppIds = new List<string>();
+        var cachedApps = await _cacheService.GetCachedAppsAsync();
+        var candidateAppIds = cachedApps.Select(a => a.AppId.ToString()).ToList();
+        if (candidateAppIds.Count > 0)
+        {
+            var status = await daemon.GetCacheStatusAsync(session.Id, candidateAppIds, cancellationToken);
+            cachedAppIds = status.Apps.Where(a => a.IsUpToDate).Select(a => a.AppId).ToList();
+        }
+
+        return Ok(new PersistentPrefillGamesDto
+        {
+            Games = games,
+            CachedAppIds = cachedAppIds
+        });
     }
 
     /// <summary>
@@ -281,4 +340,17 @@ public sealed class GuestPrefillLifetimeDto
 {
     /// <summary>Max guest container lifetime in hours (1-3).</summary>
     public required int Hours { get; init; }
+}
+
+/// <summary>
+/// Owned games plus up-to-date cached app ids for a persistent session. Matches the shape the
+/// frontend GameSelectionModal expects (games[], cachedAppIds[]).
+/// </summary>
+public sealed class PersistentPrefillGamesDto
+{
+    /// <summary>Owned games for the persistent session (same payload as the user games route).</summary>
+    public required List<OwnedGame> Games { get; init; }
+
+    /// <summary>App ids whose cached content is up to date for the session.</summary>
+    public required List<string> CachedAppIds { get; init; }
 }

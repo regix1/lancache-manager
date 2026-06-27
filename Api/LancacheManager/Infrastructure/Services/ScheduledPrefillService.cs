@@ -215,11 +215,32 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
             }
 
             // 5. Kick off the prefill. Map preset + OS list to the real daemon signature.
-            MapPreset(serviceConfig, out bool all, out bool recent, out int? top);
+            // When specific apps are selected, prefill exactly those and ignore the All/Recent/Top
+            // preset; otherwise fall back to the preset selection.
+            var hasSelectedApps = serviceConfig.SelectedAppIds.Count > 0;
+            bool all;
+            bool recent;
+            int? top;
+            if (hasSelectedApps)
+            {
+                all = false;
+                recent = false;
+                top = null;
+            }
+            else
+            {
+                MapPreset(serviceConfig, out all, out recent, out top);
+            }
+
             var operatingSystems = MapOperatingSystems(serviceConfig.OperatingSystems);
             var maxConcurrency = serviceConfig.MaxConcurrency.Mode == ScheduledPrefillMaxConcurrencyMode.Fixed
                 ? serviceConfig.MaxConcurrency.Value
                 : null;
+
+            if (hasSelectedApps)
+            {
+                await daemon.SetSelectedAppsAsync(sessionId, serviceConfig.SelectedAppIds, ct);
+            }
 
             PrefillResult result;
             try

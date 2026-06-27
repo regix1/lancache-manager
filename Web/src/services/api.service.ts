@@ -2940,7 +2940,18 @@ class ApiService {
         `${API_BASE}/system/schedules/scheduledPrefill/config`,
         this.getFetchOptions({ signal })
       );
-      return await this.handleResponse<ScheduledPrefillConfigDto>(res);
+      const config = await this.handleResponse<ScheduledPrefillConfigDto>(res);
+      return {
+        ...config,
+        steam: { ...config.steam, selectedAppIds: config.steam.selectedAppIds ?? [] },
+        epic: { ...config.epic, selectedAppIds: config.epic.selectedAppIds ?? [] },
+        xbox: { ...config.xbox, selectedAppIds: config.xbox.selectedAppIds ?? [] },
+        battleNet: {
+          ...config.battleNet,
+          selectedAppIds: config.battleNet.selectedAppIds ?? []
+        },
+        riot: { ...config.riot, selectedAppIds: config.riot.selectedAppIds ?? [] }
+      };
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors
@@ -3001,6 +3012,32 @@ class ApiService {
         // Silently ignore abort errors
       } else {
         console.error('getPersistentPrefillContainers error:', error);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Lists owned games (+ up-to-date cached app ids) for the RUNNING persistent session of a service.
+   * Hits the AdminOnly endpoint that bypasses per-user session ownership (safe because it is
+   * restricted to persistent/system-owned sessions), avoiding the 403 from the user-scoped
+   * `/{service}-daemon/sessions/{id}/games` route which checks session.UserId == admin session id.
+   */
+  static async getPersistentPrefillGames(
+    service: PersistentPrefillServiceId,
+    signal?: AbortSignal
+  ): Promise<PersistentPrefillGamesDto> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/prefill/persistent/games?service=${encodeURIComponent(service)}`,
+        this.getFetchOptions({ signal })
+      );
+      return await this.handleResponse<PersistentPrefillGamesDto>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else {
+        console.error('getPersistentPrefillGames error:', error);
       }
       throw error;
     }
@@ -3278,6 +3315,16 @@ interface PrefillCacheStatusDto {
   upToDateAppIds: string[];
   outdatedAppIds: string[];
   message?: string;
+}
+
+interface PersistentPrefillOwnedGameDto {
+  appId: string;
+  name: string;
+}
+
+export interface PersistentPrefillGamesDto {
+  games: PersistentPrefillOwnedGameDto[];
+  cachedAppIds: string[];
 }
 
 interface MigrationValidationResult {

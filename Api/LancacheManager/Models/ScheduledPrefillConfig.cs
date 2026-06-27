@@ -54,6 +54,13 @@ public sealed class ScheduledPrefillServiceConfigDto
     public required bool Enabled { get; init; }
     public required ScheduledPrefillPreset Preset { get; init; }
     public int? TopCount { get; init; }
+
+    /// <summary>
+    /// Explicit daemon app ids to prefill for this service. When non-empty, these specific apps
+    /// are prefilled and <see cref="Preset"/> (All/Recent/Top) is ignored at run time. When empty,
+    /// the preset selection is used. Never null.
+    /// </summary>
+    public List<string> SelectedAppIds { get; init; } = new();
     public required List<ScheduledPrefillOperatingSystem> OperatingSystems { get; init; }
     public required bool Force { get; init; }
     public required ScheduledPrefillMaxConcurrencyDto MaxConcurrency { get; init; }
@@ -134,6 +141,7 @@ public static class ScheduledPrefillConfigFactory
             Enabled = enabled,
             Preset = ScheduledPrefillPreset.All,
             TopCount = null,
+            SelectedAppIds = new List<string>(),
             OperatingSystems = new List<ScheduledPrefillOperatingSystem> { ScheduledPrefillOperatingSystem.Windows },
             Force = false,
             MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
@@ -199,6 +207,27 @@ public static class ScheduledPrefillConfigFactory
         {
             throw new ScheduledPrefillConfigValidationException(
                 $"Service config ServiceId '{service.ServiceId}' does not match its container slot '{expectedServiceId}'.");
+        }
+
+        if (service.SelectedAppIds is null)
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{expectedServiceId} SelectedAppIds must not be null (use an empty list to fall back to the preset).");
+        }
+
+        foreach (var appId in service.SelectedAppIds)
+        {
+            if (string.IsNullOrWhiteSpace(appId))
+            {
+                throw new ScheduledPrefillConfigValidationException(
+                    $"{expectedServiceId} SelectedAppIds must not contain empty entries.");
+            }
+        }
+
+        if (service.SelectedAppIds.Distinct().Count() != service.SelectedAppIds.Count)
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{expectedServiceId} SelectedAppIds must not contain duplicates.");
         }
 
         if (service.OperatingSystems is null)

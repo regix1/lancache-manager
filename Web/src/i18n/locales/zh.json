@@ -3054,7 +3054,32 @@
               "configure": "配置",
               "save": "保存配置",
               "saving": "保存中...",
-              "forceDownload": "即使已缓存也下载"
+              "forceDownload": "即使已缓存也下载",
+              "selectGames": "选择游戏"
+            },
+            "persistentContainer": {
+              "help": "启动持久容器，以保持此服务已登录并为计划预填充选择特定游戏。",
+              "error": "持久预填充容器操作失败：{{error}}"
+            },
+            "selectedGames": {
+              "count": "已选择 {{count}} 个游戏",
+              "overridePreset": "选择特定游戏会覆盖此服务的预设。",
+              "requiresPersistentContainer": "请先启动容器以选择游戏。",
+              "error": "加载游戏选择失败：{{error}}"
+            },
+            "settings": {
+              "title": "设置",
+              "description": "所有计划预填充服务共用的全局持久容器和访客容器限制。",
+              "loading": "正在加载设置...",
+              "saving": "正在保存设置...",
+              "save": "保存设置",
+              "saved": "全局计划预填充设置已保存。",
+              "error": "保存全局计划预填充设置失败：{{error}}",
+              "persistentValidityLabel": "持久容器登录有效期（天）",
+              "persistentValidityHelp": "持久容器会无限期运行。其登录会持续此天数，到期后需要重新登录。允许范围：{{min}}-{{max}} 天。",
+              "guestLifetimeLabel": "访客临时容器最长生命周期（小时）",
+              "guestLifetimeHelp": "访客临时容器会在此小时数后自动停止。允许范围：{{min}}-{{max}} 小时。",
+              "guestLifetimeOption": "{{hours}} 小时"
             },
             "services": {
               "steam": "Steam",
@@ -3574,13 +3599,18 @@
         "running": "运行中",
         "stopped": "已停止"
       },
+      "status": {
+        "running": "容器运行中",
+        "stopped": "容器已停止"
+      },
       "authCountdown": "登录将在 {{time}} 后过期",
-      "authExpiresAt": "过期时间：{{date}}",
+      "authExpiresAt": "登录过期时间",
+      "authTimeRemaining": "登录剩余时间",
       "notRunning": "持久容器已停止",
       "needsRelogin": "登录已过期，请重新登录。",
       "actions": {
-        "start": "启动",
-        "stop": "停止",
+        "start": "启动容器",
+        "stop": "停止容器",
         "saveSettings": "保存"
       },
       "settings": {
