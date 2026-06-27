@@ -65,6 +65,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     private const int DefaultStallTimeoutSeconds = 180;
     private const int DefaultTcpPort = 45555;
 
+    // Docker labels stamped onto PERSISTENT daemon containers so they can survive a manager restart
+    // and be re-adopted (reconnected) instead of being force-removed by the orphan cleanup sweep.
+    private const string PersistentLabelKey = "lancache.prefill.persistent";
+    private const string ServiceLabelKey = "lancache.prefill.service";
+    private const string SessionIdLabelKey = "lancache.prefill.sessionId";
+    private const string UserIdLabelKey = "lancache.prefill.userId";
+
     /// <summary>
     /// Indicates whether Docker is available and connected.
     /// </summary>
@@ -347,6 +354,9 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
                 // Cleanup orphaned containers from previous runs
                 await CleanupOrphanedContainersAsync(cancellationToken);
+
+                // Re-adopt persistent containers that survived this restart (reconnect, don't recreate)
+                await ReadoptPersistentContainersAsync(cancellationToken);
             }
         }
         catch (Exception ex)
@@ -403,6 +413,21 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             {
                 try
                 {
+                    // Persistent containers that are still running are meant to OUTLIVE a manager
+                    // restart: leave them running here and let ReadoptPersistentContainersAsync
+                    // reconnect to their daemon socket and rebuild the in-memory session. Only
+                    // non-persistent (or stopped) containers are torn down as orphans below.
+                    if (IsPersistentLabel(container.Labels) &&
+                        string.Equals(container.State, "running", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogInformation(
+                            "Preserving running persistent {ServiceName} container {Name} ({Id}) for re-adoption",
+                            ServiceName,
+                            container.Names.FirstOrDefault() ?? "unknown",
+                            container.ID.Length >= 12 ? container.ID[..12] : container.ID);
+                        continue;
+                    }
+
                     // Stop and remove the container
                     if (container.State == "running")
                     {
@@ -447,6 +472,218 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         {
             _logger.LogError(ex, "Error during orphaned container cleanup");
         }
+    }
+
+    /// <summary>
+    /// True when the supplied container labels carry <c>lancache.prefill.persistent=true</c>.
+    /// </summary>
+    private static bool IsPersistentLabel(IDictionary<string, string>? labels)
+        => labels != null
+           && labels.TryGetValue(PersistentLabelKey, out var value)
+           && string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Re-adopts persistent prefill daemon containers that survived a manager restart. These containers
+    /// are LEFT RUNNING by <see cref="CleanupOrphanedContainersAsync"/> (which only removes
+    /// non-persistent / stopped containers). For each still-running container carrying THIS service's
+    /// <c>lancache.prefill.persistent=true</c> label, this reconnects to the existing daemon socket and
+    /// rebuilds the in-memory <see cref="DaemonSession"/> WITHOUT creating a new container, so the
+    /// persistent session reappears (with its daemon-reported auth state) after a restart instead of the
+    /// admin having to click Start again. Each container is reconnected in isolation: one failing
+    /// container never aborts the others or startup. A labeled container that is not running is left for
+    /// the admin to Start.
+    /// </summary>
+    private async Task ReadoptPersistentContainersAsync(CancellationToken cancellationToken)
+    {
+        if (_dockerClient == null) return;
+
+        try
+        {
+            var containers = await _dockerClient.Containers.ListContainersAsync(
+                new ContainersListParameters
+                {
+                    All = true,
+                    Filters = new Dictionary<string, IDictionary<string, bool>>
+                    {
+                        ["name"] = new Dictionary<string, bool> { [ContainerPrefix] = true },
+                        ["label"] = new Dictionary<string, bool> { [$"{PersistentLabelKey}=true"] = true }
+                    }
+                },
+                cancellationToken);
+
+            var persistentRunning = containers
+                .Where(c => string.Equals(c.State, "running", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (persistentRunning.Count == 0)
+            {
+                return;
+            }
+
+            _logger.LogInformation(
+                "Re-adopting {Count} running persistent {ServiceName} prefill daemon container(s) after restart",
+                persistentRunning.Count, ServiceName);
+
+            foreach (var container in persistentRunning)
+            {
+                try
+                {
+                    await ReconnectPersistentSessionAsync(container, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to re-adopt persistent {ServiceName} container {Id}; admin can Start it manually",
+                        ServiceName,
+                        container.ID.Length >= 12 ? container.ID[..12] : container.ID);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during persistent {ServiceName} container re-adoption", ServiceName);
+        }
+    }
+
+    /// <summary>
+    /// Reconnects to one already-running persistent daemon container (identified by its
+    /// <c>lancache.prefill.*</c> labels) and rebuilds + registers its in-memory session. Recovers the
+    /// per-container socket secret and TCP host port from the container's inspected env / port bindings
+    /// (these are not held in memory across a manager restart), recomputes the bind-mounted
+    /// command/response/socket paths from the session id, and delegates the connect+register to
+    /// <see cref="ConnectAndRegisterSessionAsync"/> with <c>isReconnect:true</c>. Never creates a container.
+    /// </summary>
+    private async Task ReconnectPersistentSessionAsync(ContainerListResponse container, CancellationToken cancellationToken)
+    {
+        if (_dockerClient == null) return;
+
+        var containerId = container.ID;
+        var shortId = containerId.Length >= 12 ? containerId[..12] : containerId;
+
+        var labels = container.Labels ?? new Dictionary<string, string>();
+        if (!labels.TryGetValue(SessionIdLabelKey, out var sessionId) || string.IsNullOrWhiteSpace(sessionId))
+        {
+            _logger.LogWarning("Persistent container {Id} is missing the {Label} label; skipping re-adoption", shortId, SessionIdLabelKey);
+            return;
+        }
+
+        // Defensive: re-adopt runs once on startup, but never adopt the same session twice.
+        if (_sessions.ContainsKey(sessionId))
+        {
+            return;
+        }
+
+        labels.TryGetValue(UserIdLabelKey, out var userIdRaw);
+        var userId = Guid.TryParse(userIdRaw, out var parsedUserId) ? parsedUserId : Guid.Empty;
+
+        // Recover per-container secrets/ports from the live container (not held across restart).
+        var inspect = await _dockerClient.Containers.InspectContainerAsync(containerId, cancellationToken);
+        var env = inspect.Config?.Env ?? new List<string>();
+
+        var socketSecret = GetEnvValue(env, "PREFILL_SOCKET_SECRET");
+        if (string.IsNullOrEmpty(socketSecret))
+        {
+            _logger.LogWarning(
+                "Persistent container {Id} has no PREFILL_SOCKET_SECRET in its env; cannot reconnect securely", shortId);
+            return;
+        }
+
+        var useTcpMode = env.Any(e => e.StartsWith("PREFILL_TCP_PORT=", StringComparison.Ordinal));
+
+        int? tcpHostPort = null;
+        if (useTcpMode)
+        {
+            tcpHostPort = ResolveHostTcpPortFromInspect(inspect);
+            if (!tcpHostPort.HasValue)
+            {
+                _logger.LogWarning(
+                    "Persistent container {Id} is in TCP mode but no host port binding was found; cannot reconnect", shortId);
+                return;
+            }
+        }
+
+        // Recompute the bind-mounted command/response dirs + socket path from the session id. These
+        // survive the manager restart because they live on the host (bind mounts), and the daemon
+        // inside the running container is still listening on the same socket.
+        var basePath = GetDaemonBasePath();
+        var sessionPath = Path.Combine(basePath, "sessions", sessionId);
+        var commandsDir = Path.Combine(sessionPath, "commands");
+        var responsesDir = Path.Combine(sessionPath, "responses");
+        var socketPath = Path.Combine(responsesDir, "daemon.sock");
+
+        var containerName = container.Names?.FirstOrDefault()?.TrimStart('/') ?? $"{ContainerPrefix}{sessionId}";
+
+        // Preserve the original validity window when the prior DB record is available; otherwise restamp
+        // from the admin-configured persistent login validity.
+        var dbRecord = await _sessionService.GetSessionAsync(sessionId);
+        var createdAtUtc = dbRecord?.CreatedAtUtc ?? DateTime.UtcNow;
+        var expiresAt = dbRecord != null && dbRecord.ExpiresAtUtc > DateTime.UtcNow
+            ? dbRecord.ExpiresAtUtc
+            : DateTime.UtcNow.AddDays(_stateService.GetAdminPersistentLoginValidityDays());
+
+        _logger.LogInformation(
+            "Re-adopting persistent {ServiceName} session {SessionId} from running container {Id}",
+            ServiceName, sessionId, shortId);
+
+        await ConnectAndRegisterSessionAsync(
+            sessionId,
+            userId,
+            containerId,
+            containerName,
+            commandsDir,
+            responsesDir,
+            socketPath,
+            socketSecret,
+            useTcpMode,
+            tcpHostPort,
+            createdAtUtc,
+            expiresAt,
+            isTemporary: false,
+            isPersistent: true,
+            ipAddress: null,
+            userAgent: null,
+            networkDiagnostics: null,
+            isReconnect: true,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Returns the value of a <c>KEY=VALUE</c> entry from a container's inspected env list, or null.
+    /// </summary>
+    private static string? GetEnvValue(IList<string> env, string key)
+    {
+        var prefix = key + "=";
+        foreach (var entry in env)
+        {
+            if (entry.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                return entry[prefix.Length..];
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Reads the published host TCP port from an inspected container's port bindings (host-config first,
+    /// then live network settings). Returns null when no positive host port is published.
+    /// </summary>
+    private static int? ResolveHostTcpPortFromInspect(ContainerInspectResponse inspect)
+    {
+        static int? FirstHostPort(IDictionary<string, IList<PortBinding>>? bindings)
+        {
+            if (bindings == null) return null;
+            foreach (var kvp in bindings)
+            {
+                var hostPort = kvp.Value?.FirstOrDefault()?.HostPort;
+                if (!string.IsNullOrEmpty(hostPort) && int.TryParse(hostPort, out var port) && port > 0)
+                {
+                    return port;
+                }
+            }
+            return null;
+        }
+
+        return FirstHostPort(inspect.HostConfig?.PortBindings) ?? FirstHostPort(inspect.NetworkSettings?.Ports);
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -690,6 +927,22 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             };
         }
 
+        // Label PERSISTENT containers so a manager restart can re-adopt them (re-attach to the still
+        // running daemon socket and rebuild the in-memory session) instead of force-removing them in
+        // CleanupOrphanedContainersAsync. Temporary/guest containers are intentionally left unlabeled so
+        // they keep being reaped as orphans.
+        Dictionary<string, string>? containerLabels = null;
+        if (isPersistent)
+        {
+            containerLabels = new Dictionary<string, string>
+            {
+                [PersistentLabelKey] = "true",
+                [ServiceLabelKey] = ServiceName,
+                [SessionIdLabelKey] = sessionId,
+                [UserIdLabelKey] = userId.ToString()
+            };
+        }
+
         var createResponse = await _dockerClient.Containers.CreateContainerAsync(
             new CreateContainerParameters
             {
@@ -698,6 +951,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 Cmd = cmd,
                 Env = env,
                 HostConfig = hostConfig,
+                Labels = containerLabels,
                 ExposedPorts = useTcpMode && tcpContainerPort.HasValue
                     ? new Dictionary<string, EmptyStruct> { [$"{tcpContainerPort.Value}/tcp"] = default }
                     : null
@@ -770,9 +1024,6 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         // 2. DNS resolving lancache domains to your cache server
         var networkDiagnostics = await TestContainerConnectivityAsync(containerId, containerName, isHostMode, cancellationToken);
 
-        // Parse user agent for OS and browser info
-        var (os, browser) = UserAgentParser.Parse(userAgent);
-
         // Manager-enforced lifetime. Guest/temporary containers are capped at
         // createdAt + GuestPrefillMaxLifetimeHours so they are reaped by CleanupExpiredSessions
         // exactly when the admin-configured lifetime elapses. The standard session timeout is kept
@@ -797,6 +1048,65 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         {
             expiresAt = standardExpiresAt;
         }
+
+        var session = await ConnectAndRegisterSessionAsync(
+            sessionId,
+            userId,
+            containerId,
+            containerName,
+            commandsDir,
+            responsesDir,
+            socketPath,
+            socketSecret,
+            useTcpMode,
+            tcpHostPort,
+            createdAtUtc,
+            expiresAt,
+            isTemporary,
+            isPersistent,
+            ipAddress,
+            userAgent,
+            networkDiagnostics,
+            isReconnect: false,
+            cancellationToken);
+
+        return session;
+    }
+
+    /// <summary>
+    /// Builds the in-memory <see cref="DaemonSession"/> for an already-created/running daemon container,
+    /// wires its socket/TCP client event handlers, connects (with retry), registers the session in the
+    /// in-memory store, and persists/refreshes the backing <see cref="PrefillSession"/> DB record. Shared
+    /// by the normal create path (<see cref="CreateSessionAsync"/>, <paramref name="isReconnect"/>=false)
+    /// and the startup re-adopt path (<see cref="ReconnectPersistentSessionAsync"/>,
+    /// <paramref name="isReconnect"/>=true) so the connect+register logic lives in exactly one place. The
+    /// Docker container itself is created/started by the caller; this method NEVER creates or starts a
+    /// container. On reconnect the DB record (just flipped to Orphaned by <c>MarkOrphansAsync</c>) is
+    /// reactivated in place instead of inserting a duplicate.
+    /// </summary>
+    private async Task<DaemonSession> ConnectAndRegisterSessionAsync(
+        string sessionId,
+        Guid userId,
+        string containerId,
+        string containerName,
+        string commandsDir,
+        string responsesDir,
+        string socketPath,
+        string socketSecret,
+        bool useTcpMode,
+        int? tcpHostPort,
+        DateTime createdAtUtc,
+        DateTime expiresAt,
+        bool isTemporary,
+        bool isPersistent,
+        string? ipAddress,
+        string? userAgent,
+        NetworkDiagnostics? networkDiagnostics,
+        bool isReconnect,
+        CancellationToken cancellationToken)
+    {
+        // Parse user agent for OS and browser info
+        var (os, browser) = UserAgentParser.Parse(userAgent);
 
         var session = new DaemonSession
         {
@@ -916,20 +1226,37 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         _sessions[sessionId] = session;
 
-        // Persist session to database for admin visibility and orphan tracking
-        await _sessionService.CreateSessionAsync(
-            sessionId,
-            userId,
-            containerId,
-            containerName,
-            session.ExpiresAt,
-            ServiceName);
+        // Persist session to database for admin visibility and orphan tracking. On reconnect the backing
+        // record was just flipped to Orphaned by MarkOrphansAsync, so reactivate it IN PLACE (reusing the
+        // same unique SessionId keeps the PrefillHistory linkage) rather than inserting a duplicate.
+        if (isReconnect)
+        {
+            await _sessionService.ReactivateSessionAsync(
+                sessionId,
+                userId,
+                containerId,
+                containerName,
+                session.ExpiresAt,
+                ServiceName);
+        }
+        else
+        {
+            await _sessionService.CreateSessionAsync(
+                sessionId,
+                userId,
+                containerId,
+                containerName,
+                session.ExpiresAt,
+                ServiceName);
+        }
 
-        _logger.LogInformation("Created daemon session {SessionId} for user {UserId}", sessionId, userId);
+        _logger.LogInformation(
+            "{Action} daemon session {SessionId} for user {UserId}",
+            isReconnect ? "Re-adopted" : "Created", sessionId, userId);
 
         // Broadcast session creation to all clients for real-time updates (both hubs)
-        var sessionDto = DaemonSessionDto.FromSession(session);
-        await NotifyHubAsync(EventSessionCreated, sessionDto);
+        var sessionDtoCreated = DaemonSessionDto.FromSession(session);
+        await NotifyHubAsync(EventSessionCreated, sessionDtoCreated);
 
         return session;
     }

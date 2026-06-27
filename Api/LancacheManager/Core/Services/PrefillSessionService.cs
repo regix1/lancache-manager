@@ -251,6 +251,64 @@ public class PrefillSessionService
     }
 
     /// <summary>
+    /// Re-activates a previously orphaned prefill session record in place. Used when a PERSISTENT
+    /// daemon container survived a manager restart and is re-adopted: the prior record was just flipped
+    /// to <see cref="PrefillSessionStatus.Orphaned"/> by <see cref="MarkOrphansAsync"/>, so this flips it
+    /// back to <see cref="PrefillSessionStatus.Active"/> and refreshes its container id/name and expiry.
+    /// Because <c>SessionId</c> is uniquely indexed, this must update in place rather than insert. Falls
+    /// back to creating a fresh Active record only when no prior record exists (e.g. the DB was reset
+    /// while the container kept running).
+    /// </summary>
+    public async Task<PrefillSession> ReactivateSessionAsync(
+        string sessionId,
+        Guid createdBySessionId,
+        string? containerId,
+        string? containerName,
+        DateTime expiresAt,
+        string platform = "Steam")
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var session = await context.PrefillSessions
+            .FirstOrDefaultAsync(s => s.SessionId == sessionId);
+
+        if (session == null)
+        {
+            session = new PrefillSession
+            {
+                SessionId = sessionId,
+                CreatedBySessionId = createdBySessionId,
+                ContainerId = containerId,
+                ContainerName = containerName,
+                Platform = Enum.TryParse<PrefillPlatform>(platform, ignoreCase: true, out var parsedPlatform)
+                    ? parsedPlatform
+                    : PrefillPlatform.Steam,
+                Status = PrefillSessionStatus.Active,
+                CreatedAtUtc = DateTime.UtcNow,
+                ExpiresAtUtc = expiresAt
+            };
+            context.PrefillSessions.Add(session);
+        }
+        else
+        {
+            session.Status = PrefillSessionStatus.Active;
+            session.ContainerId = containerId;
+            session.ContainerName = containerName;
+            session.ExpiresAtUtc = expiresAt;
+            session.EndedAtUtc = null;
+            session.TerminationReason = null;
+            session.TerminatedBy = null;
+        }
+
+        await context.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "Reactivated prefill session record {SessionId} after re-adopting its running container", sessionId);
+
+        return session;
+    }
+
+    /// <summary>
     /// Updates the Steam username for a session.
     /// Called when the user provides their username credential.
     /// </summary>
