@@ -39,11 +39,12 @@
 /* Responsive grid that fits all service cards across on wide screens and wraps
    to fewer columns on narrower screens. Each card gets a min width via minmax. */
 .prefill-home-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 1.25rem;
   width: 100%;
-  max-width: 96rem;
+  max-width: 92rem;
   position: relative;
   z-index: 1;
 }
@@ -53,6 +54,8 @@
   position: relative;
   display: flex;
   flex-direction: column;
+  flex: 1 1 20rem;
+  max-width: 22rem;
   gap: 1.25rem;
   padding: 1.75rem;
   border-radius: var(--theme-border-radius-lg);
@@ -293,8 +296,9 @@
     gap: 1.5rem;
   }
 
-  .prefill-home-grid {
-    grid-template-columns: 1fr;
+  .prefill-service-card {
+    flex-basis: 100%;
+    max-width: 100%;
   }
 
   .prefill-home-title {

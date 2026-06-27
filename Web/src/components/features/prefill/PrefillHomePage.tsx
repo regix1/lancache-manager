@@ -202,57 +202,6 @@ export function PrefillHomePage({
           </div>
         )}
 
-        {/* Xbox Card */}
-        {showXbox && (
-          <div className="prefill-service-card prefill-service-card--xbox">
-            <div className="prefill-service-card-top">
-              <div className="prefill-service-icon">
-                <XboxIcon size={28} className="text-white" />
-              </div>
-              <div className="prefill-service-meta">
-                <h2 className="prefill-service-name">Xbox</h2>
-                <div className="prefill-service-status">
-                  <span className="prefill-service-status-dot prefill-service-status-dot--ready" />
-                  <span>{t('prefill.home.ready', 'Ready')}</span>
-                </div>
-              </div>
-            </div>
-
-            <p className="prefill-service-description">
-              {t(
-                'prefill.home.xboxDescription',
-                'Prefill your Xbox and Microsoft Store library, pre-downloading game content for the titles in your account.'
-              )}
-            </p>
-
-            <ul className="prefill-service-features">
-              <li>
-                {t('prefill.home.xboxFeature1', 'Prefill entire library or select specific games')}
-              </li>
-              <li>{t('prefill.home.xboxFeature2', 'Microsoft Store and Game Pass titles')}</li>
-              <li>{t('prefill.home.xboxFeature3', 'Force re-download and cache management')}</li>
-            </ul>
-
-            {error && errorService === 'xbox' && (
-              <div className="prefill-service-error">
-                <AlertCircle size={16} />
-                <span>{error}</span>
-              </div>
-            )}
-
-            <div className="prefill-service-action">
-              <span className="prefill-service-note">
-                <Shield size={14} />
-                {t('prefill.home.requiresXboxLogin', 'Browser-based device code login')}
-              </span>
-              <Button variant="filled" size="md" onClick={() => onServiceStart('xbox')}>
-                <ArrowRight size={16} />
-                {t('prefill.home.startSession', 'Start Session')}
-              </Button>
-            </div>
-          </div>
-        )}
-
         {/* Battle.net Card */}
         {showBattlenet && (
           <div className="prefill-service-card prefill-service-card--battlenet">
@@ -353,6 +302,57 @@ export function PrefillHomePage({
                 {t('prefill.home.riotNoLogin', 'No account login required')}
               </span>
               <Button variant="filled" size="md" onClick={() => onServiceStart('riot')}>
+                <ArrowRight size={16} />
+                {t('prefill.home.startSession', 'Start Session')}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Xbox Card */}
+        {showXbox && (
+          <div className="prefill-service-card prefill-service-card--xbox">
+            <div className="prefill-service-card-top">
+              <div className="prefill-service-icon">
+                <XboxIcon size={28} className="text-white" />
+              </div>
+              <div className="prefill-service-meta">
+                <h2 className="prefill-service-name">Xbox</h2>
+                <div className="prefill-service-status">
+                  <span className="prefill-service-status-dot prefill-service-status-dot--ready" />
+                  <span>{t('prefill.home.ready', 'Ready')}</span>
+                </div>
+              </div>
+            </div>
+
+            <p className="prefill-service-description">
+              {t(
+                'prefill.home.xboxDescription',
+                'Prefill your Xbox and Microsoft Store library, pre-downloading game content for the titles in your account.'
+              )}
+            </p>
+
+            <ul className="prefill-service-features">
+              <li>
+                {t('prefill.home.xboxFeature1', 'Prefill entire library or select specific games')}
+              </li>
+              <li>{t('prefill.home.xboxFeature2', 'Microsoft Store and Game Pass titles')}</li>
+              <li>{t('prefill.home.xboxFeature3', 'Force re-download and cache management')}</li>
+            </ul>
+
+            {error && errorService === 'xbox' && (
+              <div className="prefill-service-error">
+                <AlertCircle size={16} />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <div className="prefill-service-action">
+              <span className="prefill-service-note">
+                <Shield size={14} />
+                {t('prefill.home.requiresXboxLogin', 'Browser-based device code login')}
+              </span>
+              <Button variant="filled" size="md" onClick={() => onServiceStart('xbox')}>
                 <ArrowRight size={16} />
                 {t('prefill.home.startSession', 'Start Session')}
               </Button>
