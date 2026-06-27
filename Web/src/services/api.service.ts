@@ -3322,7 +3322,7 @@ interface PersistentPrefillOwnedGameDto {
   name: string;
 }
 
-export interface PersistentPrefillGamesDto {
+interface PersistentPrefillGamesDto {
   games: PersistentPrefillOwnedGameDto[];
   cachedAppIds: string[];
 }
