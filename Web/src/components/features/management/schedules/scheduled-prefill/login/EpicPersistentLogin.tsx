@@ -7,20 +7,21 @@ import { usePersistentEpicAuth } from '@hooks/usePersistentEpicAuth';
 
 interface EpicPersistentLoginProps {
   isRunning: boolean;
-  needsAuth: boolean;
+  isAuthenticated: boolean;
   onAuthenticated: () => void;
 }
 
 export function EpicPersistentLogin({
   isRunning,
-  needsAuth,
+  isAuthenticated,
   onAuthenticated
 }: EpicPersistentLoginProps) {
   const { t } = useTranslation();
   const { state, actions, startLogin } = usePersistentEpicAuth();
   const [authModalOpened, setAuthModalOpened] = useState(false);
   const handledAuthenticatedRef = useRef(false);
-  const showLoginButton = isRunning && needsAuth;
+  const startInFlightRef = useRef(false);
+  const showLoginButton = isRunning && !isAuthenticated;
 
   useEffect(() => {
     if (!state.authenticated) {
@@ -38,8 +39,15 @@ export function EpicPersistentLogin({
   }, [state.authenticated, onAuthenticated]);
 
   const handleLoginClick = () => {
+    if (startInFlightRef.current) {
+      return;
+    }
+
+    startInFlightRef.current = true;
     setAuthModalOpened(true);
-    void startLogin();
+    void startLogin().finally(() => {
+      startInFlightRef.current = false;
+    });
   };
 
   const handleAuthModalClose = () => {
@@ -70,7 +78,6 @@ export function EpicPersistentLogin({
         onClose={handleAuthModalClose}
         state={state}
         actions={actions}
-        onCancelLogin={actions.cancelPendingRequest}
       />
     </>
   );

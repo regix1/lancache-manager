@@ -176,9 +176,13 @@ public class StatsController : ControllerBase
         HashSet<long>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
         query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
 
-        // Filter out hidden IPs completely, but include excluded IPs so they can be shown with a badge.
+        // Normal stats omit hidden clients and stats-only exclusions.
+        // Management passes includeExcluded=true so admins can still pick any known client.
         var hiddenClientIps = includeExcluded ? new List<string>() : _stateRepository.GetHiddenClientIps();
+        var statsExcludedOnlyIps = includeExcluded ? new List<string>() : _stateRepository.GetStatsExcludedOnlyClientIps();
         query = query.ApplyHiddenClientFilter(hiddenClientIps);
+        if (statsExcludedOnlyIps.Count > 0)
+            query = query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp));
 
         var evictedMode = _stateRepository.GetEvictedDataMode();
         query = query.ApplyEvictedFilter(evictedMode);
@@ -302,7 +306,7 @@ public class StatsController : ControllerBase
     [HttpGet("exclusions")]
     public IActionResult GetExcludedClients()
     {
-        var excludedIps = _stateRepository.GetExcludedClientIps();
+        var excludedIps = _stateRepository.GetStatsExcludedOnlyClientIps();
         return Ok(new StatsExclusionsResponse
         {
             Ips = excludedIps
@@ -332,7 +336,7 @@ public class StatsController : ControllerBase
         });
         return Ok(new StatsExclusionsResponse
         {
-            Ips = normalizedIps
+            Ips = _stateRepository.GetStatsExcludedOnlyClientIps()
         });
     }
 

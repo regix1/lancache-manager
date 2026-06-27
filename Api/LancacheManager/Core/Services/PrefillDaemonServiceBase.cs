@@ -86,11 +86,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
     /// <summary>
     /// Container path under which the daemon stores its auth/refresh token. The daemon images
-    /// declare this directory as a Docker <c>VOLUME</c>, so a non-persistent container gets a fresh
-    /// ANONYMOUS volume (wiped on teardown via RemoveVolumes=true). For a persistent session we
-    /// instead mount a STABLE NAMED volume at this path (see <see cref="GetPersistentConfigVolumeName"/>)
-    /// so a later start re-mounts the same auth. Override per service if the image uses a different
-    /// config path.
+    /// declare this directory as a Docker <c>VOLUME</c>, so every container (persistent or not) gets a
+    /// fresh ANONYMOUS volume that is wiped on teardown (RemoveVolumes=true). Persistent containers no
+    /// longer mount a stable named auth volume here - they always require a fresh interactive login.
+    /// Override per service if the image uses a different config path.
     /// </summary>
     protected virtual string PersistentConfigContainerPath => "/app/Config";
 
@@ -547,17 +546,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             $"{hostResponsesDir}:/responses"
         };
 
-        // Persistent sessions: pin the daemon's auth/config dir (declared as an anonymous VOLUME
-        // by the image) to a STABLE NAMED volume keyed by service. This survives teardown
-        // (RemoveVolumes=false on persistent stop) so a later start re-mounts the same auth.
-        // Temporary/guest containers keep the default anonymous volume (no named bind) and are wiped.
-        if (isPersistent)
-        {
-            binds.Add($"{GetPersistentConfigVolumeName()}:{PersistentConfigContainerPath}");
-            _logger.LogInformation(
-                "Persistent session {SessionId}: mounting named auth volume {Volume} at {Path}",
-                sessionId, GetPersistentConfigVolumeName(), PersistentConfigContainerPath);
-        }
+        // Persistent sessions intentionally DO NOT mount a stable named auth volume. Each persistent
+        // container starts with NO prior auth (default anonymous config volume, same as temporary
+        // containers) so the admin always performs a FRESH interactive login. This avoids reusing a
+        // stale persisted auth dir, which caused the daemon to be already-logged-in and emit no
+        // credential challenge ("No challenge received").
 
         var hostConfig = new HostConfig
         {
@@ -1442,10 +1435,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
     /// <summary>
     /// Creates/starts a PERSISTENT admin daemon session. Reuses <see cref="CreateSessionAsync"/> with
-    /// <c>isPersistent=true</c>, which (a) stamps <see cref="DaemonSession.IsPersistent"/>, (b) sets the
-    /// expiry to the admin-configured validity window, and (c) mounts a stable named auth volume so the
-    /// login survives a later <see cref="StopPersistentSessionAsync"/>. The <paramref name="service"/>
-    /// argument identifies the platform for the caller; this daemon instance is already service-specific.
+    /// <c>isPersistent=true</c>, which (a) stamps <see cref="DaemonSession.IsPersistent"/> and (b) sets the
+    /// expiry to the admin-configured validity window. The container starts RUNNING but UNAUTHENTICATED:
+    /// no auto-login is performed and no persisted auth volume is reused, so the admin must log in
+    /// interactively via the UI. The <paramref name="service"/> argument identifies the platform for the
+    /// caller; this daemon instance is already service-specific.
     /// </summary>
     public async Task<DaemonSession> StartPersistentSessionAsync(
         PrefillPlatform service,
@@ -1457,6 +1451,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         _logger.LogInformation(
             "Starting persistent {Service} session for user {UserId}", service, userId);
 
+        // The persistent container starts RUNNING but UNAUTHENTICATED. There is intentionally NO
+        // auto-login here: stored creds / persisted auth volumes are never reused (that caused the
+        // auto-login false-failure and the "No challenge received" daemon-already-logged-in bug).
+        // The admin logs in interactively via the UI; the daemon's live status is the source of truth.
         var session = await CreateSessionAsync(
             userId,
             ipAddress,
@@ -1465,58 +1463,14 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             isPersistent: true,
             cancellationToken);
 
-        // Authenticate the freshly-created persistent container using the shared auth service.
-        // - Ready    => the plan's AfterSessionCreatedAsync performs the auto-login (e.g. Steam).
-        // - NeedsLogin => leave the container running and flag it so the admin can log in interactively.
-        var plan = await _scheduledPrefillAuthService.EnsureAuthenticatedAsync(
-            service,
-            new ScheduledPrefillAuthContext
-            {
-                Service = service,
-                UserId = userId.ToString()
-            },
-            cancellationToken);
-
-        if (plan.State == ScheduledPrefillAuthState.Ready)
-        {
-            if (plan.AfterSessionCreatedAsync is not null)
-            {
-                try
-                {
-                    await plan.AfterSessionCreatedAsync(session, cancellationToken);
-
-                    // Auto-login succeeded: ensure the session is no longer flagged for re-login
-                    // (only the failure/catch path below should set it true).
-                    session.NeedsRelogin = false;
-                }
-                catch (Exception ex)
-                {
-                    // Headless auto-login can fail (e.g. expired/invalid creds). Mirror the
-                    // NeedsLogin branch: flag for interactive re-login and leave the persistent
-                    // container running so the admin can log in. Do not rethrow.
-                    _logger.LogWarning(ex,
-                        "Persistent {Service} session {SessionId} auto-login failed; flagging for interactive re-login (container left running).",
-                        service, session.Id);
-                    session.NeedsRelogin = true;
-                }
-            }
-        }
-        else
-        {
-            _logger.LogInformation(
-                "Persistent {Service} session {SessionId} needs interactive login: {Reason}",
-                service, session.Id, plan.NeedsLoginReason);
-            session.NeedsRelogin = true;
-        }
-
         return session;
     }
 
     /// <summary>
-    /// Stops a PERSISTENT session's container via the existing teardown path. Because the session is
-    /// persistent, <see cref="TerminateSessionAsync"/> tears the container down with RemoveVolumes=false,
-    /// so the named auth volume survives and a subsequent <see cref="StartPersistentSessionAsync"/>
-    /// re-mounts the same login. No-op if the session is unknown.
+    /// Stops a PERSISTENT session's container via the existing teardown path. Auth is never persisted,
+    /// so the container is torn down with RemoveVolumes=true (same as temporary containers) and a
+    /// subsequent <see cref="StartPersistentSessionAsync"/> requires a fresh interactive login.
+    /// No-op if the session is unknown.
     /// </summary>
     public Task StopPersistentSessionAsync(string sessionId, string? terminatedBy = null)
     {
@@ -1530,11 +1484,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         if (!session.IsPersistent)
         {
             _logger.LogWarning(
-                "StopPersistentSessionAsync called for non-persistent session {SessionId}; its volume will be removed on teardown",
+                "StopPersistentSessionAsync called for non-persistent session {SessionId}",
                 sessionId);
         }
 
-        // Reuse the existing teardown; IsPersistent keeps RemoveVolumes=false so auth survives.
+        // Reuse the existing teardown. Auth is never persisted, so the volume is removed either way.
         return TerminateSessionAsync(sessionId, "Persistent session stopped", force: false, terminatedBy: terminatedBy);
     }
 
@@ -1629,15 +1583,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 // AutoRemove=false, so a normal teardown that only stops/kills would leave the
                 // container plus its token volume lingering until the next orphan sweep.
                 //
-                // RemoveVolumes is CONDITIONAL on persistence:
-                //  - Non-persistent: RemoveVolumes=true. A login-required daemon (Xbox/Epic) stores
-                //    its anonymous refresh token in an anonymous volume; wiping it ensures the auth
-                //    does not survive the session (brief security requirement).
-                //  - Persistent: RemoveVolumes=false. The auth lives on a STABLE NAMED volume mounted
-                //    at create time; keeping it lets a later StartPersistentSessionAsync re-mount the
-                //    same auth so the admin does not have to re-login every stop.
+                // RemoveVolumes is always true now (persistent and non-persistent alike). A
+                // login-required daemon (Xbox/Epic) stores its anonymous refresh token in an anonymous
+                // volume; wiping it ensures auth never survives a session. Persistent containers no
+                // longer preserve a named auth volume, so there is nothing to keep - each persistent
+                // start requires a fresh interactive login.
                 // Force=true is a no-op once already stopped/killed.
-                var removeVolumes = !session.IsPersistent;
+                var removeVolumes = true;
                 try
                 {
                     await _dockerClient.Containers.RemoveContainerAsync(

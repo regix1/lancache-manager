@@ -428,6 +428,11 @@ export function ScheduledPrefillConfigModal({
       return;
     }
 
+    if (!container.isAuthenticated) {
+      setGameSelectionError(t('prefill.persistent.loginToSelectGames'));
+      return;
+    }
+
     void loadGameSelection(serviceKey, container.sessionId);
   };
 

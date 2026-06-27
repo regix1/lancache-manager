@@ -66,6 +66,7 @@ export function usePersistentPrefillAuth(
   const [authenticated, setAuthenticated] = useState(false);
   const [pendingChallenge, setPendingChallenge] = useState<CredentialChallenge | null>(null);
   const cancelledRef = useRef(false);
+  const startPromiseRef = useRef<Promise<CredentialChallenge | null> | null>(null);
 
   const [needsTwoFactor, setNeedsTwoFactor] = useState(false);
   const [needsEmailCode, setNeedsEmailCode] = useState(false);
@@ -225,24 +226,39 @@ export function usePersistentPrefillAuth(
   }, [applyChallenge, fail, finishAuthenticated, pollForResult]);
 
   const start = useCallback(async (): Promise<CredentialChallenge | null> => {
-    cancelledRef.current = false;
-    setLoading(true);
-    setError(null);
-    setAuthenticated(false);
+    if (startPromiseRef.current) {
+      return startPromiseRef.current;
+    }
 
-    try {
-      const challenge = await ApiService.startPersistentLogin(service);
-      if (cancelledRef.current) {
+    const startPromise = (async (): Promise<CredentialChallenge | null> => {
+      cancelledRef.current = false;
+      setLoading(true);
+      setError(null);
+      setAuthenticated(false);
+
+      try {
+        const challenge = await ApiService.startPersistentLogin(service);
+        if (cancelledRef.current) {
+          setLoading(false);
+          return null;
+        }
+        applyChallenge(challenge);
         setLoading(false);
+        return challenge;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to start persistent login';
+        fail(message);
         return null;
       }
-      applyChallenge(challenge);
-      setLoading(false);
-      return challenge;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to start persistent login';
-      fail(message);
-      return null;
+    })();
+
+    startPromiseRef.current = startPromise;
+    try {
+      return await startPromise;
+    } finally {
+      if (startPromiseRef.current === startPromise) {
+        startPromiseRef.current = null;
+      }
     }
   }, [applyChallenge, fail, service]);
 

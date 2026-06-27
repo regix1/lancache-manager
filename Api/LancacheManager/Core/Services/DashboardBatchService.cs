@@ -66,7 +66,6 @@ public class DashboardBatchService : IDashboardBatchService
         // Shared state used by multiple sub-queries
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
-        var excludedClientIps = _stateRepository.GetExcludedClientIps();
         var evictedMode = _stateRepository.GetEvictedDataMode();
         var eventIdList = eventId.HasValue ? new List<long> { eventId.Value } : new List<long>();
 
@@ -90,10 +89,10 @@ public class DashboardBatchService : IDashboardBatchService
         long totalCacheCapacity = cacheResult?.TotalCacheSize ?? 0;
 
         // Launch remaining 9 queries fully in parallel. AddPooledDbContextFactory bounds concurrency.
-        var clientsTask = SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode));
+        var clientsTask = SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
         var servicesTask = SafeExecuteAsync("services", () => GetServiceStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
         var dashboardTask = SafeExecuteAsync("dashboard", () => GetDashboardStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var downloadsTask = SafeExecuteAsync("downloads", () => GetLatestDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, excludedClientIps, evictedMode));
+        var downloadsTask = SafeExecuteAsync("downloads", () => GetLatestDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode));
         var detectionTask = SafeExecuteAsync("detection", () => GetCachedDetectionAsync(actualCacheSize));
         var sparklinesTask = SafeExecuteAsync("sparklines", () => GetSparklineDataAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
         var hourlyTask = SafeExecuteAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
@@ -159,7 +158,8 @@ public class DashboardBatchService : IDashboardBatchService
     private async Task<object> GetClientStatsAsync(
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
-        List<string> hiddenClientIps, string evictedMode)
+        List<string> hiddenClientIps, string evictedMode,
+        List<string> statsExcludedOnlyIps)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         var maxLimit = _apiOptions.Value.MaxClientsPerRequest;
@@ -170,6 +170,8 @@ public class DashboardBatchService : IDashboardBatchService
         query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
         query = query.ApplyHiddenClientFilter(hiddenClientIps);
         query = query.ApplyEvictedFilter(evictedMode);
+        if (statsExcludedOnlyIps.Count > 0)
+            query = query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp));
 
         if (startTime.HasValue)
         {

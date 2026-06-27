@@ -7,20 +7,21 @@ import { usePersistentSteamAuth } from '@hooks/usePersistentSteamAuth';
 
 interface SteamPersistentLoginProps {
   isRunning: boolean;
-  needsAuth: boolean;
+  isAuthenticated: boolean;
   onAuthenticated: () => void;
 }
 
 export function SteamPersistentLogin({
   isRunning,
-  needsAuth,
+  isAuthenticated,
   onAuthenticated
 }: SteamPersistentLoginProps) {
   const { t } = useTranslation();
   const { state, actions } = usePersistentSteamAuth();
   const [authModalOpened, setAuthModalOpened] = useState(false);
   const handledAuthenticatedRef = useRef(false);
-  const showLoginButton = isRunning && needsAuth;
+  const startInFlightRef = useRef(false);
+  const showLoginButton = isRunning && !isAuthenticated;
 
   useEffect(() => {
     if (!state.authenticated) {
@@ -38,8 +39,15 @@ export function SteamPersistentLogin({
   }, [state.authenticated, onAuthenticated]);
 
   const handleLoginClick = () => {
+    if (startInFlightRef.current) {
+      return;
+    }
+
+    startInFlightRef.current = true;
     setAuthModalOpened(true);
-    void actions.start();
+    void actions.start().finally(() => {
+      startInFlightRef.current = false;
+    });
   };
 
   const handleAuthModalClose = () => {
@@ -71,7 +79,6 @@ export function SteamPersistentLogin({
         state={state}
         actions={actions}
         isPrefillMode={true}
-        onCancelLogin={actions.cancel}
       />
     </>
   );

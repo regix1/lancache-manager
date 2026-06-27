@@ -14,7 +14,6 @@ import { EpicPersistentLogin } from './login/EpicPersistentLogin';
 import { SteamPersistentLogin } from './login/SteamPersistentLogin';
 import { XboxPersistentLogin } from './login/XboxPersistentLogin';
 import {
-  SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS,
   SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS,
   SCHEDULED_PREFILL_OS_OPTIONS,
   SCHEDULED_PREFILL_PRESET_OPTIONS
@@ -57,11 +56,6 @@ const isScheduledPrefillMaxConcurrencyMode = (
 const getSecondsUntil = (expiresAtUtc: string): number =>
   Math.floor((new Date(expiresAtUtc).getTime() - Date.now()) / 1000);
 
-const isScheduledPrefillAccountService = (serviceKey: ScheduledPrefillServiceKey): boolean =>
-  SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.some(
-    (accountServiceKey) => accountServiceKey === serviceKey
-  );
-
 export function ScheduledPrefillServiceRow({
   serviceKey,
   config,
@@ -83,16 +77,9 @@ export function ScheduledPrefillServiceRow({
       ? config.maxConcurrency.value
       : SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.min;
   const [isExpanded, setIsExpanded] = useState(config.enabled);
-  const [persistentLoginAuthenticated, setPersistentLoginAuthenticated] = useState(false);
   const isPersistentRunning = persistentContainer?.isRunning ?? false;
-  const isAccountService = isScheduledPrefillAccountService(serviceKey);
-  const persistentContainerNeedsLogin =
-    isAccountService && isPersistentRunning && persistentContainer
-      ? serviceKey === 'xbox'
-        ? persistentContainer.needsRelogin
-        : persistentContainer.needsRelogin || persistentContainer.daemonAuthExpiresAtUtc === null
-      : false;
-  const isGameSelectionAuthBlocked = persistentContainerNeedsLogin && !persistentLoginAuthenticated;
+  const isPersistentAuthenticated = persistentContainer?.isAuthenticated ?? false;
+  const isGameSelectionAuthBlocked = isPersistentRunning && !isPersistentAuthenticated;
   const selectedGamesCount = config.selectedAppIds.length;
   const daemonAuthTimeRemainingSeconds = persistentContainer?.daemonAuthExpiresAtUtc
     ? getSecondsUntil(persistentContainer.daemonAuthExpiresAtUtc)
@@ -104,14 +91,7 @@ export function ScheduledPrefillServiceRow({
     }
   }, [config.enabled]);
 
-  useEffect(() => {
-    if (!persistentContainerNeedsLogin) {
-      setPersistentLoginAuthenticated(false);
-    }
-  }, [persistentContainerNeedsLogin]);
-
   const handlePersistentAuthenticated = useCallback(() => {
-    setPersistentLoginAuthenticated(true);
     void onRefreshPersistentContainers();
   }, [onRefreshPersistentContainers]);
 
@@ -350,21 +330,21 @@ export function ScheduledPrefillServiceRow({
                 {serviceKey === 'steam' && (
                   <SteamPersistentLogin
                     isRunning={isPersistentRunning}
-                    needsAuth={isGameSelectionAuthBlocked}
+                    isAuthenticated={isPersistentAuthenticated}
                     onAuthenticated={handlePersistentAuthenticated}
                   />
                 )}
                 {serviceKey === 'epic' && (
                   <EpicPersistentLogin
                     isRunning={isPersistentRunning}
-                    needsAuth={isGameSelectionAuthBlocked}
+                    isAuthenticated={isPersistentAuthenticated}
                     onAuthenticated={handlePersistentAuthenticated}
                   />
                 )}
                 {serviceKey === 'xbox' && (
                   <XboxPersistentLogin
                     isRunning={isPersistentRunning}
-                    needsAuth={isGameSelectionAuthBlocked}
+                    isAuthenticated={isPersistentAuthenticated}
                     onAuthenticated={handlePersistentAuthenticated}
                   />
                 )}

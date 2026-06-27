@@ -1273,7 +1273,7 @@ public class StateService : IStateService
     // Stats Exclusion Methods
     /// <summary>
     /// Gets IPs that should be excluded from statistics calculations (both hide and exclude modes).
-    /// Note: For query filtering, use GetHiddenClientIps() instead to only filter hide mode.
+    /// Note: For row visibility filtering, use GetHiddenClientIps() instead to only filter hide mode.
     /// </summary>
     public List<string> GetExcludedClientIps()
     {
@@ -1292,7 +1292,13 @@ public class StateService : IStateService
     /// </summary>
     public List<string> GetStatsExcludedOnlyClientIps()
     {
-        return new List<string>();
+        var state = GetState();
+        var rules = ResolveExcludedClientRules(state);
+        return rules
+            .Where(rule => NormalizeMode(rule.Mode) == ClientExclusionModes.Exclude)
+            .Select(rule => rule.Ip)
+            .Distinct()
+            .ToList();
     }
 
     public void SetExcludedClientIps(List<string> ips)
@@ -1300,10 +1306,19 @@ public class StateService : IStateService
         UpdateState(state =>
         {
             var normalizedIps = ips ?? new List<string>();
-            state.ExcludedClientIps = normalizedIps;
-            state.ExcludedClientRules = normalizedIps
-                .Select(ip => new ClientExclusionRule { Ip = ip, Mode = ClientExclusionModes.Hide })
+            var existingHiddenRules = ResolveExcludedClientRules(state)
+                .Where(rule => NormalizeMode(rule.Mode) == ClientExclusionModes.Hide)
+                .Where(rule => !normalizedIps.Contains(rule.Ip))
                 .ToList();
+
+            state.ExcludedClientRules = existingHiddenRules
+                .Concat(normalizedIps.Select(ip => new ClientExclusionRule
+                {
+                    Ip = ip,
+                    Mode = ClientExclusionModes.Exclude
+                }))
+                .ToList();
+            state.ExcludedClientIps = BuildExcludedIpList(state.ExcludedClientRules, normalizedIps);
         });
     }
 
@@ -1329,7 +1344,13 @@ public class StateService : IStateService
 
     public List<string> GetHiddenClientIps()
     {
-        return GetExcludedClientIps();
+        var state = GetState();
+        var rules = ResolveExcludedClientRules(state);
+        return rules
+            .Where(rule => NormalizeMode(rule.Mode) == ClientExclusionModes.Hide)
+            .Select(rule => rule.Ip)
+            .Distinct()
+            .ToList();
     }
 
     public string GetEvictedDataMode()
@@ -1423,6 +1444,9 @@ public class StateService : IStateService
                     continue;
                 }
 
+                // Legacy ExcludedClientIps predates the Hide/Exclude split and meant
+                // "hide everywhere + exclude from stats", so migrate them to Hide to
+                // preserve the original behavior for existing installs.
                 normalized.Add(new ClientExclusionRule { Ip = trimmed, Mode = ClientExclusionModes.Hide });
             }
         }

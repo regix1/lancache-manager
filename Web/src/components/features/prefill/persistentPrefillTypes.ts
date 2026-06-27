@@ -6,6 +6,7 @@ export interface PersistentPrefillContainerDto {
   sessionId: string;
   service: PersistentPrefillServiceId;
   isRunning: boolean;
+  isAuthenticated: boolean;
   daemonAuthExpiresAtUtc: string | null;
   authExpiresAtUtc: string;
   authTimeRemainingSeconds: number;

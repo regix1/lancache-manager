@@ -11,9 +11,10 @@ using Microsoft.AspNetCore.Mvc;
 namespace LancacheManager.Controllers;
 
 /// <summary>
-/// Admin-only management of persistent (long-lived) prefill daemon sessions. These sessions own a
-/// stable named auth volume so an admin login survives stop/start cycles; the reaper never tears
-/// them down and instead flags <see cref="DaemonSession.NeedsRelogin"/> once past their expiry.
+/// Admin-only management of persistent (long-lived) prefill daemon sessions. These sessions never
+/// persist auth: each start runs a fresh, unauthenticated container that the admin logs into
+/// interactively via the UI. The reaper never tears them down and instead flags
+/// <see cref="DaemonSession.NeedsRelogin"/> once past their expiry.
 /// Mirrors <see cref="ScheduledPrefillConfigController"/> for base route/auth style and reuses the
 /// exact daemon-per-platform resolution + system user id derivation from <c>ScheduledPrefillService</c>.
 /// </summary>
@@ -60,7 +61,7 @@ public class PersistentPrefillController : ControllerBase
     }
 
     /// <summary>
-    /// Stops a persistent session, preserving its named auth volume for a later restart.
+    /// Stops a persistent session. Auth is not persisted, so a later restart requires a fresh login.
     /// </summary>
     [HttpPost("stop")]
     public async Task<ActionResult> StopAsync([FromBody] StopPersistentSessionRequest request)
@@ -104,19 +105,25 @@ public class PersistentPrefillController : ControllerBase
                 long remainingSeconds = remaining > 0 ? (long)remaining : 0L;
                 var isRunning = session.Status == DaemonSessionStatus.Active;
 
-                // Query the daemon's REAL token expiry only for running sessions. Resilient: a single
-                // failing/slow status call must never sink the whole list, so it is per-session try/caught.
+                // Query the daemon's REAL token expiry + live login state only for running sessions.
+                // The daemon status is the UI's source of truth for authentication (not NeedsRelogin),
+                // because persistent containers always start unauthenticated and are logged in
+                // interactively. Resilient: a single failing/slow status call must never sink the whole
+                // list, so it is per-session try/caught (auth defaults false when unavailable).
                 DateTimeOffset? daemonAuthExpiresAtUtc = null;
+                bool isAuthenticated = false;
                 if (isRunning)
                 {
                     try
                     {
                         var status = await daemon.GetSessionStatusAsync(session.Id, cancellationToken);
                         daemonAuthExpiresAtUtc = status?.AuthExpiryUtc;
+                        isAuthenticated = status?.Status == "logged-in";
                     }
                     catch
                     {
                         daemonAuthExpiresAtUtc = null;
+                        isAuthenticated = false;
                     }
                 }
 
@@ -125,6 +132,7 @@ public class PersistentPrefillController : ControllerBase
                     SessionId = session.Id,
                     Service = ParsePlatform(session.Platform),
                     IsRunning = isRunning,
+                    IsAuthenticated = isAuthenticated,
                     AuthExpiresAtUtc = session.ExpiresAt,
                     AuthTimeRemainingSeconds = remainingSeconds,
                     NeedsRelogin = session.NeedsRelogin,
@@ -507,6 +515,13 @@ public sealed class PersistentPrefillSessionDto
 
     /// <summary>True while the daemon session is in the Active status.</summary>
     public required bool IsRunning { get; init; }
+
+    /// <summary>
+    /// True when the daemon reports it is actually logged in (live <c>status</c> == "logged-in").
+    /// This is the UI's source of truth for authentication, not <see cref="NeedsRelogin"/>. Defaults
+    /// to false when the session is not running or the status call is unavailable.
+    /// </summary>
+    public required bool IsAuthenticated { get; init; }
 
     /// <summary>UTC instant at which the persistent login validity expires (DaemonSession.ExpiresAt).</summary>
     public required DateTime AuthExpiresAtUtc { get; init; }

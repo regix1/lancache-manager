@@ -37,15 +37,15 @@ public class SpeedsController : ControllerBase
     {
         var snapshot = _speedTrackerService.GetCurrentSnapshot();
 
-        var excludedClientIps = _stateRepository.GetExcludedClientIps();
+        var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         var evictedMode = _stateRepository.GetEvictedDataMode();
 
         var filteredClients = snapshot.ClientSpeeds
-            .Where(c => !excludedClientIps.Contains(c.ClientIp))
+            .Where(c => !hiddenClientIps.Contains(c.ClientIp))
             .ToList();
 
         var filteredGames = snapshot.GameSpeeds
-            .Where(g => string.IsNullOrWhiteSpace(g.ClientIp) || !excludedClientIps.Contains(g.ClientIp))
+            .Where(g => string.IsNullOrWhiteSpace(g.ClientIp) || !hiddenClientIps.Contains(g.ClientIp))
             .ToList();
 
         // Apply eviction filter (hide/remove modes exclude evicted entries from speed data)
@@ -89,13 +89,13 @@ public class SpeedsController : ControllerBase
         var periodStart = periodEnd.AddMinutes(-minutes);
 
         await using var context = await _contextFactory.CreateDbContextAsync();
-        var excludedClientIps = _stateRepository.GetExcludedClientIps();
+        var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         var evictedMode = _stateRepository.GetEvictedDataMode();
 
         // Query downloads within the time period
         var query = context.Downloads
             .Where(d => d.EndTimeUtc >= periodStart && d.StartTimeUtc <= periodEnd)
-            .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp));
+            .Where(d => hiddenClientIps.Count == 0 || !hiddenClientIps.Contains(d.ClientIp));
 
         // Apply eviction filter (hide/remove modes exclude evicted downloads)
         query = query.ApplyEvictedFilter(evictedMode);

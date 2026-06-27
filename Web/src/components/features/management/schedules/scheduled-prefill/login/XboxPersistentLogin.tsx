@@ -7,20 +7,21 @@ import { usePersistentXboxAuth } from '@hooks/usePersistentXboxAuth';
 
 interface XboxPersistentLoginProps {
   isRunning: boolean;
-  needsAuth: boolean;
+  isAuthenticated: boolean;
   onAuthenticated: () => void;
 }
 
 export function XboxPersistentLogin({
   isRunning,
-  needsAuth,
+  isAuthenticated,
   onAuthenticated
 }: XboxPersistentLoginProps) {
   const { t } = useTranslation();
-  const { state, actions, startLogin, cancelLogin } = usePersistentXboxAuth();
+  const { state, actions, startLogin } = usePersistentXboxAuth();
   const [authModalOpened, setAuthModalOpened] = useState(false);
   const handledAuthenticatedRef = useRef(false);
-  const showLoginButton = isRunning && needsAuth;
+  const startInFlightRef = useRef(false);
+  const showLoginButton = isRunning && !isAuthenticated;
 
   useEffect(() => {
     if (!state.authenticated) {
@@ -38,8 +39,15 @@ export function XboxPersistentLogin({
   }, [state.authenticated, onAuthenticated]);
 
   const handleLoginClick = () => {
+    if (startInFlightRef.current) {
+      return;
+    }
+
+    startInFlightRef.current = true;
     setAuthModalOpened(true);
-    void startLogin();
+    void startLogin().finally(() => {
+      startInFlightRef.current = false;
+    });
   };
 
   const handleAuthModalClose = () => {
@@ -70,7 +78,6 @@ export function XboxPersistentLogin({
         onClose={handleAuthModalClose}
         state={state}
         actions={actions}
-        onCancelLogin={() => void cancelLogin()}
       />
     </>
   );

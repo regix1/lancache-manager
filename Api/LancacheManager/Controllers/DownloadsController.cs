@@ -45,7 +45,7 @@ public class DownloadsController : ControllerBase
         var eventIdList = eventId.HasValue
             ? new List<long> { eventId.Value }
             : new List<long>();
-        var excludedClientIps = _stateRepository.GetExcludedClientIps();
+        var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         var evictedMode = _stateRepository.GetEvictedDataMode();
 
         try
@@ -101,11 +101,11 @@ public class DownloadsController : ControllerBase
                 downloads.WithUtcMarking();
             }
 
-            // Apply exclusion filter to ALL downloads (both cached and direct query paths)
-            if (excludedClientIps.Count > 0)
+            // Apply hidden-client filter to ALL downloads (both cached and direct query paths)
+            if (hiddenClientIps.Count > 0)
             {
                 downloads = downloads
-                    .Where(d => !excludedClientIps.Contains(d.ClientIp))
+                    .Where(d => !hiddenClientIps.Contains(d.ClientIp))
                     .ToList();
             }
 
@@ -146,8 +146,8 @@ public class DownloadsController : ControllerBase
             .FirstOrDefaultAsync(d => d.Id == id && d.ClientIp != DownloadKindConstants.PrefillToken && d.ClientIp != "Prefill")
             ?? throw new NotFoundException("Download");
 
-        var excludedClientIps = _stateRepository.GetExcludedClientIps();
-        if (excludedClientIps.Contains(download.ClientIp))
+        var hiddenClientIps = _stateRepository.GetHiddenClientIps();
+        if (hiddenClientIps.Contains(download.ClientIp))
         {
             throw new NotFoundException("Download");
         }
@@ -249,7 +249,7 @@ public class DownloadsController : ControllerBase
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null)
     {
-        var excludedClientIps = _stateRepository.GetExcludedClientIps();
+        var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         var evictedMode = _stateRepository.GetEvictedDataMode();
         var startDate = startTime.HasValue
             ? startTime.Value.FromUnixSeconds()
@@ -262,7 +262,7 @@ public class DownloadsController : ControllerBase
         // This eliminates the race condition by avoiding separate queries
         var baseQuery = _context.Downloads
             .AsNoTracking()
-            .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
+            .Where(d => hiddenClientIps.Count == 0 || !hiddenClientIps.Contains(d.ClientIp))
             .Where(d => d.ClientIp != DownloadKindConstants.PrefillToken && d.ClientIp != "Prefill")
             .Where(d => d.Datasource != DownloadKindConstants.PrefillToken && d.Datasource != "Prefill")
             .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate);
@@ -606,7 +606,7 @@ public class DownloadsController : ControllerBase
     /// </summary>
     private IQueryable<Download> BuildRetroBaseQuery(RetroDownloadQuery query)
     {
-        var excludedClientIps = _stateRepository.GetExcludedClientIps();
+        var hiddenClientIps = _stateRepository.GetHiddenClientIps();
 
         // Base query: filter prefill sessions
         var baseQuery = _context.Downloads
@@ -615,9 +615,9 @@ public class DownloadsController : ControllerBase
             .Where(d => !d.IsActive); // Only completed downloads for retro view
 
         // Exclude hidden client IPs
-        if (excludedClientIps.Count > 0)
+        if (hiddenClientIps.Count > 0)
         {
-            baseQuery = baseQuery.Where(d => !excludedClientIps.Contains(d.ClientIp));
+            baseQuery = baseQuery.Where(d => !hiddenClientIps.Contains(d.ClientIp));
         }
 
         // Apply eviction filter (hide/remove modes exclude evicted downloads)
