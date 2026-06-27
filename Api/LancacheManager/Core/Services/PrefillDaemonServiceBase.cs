@@ -1481,7 +1481,20 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         {
             if (plan.AfterSessionCreatedAsync is not null)
             {
-                await plan.AfterSessionCreatedAsync(session, cancellationToken);
+                try
+                {
+                    await plan.AfterSessionCreatedAsync(session, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    // Headless auto-login can fail (e.g. expired/invalid creds). Mirror the
+                    // NeedsLogin branch: flag for interactive re-login and leave the persistent
+                    // container running so the admin can log in. Do not rethrow.
+                    _logger.LogWarning(ex,
+                        "Persistent {Service} session {SessionId} auto-login failed; flagging for interactive re-login (container left running).",
+                        service, session.Id);
+                    session.NeedsRelogin = true;
+                }
             }
         }
         else
@@ -1912,6 +1925,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         var stallThreshold = TimeSpan.FromSeconds(GetStallTimeoutSeconds());
         var stalledSessions = _sessions.Values
             .Where(s => s.Status == DaemonSessionStatus.Active &&
+                        !s.IsPersistent &&
                         (s.PrefillState == PrefillState.Started || s.PrefillState == PrefillState.Downloading) &&
                         IsPrefillStalled(s, nowUtc, stallThreshold))
             .ToList();
