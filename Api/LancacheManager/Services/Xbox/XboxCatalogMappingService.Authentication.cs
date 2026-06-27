@@ -453,9 +453,14 @@ public partial class XboxCatalogMappingService
             {
                 operationId,
                 success,
-                status = success
+                // Mirror Epic: a cancel is emitted as Completed (with cancelled:true), NOT a raw
+                // Cancelled status. The frontend status-aware notification handler only treats
+                // completed/failed as terminal, so a "cancelled" status would never auto-dismiss and
+                // the "Xbox login cancelled" card would stick forever. The cancelled flag still drives
+                // the cancelled message + dismiss behavior.
+                status = success || cancelled
                     ? OperationStatus.Completed
-                    : cancelled ? OperationStatus.Cancelled : OperationStatus.Failed,
+                    : OperationStatus.Failed,
                 stageKey,
                 percentComplete = success || cancelled ? 100.0 : 0.0,
                 gamesDiscovered,
