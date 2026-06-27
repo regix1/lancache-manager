@@ -1,5 +1,3 @@
-using LancacheManager.Core.Interfaces;
-using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -16,26 +14,15 @@ namespace LancacheManager.Controllers;
 [Authorize(Policy = "AdminOnly")]
 public class EpicGameMappingController : ControllerBase
 {
-    private static readonly SemaphoreSlim _resolveStartLock = new(1, 1);
-
     private readonly EpicMappingService _epicMappingService;
     private readonly ILogger<EpicGameMappingController> _logger;
-    private readonly IUnifiedOperationTracker _operationTracker;
-    private readonly IOperationConflictChecker _conflictChecker;
-    private readonly IOperationQueue _operationQueue;
 
     public EpicGameMappingController(
         EpicMappingService epicMappingService,
-        ILogger<EpicGameMappingController> logger,
-        IUnifiedOperationTracker operationTracker,
-        IOperationConflictChecker conflictChecker,
-        IOperationQueue operationQueue)
+        ILogger<EpicGameMappingController> logger)
     {
         _epicMappingService = epicMappingService;
         _logger = logger;
-        _operationTracker = operationTracker;
-        _conflictChecker = conflictChecker;
-        _operationQueue = operationQueue;
     }
 
     /// <summary>
@@ -150,114 +137,6 @@ public class EpicGameMappingController : ControllerBase
     }
 
     /// <summary>
-    /// Starts a full Epic catalog refresh (scan + apply mappings).
-    /// Mirrors Steam's POST /api/depots/rebuild - runs scan then resolves downloads.
-    /// </summary>
-    [HttpPost("refresh")]
-    public async Task<ActionResult> StartRefreshAsync(CancellationToken ct = default)
-    {
-        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
-        // CancellationToken.None in the closure: at promotion the HTTP request is long gone.
-        Task<Guid?> StartRefreshCoreAsync()
-        {
-            var ok = _epicMappingService.TryStartRefresh(CancellationToken.None);
-            if (!ok)
-            {
-                return Task.FromResult<Guid?>(null);
-            }
-            var id = _epicMappingService.GetScheduleStatus().OperationId
-                ?? _operationTracker.GetActiveOperations(OperationType.EpicMapping).FirstOrDefault()?.Id;
-            return Task.FromResult(id);
-        }
-
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.EpicMapping,
-            ConflictScope.Bulk(),
-            ct);
-        if (conflict != null)
-        {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.EpicMapping, ConflictScope.Bulk(), "Epic Catalog Refresh",
-                StartRefreshCoreAsync, ct));
-        }
-
-        var started = _epicMappingService.TryStartRefresh(ct);
-        if (!started)
-        {
-            var raceConflict = await _conflictChecker.CheckAsync(
-                OperationType.EpicMapping,
-                ConflictScope.Bulk(),
-                ct);
-            if (raceConflict != null)
-            {
-                // Race: refresh began between our check and TryStartRefresh - park it.
-                return Accepted(await _operationQueue.EnqueueAsync(
-                    OperationType.EpicMapping, ConflictScope.Bulk(), "Epic Catalog Refresh",
-                    StartRefreshCoreAsync, ct));
-            }
-
-            if (!_epicMappingService.GetAuthStatus().IsAuthenticated)
-            {
-                return BadRequest(ApiResponse.Error("Epic mapping login is required before refreshing the catalog"));
-            }
-
-            return StatusCode(500, ApiResponse.Error("Failed to start Epic catalog refresh"));
-        }
-
-        var operationId = _epicMappingService.GetScheduleStatus().OperationId
-            ?? _operationTracker.GetActiveOperations(OperationType.EpicMapping).FirstOrDefault()?.Id;
-
-        return Accepted(new
-        {
-            started = true,
-            operationId,
-            refreshInProgress = true,
-            message = "Epic catalog refresh started"
-        });
-    }
-
-    /// <summary>
-    /// Resolves unmatched Epic downloads against stored CDN patterns only (no scan).
-    /// </summary>
-    [HttpPost("resolve")]
-    public async Task<ActionResult> ResolveDownloadsAsync(CancellationToken ct = default)
-    {
-        var start = await BeginResolveAsync(ct);
-        if (start.Conflict != null)
-        {
-            return Conflict(start.Conflict);
-        }
-
-        var operationId = start.OperationId!.Value;
-        var operationCts = start.CancellationTokenSource!;
-
-        try
-        {
-            _operationTracker.UpdateProgress(operationId, 0, "Resolving Epic downloads...");
-            var resolved = await _epicMappingService.ResolveDownloadsAsync(operationCts.Token);
-            _operationTracker.UpdateProgress(operationId, 100, $"Resolved {resolved} Epic download(s)");
-            _operationTracker.CompleteOperation(operationId, true);
-            return Ok(new
-            {
-                operationId,
-                resolved,
-                message = $"Resolved {resolved} Epic download(s) to game names"
-            });
-        }
-        catch (OperationCanceledException)
-        {
-            _operationTracker.CompleteOperation(operationId, false, "Epic download resolution was cancelled");
-            return StatusCode(499, ApiResponse.Error("Epic download resolution was cancelled"));
-        }
-        catch (Exception ex)
-        {
-            _operationTracker.CompleteOperation(operationId, false, ex.Message);
-            _logger.LogError(ex, "Failed to resolve Epic downloads");
-            return StatusCode(500, ApiResponse.Error("Failed to resolve Epic downloads: " + ex.Message));
-        }
-    }
-
-    /// <summary>
     /// Gets the current schedule status (interval, next run, last run, processing state).
     /// </summary>
     [HttpGet("schedule")]
@@ -321,30 +200,6 @@ public class EpicGameMappingController : ControllerBase
         }).ToList();
 
         return Ok(dtos);
-    }
-
-    private async Task<(Guid? OperationId, CancellationTokenSource? CancellationTokenSource, OperationConflictResponse? Conflict)> BeginResolveAsync(CancellationToken cancellationToken)
-    {
-        await _resolveStartLock.WaitAsync(cancellationToken);
-        try
-        {
-            var conflict = await _conflictChecker.CheckAsync(
-                OperationType.EpicMapping,
-                ConflictScope.Bulk(),
-                cancellationToken);
-            if (conflict != null)
-            {
-                return (null, null, conflict);
-            }
-
-            var cts = new CancellationTokenSource();
-            var operationId = _operationTracker.RegisterOperation(OperationType.EpicMapping, "Epic Download Resolution", cts);
-            return (operationId, cts, null);
-        }
-        finally
-        {
-            _resolveStartLock.Release();
-        }
     }
 }
 

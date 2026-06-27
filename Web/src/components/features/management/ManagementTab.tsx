@@ -43,9 +43,7 @@ const ManagementTab: React.FC = () => {
   const [optimizationsEnabled, setOptimizationsEnabled] = useState(false);
   const [gameCacheRefreshKey, setGameCacheRefreshKey] = useState(0);
   const [highlightSteamApi, setHighlightSteamApi] = useState(false);
-  const [highlightEpic, setHighlightEpic] = useState(false);
   const [highlightBattleNet, setHighlightBattleNet] = useState(false);
-  const [highlightXbox, setHighlightXbox] = useState(false);
   const [highlightScheduleKey, setHighlightScheduleKey] = useState<string | null>(null);
   const [highlightEviction, setHighlightEviction] = useState(false);
 
@@ -136,16 +134,6 @@ const ManagementTab: React.FC = () => {
     }, 2000);
   }, []);
 
-  // Handle navigation to Epic Login in Integrations section
-  const handleNavigateToEpicLogin = useCallback(() => {
-    setActiveSection('integrations');
-    setHighlightEpic(true);
-    // Clear highlight after animation completes
-    setTimeout(() => {
-      setHighlightEpic(false);
-    }, 2000);
-  }, []);
-
   // Handle navigation to Battle.net daemon status in Integrations section.
   // Battle.net is anonymous (no login), so this only highlights the daemon card.
   const handleNavigateToBattleNetLogin = useCallback(() => {
@@ -154,17 +142,6 @@ const ManagementTab: React.FC = () => {
     // Clear highlight after animation completes
     setTimeout(() => {
       setHighlightBattleNet(false);
-    }, 2000);
-  }, []);
-
-  // Handle navigation to the Xbox daemon status card in the Integrations section.
-  // Xbox login happens on the Prefill page, so this only highlights the daemon card.
-  const handleNavigateToXboxLogin = useCallback(() => {
-    setActiveSection('integrations');
-    setHighlightXbox(true);
-    // Clear highlight after animation completes
-    setTimeout(() => {
-      setHighlightXbox(false);
     }, 2000);
   }, []);
 
@@ -229,9 +206,7 @@ const ManagementTab: React.FC = () => {
             onError={addError}
             onSuccess={setSuccess}
             highlightSteamApi={highlightSteamApi}
-            highlightEpic={highlightEpic}
             highlightBattleNet={highlightBattleNet}
-            highlightXbox={highlightXbox}
           />
         );
 
@@ -264,9 +239,7 @@ const ManagementTab: React.FC = () => {
             onSuccess={setSuccess}
             onDataRefresh={refreshStatsAndGameCache}
             onNavigateToSteamApi={handleNavigateToSteamApi}
-            onNavigateToEpicLogin={handleNavigateToEpicLogin}
             onNavigateToBattleNetLogin={handleNavigateToBattleNetLogin}
-            onNavigateToXboxLogin={handleNavigateToXboxLogin}
             onNavigateToSchedule={handleNavigateToSchedule}
           />
         );

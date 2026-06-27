@@ -11,8 +11,6 @@ import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/
 import { type AuthMode } from '@services/auth.service';
 import ApiService from '@services/api.service';
 import DepotMappingManager from '../depot/DepotMappingManager';
-import EpicMappingManager from '../epic/EpicMappingManager';
-import XboxMappingManager from '../xbox/XboxMappingManager';
 import DataImporter from '../data/DataImporter';
 interface DataSectionProps {
   isAdmin: boolean;
@@ -24,13 +22,9 @@ interface DataSectionProps {
   onSuccess: (message: string) => void;
   onDataRefresh: () => void;
   onNavigateToSteamApi?: () => void;
-  onNavigateToEpicLogin?: () => void;
   // Battle.net is anonymous (no login); this navigates to / highlights the
   // Battle.net daemon status card in the Integrations section.
   onNavigateToBattleNetLogin?: () => void;
-  // Xbox login lives on the Prefill page; this navigates to / highlights the
-  // Xbox daemon status card in the Integrations section.
-  onNavigateToXboxLogin?: () => void;
   onNavigateToSchedule?: (scheduleKey: string) => void;
 }
 
@@ -44,8 +38,6 @@ const DataSection: React.FC<DataSectionProps> = ({
   onSuccess,
   onDataRefresh,
   onNavigateToSteamApi,
-  onNavigateToEpicLogin,
-  onNavigateToXboxLogin,
   onNavigateToSchedule
 }) => {
   const { t } = useTranslation();
@@ -321,47 +313,6 @@ const DataSection: React.FC<DataSectionProps> = ({
           onNavigateToSchedule={
             onNavigateToSchedule ? () => onNavigateToSchedule('depotMapping') : undefined
           }
-        />
-      </div>
-
-      {/* Subsection: Epic Game Mapping */}
-      <div className="mb-8">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-epic)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            {t('management.sections.data.epicGameMapping')}
-          </h3>
-        </div>
-
-        <EpicMappingManager
-          isAdmin={isAdmin}
-          mockMode={mockMode}
-          onError={onError}
-          onSuccess={onSuccess}
-          onDataRefresh={onDataRefresh}
-          onNavigateToEpicLogin={onNavigateToEpicLogin}
-          onNavigateToSchedule={
-            onNavigateToSchedule ? () => onNavigateToSchedule('epicMapping') : undefined
-          }
-        />
-      </div>
-
-      {/* Subsection: Xbox Game Mapping */}
-      <div className="mb-8">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-xbox)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            {t('management.sections.data.xboxGameMapping')}
-          </h3>
-        </div>
-
-        <XboxMappingManager
-          isAdmin={isAdmin}
-          mockMode={mockMode}
-          onError={onError}
-          onSuccess={onSuccess}
-          onDataRefresh={onDataRefresh}
-          onNavigateToXboxLogin={onNavigateToXboxLogin}
         />
       </div>
 

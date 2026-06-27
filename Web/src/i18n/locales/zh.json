@@ -1488,8 +1488,6 @@
         "subtitle": "管理仓库映射、导入数据和控制数据库表",
         "depotMapping": "仓库映射",
         "steamDepotMapping": "Steam 游戏映射",
-        "epicGameMapping": "Epic Games 映射",
-        "xboxGameMapping": "Xbox 游戏映射",
         "epicResolve": {
           "applyNow": "立即应用",
           "resolving": "解析中...",
@@ -2580,81 +2578,6 @@
           }
         },
         "note": "账户登录通过 SteamKit2 直接连接到 Steam，独立于 Steam Web API 工作。Web API（V2/V1）仅用于完整仓库扫描。"
-      }
-    },
-    "epicMapping": {
-      "title": "Epic 游戏映射",
-      "subtitle": "从 CDN 下载模式识别 Epic 游戏",
-      "configureLogin": "配置 Epic 登录",
-      "viewSchedule": "查看计划",
-      "loginRequired": "在集成部分使用您的 Epic 游戏账户登录以发现游戏并启用映射。",
-      "resolveSuccess": "已将 {{count}} 个 Epic 下载解析为游戏名称",
-      "noUnresolved": "所有 Epic 下载已映射到游戏",
-      "status": {
-        "label": "状态：",
-        "connectedAs": "以 {{name}} 身份连接",
-        "notConnected": "未连接",
-        "gamesDiscovered": "已发现的游戏：",
-        "cdnPatterns": "CDN 模式",
-        "lastCollection": "上次收集："
-      },
-      "buttons": {
-        "applyNow": "立即应用",
-        "resolving": "解析中..."
-      },
-      "schedule": {
-        "automaticRefresh": "自动刷新",
-        "runsEvery": "运行频率：",
-        "nextRun": "下次运行：",
-        "lastRun": "上次运行：",
-        "disabled": "已禁用",
-        "calculating": "计算中..."
-      },
-      "intervals": {
-        "disabled": "已禁用",
-        "every1Hour": "每小时",
-        "every6Hours": "每 6 小时",
-        "every12Hours": "每 12 小时",
-        "every24Hours": "每 24 小时",
-        "every2Days": "每 2 天",
-        "weekly": "每周",
-        "hours": "{{count}} 小时"
-      },
-      "help": {
-        "howItWorks": {
-          "title": "工作原理",
-          "description": "Epic 游戏映射需要使用 Epic 游戏账户登录。登录后，您拥有的游戏及其 CDN 模式将被收集和存储。然后使用这些模式将下载 URL 与游戏名称匹配。"
-        },
-        "applyNow": {
-          "title": "立即应用",
-          "description": "重新从 Epic 获取您拥有的游戏和 CDN 模式，然后将未匹配的下载 URL 解析为游戏名称。"
-        },
-        "note": "Epic 没有像 Steam 的 PICS 那样的公开游戏数据库。游戏发现至少需要一个 Epic 账户登录。"
-      }
-    },
-    "xboxMapping": {
-      "title": "Xbox 游戏映射",
-      "subtitle": "从 Microsoft Store CDN 模式识别 Xbox 游戏",
-      "configureLogin": "查看 Xbox 守护进程",
-      "loginRequired": "登录 Xbox 以刷新目录。",
-      "status": {
-        "gamesDiscovered": "已发现的游戏：",
-        "lastUpdated": "最后更新："
-      },
-      "buttons": {
-        "applyNow": "刷新目录",
-        "resolving": "刷新中..."
-      },
-      "help": {
-        "howItWorks": {
-          "title": "工作原理",
-          "description": "Xbox 游戏在处理日志时自动解析：用户在预填充页面登录后会贡献其 Microsoft Store 游戏库，匹配的下载将从通用的 Windows 更新条目重命名为其游戏名称。"
-        },
-        "applyNow": {
-          "title": "刷新目录",
-          "description": "从任何已登录的 Xbox 守护进程会话收集最新的游戏名称和 CDN 模式，然后针对未匹配的下载重新运行解析器。目录也会按计划以及每当会话登录时自动刷新，因此仅在需要立即应用更改时才使用此功能。"
-        },
-        "note": "只有有人预填充或拥有的游戏才能自动命名。收集目录需要已登录的 Xbox 会话，因此请在预填充页面保持或重新建立至少一次 Xbox 账户登录。"
       }
     },
     "depotMapping": {

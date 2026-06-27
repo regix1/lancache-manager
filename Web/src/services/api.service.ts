@@ -2317,9 +2317,9 @@ class ApiService {
     return ApiService.handleResponse<EpicDaemonStatusDto>(response);
   }
 
-  // Xbox game mappings share Epic's SHARED-catalog model (AdminOnly read). Unlike Epic, login
-  // lives on the Xbox prefill daemon, so there is no auth-status/login/logout here - just the
-  // catalog, stats, search and a manual resolve trigger.
+  // Xbox game mappings share Epic's SHARED-catalog model (AdminOnly read). Resolution is automatic
+  // (Rust ingest + RustLogProcessor post-pass + the xboxMapping schedule), so this exposes just the
+  // catalog, stats and search for the game-library list.
   static async getXboxGameMappings(): Promise<XboxGameMappingDto[]> {
     const response = await fetch(`${API_BASE}/xbox/game-mappings`, {
       credentials: 'include'
@@ -2340,32 +2340,6 @@ class ApiService {
       { credentials: 'include' }
     );
     return ApiService.handleResponse<XboxGameMappingDto[]>(response);
-  }
-
-  static async resolveXboxDownloads(): Promise<{ resolved: number; message: string }> {
-    const response = await fetch(`${API_BASE}/xbox/game-mappings/resolve`, {
-      method: 'POST',
-      credentials: 'include'
-    });
-    return ApiService.handleResponse<{ resolved: number; message: string }>(response);
-  }
-
-  // Collects fresh product->title mappings + CDN patterns from any signed-in Xbox daemon session
-  // (via get-cdn-info), then resolves unmatched downloads. Mirrors Epic's manual refresh and, unlike
-  // resolveXboxDownloads (which only re-runs the resolver over EXISTING patterns), this discovers new
-  // ones. Same collection also runs on the xboxMapping schedule and when a session authenticates.
-  static async refreshXboxCatalog(): Promise<{
-    newPatterns: number;
-    resolved: number;
-    message: string;
-  }> {
-    const response = await fetch(`${API_BASE}/xbox/game-mappings/refresh-catalog`, {
-      method: 'POST',
-      credentials: 'include'
-    });
-    return ApiService.handleResponse<{ newPatterns: number; resolved: number; message: string }>(
-      response
-    );
   }
 
   // Xbox mapping auth — mirrors Epic's auth-status/login/logout shape (daemon-free MSA device-code).
@@ -2430,22 +2404,6 @@ class ApiService {
       { credentials: 'include' }
     );
     return ApiService.handleResponse<EpicGameMappingDto[]>(response);
-  }
-
-  static async resolveEpicDownloads(): Promise<{ resolved: number; message: string }> {
-    const response = await fetch(`${API_BASE}/epic/game-mappings/resolve`, {
-      method: 'POST',
-      credentials: 'include'
-    });
-    return ApiService.handleResponse<{ resolved: number; message: string }>(response);
-  }
-
-  static async startEpicRefresh(): Promise<{ started: boolean; message: string }> {
-    const response = await fetch(`${API_BASE}/epic/game-mappings/refresh`, {
-      method: 'POST',
-      credentials: 'include'
-    });
-    return ApiService.handleResponse<{ started: boolean; message: string }>(response);
   }
 
   static async getEpicMappingAuthStatus(): Promise<EpicMappingAuthStatus> {

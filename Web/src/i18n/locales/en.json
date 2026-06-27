@@ -1488,8 +1488,6 @@
         "subtitle": "Manage depot mappings, import data, and control database tables",
         "depotMapping": "Depot Mapping",
         "steamDepotMapping": "Steam Game Mapping",
-        "epicGameMapping": "Epic Games Mapping",
-        "xboxGameMapping": "Xbox Game Mapping",
         "epicResolve": {
           "applyNow": "Apply Now",
           "resolving": "Resolving...",
@@ -2580,81 +2578,6 @@
           }
         },
         "note": "Account login connects directly to Steam via SteamKit2 and works independently of the Steam Web API. The Web API (V2/V1) is only used for full depot scans."
-      }
-    },
-    "epicMapping": {
-      "title": "Epic Games Mapping",
-      "subtitle": "Identifies Epic games from CDN download patterns",
-      "configureLogin": "Configure Epic Login",
-      "viewSchedule": "View Schedule",
-      "loginRequired": "Log in with your Epic Games account in the Integrations section to discover games and enable mapping.",
-      "resolveSuccess": "Resolved {{count}} Epic download(s) to game names",
-      "noUnresolved": "All Epic downloads are already mapped to games",
-      "status": {
-        "label": "Status:",
-        "connectedAs": "Connected as {{name}}",
-        "notConnected": "Not connected",
-        "gamesDiscovered": "Games discovered:",
-        "cdnPatterns": "CDN patterns",
-        "lastCollection": "Last collection:"
-      },
-      "buttons": {
-        "applyNow": "Apply Now",
-        "resolving": "Resolving..."
-      },
-      "schedule": {
-        "automaticRefresh": "Automatic Refresh",
-        "runsEvery": "Runs every:",
-        "nextRun": "Next run:",
-        "lastRun": "Last run:",
-        "disabled": "Disabled",
-        "calculating": "Calculating..."
-      },
-      "intervals": {
-        "disabled": "Disabled",
-        "every1Hour": "Every 1 hour",
-        "every6Hours": "Every 6 hours",
-        "every12Hours": "Every 12 hours",
-        "every24Hours": "Every 24 hours",
-        "every2Days": "Every 2 days",
-        "weekly": "Weekly",
-        "hours": "{{count}} hour(s)"
-      },
-      "help": {
-        "howItWorks": {
-          "title": "How It Works",
-          "description": "Epic game mapping requires logging in with an Epic Games account. Once logged in, your owned games and their CDN patterns are collected and stored. These patterns are then used to match download URLs to game names."
-        },
-        "applyNow": {
-          "title": "Apply Now",
-          "description": "Re-fetches your owned games and CDN patterns from Epic, then resolves unmatched download URLs to game names."
-        },
-        "note": "Epic has no public game database like Steam's PICS. Game discovery requires at least one Epic account login."
-      }
-    },
-    "xboxMapping": {
-      "title": "Xbox Game Mapping",
-      "subtitle": "Identifies Xbox games from Microsoft Store CDN patterns",
-      "configureLogin": "View Xbox Daemon",
-      "loginRequired": "Log in to Xbox to refresh the catalog.",
-      "status": {
-        "gamesDiscovered": "Games discovered:",
-        "lastUpdated": "Last updated:"
-      },
-      "buttons": {
-        "applyNow": "Refresh Catalog",
-        "resolving": "Refreshing..."
-      },
-      "help": {
-        "howItWorks": {
-          "title": "How It Works",
-          "description": "Xbox titles are resolved automatically as logs are processed: a user who logs in on the Prefill page contributes their Microsoft Store library, and matching downloads are renamed from generic Windows Update entries to their game titles."
-        },
-        "applyNow": {
-          "title": "Refresh Catalog",
-          "description": "Collects fresh game titles and CDN patterns from any signed-in Xbox daemon session, then re-runs the resolver against unmatched downloads. The catalog also refreshes on a schedule and whenever a session signs in, so this is only needed to apply changes immediately."
-        },
-        "note": "Only titles someone has prefilled or owned can be auto-named. Collecting the catalog needs a signed-in Xbox session, so keep or re-establish at least one Xbox account login on the Prefill page."
       }
     },
     "depotMapping": {

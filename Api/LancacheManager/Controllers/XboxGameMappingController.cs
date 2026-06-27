@@ -12,9 +12,9 @@ namespace LancacheManager.Controllers;
 /// Manages the cumulative, SHARED catalog of Xbox games discovered through user logins (an admin
 /// sees the union of all users' titles, by design - mirrors Epic's shared catalog model).
 ///
-/// AdminOnly read of the global mapping/catalog. Unlike Epic, the login flow lives on the Xbox
-/// PREFILL daemon (XboxDaemonController), so this controller only exposes the catalog + a manual
-/// resolve trigger; the primary resolution path is the Rust ingest + the RustLogProcessor post-pass.
+/// AdminOnly read of the global mapping/catalog. Resolution is automatic (the Rust ingest + the
+/// RustLogProcessor post-pass + the xboxMapping schedule), so this controller only exposes the
+/// catalog read plus the manager-side login.
 /// </summary>
 [ApiController]
 [Route("api/xbox/game-mappings")]
@@ -22,18 +22,15 @@ namespace LancacheManager.Controllers;
 public class XboxGameMappingController : ControllerBase
 {
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
-    private readonly XboxMappingService _xboxMappingService;
     private readonly XboxCatalogMappingService _xboxCatalogMappingService;
     private readonly ILogger<XboxGameMappingController> _logger;
 
     public XboxGameMappingController(
         IDbContextFactory<AppDbContext> dbContextFactory,
-        XboxMappingService xboxMappingService,
         XboxCatalogMappingService xboxCatalogMappingService,
         ILogger<XboxGameMappingController> logger)
     {
         _dbContextFactory = dbContextFactory;
-        _xboxMappingService = xboxMappingService;
         _xboxCatalogMappingService = xboxCatalogMappingService;
         _logger = logger;
     }
@@ -184,57 +181,6 @@ public class XboxGameMappingController : ControllerBase
             .ToListAsync(ct);
 
         return Ok(dtos);
-    }
-
-    /// <summary>
-    /// Manually refreshes the Xbox catalog: collects product-&gt;title + CDN fragments from the daemon's
-    /// already-authenticated session(s) via <c>get-cdn-info</c>, then resolves unmatched downloads.
-    /// Mirrors Epic's <c>POST /refresh</c> manual trigger and is decoupled from prefill - it re-reads the
-    /// existing session (no prefill download needed). The same collection also runs on a schedule
-    /// (Schedules page, key <c>xboxMapping</c>) and opportunistically when a session authenticates.
-    /// </summary>
-    [HttpPost("refresh-catalog")]
-    public async Task<ActionResult> RefreshCatalogAsync(CancellationToken ct = default)
-    {
-        try
-        {
-            var result = await _xboxCatalogMappingService.RefreshNowAsync(ct);
-            return Ok(new
-            {
-                newPatterns = result.NewPatterns,
-                resolved = result.Resolved,
-                message = $"Collected {result.NewPatterns} new CDN pattern(s); re-tagged {result.Resolved} download(s)"
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to refresh Xbox catalog");
-            return StatusCode(500, ApiResponse.Error("Failed to refresh Xbox catalog: " + ex.Message));
-        }
-    }
-
-    /// <summary>
-    /// Resolves unmatched wsus downloads against stored Xbox CDN patterns only (no scan).
-    /// Backfills INACTIVE rows that the ingest path missed; the primary path runs automatically
-    /// after each log process.
-    /// </summary>
-    [HttpPost("resolve")]
-    public async Task<ActionResult> ResolveDownloadsAsync(CancellationToken ct = default)
-    {
-        try
-        {
-            var resolved = await _xboxMappingService.ResolveDownloadsAsync(ct);
-            return Ok(new
-            {
-                resolved,
-                message = $"Resolved {resolved} Xbox download(s) to game names"
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to resolve Xbox downloads");
-            return StatusCode(500, ApiResponse.Error("Failed to resolve Xbox downloads: " + ex.Message));
-        }
     }
 }
 
