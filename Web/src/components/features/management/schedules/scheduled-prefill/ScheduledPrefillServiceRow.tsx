@@ -49,6 +49,9 @@ const isScheduledPrefillMaxConcurrencyMode = (
   value: string
 ): value is ScheduledPrefillMaxConcurrencyMode => value === 'Auto' || value === 'Fixed';
 
+const getSecondsUntil = (expiresAtUtc: string): number =>
+  Math.floor((new Date(expiresAtUtc).getTime() - Date.now()) / 1000);
+
 export function ScheduledPrefillServiceRow({
   serviceKey,
   config,
@@ -71,6 +74,9 @@ export function ScheduledPrefillServiceRow({
   const [isExpanded, setIsExpanded] = useState(config.enabled);
   const isPersistentRunning = persistentContainer?.isRunning ?? false;
   const selectedGamesCount = config.selectedAppIds.length;
+  const daemonAuthTimeRemainingSeconds = persistentContainer?.daemonAuthExpiresAtUtc
+    ? getSecondsUntil(persistentContainer.daemonAuthExpiresAtUtc)
+    : null;
 
   useEffect(() => {
     if (config.enabled) {
@@ -245,20 +251,34 @@ export function ScheduledPrefillServiceRow({
 
               {persistentContainer && (
                 <div className="scheduled-prefill-service-row__persistent-meta">
+                  {persistentContainer.daemonAuthExpiresAtUtc && (
+                    <div>
+                      <span className="scheduled-prefill-service-row__meta-label">
+                        {t('prefill.persistent.tokenExpires')}
+                      </span>
+                      <span className="scheduled-prefill-service-row__meta-value">
+                        {formatDateTime(persistentContainer.daemonAuthExpiresAtUtc)}
+                        {daemonAuthTimeRemainingSeconds !== null && (
+                          <span className="scheduled-prefill-service-row__meta-detail">
+                            {t('prefill.persistent.timeRemaining', {
+                              time: formatTimeRemaining(daemonAuthTimeRemainingSeconds)
+                            })}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  )}
                   <div>
                     <span className="scheduled-prefill-service-row__meta-label">
-                      {t('prefill.persistent.authExpiresAt')}
+                      {t('prefill.persistent.reloginRequiredBy')}
                     </span>
                     <span className="scheduled-prefill-service-row__meta-value">
                       {formatDateTime(persistentContainer.authExpiresAtUtc)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="scheduled-prefill-service-row__meta-label">
-                      {t('prefill.persistent.authTimeRemaining')}
-                    </span>
-                    <span className="scheduled-prefill-service-row__meta-value">
-                      {formatTimeRemaining(persistentContainer.authTimeRemainingSeconds)}
+                      <span className="scheduled-prefill-service-row__meta-detail">
+                        {t('prefill.persistent.timeRemaining', {
+                          time: formatTimeRemaining(persistentContainer.authTimeRemainingSeconds)
+                        })}
+                      </span>
                     </span>
                   </div>
                 </div>

@@ -87,6 +87,84 @@ public class DaemonStatus
 
     [JsonPropertyName("displayName")]
     public string? DisplayName { get; set; }
+
+    /// <summary>
+    /// The daemon's REAL underlying token expiry (Steam JWT ValidTo / Epic refresh_expires_at /
+    /// Xbox refresh-token expiry). Distinct from the manager's 90-day persistent login-validity window.
+    /// Null when the daemon does not report it (or reports null). Populated case-insensitively from the
+    /// status payload since daemons differ on casing (Steam <c>AuthExpiryUtc</c>, Epic/Xbox <c>authExpiryUtc</c>).
+    /// </summary>
+    [JsonPropertyName("authExpiryUtc")]
+    public DateTimeOffset? AuthExpiryUtc { get; set; }
+
+    /// <summary>
+    /// Human-readable account name reported by the daemon (Steam <c>Username</c>,
+    /// Epic/Xbox <c>accountDisplayName</c>). Null when not reported.
+    /// </summary>
+    [JsonPropertyName("accountDisplayName")]
+    public string? AccountDisplayName { get; set; }
+
+    /// <summary>
+    /// Reads a property from a status payload <see cref="JsonElement"/> case-insensitively.
+    /// <see cref="JsonElement.TryGetProperty(string, out JsonElement)"/> is case-sensitive, but the
+    /// account daemons return mixed casing (Steam PascalCase, Epic/Xbox camelCase), so we scan the
+    /// object once trying each candidate name with an ordinal-ignore-case comparison.
+    /// </summary>
+    public static bool TryGetPropertyCaseInsensitive(JsonElement element, out JsonElement value, params string[] candidateNames)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var prop in element.EnumerateObject())
+            {
+                foreach (var name in candidateNames)
+                {
+                    if (string.Equals(prop.Name, name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        value = prop.Value;
+                        return true;
+                    }
+                }
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    /// <summary>
+    /// Extracts the daemon's real token expiry from a status payload, tolerant of per-daemon casing
+    /// (<c>AuthExpiryUtc</c> vs <c>authExpiryUtc</c>) and a null/absent value. Returns null when not
+    /// present, JSON null, or unparseable.
+    /// </summary>
+    public static DateTimeOffset? ParseAuthExpiry(JsonElement element)
+    {
+        if (!TryGetPropertyCaseInsensitive(element, out var expiry, "authExpiryUtc"))
+        {
+            return null;
+        }
+
+        return expiry.ValueKind switch
+        {
+            JsonValueKind.Null => null,
+            JsonValueKind.String => expiry.TryGetDateTimeOffset(out var dto) ? dto : null,
+            _ => null
+        };
+    }
+
+    /// <summary>
+    /// Extracts the daemon's account display name from a status payload, tolerant of per-daemon casing
+    /// (Steam <c>Username</c>, Epic/Xbox <c>accountDisplayName</c>).
+    /// </summary>
+    public static string? ParseAccountDisplayName(JsonElement element)
+    {
+        if (TryGetPropertyCaseInsensitive(element, out var name, "accountDisplayName", "username")
+            && name.ValueKind == JsonValueKind.String)
+        {
+            return name.GetString();
+        }
+
+        return null;
+    }
 }
 
 public class CredentialChallenge

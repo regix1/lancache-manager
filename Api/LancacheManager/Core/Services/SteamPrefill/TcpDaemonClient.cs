@@ -462,6 +462,8 @@ public sealed class TcpDaemonClient : IDaemonClient
                 {
                     Status = element.TryGetProperty("isLoggedIn", out var loggedIn) && loggedIn.GetBoolean() ? "logged-in" : "not-logged-in",
                     Message = element.TryGetProperty("isInitialized", out var init) && init.GetBoolean() ? "Initialized" : "Not initialized",
+                    AuthExpiryUtc = DaemonStatus.ParseAuthExpiry(element),
+                    AccountDisplayName = DaemonStatus.ParseAccountDisplayName(element),
                     Timestamp = DateTime.UtcNow
                 };
             }

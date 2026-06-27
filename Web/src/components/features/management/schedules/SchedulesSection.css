@@ -645,6 +645,13 @@
   color: var(--theme-text-secondary);
 }
 
+.scheduled-prefill-service-row__meta-detail {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  color: var(--theme-text-muted);
+}
+
 .scheduled-prefill-service-row__warning,
 .scheduled-prefill-service-row__selected-override {
   margin: 0;

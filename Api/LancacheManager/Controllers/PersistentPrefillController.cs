@@ -86,7 +86,7 @@ public class PersistentPrefillController : ControllerBase
     /// Lists every persistent session across all daemons.
     /// </summary>
     [HttpGet("list")]
-    public ActionResult<List<PersistentPrefillSessionDto>> List()
+    public async Task<ActionResult<List<PersistentPrefillSessionDto>>> ListAsync(CancellationToken cancellationToken)
     {
         var nowUtc = DateTime.UtcNow;
         var results = new List<PersistentPrefillSessionDto>();
@@ -102,15 +102,33 @@ public class PersistentPrefillController : ControllerBase
 
                 var remaining = (session.ExpiresAt - nowUtc).TotalSeconds;
                 long remainingSeconds = remaining > 0 ? (long)remaining : 0L;
+                var isRunning = session.Status == DaemonSessionStatus.Active;
+
+                // Query the daemon's REAL token expiry only for running sessions. Resilient: a single
+                // failing/slow status call must never sink the whole list, so it is per-session try/caught.
+                DateTimeOffset? daemonAuthExpiresAtUtc = null;
+                if (isRunning)
+                {
+                    try
+                    {
+                        var status = await daemon.GetSessionStatusAsync(session.Id, cancellationToken);
+                        daemonAuthExpiresAtUtc = status?.AuthExpiryUtc;
+                    }
+                    catch
+                    {
+                        daemonAuthExpiresAtUtc = null;
+                    }
+                }
 
                 results.Add(new PersistentPrefillSessionDto
                 {
                     SessionId = session.Id,
                     Service = ParsePlatform(session.Platform),
-                    IsRunning = session.Status == DaemonSessionStatus.Active,
+                    IsRunning = isRunning,
                     AuthExpiresAtUtc = session.ExpiresAt,
                     AuthTimeRemainingSeconds = remainingSeconds,
-                    NeedsRelogin = session.NeedsRelogin
+                    NeedsRelogin = session.NeedsRelogin,
+                    DaemonAuthExpiresAtUtc = daemonAuthExpiresAtUtc
                 });
             }
         }
@@ -326,6 +344,14 @@ public sealed class PersistentPrefillSessionDto
 
     /// <summary>True when the session is past expiry and the admin must re-authenticate in place.</summary>
     public required bool NeedsRelogin { get; init; }
+
+    /// <summary>
+    /// The daemon's REAL underlying token expiry queried live from its <c>status</c> command
+    /// (Steam JWT ValidTo / Epic refresh_expires_at / Xbox refresh-token expiry). Distinct from
+    /// <see cref="AuthExpiresAtUtc"/>, which is the manager's 90-day persistent login-validity window.
+    /// Null when the session is not running, the status call fails, or the daemon does not report it.
+    /// </summary>
+    public DateTimeOffset? DaemonAuthExpiresAtUtc { get; init; }
 }
 
 /// <summary>Persistent login validity window, in days.</summary>

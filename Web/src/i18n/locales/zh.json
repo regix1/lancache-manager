@@ -3606,6 +3606,9 @@
       "authCountdown": "登录将在 {{time}} 后过期",
       "authExpiresAt": "登录过期时间",
       "authTimeRemaining": "登录剩余时间",
+      "tokenExpires": "登录令牌过期时间",
+      "reloginRequiredBy": "需要重新登录的截止时间",
+      "timeRemaining": "剩余 {{time}}",
       "notRunning": "持久容器已停止",
       "needsRelogin": "登录已过期，请重新登录。",
       "actions": {

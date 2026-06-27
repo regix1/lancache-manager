@@ -3606,6 +3606,9 @@
       "authCountdown": "Login expires in {{time}}",
       "authExpiresAt": "Login expires",
       "authTimeRemaining": "Login expires in",
+      "tokenExpires": "Login token expires",
+      "reloginRequiredBy": "Re-login required by",
+      "timeRemaining": "{{time}} remaining",
       "notRunning": "Persistent container is stopped",
       "needsRelogin": "Login expired. Please log in again.",
       "actions": {
