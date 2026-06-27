@@ -7,7 +7,6 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace LancacheManager.Infrastructure.Services;
 

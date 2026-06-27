@@ -1,5 +1,4 @@
 using LancacheManager.Infrastructure.Utilities;
-using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
 
