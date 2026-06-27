@@ -741,6 +741,20 @@ public class StatsController : ControllerBase
             periodLabel = "since " + cutoffTime.Value.ToString("yyyy-MM-dd");
         }
 
+        // xboxlive and microsoft rows are folded into xbox after materialisation
+        var serviceBreakdown = ServiceBreakdownMerger.MergeXboxRows(await downloadsQuery
+            .GroupBy(d => d.Service)
+            .Select(g => new ServiceBreakdownItem
+            {
+                Service = g.Key,
+                Bytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
+                Percentage = periodTotal > 0
+                    ? (g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) * 100.0) / periodTotal
+                    : 0
+            })
+            .OrderByDescending(s => s.Bytes)
+            .ToListAsync());
+
         return Ok(new DashboardStatsResponse
         {
             // All-time metrics (always from ServiceStats totals)
@@ -767,18 +781,7 @@ public class StatsController : ControllerBase
             },
 
             // Service breakdown (uses period-filtered query for consistency, including event filter if provided)
-            ServiceBreakdown = await downloadsQuery
-                .GroupBy(d => d.Service)
-                .Select(g => new ServiceBreakdownItem
-                {
-                    Service = g.Key,
-                    Bytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
-                    Percentage = periodTotal > 0
-                        ? (g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) * 100.0) / periodTotal
-                        : 0
-                })
-                .OrderByDescending(s => s.Bytes)
-                .ToListAsync(),
+            ServiceBreakdown = serviceBreakdown,
 
             LastUpdated = DateTime.UtcNow
         });

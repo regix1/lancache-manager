@@ -268,7 +268,8 @@ public class DashboardBatchService : IDashboardBatchService
             .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
             .ToListAsync();
 
-        return serviceStats.WithUtcMarking();
+        // xboxlive and microsoft rows are folded into xbox before UTC marking
+        return ServiceBreakdownMerger.MergeXboxRows(serviceStats).WithUtcMarking();
     }
 
     private async Task<object> GetDashboardStatsAsync(
@@ -349,7 +350,8 @@ public class DashboardBatchService : IDashboardBatchService
         var cacheHitRatio = totalServed > 0 ? (totalHitBytes * 100.0) / totalServed : 0;
 
         // Service breakdown (also provides top service - no separate query needed)
-        var serviceBreakdown = await downloadsQuery
+        // xboxlive and microsoft rows are folded into xbox after materialisation
+        var serviceBreakdown = ServiceBreakdownMerger.MergeXboxRows(await downloadsQuery
             .GroupBy(d => d.Service)
             .Select(g => new ServiceBreakdownItem
             {
@@ -360,7 +362,7 @@ public class DashboardBatchService : IDashboardBatchService
                     : 0
             })
             .OrderByDescending(s => s.Bytes)
-            .ToListAsync();
+            .ToListAsync());
 
         var topServiceName = serviceBreakdown.FirstOrDefault()?.Service ?? "N/A";
 
