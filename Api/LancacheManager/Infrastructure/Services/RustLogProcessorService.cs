@@ -824,6 +824,19 @@ public class RustLogProcessorService
                     {
                         _logger.LogInformation("Re-tagged {Count} wsus downloads to Xbox titles after log processing", resolvedXbox);
                     }
+
+                    // Backfill DisplayCatalog banner URLs for any Xbox mapping still missing art so
+                    // log-driven banners self-heal a transient first-fetch miss. This is a URL-only
+                    // DisplayCatalog lookup (no image binaries), so it is safe inside the ingest
+                    // pipeline; best-effort so a backfill failure can never break log processing.
+                    try
+                    {
+                        await xboxMappingService.BackfillMissingBannerArtAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to backfill Xbox banner art (non-fatal)");
+                    }
                 }
                 catch (Exception ex)
                 {

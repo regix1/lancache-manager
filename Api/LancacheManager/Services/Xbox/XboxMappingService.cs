@@ -325,6 +325,41 @@ public class XboxMappingService
             .Where(m => productIds.Contains(m.ProductId) && (m.ImageUrl == null || m.ImageUrl == ""))
             .ToListAsync(ct);
 
+        await FetchAndStoreBannerArtAsync(db, mappings, ct);
+    }
+
+    /// <summary>
+    /// Backfills banner art for EVERY <see cref="XboxGameMapping"/> that still has no <c>ImageUrl</c>,
+    /// not just the ones resolved in a given pass. Self-heals titles whose first banner fetch hiccupped
+    /// transiently: <see cref="EnsureBannerArtAsync"/> only ever fetches for the products resolved in
+    /// that single pass, so a transient miss would otherwise leave <c>ImageUrl</c> empty forever. Runs
+    /// on the catalog-refresh path ONLY (12h schedule / on-login / startup), never per log ingest.
+    /// Best-effort and idempotent: a mapping that already has art is skipped, so once a banner is stored
+    /// it stops retrying; a title DisplayCatalog genuinely has no art for is retried each refresh, which
+    /// is acceptable at the bounded refresh cadence.
+    /// </summary>
+    public async Task BackfillMissingBannerArtAsync(CancellationToken ct = default)
+    {
+        await using var db = await _dbContextFactory.CreateDbContextAsync(ct);
+
+        var mappings = await db.XboxGameMappings
+            .Where(m => m.ImageUrl == null || m.ImageUrl == "")
+            .ToListAsync(ct);
+
+        if (mappings.Count == 0) return;
+
+        _logger.LogInformation("Backfilling Xbox banner art for {Count} mapping(s) missing art", mappings.Count);
+        await FetchAndStoreBannerArtAsync(db, mappings, ct);
+    }
+
+    /// <summary>
+    /// Shared per-mapping banner fetch/store loop used by both <see cref="EnsureBannerArtAsync"/> (the
+    /// newly-resolved set) and <see cref="BackfillMissingBannerArtAsync"/> (every art-less mapping).
+    /// Each mapping is fetched best-effort: an empty/failed lookup is skipped and logged, never thrown,
+    /// so one bad product cannot abort the batch. Persists once, only if at least one banner was stored.
+    /// </summary>
+    private async Task FetchAndStoreBannerArtAsync(AppDbContext db, List<XboxGameMapping> mappings, CancellationToken ct)
+    {
         if (mappings.Count == 0) return;
 
         var updated = false;

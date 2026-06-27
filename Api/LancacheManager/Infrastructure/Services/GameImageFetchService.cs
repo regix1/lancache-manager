@@ -246,6 +246,22 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             db.ChangeTracker.Clear();
         }
 
+        // Backfill DisplayCatalog banner URLs for any XboxGameMapping that still has none before we
+        // read the ImageUrl map below. The per-resolve fetch (EnsureBannerArtAsync) only runs for the
+        // products resolved in a single pass and never retries a transient miss, so without this an
+        // art-less title (e.g. Minecraft Dungeons) would never get its banner here. Best-effort: a
+        // backfill failure must never abort the image run. Covers both the 30-min schedule and the
+        // Downloads "Run Now" button (FetchImagesNowAsync routes through here).
+        try
+        {
+            var xboxMappingService = scopedServices.GetRequiredService<LancacheManager.Services.Xbox.XboxMappingService>();
+            await xboxMappingService.BackfillMissingBannerArtAsync(stoppingToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[GameImageFetch] Xbox banner URL backfill failed (non-fatal)");
+        }
+
         // Xbox banners are NOT curated/embedded - they are fetched from the Microsoft Store
         // DisplayCatalog at mapping time and stored on XboxGameMapping.ImageUrl. Pre-load that
         // GameName-slug -> ImageUrl map so the name-keyed pass below can fetch + store an Xbox

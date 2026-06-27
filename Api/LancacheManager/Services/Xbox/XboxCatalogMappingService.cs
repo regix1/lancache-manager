@@ -158,6 +158,23 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
 
             var resolved = await _mappingService.ResolveDownloadsAsync(ct);
 
+            // Self-heal art-less mappings: retry the DisplayCatalog banner for any title whose first
+            // fetch hiccupped transiently (ResolveDownloadsAsync only fetches art for products resolved
+            // in that pass). Catalog-refresh path only (bounded 12h cadence), best-effort - a failure
+            // here must never fail the whole refresh.
+            try
+            {
+                await _mappingService.BackfillMissingBannerArtAsync(ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Xbox banner-art backfill failed during catalog refresh");
+            }
+
             _logger.LogInformation(
                 "Xbox catalog refresh: {NewPatterns} new CDN pattern(s), {Resolved} download(s) re-tagged",
                 newPatterns, resolved);
