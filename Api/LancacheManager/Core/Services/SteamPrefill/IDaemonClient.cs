@@ -65,6 +65,25 @@ public interface IDaemonClient : IDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Perform a non-interactive Epic auto-login by encrypting a {refreshToken} payload
+    /// and sending it to the daemon. Returns true on success.
+    /// </summary>
+    Task<bool> ProvideEpicAutoLoginAsync(
+        string sessionId,
+        string refreshToken,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Perform a non-interactive Xbox auto-login by encrypting a {refreshToken, deviceKeyPkcs8}
+    /// payload and sending it to the daemon. Returns true on success.
+    /// </summary>
+    Task<bool> ProvideXboxAutoLoginAsync(
+        string sessionId,
+        string refreshToken,
+        string deviceKeyPkcs8,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Wait for next credential challenge.
     /// </summary>
     Task<CredentialChallenge?> WaitForChallengeAsync(

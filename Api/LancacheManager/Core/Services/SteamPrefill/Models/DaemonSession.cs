@@ -64,6 +64,29 @@ public class DaemonSession
     public DateTime ExpiresAt { get; init; }
 
     /// <summary>
+    /// True when this session is a guest/temporary container subject to the manager-enforced
+    /// <c>GuestPrefillMaxLifetimeHours</c> cap. When true, <see cref="ExpiresAt"/> was stamped to
+    /// createdAt + the configured cap and the session is reaped by <c>CleanupExpiredSessions</c>
+    /// at that expiry. Admin/persistent sessions leave this false and keep the standard timeout.
+    /// </summary>
+    public bool IsTemporary { get; init; }
+
+    /// <summary>
+    /// True when this session is a persistent admin login that must survive the
+    /// <c>CleanupExpiredSessions</c> reaper. Persistent sessions are never torn down by the reaper;
+    /// instead, when past <see cref="ExpiresAt"/>, <see cref="NeedsRelogin"/> is flagged and the
+    /// container is left running so the admin can re-authenticate in place.
+    /// </summary>
+    public bool IsPersistent { get; init; }
+
+    /// <summary>
+    /// True when a persistent session has passed its <see cref="ExpiresAt"/> and now requires the
+    /// admin to re-login. Set by the reaper (instead of terminating the session) and cleared once
+    /// the session is re-authenticated.
+    /// </summary>
+    public bool NeedsRelogin { get; set; }
+
+    /// <summary>
     /// The Steam username (set when user provides username credential).
     /// Used for ban display and admin visibility.
     /// </summary>

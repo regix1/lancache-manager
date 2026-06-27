@@ -109,9 +109,16 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
             var ipAddress = httpContext?.Connection.RemoteIpAddress?.ToString();
             var userAgent = httpContext?.Request.Headers["User-Agent"].FirstOrDefault();
 
-            _logger.LogInformation("Creating {Hub} session for auth session {SessionId}",
-                HubDisplayName, authSessionId);
-            var session = await _daemonService.CreateSessionAsync(authSessionId.Value, ipAddress, userAgent);
+            // Resolve admin vs guest so guest/temporary containers get the manager-enforced lifetime
+            // cap. Re-validate from the cookie token (mirrors OnConnectedAsync); a session that cannot
+            // be resolved is treated as a guest so the cap is applied conservatively.
+            var rawToken = httpContext != null ? Security.SessionService.TokenFromCookie(httpContext) : null;
+            var userSession = string.IsNullOrEmpty(rawToken) ? null : await _sessionService.ValidateSessionAsync(rawToken);
+            var sessionType = userSession == null ? SessionType.Guest : userSession.SessionType;
+
+            _logger.LogInformation("Creating {Hub} session for auth session {SessionId} (type {SessionType})",
+                HubDisplayName, authSessionId, sessionType);
+            var session = await _daemonService.CreateSessionAsync(authSessionId.Value, ipAddress, userAgent, sessionType);
 
             _daemonService.AddSubscriber(session.Id, Context.ConnectionId);
 

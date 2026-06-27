@@ -3023,7 +3023,6 @@
             "topCount": "前 N 项数量",
             "targetPlatforms": "目标平台",
             "force": "强制重新下载",
-            "maxConcurrency": "连接数",
             "maxConcurrencyAuto": "自动",
             "maxConcurrencyFixed": "固定",
             "authStatus": "认证状态",
@@ -3560,6 +3559,43 @@
     "titleXbox": "Xbox 预填充",
     "subtitle": "预下载游戏到缓存",
     "endSession": "结束会话",
+    "persistent": {
+      "title": "持久预填充",
+      "subtitle": "保持预填充容器就绪，以便计划任务可以继续使用账号登录。",
+      "loading": "正在加载持久预填充状态...",
+      "services": {
+        "steam": "Steam",
+        "epic": "Epic Games",
+        "xbox": "Xbox",
+        "battleNet": "Battle.net",
+        "riot": "Riot"
+      },
+      "states": {
+        "running": "运行中",
+        "stopped": "已停止"
+      },
+      "authCountdown": "登录将在 {{time}} 后过期",
+      "authExpiresAt": "过期时间：{{date}}",
+      "notRunning": "持久容器已停止",
+      "needsRelogin": "登录已过期，请重新登录。",
+      "actions": {
+        "start": "启动",
+        "stop": "停止",
+        "saveSettings": "保存"
+      },
+      "settings": {
+        "validityDays": "持久登录有效期（天）",
+        "guestLifetimeHours": "访客临时容器最长生命周期（小时）"
+      },
+      "messages": {
+        "started": "持久预填充容器已启动。",
+        "stopped": "持久预填充容器已停止。",
+        "settingsSaved": "持久预填充设置已保存。"
+      },
+      "errors": {
+        "invalidSettings": "请输入允许范围内的有效整数。"
+      }
+    },
     "home": {
       "title": "游戏预填充",
       "subtitle": "在活动开始前将游戏内容预下载到您的 lancache。选择一个平台以开始预填充会话。",

@@ -112,16 +112,43 @@ public sealed class ScheduledPrefillAuthService : IScheduledPrefillAuthService
     {
         EpicAuthData authData = _epicAuthStorage.GetAuthData();
 
-        string? displayName = string.IsNullOrEmpty(authData.RefreshToken)
-            ? null
-            : authData.DisplayName;
+        string? refreshToken = authData.RefreshToken;
 
+        if (string.IsNullOrEmpty(refreshToken))
+        {
+            return new ScheduledPrefillAuthPlan
+            {
+                Service = service,
+                State = ScheduledPrefillAuthState.NeedsLogin,
+                NeedsLoginReason = "EpicLoginRequired"
+            };
+        }
+
+        string resolvedRefreshToken = refreshToken;
+
+        // Epic stores only a refresh token + login timestamp; there is no real credential
+        // expiry to surface, so leave it null rather than mislabeling the login time as expiry.
         return new ScheduledPrefillAuthPlan
         {
             Service = service,
-            State = ScheduledPrefillAuthState.NeedsLogin,
-            NeedsLoginReason = "DaemonHeadlessLoginUnsupported",
-            DisplayName = displayName
+            State = ScheduledPrefillAuthState.Ready,
+            DisplayName = authData.DisplayName,
+            ExpiresAtUtc = null,
+            AfterSessionCreatedAsync = async (session, sessionCt) =>
+            {
+                _logger.LogInformation(
+                    "Providing Epic auto-login credentials to scheduled prefill session {SessionId}",
+                    session.Id);
+
+                bool success = await session.Client.ProvideEpicAutoLoginAsync(
+                    session.Id, resolvedRefreshToken, sessionCt);
+
+                if (!success)
+                {
+                    throw new InvalidOperationException(
+                        $"Epic auto-login failed for scheduled prefill session {session.Id}.");
+                }
+            }
         };
     }
 
@@ -129,12 +156,25 @@ public sealed class ScheduledPrefillAuthService : IScheduledPrefillAuthService
     {
         XboxAuthData authData = _xboxAuthStorage.GetAuthData();
 
-        bool authenticated = !string.IsNullOrEmpty(authData.RefreshToken);
-        string? displayName = authenticated ? authData.DisplayName : null;
+        string? refreshToken = authData.RefreshToken;
+        string? deviceKeyPkcs8 = authData.DeviceKeyPkcs8;
+
+        if (string.IsNullOrEmpty(refreshToken) || string.IsNullOrEmpty(deviceKeyPkcs8))
+        {
+            return new ScheduledPrefillAuthPlan
+            {
+                Service = service,
+                State = ScheduledPrefillAuthState.NeedsLogin,
+                NeedsLoginReason = "XboxLoginRequired"
+            };
+        }
+
+        string resolvedRefreshToken = refreshToken;
+        string resolvedDeviceKeyPkcs8 = deviceKeyPkcs8;
 
         // Reuse the SAME expiry the Integrations card surfaces: MSA refresh tokens carry no
         // returned expiry, so it's the last-auth time + the documented ~90-day inactivity window.
-        DateTimeOffset? expiresAtUtc = authenticated && authData.LastAuthenticated.HasValue
+        DateTimeOffset? expiresAtUtc = authData.LastAuthenticated.HasValue
             ? new DateTimeOffset(DateTime.SpecifyKind(authData.LastAuthenticated.Value, DateTimeKind.Utc))
                 .Add(XboxCatalogMappingService.XboxLoginValidity)
             : null;
@@ -142,10 +182,24 @@ public sealed class ScheduledPrefillAuthService : IScheduledPrefillAuthService
         return new ScheduledPrefillAuthPlan
         {
             Service = service,
-            State = ScheduledPrefillAuthState.NeedsLogin,
-            NeedsLoginReason = "DaemonHeadlessLoginUnsupported",
-            DisplayName = displayName,
-            ExpiresAtUtc = expiresAtUtc
+            State = ScheduledPrefillAuthState.Ready,
+            DisplayName = authData.DisplayName,
+            ExpiresAtUtc = expiresAtUtc,
+            AfterSessionCreatedAsync = async (session, sessionCt) =>
+            {
+                _logger.LogInformation(
+                    "Providing Xbox auto-login credentials to scheduled prefill session {SessionId}",
+                    session.Id);
+
+                bool success = await session.Client.ProvideXboxAutoLoginAsync(
+                    session.Id, resolvedRefreshToken, resolvedDeviceKeyPkcs8, sessionCt);
+
+                if (!success)
+                {
+                    throw new InvalidOperationException(
+                        $"Xbox auto-login failed for scheduled prefill session {session.Id}.");
+                }
+            }
         };
     }
 }

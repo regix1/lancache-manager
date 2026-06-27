@@ -135,6 +135,14 @@ public interface IStateService
     int GetGuestPrefillDurationHours();
     void SetGuestPrefillDurationHours(int hours);
 
+    // Manager-enforced hard cap (hours, 1-3) on guest/temporary prefill container+session lifetime
+    int GetGuestPrefillMaxLifetimeHours();
+    void SetGuestPrefillMaxLifetimeHours(int hours);
+
+    // Validity window (days, 1-365) for a persistent admin login before re-login is required
+    int GetAdminPersistentLoginValidityDays();
+    void SetAdminPersistentLoginValidityDays(int days);
+
     // Default Guest Max Thread Count
     int? GetDefaultGuestMaxThreadCount();
     void SetDefaultGuestMaxThreadCount(int? value);

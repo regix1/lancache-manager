@@ -98,9 +98,12 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     public async Task<ActionResult<DaemonSessionDto>> CreateSessionAsync()
     {
         var sessionId = HttpContext.GetRequiredSessionId();
+        var userSession = HttpContext.GetUserSession();
+        var sessionType = userSession == null ? SessionType.Guest : userSession.SessionType;
 
-        _logger.LogInformation("Creating {Platform} daemon session for session {SessionId}", _platformName, sessionId);
-        var session = await _daemonService.CreateSessionAsync(sessionId);
+        _logger.LogInformation("Creating {Platform} daemon session for session {SessionId} (type {SessionType})",
+            _platformName, sessionId, sessionType);
+        var session = await _daemonService.CreateSessionAsync(sessionId, sessionType: sessionType);
         return CreatedAtAction(nameof(GetSession), new { sessionId = session.Id }, DaemonSessionDto.FromSession(session));
     }
 

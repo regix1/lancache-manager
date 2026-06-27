@@ -626,6 +626,80 @@ public sealed class TcpDaemonClient : IDaemonClient
         return response.Success;
     }
 
+    public async Task<bool> ProvideEpicAutoLoginAsync(
+        string sessionId,
+        string refreshToken,
+        CancellationToken cancellationToken = default)
+    {
+        var challenge = await GetAutoLoginChallengeAsync(sessionId, cancellationToken);
+        if (challenge == null)
+        {
+            _logger?.LogWarning("Failed to obtain auto-login challenge for session {SessionId}", sessionId);
+            return false;
+        }
+
+        var payload = JsonSerializer.Serialize(new EpicAutoLoginPayload
+        {
+            RefreshToken = refreshToken
+        }, _jsonOptions);
+
+        var encrypted = SecureCredentialExchange.Encrypt(
+            challenge.ChallengeId,
+            challenge.ServerPublicKey,
+            payload,
+            HkdfInfo);
+
+        var response = await SendCommandAsync("provide-auto-login", new Dictionary<string, string>
+        {
+            ["sessionId"] = sessionId,
+            ["challengeId"] = encrypted.ChallengeId,
+            ["clientPublicKey"] = encrypted.ClientPublicKey,
+            ["encryptedCredential"] = encrypted.EncryptedCredential,
+            ["nonce"] = encrypted.Nonce,
+            ["tag"] = encrypted.Tag
+        }, timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+
+        return response.Success;
+    }
+
+    public async Task<bool> ProvideXboxAutoLoginAsync(
+        string sessionId,
+        string refreshToken,
+        string deviceKeyPkcs8,
+        CancellationToken cancellationToken = default)
+    {
+        var challenge = await GetAutoLoginChallengeAsync(sessionId, cancellationToken);
+        if (challenge == null)
+        {
+            _logger?.LogWarning("Failed to obtain auto-login challenge for session {SessionId}", sessionId);
+            return false;
+        }
+
+        var payload = JsonSerializer.Serialize(new XboxAutoLoginPayload
+        {
+            RefreshToken = refreshToken,
+            DeviceKeyPkcs8 = deviceKeyPkcs8
+        }, _jsonOptions);
+
+        var encrypted = SecureCredentialExchange.Encrypt(
+            challenge.ChallengeId,
+            challenge.ServerPublicKey,
+            payload,
+            HkdfInfo);
+
+        var response = await SendCommandAsync("provide-auto-login", new Dictionary<string, string>
+        {
+            ["sessionId"] = sessionId,
+            ["challengeId"] = encrypted.ChallengeId,
+            ["clientPublicKey"] = encrypted.ClientPublicKey,
+            ["encryptedCredential"] = encrypted.EncryptedCredential,
+            ["nonce"] = encrypted.Nonce,
+            ["tag"] = encrypted.Tag
+        }, timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+
+        return response.Success;
+    }
+
     public async Task<CredentialChallenge?> WaitForChallengeAsync(
         TimeSpan? timeout = null,
         CancellationToken cancellationToken = default)

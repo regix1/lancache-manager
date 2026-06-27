@@ -102,7 +102,7 @@ public class ScheduledPrefillConfigController : ControllerBase
                 DisplayName = epicAuthenticated ? epic.DisplayName : null,
                 // Epic stores only a refresh token + login timestamp; no real credential expiry exists.
                 ExpiresAtUtc = null,
-                LoginState = "unsupported"
+                LoginState = epicAuthenticated ? "ready" : "loginRequired"
             },
             new ScheduledPrefillAuthStatusDto
             {
@@ -115,7 +115,7 @@ public class ScheduledPrefillConfigController : ControllerBase
                     ? new DateTimeOffset(DateTime.SpecifyKind(xbox.LastAuthenticated.Value, DateTimeKind.Utc))
                         .Add(XboxCatalogMappingService.XboxLoginValidity)
                     : null,
-                LoginState = "unsupported"
+                LoginState = xboxAuthenticated ? "ready" : "loginRequired"
             }
         };
 

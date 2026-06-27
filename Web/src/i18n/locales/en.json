@@ -3023,7 +3023,6 @@
             "topCount": "Top count",
             "targetPlatforms": "Target platforms",
             "force": "Force re-download",
-            "maxConcurrency": "Connections",
             "maxConcurrencyAuto": "Auto",
             "maxConcurrencyFixed": "Fixed",
             "authStatus": "Auth status",
@@ -3560,6 +3559,43 @@
     "titleXbox": "Xbox Prefill",
     "subtitle": "Pre-download games to your cache",
     "endSession": "End Session",
+    "persistent": {
+      "title": "Persistent Prefill",
+      "subtitle": "Keep prefill containers ready so account logins stay available for scheduled runs.",
+      "loading": "Loading persistent prefill status...",
+      "services": {
+        "steam": "Steam",
+        "epic": "Epic Games",
+        "xbox": "Xbox",
+        "battleNet": "Battle.net",
+        "riot": "Riot"
+      },
+      "states": {
+        "running": "Running",
+        "stopped": "Stopped"
+      },
+      "authCountdown": "Login expires in {{time}}",
+      "authExpiresAt": "Expires {{date}}",
+      "notRunning": "Persistent container is stopped",
+      "needsRelogin": "Login expired. Please log in again.",
+      "actions": {
+        "start": "Start",
+        "stop": "Stop",
+        "saveSettings": "Save"
+      },
+      "settings": {
+        "validityDays": "Persistent login validity (days)",
+        "guestLifetimeHours": "Guest temp container max lifetime (hours)"
+      },
+      "messages": {
+        "started": "Persistent prefill container started.",
+        "stopped": "Persistent prefill container stopped.",
+        "settingsSaved": "Persistent prefill settings saved."
+      },
+      "errors": {
+        "invalidSettings": "Enter valid whole numbers within the allowed ranges."
+      }
+    },
     "home": {
       "title": "Game Prefill",
       "subtitle": "Pre-download game content to your lancache before the event. Choose a platform to start a prefill session.",

@@ -17,6 +17,24 @@ public class DaemonSessionDto
     public DateTime ExpiresAt { get; set; }
     public int TimeRemainingSeconds { get; set; }
 
+    /// <summary>
+    /// True when this is a guest/temporary container whose <see cref="ExpiresAt"/> reflects the
+    /// manager-enforced GuestPrefillMaxLifetimeHours cap. The UI can use this to render a lifetime
+    /// countdown (via <see cref="TimeRemainingSeconds"/>) distinct from the standard session timeout.
+    /// </summary>
+    public bool IsTemporary { get; set; }
+
+    /// <summary>
+    /// True when this is a persistent admin session that the reaper will never tear down. When past
+    /// its expiry the session is flagged <see cref="NeedsRelogin"/> instead of being terminated.
+    /// </summary>
+    public bool IsPersistent { get; set; }
+
+    /// <summary>
+    /// True when a persistent session has expired and now requires the admin to re-login.
+    /// </summary>
+    public bool NeedsRelogin { get; set; }
+
     // Client info for admin visibility
     public string? IpAddress { get; set; }
     public string? OperatingSystem { get; set; }
@@ -62,6 +80,9 @@ public class DaemonSessionDto
             EndedAt = session.EndedAt,
             ExpiresAt = session.ExpiresAt,
             TimeRemainingSeconds = Math.Max(0, (int)(session.ExpiresAt - DateTime.UtcNow).TotalSeconds),
+            IsTemporary = session.IsTemporary,
+            IsPersistent = session.IsPersistent,
+            NeedsRelogin = session.NeedsRelogin,
             IpAddress = session.IpAddress,
             OperatingSystem = session.OperatingSystem,
             Browser = session.Browser,

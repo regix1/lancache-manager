@@ -8,6 +8,7 @@ import { RiotIcon } from '@components/ui/RiotIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { ArrowRight, Shield, AlertCircle } from 'lucide-react';
 import type { GameServiceId } from '@/types/gameService';
+import { PersistentPrefillSection } from './PersistentPrefillSection';
 import './PrefillHomePage.css';
 
 interface PrefillHomePageProps {
@@ -360,6 +361,8 @@ export function PrefillHomePage({
           </div>
         )}
       </div>
+
+      {isAdmin && <PersistentPrefillSection />}
     </div>
   );
 }

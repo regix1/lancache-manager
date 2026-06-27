@@ -51,6 +51,12 @@ import type {
   ScheduledPrefillAuthStatusItem,
   ScheduledPrefillConfigDto
 } from '../components/features/management/schedules/scheduled-prefill/types';
+import type {
+  PersistentPrefillContainerDto,
+  PersistentPrefillGuestLifetimeSettings,
+  PersistentPrefillServiceId,
+  PersistentPrefillValiditySettings
+} from '../components/features/prefill/persistentPrefillTypes';
 import type { MetricsSecurityResponse } from '../components/features/management/grafana/GrafanaEndpoints.types';
 import type { GuestDurationResponse } from '../components/features/user/AccessSecurityCard.types';
 
@@ -2977,6 +2983,135 @@ class ApiService {
       } else {
         console.error('getScheduledPrefillAuthStatus error:', error);
       }
+      throw error;
+    }
+  }
+
+  static async getPersistentPrefillContainers(
+    signal?: AbortSignal
+  ): Promise<PersistentPrefillContainerDto[]> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/prefill/persistent/list`,
+        this.getFetchOptions({ signal })
+      );
+      return await this.handleResponse<PersistentPrefillContainerDto[]>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else {
+        console.error('getPersistentPrefillContainers error:', error);
+      }
+      throw error;
+    }
+  }
+
+  static async startPersistentPrefillContainer(service: PersistentPrefillServiceId): Promise<void> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/prefill/persistent/start`,
+        this.getFetchOptions({
+          method: 'POST',
+          body: JSON.stringify({ service }),
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      await this.handleResponse<void>(res);
+    } catch (error: unknown) {
+      console.error('startPersistentPrefillContainer error:', error);
+      throw error;
+    }
+  }
+
+  static async stopPersistentPrefillContainer(sessionId: string): Promise<void> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/prefill/persistent/stop`,
+        this.getFetchOptions({
+          method: 'POST',
+          body: JSON.stringify({ sessionId }),
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      await this.handleResponse<void>(res);
+    } catch (error: unknown) {
+      console.error('stopPersistentPrefillContainer error:', error);
+      throw error;
+    }
+  }
+
+  static async getPersistentPrefillValidity(
+    signal?: AbortSignal
+  ): Promise<PersistentPrefillValiditySettings> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/prefill/persistent/validity`,
+        this.getFetchOptions({ signal })
+      );
+      return await this.handleResponse<PersistentPrefillValiditySettings>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else {
+        console.error('getPersistentPrefillValidity error:', error);
+      }
+      throw error;
+    }
+  }
+
+  static async updatePersistentPrefillValidity(
+    settings: PersistentPrefillValiditySettings
+  ): Promise<void> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/prefill/persistent/validity`,
+        this.getFetchOptions({
+          method: 'PUT',
+          body: JSON.stringify(settings),
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      await this.handleResponse<void>(res);
+    } catch (error: unknown) {
+      console.error('updatePersistentPrefillValidity error:', error);
+      throw error;
+    }
+  }
+
+  static async getPersistentPrefillGuestLifetime(
+    signal?: AbortSignal
+  ): Promise<PersistentPrefillGuestLifetimeSettings> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/prefill/persistent/guest-lifetime`,
+        this.getFetchOptions({ signal })
+      );
+      return await this.handleResponse<PersistentPrefillGuestLifetimeSettings>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else {
+        console.error('getPersistentPrefillGuestLifetime error:', error);
+      }
+      throw error;
+    }
+  }
+
+  static async updatePersistentPrefillGuestLifetime(
+    settings: PersistentPrefillGuestLifetimeSettings
+  ): Promise<void> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/prefill/persistent/guest-lifetime`,
+        this.getFetchOptions({
+          method: 'PUT',
+          body: JSON.stringify(settings),
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      await this.handleResponse<void>(res);
+    } catch (error: unknown) {
+      console.error('updatePersistentPrefillGuestLifetime error:', error);
       throw error;
     }
   }

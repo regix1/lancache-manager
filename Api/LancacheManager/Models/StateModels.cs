@@ -46,6 +46,14 @@ public class AppState
     public bool GuestPrefillEnabledByDefault { get; set; } = false; // Whether new guests get prefill access by default
     public int GuestPrefillDurationHours { get; set; } = 2; // Default duration for prefill access (1 or 2 hours)
 
+    // Manager-enforced hard cap (hours, 1-3) on the lifetime of a guest/temporary prefill
+    // container+session. Default 1. See StateService.GetGuestPrefillMaxLifetimeHours.
+    public int GuestPrefillMaxLifetimeHours { get; set; } = 1;
+
+    // Validity window (days, 1-365) for a persistent admin login before re-login is required.
+    // Default 90. See StateService.GetAdminPersistentLoginValidityDays.
+    public int AdminPersistentLoginValidityDays { get; set; } = 90;
+
     // Prefill panel default settings
     public List<string> DefaultPrefillOperatingSystems { get; set; } = new() { "windows", "linux", "macos" };
     public string DefaultPrefillMaxConcurrency { get; set; } = "default";

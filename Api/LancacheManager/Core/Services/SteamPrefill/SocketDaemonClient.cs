@@ -740,6 +740,90 @@ public sealed class SocketDaemonClient : IDaemonClient
     }
 
     /// <summary>
+    /// Perform a non-interactive Epic auto-login by encrypting a <c>{refreshToken}</c> payload
+    /// with the daemon's public key and sending the <c>provide-auto-login</c> command.
+    /// Reuses the same <see cref="SecureCredentialExchange.Encrypt"/> helper as <see cref="ProvideAutoLoginAsync"/>.
+    /// </summary>
+    public async Task<bool> ProvideEpicAutoLoginAsync(
+        string sessionId,
+        string refreshToken,
+        CancellationToken cancellationToken = default)
+    {
+        var challenge = await GetAutoLoginChallengeAsync(sessionId, cancellationToken);
+        if (challenge == null)
+        {
+            _logger?.LogWarning("Failed to obtain auto-login challenge for session {SessionId}", sessionId);
+            return false;
+        }
+
+        var payload = JsonSerializer.Serialize(new EpicAutoLoginPayload
+        {
+            RefreshToken = refreshToken
+        }, _jsonOptions);
+
+        var encrypted = SecureCredentialExchange.Encrypt(
+            challenge.ChallengeId,
+            challenge.ServerPublicKey,
+            payload,
+            HkdfInfo);
+
+        var response = await SendCommandAsync("provide-auto-login", new Dictionary<string, string>
+        {
+            ["sessionId"] = sessionId,
+            ["challengeId"] = encrypted.ChallengeId,
+            ["clientPublicKey"] = encrypted.ClientPublicKey,
+            ["encryptedCredential"] = encrypted.EncryptedCredential,
+            ["nonce"] = encrypted.Nonce,
+            ["tag"] = encrypted.Tag
+        }, timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+
+        return response.Success;
+    }
+
+    /// <summary>
+    /// Perform a non-interactive Xbox auto-login by encrypting a <c>{refreshToken, deviceKeyPkcs8}</c>
+    /// payload with the daemon's public key and sending the <c>provide-auto-login</c> command.
+    /// Reuses the same <see cref="SecureCredentialExchange.Encrypt"/> helper as <see cref="ProvideAutoLoginAsync"/>.
+    /// </summary>
+    public async Task<bool> ProvideXboxAutoLoginAsync(
+        string sessionId,
+        string refreshToken,
+        string deviceKeyPkcs8,
+        CancellationToken cancellationToken = default)
+    {
+        var challenge = await GetAutoLoginChallengeAsync(sessionId, cancellationToken);
+        if (challenge == null)
+        {
+            _logger?.LogWarning("Failed to obtain auto-login challenge for session {SessionId}", sessionId);
+            return false;
+        }
+
+        var payload = JsonSerializer.Serialize(new XboxAutoLoginPayload
+        {
+            RefreshToken = refreshToken,
+            DeviceKeyPkcs8 = deviceKeyPkcs8
+        }, _jsonOptions);
+
+        var encrypted = SecureCredentialExchange.Encrypt(
+            challenge.ChallengeId,
+            challenge.ServerPublicKey,
+            payload,
+            HkdfInfo);
+
+        var response = await SendCommandAsync("provide-auto-login", new Dictionary<string, string>
+        {
+            ["sessionId"] = sessionId,
+            ["challengeId"] = encrypted.ChallengeId,
+            ["clientPublicKey"] = encrypted.ClientPublicKey,
+            ["encryptedCredential"] = encrypted.EncryptedCredential,
+            ["nonce"] = encrypted.Nonce,
+            ["tag"] = encrypted.Tag
+        }, timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+
+        return response.Success;
+    }
+
+    /// <summary>
     /// Wait for next credential challenge.
     /// </summary>
     public async Task<CredentialChallenge?> WaitForChallengeAsync(
@@ -1138,4 +1222,27 @@ public class AutoLoginPayload
 
     [JsonPropertyName("refreshToken")]
     public string RefreshToken { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Cleartext payload encrypted and sent to the Epic daemon for non-interactive auto-login.
+/// Matches the daemon's expected <c>{refreshToken}</c> shape.
+/// </summary>
+public class EpicAutoLoginPayload
+{
+    [JsonPropertyName("refreshToken")]
+    public string RefreshToken { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Cleartext payload encrypted and sent to the Xbox daemon for non-interactive auto-login.
+/// Matches the daemon's expected <c>{refreshToken, deviceKeyPkcs8}</c> shape.
+/// </summary>
+public class XboxAutoLoginPayload
+{
+    [JsonPropertyName("refreshToken")]
+    public string RefreshToken { get; set; } = string.Empty;
+
+    [JsonPropertyName("deviceKeyPkcs8")]
+    public string DeviceKeyPkcs8 { get; set; } = string.Empty;
 }

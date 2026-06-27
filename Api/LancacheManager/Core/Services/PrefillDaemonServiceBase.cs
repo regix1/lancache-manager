@@ -25,8 +25,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     protected readonly ISignalRNotificationService _notifications;
     protected readonly IConfiguration _configuration;
     protected readonly IPathResolver _pathResolver;
+    protected readonly IStateService _stateService;
     protected readonly PrefillSessionService _sessionService;
     protected readonly PrefillCacheService _cacheService;
+    protected readonly IScheduledPrefillAuthService _scheduledPrefillAuthService;
     protected readonly ConcurrentDictionary<string, DaemonSession> _sessions = new();
     protected DockerClient? _dockerClient;
     private Timer? _cleanupTimer;
@@ -81,6 +83,23 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
     /// <summary>Gets the Docker image name from config with fallback to DefaultDockerImage</summary>
     protected abstract string GetImageName();
+
+    /// <summary>
+    /// Container path under which the daemon stores its auth/refresh token. The daemon images
+    /// declare this directory as a Docker <c>VOLUME</c>, so a non-persistent container gets a fresh
+    /// ANONYMOUS volume (wiped on teardown via RemoveVolumes=true). For a persistent session we
+    /// instead mount a STABLE NAMED volume at this path (see <see cref="GetPersistentConfigVolumeName"/>)
+    /// so a later start re-mounts the same auth. Override per service if the image uses a different
+    /// config path.
+    /// </summary>
+    protected virtual string PersistentConfigContainerPath => "/app/Config";
+
+    /// <summary>
+    /// Stable, per-service named-volume identifier used to persist a persistent session's auth dir
+    /// across container teardown/start. Keyed by service so each platform keeps its own auth.
+    /// </summary>
+    protected string GetPersistentConfigVolumeName()
+        => $"lancache-prefill-persistent-{ServiceName.ToLowerInvariant()}";
 
     // SignalR event name properties - one for each event
     protected abstract string EventSessionCreated { get; }
@@ -262,16 +281,20 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         ISignalRNotificationService notifications,
         IConfiguration configuration,
         IPathResolver pathResolver,
+        IStateService stateService,
         PrefillSessionService sessionService,
         PrefillCacheService cacheService,
+        IScheduledPrefillAuthService scheduledPrefillAuthService,
         IOptionsMonitor<PrefillNetworkOptions> networkOptions)
     {
         _logger = logger;
         _notifications = notifications;
         _configuration = configuration;
         _pathResolver = pathResolver;
+        _stateService = stateService;
         _sessionService = sessionService;
         _cacheService = cacheService;
+        _scheduledPrefillAuthService = scheduledPrefillAuthService;
         _networkOptions = networkOptions;
         _isRunningInContainer = bool.TryParse(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), out var inContainer) && inContainer;
     }
@@ -449,6 +472,8 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         Guid userId,
         string? ipAddress = null,
         string? userAgent = null,
+        SessionType sessionType = SessionType.Admin,
+        bool isPersistent = false,
         CancellationToken cancellationToken = default)
     {
         if (_dockerClient == null)
@@ -516,13 +541,27 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         var explicitNetworkMode = GetNetworkMode();
 
         // Build host config with proper network settings
+        var binds = new List<string>
+        {
+            $"{hostCommandsDir}:/commands",
+            $"{hostResponsesDir}:/responses"
+        };
+
+        // Persistent sessions: pin the daemon's auth/config dir (declared as an anonymous VOLUME
+        // by the image) to a STABLE NAMED volume keyed by service. This survives teardown
+        // (RemoveVolumes=false on persistent stop) so a later start re-mounts the same auth.
+        // Temporary/guest containers keep the default anonymous volume (no named bind) and are wiped.
+        if (isPersistent)
+        {
+            binds.Add($"{GetPersistentConfigVolumeName()}:{PersistentConfigContainerPath}");
+            _logger.LogInformation(
+                "Persistent session {SessionId}: mounting named auth volume {Volume} at {Path}",
+                sessionId, GetPersistentConfigVolumeName(), PersistentConfigContainerPath);
+        }
+
         var hostConfig = new HostConfig
         {
-            Binds = new List<string>
-            {
-                $"{hostCommandsDir}:/commands",
-                $"{hostResponsesDir}:/responses"
-            },
+            Binds = binds,
             AutoRemove = false  // Temporarily disabled for debugging socket disconnection
         };
 
@@ -590,6 +629,18 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         var socketSecret = GenerateSocketSecret();
         env.Add($"PREFILL_SOCKET_SECRET={socketSecret}");
         _logger.LogInformation("Passing generated socket secret to prefill daemon container");
+
+        // GUEST/temporary containers get a hard lifetime cap so an abandoned anonymous session
+        // self-terminates inside the daemon. Persistent/admin containers are left indefinite
+        // (no cap) - their lifecycle is governed by NeedsRelogin + admin teardown.
+        if (sessionType == SessionType.Guest)
+        {
+            var maxLifetimeSeconds = _stateService.GetGuestPrefillMaxLifetimeHours() * 3600;
+            env.Add($"PREFILL_MAX_LIFETIME_SECONDS={maxLifetimeSeconds}");
+            _logger.LogInformation(
+                "Guest session {SessionId}: capping daemon lifetime at {Seconds}s",
+                sessionId, maxLifetimeSeconds);
+        }
 
         // Inject LANCACHE_IP unconditionally for both host and bridge mode.
         // The daemon honors this env var to bypass container DNS for CDN traffic
@@ -719,6 +770,31 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         // Parse user agent for OS and browser info
         var (os, browser) = UserAgentParser.Parse(userAgent);
 
+        // Manager-enforced lifetime. Guest/temporary containers are capped at
+        // createdAt + GuestPrefillMaxLifetimeHours so they are reaped by CleanupExpiredSessions
+        // exactly when the admin-configured lifetime elapses. The standard session timeout is kept
+        // as a backstop (we take whichever expiry comes first). Admin/persistent sessions are never
+        // subject to the cap and keep the standard timeout.
+        var createdAtUtc = DateTime.UtcNow;
+        var isTemporary = sessionType == SessionType.Guest;
+        var standardExpiresAt = createdAtUtc.AddMinutes(GetSessionTimeoutMinutes());
+        DateTime expiresAt;
+        if (isPersistent)
+        {
+            // Persistent admin login: expiry governs when NeedsRelogin is flagged (the reaper never
+            // tears a persistent session down). Use the admin-configured validity window.
+            expiresAt = createdAtUtc.AddDays(_stateService.GetAdminPersistentLoginValidityDays());
+        }
+        else if (isTemporary)
+        {
+            var guestCapExpiresAt = createdAtUtc.AddHours(_stateService.GetGuestPrefillMaxLifetimeHours());
+            expiresAt = guestCapExpiresAt < standardExpiresAt ? guestCapExpiresAt : standardExpiresAt;
+        }
+        else
+        {
+            expiresAt = standardExpiresAt;
+        }
+
         var session = new DaemonSession
         {
             Id = sessionId,
@@ -728,7 +804,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             ContainerName = containerName,
             CommandsDir = commandsDir,
             ResponsesDir = responsesDir,
-            ExpiresAt = DateTime.UtcNow.AddMinutes(GetSessionTimeoutMinutes()),
+            CreatedAt = createdAtUtc,
+            ExpiresAt = expiresAt,
+            IsTemporary = isTemporary,
+            IsPersistent = isPersistent,
             Platform = ServiceName,
             IpAddress = ipAddress,
             UserAgent = userAgent,
@@ -1362,6 +1441,87 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     }
 
     /// <summary>
+    /// Creates/starts a PERSISTENT admin daemon session. Reuses <see cref="CreateSessionAsync"/> with
+    /// <c>isPersistent=true</c>, which (a) stamps <see cref="DaemonSession.IsPersistent"/>, (b) sets the
+    /// expiry to the admin-configured validity window, and (c) mounts a stable named auth volume so the
+    /// login survives a later <see cref="StopPersistentSessionAsync"/>. The <paramref name="service"/>
+    /// argument identifies the platform for the caller; this daemon instance is already service-specific.
+    /// </summary>
+    public async Task<DaemonSession> StartPersistentSessionAsync(
+        PrefillPlatform service,
+        Guid userId,
+        string? ipAddress = null,
+        string? userAgent = null,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation(
+            "Starting persistent {Service} session for user {UserId}", service, userId);
+
+        var session = await CreateSessionAsync(
+            userId,
+            ipAddress,
+            userAgent,
+            SessionType.Admin,
+            isPersistent: true,
+            cancellationToken);
+
+        // Authenticate the freshly-created persistent container using the shared auth service.
+        // - Ready    => the plan's AfterSessionCreatedAsync performs the auto-login (e.g. Steam).
+        // - NeedsLogin => leave the container running and flag it so the admin can log in interactively.
+        var plan = await _scheduledPrefillAuthService.EnsureAuthenticatedAsync(
+            service,
+            new ScheduledPrefillAuthContext
+            {
+                Service = service,
+                UserId = userId.ToString()
+            },
+            cancellationToken);
+
+        if (plan.State == ScheduledPrefillAuthState.Ready)
+        {
+            if (plan.AfterSessionCreatedAsync is not null)
+            {
+                await plan.AfterSessionCreatedAsync(session, cancellationToken);
+            }
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Persistent {Service} session {SessionId} needs interactive login: {Reason}",
+                service, session.Id, plan.NeedsLoginReason);
+            session.NeedsRelogin = true;
+        }
+
+        return session;
+    }
+
+    /// <summary>
+    /// Stops a PERSISTENT session's container via the existing teardown path. Because the session is
+    /// persistent, <see cref="TerminateSessionAsync"/> tears the container down with RemoveVolumes=false,
+    /// so the named auth volume survives and a subsequent <see cref="StartPersistentSessionAsync"/>
+    /// re-mounts the same login. No-op if the session is unknown.
+    /// </summary>
+    public Task StopPersistentSessionAsync(string sessionId, string? terminatedBy = null)
+    {
+        var session = GetSession(sessionId);
+        if (session == null)
+        {
+            _logger.LogWarning("StopPersistentSessionAsync: session {SessionId} not found", sessionId);
+            return Task.CompletedTask;
+        }
+
+        if (!session.IsPersistent)
+        {
+            _logger.LogWarning(
+                "StopPersistentSessionAsync called for non-persistent session {SessionId}; its volume will be removed on teardown",
+                sessionId);
+        }
+
+        // Reuse the existing teardown; IsPersistent keeps RemoveVolumes=false so auth survives.
+        return TerminateSessionAsync(sessionId, "Persistent session stopped", force: false, terminatedBy: terminatedBy);
+    }
+
+    /// <summary>
     /// Terminates a session and cleans up resources
     /// </summary>
     /// <param name="force">If true, kills the container immediately without graceful shutdown</param>
@@ -1448,20 +1608,28 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                         session.ContainerId, sessionId);
                 }
 
-                // Remove the (now stopped/killed) container AND its anonymous volume. Containers are
-                // created with AutoRemove=false, so a normal teardown that only stops/kills would
-                // leave the container plus its anonymous token volume lingering until the next
-                // orphan sweep. A login-required daemon (Xbox/Epic) stores its anonymous refresh
-                // token in that volume; RemoveVolumes=true ensures it does not survive the session
-                // (brief security requirement). Force=true is a no-op once already stopped/killed.
+                // Remove the (now stopped/killed) container. Containers are created with
+                // AutoRemove=false, so a normal teardown that only stops/kills would leave the
+                // container plus its token volume lingering until the next orphan sweep.
+                //
+                // RemoveVolumes is CONDITIONAL on persistence:
+                //  - Non-persistent: RemoveVolumes=true. A login-required daemon (Xbox/Epic) stores
+                //    its anonymous refresh token in an anonymous volume; wiping it ensures the auth
+                //    does not survive the session (brief security requirement).
+                //  - Persistent: RemoveVolumes=false. The auth lives on a STABLE NAMED volume mounted
+                //    at create time; keeping it lets a later StartPersistentSessionAsync re-mount the
+                //    same auth so the admin does not have to re-login every stop.
+                // Force=true is a no-op once already stopped/killed.
+                var removeVolumes = !session.IsPersistent;
                 try
                 {
                     await _dockerClient.Containers.RemoveContainerAsync(
                         session.ContainerId,
-                        new ContainerRemoveParameters { Force = true, RemoveVolumes = true });
+                        new ContainerRemoveParameters { Force = true, RemoveVolumes = removeVolumes });
 
-                    _logger.LogInformation("Removed container {ContainerId} (with volumes) for session {SessionId}",
-                        session.ContainerId, sessionId);
+                    _logger.LogInformation(
+                        "Removed container {ContainerId} (RemoveVolumes={RemoveVolumes}) for session {SessionId}",
+                        session.ContainerId, removeVolumes, sessionId);
                 }
                 catch (DockerApiException removeEx) when (removeEx.Message.Contains("removal") && removeEx.Message.Contains("already in progress"))
                 {
@@ -1719,6 +1887,21 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         foreach (var session in expiredSessions)
         {
+            // Persistent admin sessions are never torn down by the reaper. When past their expiry,
+            // flag NeedsRelogin (once) and leave the container running so the admin can
+            // re-authenticate in place. Non-persistent sessions are reaped exactly as before.
+            if (session.IsPersistent)
+            {
+                if (!session.NeedsRelogin)
+                {
+                    _logger.LogInformation(
+                        "Persistent session past expiry: {SessionId}. Flagging for re-login (container left running).",
+                        session.Id);
+                    session.NeedsRelogin = true;
+                }
+                continue;
+            }
+
             _logger.LogInformation("Session expired: {SessionId}", session.Id);
             _ = TerminateSessionAsync(session.Id, "Session expired");
         }

@@ -21,10 +21,12 @@ public partial class SteamDaemonService : PrefillDaemonServiceBase
         ISignalRNotificationService notifications,
         IConfiguration configuration,
         IPathResolver pathResolver,
+        IStateService stateService,
         PrefillSessionService sessionService,
         PrefillCacheService cacheService,
+        IScheduledPrefillAuthService scheduledPrefillAuthService,
         IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-        : base(logger, notifications, configuration, pathResolver, sessionService, cacheService, networkOptions)
+        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, scheduledPrefillAuthService, networkOptions)
     {
     }
 
