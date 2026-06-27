@@ -5716,6 +5716,10 @@
         "removing": "正在移除日志条目"
       }
     },
+    "namedRemove": {
+      "starting": "开始移除游戏 '{{gameName}}'",
+      "complete": "已为游戏 '{{gameName}}' 移除 {{files}} 个缓存文件 ({{gb}} GB)、{{logEntries}} 条日志条目"
+    },
     "evictionRemove": {
       "starting": {
         "bulk": "正在从数据库移除已淘汰记录...",

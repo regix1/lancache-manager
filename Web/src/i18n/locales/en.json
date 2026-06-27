@@ -5746,6 +5746,10 @@
         "removing": "Removing log entries"
       }
     },
+    "namedRemove": {
+      "starting": "Starting removal for game '{{gameName}}'",
+      "complete": "Removed {{files}} cache files ({{gb}} GB), {{logEntries}} log entries for game '{{gameName}}'"
+    },
     "evictionRemove": {
       "starting": {
         "bulk": "Removing evicted records from database...",

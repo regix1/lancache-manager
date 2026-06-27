@@ -320,14 +320,14 @@ public class GamesController : ControllerBase
         Func<Guid, CancellationToken, Func<double, string, Dictionary<string, object?>?, int, long, Task>, Task<CacheManagementService.GameCacheRemovalReport>> removeFunc,
         Func<long, Task>? onSuccess)
     {
-        // Epic drives the epic-specific stageKeys. Named (Blizzard/Riot) games REUSE the Steam
-        // gameRemove.* stageKeys (per contract), so only `isEpic` selects stageKeys.
         var isEpic = entityKind == "epic";
         // Both Epic and named games are name-keyed: their payloads carry GameAppId=null
         // (Steam is the only appId-keyed kind).
         var isNameKeyed = entityKind != "steam";
-        var startingStageKey = isEpic ? "signalr.epicRemove.starting" : "signalr.gameRemove.starting";
-        var completeStageKey = isEpic ? "signalr.epicRemove.complete" : "signalr.gameRemove.complete";
+        // Named (Blizzard/Riot/Xbox) are name-keyed but not Epic — use appId-free stage keys.
+        var isNamed = isNameKeyed && !isEpic;
+        var startingStageKey = isEpic ? "signalr.epicRemove.starting" : (isNamed ? "signalr.namedRemove.starting" : "signalr.gameRemove.starting");
+        var completeStageKey = isEpic ? "signalr.epicRemove.complete" : (isNamed ? "signalr.namedRemove.complete" : "signalr.gameRemove.complete");
         var cancelledStageKey = isEpic ? "signalr.epicRemove.cancelled" : "signalr.gameRemove.cancelled";
         var errorStageKey = isEpic ? "signalr.epicRemove.error.fatal" : "signalr.gameRemove.error.fatal";
 
