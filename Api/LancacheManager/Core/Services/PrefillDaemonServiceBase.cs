@@ -86,10 +86,12 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
     /// <summary>
     /// Container path under which the daemon stores its auth/refresh token. The daemon images
-    /// declare this directory as a Docker <c>VOLUME</c>, so every container (persistent or not) gets a
-    /// fresh ANONYMOUS volume that is wiped on teardown (RemoveVolumes=true). Persistent containers no
-    /// longer mount a stable named auth volume here - they always require a fresh interactive login.
-    /// Override per service if the image uses a different config path.
+    /// declare this directory as a Docker <c>VOLUME</c>, so a non-persistent container gets a fresh
+    /// ANONYMOUS volume (wiped on teardown via RemoveVolumes=true). For a persistent session we
+    /// instead mount a STABLE NAMED volume at this path (see <see cref="GetPersistentConfigVolumeName"/>)
+    /// so the daemon persists its OWN login inside that volume across container/manager restarts. The
+    /// manager never reads or injects that auth - it only reads daemon status. Override per service if
+    /// the image uses a different config path.
     /// </summary>
     protected virtual string PersistentConfigContainerPath => "/app/Config";
 
@@ -546,11 +548,19 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             $"{hostResponsesDir}:/responses"
         };
 
-        // Persistent sessions intentionally DO NOT mount a stable named auth volume. Each persistent
-        // container starts with NO prior auth (default anonymous config volume, same as temporary
-        // containers) so the admin always performs a FRESH interactive login. This avoids reusing a
-        // stale persisted auth dir, which caused the daemon to be already-logged-in and emit no
-        // credential challenge ("No challenge received").
+        // Persistent sessions: pin the daemon's auth/config dir (declared as an anonymous VOLUME
+        // by the image) to a STABLE NAMED volume keyed by service. This survives teardown
+        // (RemoveVolumes=false on persistent stop) so the daemon's OWN login persists INSIDE the
+        // container's volume across container/manager restarts. The manager never injects or transfers
+        // any token - the daemon authenticates itself from this volume; otherwise the admin logs in
+        // interactively. Temporary/guest containers keep the default anonymous volume and are wiped.
+        if (isPersistent)
+        {
+            binds.Add($"{GetPersistentConfigVolumeName()}:{PersistentConfigContainerPath}");
+            _logger.LogInformation(
+                "Persistent session {SessionId}: mounting named auth volume {Volume} at {Path}",
+                sessionId, GetPersistentConfigVolumeName(), PersistentConfigContainerPath);
+        }
 
         var hostConfig = new HostConfig
         {
@@ -1066,6 +1076,22 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 files.Length > 0 ? string.Join(", ", files.Select(Path.GetFileName)) : "(empty)");
         }
 
+        // Defensive guard: a persistent container may already be authenticated from its own named auth
+        // volume (the daemon self-authenticates; the manager never injects a token). In that case the
+        // daemon emits no challenge. Re-check the live daemon status before failing - if it reports
+        // logged-in, treat this as an already-authenticated result (no challenge needed) rather than
+        // throwing, so a stray login attempt on an already-logged-in container does not error.
+        var finalStatus = await session.Client.GetStatusAsync(cancellationToken);
+        if (finalStatus?.Status == "logged-in")
+        {
+            session.AuthState = DaemonAuthState.Authenticated;
+            await NotifyAuthStateChangeAsync(session);
+            FireAndForgetAsync(OnSessionAuthenticatedAsync, nameof(OnSessionAuthenticatedAsync));
+            _logger.LogInformation(
+                "Session {SessionId} already authenticated per daemon status - no challenge needed", sessionId);
+            return null;
+        }
+
         throw new InvalidOperationException("No challenge received from daemon. Ensure the prefill daemon image supports TCP on Windows.");
     }
 
@@ -1435,9 +1461,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
     /// <summary>
     /// Creates/starts a PERSISTENT admin daemon session. Reuses <see cref="CreateSessionAsync"/> with
-    /// <c>isPersistent=true</c>, which (a) stamps <see cref="DaemonSession.IsPersistent"/> and (b) sets the
-    /// expiry to the admin-configured validity window. The container starts RUNNING but UNAUTHENTICATED:
-    /// no auto-login is performed and no persisted auth volume is reused, so the admin must log in
+    /// <c>isPersistent=true</c>, which (a) stamps <see cref="DaemonSession.IsPersistent"/>, (b) sets the
+    /// expiry to the admin-configured validity window, and (c) mounts a stable named auth volume so the
+    /// daemon's OWN login persists inside the container across restarts. The container starts RUNNING;
+    /// the manager performs NO auto-login and NEVER injects/transfers a token. If the named volume
+    /// already holds a valid login the daemon auto-authenticates ITSELF; otherwise the admin logs in
     /// interactively via the UI. The <paramref name="service"/> argument identifies the platform for the
     /// caller; this daemon instance is already service-specific.
     /// </summary>
@@ -1451,10 +1479,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         _logger.LogInformation(
             "Starting persistent {Service} session for user {UserId}", service, userId);
 
-        // The persistent container starts RUNNING but UNAUTHENTICATED. There is intentionally NO
-        // auto-login here: stored creds / persisted auth volumes are never reused (that caused the
-        // auto-login false-failure and the "No challenge received" daemon-already-logged-in bug).
-        // The admin logs in interactively via the UI; the daemon's live status is the source of truth.
+        // The persistent container starts RUNNING. There is intentionally NO manager-side auto-login
+        // here and the manager NEVER injects/transfers a token (that breaks Steam across servers).
+        // The container mounts its own named auth volume: if that volume already holds a valid login
+        // the daemon auto-authenticates ITSELF; otherwise the admin logs in interactively via the UI.
+        // The daemon's live status is the source of truth.
         var session = await CreateSessionAsync(
             userId,
             ipAddress,
@@ -1467,10 +1496,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     }
 
     /// <summary>
-    /// Stops a PERSISTENT session's container via the existing teardown path. Auth is never persisted,
-    /// so the container is torn down with RemoveVolumes=true (same as temporary containers) and a
-    /// subsequent <see cref="StartPersistentSessionAsync"/> requires a fresh interactive login.
-    /// No-op if the session is unknown.
+    /// Stops a PERSISTENT session's container via the existing teardown path. Because the session is
+    /// persistent, <see cref="TerminateSessionAsync"/> tears the container down with RemoveVolumes=false,
+    /// so the daemon's own named auth volume survives and a subsequent <see cref="StartPersistentSessionAsync"/>
+    /// re-mounts the same login. No-op if the session is unknown.
     /// </summary>
     public Task StopPersistentSessionAsync(string sessionId, string? terminatedBy = null)
     {
@@ -1484,11 +1513,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         if (!session.IsPersistent)
         {
             _logger.LogWarning(
-                "StopPersistentSessionAsync called for non-persistent session {SessionId}",
+                "StopPersistentSessionAsync called for non-persistent session {SessionId}; its volume will be removed on teardown",
                 sessionId);
         }
 
-        // Reuse the existing teardown. Auth is never persisted, so the volume is removed either way.
+        // Reuse the existing teardown; IsPersistent keeps RemoveVolumes=false so the daemon's auth survives.
         return TerminateSessionAsync(sessionId, "Persistent session stopped", force: false, terminatedBy: terminatedBy);
     }
 
@@ -1583,13 +1612,15 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 // AutoRemove=false, so a normal teardown that only stops/kills would leave the
                 // container plus its token volume lingering until the next orphan sweep.
                 //
-                // RemoveVolumes is always true now (persistent and non-persistent alike). A
-                // login-required daemon (Xbox/Epic) stores its anonymous refresh token in an anonymous
-                // volume; wiping it ensures auth never survives a session. Persistent containers no
-                // longer preserve a named auth volume, so there is nothing to keep - each persistent
-                // start requires a fresh interactive login.
+                // RemoveVolumes is CONDITIONAL on persistence:
+                //  - Non-persistent: RemoveVolumes=true. A login-required daemon (Xbox/Epic) stores
+                //    its anonymous refresh token in an anonymous volume; wiping it ensures the auth
+                //    does not survive the session (brief security requirement).
+                //  - Persistent: RemoveVolumes=false. The auth lives on a STABLE NAMED volume mounted
+                //    at create time; keeping it lets the daemon's OWN persisted login survive across
+                //    container/manager restarts so the admin does not have to re-login every stop.
                 // Force=true is a no-op once already stopped/killed.
-                var removeVolumes = true;
+                var removeVolumes = !session.IsPersistent;
                 try
                 {
                     await _dockerClient.Containers.RemoveContainerAsync(
