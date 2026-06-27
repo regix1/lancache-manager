@@ -537,6 +537,7 @@ export interface XboxMappingAuthStatus {
   displayName: string | null;
   lastCollectionUtc: string | null;
   gamesDiscovered: number;
+  expiresAtUtc: string | null;
 }
 
 export interface EpicScheduleStatus {

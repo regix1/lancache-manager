@@ -48,7 +48,8 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
         isAuthenticated: false,
         displayName: null,
         lastCollectionUtc: null,
-        gamesDiscovered: 0
+        gamesDiscovered: 0,
+        expiresAtUtc: null
       });
       setHasError(false);
       return;
@@ -63,7 +64,8 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
         isAuthenticated: false,
         displayName: null,
         lastCollectionUtc: null,
-        gamesDiscovered: 0
+        gamesDiscovered: 0,
+        expiresAtUtc: null
       });
     }
   }, [mockMode]);
@@ -136,6 +138,14 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
   };
 
   const isAuthenticated = authStatus?.isAuthenticated ?? false;
+
+  const loginExpiresInDays =
+    authStatus?.expiresAtUtc != null
+      ? Math.max(
+          0,
+          Math.ceil((new Date(authStatus.expiresAtUtc).getTime() - Date.now()) / 86_400_000)
+        )
+      : null;
 
   return (
     <>
@@ -242,6 +252,15 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
                       'Sign in with your Microsoft account to enable Xbox game discovery.'
                     )}
               </p>
+              {isAuthenticated && loginExpiresInDays !== null && (
+                <p className="text-xs text-themed-muted mt-1">
+                  {t('management.sections.integrations.xboxDaemonStatus.loginExpiresInDays', {
+                    count: loginExpiresInDays,
+                    defaultValue:
+                      'Login valid for about {{count}} more days (auto-renews while running)'
+                  })}
+                </p>
+              )}
             </div>
             {authMode === 'authenticated' && !mockMode && (
               <div className="flex-shrink-0">
