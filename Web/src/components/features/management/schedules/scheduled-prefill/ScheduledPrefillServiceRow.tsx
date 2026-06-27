@@ -1,18 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AccordionSection } from '@components/ui/AccordionSection';
-import { Alert } from '@components/ui/Alert';
 import Badge from '@components/ui/Badge';
 import { Button } from '@components/ui/Button';
 import { MultiSelectDropdown, type MultiSelectOption } from '@components/ui/MultiSelectDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
 import { formatTimeRemaining } from '@components/features/prefill/types';
-import { usePersistentPrefillAuth } from '@hooks/usePersistentPrefillAuth';
 import { formatDateTime } from '@utils/formatters';
+import { EpicPersistentLogin } from './login/EpicPersistentLogin';
+import { SteamPersistentLogin } from './login/SteamPersistentLogin';
+import { XboxPersistentLogin } from './login/XboxPersistentLogin';
 import {
   SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS,
   SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS,
@@ -78,13 +78,12 @@ export function ScheduledPrefillServiceRow({
 }: ScheduledPrefillServiceRowProps) {
   const { t } = useTranslation();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
-  const persistentAuth = usePersistentPrefillAuth({ service: config.serviceId });
   const fixedConcurrency =
     config.maxConcurrency.mode === 'Fixed'
       ? config.maxConcurrency.value
       : SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.min;
   const [isExpanded, setIsExpanded] = useState(config.enabled);
-  const [authModalOpened, setAuthModalOpened] = useState(false);
+  const [persistentLoginAuthenticated, setPersistentLoginAuthenticated] = useState(false);
   const isPersistentRunning = persistentContainer?.isRunning ?? false;
   const isAccountService = isScheduledPrefillAccountService(serviceKey);
   const persistentContainerNeedsLogin =
@@ -93,9 +92,7 @@ export function ScheduledPrefillServiceRow({
         ? persistentContainer.needsRelogin
         : persistentContainer.needsRelogin || persistentContainer.daemonAuthExpiresAtUtc === null
       : false;
-  const isGameSelectionAuthBlocked =
-    persistentContainerNeedsLogin && !persistentAuth.state.authenticated;
-  const showPersistentLoginButton = isGameSelectionAuthBlocked;
+  const isGameSelectionAuthBlocked = persistentContainerNeedsLogin && !persistentLoginAuthenticated;
   const selectedGamesCount = config.selectedAppIds.length;
   const daemonAuthTimeRemainingSeconds = persistentContainer?.daemonAuthExpiresAtUtc
     ? getSecondsUntil(persistentContainer.daemonAuthExpiresAtUtc)
@@ -108,13 +105,15 @@ export function ScheduledPrefillServiceRow({
   }, [config.enabled]);
 
   useEffect(() => {
-    if (!persistentAuth.state.authenticated) {
-      return;
+    if (!persistentContainerNeedsLogin) {
+      setPersistentLoginAuthenticated(false);
     }
+  }, [persistentContainerNeedsLogin]);
 
-    setAuthModalOpened(false);
+  const handlePersistentAuthenticated = useCallback(() => {
+    setPersistentLoginAuthenticated(true);
     void onRefreshPersistentContainers();
-  }, [persistentAuth.state.authenticated, onRefreshPersistentContainers]);
+  }, [onRefreshPersistentContainers]);
 
   const presetOptions = useMemo(
     () =>
@@ -198,326 +197,305 @@ export function ScheduledPrefillServiceRow({
     });
   };
 
-  const handleLoginClick = () => {
-    setAuthModalOpened(true);
-    void persistentAuth.actions.start();
-  };
-
-  const handleAuthModalClose = () => {
-    setAuthModalOpened(false);
-  };
-
   return (
-    <>
-      <AccordionSection
-        title={t(`${baseKey}.services.${serviceKey}`)}
-        isExpanded={isExpanded}
-        onToggle={() => setIsExpanded((current) => !current)}
-        badge={
-          <div className="scheduled-prefill-service-row__header-actions">
-            <Badge variant={config.enabled ? 'success' : 'neutral'}>{config.serviceId}</Badge>
-            <ToggleSwitch
-              options={[
-                {
-                  value: 'disabled',
-                  label: t('management.schedules.disabled'),
-                  activeColor: 'default'
-                },
-                {
-                  value: 'enabled',
-                  label: t(`${baseKey}.fields.enabled`),
-                  activeColor: 'success'
-                }
-              ]}
-              value={config.enabled ? 'enabled' : 'disabled'}
-              onChange={handleEnabledChange}
-              disabled={disabled}
-              title={t(`${baseKey}.fields.enabled`)}
+    <AccordionSection
+      title={t(`${baseKey}.services.${serviceKey}`)}
+      isExpanded={isExpanded}
+      onToggle={() => setIsExpanded((current) => !current)}
+      badge={
+        <div className="scheduled-prefill-service-row__header-actions">
+          <Badge variant={config.enabled ? 'success' : 'neutral'}>{config.serviceId}</Badge>
+          <ToggleSwitch
+            options={[
+              {
+                value: 'disabled',
+                label: t('management.schedules.disabled'),
+                activeColor: 'default'
+              },
+              {
+                value: 'enabled',
+                label: t(`${baseKey}.fields.enabled`),
+                activeColor: 'success'
+              }
+            ]}
+            value={config.enabled ? 'enabled' : 'disabled'}
+            onChange={handleEnabledChange}
+            disabled={disabled}
+            title={t(`${baseKey}.fields.enabled`)}
+          />
+        </div>
+      }
+    >
+      <div className="scheduled-prefill-service-row">
+        <div className="scheduled-prefill-service-row__grid">
+          <div className="scheduled-prefill-service-row__field">
+            <span className="scheduled-prefill-service-row__label">
+              {t(`${baseKey}.fields.preset`)}
+            </span>
+            <SegmentedControl
+              options={presetOptions.map((option) => ({ ...option, disabled }))}
+              value={config.preset}
+              onChange={handlePresetChange}
+              fullWidth
+              showLabels
             />
           </div>
-        }
-      >
-        <div className="scheduled-prefill-service-row">
-          <div className="scheduled-prefill-service-row__grid">
-            <div className="scheduled-prefill-service-row__field">
+
+          {config.preset === 'Top' && (
+            <label className="scheduled-prefill-service-row__field">
               <span className="scheduled-prefill-service-row__label">
-                {t(`${baseKey}.fields.preset`)}
+                {t(`${baseKey}.fields.topCount`)}
               </span>
-              <SegmentedControl
-                options={presetOptions.map((option) => ({ ...option, disabled }))}
-                value={config.preset}
-                onChange={handlePresetChange}
-                fullWidth
-                showLabels
+              <input
+                type="number"
+                min={1}
+                className="themed-input scheduled-prefill-service-row__number-input"
+                value={config.topCount ?? ''}
+                disabled={disabled}
+                onChange={(event) => handleTopCountChange(event.target.value)}
               />
-            </div>
+            </label>
+          )}
 
-            {config.preset === 'Top' && (
-              <label className="scheduled-prefill-service-row__field">
-                <span className="scheduled-prefill-service-row__label">
-                  {t(`${baseKey}.fields.topCount`)}
-                </span>
-                <input
-                  type="number"
-                  min={1}
-                  className="themed-input scheduled-prefill-service-row__number-input"
-                  value={config.topCount ?? ''}
-                  disabled={disabled}
-                  onChange={(event) => handleTopCountChange(event.target.value)}
-                />
-              </label>
-            )}
-
-            <div className="scheduled-prefill-service-row__field scheduled-prefill-service-row__field--wide">
-              <div className="scheduled-prefill-service-row__persistent-panel">
-                <div className="scheduled-prefill-service-row__persistent-header">
-                  <div>
-                    <span className="scheduled-prefill-service-row__label">
-                      {t('prefill.persistent.title')}
-                    </span>
-                    <p className="scheduled-prefill-service-row__help">
-                      {t(`${baseKey}.persistentContainer.help`)}
-                    </p>
-                  </div>
-                  <div className="scheduled-prefill-service-row__persistent-status">
-                    {persistentStatusLoading && <LoadingSpinner inline size="sm" />}
-                    <Badge variant={isPersistentRunning ? 'success' : 'neutral'}>
-                      {t(
-                        isPersistentRunning
-                          ? 'prefill.persistent.status.running'
-                          : 'prefill.persistent.status.stopped'
-                      )}
-                    </Badge>
-                  </div>
+          <div className="scheduled-prefill-service-row__field scheduled-prefill-service-row__field--wide">
+            <div className="scheduled-prefill-service-row__persistent-panel">
+              <div className="scheduled-prefill-service-row__persistent-header">
+                <div>
+                  <span className="scheduled-prefill-service-row__label">
+                    {t('prefill.persistent.title')}
+                  </span>
+                  <p className="scheduled-prefill-service-row__help">
+                    {t(`${baseKey}.persistentContainer.help`)}
+                  </p>
                 </div>
-
-                {persistentContainer && (
-                  <div className="scheduled-prefill-service-row__persistent-meta">
-                    {persistentContainer.daemonAuthExpiresAtUtc && (
-                      <div>
-                        <span className="scheduled-prefill-service-row__meta-label">
-                          {t('prefill.persistent.tokenExpires')}
-                        </span>
-                        <span className="scheduled-prefill-service-row__meta-value">
-                          {formatDateTime(persistentContainer.daemonAuthExpiresAtUtc)}
-                          {daemonAuthTimeRemainingSeconds !== null && (
-                            <span className="scheduled-prefill-service-row__meta-detail">
-                              {t('prefill.persistent.timeRemaining', {
-                                time: formatTimeRemaining(daemonAuthTimeRemainingSeconds)
-                              })}
-                            </span>
-                          )}
-                        </span>
-                      </div>
+                <div className="scheduled-prefill-service-row__persistent-status">
+                  {persistentStatusLoading && <LoadingSpinner inline size="sm" />}
+                  <Badge variant={isPersistentRunning ? 'success' : 'neutral'}>
+                    {t(
+                      isPersistentRunning
+                        ? 'prefill.persistent.status.running'
+                        : 'prefill.persistent.status.stopped'
                     )}
+                  </Badge>
+                </div>
+              </div>
+
+              {persistentContainer && (
+                <div className="scheduled-prefill-service-row__persistent-meta">
+                  {persistentContainer.daemonAuthExpiresAtUtc && (
                     <div>
                       <span className="scheduled-prefill-service-row__meta-label">
-                        {t('prefill.persistent.reloginRequiredBy')}
+                        {t('prefill.persistent.tokenExpires')}
                       </span>
                       <span className="scheduled-prefill-service-row__meta-value">
-                        {formatDateTime(persistentContainer.authExpiresAtUtc)}
-                        <span className="scheduled-prefill-service-row__meta-detail">
-                          {t('prefill.persistent.timeRemaining', {
-                            time: formatTimeRemaining(persistentContainer.authTimeRemainingSeconds)
-                          })}
-                        </span>
+                        {formatDateTime(persistentContainer.daemonAuthExpiresAtUtc)}
+                        {daemonAuthTimeRemainingSeconds !== null && (
+                          <span className="scheduled-prefill-service-row__meta-detail">
+                            {t('prefill.persistent.timeRemaining', {
+                              time: formatTimeRemaining(daemonAuthTimeRemainingSeconds)
+                            })}
+                          </span>
+                        )}
                       </span>
                     </div>
+                  )}
+                  <div>
+                    <span className="scheduled-prefill-service-row__meta-label">
+                      {t('prefill.persistent.reloginRequiredBy')}
+                    </span>
+                    <span className="scheduled-prefill-service-row__meta-value">
+                      {formatDateTime(persistentContainer.authExpiresAtUtc)}
+                      <span className="scheduled-prefill-service-row__meta-detail">
+                        {t('prefill.persistent.timeRemaining', {
+                          time: formatTimeRemaining(persistentContainer.authTimeRemainingSeconds)
+                        })}
+                      </span>
+                    </span>
                   </div>
-                )}
+                </div>
+              )}
 
-                {persistentContainer?.needsRelogin && (
-                  <p className="scheduled-prefill-service-row__warning">
-                    {t('prefill.persistent.needsRelogin')}
-                  </p>
-                )}
+              {persistentContainer?.needsRelogin && (
+                <p className="scheduled-prefill-service-row__warning">
+                  {t('prefill.persistent.needsRelogin')}
+                </p>
+              )}
 
-                {isAccountService && persistentAuth.state.error && (
-                  <Alert color="red" className="scheduled-prefill-service-row__auth-alert">
-                    {t('prefill.persistent.loginFailed', { error: persistentAuth.state.error })}
-                  </Alert>
-                )}
-
-                <div className="scheduled-prefill-service-row__persistent-actions">
-                  {isPersistentRunning ? (
-                    <Button
-                      type="button"
-                      variant="filled"
-                      color="red"
-                      size="sm"
-                      onClick={onStopPersistent}
-                      disabled={disabled || persistentAction === 'start'}
-                      loading={persistentAction === 'stop'}
-                    >
-                      {t('prefill.persistent.actions.stop')}
-                    </Button>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="filled"
-                      color="green"
-                      size="sm"
-                      onClick={onStartPersistent}
-                      disabled={disabled || persistentAction === 'stop'}
-                      loading={persistentAction === 'start'}
-                    >
-                      {t('prefill.persistent.actions.start')}
-                    </Button>
-                  )}
-                  {showPersistentLoginButton && (
-                    <Button
-                      type="button"
-                      variant="filled"
-                      color="blue"
-                      size="sm"
-                      onClick={handleLoginClick}
-                      disabled={disabled}
-                      loading={persistentAuth.state.loading}
-                    >
-                      {persistentAuth.state.loading
-                        ? t('prefill.persistent.authenticating')
-                        : t('prefill.persistent.logIn')}
-                    </Button>
-                  )}
+              <div className="scheduled-prefill-service-row__persistent-actions">
+                {isPersistentRunning ? (
                   <Button
                     type="button"
                     variant="filled"
-                    color="blue"
+                    color="red"
                     size="sm"
-                    onClick={onSelectGames}
-                    disabled={disabled || !isPersistentRunning || isGameSelectionAuthBlocked}
-                    loading={gameSelectionLoading}
-                    title={
-                      isGameSelectionAuthBlocked
-                        ? t('prefill.persistent.loginToSelectGames')
-                        : undefined
-                    }
+                    onClick={onStopPersistent}
+                    disabled={disabled || persistentAction === 'start'}
+                    loading={persistentAction === 'stop'}
                   >
-                    {t(`${baseKey}.actions.selectGames`)}
+                    {t('prefill.persistent.actions.stop')}
                   </Button>
-                </div>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="filled"
+                    color="green"
+                    size="sm"
+                    onClick={onStartPersistent}
+                    disabled={disabled || persistentAction === 'stop'}
+                    loading={persistentAction === 'start'}
+                  >
+                    {t('prefill.persistent.actions.start')}
+                  </Button>
+                )}
+                {serviceKey === 'steam' && (
+                  <SteamPersistentLogin
+                    isRunning={isPersistentRunning}
+                    needsAuth={isGameSelectionAuthBlocked}
+                    onAuthenticated={handlePersistentAuthenticated}
+                  />
+                )}
+                {serviceKey === 'epic' && (
+                  <EpicPersistentLogin
+                    isRunning={isPersistentRunning}
+                    needsAuth={isGameSelectionAuthBlocked}
+                    onAuthenticated={handlePersistentAuthenticated}
+                  />
+                )}
+                {serviceKey === 'xbox' && (
+                  <XboxPersistentLogin
+                    isRunning={isPersistentRunning}
+                    needsAuth={isGameSelectionAuthBlocked}
+                    onAuthenticated={handlePersistentAuthenticated}
+                  />
+                )}
+                <Button
+                  type="button"
+                  variant="filled"
+                  color="blue"
+                  size="sm"
+                  onClick={onSelectGames}
+                  disabled={disabled || !isPersistentRunning || isGameSelectionAuthBlocked}
+                  loading={gameSelectionLoading}
+                  title={
+                    isGameSelectionAuthBlocked
+                      ? t('prefill.persistent.loginToSelectGames')
+                      : undefined
+                  }
+                >
+                  {t(`${baseKey}.actions.selectGames`)}
+                </Button>
+              </div>
 
-                <div className="scheduled-prefill-service-row__game-selection-summary">
+              <div className="scheduled-prefill-service-row__game-selection-summary">
+                <p className="scheduled-prefill-service-row__help">
+                  {t(`${baseKey}.selectedGames.count`, { count: selectedGamesCount })}
+                </p>
+                {isGameSelectionAuthBlocked && (
                   <p className="scheduled-prefill-service-row__help">
-                    {t(`${baseKey}.selectedGames.count`, { count: selectedGamesCount })}
+                    {t('prefill.persistent.loginToSelectGames')}
                   </p>
-                  {isGameSelectionAuthBlocked && (
-                    <p className="scheduled-prefill-service-row__help">
-                      {t('prefill.persistent.loginToSelectGames')}
-                    </p>
-                  )}
-                  {selectedGamesCount > 0 && (
-                    <p className="scheduled-prefill-service-row__selected-override">
-                      {t(`${baseKey}.selectedGames.overridePreset`)}
-                    </p>
-                  )}
-                  {selectedGamesCount === 0 && !isPersistentRunning && (
-                    <p className="scheduled-prefill-service-row__help">
-                      {t(`${baseKey}.selectedGames.requiresPersistentContainer`)}
-                    </p>
-                  )}
-                </div>
+                )}
+                {selectedGamesCount > 0 && (
+                  <p className="scheduled-prefill-service-row__selected-override">
+                    {t(`${baseKey}.selectedGames.overridePreset`)}
+                  </p>
+                )}
+                {selectedGamesCount === 0 && !isPersistentRunning && (
+                  <p className="scheduled-prefill-service-row__help">
+                    {t(`${baseKey}.selectedGames.requiresPersistentContainer`)}
+                  </p>
+                )}
               </div>
             </div>
+          </div>
 
-            <div className="scheduled-prefill-service-row__field">
-              <span className="scheduled-prefill-service-row__label">
-                {t(`${baseKey}.fields.operatingSystems`)}
-              </span>
-              <MultiSelectDropdown
-                options={operatingSystemOptions}
-                values={config.operatingSystems}
-                onChange={handleOperatingSystemsChange}
-                disabled={disabled}
-                minSelections={0}
-                placeholder={t(`${baseKey}.fields.operatingSystems`)}
-              />
-            </div>
+          <div className="scheduled-prefill-service-row__field">
+            <span className="scheduled-prefill-service-row__label">
+              {t(`${baseKey}.fields.operatingSystems`)}
+            </span>
+            <MultiSelectDropdown
+              options={operatingSystemOptions}
+              values={config.operatingSystems}
+              onChange={handleOperatingSystemsChange}
+              disabled={disabled}
+              minSelections={0}
+              placeholder={t(`${baseKey}.fields.operatingSystems`)}
+            />
+          </div>
 
-            <div className="scheduled-prefill-service-row__field">
-              <div className="scheduled-prefill-service-row__toggle-row">
-                <div>
-                  <span className="scheduled-prefill-service-row__label">
-                    {t(`${baseKey}.fields.force`)}
-                  </span>
-                  <p className="scheduled-prefill-service-row__help">
-                    {t(`${baseKey}.actions.forceDownload`)}
-                  </p>
-                </div>
-                <ToggleSwitch
-                  options={[
-                    {
-                      value: 'false',
-                      label: t('management.schedules.disabled'),
-                      activeColor: 'default'
-                    },
-                    {
-                      value: 'true',
-                      label: t(`${baseKey}.fields.enabled`),
-                      activeColor: 'warning'
-                    }
-                  ]}
-                  value={config.force ? 'true' : 'false'}
-                  onChange={(value) => updateConfig({ force: value === 'true' })}
-                  disabled={disabled}
-                  title={t(`${baseKey}.fields.force`)}
-                />
+          <div className="scheduled-prefill-service-row__field">
+            <div className="scheduled-prefill-service-row__toggle-row">
+              <div>
+                <span className="scheduled-prefill-service-row__label">
+                  {t(`${baseKey}.fields.force`)}
+                </span>
+                <p className="scheduled-prefill-service-row__help">
+                  {t(`${baseKey}.actions.forceDownload`)}
+                </p>
               </div>
-            </div>
-
-            <div className="scheduled-prefill-service-row__field">
-              <span className="scheduled-prefill-service-row__label">
-                {t(`${baseKey}.fields.maxConcurrency`)}
-              </span>
-              <SegmentedControl
+              <ToggleSwitch
                 options={[
                   {
-                    value: 'Auto',
-                    label: t(`${baseKey}.maxConcurrency.auto`),
-                    disabled
+                    value: 'false',
+                    label: t('management.schedules.disabled'),
+                    activeColor: 'default'
                   },
                   {
-                    value: 'Fixed',
-                    label: t(`${baseKey}.maxConcurrency.fixed`),
-                    disabled
+                    value: 'true',
+                    label: t(`${baseKey}.fields.enabled`),
+                    activeColor: 'warning'
                   }
                 ]}
-                value={config.maxConcurrency.mode}
-                onChange={handleMaxConcurrencyModeChange}
-                fullWidth
-                showLabels
+                value={config.force ? 'true' : 'false'}
+                onChange={(value) => updateConfig({ force: value === 'true' })}
+                disabled={disabled}
+                title={t(`${baseKey}.fields.force`)}
               />
             </div>
-
-            {config.maxConcurrency.mode === 'Fixed' && (
-              <label className="scheduled-prefill-service-row__field">
-                <span className="scheduled-prefill-service-row__label">
-                  {t(`${baseKey}.fields.maxConcurrencyValue`)}
-                </span>
-                <input
-                  type="number"
-                  min={SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.min}
-                  max={SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.max}
-                  className="themed-input scheduled-prefill-service-row__number-input"
-                  value={fixedConcurrency}
-                  disabled={disabled}
-                  onChange={(event) => handleFixedConcurrencyChange(event.target.value)}
-                />
-              </label>
-            )}
           </div>
+
+          <div className="scheduled-prefill-service-row__field">
+            <span className="scheduled-prefill-service-row__label">
+              {t(`${baseKey}.fields.maxConcurrency`)}
+            </span>
+            <SegmentedControl
+              options={[
+                {
+                  value: 'Auto',
+                  label: t(`${baseKey}.maxConcurrency.auto`),
+                  disabled
+                },
+                {
+                  value: 'Fixed',
+                  label: t(`${baseKey}.maxConcurrency.fixed`),
+                  disabled
+                }
+              ]}
+              value={config.maxConcurrency.mode}
+              onChange={handleMaxConcurrencyModeChange}
+              fullWidth
+              showLabels
+            />
+          </div>
+
+          {config.maxConcurrency.mode === 'Fixed' && (
+            <label className="scheduled-prefill-service-row__field">
+              <span className="scheduled-prefill-service-row__label">
+                {t(`${baseKey}.fields.maxConcurrencyValue`)}
+              </span>
+              <input
+                type="number"
+                min={SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.min}
+                max={SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.max}
+                className="themed-input scheduled-prefill-service-row__number-input"
+                value={fixedConcurrency}
+                disabled={disabled}
+                onChange={(event) => handleFixedConcurrencyChange(event.target.value)}
+              />
+            </label>
+          )}
         </div>
-      </AccordionSection>
-      {isAccountService && (
-        <SteamAuthModal
-          opened={authModalOpened}
-          onClose={handleAuthModalClose}
-          state={persistentAuth.state}
-          actions={persistentAuth.actions}
-          isPrefillMode
-          onCancelLogin={persistentAuth.actions.cancel}
-        />
-      )}
-    </>
+      </div>
+    </AccordionSection>
   );
 }

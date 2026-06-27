@@ -16,9 +16,10 @@ interface PersistentPrefillAuthState extends SteamLoginFlowState {
   authenticated: boolean;
 }
 
-interface PersistentPrefillAuthActions extends SteamAuthActions {
+export interface PersistentPrefillAuthActions extends SteamAuthActions {
   start: () => Promise<CredentialChallenge | null>;
   submit: (credential: string) => Promise<boolean>;
+  poll: () => Promise<PollResult>;
   cancel: () => Promise<void>;
 }
 
@@ -27,7 +28,7 @@ interface PersistentPrefillAuthResult {
   actions: PersistentPrefillAuthActions;
 }
 
-type PollResult =
+export type PollResult =
   | { status: 'authenticated' }
   | { status: 'challenge'; challenge: CredentialChallenge };
 
@@ -198,6 +199,31 @@ export function usePersistentPrefillAuth(
     [fail, pendingChallenge, submitChallenge]
   );
 
+  const poll = useCallback(async (): Promise<PollResult> => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await pollForResult();
+      if (cancelledRef.current) {
+        setLoading(false);
+        return result;
+      }
+
+      if (result.status === 'authenticated') {
+        finishAuthenticated();
+        return result;
+      }
+
+      applyChallenge(result.challenge);
+      setLoading(false);
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to poll persistent login';
+      fail(message);
+      throw err;
+    }
+  }, [applyChallenge, fail, finishAuthenticated, pollForResult]);
+
   const start = useCallback(async (): Promise<CredentialChallenge | null> => {
     cancelledRef.current = false;
     setLoading(true);
@@ -362,6 +388,7 @@ export function usePersistentPrefillAuth(
     cancelPendingRequest,
     start,
     submit,
+    poll,
     cancel
   };
 

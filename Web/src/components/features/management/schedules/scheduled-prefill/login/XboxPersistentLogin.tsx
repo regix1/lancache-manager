@@ -1,0 +1,77 @@
+import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Alert } from '@components/ui/Alert';
+import { Button } from '@components/ui/Button';
+import { XboxAuthModal } from '@components/modals/auth/XboxAuthModal';
+import { usePersistentXboxAuth } from '@hooks/usePersistentXboxAuth';
+
+interface XboxPersistentLoginProps {
+  isRunning: boolean;
+  needsAuth: boolean;
+  onAuthenticated: () => void;
+}
+
+export function XboxPersistentLogin({
+  isRunning,
+  needsAuth,
+  onAuthenticated
+}: XboxPersistentLoginProps) {
+  const { t } = useTranslation();
+  const { state, actions, startLogin, cancelLogin } = usePersistentXboxAuth();
+  const [authModalOpened, setAuthModalOpened] = useState(false);
+  const handledAuthenticatedRef = useRef(false);
+  const showLoginButton = isRunning && needsAuth;
+
+  useEffect(() => {
+    if (!state.authenticated) {
+      handledAuthenticatedRef.current = false;
+      return;
+    }
+
+    if (handledAuthenticatedRef.current) {
+      return;
+    }
+
+    handledAuthenticatedRef.current = true;
+    setAuthModalOpened(false);
+    onAuthenticated();
+  }, [state.authenticated, onAuthenticated]);
+
+  const handleLoginClick = () => {
+    setAuthModalOpened(true);
+    void startLogin();
+  };
+
+  const handleAuthModalClose = () => {
+    setAuthModalOpened(false);
+  };
+
+  return (
+    <>
+      {state.error && (
+        <Alert color="red" className="scheduled-prefill-service-row__auth-alert">
+          {t('prefill.persistent.loginFailed', { error: state.error })}
+        </Alert>
+      )}
+      {showLoginButton && (
+        <Button
+          type="button"
+          variant="filled"
+          color="blue"
+          size="sm"
+          onClick={handleLoginClick}
+          loading={state.loading}
+        >
+          {state.loading ? t('prefill.persistent.authenticating') : t('prefill.persistent.logIn')}
+        </Button>
+      )}
+      <XboxAuthModal
+        opened={authModalOpened}
+        onClose={handleAuthModalClose}
+        state={state}
+        actions={actions}
+        onCancelLogin={() => void cancelLogin()}
+      />
+    </>
+  );
+}
