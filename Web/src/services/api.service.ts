@@ -35,6 +35,7 @@ import type {
   CreateClientGroupRequest,
   UpdateClientGroupRequest,
   StatsExclusionsResponse,
+  ClientExclusionRule,
   EpicGameMappingDto,
   EpicMappingStats,
   EpicDaemonStatusDto,
@@ -92,7 +93,11 @@ interface CachedGameDetectionResponse {
   lastDetectionTime?: string;
 }
 
-type PersistentChallengeResponse = CredentialChallenge | 'authenticated' | { authenticated: true };
+type PersistentChallengeResponse =
+  | CredentialChallenge
+  | 'authenticated'
+  | { authenticated: true }
+  | { status: 'authenticated' | 'logged-in'; message?: string };
 
 interface OperationResponse {
   message?: string;
@@ -473,6 +478,27 @@ class ApiService {
     } catch (error: unknown) {
       {
         console.error('updateStatsExclusions error:', error);
+      }
+      throw error;
+    }
+  }
+
+  static async updateStatsExclusionRules(
+    rules: ClientExclusionRule[]
+  ): Promise<StatsExclusionsResponse> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/stats/exclusions`,
+        this.getFetchOptions({
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rules })
+        })
+      );
+      return await this.handleResponse<StatsExclusionsResponse>(res);
+    } catch (error: unknown) {
+      {
+        console.error('updateStatsExclusionRules error:', error);
       }
       throw error;
     }
@@ -3048,7 +3074,7 @@ class ApiService {
 
   static async startPersistentLogin(
     service: PersistentPrefillServiceId
-  ): Promise<CredentialChallenge> {
+  ): Promise<PersistentChallengeResponse> {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/login`,
@@ -3058,7 +3084,7 @@ class ApiService {
           headers: { 'Content-Type': 'application/json' }
         })
       );
-      return await this.handleResponse<CredentialChallenge>(res);
+      return await this.handleResponse<PersistentChallengeResponse>(res);
     } catch (error: unknown) {
       console.error('startPersistentLogin error:', error);
       throw error;

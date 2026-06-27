@@ -30,7 +30,8 @@ interface PersistentPrefillAuthResult {
 
 export type PollResult =
   | { status: 'authenticated' }
-  | { status: 'challenge'; challenge: CredentialChallenge };
+  | { status: 'challenge'; challenge: CredentialChallenge }
+  | { status: 'pending' };
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
 const DEVICE_CONFIRMATION_CREDENTIAL = 'confirm';
@@ -43,7 +44,7 @@ function isAuthenticatedResponse(response: unknown): boolean {
   return (
     response === 'authenticated' ||
     (isRecord(response) && response.authenticated === true) ||
-    (isRecord(response) && response.status === 'authenticated')
+    (isRecord(response) && (response.status === 'authenticated' || response.status === 'logged-in'))
   );
 }
 
@@ -154,7 +155,9 @@ export function usePersistentPrefillAuth(
     if (isCredentialChallenge(response)) {
       return { status: 'challenge', challenge: response };
     }
-    throw new Error('Unexpected persistent login challenge response');
+    // Empty/204: the long-poll timed out with no new challenge yet (e.g. waiting
+    // for the user to confirm a device code). Keep polling instead of erroring.
+    return { status: 'pending' };
   }, [service, timeoutSeconds]);
 
   const submitChallenge = useCallback(
@@ -163,7 +166,10 @@ export function usePersistentPrefillAuth(
       setError(null);
       await ApiService.providePersistentCredential(service, challenge, credential);
 
-      const result = await pollForResult();
+      let result = await pollForResult();
+      while (result.status === 'pending' && !cancelledRef.current) {
+        result = await pollForResult();
+      }
       if (cancelledRef.current) {
         setLoading(false);
         return result;
@@ -174,7 +180,9 @@ export function usePersistentPrefillAuth(
         return result;
       }
 
-      applyChallenge(result.challenge);
+      if (result.status === 'challenge') {
+        applyChallenge(result.challenge);
+      }
       setLoading(false);
       return result;
     },
@@ -215,7 +223,9 @@ export function usePersistentPrefillAuth(
         return result;
       }
 
-      applyChallenge(result.challenge);
+      if (result.status === 'challenge') {
+        applyChallenge(result.challenge);
+      }
       setLoading(false);
       return result;
     } catch (err) {
@@ -242,9 +252,19 @@ export function usePersistentPrefillAuth(
           setLoading(false);
           return null;
         }
-        applyChallenge(challenge);
+        if (isAuthenticatedResponse(challenge)) {
+          // Container already authenticated (daemon self-authed from its own volume).
+          finishAuthenticated();
+          return null;
+        }
+        if (isCredentialChallenge(challenge)) {
+          applyChallenge(challenge);
+          setLoading(false);
+          return challenge;
+        }
+        // No actionable challenge (empty/pending) - stop the spinner.
         setLoading(false);
-        return challenge;
+        return null;
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to start persistent login';
         fail(message);
@@ -260,7 +280,7 @@ export function usePersistentPrefillAuth(
         startPromiseRef.current = null;
       }
     }
-  }, [applyChallenge, fail, service]);
+  }, [applyChallenge, fail, finishAuthenticated, service]);
 
   const resetAuthForm = useCallback(() => {
     setUsername('');
@@ -331,6 +351,9 @@ export function usePersistentPrefillAuth(
         if (usernameResult.status === 'authenticated') {
           return true;
         }
+        if (usernameResult.status !== 'challenge') {
+          return false;
+        }
         challenge = usernameResult.challenge;
       }
 
@@ -338,6 +361,9 @@ export function usePersistentPrefillAuth(
         const passwordResult = await submitChallenge(challenge, password);
         if (passwordResult.status === 'authenticated') {
           return true;
+        }
+        if (passwordResult.status !== 'challenge') {
+          return false;
         }
         challenge = passwordResult.challenge;
       }
