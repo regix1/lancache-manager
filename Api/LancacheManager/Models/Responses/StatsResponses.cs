@@ -298,9 +298,12 @@ public class CacheSnapshotResponse
 }
 
 /// <summary>
-/// Response for stats exclusions
+/// Response for stats exclusions.
+/// <see cref="Ips"/> is the legacy stats-excluded-only list kept for backward compatibility.
+/// <see cref="Rules"/> is the full mode-aware rule set (hide + exclude).
 /// </summary>
 public class StatsExclusionsResponse
 {
     public List<string> Ips { get; set; } = new();
+    public List<ClientExclusionRule> Rules { get; set; } = new();
 }

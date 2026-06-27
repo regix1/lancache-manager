@@ -330,3 +330,54 @@
   background: var(--theme-border-secondary);
   border-radius: 2px;
 }
+
+/* ===== EXCLUSION MODE TOGGLE (segmented control) ===== */
+.exclusion-mode-toggle {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--theme-border-primary);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.exclusion-mode-option {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  background-color: transparent;
+  color: var(--theme-text-muted);
+  border: none;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease-out,
+    color 0.15s ease-out;
+}
+
+.exclusion-mode-option + .exclusion-mode-option {
+  border-left: 1px solid var(--theme-border-primary);
+}
+
+@media (hover: hover) {
+  .exclusion-mode-option:not(.is-active):not(:disabled):hover {
+    background-color: var(--theme-bg-hover);
+    color: var(--theme-text-secondary);
+  }
+}
+
+.exclusion-mode-option.is-active {
+  background-color: var(--theme-primary);
+  color: var(--theme-button-text);
+}
+
+.exclusion-mode-option:focus-visible {
+  outline: 2px solid var(--theme-border-focus);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.exclusion-mode-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}

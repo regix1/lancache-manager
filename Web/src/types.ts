@@ -208,8 +208,16 @@ export interface CacheSnapshotResponse {
   isEstimate: boolean;
 }
 
+export type ClientExclusionMode = 'hide' | 'exclude';
+
+export interface ClientExclusionRule {
+  ip: string;
+  mode: ClientExclusionMode;
+}
+
 export interface StatsExclusionsResponse {
   ips: string[];
+  rules: ClientExclusionRule[];
 }
 
 export interface ProcessingStatus {

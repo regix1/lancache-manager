@@ -15,7 +15,7 @@ import { Plus, Users, Trash2, Edit2, X, User, AlertTriangle } from 'lucide-react
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import ClientGroupModal from '@components/modals/ClientGroupModal';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import type { ClientGroup } from '../../../../types';
+import type { ClientGroup, ClientExclusionRule, ClientExclusionMode } from '../../../../types';
 
 const UNGROUPED_IPS_PER_PAGE = 20;
 const PAGINATION_TOP_THRESHOLD = 100;
@@ -68,16 +68,30 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     };
   }, []);
 
-  const [excludedIps, setExcludedIps] = useState<string[]>([]);
-  const [savedExcludedIps, setSavedExcludedIps] = useState<string[]>([]);
+  const [excludedRules, setExcludedRules] = useState<ClientExclusionRule[]>([]);
+  const [savedExcludedRules, setSavedExcludedRules] = useState<ClientExclusionRule[]>([]);
   const [excludeInput, setExcludeInput] = useState('');
   const [selectedKnownIps, setSelectedKnownIps] = useState<string[]>([]);
   const [loadingExcluded, setLoadingExcluded] = useState(false);
   const [savingExcluded, setSavingExcluded] = useState(false);
 
+  const serializeRules = useCallback(
+    (rules: ClientExclusionRule[]) =>
+      [...rules]
+        .sort((a, b) => a.ip.localeCompare(b.ip))
+        .map((rule) => `${rule.ip}:${rule.mode}`)
+        .join('|'),
+    []
+  );
+
   const hasExcludedChanges = useMemo(
-    () => excludedIps.join('|') !== savedExcludedIps.join('|'),
-    [excludedIps, savedExcludedIps]
+    () => serializeRules(excludedRules) !== serializeRules(savedExcludedRules),
+    [excludedRules, savedExcludedRules, serializeRules]
+  );
+
+  const excludedIpSet = useMemo(
+    () => new Set(excludedRules.map((rule) => rule.ip)),
+    [excludedRules]
   );
 
   const loadExcludedIps = useCallback(async () => {
@@ -85,9 +99,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     setLoadingExcluded(true);
     try {
       const response = await ApiService.getStatsExclusions();
-      const ips = response.ips;
-      setExcludedIps(ips);
-      setSavedExcludedIps(ips);
+      const rules = response.rules ?? [];
+      setExcludedRules(rules);
+      setSavedExcludedRules(rules);
     } catch (err) {
       onError(
         err instanceof Error
@@ -136,50 +150,54 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     [excludeInput, parseIpCandidates]
   );
 
+  // New entries default to stats-only exclusion (visible, omitted from calculations).
+  const DEFAULT_EXCLUSION_MODE: ClientExclusionMode = 'exclude';
+
+  const addRules = useCallback((ips: string[]) => {
+    setExcludedRules((prev) => {
+      const existing = new Set(prev.map((rule) => rule.ip));
+      const next = [...prev];
+      for (const ip of ips) {
+        if (!existing.has(ip)) {
+          next.push({ ip, mode: DEFAULT_EXCLUSION_MODE });
+          existing.add(ip);
+        }
+      }
+      return next;
+    });
+  }, []);
+
   const handleAddExcluded = () => {
     const candidates = parseIpCandidates(excludeInput);
     const validCandidates = candidates.filter((ip) => isValidIpv4(ip) || isValidIpv6(ip));
 
     if (validCandidates.length === 0) return;
 
-    setExcludedIps((prev) => {
-      const next = [...prev];
-      for (const ip of validCandidates) {
-        if (!next.includes(ip)) {
-          next.push(ip);
-        }
-      }
-      return next;
-    });
-
+    addRules(validCandidates);
     setExcludeInput('');
   };
 
   const handleAddKnownIps = () => {
     if (selectedKnownIps.length === 0) return;
-    setExcludedIps((prev) => {
-      const next = [...prev];
-      for (const ip of selectedKnownIps) {
-        if (!next.includes(ip)) {
-          next.push(ip);
-        }
-      }
-      return next;
-    });
+    addRules(selectedKnownIps);
     setSelectedKnownIps([]);
   };
 
   const handleRemoveExcluded = (ip: string) => {
-    setExcludedIps((prev) => prev.filter((item) => item !== ip));
+    setExcludedRules((prev) => prev.filter((rule) => rule.ip !== ip));
+  };
+
+  const handleChangeMode = (ip: string, mode: ClientExclusionMode) => {
+    setExcludedRules((prev) => prev.map((rule) => (rule.ip === ip ? { ...rule, mode } : rule)));
   };
 
   const handleSaveExcluded = async () => {
     setSavingExcluded(true);
     try {
-      const response = await ApiService.updateStatsExclusions(excludedIps);
-      const ips = response.ips;
-      setExcludedIps(ips);
-      setSavedExcludedIps(ips);
+      const response = await ApiService.updateStatsExclusionRules(excludedRules);
+      const rules = response.rules ?? [];
+      setExcludedRules(rules);
+      setSavedExcludedRules(rules);
       onSuccess(t('management.sections.clients.excludedIpsUpdated'));
       await refreshStats(true);
       await refreshDownloads();
@@ -203,9 +221,8 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
   }, [clientGroups]);
 
   const knownClientOptions = useMemo(() => {
-    const excludedSet = new Set(excludedIps);
     return allClientIps
-      .filter((ip) => !excludedSet.has(ip))
+      .filter((ip) => !excludedIpSet.has(ip))
       .sort((a, b) => a.localeCompare(b))
       .map((ip) => {
         const nickname = nicknameByIp.get(ip);
@@ -214,7 +231,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
           label: nickname ? `${nickname} (${ip})` : ip
         };
       });
-  }, [allClientIps, excludedIps, nicknameByIp]);
+  }, [allClientIps, excludedIpSet, nicknameByIp]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<ClientGroup | null>(null);
@@ -629,30 +646,50 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                     <LoadingSpinner inline size="sm" />
                     {t('management.sections.clients.loadingExcludedIps')}
                   </div>
-                ) : excludedIps.length === 0 ? (
+                ) : excludedRules.length === 0 ? (
                   <div className="text-sm text-themed-muted">
                     {t('management.sections.clients.noExcludedIps')}
                   </div>
                 ) : (
                   <div className="flex flex-col gap-2">
-                    {excludedIps.map((ip) => (
+                    {excludedRules.map((rule) => (
                       <div
-                        key={ip}
-                        className="flex items-center justify-between p-3 rounded-lg bg-themed-tertiary"
+                        key={rule.ip}
+                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 rounded-lg bg-themed-tertiary"
                       >
                         <div className="flex items-center gap-3">
                           <div className="font-mono text-themed-secondary font-medium">
-                            <ClientIpDisplay clientIp={ip} showTooltip={false} />
+                            <ClientIpDisplay clientIp={rule.ip} showTooltip={false} />
                           </div>
                         </div>
 
                         <div className="flex items-center gap-3">
+                          <div className="exclusion-mode-toggle" role="group">
+                            <button
+                              type="button"
+                              className={`exclusion-mode-option ${rule.mode === 'exclude' ? 'is-active' : ''}`}
+                              onClick={() => handleChangeMode(rule.ip, 'exclude')}
+                              disabled={savingExcluded}
+                              title={t('management.sections.clients.modeExcludeTooltip')}
+                            >
+                              {t('management.sections.clients.modeExclude')}
+                            </button>
+                            <button
+                              type="button"
+                              className={`exclusion-mode-option ${rule.mode === 'hide' ? 'is-active' : ''}`}
+                              onClick={() => handleChangeMode(rule.ip, 'hide')}
+                              disabled={savingExcluded}
+                              title={t('management.sections.clients.modeHideTooltip')}
+                            >
+                              {t('management.sections.clients.modeHide')}
+                            </button>
+                          </div>
                           <Button
                             variant="filled"
                             size="sm"
                             color="red"
                             className="text-themed-muted hover:text-red-500"
-                            onClick={() => handleRemoveExcluded(ip)}
+                            onClick={() => handleRemoveExcluded(rule.ip)}
                             disabled={savingExcluded}
                             title={t('management.sections.clients.removeIp')}
                           >

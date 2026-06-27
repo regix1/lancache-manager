@@ -285,7 +285,16 @@ public class BanByUsernameRequest
 
 public class UpdateStatsExclusionsRequest
 {
+    /// <summary>
+    /// Legacy ips-only payload. When <see cref="Rules"/> is provided it takes precedence.
+    /// IPs sent here are treated as stats-only exclusions.
+    /// </summary>
     public List<string> Ips { get; set; } = new();
+
+    /// <summary>
+    /// Mode-aware exclusion rules (hide or exclude). Preferred over <see cref="Ips"/>.
+    /// </summary>
+    public List<ClientExclusionRule>? Rules { get; set; }
 }
 
 public class UpdateEvictionSettingsRequest

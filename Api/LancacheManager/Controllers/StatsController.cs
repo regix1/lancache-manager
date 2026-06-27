@@ -152,6 +152,49 @@ public class StatsController : ControllerBase
         return normalized;
     }
 
+    private static List<ClientExclusionRule> NormalizeClientRules(
+        IEnumerable<ClientExclusionRule>? rules,
+        out List<string> invalidIps)
+    {
+        invalidIps = new List<string>();
+        var normalized = new List<ClientExclusionRule>();
+
+        if (rules == null)
+        {
+            return normalized;
+        }
+
+        foreach (var rule in rules)
+        {
+            var trimmed = rule?.Ip?.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                continue;
+            }
+
+            if (!IPAddress.TryParse(trimmed, out var parsed))
+            {
+                invalidIps.Add(trimmed);
+                continue;
+            }
+
+            var normalizedIp = parsed.ToString();
+            if (normalized.Any(r => r.Ip == normalizedIp))
+            {
+                continue;
+            }
+
+            // Anything other than an explicit "exclude" collapses to "hide" (matches StateService).
+            var mode = string.Equals(rule?.Mode, ClientExclusionModes.Exclude, StringComparison.OrdinalIgnoreCase)
+                ? ClientExclusionModes.Exclude
+                : ClientExclusionModes.Hide;
+
+            normalized.Add(new ClientExclusionRule { Ip = normalizedIp, Mode = mode });
+        }
+
+        return normalized;
+    }
+
 
     [HttpGet("clients")]
     public async Task<IActionResult> GetClientsAsync(
@@ -306,10 +349,10 @@ public class StatsController : ControllerBase
     [HttpGet("exclusions")]
     public IActionResult GetExcludedClients()
     {
-        var excludedIps = _stateRepository.GetStatsExcludedOnlyClientIps();
         return Ok(new StatsExclusionsResponse
         {
-            Ips = excludedIps
+            Ips = _stateRepository.GetStatsExcludedOnlyClientIps(),
+            Rules = _stateRepository.GetExcludedClientRules()
         });
     }
 
@@ -317,18 +360,38 @@ public class StatsController : ControllerBase
     [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> UpdateExcludedClientsAsync([FromBody] UpdateStatsExclusionsRequest request)
     {
-        var normalizedIps = NormalizeClientIps(request.Ips, out var invalidIps);
-        if (invalidIps.Count > 0)
+        // Prefer mode-aware rules when provided; fall back to the legacy ips-only payload.
+        if (request.Rules != null)
         {
-            return BadRequest(new
+            var normalizedRules = NormalizeClientRules(request.Rules, out var invalidRuleIps);
+            if (invalidRuleIps.Count > 0)
             {
-                error = "Invalid exclusion rules",
-                message = "One or more exclusions are not valid. Please correct them and try again.",
-                invalidIps,
-            });
+                return BadRequest(new
+                {
+                    error = "Invalid exclusion rules",
+                    message = "One or more exclusions are not valid. Please correct them and try again.",
+                    invalidIps = invalidRuleIps,
+                });
+            }
+
+            _stateRepository.SetExcludedClientRules(normalizedRules);
+        }
+        else
+        {
+            var normalizedIps = NormalizeClientIps(request.Ips, out var invalidIps);
+            if (invalidIps.Count > 0)
+            {
+                return BadRequest(new
+                {
+                    error = "Invalid exclusion rules",
+                    message = "One or more exclusions are not valid. Please correct them and try again.",
+                    invalidIps,
+                });
+            }
+
+            _stateRepository.SetExcludedClientIps(normalizedIps);
         }
 
-        _stateRepository.SetExcludedClientIps(normalizedIps);
         // Notify clients to refresh downloads/stats since exclusions affect all tabs
         await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
         {
@@ -336,7 +399,8 @@ public class StatsController : ControllerBase
         });
         return Ok(new StatsExclusionsResponse
         {
-            Ips = _stateRepository.GetStatsExcludedOnlyClientIps()
+            Ips = _stateRepository.GetStatsExcludedOnlyClientIps(),
+            Rules = _stateRepository.GetExcludedClientRules()
         });
     }
 
