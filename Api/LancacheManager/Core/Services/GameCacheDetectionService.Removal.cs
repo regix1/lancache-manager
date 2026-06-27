@@ -1,11 +1,3 @@
-using System.Text.Json;
-using LancacheManager.Infrastructure.Data;
-using LancacheManager.Hubs;
-using LancacheManager.Core.Interfaces;
-using LancacheManager.Infrastructure.Utilities;
-using LancacheManager.Models;
-using Microsoft.EntityFrameworkCore;
-
 namespace LancacheManager.Core.Services;
 
 public partial class GameCacheDetectionService

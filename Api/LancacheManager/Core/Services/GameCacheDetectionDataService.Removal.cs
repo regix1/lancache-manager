@@ -1,9 +1,4 @@
-using System.Text.Json;
-using LancacheManager.Infrastructure.Data;
-using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
-using DetectionOperationResponse = LancacheManager.Core.Services.GameCacheDetectionService.DetectionOperationResponse;
 
 namespace LancacheManager.Core.Services;
 
