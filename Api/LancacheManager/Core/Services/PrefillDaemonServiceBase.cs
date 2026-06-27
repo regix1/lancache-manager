@@ -1484,6 +1484,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 try
                 {
                     await plan.AfterSessionCreatedAsync(session, cancellationToken);
+
+                    // Auto-login succeeded: ensure the session is no longer flagged for re-login
+                    // (only the failure/catch path below should set it true).
+                    session.NeedsRelogin = false;
                 }
                 catch (Exception ex)
                 {

@@ -3588,6 +3588,10 @@
       "title": "Persistent Prefill",
       "subtitle": "Keep prefill containers ready so account logins stay available for scheduled runs.",
       "loading": "Loading persistent prefill status...",
+      "logIn": "Log in",
+      "loginToSelectGames": "Log in to select games",
+      "authenticating": "Authenticating...",
+      "loginFailed": "Login failed: {{error}}",
       "services": {
         "steam": "Steam",
         "epic": "Epic Games",

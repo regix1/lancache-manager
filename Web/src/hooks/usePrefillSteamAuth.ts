@@ -4,7 +4,7 @@ import { useNotifications } from '@contexts/notifications';
 import { type SteamLoginFlowState, type SteamAuthActions } from './useSteamAuthentication';
 import { getEventName } from '@components/features/prefill/hooks/prefillConstants';
 
-interface CredentialChallenge {
+export interface CredentialChallenge {
   type: string;
   challengeId: string;
   credentialType: string;

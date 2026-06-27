@@ -487,7 +487,7 @@ export function ScheduledPrefillConfigModal({
 
   return (
     <>
-      <Modal opened={opened} onClose={handleClose} title={t(`${baseKey}.title`)} size="xl">
+      <Modal opened={opened} onClose={handleClose} title={t(`${baseKey}.title`)} size="full">
         <div className="scheduled-prefill-config-modal">
           {isLoading && !hasInitialData ? (
             <div className="scheduled-prefill-config-modal__loading">
@@ -669,6 +669,7 @@ export function ScheduledPrefillConfigModal({
                             }
                             onStartPersistent={() => void handleStartPersistent(serviceKey)}
                             onStopPersistent={() => void handleStopPersistent(serviceKey)}
+                            onRefreshPersistentContainers={loadPersistentContainers}
                             onSelectGames={() => handleOpenGameSelection(serviceKey)}
                           />
                         </div>

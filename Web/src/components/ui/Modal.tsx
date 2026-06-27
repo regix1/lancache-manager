@@ -6,12 +6,14 @@ import { X } from 'lucide-react';
 let modalStack: number[] = [];
 let modalIdCounter = 0;
 
+type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'full';
+
 interface ModalProps {
   opened: boolean;
   onClose: () => void;
   title?: React.ReactNode;
   children: React.ReactNode;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: ModalSize;
 }
 
 export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, size = 'md' }) => {
@@ -20,11 +22,13 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
   const [zIndex, setZIndex] = React.useState(80);
   const modalId = React.useRef<number | null>(null);
 
-  const sizes = {
+  const sizes: Record<ModalSize, string> = {
     sm: 'max-w-md',
     md: 'max-w-lg',
     lg: 'max-w-2xl',
-    xl: 'max-w-4xl'
+    xl: 'max-w-4xl',
+    '2xl': 'max-w-6xl',
+    full: 'max-w-7xl'
   };
 
   React.useEffect(() => {
@@ -85,7 +89,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
 
   const modalContent = (
     <div
-      className={`modal-backdrop fixed inset-0 overflow-y-auto overflow-x-hidden py-4 sm:py-8 transition-all duration-250 ease-out ${
+      className={`modal-backdrop fixed inset-0 overflow-y-auto overflow-x-hidden py-2 sm:py-4 transition-all duration-250 ease-out ${
         isAnimating ? 'bg-black/50 pointer-events-auto' : 'bg-transparent pointer-events-none'
       }`}
       style={{ zIndex }}
@@ -93,7 +97,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
     >
       <div className="min-h-full flex items-center justify-center px-4">
         <div
-          className={`themed-card border themed-border-radius ${sizes[size]} w-full max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)] flex flex-col transform transition-all duration-250 ease-out ${
+          className={`themed-card border themed-border-radius ${sizes[size]} w-full max-h-[calc(100vh-1rem)] sm:max-h-[calc(100vh-2rem)] flex flex-col transform transition-all duration-250 ease-out ${
             isAnimating
               ? 'opacity-100 scale-100 translate-y-0 delay-[50ms]'
               : 'opacity-0 scale-90 translate-y-8 delay-0'

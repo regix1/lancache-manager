@@ -191,6 +191,121 @@ public class PersistentPrefillController : ControllerBase
     }
 
     /// <summary>
+    /// Starts (or resumes) the interactive login flow for the RUNNING persistent session of a
+    /// platform and returns the initial credential challenge. AdminOnly analogue of the user route
+    /// <c>POST {service}/sessions/{id}/login</c>, which enforces <c>ValidateSessionOwnership</c> and
+    /// always 403s for system-owned persistent sessions. Safe to bypass ownership here because this
+    /// controller is <c>[Authorize(Policy = "AdminOnly")]</c> and hard-restricted to persistent
+    /// sessions. Delegates to <see cref="PrefillDaemonServiceBase.StartLoginAsync(string, TimeSpan?, CancellationToken)"/>.
+    /// </summary>
+    [HttpPost("login")]
+    public async Task<ActionResult<CredentialChallenge>> StartLoginAsync(
+        [FromBody] PersistentLoginRequest request,
+        CancellationToken cancellationToken)
+    {
+        var (daemon, session, error) = ResolveRunningPersistentSession(request.Service);
+        if (error is not null)
+        {
+            return error;
+        }
+
+        var challenge = await daemon!.StartLoginAsync(session!.Id, TimeSpan.FromSeconds(30), cancellationToken);
+
+        if (challenge == null)
+        {
+            // No challenge means either already logged in or timeout (same shape as the user route).
+            var status = await daemon.GetSessionStatusAsync(session.Id, cancellationToken);
+            if (status?.Status == "logged-in")
+            {
+                return Ok(new { message = "Already logged in", status = "logged-in" });
+            }
+            return BadRequest(ApiResponse.Error("Login timeout - daemon may not be ready"));
+        }
+
+        return Ok(challenge);
+    }
+
+    /// <summary>
+    /// Provides an encrypted credential in response to a challenge for the RUNNING persistent session.
+    /// AdminOnly analogue of <c>POST {service}/sessions/{id}/credential</c>. Reuses the user route's
+    /// <see cref="ProvideCredentialRequest"/> payload (Challenge + Credential) and delegates to
+    /// <see cref="PrefillDaemonServiceBase.ProvideCredentialAsync(string, CredentialChallenge, string, CancellationToken)"/>.
+    /// </summary>
+    [HttpPost("credential")]
+    public async Task<ActionResult> ProvideCredentialAsync(
+        [FromBody] PersistentProvideCredentialRequest request,
+        CancellationToken cancellationToken)
+    {
+        var (daemon, session, error) = ResolveRunningPersistentSession(request.Service);
+        if (error is not null)
+        {
+            return error;
+        }
+
+        if (request.Challenge == null || string.IsNullOrEmpty(request.Credential))
+        {
+            return BadRequest(ApiResponse.Required("Challenge and credential"));
+        }
+
+        await daemon!.ProvideCredentialAsync(session!.Id, request.Challenge, request.Credential, cancellationToken);
+
+        return Ok(ApiResponse.Message("Credential sent"));
+    }
+
+    /// <summary>
+    /// Polls for the next credential challenge / login state of the RUNNING persistent session.
+    /// AdminOnly analogue of <c>GET {service}/sessions/{id}/challenge</c>. Delegates to
+    /// <see cref="PrefillDaemonServiceBase.WaitForChallengeAsync(string, TimeSpan?, CancellationToken)"/>.
+    /// </summary>
+    [HttpGet("challenge")]
+    public async Task<ActionResult<CredentialChallenge>> GetChallengeAsync(
+        [FromQuery] PrefillPlatform service,
+        [FromQuery] int timeoutSeconds = 30,
+        CancellationToken cancellationToken = default)
+    {
+        var (daemon, session, error) = ResolveRunningPersistentSession(service);
+        if (error is not null)
+        {
+            return error;
+        }
+
+        var challenge = await daemon!.WaitForChallengeAsync(session!.Id, TimeSpan.FromSeconds(timeoutSeconds), cancellationToken);
+
+        if (challenge == null)
+        {
+            var status = await daemon.GetSessionStatusAsync(session.Id, cancellationToken);
+            if (status?.Status == "logged-in")
+            {
+                return Ok(new { status = "logged-in" });
+            }
+            return NoContent();
+        }
+
+        return Ok(challenge);
+    }
+
+    /// <summary>
+    /// Cancels a pending interactive login for the RUNNING persistent session and resets auth state.
+    /// AdminOnly analogue of the user cancel-login flow. Delegates to
+    /// <see cref="PrefillDaemonServiceBase.CancelLoginAsync(string, CancellationToken)"/>.
+    /// </summary>
+    [HttpPost("cancel-login")]
+    public async Task<ActionResult> CancelLoginAsync(
+        [FromBody] PersistentLoginRequest request,
+        CancellationToken cancellationToken)
+    {
+        var (daemon, session, error) = ResolveRunningPersistentSession(request.Service);
+        if (error is not null)
+        {
+            return error;
+        }
+
+        await daemon!.CancelLoginAsync(session!.Id, cancellationToken);
+
+        return Ok(ApiResponse.Message("Login cancelled"));
+    }
+
+    /// <summary>
     /// Returns the admin-configured persistent login validity window in days.
     /// </summary>
     [HttpGet("validity")]
@@ -257,6 +372,36 @@ public class PersistentPrefillController : ControllerBase
     }
 
     /// <summary>
+    /// Resolves the daemon + RUNNING persistent session for a platform, applying the exact same
+    /// guard pattern as <see cref="GetGamesAsync"/>: returns a populated error <see cref="ActionResult"/>
+    /// (BadRequest/NotFound/Forbid) when no running persistent session exists, otherwise returns the
+    /// daemon and session with a null error. Defense-in-depth: never resolves a non-persistent session.
+    /// </summary>
+    private (PrefillDaemonServiceBase? Daemon, DaemonSession? Session, ActionResult? Error) ResolveRunningPersistentSession(
+        PrefillPlatform service)
+    {
+        var daemon = ResolveDaemon(_serviceProvider, service);
+        if (daemon is null)
+        {
+            return (null, null, BadRequest($"No daemon registered for service '{service}'"));
+        }
+
+        var session = daemon.GetAllSessions()
+            .FirstOrDefault(s => s.IsPersistent && s.Status == DaemonSessionStatus.Active);
+        if (session is null)
+        {
+            return (null, null, NotFound($"No running persistent session for service '{service}'"));
+        }
+
+        if (!session.IsPersistent)
+        {
+            return (null, null, Forbid());
+        }
+
+        return (daemon, session, null);
+    }
+
+    /// <summary>
     /// Resolves the concrete daemon singleton for a platform. Mirrors
     /// <c>ScheduledPrefillService.ResolveDaemon</c> exactly.
     /// </summary>
@@ -315,6 +460,33 @@ public sealed class StartPersistentSessionRequest
 {
     /// <summary>Platform whose daemon should own the persistent session.</summary>
     public required PrefillPlatform Service { get; init; }
+}
+
+/// <summary>
+/// Request body for the persistent interactive-login routes that only need to identify the platform
+/// (login start / cancel-login). The running persistent session is resolved server-side.
+/// </summary>
+public sealed class PersistentLoginRequest
+{
+    /// <summary>Platform whose running persistent session should be logged in / cancelled.</summary>
+    public required PrefillPlatform Service { get; init; }
+}
+
+/// <summary>
+/// Request body for providing a credential to the running persistent session. Carries the platform
+/// plus the exact same <see cref="CredentialChallenge"/> + credential payload the user route uses
+/// (<see cref="ProvideCredentialRequest"/>), so the frontend can reuse its login challenge types.
+/// </summary>
+public sealed class PersistentProvideCredentialRequest
+{
+    /// <summary>Platform whose running persistent session the credential targets.</summary>
+    public required PrefillPlatform Service { get; init; }
+
+    /// <summary>The challenge being answered (same shape as the user credential route).</summary>
+    public CredentialChallenge? Challenge { get; init; }
+
+    /// <summary>The encrypted credential value (same shape as the user credential route).</summary>
+    public string? Credential { get; init; }
 }
 
 /// <summary>Request body for stopping a persistent session.</summary>

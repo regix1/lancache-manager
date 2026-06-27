@@ -57,6 +57,7 @@ import type {
   PersistentPrefillServiceId,
   PersistentPrefillValiditySettings
 } from '../components/features/prefill/persistentPrefillTypes';
+import type { CredentialChallenge } from '../hooks/usePrefillSteamAuth';
 import type { MetricsSecurityResponse } from '../components/features/management/grafana/GrafanaEndpoints.types';
 import type { GuestDurationResponse } from '../components/features/user/AccessSecurityCard.types';
 
@@ -90,6 +91,8 @@ interface CachedGameDetectionResponse {
   totalServicesDetected?: number;
   lastDetectionTime?: string;
 }
+
+type PersistentChallengeResponse = CredentialChallenge | 'authenticated' | { authenticated: true };
 
 interface OperationResponse {
   message?: string;
@@ -3039,6 +3042,83 @@ class ApiService {
       } else {
         console.error('getPersistentPrefillGames error:', error);
       }
+      throw error;
+    }
+  }
+
+  static async startPersistentLogin(
+    service: PersistentPrefillServiceId
+  ): Promise<CredentialChallenge> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/prefill/persistent/login`,
+        this.getFetchOptions({
+          method: 'POST',
+          body: JSON.stringify({ service }),
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      return await this.handleResponse<CredentialChallenge>(res);
+    } catch (error: unknown) {
+      console.error('startPersistentLogin error:', error);
+      throw error;
+    }
+  }
+
+  static async providePersistentCredential(
+    service: PersistentPrefillServiceId,
+    challenge: CredentialChallenge,
+    credential: string
+  ): Promise<void> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/prefill/persistent/credential`,
+        this.getFetchOptions({
+          method: 'POST',
+          body: JSON.stringify({ service, challenge, credential }),
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      await this.handleResponse<void>(res);
+    } catch (error: unknown) {
+      console.error('providePersistentCredential error:', error);
+      throw error;
+    }
+  }
+
+  static async getPersistentChallenge(
+    service: PersistentPrefillServiceId,
+    timeoutSeconds?: number
+  ): Promise<PersistentChallengeResponse> {
+    try {
+      const params = new URLSearchParams({ service });
+      if (timeoutSeconds !== undefined) {
+        params.set('timeoutSeconds', timeoutSeconds.toString());
+      }
+      const res = await fetch(
+        `${API_BASE}/system/prefill/persistent/challenge?${params.toString()}`,
+        this.getFetchOptions()
+      );
+      return await this.handleResponse<PersistentChallengeResponse>(res);
+    } catch (error: unknown) {
+      console.error('getPersistentChallenge error:', error);
+      throw error;
+    }
+  }
+
+  static async cancelPersistentLogin(service: PersistentPrefillServiceId): Promise<void> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/prefill/persistent/cancel-login`,
+        this.getFetchOptions({
+          method: 'POST',
+          body: JSON.stringify({ service }),
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      await this.handleResponse<void>(res);
+    } catch (error: unknown) {
+      console.error('cancelPersistentLogin error:', error);
       throw error;
     }
   }

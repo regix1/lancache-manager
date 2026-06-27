@@ -166,6 +166,14 @@ public abstract partial class PrefillDaemonServiceBase
 
     protected async Task NotifyAuthStateChangeAsync(DaemonSession session)
     {
+        // Single robust point covering every login path (interactive + auto-login): once a
+        // session transitions to Authenticated, it no longer needs a re-login. Clear the flag
+        // here so a previously-flagged persistent container stops reporting needs-relogin.
+        if (session.AuthState == DaemonAuthState.Authenticated)
+        {
+            session.NeedsRelogin = false;
+        }
+
         await BroadcastToSubscribersAsync(session, EventAuthStateChanged,
             new { sessionId = session.Id, authState = session.AuthState.ToString() });
     }
