@@ -257,6 +257,11 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             var xboxMappingService = scopedServices.GetRequiredService<LancacheManager.Services.Xbox.XboxMappingService>();
             await xboxMappingService.BackfillMissingBannerArtAsync(stoppingToken);
         }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Shutdown - let cancellation propagate rather than logging it as a non-fatal failure.
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[GameImageFetch] Xbox banner URL backfill failed (non-fatal)");

@@ -833,6 +833,11 @@ public class RustLogProcessorService
                     {
                         await xboxMappingService.BackfillMissingBannerArtAsync();
                     }
+                    catch (OperationCanceledException)
+                    {
+                        // Shutdown/cancellation - let it propagate, do not treat as a non-fatal backfill error.
+                        throw;
+                    }
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex, "Failed to backfill Xbox banner art (non-fatal)");
