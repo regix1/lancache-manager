@@ -28,7 +28,6 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     protected readonly IStateService _stateService;
     protected readonly PrefillSessionService _sessionService;
     protected readonly PrefillCacheService _cacheService;
-    protected readonly IScheduledPrefillAuthService _scheduledPrefillAuthService;
     protected readonly ConcurrentDictionary<string, DaemonSession> _sessions = new();
     protected DockerClient? _dockerClient;
     private Timer? _cleanupTimer;
@@ -292,7 +291,6 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         IStateService stateService,
         PrefillSessionService sessionService,
         PrefillCacheService cacheService,
-        IScheduledPrefillAuthService scheduledPrefillAuthService,
         IOptionsMonitor<PrefillNetworkOptions> networkOptions)
     {
         _logger = logger;
@@ -302,7 +300,6 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         _stateService = stateService;
         _sessionService = sessionService;
         _cacheService = cacheService;
-        _scheduledPrefillAuthService = scheduledPrefillAuthService;
         _networkOptions = networkOptions;
         _isRunningInContainer = bool.TryParse(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), out var inContainer) && inContainer;
     }
@@ -712,6 +709,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         string? userAgent = null,
         SessionType sessionType = SessionType.Admin,
         bool isPersistent = false,
+        bool reuseExistingSession = true,
         CancellationToken cancellationToken = default)
     {
         if (_dockerClient == null)
@@ -721,11 +719,14 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         }
 
         // Check if user already has an active session - return it instead of creating a new one
-        var existingSession = _sessions.Values.FirstOrDefault(s => s.UserId == userId && s.Status == DaemonSessionStatus.Active);
-        if (existingSession != null)
+        if (reuseExistingSession)
         {
-            _logger.LogInformation("Returning existing active session {SessionId} for user {UserId}", existingSession.Id, userId);
-            return existingSession;
+            var existingSession = _sessions.Values.FirstOrDefault(s => s.UserId == userId && s.Status == DaemonSessionStatus.Active);
+            if (existingSession != null)
+            {
+                _logger.LogInformation("Returning existing active session {SessionId} for user {UserId}", existingSession.Id, userId);
+                return existingSession;
+            }
         }
 
         // Enforce UserId-based bans at session-create time. For anonymous services (e.g. Battle.net)
@@ -1817,7 +1818,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             userAgent,
             SessionType.Admin,
             isPersistent: true,
-            cancellationToken);
+            cancellationToken: cancellationToken);
 
         return session;
     }

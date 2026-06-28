@@ -22,6 +22,8 @@ export interface Session {
   epicPrefillExpiresAt?: string | null;
   battlenetPrefillEnabled: boolean;
   battlenetPrefillExpiresAt?: string | null;
+  riotPrefillEnabled: boolean;
+  riotPrefillExpiresAt?: string | null;
   xboxPrefillEnabled: boolean;
   xboxPrefillExpiresAt?: string | null;
   publicIpAddress?: string | null;

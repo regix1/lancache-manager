@@ -179,16 +179,20 @@ function ServicePrefillPanel({
   }, [loadPrefillDefaults]);
 
   // Listen for PrefillDefaultsChanged (admin changes OS/concurrency),
-  // GuestPrefillConfigChanged (admin changes system-wide guest thread limit),
+  // GuestPrefillConfigChanged / Epic / Xbox (admin changes system-wide guest thread limits),
   // and UserPreferencesUpdated (admin changes per-session thread limit) - re-fetch
   // to get session-resolved effective maxThreadLimit
   useEffect(() => {
     onSignalR('PrefillDefaultsChanged', loadPrefillDefaults);
     onSignalR('GuestPrefillConfigChanged', loadPrefillDefaults);
+    onSignalR('EpicGuestPrefillConfigChanged', loadPrefillDefaults);
+    onSignalR('XboxGuestPrefillConfigChanged', loadPrefillDefaults);
     onSignalR('UserPreferencesUpdated', loadPrefillDefaults);
     return () => {
       offSignalR('PrefillDefaultsChanged', loadPrefillDefaults);
       offSignalR('GuestPrefillConfigChanged', loadPrefillDefaults);
+      offSignalR('EpicGuestPrefillConfigChanged', loadPrefillDefaults);
+      offSignalR('XboxGuestPrefillConfigChanged', loadPrefillDefaults);
       offSignalR('UserPreferencesUpdated', loadPrefillDefaults);
     };
   }, [onSignalR, offSignalR, loadPrefillDefaults]);

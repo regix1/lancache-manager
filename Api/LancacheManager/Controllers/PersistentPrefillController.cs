@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Core.Interfaces;
@@ -29,10 +27,10 @@ public class PersistentPrefillController : ControllerBase
 
     /// <summary>
     /// Deterministic pseudo-user Guid that owns every persistent session, derived identically to
-    /// <c>ScheduledPrefillService.DeriveSystemUserId()</c> (SHA-256 of
+    /// <c>ScheduledPrefillConstants.DeriveSystemUserId()</c> (SHA-256 of
     /// <see cref="ScheduledPrefillConstants.SystemUserId"/>) so both code paths agree on identity.
     /// </summary>
-    private readonly Guid _systemUserId = DeriveSystemUserId();
+    private readonly Guid _systemUserId = ScheduledPrefillConstants.DeriveSystemUserId();
 
     public PersistentPrefillController(
         IServiceProvider serviceProvider,
@@ -347,39 +345,6 @@ public class PersistentPrefillController : ControllerBase
     }
 
     /// <summary>
-    /// Returns the admin-configured guest temp-container max lifetime in hours.
-    /// </summary>
-    [HttpGet("guest-lifetime")]
-    public ActionResult<GuestPrefillLifetimeDto> GetGuestLifetime()
-    {
-        return Ok(new GuestPrefillLifetimeDto
-        {
-            Hours = _stateService.GetGuestPrefillMaxLifetimeHours()
-        });
-    }
-
-    /// <summary>
-    /// Updates the admin-configured guest temp-container max lifetime (1-3 hours).
-    /// </summary>
-    [HttpPut("guest-lifetime")]
-    public ActionResult<GuestPrefillLifetimeDto> SetGuestLifetime([FromBody] GuestPrefillLifetimeDto request)
-    {
-        try
-        {
-            _stateService.SetGuestPrefillMaxLifetimeHours(request.Hours);
-        }
-        catch (ArgumentOutOfRangeException ex)
-        {
-            return BadRequest(ex.Message);
-        }
-
-        return Ok(new GuestPrefillLifetimeDto
-        {
-            Hours = _stateService.GetGuestPrefillMaxLifetimeHours()
-        });
-    }
-
-    /// <summary>
     /// Resolves the daemon + RUNNING persistent session for a platform, applying the exact same
     /// guard pattern as <see cref="GetGamesAsync"/>: returns a populated error <see cref="ActionResult"/>
     /// (BadRequest/NotFound/Forbid) when no running persistent session exists, otherwise returns the
@@ -449,17 +414,6 @@ public class PersistentPrefillController : ControllerBase
         }
 
         return PrefillPlatform.Steam;
-    }
-
-    /// <summary>
-    /// Derives the stable system user Guid identically to <c>ScheduledPrefillService.DeriveSystemUserId()</c>.
-    /// </summary>
-    private static Guid DeriveSystemUserId()
-    {
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(ScheduledPrefillConstants.SystemUserId));
-        var bytes = new byte[16];
-        Array.Copy(hash, bytes, 16);
-        return new Guid(bytes);
     }
 }
 
@@ -546,13 +500,6 @@ public sealed class PersistentLoginValidityDto
 {
     /// <summary>Validity window in days (1-365).</summary>
     public required int Days { get; init; }
-}
-
-/// <summary>Guest temp-container max lifetime, in hours.</summary>
-public sealed class GuestPrefillLifetimeDto
-{
-    /// <summary>Max guest container lifetime in hours (1-3).</summary>
-    public required int Hours { get; init; }
 }
 
 /// <summary>

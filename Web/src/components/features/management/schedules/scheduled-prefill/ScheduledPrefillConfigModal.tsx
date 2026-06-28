@@ -4,12 +4,10 @@ import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Card } from '@components/ui/Card';
-import { SegmentedControl } from '@components/ui/SegmentedControl';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { GameSelectionModal } from '@components/features/prefill/GameSelectionModal';
 import {
-  PERSISTENT_PREFILL_GUEST_LIFETIME_BOUNDS,
   PERSISTENT_PREFILL_SERVICES,
   PERSISTENT_PREFILL_VALIDITY_BOUNDS
 } from '@components/features/prefill/persistentPrefillConstants';
@@ -29,20 +27,13 @@ import type {
   ScheduledPrefillServiceConfigDto,
   ScheduledPrefillServiceKey
 } from './types';
+import { getErrorMessage, isAbortError } from '@utils/error';
 
 interface ScheduledPrefillConfigModalProps {
   opened: boolean;
   onClose: () => void;
   onSaved?: () => void | Promise<void>;
 }
-
-const getErrorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
-
-const isAbortError = (error: unknown): boolean =>
-  error instanceof DOMException
-    ? error.name === 'AbortError'
-    : error instanceof Error && error.name === 'AbortError';
 
 interface ScheduledPrefillOwnedGame {
   appId: string;
@@ -67,7 +58,6 @@ interface NumericBounds {
 }
 
 const DEFAULT_PERSISTENT_PREFILL_VALIDITY_DAYS = 90;
-const DEFAULT_PERSISTENT_PREFILL_GUEST_LIFETIME_HOURS = 1;
 
 const getPersistentServiceId = (
   serviceKey: ScheduledPrefillServiceKey
@@ -135,6 +125,7 @@ export function ScheduledPrefillConfigModal({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [persistentContainers, setPersistentContainers] = useState<PersistentPrefillContainerDto[]>(
     []
@@ -146,9 +137,6 @@ export function ScheduledPrefillConfigModal({
   );
   const [persistentValidityDays, setPersistentValidityDays] = useState(
     DEFAULT_PERSISTENT_PREFILL_VALIDITY_DAYS
-  );
-  const [guestLifetimeHours, setGuestLifetimeHours] = useState(
-    DEFAULT_PERSISTENT_PREFILL_GUEST_LIFETIME_HOURS
   );
   const [loadingGlobalSettings, setLoadingGlobalSettings] = useState(false);
   const [savingGlobalSettings, setSavingGlobalSettings] = useState(false);
@@ -182,10 +170,10 @@ export function ScheduledPrefillConfigModal({
     try {
       const nextStatuses = await ApiService.getScheduledPrefillAuthStatus(signal);
       setAuthStatuses(nextStatuses);
-      setLoadError(null);
+      setAuthError(null);
     } catch (error: unknown) {
       if (!isAbortError(error)) {
-        setLoadError(getErrorMessage(error));
+        setAuthError(getErrorMessage(error));
       }
     } finally {
       setLoadingAuthStatus(false);
@@ -210,14 +198,8 @@ export function ScheduledPrefillConfigModal({
   const loadGlobalSettings = useCallback(async (signal?: AbortSignal) => {
     setLoadingGlobalSettings(true);
     try {
-      const [validity, guestLifetime] = await Promise.all([
-        ApiService.getPersistentPrefillValidity(signal),
-        ApiService.getPersistentPrefillGuestLifetime(signal)
-      ]);
+      const validity = await ApiService.getPersistentPrefillValidity(signal);
       setPersistentValidityDays(clampToBounds(validity.days, PERSISTENT_PREFILL_VALIDITY_BOUNDS));
-      setGuestLifetimeHours(
-        clampToBounds(guestLifetime.hours, PERSISTENT_PREFILL_GUEST_LIFETIME_BOUNDS)
-      );
       setGlobalSettingsError(null);
     } catch (error: unknown) {
       if (!isAbortError(error)) {
@@ -236,6 +218,7 @@ export function ScheduledPrefillConfigModal({
     const controller = new AbortController();
     setValidationError(null);
     setSaveError(null);
+    setAuthError(null);
     setPersistentError(null);
     setGlobalSettingsError(null);
     setGlobalSettingsSaved(false);
@@ -262,27 +245,6 @@ export function ScheduledPrefillConfigModal({
     [persistentContainers]
   );
 
-  const guestLifetimeOptions = useMemo(
-    () =>
-      Array.from(
-        {
-          length:
-            PERSISTENT_PREFILL_GUEST_LIFETIME_BOUNDS.max -
-            PERSISTENT_PREFILL_GUEST_LIFETIME_BOUNDS.min +
-            1
-        },
-        (_, index) => {
-          const hours = PERSISTENT_PREFILL_GUEST_LIFETIME_BOUNDS.min + index;
-          return {
-            value: String(hours),
-            label: t(`${baseKey}.settings.guestLifetimeOption`, { hours }),
-            disabled: loadingGlobalSettings || savingGlobalSettings
-          };
-        }
-      ),
-    [t, baseKey, loadingGlobalSettings, savingGlobalSettings]
-  );
-
   const validationMessage = useMemo(() => {
     if (!config) {
       return null;
@@ -306,6 +268,7 @@ export function ScheduledPrefillConfigModal({
     setConfig((current) => (current ? { ...current, [serviceKey]: serviceConfig } : current));
     setValidationError(null);
     setSaveError(null);
+    setAuthError(null);
   };
 
   const clearGlobalSettingsNotice = () => {
@@ -320,21 +283,10 @@ export function ScheduledPrefillConfigModal({
     clearGlobalSettingsNotice();
   };
 
-  const handleGuestLifetimeHoursChange = (value: string) => {
-    setGuestLifetimeHours((current) =>
-      parseBoundedInteger(value, PERSISTENT_PREFILL_GUEST_LIFETIME_BOUNDS, current)
-    );
-    clearGlobalSettingsNotice();
-  };
-
   const handleSaveGlobalSettings = async () => {
     const nextValidityDays = clampToBounds(
       persistentValidityDays,
       PERSISTENT_PREFILL_VALIDITY_BOUNDS
-    );
-    const nextGuestLifetimeHours = clampToBounds(
-      guestLifetimeHours,
-      PERSISTENT_PREFILL_GUEST_LIFETIME_BOUNDS
     );
 
     setSavingGlobalSettings(true);
@@ -342,12 +294,8 @@ export function ScheduledPrefillConfigModal({
     setGlobalSettingsSaved(false);
 
     try {
-      await Promise.all([
-        ApiService.updatePersistentPrefillValidity({ days: nextValidityDays }),
-        ApiService.updatePersistentPrefillGuestLifetime({ hours: nextGuestLifetimeHours })
-      ]);
+      await ApiService.updatePersistentPrefillValidity({ days: nextValidityDays });
       setPersistentValidityDays(nextValidityDays);
-      setGuestLifetimeHours(nextGuestLifetimeHours);
       setGlobalSettingsSaved(true);
     } catch (error: unknown) {
       setGlobalSettingsError(getErrorMessage(error));
@@ -455,6 +403,7 @@ export function ScheduledPrefillConfigModal({
     );
     setValidationError(null);
     setSaveError(null);
+    setAuthError(null);
     setGameSelectionError(null);
   };
 
@@ -516,6 +465,11 @@ export function ScheduledPrefillConfigModal({
                   {t(`${baseKey}.saveError`, { error: saveError })}
                 </Alert>
               )}
+              {authError && (
+                <Alert color="red" className="scheduled-prefill-config-modal__alert">
+                  {t(`${baseKey}.authError`, { error: authError })}
+                </Alert>
+              )}
               {persistentError && (
                 <Alert color="red" className="scheduled-prefill-config-modal__alert">
                   {t(`${baseKey}.persistentContainer.error`, { error: persistentError })}
@@ -541,7 +495,7 @@ export function ScheduledPrefillConfigModal({
                 loading={loadingAuthStatus}
                 disabled={saving || savingGlobalSettings}
                 onRefresh={() => loadAuthStatus()}
-                onError={setSaveError}
+                onError={setAuthError}
               />
 
               <Card padding="md" className="scheduled-prefill-config-modal__settings">
@@ -599,25 +553,6 @@ export function ScheduledPrefillConfigModal({
                       })}
                     </p>
                   </label>
-
-                  <div className="scheduled-prefill-config-modal__settings-field">
-                    <span className="scheduled-prefill-config-modal__settings-label">
-                      {t(`${baseKey}.settings.guestLifetimeLabel`)}
-                    </span>
-                    <SegmentedControl
-                      options={guestLifetimeOptions}
-                      value={String(guestLifetimeHours)}
-                      onChange={handleGuestLifetimeHoursChange}
-                      fullWidth
-                      showLabels
-                    />
-                    <p className="scheduled-prefill-config-modal__settings-help">
-                      {t(`${baseKey}.settings.guestLifetimeHelp`, {
-                        min: PERSISTENT_PREFILL_GUEST_LIFETIME_BOUNDS.min,
-                        max: PERSISTENT_PREFILL_GUEST_LIFETIME_BOUNDS.max
-                      })}
-                    </p>
-                  </div>
                 </div>
 
                 <div className="scheduled-prefill-config-modal__settings-actions">

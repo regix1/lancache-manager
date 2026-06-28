@@ -1,9 +1,5 @@
 import { API_BASE } from '../utils/constants';
-import authService from './auth.service';
-import type {
-  UserSessionRevokedEvent,
-  DefaultGuestThemeChangedEvent
-} from '../contexts/SignalRContext/types';
+import type { UserSessionRevokedEvent } from '../contexts/SignalRContext/types';
 
 // SignalR connection interface - handler needs to accept any args for compatibility
 interface SignalRConnection {
@@ -148,7 +144,8 @@ class PreferencesService {
    * - UserPreferencesReset
    * - UserSessionsCleared
    * - UserSessionRevoked
-   * - DefaultGuestThemeChanged
+   *
+   * Guest default preference events are handled by SessionPreferencesContext.
    */
   setupSignalRListener(signalR: SignalRConnection): void {
     let isProcessingReset = false;
@@ -204,26 +201,9 @@ class PreferencesService {
       }
     };
 
-    // Handle default guest theme changed - auto-update guests using default theme
-    const handleDefaultGuestThemeChanged = (data: DefaultGuestThemeChangedEvent) => {
-      const { newThemeId } = data;
-
-      // Only apply to guest users
-      if (authService.authMode !== 'guest') return;
-
-      // Dispatch preference-changed event to trigger theme update
-      // themeService listens for this to apply the new theme
-      window.dispatchEvent(
-        new CustomEvent('preference-changed', {
-          detail: { key: 'selectedTheme', value: newThemeId }
-        })
-      );
-    };
-
     signalR.on('UserPreferencesReset', handlePreferencesReset);
     signalR.on('UserSessionsCleared', handleSessionsCleared);
     signalR.on('UserSessionRevoked', handleSessionRevoked);
-    signalR.on('DefaultGuestThemeChanged', handleDefaultGuestThemeChanged);
   }
 }
 

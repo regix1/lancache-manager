@@ -55,3 +55,30 @@ export interface ScheduledPrefillAuthStatusItem {
   expiresAtUtc: string | null;
   loginState: ScheduledPrefillAuthLoginState;
 }
+
+export interface ScheduledPrefillStartedEvent {
+  operationId: string;
+  serviceCount: number;
+}
+
+export interface ScheduledPrefillProgressEvent {
+  operationId: string;
+  serviceId: string;
+  stage: string;
+  message: string;
+  needsLoginReason?: string | null;
+}
+
+export interface ScheduledPrefillCompletedEvent {
+  operationId: string | null;
+  success: boolean;
+  error?: string | null;
+}
+
+export type ScheduledPrefillRunPhase = 'idle' | 'running' | 'completed' | 'failed';
+
+export interface ScheduledPrefillRunProgressItem {
+  serviceId: string;
+  stage: string;
+  message: string;
+}

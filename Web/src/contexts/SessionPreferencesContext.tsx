@@ -2,12 +2,20 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSignalR } from './SignalRContext/useSignalR';
 import { useAuth } from './useAuth';
 import ApiService from '@services/api.service';
-import type { UserPreferencesUpdatedEvent } from './SignalRContext/types';
+import type {
+  UserPreferencesUpdatedEvent,
+  DefaultGuestThemeChangedEvent
+} from './SignalRContext/types';
 import {
   getCorrectedTimezone,
   getCorrectedValue,
   hasPendingPreference
 } from '@utils/pendingPreferences';
+import {
+  DEFAULT_GUEST_PREFERENCE_KEYS,
+  shouldApplyGuestDefaultChange
+} from '@utils/guestDefaultPreferenceGate';
+import { getCachedDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { SessionPreferencesContext } from './SessionPreferencesContext.types';
 
 interface UserPreferences {
@@ -319,6 +327,89 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
     },
     [getCurrentSessionId]
   );
+
+  const dispatchPreferenceChanged = useCallback((key: string, value: unknown) => {
+    window.dispatchEvent(
+      new CustomEvent('preference-changed', {
+        detail: { key, value }
+      })
+    );
+  }, []);
+
+  const isGuestWithLoadedPrefs = useCallback((): UserPreferences | null => {
+    if (isAdmin || !hasSession) return null;
+
+    const sessionId = getCurrentSessionId();
+    if (!sessionId || !loadedIds.current.has(sessionId)) return null;
+
+    return preferencesRef.current[sessionId] ?? null;
+  }, [isAdmin, hasSession, getCurrentSessionId]);
+
+  const handleDefaultGuestThemeChanged = useCallback(
+    (data: DefaultGuestThemeChangedEvent) => {
+      const currentPrefs = isGuestWithLoadedPrefs();
+      if (!currentPrefs) return;
+
+      const previousDefaults = getCachedDefaultGuestPreferences();
+      if (!shouldApplyGuestDefaultChange('selectedTheme', currentPrefs, previousDefaults)) return;
+
+      setOptimisticPreference('selectedTheme', null);
+      dispatchPreferenceChanged('selectedTheme', data.newThemeId);
+    },
+    [isGuestWithLoadedPrefs, setOptimisticPreference, dispatchPreferenceChanged]
+  );
+
+  const handleDefaultGuestPreferencesChanged = useCallback(
+    (data: { key: string; value: boolean }) => {
+      if (!DEFAULT_GUEST_PREFERENCE_KEYS.has(data.key)) return;
+
+      const currentPrefs = isGuestWithLoadedPrefs();
+      if (!currentPrefs) return;
+
+      const previousDefaults = getCachedDefaultGuestPreferences();
+      if (!shouldApplyGuestDefaultChange(data.key, currentPrefs, previousDefaults)) return;
+
+      setOptimisticPreference(
+        data.key as keyof UserPreferences,
+        data.value as UserPreferences[keyof UserPreferences]
+      );
+      dispatchPreferenceChanged(data.key, data.value);
+    },
+    [isGuestWithLoadedPrefs, setOptimisticPreference, dispatchPreferenceChanged]
+  );
+
+  const handleAllowedTimeFormatsChanged = useCallback(
+    (data: { formats: string[] }) => {
+      const currentPrefs = isGuestWithLoadedPrefs();
+      if (!currentPrefs) return;
+
+      const previousDefaults = getCachedDefaultGuestPreferences();
+      if (!shouldApplyGuestDefaultChange('allowedTimeFormats', currentPrefs, previousDefaults)) {
+        return;
+      }
+
+      setOptimisticPreference('allowedTimeFormats', data.formats);
+      dispatchPreferenceChanged('allowedTimeFormats', data.formats);
+    },
+    [isGuestWithLoadedPrefs, setOptimisticPreference, dispatchPreferenceChanged]
+  );
+
+  useEffect(() => {
+    on('DefaultGuestThemeChanged', handleDefaultGuestThemeChanged);
+    on('DefaultGuestPreferencesChanged', handleDefaultGuestPreferencesChanged);
+    on('AllowedTimeFormatsChanged', handleAllowedTimeFormatsChanged);
+    return () => {
+      off('DefaultGuestThemeChanged', handleDefaultGuestThemeChanged);
+      off('DefaultGuestPreferencesChanged', handleDefaultGuestPreferencesChanged);
+      off('AllowedTimeFormatsChanged', handleAllowedTimeFormatsChanged);
+    };
+  }, [
+    on,
+    off,
+    handleDefaultGuestThemeChanged,
+    handleDefaultGuestPreferencesChanged,
+    handleAllowedTimeFormatsChanged
+  ]);
 
   const updateSessionPreference = useCallback(
     <K extends keyof UserPreferences>(sessionId: string, key: K, value: UserPreferences[K]) => {

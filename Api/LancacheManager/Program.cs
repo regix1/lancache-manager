@@ -264,6 +264,7 @@ builder.Services.AddSingleton<RustProcessHelper>();
 
 // Register repositories with their interfaces
 builder.Services.AddSingleton<ISteamAuthStorageService, SteamAuthStorageService>();
+builder.Services.AddSingleton<IScheduledPrefillSteamAuthStorageService, ScheduledPrefillSteamAuthStorageService>();
 builder.Services.AddSingleton<IStateService, StateService>();
 builder.Services.AddScoped<IDatabaseService, DatabaseService>();
 builder.Services.AddScoped<IStatsDataService, StatsDataService>();
@@ -286,6 +287,8 @@ builder.Services.AddSingleton<ISignalRNotificationService, SignalRNotificationSe
 
 // Register concrete classes (for code that directly references them)
 builder.Services.AddSingleton(sp => (SteamAuthStorageService)sp.GetRequiredService<ISteamAuthStorageService>());
+builder.Services.AddSingleton(sp =>
+    (ScheduledPrefillSteamAuthStorageService)sp.GetRequiredService<IScheduledPrefillSteamAuthStorageService>());
 builder.Services.AddSingleton(sp => (StateService)sp.GetRequiredService<IStateService>());
 builder.Services.AddScoped(sp => (DatabaseService)sp.GetRequiredService<IDatabaseService>());
 builder.Services.AddScoped(sp => (StatsDataService)sp.GetRequiredService<IStatsDataService>());

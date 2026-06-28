@@ -59,3 +59,13 @@ export const SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS = {
   min: 1,
   max: 256
 } as const;
+
+/** Maps backend PrefillPlatform names to frontend service config keys. */
+export const SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY: Record<string, ScheduledPrefillServiceKey> =
+  {
+    Steam: 'steam',
+    Epic: 'epic',
+    Xbox: 'xbox',
+    BattleNet: 'battleNet',
+    Riot: 'riot'
+  };

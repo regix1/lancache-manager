@@ -1485,10 +1485,9 @@ public class StateService : IStateService
 
     public void SetGuestPrefillDurationHours(int hours)
     {
-        // Validate hours (1 or 2)
-        if (hours != 1 && hours != 2)
+        if (hours is < 1 or > 3)
         {
-            hours = 2; // Default to 2 hours
+            hours = 2;
         }
         UpdateState(state => state.GuestPrefillDurationHours = hours);
     }
@@ -1648,10 +1647,9 @@ public class StateService : IStateService
 
     public void SetEpicGuestPrefillDurationHours(int hours)
     {
-        // Validate hours (1 or 2)
-        if (hours != 1 && hours != 2)
+        if (hours is < 1 or > 3)
         {
-            hours = 2; // Default to 2 hours
+            hours = 2;
         }
         UpdateState(state => state.EpicGuestPrefillDurationHours = hours);
     }
@@ -1674,10 +1672,9 @@ public class StateService : IStateService
 
     public void SetBattleNetGuestPrefillDurationHours(int hours)
     {
-        // Validate hours (1 or 2)
-        if (hours != 1 && hours != 2)
+        if (hours is < 1 or > 3)
         {
-            hours = 2; // Default to 2 hours
+            hours = 2;
         }
         UpdateState(state => state.BattleNetGuestPrefillDurationHours = hours);
     }
@@ -1700,10 +1697,9 @@ public class StateService : IStateService
 
     public void SetRiotGuestPrefillDurationHours(int hours)
     {
-        // Validate hours (1 or 2)
-        if (hours != 1 && hours != 2)
+        if (hours is < 1 or > 3)
         {
-            hours = 2; // Default to 2 hours
+            hours = 2;
         }
         UpdateState(state => state.RiotGuestPrefillDurationHours = hours);
     }
@@ -1726,10 +1722,9 @@ public class StateService : IStateService
 
     public void SetXboxGuestPrefillDurationHours(int hours)
     {
-        // Validate hours (1 or 2)
-        if (hours != 1 && hours != 2)
+        if (hours is < 1 or > 3)
         {
-            hours = 2; // Default to 2 hours
+            hours = 2;
         }
         UpdateState(state => state.XboxGuestPrefillDurationHours = hours);
     }

@@ -27,9 +27,8 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
         PrefillSessionService sessionService,
         PrefillCacheService cacheService,
         EpicMappingService mappingService,
-        IScheduledPrefillAuthService scheduledPrefillAuthService,
         IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, scheduledPrefillAuthService, networkOptions)
+        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions)
     {
         _mappingService = mappingService;
     }

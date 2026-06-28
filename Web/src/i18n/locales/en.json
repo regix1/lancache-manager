@@ -940,12 +940,14 @@
       },
       "prefillDurationOptions": {
         "1": "1 hour",
-        "2": "2 hours"
+        "2": "2 hours",
+        "3": "3 hours"
       },
       "prefill": {
         "title": "Prefill Permissions",
         "subtitle": "Control guest access to the Prefill tab. Permissions are time-limited and can be granted per-session.",
         "updated": "Prefill configuration updated",
+        "existingGuestsNote": "These defaults apply to new guest sessions only. Use Active Sessions to change prefill permissions for guests who are already logged in.",
         "warning": "Security risk: All new guests will be able to trigger prefills. Consider keeping this off and granting access per-session instead.",
         "enableByDefault": {
           "label": "Enable by Default",
@@ -954,6 +956,11 @@
         "duration": {
           "label": "Permission Duration",
           "description": "How long prefill access lasts after being granted"
+        },
+        "containerLifetime": {
+          "label": "Guest container max lifetime",
+          "description": "Temporary prefill containers auto-stop after this many hours",
+          "existingContainersNote": "This setting applies to new prefill containers only. Already running containers are not affected."
         },
         "errors": {
           "update": "Failed to update prefill configuration"
@@ -3053,6 +3060,8 @@
             "empty": "Scheduled prefill configuration is not available.",
             "label": "Scheduled prefill",
             "authWarning": "One or more enabled account services need login before scheduled prefill can run.",
+            "zeroEnabledWarning": "No services are enabled. Scheduled prefill will not download anything until at least one service is enabled.",
+            "authError": "Authentication error: {{error}}",
             "summaryError": "Failed to load scheduled prefill summary: {{error}}",
             "actions": {
               "configure": "Configure",
@@ -3080,10 +3089,7 @@
               "saved": "Global scheduled prefill settings saved.",
               "error": "Failed to save global scheduled prefill settings: {{error}}",
               "persistentValidityLabel": "Persistent container login validity (days)",
-              "persistentValidityHelp": "Persistent containers run indefinitely. Their login lasts this many days, then re-login is required. Allowed range: {{min}}-{{max}} days.",
-              "guestLifetimeLabel": "Guest temporary container max lifetime (hours)",
-              "guestLifetimeHelp": "Guest temporary containers auto-stop after this many hours. Allowed range: {{min}}-{{max}} hours.",
-              "guestLifetimeOption": "{{hours}} hours"
+              "persistentValidityHelp": "Persistent containers run indefinitely. Their login lasts this many days, then re-login is required. Allowed range: {{min}}-{{max}} days."
             },
             "services": {
               "steam": "Steam",
@@ -3122,6 +3128,10 @@
             },
             "auth": {
               "title": "Authentication",
+              "authPathsIntro": "Scheduled prefill has three separate login paths. Configure the one that matches your goal — they do not share state.",
+              "authPathsSteam": "This card — headless login for scheduled Steam runs, stored in the scheduled-prefill Steam auth store. Steam Integrations (depot mapping) is separate and does not supply these tokens.",
+              "authPathsEpicXbox": "This card — Epic and Xbox scheduled runs use the same tokens as Integrations → Epic/Xbox mapping. Log in on those pages, or use a daemon login from a running persistent container.",
+              "authPathsPersistent": "Service-row persistent container — interactive login inside Docker to browse your library and select games. Does not update Steam status on this card. Epic/Xbox container login is daemon-only and is not shown here.",
               "loading": "Checking authentication...",
               "displayName": "Logged in as {{displayName}}",
               "loginExpires": "{{service}} login expires {{date}}",
@@ -3144,7 +3154,9 @@
                 "notAuthenticated": "Not authenticated"
               },
               "actions": {
-                "logIn": "Log in"
+                "logIn": "Log in",
+                "epicLoginSuccess": "Epic Games authentication successful.",
+                "xboxLoginSuccess": "Xbox authentication successful."
               }
             }
           },
@@ -3155,7 +3167,8 @@
             "cancelled": "Scheduled prefill cancelled",
             "failed": "Scheduled prefill failed",
             "skipped": "{{service}} skipped: {{reason}}",
-            "needsLogin": "{{service}} needs login before scheduled prefill can continue"
+            "needsLogin": "{{service}} needs login before scheduled prefill can continue",
+            "serviceProgress": "{{service}}: {{message}}"
           }
         },
         "epicMapping": {

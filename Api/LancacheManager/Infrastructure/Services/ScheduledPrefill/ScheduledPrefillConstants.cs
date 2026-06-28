@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services.ScheduledPrefill;
@@ -39,4 +41,16 @@ public static class ScheduledPrefillConstants
     /// Default count used by the "Top" preset.
     /// </summary>
     public const int DefaultTopCount = 50;
+
+    /// <summary>
+    /// Derives a stable Guid from <see cref="SystemUserId"/> so every scheduler-owned session
+    /// shares one identity, distinguishable from real users.
+    /// </summary>
+    public static Guid DeriveSystemUserId()
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(SystemUserId));
+        var bytes = new byte[16];
+        Array.Copy(hash, bytes, 16);
+        return new Guid(bytes);
+    }
 }

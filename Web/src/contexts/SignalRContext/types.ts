@@ -126,6 +126,7 @@ export const SIGNALR_EVENTS = [
   'GuestDurationUpdated',
   'GuestPrefillPermissionChanged',
   'GuestPrefillConfigChanged',
+  'GuestPrefillContainerLifetimeChanged',
   'PrefillDefaultsChanged',
 
   // Prefill Daemon
@@ -200,6 +201,9 @@ export const SIGNALR_EVENTS = [
 
   // Xbox Guest Prefill Config
   'XboxGuestPrefillConfigChanged',
+
+  // Guest Prefill Container Lifetime
+  'GuestPrefillContainerLifetimeChanged',
 
   // Epic Game Mappings
   'EpicMappingProgress',
@@ -853,6 +857,23 @@ export interface EpicGuestPrefillConfigChangedEvent {
 export interface BattleNetGuestPrefillConfigChangedEvent {
   enabledByDefault: boolean;
   durationHours: number;
+}
+
+/**
+ * Riot guest prefill config changed (anonymous service - no thread limit).
+ * Handled by GuestConfiguration.tsx and ActiveSessions.tsx for local state updates.
+ */
+export interface RiotGuestPrefillConfigChangedEvent {
+  enabledByDefault: boolean;
+  durationHours: number;
+}
+
+/**
+ * Guest prefill container max lifetime changed (1-3 hours).
+ * Handled by GuestConfiguration.tsx for local state updates.
+ */
+export interface GuestPrefillContainerLifetimeChangedEvent {
+  hours: number;
 }
 
 /**

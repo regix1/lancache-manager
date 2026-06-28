@@ -3,7 +3,7 @@ import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
 
-interface DefaultGuestPreferences {
+export interface DefaultGuestPreferences {
   useLocalTimezone: boolean;
   use24HourFormat: boolean;
   sharpCorners: boolean;
@@ -11,6 +11,10 @@ interface DefaultGuestPreferences {
   showDatasourceLabels: boolean;
   showYearInDates: boolean;
   allowedTimeFormats: string[];
+}
+
+export function getCachedDefaultGuestPreferences(): DefaultGuestPreferences {
+  return cachedPrefs;
 }
 
 const defaultPrefs: DefaultGuestPreferences = {

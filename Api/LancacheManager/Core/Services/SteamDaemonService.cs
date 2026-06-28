@@ -24,9 +24,8 @@ public partial class SteamDaemonService : PrefillDaemonServiceBase
         IStateService stateService,
         PrefillSessionService sessionService,
         PrefillCacheService cacheService,
-        IScheduledPrefillAuthService scheduledPrefillAuthService,
         IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, scheduledPrefillAuthService, networkOptions)
+        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions)
     {
     }
 

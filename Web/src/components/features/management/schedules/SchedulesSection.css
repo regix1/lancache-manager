@@ -335,10 +335,19 @@
 }
 
 .scheduled-prefill-card-summary__warning,
-.scheduled-prefill-card-summary__error {
+.scheduled-prefill-card-summary__error,
+.scheduled-prefill-card-summary__progress {
   margin: 0;
   font-size: 0.75rem;
   line-height: 1.4;
+}
+
+.scheduled-prefill-card-summary__progress {
+  color: var(--theme-text-secondary);
+}
+
+.scheduled-prefill-card-summary__progress--success {
+  color: var(--theme-success-text);
 }
 
 .scheduled-prefill-card-summary__warning {
@@ -497,6 +506,32 @@
 .scheduled-prefill-auth-status__header,
 .scheduled-prefill-service-row__header {
   min-width: 0;
+}
+
+.scheduled-prefill-auth-status__help {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--theme-border-secondary);
+}
+
+.scheduled-prefill-auth-status__help-intro {
+  color: var(--theme-text-secondary);
+}
+
+.scheduled-prefill-auth-status__help-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  list-style: disc;
+}
+
+.scheduled-prefill-auth-status__help-list li {
+  margin: 0;
 }
 
 .scheduled-prefill-auth-status__chip {

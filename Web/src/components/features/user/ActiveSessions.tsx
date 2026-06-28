@@ -27,6 +27,7 @@ import { Modal } from '@components/ui/Modal';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
+import { RiotIcon } from '@components/ui/RiotIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { Alert } from '@components/ui/Alert';
 import { HelpPopover, HelpSection, HelpDefinition } from '@components/ui/HelpPopover';
@@ -209,6 +210,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const [pendingBattlenetPrefillChange, setPendingBattlenetPrefillChange] = useState<
     boolean | null
   >(null);
+  const [pendingRiotPrefillChange, setPendingRiotPrefillChange] = useState<boolean | null>(null);
   const [pendingXboxPrefillChange, setPendingXboxPrefillChange] = useState<boolean | null>(null);
   const [loadingPreferences, setLoadingPreferences] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
@@ -367,6 +369,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     setPendingSteamPrefillChange(null);
     setPendingEpicPrefillChange(null);
     setPendingBattlenetPrefillChange(null);
+    setPendingRiotPrefillChange(null);
     setPendingXboxPrefillChange(null);
     setLoadingPreferences(true);
     try {
@@ -436,6 +439,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         if (pendingBattlenetPrefillChange !== null) {
           prefillToggles.push({ service: 'battlenet', enabled: pendingBattlenetPrefillChange });
         }
+        if (pendingRiotPrefillChange !== null) {
+          prefillToggles.push({ service: 'riot', enabled: pendingRiotPrefillChange });
+        }
         if (pendingXboxPrefillChange !== null) {
           prefillToggles.push({ service: 'xbox', enabled: pendingXboxPrefillChange });
         }
@@ -451,6 +457,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       setPendingSteamPrefillChange(null);
       setPendingEpicPrefillChange(null);
       setPendingBattlenetPrefillChange(null);
+      setPendingRiotPrefillChange(null);
       setPendingXboxPrefillChange(null);
       loadSessions(false);
     } catch (err: unknown) {
@@ -550,6 +557,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               battlenetPrefillEnabled: data.enabled,
               battlenetPrefillExpiresAt: data.prefillExpiresAt || null
             };
+          } else if (data.service === 'riot') {
+            return {
+              ...s,
+              riotPrefillEnabled: data.enabled,
+              riotPrefillExpiresAt: data.prefillExpiresAt || null
+            };
           } else if (data.service === 'xbox') {
             return {
               ...s,
@@ -595,6 +608,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   // Battle.net is anonymous (no thread limit); refresh sessions on config change.
   const handleBattlenetGuestPrefillConfigChanged = useCallback(() => {
+    loadSessions(false);
+  }, [loadSessions]);
+
+  const handleRiotGuestPrefillConfigChanged = useCallback(() => {
     loadSessions(false);
   }, [loadSessions]);
 
@@ -744,6 +761,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     on('GuestPrefillConfigChanged', handleGuestPrefillConfigChanged);
     on('EpicGuestPrefillConfigChanged', handleEpicGuestPrefillConfigChanged);
     on('BattleNetGuestPrefillConfigChanged', handleBattlenetGuestPrefillConfigChanged);
+    on('RiotGuestPrefillConfigChanged', handleRiotGuestPrefillConfigChanged);
     on('XboxGuestPrefillConfigChanged', handleXboxGuestPrefillConfigChanged);
     on('GuestRefreshRateUpdated', handleGuestRefreshRateUpdated);
 
@@ -759,6 +777,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       off('GuestPrefillConfigChanged', handleGuestPrefillConfigChanged);
       off('EpicGuestPrefillConfigChanged', handleEpicGuestPrefillConfigChanged);
       off('BattleNetGuestPrefillConfigChanged', handleBattlenetGuestPrefillConfigChanged);
+      off('RiotGuestPrefillConfigChanged', handleRiotGuestPrefillConfigChanged);
       off('XboxGuestPrefillConfigChanged', handleXboxGuestPrefillConfigChanged);
       off('GuestRefreshRateUpdated', handleGuestRefreshRateUpdated);
     };
@@ -777,6 +796,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     handleGuestPrefillConfigChanged,
     handleEpicGuestPrefillConfigChanged,
     handleBattlenetGuestPrefillConfigChanged,
+    handleRiotGuestPrefillConfigChanged,
     handleXboxGuestPrefillConfigChanged,
     handleGuestRefreshRateUpdated
   ]);
@@ -1122,6 +1142,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         Battle.net
                       </span>
                       <span
+                        className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.riotPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                      >
+                        <RiotIcon size={10} />
+                        Riot
+                      </span>
+                      <span
                         className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.xboxPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
                       >
                         <XboxIcon size={10} />
@@ -1391,6 +1417,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   >
                     <BlizzardIcon size={10} />
                     Battle.net
+                  </span>
+                  <span
+                    className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.riotPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                  >
+                    <RiotIcon size={10} />
+                    Riot
                   </span>
                   <span
                     className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.xboxPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
@@ -2084,6 +2116,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             setPendingSteamPrefillChange(null);
             setPendingEpicPrefillChange(null);
             setPendingBattlenetPrefillChange(null);
+            setPendingRiotPrefillChange(null);
             setPendingXboxPrefillChange(null);
           }
         }}
@@ -2407,6 +2440,47 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                               color={effective ? 'orange' : 'green'}
                               size="sm"
                               onClick={() => setPendingBattlenetPrefillChange(!effective)}
+                            >
+                              {effective
+                                ? t('activeSessions.prefill.actions.revoke')
+                                : t('activeSessions.prefill.actions.grant')}
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Riot Prefill Row (anonymous - no account login) */}
+                    {(() => {
+                      const current = editingSession.riotPrefillEnabled;
+                      const effective =
+                        pendingRiotPrefillChange !== null ? pendingRiotPrefillChange : current;
+                      const hasChange =
+                        pendingRiotPrefillChange !== null && pendingRiotPrefillChange !== current;
+                      return (
+                        <div className="prefill-service-row">
+                          <div className="prefill-service-row-label">
+                            <RiotIcon size={16} className="prefill-service-row-icon" />
+                            <span className="text-sm text-themed-secondary">Riot Games</span>
+                            {hasChange && (
+                              <span className="text-xs text-themed-accent italic">
+                                ({t('common.unsaved')})
+                              </span>
+                            )}
+                          </div>
+                          <div className="prefill-service-row-controls">
+                            <span
+                              className={`px-2 py-0.5 text-xs rounded-full font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
+                            >
+                              {effective
+                                ? t('activeSessions.prefill.status.enabled')
+                                : t('activeSessions.prefill.status.disabled')}
+                            </span>
+                            <Button
+                              variant="default"
+                              color={effective ? 'orange' : 'green'}
+                              size="sm"
+                              onClick={() => setPendingRiotPrefillChange(!effective)}
                             >
                               {effective
                                 ? t('activeSessions.prefill.actions.revoke')
@@ -2775,6 +2849,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 setPendingSteamPrefillChange(null);
                 setPendingEpicPrefillChange(null);
                 setPendingBattlenetPrefillChange(null);
+                setPendingRiotPrefillChange(null);
                 setPendingXboxPrefillChange(null);
               }}
               disabled={savingPreferences}

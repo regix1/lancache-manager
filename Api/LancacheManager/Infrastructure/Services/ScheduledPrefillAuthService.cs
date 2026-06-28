@@ -9,18 +9,18 @@ namespace LancacheManager.Infrastructure.Services;
 /// </summary>
 public sealed class ScheduledPrefillAuthService : IScheduledPrefillAuthService
 {
-    private readonly ISteamAuthStorageService _steamAuthStorage;
+    private readonly IScheduledPrefillSteamAuthStorageService _scheduledPrefillSteamAuthStorage;
     private readonly EpicAuthStorageService _epicAuthStorage;
     private readonly XboxAuthStorageService _xboxAuthStorage;
     private readonly ILogger<ScheduledPrefillAuthService> _logger;
 
     public ScheduledPrefillAuthService(
-        ISteamAuthStorageService steamAuthStorage,
+        IScheduledPrefillSteamAuthStorageService scheduledPrefillSteamAuthStorage,
         EpicAuthStorageService epicAuthStorage,
         XboxAuthStorageService xboxAuthStorage,
         ILogger<ScheduledPrefillAuthService> logger)
     {
-        _steamAuthStorage = steamAuthStorage;
+        _scheduledPrefillSteamAuthStorage = scheduledPrefillSteamAuthStorage;
         _epicAuthStorage = epicAuthStorage;
         _xboxAuthStorage = xboxAuthStorage;
         _logger = logger;
@@ -62,7 +62,7 @@ public sealed class ScheduledPrefillAuthService : IScheduledPrefillAuthService
 
     private ScheduledPrefillAuthPlan BuildSteamPlan(PrefillPlatform service)
     {
-        SteamAuthData authData = _steamAuthStorage.GetAuthData();
+        SteamAuthData authData = _scheduledPrefillSteamAuthStorage.GetAuthData();
 
         string? refreshToken = authData.RefreshToken;
         string? username = authData.Username;

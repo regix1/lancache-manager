@@ -94,36 +94,10 @@ public class SteamAuthController : ControllerBase
                     _steamKit2Service.TryStartRebuild();
                 }
 
-                return Ok(new SteamLoginResponse
-                {
-                    Success = true,
-                    Message = "Authentication successful",
-                    AuthMode = "authenticated",
-                    Username = request.Username
-                });
+                return Ok(SteamLoginResponseMapper.CreateSuccessResponse(request.Username));
             }
-            else if (result.RequiresTwoFactor)
-            {
-                return Ok(new SteamLoginResponse { RequiresTwoFactor = true, Message = "Two-factor authentication required" });
-            }
-            else if (result.RequiresEmailCode)
-            {
-                return Ok(new SteamLoginResponse { RequiresEmailCode = true, Message = "Email verification code required" });
-            }
-            else if (result.SessionExpired)
-            {
-                // Session expired waiting for mobile confirmation - suggest using 2FA code instead
-                return Ok(new SteamLoginResponse
-                {
-                    SessionExpired = true,
-                    RequiresTwoFactor = true,
-                    Message = result.Message ?? "Session expired. Please enter your 2FA code instead."
-                });
-            }
-            else
-            {
-                return BadRequest(new ErrorResponse { Error = result.Message ?? "Authentication failed" });
-            }
+
+            return SteamLoginResponseMapper.MapChallengeOrFailure(result)!;
         }
 
         // No credentials provided - just return current status

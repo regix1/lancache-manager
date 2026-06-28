@@ -34,9 +34,8 @@ public class XboxPrefillDaemonService : PrefillDaemonServiceBase
         PrefillSessionService sessionService,
         PrefillCacheService cacheService,
         XboxMappingService mappingService,
-        IScheduledPrefillAuthService scheduledPrefillAuthService,
         IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, scheduledPrefillAuthService, networkOptions)
+        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions)
     {
         _mappingService = mappingService;
     }

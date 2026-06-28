@@ -4,8 +4,9 @@ import Badge from '@components/ui/Badge';
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
-import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
-import { useSteamAuth } from '@contexts/useSteamAuth';
+import { ScheduledPrefillEpicAuthButton } from './auth/ScheduledPrefillEpicAuthButton';
+import { ScheduledPrefillXboxAuthButton } from './auth/ScheduledPrefillXboxAuthButton';
+import { useScheduledPrefillSteamAuth } from '@hooks/useScheduledPrefillSteamAuth';
 import { formatDateTime } from '@utils/formatters';
 import { SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS } from './constants';
 import type { ScheduledPrefillAccountServiceId, ScheduledPrefillAuthStatusItem } from './types';
@@ -31,7 +32,6 @@ export function ScheduledPrefillAuthStatus({
   onSuccess
 }: ScheduledPrefillAuthStatusProps) {
   const { t } = useTranslation();
-  const { refreshSteamAuth, setSteamAuthMode } = useSteamAuth();
   const [showSteamAuthModal, setShowSteamAuthModal] = useState(false);
   const baseKey = 'management.schedules.services.scheduledPrefill.config.auth';
 
@@ -51,11 +51,9 @@ export function ScheduledPrefillAuthStatus({
     }
   };
 
-  const { state, actions } = useSteamAuthentication({
+  const { state, actions } = useScheduledPrefillSteamAuth({
     onSuccess: (message) => {
-      setSteamAuthMode('authenticated');
       setShowSteamAuthModal(false);
-      void refreshSteamAuth();
       refreshScheduledAuthStatus();
       onSuccess?.(message);
     },
@@ -136,6 +134,26 @@ export function ScheduledPrefillAuthStatus({
               {t(`${baseKey}.actions.logIn`)}
             </Button>
           )}
+          {serviceId === 'epic' && (
+            <ScheduledPrefillEpicAuthButton
+              disabled={disabled}
+              onSuccess={(message) => {
+                refreshScheduledAuthStatus();
+                onSuccess?.(message);
+              }}
+              onError={onError}
+            />
+          )}
+          {serviceId === 'xbox' && (
+            <ScheduledPrefillXboxAuthButton
+              disabled={disabled}
+              onSuccess={(message) => {
+                refreshScheduledAuthStatus();
+                onSuccess?.(message);
+              }}
+              onError={onError}
+            />
+          )}
         </div>
       );
     }
@@ -169,6 +187,17 @@ export function ScheduledPrefillAuthStatus({
               {t(`${baseKey}.loading`)}
             </span>
           )}
+        </div>
+
+        <div className="scheduled-prefill-auth-status__help">
+          <p className="schedule-extra-help scheduled-prefill-auth-status__help-intro">
+            {t(`${baseKey}.authPathsIntro`)}
+          </p>
+          <ul className="scheduled-prefill-auth-status__help-list">
+            <li className="schedule-extra-help">{t(`${baseKey}.authPathsSteam`)}</li>
+            <li className="schedule-extra-help">{t(`${baseKey}.authPathsEpicXbox`)}</li>
+            <li className="schedule-extra-help">{t(`${baseKey}.authPathsPersistent`)}</li>
+          </ul>
         </div>
 
         <div className="scheduled-prefill-auth-status__list grid gap-3">

@@ -592,6 +592,78 @@ public class SessionService
 
     // --- Per-Session Prefill Grants ---
 
+    /// <summary>
+    /// Grant-only: active guest sessions with null or expired prefill for the given service.
+    /// Never revokes and never modifies an unexpired grant.
+    /// </summary>
+    public async Task<IReadOnlyList<GuestPrefillGrantResult>> GrantDefaultPrefillToEligibleGuestSessionsAsync(
+        PrefillPlatform service,
+        int durationHours)
+    {
+        var now = DateTime.UtcNow;
+        var expiresAt = now.AddHours(durationHours);
+
+        using var context = _dbContextFactory.CreateDbContext();
+        var guests = await context.UserSessions
+            .Where(s => s.SessionType == SessionType.Guest
+                     && !s.IsRevoked
+                     && s.ExpiresAtUtc > now)
+            .ToListAsync();
+
+        var grants = new List<GuestPrefillGrantResult>();
+        foreach (var session in guests)
+        {
+            var current = GetPrefillExpiresAt(session, service);
+            if (current != null && current > now)
+                continue;
+
+            SetPrefillExpiresAt(session, service, expiresAt);
+            grants.Add(new GuestPrefillGrantResult(session.Id, expiresAt));
+        }
+
+        if (grants.Count > 0)
+            await context.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "Default {Service} prefill granted to {Count} eligible guest session(s), duration={Hours}h",
+            service, grants.Count, durationHours);
+
+        return grants;
+    }
+
+    private static DateTime? GetPrefillExpiresAt(UserSession session, PrefillPlatform service) =>
+        service switch
+        {
+            PrefillPlatform.Steam => session.SteamPrefillExpiresAtUtc,
+            PrefillPlatform.Epic => session.EpicPrefillExpiresAtUtc,
+            PrefillPlatform.BattleNet => session.BattleNetPrefillExpiresAtUtc,
+            PrefillPlatform.Riot => session.RiotPrefillExpiresAtUtc,
+            PrefillPlatform.Xbox => session.XboxPrefillExpiresAtUtc,
+            _ => null
+        };
+
+    private static void SetPrefillExpiresAt(UserSession session, PrefillPlatform service, DateTime expiresAtUtc)
+    {
+        switch (service)
+        {
+            case PrefillPlatform.Steam:
+                session.SteamPrefillExpiresAtUtc = expiresAtUtc;
+                break;
+            case PrefillPlatform.Epic:
+                session.EpicPrefillExpiresAtUtc = expiresAtUtc;
+                break;
+            case PrefillPlatform.BattleNet:
+                session.BattleNetPrefillExpiresAtUtc = expiresAtUtc;
+                break;
+            case PrefillPlatform.Riot:
+                session.RiotPrefillExpiresAtUtc = expiresAtUtc;
+                break;
+            case PrefillPlatform.Xbox:
+                session.XboxPrefillExpiresAtUtc = expiresAtUtc;
+                break;
+        }
+    }
+
     public async Task GrantSteamPrefillAccessAsync(Guid sessionId, int durationHours)
     {
         using var context = _dbContextFactory.CreateDbContext();

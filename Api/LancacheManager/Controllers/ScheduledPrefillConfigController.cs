@@ -1,10 +1,12 @@
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services.SteamKit2;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using LancacheManager.Services.Xbox;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace LancacheManager.Controllers;
 
@@ -21,24 +23,30 @@ public class ScheduledPrefillConfigController : ControllerBase
     private readonly IStateService _stateService;
     private readonly ISignalRNotificationService _notifications;
     private readonly IServiceScheduleRegistry _registry;
-    private readonly ISteamAuthStorageService _steamAuthStorage;
+    private readonly IScheduledPrefillSteamAuthStorageService _scheduledPrefillSteamAuthStorage;
     private readonly EpicAuthStorageService _epicAuthStorage;
     private readonly XboxAuthStorageService _xboxAuthStorage;
+    private readonly SteamKit2Service _steamKit2Service;
+    private readonly ILogger<ScheduledPrefillConfigController> _logger;
 
     public ScheduledPrefillConfigController(
         IStateService stateService,
         ISignalRNotificationService notifications,
         IServiceScheduleRegistry registry,
-        ISteamAuthStorageService steamAuthStorage,
+        IScheduledPrefillSteamAuthStorageService scheduledPrefillSteamAuthStorage,
         EpicAuthStorageService epicAuthStorage,
-        XboxAuthStorageService xboxAuthStorage)
+        XboxAuthStorageService xboxAuthStorage,
+        SteamKit2Service steamKit2Service,
+        ILogger<ScheduledPrefillConfigController> logger)
     {
         _stateService = stateService;
         _notifications = notifications;
         _registry = registry;
-        _steamAuthStorage = steamAuthStorage;
+        _scheduledPrefillSteamAuthStorage = scheduledPrefillSteamAuthStorage;
         _epicAuthStorage = epicAuthStorage;
         _xboxAuthStorage = xboxAuthStorage;
+        _steamKit2Service = steamKit2Service;
+        _logger = logger;
     }
 
     /// <summary>
@@ -75,7 +83,7 @@ public class ScheduledPrefillConfigController : ControllerBase
     [HttpGet("auth-status")]
     public ActionResult<ScheduledPrefillAuthStatusDto[]> GetAuthStatus()
     {
-        SteamAuthData steam = _steamAuthStorage.GetAuthData();
+        SteamAuthData steam = _scheduledPrefillSteamAuthStorage.GetAuthData();
         bool steamAuthenticated = !string.IsNullOrEmpty(steam.RefreshToken) && !string.IsNullOrEmpty(steam.Username);
 
         EpicAuthData epic = _epicAuthStorage.GetAuthData();
@@ -120,6 +128,50 @@ public class ScheduledPrefillConfigController : ControllerBase
         };
 
         return Ok(statuses);
+    }
+
+    /// <summary>
+    /// Authenticates with Steam for scheduled prefill only and stores credentials in the isolated store.
+    /// Does not update the main SteamKit2 / depot-mapping credential store.
+    /// </summary>
+    [HttpPost("steam/login")]
+    [EnableRateLimiting("steam-auth")]
+    public async Task<IActionResult> SteamLoginAsync([FromBody] SteamLoginRequest? request)
+    {
+        if (request == null
+            || string.IsNullOrEmpty(request.Username)
+            || string.IsNullOrEmpty(request.Password))
+        {
+            return BadRequest(new ErrorResponse { Error = "Username and password are required" });
+        }
+
+        var result = await _steamKit2Service.AcquireRefreshTokenAsync(
+            request.Username,
+            request.Password,
+            request.TwoFactorCode,
+            request.EmailCode,
+            request.AllowMobileConfirmation);
+
+        if (result.Success)
+        {
+            string username = result.AccountName ?? request.Username;
+
+            _scheduledPrefillSteamAuthStorage.UpdateAuthData(data =>
+            {
+                data.Mode = SteamAuthMode.Authenticated.ToWireString();
+                data.Username = username;
+                data.RefreshToken = result.RefreshToken;
+                data.LastAuthenticated = DateTime.UtcNow;
+            });
+
+            _logger.LogInformation(
+                "Scheduled prefill Steam authentication saved for user: {Username}",
+                username);
+
+            return Ok(SteamLoginResponseMapper.CreateSuccessResponse(username));
+        }
+
+        return SteamLoginResponseMapper.MapChallengeOrFailure(result)!;
     }
 }
 

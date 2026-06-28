@@ -916,6 +916,9 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     on('RiotDaemonSessionUpdated', handleSessionUpdated);
     on('RiotDaemonSessionTerminated', handleSessionTerminated);
     on('RiotPrefillHistoryUpdated', handleRiotPrefillHistoryUpdated);
+    on('XboxDaemonSessionCreated', handleSessionCreated);
+    on('XboxDaemonSessionUpdated', handleSessionUpdated);
+    on('XboxDaemonSessionTerminated', handleSessionTerminated);
 
     return () => {
       off('DaemonSessionCreated', handleSessionCreated);
@@ -934,6 +937,9 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       off('RiotDaemonSessionUpdated', handleSessionUpdated);
       off('RiotDaemonSessionTerminated', handleSessionTerminated);
       off('RiotPrefillHistoryUpdated', handleRiotPrefillHistoryUpdated);
+      off('XboxDaemonSessionCreated', handleSessionCreated);
+      off('XboxDaemonSessionUpdated', handleSessionUpdated);
+      off('XboxDaemonSessionTerminated', handleSessionTerminated);
     };
   }, [on, off]);
 

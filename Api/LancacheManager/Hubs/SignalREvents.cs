@@ -186,6 +186,9 @@ public static class SignalREvents
     // Xbox Guest Prefill Config
     public const string XboxGuestPrefillConfigChanged = "XboxGuestPrefillConfigChanged";
 
+    // Guest Prefill Container Lifetime
+    public const string GuestPrefillContainerLifetimeChanged = "GuestPrefillContainerLifetimeChanged";
+
     // Epic Game Mapping
     public const string EpicGameMappingsUpdated = "EpicGameMappingsUpdated";
     public const string EpicMappingProgress = "EpicMappingProgress";

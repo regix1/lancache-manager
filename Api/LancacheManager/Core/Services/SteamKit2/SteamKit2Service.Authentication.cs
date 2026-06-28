@@ -6,110 +6,86 @@ namespace LancacheManager.Core.Services.SteamKit2;
 public partial class SteamKit2Service
 {
     /// <summary>
+    /// Acquires a Steam refresh token without saving credentials or logging into the shared SteamKit2 session.
+    /// Used for scheduled prefill credential storage that must remain isolated from depot mapping auth.
+    /// </summary>
+    public async Task<AuthenticationResult> AcquireRefreshTokenAsync(
+        string username,
+        string password,
+        string? twoFactorCode = null,
+        string? emailCode = null,
+        bool allowMobileConfirmation = false)
+    {
+        try
+        {
+            var pollResult = await PollCredentialsAuthAsync(
+                username,
+                password,
+                twoFactorCode,
+                emailCode,
+                allowMobileConfirmation);
+
+            if (!pollResult.Success)
+            {
+                return pollResult.Result;
+            }
+
+            return new AuthenticationResult
+            {
+                Success = true,
+                Message = "Authentication successful",
+                AccountName = pollResult.AccountName,
+                RefreshToken = pollResult.RefreshToken
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Scheduled prefill Steam refresh token acquisition failed");
+            return new AuthenticationResult
+            {
+                Success = false,
+                Message = ex.Message
+            };
+        }
+    }
+
+    /// <summary>
     /// Authenticate with Steam using username and password
     /// </summary>
     public async Task<AuthenticationResult> AuthenticateAsync(string username, string password, string? twoFactorCode = null, string? emailCode = null, bool allowMobileConfirmation = false)
     {
         try
         {
-            // Connect if not already connected
-            if (_steamClient?.IsConnected != true)
+            var pollResult = await PollCredentialsAuthAsync(
+                username,
+                password,
+                twoFactorCode,
+                emailCode,
+                allowMobileConfirmation);
+
+            if (!pollResult.Success)
             {
-                _connectedTcs = new TaskCompletionSource();
-                _steamClient!.Connect();
-                await WaitWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(30), CancellationToken.None);
-            }
-
-            // Create authenticator that returns provided codes
-            var authenticator = new WebAuthenticator(twoFactorCode, emailCode, allowMobileConfirmation);
-
-            // Begin authentication session using CredentialsAuthSession
-            var authSession = await _steamClient.Authentication.BeginAuthSessionViaCredentialsAsync(new AuthSessionDetails
-            {
-                Username = username,
-                Password = password,
-                IsPersistentSession = true,
-                Authenticator = authenticator
-            });
-
-            // Poll for result - this may throw if 2FA/email/mobile confirmation is required
-            var pollResponse = default(global::SteamKit2.Authentication.AuthPollResult);
-            try
-            {
-                pollResponse = await authSession.PollingWaitForResultAsync();
-            }
-            catch (AuthenticationException authEx) when (authEx.Message.Contains("Expired"))
-            {
-                // Steam's authentication session timed out (usually ~2-3 minutes for mobile confirmation)
-                _logger.LogWarning("Authentication session expired - user did not confirm in time");
-                return new AuthenticationResult
-                {
-                    Success = false,
-                    SessionExpired = true,
-                    Message = "Authentication session expired. Please try again and confirm on your Steam Mobile App within 2 minutes, or use a 2FA code instead."
-                };
-            }
-            catch (InvalidOperationException)
-            {
-                // Check if we need mobile confirmation
-                if (authenticator.NeedsMobileConfirmation)
-                {
-                    return new AuthenticationResult
-                    {
-                        Success = false,
-                        RequiresMobileConfirmation = true,
-                        Message = "Mobile confirmation required"
-                    };
-                }
-
-                // Check if we need 2FA or email code
-                if (authenticator.NeedsTwoFactor)
-                {
-                    return new AuthenticationResult
-                    {
-                        Success = false,
-                        RequiresTwoFactor = true,
-                        Message = "Two-factor authentication code required"
-                    };
-                }
-
-                if (authenticator.NeedsEmailCode)
-                {
-                    return new AuthenticationResult
-                    {
-                        Success = false,
-                        RequiresEmailCode = true,
-                        Message = "Email verification code required"
-                    };
-                }
-
-                // Re-throw if it's not a 2FA/email code/mobile confirmation request
-                throw;
-            }
-
-            // NOTE: NewGuardData is not stored - modern Steam auth uses refresh tokens only
-            // The NewGuardData field is legacy and usually null/empty with modern authentication
-
-            // Ensure pollResponse is not null
-            if (pollResponse == null)
-            {
-                throw new InvalidOperationException("Authentication failed - no poll response received");
+                return pollResult.Result;
             }
 
             // Store refresh token
-            _stateService.SetSteamRefreshToken(pollResponse.RefreshToken);
+            _stateService.SetSteamRefreshToken(pollResult.RefreshToken!);
             _logger.LogInformation("Successfully authenticated and saved refresh token");
 
             // Now login with the refresh token
             _loggedOnTcs = new TaskCompletionSource();
             _steamUser!.LogOn(new SteamUser.LogOnDetails
             {
-                Username = pollResponse.AccountName,
-                AccessToken = pollResponse.RefreshToken,
+                Username = pollResult.AccountName!,
+                AccessToken = pollResult.RefreshToken!,
                 ShouldRememberPassword = true,
                 LoginID = _steamLoginId
             });
-            _logger.LogInformation("SteamKit2 auth-flow login with LoginID: {LoginID} (0x{LoginIDHex:X8}) for user: {Username}", _steamLoginId, _steamLoginId, pollResponse.AccountName);
+            _logger.LogInformation(
+                "SteamKit2 auth-flow login with LoginID: {LoginID} (0x{LoginIDHex:X8}) for user: {Username}",
+                _steamLoginId,
+                _steamLoginId,
+                pollResult.AccountName);
 
             // Use longer timeout for authentication (Steam servers can be slow)
             await WaitWithTimeoutAsync(_loggedOnTcs.Task, TimeSpan.FromMinutes(2), CancellationToken.None);
@@ -190,6 +166,119 @@ public partial class SteamKit2Service
         }
     }
 
+    private sealed class CredentialsAuthPollOutcome
+    {
+        public bool Success { get; init; }
+        public AuthenticationResult Result { get; init; } = new();
+        public string? AccountName { get; init; }
+        public string? RefreshToken { get; init; }
+    }
+
+    private async Task<CredentialsAuthPollOutcome> PollCredentialsAuthAsync(
+        string username,
+        string password,
+        string? twoFactorCode,
+        string? emailCode,
+        bool allowMobileConfirmation)
+    {
+        // Connect if not already connected
+        if (_steamClient?.IsConnected != true)
+        {
+            _connectedTcs = new TaskCompletionSource();
+            _steamClient!.Connect();
+            await WaitWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(30), CancellationToken.None);
+        }
+
+        var authenticator = new WebAuthenticator(twoFactorCode, emailCode, allowMobileConfirmation);
+
+        var authSession = await _steamClient.Authentication.BeginAuthSessionViaCredentialsAsync(new AuthSessionDetails
+        {
+            Username = username,
+            Password = password,
+            IsPersistentSession = true,
+            Authenticator = authenticator
+        });
+
+        var pollResponse = default(global::SteamKit2.Authentication.AuthPollResult);
+        try
+        {
+            pollResponse = await authSession.PollingWaitForResultAsync();
+        }
+        catch (AuthenticationException authEx) when (authEx.Message.Contains("Expired"))
+        {
+            _logger.LogWarning("Authentication session expired - user did not confirm in time");
+            return new CredentialsAuthPollOutcome
+            {
+                Success = false,
+                Result = new AuthenticationResult
+                {
+                    Success = false,
+                    SessionExpired = true,
+                    Message =
+                        "Authentication session expired. Please try again and confirm on your Steam Mobile App within 2 minutes, or use a 2FA code instead."
+                }
+            };
+        }
+        catch (InvalidOperationException)
+        {
+            if (authenticator.NeedsMobileConfirmation)
+            {
+                return new CredentialsAuthPollOutcome
+                {
+                    Success = false,
+                    Result = new AuthenticationResult
+                    {
+                        Success = false,
+                        RequiresMobileConfirmation = true,
+                        Message = "Mobile confirmation required"
+                    }
+                };
+            }
+
+            if (authenticator.NeedsTwoFactor)
+            {
+                return new CredentialsAuthPollOutcome
+                {
+                    Success = false,
+                    Result = new AuthenticationResult
+                    {
+                        Success = false,
+                        RequiresTwoFactor = true,
+                        Message = "Two-factor authentication code required"
+                    }
+                };
+            }
+
+            if (authenticator.NeedsEmailCode)
+            {
+                return new CredentialsAuthPollOutcome
+                {
+                    Success = false,
+                    Result = new AuthenticationResult
+                    {
+                        Success = false,
+                        RequiresEmailCode = true,
+                        Message = "Email verification code required"
+                    }
+                };
+            }
+
+            throw;
+        }
+
+        if (pollResponse == null)
+        {
+            throw new InvalidOperationException("Authentication failed - no poll response received");
+        }
+
+        return new CredentialsAuthPollOutcome
+        {
+            Success = true,
+            AccountName = pollResponse.AccountName,
+            RefreshToken = pollResponse.RefreshToken
+        };
+    }
+
     /// <summary>
     /// Simple authenticator for web-based authentication
     /// </summary>
@@ -263,5 +352,7 @@ public partial class SteamKit2Service
         public bool RequiresMobileConfirmation { get; set; }
         public bool SessionExpired { get; set; }
         public string? Message { get; set; }
+        public string? AccountName { get; set; }
+        public string? RefreshToken { get; set; }
     }
 }

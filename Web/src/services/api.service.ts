@@ -2633,7 +2633,7 @@ class ApiService {
   }
 
   static async getGuestPrefillConfig<T>(
-    service: 'prefill' | 'epic-prefill' | 'battlenet-prefill' | 'xbox-prefill'
+    service: 'prefill' | 'epic-prefill' | 'battlenet-prefill' | 'riot-prefill' | 'xbox-prefill'
   ): Promise<T> {
     const response = await fetch(
       `${API_BASE}/auth/guest/${service}/config`,
@@ -2775,7 +2775,7 @@ class ApiService {
   }
 
   static async updateGuestPrefillConfig<T>(
-    service: 'prefill' | 'epic-prefill' | 'battlenet-prefill' | 'xbox-prefill',
+    service: 'prefill' | 'epic-prefill' | 'battlenet-prefill' | 'riot-prefill' | 'xbox-prefill',
     body: Record<string, unknown>
   ): Promise<T> {
     const response = await fetch(
@@ -3221,12 +3221,12 @@ class ApiService {
     }
   }
 
-  static async getPersistentPrefillGuestLifetime(
+  static async getGuestPrefillContainerLifetime(
     signal?: AbortSignal
   ): Promise<PersistentPrefillGuestLifetimeSettings> {
     try {
       const res = await fetch(
-        `${API_BASE}/system/prefill/persistent/guest-lifetime`,
+        `${API_BASE}/auth/guest/prefill/container-lifetime`,
         this.getFetchOptions({ signal })
       );
       return await this.handleResponse<PersistentPrefillGuestLifetimeSettings>(res);
@@ -3234,27 +3234,27 @@ class ApiService {
       if (isAbortError(error)) {
         // Silently ignore abort errors
       } else {
-        console.error('getPersistentPrefillGuestLifetime error:', error);
+        console.error('getGuestPrefillContainerLifetime error:', error);
       }
       throw error;
     }
   }
 
-  static async updatePersistentPrefillGuestLifetime(
+  static async updateGuestPrefillContainerLifetime(
     settings: PersistentPrefillGuestLifetimeSettings
-  ): Promise<void> {
+  ): Promise<PersistentPrefillGuestLifetimeSettings> {
     try {
       const res = await fetch(
-        `${API_BASE}/system/prefill/persistent/guest-lifetime`,
+        `${API_BASE}/auth/guest/prefill/container-lifetime`,
         this.getFetchOptions({
-          method: 'PUT',
-          body: JSON.stringify(settings),
-          headers: { 'Content-Type': 'application/json' }
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(settings)
         })
       );
-      await this.handleResponse<void>(res);
+      return await this.handleResponse<PersistentPrefillGuestLifetimeSettings>(res);
     } catch (error: unknown) {
-      console.error('updatePersistentPrefillGuestLifetime error:', error);
+      console.error('updateGuestPrefillContainerLifetime error:', error);
       throw error;
     }
   }

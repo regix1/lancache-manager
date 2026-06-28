@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
@@ -19,6 +17,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
 {
     private static readonly TimeSpan _defaultInterval = TimeSpan.FromHours(24);
     private static readonly TimeSpan _pollInterval = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan _authWaitTimeout = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan _authPollInterval = TimeSpan.FromSeconds(2);
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IScheduledPrefillAuthService _authService;
@@ -29,7 +29,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
     /// Derived once from <see cref="ScheduledPrefillConstants.SystemUserId"/> so that the busy
     /// check can reliably distinguish "our" system sessions from real manual-user sessions.
     /// </summary>
-    private readonly Guid _systemUserId = DeriveSystemUserId();
+    private readonly Guid _systemUserId = ScheduledPrefillConstants.DeriveSystemUserId();
 
     /// <summary>
     /// Stable service key used by <see cref="ServiceScheduleRegistry"/> (read via reflection)
@@ -71,6 +71,14 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
         if (services.Count == 0)
         {
             _logger.LogInformation("[ScheduledPrefill] No services enabled; nothing to do");
+            using var emptyScope = _scopeFactory.CreateScope();
+            var emptyNotifications = emptyScope.ServiceProvider.GetRequiredService<ISignalRNotificationService>();
+            await emptyNotifications.NotifyAllAsync(SignalREvents.ScheduledPrefillCompleted, new
+            {
+                operationId = (string?)null,
+                success = false,
+                error = "No services enabled"
+            });
             return;
         }
 
@@ -101,13 +109,18 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
                 serviceCount = services.Count
             });
 
+            var servicesAttempted = 0;
+
             foreach (var serviceConfig in services)
             {
                 runToken.ThrowIfCancellationRequested();
 
                 try
                 {
-                    await RunServiceAsync(serviceConfig, operationIdString, scope.ServiceProvider, notifications, config, runToken);
+                    if (await RunServiceAsync(serviceConfig, operationIdString, scope.ServiceProvider, notifications, config, runToken))
+                    {
+                        servicesAttempted++;
+                    }
                 }
                 catch (OperationCanceledException) when (runToken.IsCancellationRequested)
                 {
@@ -118,6 +131,12 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
                     // One service failing must not abort the rest of the run.
                     _logger.LogError(ex, "[ScheduledPrefill] Service {Service} failed; continuing", serviceConfig.ServiceId);
                 }
+            }
+
+            if (servicesAttempted == 0)
+            {
+                success = false;
+                error = "All enabled services were skipped";
             }
         }
         catch (OperationCanceledException) when (runToken.IsCancellationRequested)
@@ -137,7 +156,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
             await notifications.NotifyAllAsync(SignalREvents.ScheduledPrefillCompleted, new
             {
                 operationId = operationIdString,
-                success
+                success,
+                error
             });
 
             // Tracker disposes the adopted CTS exactly once inside CompleteOperation; we must not.
@@ -152,7 +172,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
     /// busy/auth gates, creates a system-owned session, drives the prefill, and guarantees
     /// teardown. Emits <see cref="SignalREvents.ScheduledPrefillProgress"/> at each stage.
     /// </summary>
-    private async Task RunServiceAsync(
+    /// <returns>True when the service passed early gates and created a download session; false when skipped.</returns>
+    private async Task<bool> RunServiceAsync(
         ScheduledPrefillServiceConfigDto serviceConfig,
         string operationId,
         IServiceProvider serviceProvider,
@@ -167,16 +188,17 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
         if (daemon is null)
         {
             await EmitProgressAsync(notifications, operationId, serviceId, "skipped", "No daemon registered for this service");
-            return;
+            return false;
         }
 
-        // 2. Busy check: never disturb a live manual session.
-        var activeManualSession = daemon.GetAllSessions().Any(s =>
-            s.Status == DaemonSessionStatus.Active && s.UserId != _systemUserId);
-        if (activeManualSession || daemon.IsAnyDaemonAuthenticated())
+        // 2. Busy check: never disturb a live manual session or an active prefill run.
+        if (ScheduledPrefillRunGates.ShouldSkipForBusySessions(
+                daemon.GetAllSessions(),
+                _systemUserId,
+                out var skipMessage))
         {
-            await EmitProgressAsync(notifications, operationId, serviceId, "skipped", "A manual prefill session is active");
-            return;
+            await EmitProgressAsync(notifications, operationId, serviceId, "skipped", skipMessage);
+            return false;
         }
 
         // 3. Resolve the auth plan for this service.
@@ -198,20 +220,35 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
                 "needs-login",
                 "Service requires a login before it can be scheduled",
                 plan.NeedsLoginReason);
-            return;
+            return false;
         }
 
-        // 4. Create the system-owned daemon session.
+        // 4. Create a dedicated guest download session (never reuse persistent config containers).
         await EmitProgressAsync(notifications, operationId, serviceId, "starting", "Creating daemon session");
-        var session = await daemon.CreateSessionAsync(_systemUserId, cancellationToken: ct);
+        var session = await daemon.CreateSessionAsync(
+            _systemUserId,
+            sessionType: SessionType.Guest,
+            reuseExistingSession: false,
+            cancellationToken: ct);
         var sessionId = session.Id;
-        bool weCreatedSession = true;
+        var weOwnSessionForTeardown = !session.IsPersistent;
 
         try
         {
             if (plan.AfterSessionCreatedAsync is not null)
             {
                 await plan.AfterSessionCreatedAsync(session, ct);
+            }
+
+            if (!await WaitForSessionAuthenticatedAsync(daemon, session, ct))
+            {
+                await EmitProgressAsync(
+                    notifications,
+                    operationId,
+                    serviceId,
+                    "failed",
+                    "Timed out waiting for session authentication");
+                return true;
             }
 
             // 5. Kick off the prefill. Map preset + OS list to the real daemon signature.
@@ -259,7 +296,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
             catch (PrefillAlreadyRunningException)
             {
                 await EmitProgressAsync(notifications, operationId, serviceId, "skipped", "A prefill is already in progress");
-                return;
+                return true;
             }
 
             // A failed start may leave IsPrefilling already false, which would make the poll loop
@@ -270,7 +307,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
                     ? "Prefill failed to start"
                     : result.ErrorMessage;
                 await EmitProgressAsync(notifications, operationId, serviceId, "failed", failureMessage);
-                return;
+                return true;
             }
 
             await EmitProgressAsync(notifications, operationId, serviceId, "running", "Prefill in progress");
@@ -284,13 +321,13 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
                 if (DateTime.UtcNow >= runDeadline)
                 {
                     await EmitProgressAsync(notifications, operationId, serviceId, "failed", "Exceeded maximum service runtime");
-                    return;
+                    return true;
                 }
 
                 if (PrefillDaemonServiceBase.IsPrefillStalled(session, DateTime.UtcNow, config.StallTimeout))
                 {
                     await EmitProgressAsync(notifications, operationId, serviceId, "failed", "Prefill stalled (no progress)");
-                    return;
+                    return true;
                 }
 
                 try
@@ -305,11 +342,11 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
             }
 
             await EmitProgressAsync(notifications, operationId, serviceId, "completed", "Prefill completed");
+            return true;
         }
         finally
         {
-            // Guaranteed teardown: we own the session, so always terminate it.
-            if (weCreatedSession)
+            if (weOwnSessionForTeardown)
             {
                 try
                 {
@@ -421,14 +458,45 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
     }
 
     /// <summary>
-    /// Derives a stable Guid from <see cref="ScheduledPrefillConstants.SystemUserId"/> so every
-    /// scheduler-owned session shares one identity, distinguishable from real users.
+    /// Polls session auth state (and daemon status as a fallback) until authenticated or timeout.
     /// </summary>
-    private static Guid DeriveSystemUserId()
+    private static async Task<bool> WaitForSessionAuthenticatedAsync(
+        PrefillDaemonServiceBase daemon,
+        DaemonSession session,
+        CancellationToken ct,
+        TimeSpan? timeout = null)
     {
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(ScheduledPrefillConstants.SystemUserId));
-        var bytes = new byte[16];
-        Array.Copy(hash, bytes, 16);
-        return new Guid(bytes);
+        var deadline = DateTime.UtcNow + (timeout ?? _authWaitTimeout);
+
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (session.AuthState == DaemonAuthState.Authenticated)
+            {
+                return true;
+            }
+
+            try
+            {
+                var status = await daemon.GetSessionStatusAsync(session.Id, ct);
+                if (string.Equals(status?.Status, "logged-in", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                // Transient daemon/socket errors during startup — keep polling until timeout.
+            }
+
+            await Task.Delay(_authPollInterval, ct);
+        }
+
+        return false;
     }
 }

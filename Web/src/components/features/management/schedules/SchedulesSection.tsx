@@ -686,11 +686,14 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
 
       try {
         await ApiService.triggerSchedule(key);
+        const isScheduledPrefill = key === 'scheduledPrefill';
         addNotification({
           type: 'generic',
-          status: 'completed',
-          message: t('management.schedules.runNowTriggered', { service: displayName }),
-          details: { notificationType: 'success' }
+          status: isScheduledPrefill ? 'running' : 'completed',
+          message: isScheduledPrefill
+            ? t('management.schedules.services.scheduledPrefill.events.started')
+            : t('management.schedules.runNowTriggered', { service: displayName }),
+          details: { notificationType: isScheduledPrefill ? 'info' : 'success' }
         });
       } catch {
         addNotification({

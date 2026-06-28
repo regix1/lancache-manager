@@ -940,12 +940,14 @@
       },
       "prefillDurationOptions": {
         "1": "1 小时",
-        "2": "2 小时"
+        "2": "2 小时",
+        "3": "3 小时"
       },
       "prefill": {
         "title": "预填充权限",
         "subtitle": "控制访客对预填充标签的访问。权限有时间限制，可按会话授予。",
         "updated": "预填充配置已更新",
+        "existingGuestsNote": "这些默认设置仅适用于新的访客会话。对于已登录的访客，请使用“活动会话”修改预填充权限。",
         "warning": "安全风险：所有新访客都将能够触发预填充。建议保持关闭，改为按会话授予访问权限。",
         "enableByDefault": {
           "label": "默认启用",
@@ -954,6 +956,11 @@
         "duration": {
           "label": "权限时长",
           "description": "预填充权限授予后的持续时间"
+        },
+        "containerLifetime": {
+          "label": "访客容器最长生命周期",
+          "description": "临时预填充容器会在此小时数后自动停止",
+          "existingContainersNote": "此设置仅影响新创建的预填充容器，已在运行的容器不受影响。"
         },
         "errors": {
           "update": "更新预填充配置失败"
@@ -3053,6 +3060,8 @@
             "empty": "计划预填充配置不可用。",
             "label": "计划预填充",
             "authWarning": "一个或多个已启用的账号服务需要登录后才能运行计划预填充。",
+            "zeroEnabledWarning": "未启用任何服务。在至少启用一个服务之前，计划预填充不会下载任何内容。",
+            "authError": "身份验证错误：{{error}}",
             "summaryError": "加载计划预填充摘要失败：{{error}}",
             "actions": {
               "configure": "配置",
@@ -3080,10 +3089,7 @@
               "saved": "全局计划预填充设置已保存。",
               "error": "保存全局计划预填充设置失败：{{error}}",
               "persistentValidityLabel": "持久容器登录有效期（天）",
-              "persistentValidityHelp": "持久容器会无限期运行。其登录会持续此天数，到期后需要重新登录。允许范围：{{min}}-{{max}} 天。",
-              "guestLifetimeLabel": "访客临时容器最长生命周期（小时）",
-              "guestLifetimeHelp": "访客临时容器会在此小时数后自动停止。允许范围：{{min}}-{{max}} 小时。",
-              "guestLifetimeOption": "{{hours}} 小时"
+              "persistentValidityHelp": "持久容器会无限期运行。其登录会持续此天数，到期后需要重新登录。允许范围：{{min}}-{{max}} 天。"
             },
             "services": {
               "steam": "Steam",
@@ -3122,6 +3128,10 @@
             },
             "auth": {
               "title": "认证",
+              "authPathsIntro": "计划预填充有三条独立的登录路径。请根据您的目标配置对应路径——它们不共享状态。",
+              "authPathsSteam": "此卡片 — 用于计划 Steam 运行的无头登录，存储在计划预填充 Steam 认证存储中。Steam 集成（仓库映射）是独立的，不会提供这些令牌。",
+              "authPathsEpicXbox": "此卡片 — Epic 和 Xbox 的计划运行使用与集成 → Epic/Xbox 映射相同的令牌。请在这些页面登录，或使用运行中持久容器的守护进程登录。",
+              "authPathsPersistent": "服务行持久容器 — 在 Docker 内交互式登录以浏览游戏库并选择游戏。不会更新此卡片上的 Steam 状态。Epic/Xbox 容器登录仅限守护进程，不会显示在此处。",
               "loading": "正在检查认证...",
               "displayName": "已登录为 {{displayName}}",
               "loginExpires": "{{service}} 登录将于 {{date}} 过期",
@@ -3144,7 +3154,9 @@
                 "notAuthenticated": "未认证"
               },
               "actions": {
-                "logIn": "登录"
+                "logIn": "登录",
+                "epicLoginSuccess": "Epic Games 认证成功。",
+                "xboxLoginSuccess": "Xbox 认证成功。"
               }
             }
           },
@@ -3155,7 +3167,8 @@
             "cancelled": "计划预填充已取消",
             "failed": "计划预填充失败",
             "skipped": "{{service}} 已跳过：{{reason}}",
-            "needsLogin": "{{service}} 需要登录后才能继续计划预填充"
+            "needsLogin": "{{service}} 需要登录后才能继续计划预填充",
+            "serviceProgress": "{{service}}：{{message}}"
           }
         },
         "epicMapping": {
