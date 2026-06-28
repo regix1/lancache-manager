@@ -90,7 +90,7 @@ export function ScheduledPrefillAuthStatus({
     return 'loginExpires';
   };
 
-  const renderServiceStatus = (serviceId: ScheduledPrefillAuthDisplayServiceId) => {
+  const renderStatusAction = (serviceId: ScheduledPrefillAuthDisplayServiceId) => {
     if (serviceId === 'battleNet' || serviceId === 'riot') {
       return (
         <Badge variant="success" className="scheduled-prefill-auth-status__chip">
@@ -117,55 +117,49 @@ export function ScheduledPrefillAuthStatus({
     }
 
     if (status.loginState === 'loginRequired') {
+      if (serviceId === 'steam') {
+        return (
+          <Button
+            type="button"
+            variant="filled"
+            size="sm"
+            loading={state.loading}
+            disabled={disabled}
+            onClick={handleSteamLogin}
+          >
+            {t(`${baseKey}.actions.logIn`)}
+          </Button>
+        );
+      }
+
+      if (serviceId === 'epic') {
+        return (
+          <ScheduledPrefillEpicAuthButton
+            disabled={disabled}
+            onSuccess={(message) => {
+              refreshScheduledAuthStatus();
+              onSuccess?.(message);
+            }}
+            onError={onError}
+          />
+        );
+      }
+
       return (
-        <div className="scheduled-prefill-auth-status__action flex items-center gap-2">
-          <Badge variant="warning" className="scheduled-prefill-auth-status__chip">
-            {t(`${baseKey}.states.loginRequired`)}
-          </Badge>
-          {serviceId === 'steam' && (
-            <Button
-              type="button"
-              variant="filled"
-              size="sm"
-              loading={state.loading}
-              disabled={disabled}
-              onClick={handleSteamLogin}
-            >
-              {t(`${baseKey}.actions.logIn`)}
-            </Button>
-          )}
-          {serviceId === 'epic' && (
-            <ScheduledPrefillEpicAuthButton
-              disabled={disabled}
-              onSuccess={(message) => {
-                refreshScheduledAuthStatus();
-                onSuccess?.(message);
-              }}
-              onError={onError}
-            />
-          )}
-          {serviceId === 'xbox' && (
-            <ScheduledPrefillXboxAuthButton
-              disabled={disabled}
-              onSuccess={(message) => {
-                refreshScheduledAuthStatus();
-                onSuccess?.(message);
-              }}
-              onError={onError}
-            />
-          )}
-        </div>
+        <ScheduledPrefillXboxAuthButton
+          disabled={disabled}
+          onSuccess={(message) => {
+            refreshScheduledAuthStatus();
+            onSuccess?.(message);
+          }}
+          onError={onError}
+        />
       );
     }
 
     return (
-      <Badge
-        variant={status.isAuthenticated ? 'success' : 'neutral'}
-        className="scheduled-prefill-auth-status__chip"
-      >
-        {status.isAuthenticated
-          ? t(`${baseKey}.states.ready`)
-          : t(`${baseKey}.states.notAuthenticated`)}
+      <Badge variant="success" className="scheduled-prefill-auth-status__chip">
+        {t(`${baseKey}.states.ready`)}
       </Badge>
     );
   };
@@ -209,6 +203,12 @@ export function ScheduledPrefillAuthStatus({
             const expiryState = status ? getLoginExpiryState(status.expiresAtUtc) : null;
             const expiresAt = status?.expiresAtUtc ? formatDateTime(status.expiresAtUtc) : null;
             const serviceName = t(`${baseKey}.services.${serviceId}`);
+            const needsLogin = status?.loginState === 'loginRequired';
+            const subtitle = status?.displayName
+              ? t(`${baseKey}.displayName`, { displayName: status.displayName })
+              : needsLogin
+                ? t(`${baseKey}.states.loginRequired`)
+                : null;
 
             return (
               <div
@@ -216,12 +216,10 @@ export function ScheduledPrefillAuthStatus({
                 className="scheduled-prefill-auth-status__item flex flex-col gap-2 rounded-lg bg-themed-tertiary p-3 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="scheduled-prefill-auth-status__meta min-w-0">
-                  <p className="text-sm font-medium text-themed-primary">
-                    {t(`${baseKey}.services.${serviceId}`)}
-                  </p>
-                  {status?.displayName && (
-                    <p className="text-xs text-themed-muted">
-                      {t(`${baseKey}.displayName`, { displayName: status.displayName })}
+                  <p className="text-sm font-medium text-themed-primary">{serviceName}</p>
+                  {subtitle && (
+                    <p className="text-xs text-themed-muted scheduled-prefill-auth-status__subtitle">
+                      {subtitle}
                     </p>
                   )}
                   {expiresAt && expiryState && (
@@ -235,7 +233,9 @@ export function ScheduledPrefillAuthStatus({
                     </p>
                   )}
                 </div>
-                {renderServiceStatus(serviceId)}
+                <div className="scheduled-prefill-auth-status__action shrink-0">
+                  {renderStatusAction(serviceId)}
+                </div>
               </div>
             );
           })}

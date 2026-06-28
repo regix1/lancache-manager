@@ -9,19 +9,24 @@ interface XboxPersistentLoginProps {
   isRunning: boolean;
   isAuthenticated: boolean;
   onAuthenticated: () => void;
+  autoStart?: boolean;
+  onDismiss?: () => void;
 }
 
 export function XboxPersistentLogin({
   isRunning,
   isAuthenticated,
-  onAuthenticated
+  onAuthenticated,
+  autoStart = false,
+  onDismiss
 }: XboxPersistentLoginProps) {
   const { t } = useTranslation();
   const { state, actions, startLogin } = usePersistentXboxAuth();
   const [authModalOpened, setAuthModalOpened] = useState(false);
   const handledAuthenticatedRef = useRef(false);
   const startInFlightRef = useRef(false);
-  const showLoginButton = isRunning && !isAuthenticated;
+  const autoStartedRef = useRef(false);
+  const showLoginButton = isRunning && !isAuthenticated && !autoStart;
 
   useEffect(() => {
     if (!state.authenticated) {
@@ -38,7 +43,7 @@ export function XboxPersistentLogin({
     onAuthenticated();
   }, [state.authenticated, onAuthenticated]);
 
-  const handleLoginClick = () => {
+  const beginLogin = () => {
     if (startInFlightRef.current) {
       return;
     }
@@ -50,8 +55,21 @@ export function XboxPersistentLogin({
     });
   };
 
+  useEffect(() => {
+    if (!autoStart || !isRunning || isAuthenticated || autoStartedRef.current) {
+      return;
+    }
+
+    autoStartedRef.current = true;
+    beginLogin();
+  }, [autoStart, isRunning, isAuthenticated]);
+
   const handleAuthModalClose = () => {
-    setAuthModalOpened(false);
+    if (!state.loading) {
+      setAuthModalOpened(false);
+      actions.resetAuthForm();
+      onDismiss?.();
+    }
   };
 
   return (
@@ -67,7 +85,7 @@ export function XboxPersistentLogin({
           variant="filled"
           color="blue"
           size="sm"
-          onClick={handleLoginClick}
+          onClick={beginLogin}
           loading={state.loading}
         >
           {state.loading ? t('prefill.persistent.authenticating') : t('prefill.persistent.logIn')}

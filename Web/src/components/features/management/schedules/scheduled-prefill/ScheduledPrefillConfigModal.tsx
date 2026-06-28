@@ -20,6 +20,7 @@ import {
   SCHEDULED_PREFILL_SERVICE_RUN_ORDER
 } from './constants';
 import { ScheduledPrefillAuthStatus } from './ScheduledPrefillAuthStatus';
+import { PersistentLoginHost } from './PersistentLoginHost';
 import { ScheduledPrefillServiceRow } from './ScheduledPrefillServiceRow';
 import type {
   ScheduledPrefillAuthStatusItem,
@@ -148,6 +149,8 @@ export function ScheduledPrefillConfigModal({
   const [loadingGameSelectionService, setLoadingGameSelectionService] =
     useState<ScheduledPrefillServiceKey | null>(null);
   const [gameSelectionError, setGameSelectionError] = useState<string | null>(null);
+  const [persistentLoginTarget, setPersistentLoginTarget] =
+    useState<ScheduledPrefillServiceKey | null>(null);
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
 
   const loadConfig = useCallback(async (signal?: AbortSignal) => {
@@ -224,6 +227,7 @@ export function ScheduledPrefillConfigModal({
     setGlobalSettingsSaved(false);
     setGameSelectionError(null);
     setGameSelection(null);
+    setPersistentLoginTarget(null);
     void loadConfig(controller.signal);
     void loadAuthStatus(controller.signal);
     void loadPersistentContainers(controller.signal);
@@ -309,8 +313,15 @@ export function ScheduledPrefillConfigModal({
     setPersistentError(null);
 
     try {
-      await ApiService.startPersistentPrefillContainer(getPersistentServiceId(serviceKey));
-      await loadPersistentContainers();
+      const serviceId = getPersistentServiceId(serviceKey);
+      await ApiService.startPersistentPrefillContainer(serviceId);
+      const nextContainers = await ApiService.getPersistentPrefillContainers();
+      setPersistentContainers(nextContainers);
+      setPersistentError(null);
+      const container = nextContainers.find((item) => item.service === serviceId);
+      if (container?.isRunning && !container.isAuthenticated) {
+        setPersistentLoginTarget(serviceKey);
+      }
     } catch (error: unknown) {
       setPersistentError(getErrorMessage(error));
     } finally {
@@ -377,7 +388,8 @@ export function ScheduledPrefillConfigModal({
     }
 
     if (!container.isAuthenticated) {
-      setGameSelectionError(t('prefill.persistent.loginToSelectGames'));
+      setGameSelectionError(null);
+      setPersistentLoginTarget(serviceKey);
       return;
     }
 
@@ -609,7 +621,6 @@ export function ScheduledPrefillConfigModal({
                             }
                             onStartPersistent={() => void handleStartPersistent(serviceKey)}
                             onStopPersistent={() => void handleStopPersistent(serviceKey)}
-                            onRefreshPersistentContainers={loadPersistentContainers}
                             onSelectGames={() => handleOpenGameSelection(serviceKey)}
                           />
                         </div>
@@ -645,6 +656,21 @@ export function ScheduledPrefillConfigModal({
           </div>
         </div>
       </Modal>
+      {persistentLoginTarget && (
+        <PersistentLoginHost
+          serviceKey={persistentLoginTarget}
+          isRunning={
+            persistentContainerByService.get(getPersistentServiceId(persistentLoginTarget))
+              ?.isRunning ?? false
+          }
+          isAuthenticated={
+            persistentContainerByService.get(getPersistentServiceId(persistentLoginTarget))
+              ?.isAuthenticated ?? false
+          }
+          onAuthenticated={() => void loadPersistentContainers()}
+          onDismiss={() => setPersistentLoginTarget(null)}
+        />
+      )}
       <GameSelectionModal
         opened={gameSelection !== null}
         onClose={() => setGameSelection(null)}

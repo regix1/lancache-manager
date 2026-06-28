@@ -3128,10 +3128,10 @@
             },
             "auth": {
               "title": "Authentication",
-              "authPathsIntro": "Scheduled prefill has three separate login paths. Configure the one that matches your goal — they do not share state.",
-              "authPathsSteam": "This card — headless login for scheduled Steam runs, stored in the scheduled-prefill Steam auth store. Steam Integrations (depot mapping) is separate and does not supply these tokens.",
-              "authPathsEpicXbox": "This card — Epic and Xbox scheduled runs use the same tokens as Integrations → Epic/Xbox mapping. Log in on those pages, or use a daemon login from a running persistent container.",
-              "authPathsPersistent": "Service-row persistent container — interactive login inside Docker to browse your library and select games. Does not update Steam status on this card. Epic/Xbox container login is daemon-only and is not shown here.",
+              "authPathsIntro": "Scheduled prefill uses three separate login paths. Pick the one that matches what you want to do. They do not share credentials.",
+              "authPathsSteam": "This card stores headless Steam login for scheduled runs. Steam Integrations (depot mapping) is separate and does not supply these tokens.",
+              "authPathsEpicXbox": "Epic and Xbox scheduled runs use the same tokens as Integrations. Log in on those pages, or log in through a running persistent container.",
+              "authPathsPersistent": "The persistent container below is for browsing your library and picking games. It does not update Steam status on this card. Epic and Xbox container login is daemon-only and is not shown here.",
               "loading": "Checking authentication...",
               "displayName": "Logged in as {{displayName}}",
               "loginExpires": "{{service}} login expires {{date}}",
@@ -3622,7 +3622,9 @@
       },
       "status": {
         "running": "Container running",
-        "stopped": "Container stopped"
+        "stopped": "Container stopped",
+        "loggedIn": "Logged in",
+        "notLoggedIn": "Not logged in"
       },
       "authCountdown": "Login expires in {{time}}",
       "authExpiresAt": "Login expires",

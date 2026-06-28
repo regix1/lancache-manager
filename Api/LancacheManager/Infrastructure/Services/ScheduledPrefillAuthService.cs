@@ -9,6 +9,12 @@ namespace LancacheManager.Infrastructure.Services;
 /// </summary>
 public sealed class ScheduledPrefillAuthService : IScheduledPrefillAuthService
 {
+    private static readonly TimeSpan[] _autoLoginRetryDelays = [
+        TimeSpan.FromSeconds(2),
+        TimeSpan.FromSeconds(4),
+        TimeSpan.FromSeconds(6)
+    ];
+
     private readonly IScheduledPrefillSteamAuthStorageService _scheduledPrefillSteamAuthStorage;
     private readonly EpicAuthStorageService _epicAuthStorage;
     private readonly XboxAuthStorageService _xboxAuthStorage;
@@ -96,8 +102,10 @@ public sealed class ScheduledPrefillAuthService : IScheduledPrefillAuthService
                     "Providing Steam auto-login credentials to scheduled prefill session {SessionId} for {Username}",
                     session.Id, resolvedUsername);
 
-                bool success = await session.Client.ProvideAutoLoginAsync(
-                    session.Id, resolvedUsername, resolvedRefreshToken, sessionCt);
+                bool success = await TryAutoLoginWithRetriesAsync(
+                    session.Id,
+                    sessionCt,
+                    ct => session.Client.ProvideAutoLoginAsync(session.Id, resolvedUsername, resolvedRefreshToken, ct));
 
                 if (!success)
                 {
@@ -140,8 +148,10 @@ public sealed class ScheduledPrefillAuthService : IScheduledPrefillAuthService
                     "Providing Epic auto-login credentials to scheduled prefill session {SessionId}",
                     session.Id);
 
-                bool success = await session.Client.ProvideEpicAutoLoginAsync(
-                    session.Id, resolvedRefreshToken, sessionCt);
+                bool success = await TryAutoLoginWithRetriesAsync(
+                    session.Id,
+                    sessionCt,
+                    ct => session.Client.ProvideEpicAutoLoginAsync(session.Id, resolvedRefreshToken, ct));
 
                 if (!success)
                 {
@@ -191,8 +201,11 @@ public sealed class ScheduledPrefillAuthService : IScheduledPrefillAuthService
                     "Providing Xbox auto-login credentials to scheduled prefill session {SessionId}",
                     session.Id);
 
-                bool success = await session.Client.ProvideXboxAutoLoginAsync(
-                    session.Id, resolvedRefreshToken, resolvedDeviceKeyPkcs8, sessionCt);
+                bool success = await TryAutoLoginWithRetriesAsync(
+                    session.Id,
+                    sessionCt,
+                    ct => session.Client.ProvideXboxAutoLoginAsync(
+                        session.Id, resolvedRefreshToken, resolvedDeviceKeyPkcs8, ct));
 
                 if (!success)
                 {
@@ -201,5 +214,37 @@ public sealed class ScheduledPrefillAuthService : IScheduledPrefillAuthService
                 }
             }
         };
+    }
+
+    private async Task<bool> TryAutoLoginWithRetriesAsync(
+        string sessionId,
+        CancellationToken ct,
+        Func<CancellationToken, Task<bool>> attemptAutoLogin)
+    {
+        for (var attempt = 0; attempt <= _autoLoginRetryDelays.Length; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (await attemptAutoLogin(ct))
+            {
+                return true;
+            }
+
+            if (attempt >= _autoLoginRetryDelays.Length)
+            {
+                break;
+            }
+
+            var delay = _autoLoginRetryDelays[attempt];
+            _logger.LogWarning(
+                "Auto-login attempt {Attempt} failed for session {SessionId}; retrying in {DelaySeconds}s",
+                attempt + 1,
+                sessionId,
+                delay.TotalSeconds);
+
+            await Task.Delay(delay, ct);
+        }
+
+        return false;
     }
 }

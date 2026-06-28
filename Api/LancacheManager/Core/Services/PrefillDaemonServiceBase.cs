@@ -1420,7 +1420,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             return null;
         }
 
-        throw new InvalidOperationException("No challenge received from daemon. Ensure the prefill daemon image supports TCP on Windows.");
+        _logger.LogWarning(
+            "Session {SessionId} login started but no challenge was received from the daemon",
+            sessionId);
+        return null;
     }
 
     /// <summary>

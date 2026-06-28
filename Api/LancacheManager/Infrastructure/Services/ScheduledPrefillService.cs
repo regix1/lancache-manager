@@ -19,6 +19,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
     private static readonly TimeSpan _pollInterval = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan _authWaitTimeout = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan _authPollInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan _daemonReadyTimeout = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan _daemonReadyPollInterval = TimeSpan.FromSeconds(1);
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IScheduledPrefillAuthService _authService;
@@ -235,6 +237,17 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
 
         try
         {
+            if (!await WaitForDaemonReadyAsync(daemon, session, ct))
+            {
+                await EmitProgressAsync(
+                    notifications,
+                    operationId,
+                    serviceId,
+                    "failed",
+                    "Timed out waiting for daemon to become ready");
+                return true;
+            }
+
             if (plan.AfterSessionCreatedAsync is not null)
             {
                 await plan.AfterSessionCreatedAsync(session, ct);
@@ -495,6 +508,44 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
             }
 
             await Task.Delay(_authPollInterval, ct);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Polls until the daemon socket responds to status requests (container fully up).
+    /// </summary>
+    private static async Task<bool> WaitForDaemonReadyAsync(
+        PrefillDaemonServiceBase daemon,
+        DaemonSession session,
+        CancellationToken ct,
+        TimeSpan? timeout = null)
+    {
+        var deadline = DateTime.UtcNow + (timeout ?? _daemonReadyTimeout);
+
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            try
+            {
+                var status = await daemon.GetSessionStatusAsync(session.Id, ct);
+                if (status is not null)
+                {
+                    return true;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                // Daemon may still be starting — keep polling until timeout.
+            }
+
+            await Task.Delay(_daemonReadyPollInterval, ct);
         }
 
         return false;

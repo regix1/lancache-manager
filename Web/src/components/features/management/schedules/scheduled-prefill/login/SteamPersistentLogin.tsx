@@ -9,19 +9,24 @@ interface SteamPersistentLoginProps {
   isRunning: boolean;
   isAuthenticated: boolean;
   onAuthenticated: () => void;
+  autoStart?: boolean;
+  onDismiss?: () => void;
 }
 
 export function SteamPersistentLogin({
   isRunning,
   isAuthenticated,
-  onAuthenticated
+  onAuthenticated,
+  autoStart = false,
+  onDismiss
 }: SteamPersistentLoginProps) {
   const { t } = useTranslation();
   const { state, actions } = usePersistentSteamAuth();
   const [authModalOpened, setAuthModalOpened] = useState(false);
   const handledAuthenticatedRef = useRef(false);
   const startInFlightRef = useRef(false);
-  const showLoginButton = isRunning && !isAuthenticated;
+  const autoStartedRef = useRef(false);
+  const showLoginButton = isRunning && !isAuthenticated && !autoStart;
 
   useEffect(() => {
     if (!state.authenticated) {
@@ -38,7 +43,7 @@ export function SteamPersistentLogin({
     onAuthenticated();
   }, [state.authenticated, onAuthenticated]);
 
-  const handleLoginClick = () => {
+  const beginLogin = () => {
     if (startInFlightRef.current) {
       return;
     }
@@ -50,8 +55,25 @@ export function SteamPersistentLogin({
     });
   };
 
+  useEffect(() => {
+    if (!autoStart || !isRunning || isAuthenticated || autoStartedRef.current) {
+      return;
+    }
+
+    autoStartedRef.current = true;
+    beginLogin();
+  }, [autoStart, isRunning, isAuthenticated]);
+
+  const handleLoginClick = () => {
+    beginLogin();
+  };
+
   const handleAuthModalClose = () => {
-    setAuthModalOpened(false);
+    if (!state.loading) {
+      setAuthModalOpened(false);
+      actions.resetAuthForm();
+      onDismiss?.();
+    }
   };
 
   return (

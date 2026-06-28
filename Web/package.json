@@ -15,6 +15,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "knip": "knip",
+    "knip:fix": "knip --fix --fix-type exports,types --format",
     "validate:stage-keys": "node scripts/validate-stage-keys.mjs"
   },
   "dependencies": {

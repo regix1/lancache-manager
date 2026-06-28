@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import Badge from '@components/ui/Badge';
@@ -10,9 +10,6 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
 import { formatTimeRemaining } from '@components/features/prefill/types';
 import { formatDateTime } from '@utils/formatters';
-import { EpicPersistentLogin } from './login/EpicPersistentLogin';
-import { SteamPersistentLogin } from './login/SteamPersistentLogin';
-import { XboxPersistentLogin } from './login/XboxPersistentLogin';
 import {
   SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS,
   SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS,
@@ -38,7 +35,6 @@ interface ScheduledPrefillServiceRowProps {
   onChange: (config: ScheduledPrefillServiceConfigDto) => void;
   onStartPersistent: () => void;
   onStopPersistent: () => void;
-  onRefreshPersistentContainers: () => void | Promise<void>;
   onSelectGames: () => void;
 }
 
@@ -68,7 +64,6 @@ export function ScheduledPrefillServiceRow({
   onChange,
   onStartPersistent,
   onStopPersistent,
-  onRefreshPersistentContainers,
   onSelectGames
 }: ScheduledPrefillServiceRowProps) {
   const { t } = useTranslation();
@@ -94,10 +89,6 @@ export function ScheduledPrefillServiceRow({
       setIsExpanded(true);
     }
   }, [config.enabled]);
-
-  const handlePersistentAuthenticated = useCallback(() => {
-    void onRefreshPersistentContainers();
-  }, [onRefreshPersistentContainers]);
 
   const presetOptions = useMemo(
     () =>
@@ -262,6 +253,18 @@ export function ScheduledPrefillServiceRow({
                           : 'prefill.persistent.status.stopped'
                       )}
                     </Badge>
+                    {isPersistentRunning && (
+                      <Badge
+                        variant={isPersistentAuthenticated ? 'success' : 'warning'}
+                        className="scheduled-prefill-service-row__auth-badge"
+                      >
+                        {t(
+                          isPersistentAuthenticated
+                            ? 'prefill.persistent.status.loggedIn'
+                            : 'prefill.persistent.status.notLoggedIn'
+                        )}
+                      </Badge>
+                    )}
                   </div>
                 </div>
 
@@ -310,8 +313,7 @@ export function ScheduledPrefillServiceRow({
                   {isPersistentRunning ? (
                     <Button
                       type="button"
-                      variant="filled"
-                      color="red"
+                      variant="outline"
                       size="sm"
                       onClick={onStopPersistent}
                       disabled={disabled || persistentAction === 'start'}
@@ -322,8 +324,7 @@ export function ScheduledPrefillServiceRow({
                   ) : (
                     <Button
                       type="button"
-                      variant="filled"
-                      color="green"
+                      variant="outline"
                       size="sm"
                       onClick={onStartPersistent}
                       disabled={disabled || persistentAction === 'stop'}
@@ -331,27 +332,6 @@ export function ScheduledPrefillServiceRow({
                     >
                       {t('prefill.persistent.actions.start')}
                     </Button>
-                  )}
-                  {serviceKey === 'steam' && (
-                    <SteamPersistentLogin
-                      isRunning={isPersistentRunning}
-                      isAuthenticated={isPersistentAuthenticated}
-                      onAuthenticated={handlePersistentAuthenticated}
-                    />
-                  )}
-                  {serviceKey === 'epic' && (
-                    <EpicPersistentLogin
-                      isRunning={isPersistentRunning}
-                      isAuthenticated={isPersistentAuthenticated}
-                      onAuthenticated={handlePersistentAuthenticated}
-                    />
-                  )}
-                  {serviceKey === 'xbox' && (
-                    <XboxPersistentLogin
-                      isRunning={isPersistentRunning}
-                      isAuthenticated={isPersistentAuthenticated}
-                      onAuthenticated={handlePersistentAuthenticated}
-                    />
                   )}
                   <Button
                     type="button"
