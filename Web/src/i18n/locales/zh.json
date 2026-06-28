@@ -3130,7 +3130,7 @@
               "title": "认证",
               "authPathsIntro": "计划预填充有三条独立的登录路径。请选择与您目标匹配的路径。它们不共享凭据。",
               "authPathsSteam": "此卡片存储计划运行的 Steam 无头登录。Steam 集成（仓库映射）是独立的，不会提供这些令牌。",
-              "authPathsEpicXbox": "Epic 和 Xbox 的计划运行使用与集成页面相同的令牌。可在那些页面登录，或通过运行中的持久容器登录。",
+              "authPathsEpicXbox": "Epic 和 Xbox 在此卡片上各有独立登录，与集成页面（游戏映射）分开。",
               "authPathsPersistent": "下方的持久容器用于浏览游戏库并选择游戏。不会更新此卡片上的 Steam 状态。Epic 和 Xbox 的容器登录仅限守护进程，不会显示在此处。",
               "loading": "正在检查认证...",
               "displayName": "已登录为 {{displayName}}",

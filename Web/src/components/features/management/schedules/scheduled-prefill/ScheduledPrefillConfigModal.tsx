@@ -22,6 +22,7 @@ import {
 import { ScheduledPrefillAuthStatus } from './ScheduledPrefillAuthStatus';
 import { PersistentLoginHost } from './PersistentLoginHost';
 import { ScheduledPrefillServiceRow } from './ScheduledPrefillServiceRow';
+import { waitForPersistentContainerAuth } from './waitForPersistentContainerAuth';
 import type {
   ScheduledPrefillAuthStatusItem,
   ScheduledPrefillConfigDto,
@@ -315,10 +316,9 @@ export function ScheduledPrefillConfigModal({
     try {
       const serviceId = getPersistentServiceId(serviceKey);
       await ApiService.startPersistentPrefillContainer(serviceId);
-      const nextContainers = await ApiService.getPersistentPrefillContainers();
-      setPersistentContainers(nextContainers);
+      const { containers, container } = await waitForPersistentContainerAuth(serviceId);
+      setPersistentContainers(containers);
       setPersistentError(null);
-      const container = nextContainers.find((item) => item.service === serviceId);
       if (container?.isRunning && !container.isAuthenticated) {
         setPersistentLoginTarget(serviceKey);
       }
@@ -380,11 +380,21 @@ export function ScheduledPrefillConfigModal({
     []
   );
 
-  const handleOpenGameSelection = (serviceKey: ScheduledPrefillServiceKey) => {
-    const container = persistentContainerByService.get(getPersistentServiceId(serviceKey));
+  const handleOpenGameSelection = async (serviceKey: ScheduledPrefillServiceKey) => {
+    const serviceId = getPersistentServiceId(serviceKey);
+    let container = persistentContainerByService.get(serviceId);
     if (!container?.isRunning) {
       setGameSelectionError(t(`${baseKey}.selectedGames.requiresPersistentContainer`));
       return;
+    }
+
+    if (!container.isAuthenticated) {
+      const { containers, container: refreshed } = await waitForPersistentContainerAuth(serviceId, {
+        maxAttempts: 6,
+        intervalMs: 500
+      });
+      setPersistentContainers(containers);
+      container = refreshed ?? container;
     }
 
     if (!container.isAuthenticated) {

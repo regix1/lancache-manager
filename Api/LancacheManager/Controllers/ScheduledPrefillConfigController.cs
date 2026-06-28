@@ -24,8 +24,10 @@ public class ScheduledPrefillConfigController : ControllerBase
     private readonly ISignalRNotificationService _notifications;
     private readonly IServiceScheduleRegistry _registry;
     private readonly IScheduledPrefillSteamAuthStorageService _scheduledPrefillSteamAuthStorage;
-    private readonly EpicAuthStorageService _epicAuthStorage;
-    private readonly XboxAuthStorageService _xboxAuthStorage;
+    private readonly IScheduledPrefillEpicAuthStorageService _scheduledPrefillEpicAuthStorage;
+    private readonly IScheduledPrefillXboxAuthStorageService _scheduledPrefillXboxAuthStorage;
+    private readonly ScheduledPrefillEpicAuthService _scheduledPrefillEpicAuthService;
+    private readonly ScheduledPrefillXboxAuthService _scheduledPrefillXboxAuthService;
     private readonly SteamKit2Service _steamKit2Service;
     private readonly ILogger<ScheduledPrefillConfigController> _logger;
 
@@ -34,8 +36,10 @@ public class ScheduledPrefillConfigController : ControllerBase
         ISignalRNotificationService notifications,
         IServiceScheduleRegistry registry,
         IScheduledPrefillSteamAuthStorageService scheduledPrefillSteamAuthStorage,
-        EpicAuthStorageService epicAuthStorage,
-        XboxAuthStorageService xboxAuthStorage,
+        IScheduledPrefillEpicAuthStorageService scheduledPrefillEpicAuthStorage,
+        IScheduledPrefillXboxAuthStorageService scheduledPrefillXboxAuthStorage,
+        ScheduledPrefillEpicAuthService scheduledPrefillEpicAuthService,
+        ScheduledPrefillXboxAuthService scheduledPrefillXboxAuthService,
         SteamKit2Service steamKit2Service,
         ILogger<ScheduledPrefillConfigController> logger)
     {
@@ -43,8 +47,10 @@ public class ScheduledPrefillConfigController : ControllerBase
         _notifications = notifications;
         _registry = registry;
         _scheduledPrefillSteamAuthStorage = scheduledPrefillSteamAuthStorage;
-        _epicAuthStorage = epicAuthStorage;
-        _xboxAuthStorage = xboxAuthStorage;
+        _scheduledPrefillEpicAuthStorage = scheduledPrefillEpicAuthStorage;
+        _scheduledPrefillXboxAuthStorage = scheduledPrefillXboxAuthStorage;
+        _scheduledPrefillEpicAuthService = scheduledPrefillEpicAuthService;
+        _scheduledPrefillXboxAuthService = scheduledPrefillXboxAuthService;
         _steamKit2Service = steamKit2Service;
         _logger = logger;
     }
@@ -86,10 +92,10 @@ public class ScheduledPrefillConfigController : ControllerBase
         SteamAuthData steam = _scheduledPrefillSteamAuthStorage.GetAuthData();
         bool steamAuthenticated = !string.IsNullOrEmpty(steam.RefreshToken) && !string.IsNullOrEmpty(steam.Username);
 
-        EpicAuthData epic = _epicAuthStorage.GetAuthData();
+        EpicAuthData epic = _scheduledPrefillEpicAuthStorage.GetAuthData();
         bool epicAuthenticated = !string.IsNullOrEmpty(epic.RefreshToken);
 
-        XboxAuthData xbox = _xboxAuthStorage.GetAuthData();
+        XboxAuthData xbox = _scheduledPrefillXboxAuthStorage.GetAuthData();
         bool xboxAuthenticated = !string.IsNullOrEmpty(xbox.RefreshToken);
 
         var statuses = new[]
@@ -117,8 +123,7 @@ public class ScheduledPrefillConfigController : ControllerBase
                 ServiceId = "xbox",
                 IsAuthenticated = xboxAuthenticated,
                 DisplayName = xboxAuthenticated ? xbox.DisplayName : null,
-                // Reuse the SAME expiry the Integrations card surfaces: last-auth time + the
-                // documented ~90-day MSA inactivity window (refresh tokens carry no returned expiry).
+                // Reuse the documented ~90-day MSA inactivity window for scheduled prefill Xbox credentials.
                 ExpiresAtUtc = xboxAuthenticated && xbox.LastAuthenticated.HasValue
                     ? new DateTimeOffset(DateTime.SpecifyKind(xbox.LastAuthenticated.Value, DateTimeKind.Utc))
                         .Add(XboxCatalogMappingService.XboxLoginValidity)
@@ -172,6 +177,92 @@ public class ScheduledPrefillConfigController : ControllerBase
         }
 
         return SteamLoginResponseMapper.MapChallengeOrFailure(result)!;
+    }
+
+    /// <summary>
+    /// Starts Epic OAuth login for scheduled prefill only (returns authorization URL).
+    /// </summary>
+    [HttpPost("epic/login")]
+    public ActionResult StartEpicLogin()
+    {
+        try
+        {
+            var authorizationUrl = _scheduledPrefillEpicAuthService.GetAuthorizationUrl();
+            return Ok(new { authorizationUrl });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to generate Epic authorization URL for scheduled prefill");
+            return StatusCode(500, ApiResponse.Error(ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// Completes Epic OAuth login for scheduled prefill and stores credentials in the isolated store.
+    /// </summary>
+    [HttpPost("epic/complete")]
+    public async Task<ActionResult> CompleteEpicLoginAsync([FromBody] EpicAuthCompleteRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request?.AuthorizationCode))
+        {
+            return BadRequest(ApiResponse.Error("Authorization code is required"));
+        }
+
+        try
+        {
+            await _scheduledPrefillEpicAuthService.CompleteAuthAsync(request.AuthorizationCode.Trim());
+            EpicAuthData auth = _scheduledPrefillEpicAuthStorage.GetAuthData();
+            return Ok(new
+            {
+                isAuthenticated = !string.IsNullOrEmpty(auth.RefreshToken),
+                displayName = auth.DisplayName
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Scheduled prefill Epic auth code exchange failed");
+            return BadRequest(ApiResponse.Error(ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to complete scheduled prefill Epic login");
+            return StatusCode(500, ApiResponse.Error(ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// Starts Xbox MSA device-code login for scheduled prefill only.
+    /// </summary>
+    [HttpPost("xbox/login")]
+    public async Task<ActionResult> StartXboxLoginAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var challenge = await _scheduledPrefillXboxAuthService.StartLoginAsync(ct);
+            return Ok(new
+            {
+                userCode = challenge.UserCode,
+                verificationUri = challenge.VerificationUri,
+                expiresIn = challenge.ExpiresIn,
+                interval = challenge.Interval,
+                operationId = challenge.OperationId
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to start scheduled prefill Xbox login");
+            return StatusCode(500, ApiResponse.Error("Failed to start Xbox login: " + ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// Cancels a pending scheduled prefill Xbox device-code login poll.
+    /// </summary>
+    [HttpPost("xbox/cancel")]
+    public ActionResult CancelXboxLogin()
+    {
+        _scheduledPrefillXboxAuthService.CancelLogin();
+        return Ok(ApiResponse.Message("Xbox login cancelled"));
     }
 }
 

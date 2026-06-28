@@ -29,6 +29,13 @@ export function PersistentLoginHost({
     dismissedRef.current = false;
   }, [serviceKey]);
 
+  useEffect(() => {
+    if (isAuthenticated && !dismissedRef.current) {
+      dismissedRef.current = true;
+      onDismiss();
+    }
+  }, [isAuthenticated, onDismiss]);
+
   const handleAuthenticated = () => {
     onAuthenticated();
     onDismiss();

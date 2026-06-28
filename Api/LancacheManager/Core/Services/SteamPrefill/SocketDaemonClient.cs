@@ -650,10 +650,8 @@ public sealed class SocketDaemonClient : IDaemonClient
         string sessionId,
         CancellationToken cancellationToken = default)
     {
-        // Clear any pending challenges
         ClearPendingChallenges();
 
-        // Set up waiter before sending command
         var challengeTcs = new TaskCompletionSource<CredentialChallenge>(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_challengeLock)
         {
@@ -662,24 +660,20 @@ public sealed class SocketDaemonClient : IDaemonClient
 
         try
         {
-            // Send auto-login challenge command (don't await the response - the challenge arrives as an event)
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await SendCommandAsync("get-auto-login-challenge", new Dictionary<string, string>
-                    {
-                        ["sessionId"] = sessionId
-                    }, timeout: TimeSpan.FromMinutes(10), cancellationToken: cancellationToken);
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogDebug(ex, "Auto-login challenge command completed or failed");
-                }
-            }, cancellationToken);
+            var response = await SendCommandAsync(
+                "get-auto-login-challenge",
+                new Dictionary<string, string> { ["sessionId"] = sessionId },
+                timeout: TimeSpan.FromSeconds(30),
+                cancellationToken: cancellationToken);
 
-            // Wait for credential challenge with timeout
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var fromResponse = CredentialChallenge.TryParseFromResponse(response, _jsonOptions);
+            if (fromResponse != null)
+            {
+                return fromResponse;
+            }
+
+            // Fallback: some daemon builds may still push the challenge as an async event.
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
             using var reg = linkedCts.Token.Register(() => challengeTcs.TrySetCanceled());
 

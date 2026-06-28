@@ -16,19 +16,19 @@ public sealed class ScheduledPrefillAuthService : IScheduledPrefillAuthService
     ];
 
     private readonly IScheduledPrefillSteamAuthStorageService _scheduledPrefillSteamAuthStorage;
-    private readonly EpicAuthStorageService _epicAuthStorage;
-    private readonly XboxAuthStorageService _xboxAuthStorage;
+    private readonly IScheduledPrefillEpicAuthStorageService _scheduledPrefillEpicAuthStorage;
+    private readonly IScheduledPrefillXboxAuthStorageService _scheduledPrefillXboxAuthStorage;
     private readonly ILogger<ScheduledPrefillAuthService> _logger;
 
     public ScheduledPrefillAuthService(
         IScheduledPrefillSteamAuthStorageService scheduledPrefillSteamAuthStorage,
-        EpicAuthStorageService epicAuthStorage,
-        XboxAuthStorageService xboxAuthStorage,
+        IScheduledPrefillEpicAuthStorageService scheduledPrefillEpicAuthStorage,
+        IScheduledPrefillXboxAuthStorageService scheduledPrefillXboxAuthStorage,
         ILogger<ScheduledPrefillAuthService> logger)
     {
         _scheduledPrefillSteamAuthStorage = scheduledPrefillSteamAuthStorage;
-        _epicAuthStorage = epicAuthStorage;
-        _xboxAuthStorage = xboxAuthStorage;
+        _scheduledPrefillEpicAuthStorage = scheduledPrefillEpicAuthStorage;
+        _scheduledPrefillXboxAuthStorage = scheduledPrefillXboxAuthStorage;
         _logger = logger;
     }
 
@@ -118,7 +118,7 @@ public sealed class ScheduledPrefillAuthService : IScheduledPrefillAuthService
 
     private ScheduledPrefillAuthPlan BuildEpicPlan(PrefillPlatform service)
     {
-        EpicAuthData authData = _epicAuthStorage.GetAuthData();
+        EpicAuthData authData = _scheduledPrefillEpicAuthStorage.GetAuthData();
 
         string? refreshToken = authData.RefreshToken;
 
@@ -164,7 +164,7 @@ public sealed class ScheduledPrefillAuthService : IScheduledPrefillAuthService
 
     private ScheduledPrefillAuthPlan BuildXboxPlan(PrefillPlatform service)
     {
-        XboxAuthData authData = _xboxAuthStorage.GetAuthData();
+        XboxAuthData authData = _scheduledPrefillXboxAuthStorage.GetAuthData();
 
         string? refreshToken = authData.RefreshToken;
         string? deviceKeyPkcs8 = authData.DeviceKeyPkcs8;
@@ -182,8 +182,7 @@ public sealed class ScheduledPrefillAuthService : IScheduledPrefillAuthService
         string resolvedRefreshToken = refreshToken;
         string resolvedDeviceKeyPkcs8 = deviceKeyPkcs8;
 
-        // Reuse the SAME expiry the Integrations card surfaces: MSA refresh tokens carry no
-        // returned expiry, so it's the last-auth time + the documented ~90-day inactivity window.
+        // Reuse the documented ~90-day MSA inactivity window for scheduled prefill Xbox credentials.
         DateTimeOffset? expiresAtUtc = authData.LastAuthenticated.HasValue
             ? new DateTimeOffset(DateTime.SpecifyKind(authData.LastAuthenticated.Value, DateTimeKind.Utc))
                 .Add(XboxCatalogMappingService.XboxLoginValidity)

@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { usePersistentPrefillAuth } from './usePersistentPrefillAuth';
+import type { CredentialChallenge } from './usePrefillSteamAuth';
 import type { EpicAuthActions, EpicAuthState } from './useEpicMappingAuth';
 
 interface PersistentEpicAuthState extends EpicAuthState {
@@ -19,9 +20,9 @@ export function usePersistentEpicAuth(options: UsePersistentEpicAuthOptions = {}
     service: 'Epic'
   });
 
-  const startLogin = useCallback(async (): Promise<void> => {
+  const startLogin = useCallback(async (): Promise<CredentialChallenge | null> => {
     coreActions.resetAuthForm();
-    await coreActions.start();
+    return coreActions.start();
   }, [coreActions]);
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {

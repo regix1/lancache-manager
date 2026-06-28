@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
@@ -43,17 +43,21 @@ export function SteamPersistentLogin({
     onAuthenticated();
   }, [state.authenticated, onAuthenticated]);
 
-  const beginLogin = () => {
+  const beginLogin = useCallback(async () => {
     if (startInFlightRef.current) {
       return;
     }
 
     startInFlightRef.current = true;
-    setAuthModalOpened(true);
-    void actions.start().finally(() => {
+    try {
+      const challenge = await actions.start();
+      if (challenge) {
+        setAuthModalOpened(true);
+      }
+    } finally {
       startInFlightRef.current = false;
-    });
-  };
+    }
+  }, [actions]);
 
   useEffect(() => {
     if (!autoStart || !isRunning || isAuthenticated || autoStartedRef.current) {
@@ -61,12 +65,8 @@ export function SteamPersistentLogin({
     }
 
     autoStartedRef.current = true;
-    beginLogin();
-  }, [autoStart, isRunning, isAuthenticated]);
-
-  const handleLoginClick = () => {
-    beginLogin();
-  };
+    void beginLogin();
+  }, [autoStart, beginLogin, isAuthenticated, isRunning]);
 
   const handleAuthModalClose = () => {
     if (!state.loading) {
@@ -89,7 +89,7 @@ export function SteamPersistentLogin({
           variant="filled"
           color="blue"
           size="sm"
-          onClick={handleLoginClick}
+          onClick={() => void beginLogin()}
           loading={state.loading}
         >
           {state.loading ? t('prefill.persistent.authenticating') : t('prefill.persistent.logIn')}

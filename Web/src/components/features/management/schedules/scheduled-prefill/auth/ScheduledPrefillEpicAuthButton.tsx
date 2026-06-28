@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
-import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
+import { useScheduledPrefillEpicAuth } from '@hooks/useScheduledPrefillEpicAuth';
 
 interface ScheduledPrefillEpicAuthButtonProps {
   disabled?: boolean;
@@ -20,7 +20,7 @@ export function ScheduledPrefillEpicAuthButton({
   const [authModalOpened, setAuthModalOpened] = useState(false);
   const startInFlightRef = useRef(false);
 
-  const { state, actions, startLogin } = useEpicMappingAuth({
+  const { state, actions, startLogin } = useScheduledPrefillEpicAuth({
     onSuccess: () => {
       setAuthModalOpened(false);
       onSuccess?.(t(`${baseKey}.actions.epicLoginSuccess`));

@@ -244,7 +244,6 @@ export function usePersistentPrefillAuth(
       cancelledRef.current = false;
       setLoading(true);
       setError(null);
-      setAuthenticated(false);
 
       try {
         const challenge = await ApiService.startPersistentLogin(service);

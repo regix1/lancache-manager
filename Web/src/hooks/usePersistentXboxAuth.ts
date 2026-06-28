@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { usePersistentPrefillAuth } from './usePersistentPrefillAuth';
+import type { CredentialChallenge } from './usePrefillSteamAuth';
 import type { XboxAuthActions, XboxAuthState } from './useXboxMappingAuth';
 
 interface PersistentXboxAuthState extends XboxAuthState {
@@ -34,7 +35,7 @@ export function usePersistentXboxAuth(options: UsePersistentXboxAuthOptions = {}
     [coreActions]
   );
 
-  const startLogin = useCallback(async (): Promise<void> => {
+  const startLogin = useCallback(async (): Promise<CredentialChallenge | null> => {
     pollGenerationRef.current += 1;
     const generation = pollGenerationRef.current;
     coreActions.resetAuthForm();
@@ -45,6 +46,8 @@ export function usePersistentXboxAuth(options: UsePersistentXboxAuthOptions = {}
         /* poll failure already surfaced via state.error */
       });
     }
+
+    return challenge;
   }, [coreActions, pollUntilAuthenticated]);
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {

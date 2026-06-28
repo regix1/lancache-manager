@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
@@ -43,17 +43,21 @@ export function EpicPersistentLogin({
     onAuthenticated();
   }, [state.authenticated, onAuthenticated]);
 
-  const beginLogin = () => {
+  const beginLogin = useCallback(async () => {
     if (startInFlightRef.current) {
       return;
     }
 
     startInFlightRef.current = true;
-    setAuthModalOpened(true);
-    void startLogin().finally(() => {
+    try {
+      const challenge = await startLogin();
+      if (challenge) {
+        setAuthModalOpened(true);
+      }
+    } finally {
       startInFlightRef.current = false;
-    });
-  };
+    }
+  }, [startLogin]);
 
   useEffect(() => {
     if (!autoStart || !isRunning || isAuthenticated || autoStartedRef.current) {
@@ -61,8 +65,8 @@ export function EpicPersistentLogin({
     }
 
     autoStartedRef.current = true;
-    beginLogin();
-  }, [autoStart, isRunning, isAuthenticated]);
+    void beginLogin();
+  }, [autoStart, beginLogin, isAuthenticated, isRunning]);
 
   const handleAuthModalClose = () => {
     if (!state.loading) {
@@ -85,7 +89,7 @@ export function EpicPersistentLogin({
           variant="filled"
           color="blue"
           size="sm"
-          onClick={beginLogin}
+          onClick={() => void beginLogin()}
           loading={state.loading}
         >
           {state.loading ? t('prefill.persistent.authenticating') : t('prefill.persistent.logIn')}

@@ -3027,6 +3027,55 @@ class ApiService {
     }
   }
 
+  static async startScheduledPrefillEpicLogin(
+    signal?: AbortSignal
+  ): Promise<{ authorizationUrl: string }> {
+    const response = await fetch(`${API_BASE}/system/schedules/scheduledPrefill/epic/login`, {
+      method: 'POST',
+      credentials: 'include',
+      signal
+    });
+    return ApiService.handleResponse<{ authorizationUrl: string }>(response);
+  }
+
+  static async completeScheduledPrefillEpicAuth(
+    authorizationCode: string,
+    signal?: AbortSignal
+  ): Promise<void> {
+    const response = await fetch(`${API_BASE}/system/schedules/scheduledPrefill/epic/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ authorizationCode }),
+      signal
+    });
+    await ApiService.handleResponse(response);
+  }
+
+  static async startScheduledPrefillXboxLogin(
+    signal?: AbortSignal
+  ): Promise<{ userCode: string; verificationUri: string; expiresIn: number; interval: number }> {
+    const response = await fetch(`${API_BASE}/system/schedules/scheduledPrefill/xbox/login`, {
+      method: 'POST',
+      credentials: 'include',
+      signal
+    });
+    return ApiService.handleResponse<{
+      userCode: string;
+      verificationUri: string;
+      expiresIn: number;
+      interval: number;
+    }>(response);
+  }
+
+  static async cancelScheduledPrefillXboxLogin(): Promise<void> {
+    const response = await fetch(`${API_BASE}/system/schedules/scheduledPrefill/xbox/cancel`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    await ApiService.handleResponse(response);
+  }
+
   static async getPersistentPrefillContainers(
     signal?: AbortSignal
   ): Promise<PersistentPrefillContainerDto[]> {

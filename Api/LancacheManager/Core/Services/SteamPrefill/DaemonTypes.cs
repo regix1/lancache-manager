@@ -207,6 +207,32 @@ public class CredentialChallenge
 
     [JsonPropertyName("expiresAt")]
     public DateTime ExpiresAt { get; set; }
+
+    /// <summary>
+    /// Parses a credential challenge returned inline in a command response (e.g. get-auto-login-challenge).
+    /// </summary>
+    public static CredentialChallenge? TryParseFromResponse(
+        CommandResponse? response,
+        JsonSerializerOptions? options = null)
+    {
+        if (response?.Success != true || response.Data is not JsonElement element)
+        {
+            return null;
+        }
+
+        try
+        {
+            var challenge = JsonSerializer.Deserialize<CredentialChallenge>(
+                element.GetRawText(),
+                options ?? new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            return string.IsNullOrWhiteSpace(challenge?.ChallengeId) ? null : challenge;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 }
 
 public class EncryptedCredentialResponse

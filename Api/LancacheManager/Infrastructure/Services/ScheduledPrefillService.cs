@@ -289,8 +289,18 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
 
             if (hasSelectedApps)
             {
+                _logger.LogInformation(
+                    "[ScheduledPrefill] Setting {Count} selected app(s) on session {SessionId}",
+                    serviceConfig.SelectedAppIds.Count,
+                    sessionId);
                 await daemon.SetSelectedAppsAsync(sessionId, serviceConfig.SelectedAppIds, ct);
             }
+
+            _logger.LogInformation(
+                "[ScheduledPrefill] Starting prefill on session {SessionId} (force={Force}, selectedApps={SelectedCount})",
+                sessionId,
+                serviceConfig.Force,
+                serviceConfig.SelectedAppIds.Count);
 
             PrefillResult result;
             try

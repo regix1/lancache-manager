@@ -556,22 +556,19 @@ public sealed class TcpDaemonClient : IDaemonClient
 
         try
         {
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await SendCommandAsync("get-auto-login-challenge", new Dictionary<string, string>
-                    {
-                        ["sessionId"] = sessionId
-                    }, timeout: TimeSpan.FromMinutes(10), cancellationToken: cancellationToken);
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogDebug(ex, "Auto-login challenge command completed or failed");
-                }
-            }, cancellationToken);
+            var response = await SendCommandAsync(
+                "get-auto-login-challenge",
+                new Dictionary<string, string> { ["sessionId"] = sessionId },
+                timeout: TimeSpan.FromSeconds(30),
+                cancellationToken: cancellationToken);
 
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var fromResponse = CredentialChallenge.TryParseFromResponse(response, _jsonOptions);
+            if (fromResponse != null)
+            {
+                return fromResponse;
+            }
+
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
             using var reg = linkedCts.Token.Register(() => challengeTcs.TrySetCanceled());
 

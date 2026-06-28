@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { XboxAuthModal } from '@components/modals/auth/XboxAuthModal';
-import { useXboxMappingAuth } from '@hooks/useXboxMappingAuth';
+import { useScheduledPrefillXboxAuth } from '@hooks/useScheduledPrefillXboxAuth';
 
 interface ScheduledPrefillXboxAuthButtonProps {
   disabled?: boolean;
@@ -20,7 +20,7 @@ export function ScheduledPrefillXboxAuthButton({
   const [authModalOpened, setAuthModalOpened] = useState(false);
   const startInFlightRef = useRef(false);
 
-  const { state, actions, startLogin, cancelLogin } = useXboxMappingAuth({
+  const { state, actions, startLogin, cancelLogin } = useScheduledPrefillXboxAuth({
     onSuccess: () => {
       setAuthModalOpened(false);
       onSuccess?.(t(`${baseKey}.actions.xboxLoginSuccess`));

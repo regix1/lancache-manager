@@ -265,6 +265,8 @@ builder.Services.AddSingleton<RustProcessHelper>();
 // Register repositories with their interfaces
 builder.Services.AddSingleton<ISteamAuthStorageService, SteamAuthStorageService>();
 builder.Services.AddSingleton<IScheduledPrefillSteamAuthStorageService, ScheduledPrefillSteamAuthStorageService>();
+builder.Services.AddSingleton<IScheduledPrefillEpicAuthStorageService, ScheduledPrefillEpicAuthStorageService>();
+builder.Services.AddSingleton<IScheduledPrefillXboxAuthStorageService, ScheduledPrefillXboxAuthStorageService>();
 builder.Services.AddSingleton<IStateService, StateService>();
 builder.Services.AddScoped<IDatabaseService, DatabaseService>();
 builder.Services.AddScoped<IStatsDataService, StatsDataService>();
@@ -289,6 +291,12 @@ builder.Services.AddSingleton<ISignalRNotificationService, SignalRNotificationSe
 builder.Services.AddSingleton(sp => (SteamAuthStorageService)sp.GetRequiredService<ISteamAuthStorageService>());
 builder.Services.AddSingleton(sp =>
     (ScheduledPrefillSteamAuthStorageService)sp.GetRequiredService<IScheduledPrefillSteamAuthStorageService>());
+builder.Services.AddSingleton(sp =>
+    (ScheduledPrefillEpicAuthStorageService)sp.GetRequiredService<IScheduledPrefillEpicAuthStorageService>());
+builder.Services.AddSingleton(sp =>
+    (ScheduledPrefillXboxAuthStorageService)sp.GetRequiredService<IScheduledPrefillXboxAuthStorageService>());
+builder.Services.AddSingleton<ScheduledPrefillEpicAuthService>();
+builder.Services.AddSingleton<ScheduledPrefillXboxAuthService>();
 builder.Services.AddSingleton(sp => (StateService)sp.GetRequiredService<IStateService>());
 builder.Services.AddScoped(sp => (DatabaseService)sp.GetRequiredService<IDatabaseService>());
 builder.Services.AddScoped(sp => (StatsDataService)sp.GetRequiredService<IStatsDataService>());

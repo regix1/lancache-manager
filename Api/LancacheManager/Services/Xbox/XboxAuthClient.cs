@@ -161,6 +161,33 @@ public class XboxAuthClient
     #region Catalog harvest (XBL/XSTS chain -> titlehub -> packagespc fragments)
 
     /// <summary>
+    /// Resolves the authenticated Xbox account identity (gamertag + xuid) without harvesting the catalog.
+    /// </summary>
+    internal async Task<XboxHarvestResult> GetAccountIdentityAsync(
+        string msaAccessToken, XblRequestSigner signer, CancellationToken ct = default)
+    {
+        var userToken = await AuthenticateUserAsync(msaAccessToken, ct);
+        var titleHubXsts = await AuthorizeXstsAsync(
+            userToken, deviceToken: null, XboxAuthConstants.TitleHubRelyingParty, signed: false, signer, ct);
+        var titleClaims = titleHubXsts.DisplayClaims?.Xui?.FirstOrDefault();
+        var xuid = titleClaims?.Xid;
+        if (string.IsNullOrEmpty(xuid))
+        {
+            throw new InvalidOperationException("No Xbox user id (xuid) returned from XSTS authorization.");
+        }
+
+        var titleHubHeader = BuildXblAuthorizationHeader(titleClaims?.Uhs, titleHubXsts.Token);
+        var displayName = await TryGetGamertagAsync(xuid, titleHubHeader, ct);
+
+        return new XboxHarvestResult
+        {
+            CdnInfos = [],
+            DisplayName = displayName,
+            Xuid = xuid
+        };
+    }
+
+    /// <summary>
     /// Runs the full XBL/XSTS token chain with the MSA access token + device signer, enumerates the
     /// account's owned titles via titlehub, and resolves each title to its per-file CDN fragments via
     /// DisplayCatalog + the signed GetBasePackage call. Returns the <see cref="CdnInfo"/> list to feed

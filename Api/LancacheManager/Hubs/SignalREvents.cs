@@ -95,6 +95,7 @@ public static class SignalREvents
 
     // Schedules
     public const string SchedulesUpdated = "SchedulesUpdated";
+    public const string ScheduledPrefillXboxAuthProgress = "ScheduledPrefillXboxAuthProgress";
 
     // System / Config
     public const string DefaultGuestRefreshRateChanged = "DefaultGuestRefreshRateChanged";
