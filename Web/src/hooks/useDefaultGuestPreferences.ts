@@ -3,7 +3,7 @@ import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
 
-export interface DefaultGuestPreferences {
+interface DefaultGuestPreferences {
   useLocalTimezone: boolean;
   use24HourFormat: boolean;
   sharpCorners: boolean;

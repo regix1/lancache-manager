@@ -7,7 +7,7 @@ export const DEFAULT_GUEST_PREFERENCE_KEYS = new Set([
   'showYearInDates'
 ]);
 
-export interface DefaultGuestPreferencesSnapshot {
+interface DefaultGuestPreferencesSnapshot {
   useLocalTimezone: boolean;
   use24HourFormat: boolean;
   sharpCorners: boolean;
@@ -17,7 +17,7 @@ export interface DefaultGuestPreferencesSnapshot {
   allowedTimeFormats: string[];
 }
 
-export interface SessionPrefsForGate {
+interface SessionPrefsForGate {
   selectedTheme: string | null;
   useLocalTimezone: boolean;
   use24HourFormat: boolean;
@@ -28,17 +28,14 @@ export interface SessionPrefsForGate {
   allowedTimeFormats?: string[] | null;
 }
 
-export function formatsEqual(
-  a: string[] | null | undefined,
-  b: string[] | null | undefined
-): boolean {
+function formatsEqual(a: string[] | null | undefined, b: string[] | null | undefined): boolean {
   if (!a && !b) return true;
   if (!a || !b) return false;
   if (a.length !== b.length) return false;
   return a.every((f) => b.includes(f));
 }
 
-export function isUsingDefaultAllowedFormats(
+function isUsingDefaultAllowedFormats(
   sessionFormats: string[] | null | undefined,
   previousDefaultFormats: string[]
 ): boolean {
@@ -46,7 +43,7 @@ export function isUsingDefaultAllowedFormats(
   return formatsEqual(sessionFormats, previousDefaultFormats);
 }
 
-export function isUsingDefaultTheme(selectedTheme: string | null): boolean {
+function isUsingDefaultTheme(selectedTheme: string | null): boolean {
   return selectedTheme === null;
 }
 
