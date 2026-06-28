@@ -5834,6 +5834,15 @@
         "failed": "Xbox 登录失败"
       }
     },
+    "scheduledPrefill": {
+      "xbox": {
+        "authenticating": "正在等待 Microsoft 登录...",
+        "collecting": "正在确认 Xbox 账户...",
+        "completed": "计划预填充 Xbox 登录完成",
+        "cancelled": "Xbox 登录已取消",
+        "failed": "Xbox 登录失败"
+      }
+    },
     "epicRemove": {
       "starting": "开始移除 Epic 游戏 '{{gameName}}'",
       "noUrls": "未找到此游戏的URL",
