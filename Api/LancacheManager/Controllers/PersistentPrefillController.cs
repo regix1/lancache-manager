@@ -81,7 +81,7 @@ public class PersistentPrefillController : ControllerBase
             }
         }
 
-        return Ok();
+        return NotFound($"No persistent session found with id {request.SessionId}");
     }
 
     /// <summary>

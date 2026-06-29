@@ -11,7 +11,6 @@ public static class ScheduledPrefillConstants
 {
     /// <summary>
     /// Fixed pseudo-user id used for daemon sessions created by the scheduler.
-    /// Matches the string-based <c>ScheduledPrefillAuthContext.UserId</c> contract.
     /// </summary>
     public const string SystemUserId = "scheduled-prefill-system";
 

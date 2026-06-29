@@ -20,11 +20,6 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
     private static readonly TimeSpan _pollInterval = TimeSpan.FromSeconds(10);
 
     private readonly IServiceScopeFactory _scopeFactory;
-
-    // Retained (injected but no longer called) now that scheduled prefill reuses the already
-    // logged-in persistent container instead of headlessly authenticating a fresh guest container.
-    // Removing the service + its DI registration is a separate, verified follow-up.
-    private readonly IScheduledPrefillAuthService _authService;
     private readonly IStateService _stateService;
 
     /// <summary>
@@ -53,12 +48,10 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
     public ScheduledPrefillService(
         ILogger<ScheduledPrefillService> logger,
         IServiceScopeFactory scopeFactory,
-        IScheduledPrefillAuthService authService,
         IStateService stateService)
         : base(logger, _defaultInterval)
     {
         _scopeFactory = scopeFactory;
-        _authService = authService;
         _stateService = stateService;
 
         // Apply any user-saved interval / run-on-startup overrides from state.json before
@@ -113,6 +106,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
             });
 
             var servicesAttempted = 0;
+            var anyServiceFailed = false;
 
             foreach (var serviceConfig in services)
             {
@@ -124,6 +118,12 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
                     {
                         servicesAttempted++;
                     }
+                    else
+                    {
+                        // A service that skipped (no daemon / needs-login / busy) or failed to engage
+                        // its container must not let the run report full success.
+                        anyServiceFailed = true;
+                    }
                 }
                 catch (OperationCanceledException) when (runToken.IsCancellationRequested)
                 {
@@ -132,15 +132,14 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
                 catch (Exception ex)
                 {
                     // One service failing must not abort the rest of the run.
+                    anyServiceFailed = true;
                     _logger.LogError(ex, "[ScheduledPrefill] Service {Service} failed; continuing", serviceConfig.ServiceId);
                 }
             }
 
-            if (servicesAttempted == 0)
-            {
-                success = false;
-                error = "All enabled services were skipped";
-            }
+            var outcome = ScheduledPrefillRunGates.EvaluateRunOutcome(servicesAttempted, anyServiceFailed);
+            success = outcome.Success;
+            error = outcome.Error;
         }
         catch (OperationCanceledException) when (runToken.IsCancellationRequested)
         {

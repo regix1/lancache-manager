@@ -71,4 +71,32 @@ public static class ScheduledPrefillRunGates
         skipMessage = string.Empty;
         return false;
     }
+
+    /// <summary>
+    /// Computes the overall outcome of a completed scheduled-prefill pass. The run is only reported
+    /// successful when at least one service actually engaged its persistent container AND no service
+    /// threw, skipped, or failed to engage. This stops a partial failure (one service erroring or
+    /// skipping) from masquerading as a fully successful run in the <c>ScheduledPrefillCompleted</c>
+    /// notification.
+    /// </summary>
+    public static ScheduledPrefillRunOutcome EvaluateRunOutcome(int servicesAttempted, bool anyServiceFailed)
+    {
+        if (servicesAttempted == 0)
+        {
+            return new ScheduledPrefillRunOutcome(false, "All enabled services were skipped");
+        }
+
+        if (anyServiceFailed)
+        {
+            return new ScheduledPrefillRunOutcome(false, "One or more services failed during the run");
+        }
+
+        return new ScheduledPrefillRunOutcome(true, null);
+    }
 }
+
+/// <summary>
+/// Immutable result of evaluating a completed scheduled-prefill run: whether it succeeded overall,
+/// plus an optional human-readable reason when it did not.
+/// </summary>
+public readonly record struct ScheduledPrefillRunOutcome(bool Success, string? Error);

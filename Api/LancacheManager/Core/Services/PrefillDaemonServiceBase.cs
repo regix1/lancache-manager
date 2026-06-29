@@ -2264,8 +2264,31 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 "Prefill stall detected for session {SessionId}: no new bytes for >{ThresholdSeconds}s. Failing the run.",
                 session.Id, stallThreshold.TotalSeconds);
             session.ErrorMessage = $"Prefill stalled: no bytes transferred for {(int)stallThreshold.TotalSeconds} seconds.";
-            _ = TransitionToTerminalAsync(session, PrefillState.Failed);
+            _ = FailStalledSessionAsync(session);
         }
+    }
+
+    /// <summary>
+    /// Fails a stalled prefill: best-effort tells the daemon to stop downloading (so it does not keep
+    /// transferring bytes after we have given up on the run), then routes through the single
+    /// idempotent terminal funnel with <see cref="PrefillState.Failed"/>. The daemon cancel is sent
+    /// directly to the client rather than via <see cref="CancelPrefillAsync"/> so the terminal state
+    /// stays <c>Failed</c> (a stall is a failure, not a user cancellation).
+    /// </summary>
+    private async Task FailStalledSessionAsync(DaemonSession session)
+    {
+        try
+        {
+            await session.Client.CancelPrefillAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Best-effort cancel of stalled prefill failed for session {SessionId}; failing the run anyway",
+                session.Id);
+        }
+
+        await TransitionToTerminalAsync(session, PrefillState.Failed);
     }
 
     /// <summary>

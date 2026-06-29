@@ -229,8 +229,13 @@ public abstract partial class PrefillDaemonServiceBase
         session.LastProgressBytes = 0;
 
         var state = PrefillProgressState.Started.ToWireString();
-        await BroadcastToSubscribersAsync(session, EventPrefillStateChanged,
-            new { sessionId = session.Id, state, durationSeconds = (int?)null });
+        var startedPayload = new { sessionId = session.Id, state, durationSeconds = (int?)null };
+        await BroadcastToSubscribersAsync(session, EventPrefillStateChanged, startedPayload);
+
+        // Mirror to DownloadHub so management UIs (persistent container list, prefill sessions)
+        // observe the prefill state change via SignalR instead of polling (matches
+        // NotifyAuthStateChangeAsync's AuthStateChanged mirror).
+        await NotifyHubAsync(EventPrefillStateChanged, startedPayload);
     }
 
     /// <summary>
@@ -283,8 +288,12 @@ public abstract partial class PrefillDaemonServiceBase
         _logger.LogInformation("Prefill {State} for session {SessionId}, duration: {Duration}s",
             state, session.Id, durationSeconds ?? 0);
 
-        await BroadcastToSubscribersAsync(session, EventPrefillStateChanged,
-            new { sessionId = session.Id, state, durationSeconds });
+        var terminalPayload = new { sessionId = session.Id, state, durationSeconds };
+        await BroadcastToSubscribersAsync(session, EventPrefillStateChanged, terminalPayload);
+
+        // Mirror to DownloadHub so management UIs update via SignalR instead of polling when a
+        // prefill reaches a terminal state (matches NotifyAuthStateChangeAsync's AuthStateChanged mirror).
+        await NotifyHubAsync(EventPrefillStateChanged, terminalPayload);
 
         // Keep admin pages in sync (IsPrefilling flipped false, current app cleared).
         try
