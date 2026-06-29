@@ -23,6 +23,7 @@ import { ScheduledPrefillAuthStatus } from './ScheduledPrefillAuthStatus';
 import { PersistentLoginHost } from './PersistentLoginHost';
 import { ScheduledPrefillServiceRow } from './ScheduledPrefillServiceRow';
 import { waitForPersistentContainerAuth } from './waitForPersistentContainerAuth';
+import { usePersistentPrefillContainerSignalR } from './usePersistentPrefillContainerSignalR';
 import type {
   ScheduledPrefillAuthStatusItem,
   ScheduledPrefillConfigDto,
@@ -152,7 +153,20 @@ export function ScheduledPrefillConfigModal({
   const [gameSelectionError, setGameSelectionError] = useState<string | null>(null);
   const [persistentLoginTarget, setPersistentLoginTarget] =
     useState<ScheduledPrefillServiceKey | null>(null);
+  const [persistentAuthPendingKeys, setPersistentAuthPendingKeys] = useState<
+    ScheduledPrefillServiceKey[]
+  >([]);
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
+
+  const markPersistentAuthPending = useCallback((serviceKey: ScheduledPrefillServiceKey) => {
+    setPersistentAuthPendingKeys((current) =>
+      current.includes(serviceKey) ? current : [...current, serviceKey]
+    );
+  }, []);
+
+  const clearPersistentAuthPending = useCallback((serviceKey: ScheduledPrefillServiceKey) => {
+    setPersistentAuthPendingKeys((current) => current.filter((key) => key !== serviceKey));
+  }, []);
 
   const loadConfig = useCallback(async (signal?: AbortSignal) => {
     setLoadingConfig(true);
@@ -229,6 +243,7 @@ export function ScheduledPrefillConfigModal({
     setGameSelectionError(null);
     setGameSelection(null);
     setPersistentLoginTarget(null);
+    setPersistentAuthPendingKeys([]);
     void loadConfig(controller.signal);
     void loadAuthStatus(controller.signal);
     void loadPersistentContainers(controller.signal);
@@ -239,9 +254,6 @@ export function ScheduledPrefillConfigModal({
     };
   }, [opened, loadConfig, loadAuthStatus, loadPersistentContainers, loadGlobalSettings]);
 
-  const isLoading = loadingConfig || loadingAuthStatus;
-  const hasInitialData = config !== null;
-
   const persistentContainerByService = useMemo(
     () =>
       new Map<PersistentPrefillServiceId, PersistentPrefillContainerDto>(
@@ -249,6 +261,37 @@ export function ScheduledPrefillConfigModal({
       ),
     [persistentContainers]
   );
+
+  useEffect(() => {
+    if (!opened) {
+      return;
+    }
+
+    for (const service of PERSISTENT_PREFILL_SERVICES) {
+      const container = persistentContainerByService.get(service.service);
+      if (container?.isRunning && container.isAuthenticated) {
+        clearPersistentAuthPending(service.key);
+      }
+    }
+  }, [opened, persistentContainerByService, clearPersistentAuthPending]);
+
+  const shouldWatchPersistentAuth = useMemo(
+    () =>
+      persistentContainers.some((container) => container.isRunning && !container.isAuthenticated) ||
+      persistentLoginTarget !== null ||
+      persistentAuthPendingKeys.length > 0,
+    [persistentContainers, persistentLoginTarget, persistentAuthPendingKeys]
+  );
+
+  const { signalR } = usePersistentPrefillContainerSignalR({
+    enabled: opened && shouldWatchPersistentAuth,
+    onRefresh: () => {
+      void loadPersistentContainers();
+    }
+  });
+
+  const isLoading = loadingConfig || loadingAuthStatus;
+  const hasInitialData = config !== null;
 
   const validationMessage = useMemo(() => {
     if (!config) {
@@ -312,17 +355,24 @@ export function ScheduledPrefillConfigModal({
   const handleStartPersistent = async (serviceKey: ScheduledPrefillServiceKey) => {
     setPersistentAction({ serviceKey, action: 'start' });
     setPersistentError(null);
+    markPersistentAuthPending(serviceKey);
 
     try {
       const serviceId = getPersistentServiceId(serviceKey);
       await ApiService.startPersistentPrefillContainer(serviceId);
-      const { containers, container } = await waitForPersistentContainerAuth(serviceId);
+      const { containers, container } = await waitForPersistentContainerAuth(serviceId, {
+        signalR,
+        onContainersUpdate: (nextContainers) => setPersistentContainers(nextContainers)
+      });
       setPersistentContainers(containers);
       setPersistentError(null);
       if (container?.isRunning && !container.isAuthenticated) {
         setPersistentLoginTarget(serviceKey);
+      } else {
+        clearPersistentAuthPending(serviceKey);
       }
     } catch (error: unknown) {
+      clearPersistentAuthPending(serviceKey);
       setPersistentError(getErrorMessage(error));
     } finally {
       setPersistentAction(null);
@@ -389,12 +439,17 @@ export function ScheduledPrefillConfigModal({
     }
 
     if (!container.isAuthenticated) {
+      markPersistentAuthPending(serviceKey);
       const { containers, container: refreshed } = await waitForPersistentContainerAuth(serviceId, {
-        maxAttempts: 6,
-        intervalMs: 500
+        signalR,
+        timeoutMs: 6_000,
+        onContainersUpdate: (nextContainers) => setPersistentContainers(nextContainers)
       });
       setPersistentContainers(containers);
       container = refreshed ?? container;
+      if (container.isAuthenticated) {
+        clearPersistentAuthPending(serviceKey);
+      }
     }
 
     if (!container.isAuthenticated) {
@@ -403,6 +458,7 @@ export function ScheduledPrefillConfigModal({
       return;
     }
 
+    clearPersistentAuthPending(serviceKey);
     void loadGameSelection(serviceKey, container.sessionId);
   };
 
@@ -613,6 +669,9 @@ export function ScheduledPrefillConfigModal({
                         persistentAction?.serviceKey === serviceKey
                           ? persistentAction.action
                           : null;
+                      const rowPersistentAuthenticating =
+                        persistentAuthPendingKeys.includes(serviceKey) ||
+                        persistentLoginTarget === serviceKey;
 
                       return (
                         <div key={serviceKey} className="scheduled-prefill-config-modal__row">
@@ -624,6 +683,7 @@ export function ScheduledPrefillConfigModal({
                               persistentServiceId
                             )}
                             persistentStatusLoading={loadingPersistentContainers}
+                            persistentAuthenticating={rowPersistentAuthenticating}
                             persistentAction={rowPersistentAction}
                             gameSelectionLoading={loadingGameSelectionService === serviceKey}
                             onChange={(serviceConfig) =>
@@ -677,8 +737,14 @@ export function ScheduledPrefillConfigModal({
             persistentContainerByService.get(getPersistentServiceId(persistentLoginTarget))
               ?.isAuthenticated ?? false
           }
-          onAuthenticated={() => void loadPersistentContainers()}
-          onDismiss={() => setPersistentLoginTarget(null)}
+          onAuthenticated={() => {
+            clearPersistentAuthPending(persistentLoginTarget);
+            void loadPersistentContainers();
+          }}
+          onDismiss={() => {
+            clearPersistentAuthPending(persistentLoginTarget);
+            setPersistentLoginTarget(null);
+          }}
         />
       )}
       <GameSelectionModal

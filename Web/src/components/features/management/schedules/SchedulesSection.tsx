@@ -539,7 +539,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
 
         await fetchSchedules();
       } catch {
-        // Revert silently - polling will correct state
+        // Revert silently - SignalR SchedulesUpdated will correct state
       }
     },
     [fetchSchedules]

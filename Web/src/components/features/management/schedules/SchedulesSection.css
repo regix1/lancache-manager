@@ -736,6 +736,12 @@
   }
 }
 
+.scheduled-prefill-service-row__auth-badge--authenticating {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
 @media (min-width: 1024px) {
   .scheduled-prefill-service-row__persistent-panel {
     display: grid;

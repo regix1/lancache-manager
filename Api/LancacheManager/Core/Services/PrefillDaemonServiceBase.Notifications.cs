@@ -174,8 +174,24 @@ public abstract partial class PrefillDaemonServiceBase
             session.NeedsRelogin = false;
         }
 
-        await BroadcastToSubscribersAsync(session, EventAuthStateChanged,
-            new { sessionId = session.Id, authState = session.AuthState.ToString() });
+        var payload = new { sessionId = session.Id, authState = session.AuthState.ToString() };
+        await BroadcastToSubscribersAsync(session, EventAuthStateChanged, payload);
+
+        // Mirror to DownloadHub so management UIs (persistent container list, prefill sessions)
+        // update via SignalR instead of polling when a daemon self-authenticates or logs in.
+        await NotifyHubAsync(EventAuthStateChanged, payload);
+
+        try
+        {
+            var dto = DaemonSessionDto.FromSession(session);
+            await NotifyHubAsync(EventSessionUpdated, dto);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to broadcast session update after auth state change for session {SessionId}",
+                session.Id);
+        }
     }
 
     private async Task NotifyCredentialChallengeAsync(DaemonSession session, CredentialChallenge challenge)

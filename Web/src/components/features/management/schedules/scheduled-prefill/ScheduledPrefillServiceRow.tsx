@@ -30,6 +30,7 @@ interface ScheduledPrefillServiceRowProps {
   disabled?: boolean;
   persistentContainer?: PersistentPrefillContainerDto;
   persistentStatusLoading?: boolean;
+  persistentAuthenticating?: boolean;
   persistentAction?: 'start' | 'stop' | null;
   gameSelectionLoading?: boolean;
   onChange: (config: ScheduledPrefillServiceConfigDto) => void;
@@ -59,6 +60,7 @@ export function ScheduledPrefillServiceRow({
   disabled = false,
   persistentContainer,
   persistentStatusLoading = false,
+  persistentAuthenticating = false,
   persistentAction = null,
   gameSelectionLoading = false,
   onChange,
@@ -75,6 +77,8 @@ export function ScheduledPrefillServiceRow({
   const [isExpanded, setIsExpanded] = useState(config.enabled);
   const isPersistentRunning = persistentContainer?.isRunning ?? false;
   const isPersistentAuthenticated = persistentContainer?.isAuthenticated ?? false;
+  const isPersistentAuthInProgress =
+    isPersistentRunning && !isPersistentAuthenticated && persistentAuthenticating;
   const isGameSelectionAuthBlocked = isPersistentRunning && !isPersistentAuthenticated;
   const selectedGamesCount = config.selectedAppIds.length;
   const daemonAuthTimeRemainingSeconds = persistentContainer?.daemonAuthExpiresAtUtc
@@ -255,13 +259,30 @@ export function ScheduledPrefillServiceRow({
                     </Badge>
                     {isPersistentRunning && (
                       <Badge
-                        variant={isPersistentAuthenticated ? 'success' : 'warning'}
-                        className="scheduled-prefill-service-row__auth-badge"
-                      >
-                        {t(
+                        variant={
                           isPersistentAuthenticated
-                            ? 'prefill.persistent.status.loggedIn'
-                            : 'prefill.persistent.status.notLoggedIn'
+                            ? 'success'
+                            : isPersistentAuthInProgress
+                              ? 'warning'
+                              : 'warning'
+                        }
+                        className={
+                          isPersistentAuthInProgress
+                            ? 'scheduled-prefill-service-row__auth-badge scheduled-prefill-service-row__auth-badge--authenticating'
+                            : 'scheduled-prefill-service-row__auth-badge'
+                        }
+                      >
+                        {isPersistentAuthInProgress ? (
+                          <>
+                            <LoadingSpinner inline size="xs" />
+                            {t('prefill.persistent.authenticating')}
+                          </>
+                        ) : (
+                          t(
+                            isPersistentAuthenticated
+                              ? 'prefill.persistent.status.loggedIn'
+                              : 'prefill.persistent.status.notLoggedIn'
+                          )
                         )}
                       </Badge>
                     )}
@@ -357,7 +378,9 @@ export function ScheduledPrefillServiceRow({
                   </p>
                   {isGameSelectionAuthBlocked && (
                     <p className="scheduled-prefill-service-row__help">
-                      {t('prefill.persistent.loginToSelectGames')}
+                      {isPersistentAuthInProgress
+                        ? t('prefill.persistent.authenticating')
+                        : t('prefill.persistent.loginToSelectGames')}
                     </p>
                   )}
                   {selectedGamesCount > 0 && (
