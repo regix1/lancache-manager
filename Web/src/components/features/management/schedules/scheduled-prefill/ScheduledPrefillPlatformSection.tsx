@@ -1,5 +1,4 @@
 import { useTranslation } from 'react-i18next';
-import Badge from '@components/ui/Badge';
 import { Card } from '@components/ui/Card';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
@@ -69,35 +68,10 @@ export function ScheduledPrefillPlatformSection({
   const platformMeta = SCHEDULED_PREFILL_PLATFORM_UI[serviceKey];
   const PlatformIcon = platformMeta.icon;
   const isAccount = isScheduledPrefillAccountService(serviceKey);
-  const isRunning = container?.isRunning ?? false;
-  const isAuthenticated = container?.isAuthenticated ?? false;
-  const accountAuthStatus = isAccount
-    ? authStatuses.find((status) => status.serviceId === serviceKey)
-    : null;
-  const scheduledAuthReady = accountAuthStatus?.loginState === 'ready';
-  const needsScheduledAuth = accountAuthStatus?.loginState === 'loginRequired';
 
   const handleEnabledChange = (value: string) => {
     onChange({ ...config, enabled: value === 'enabled' });
   };
-
-  const authBadge = needsScheduledAuth ? (
-    <Badge variant="warning">{t(`${baseKey}.platforms.status.scheduledAuthRequired`)}</Badge>
-  ) : scheduledAuthReady ? (
-    <Badge variant="success">{t(`${baseKey}.platforms.status.scheduledAuthReady`)}</Badge>
-  ) : null;
-
-  const containerBadge = isAccount ? (
-    isRunning ? (
-      <Badge variant={isAuthenticated ? 'success' : 'warning'}>
-        {isAuthenticated
-          ? t(`${baseKey}.platforms.status.containerReady`)
-          : t(`${baseKey}.platforms.status.containerRunning`)}
-      </Badge>
-    ) : (
-      <Badge variant="neutral">{t('prefill.persistent.states.stopped')}</Badge>
-    )
-  ) : null;
 
   return (
     <section
@@ -113,15 +87,6 @@ export function ScheduledPrefillPlatformSection({
             <h3 className="scheduled-prefill-platform-section__title">
               {t(`${baseKey}.services.${serviceKey}`)}
             </h3>
-            <div className="scheduled-prefill-platform-section__chips">
-              <Badge variant={config.enabled ? 'success' : 'neutral'}>
-                {config.enabled
-                  ? t(`${baseKey}.platforms.status.enabled`)
-                  : t(`${baseKey}.platforms.status.disabled`)}
-              </Badge>
-              {authBadge}
-              {containerBadge}
-            </div>
           </div>
         </div>
         <ToggleSwitch
@@ -159,12 +124,9 @@ export function ScheduledPrefillPlatformSection({
 
         {isAccount && (
           <Card padding="md" className="scheduled-prefill-platform-block">
-            <div className="scheduled-prefill-platform-block__header">
-              <h4 className="scheduled-prefill-platform-block__title">
-                {t(`${baseKey}.platforms.sections.scheduledAuth`)}
-              </h4>
-              {authBadge}
-            </div>
+            <h4 className="scheduled-prefill-platform-block__title">
+              {t(`${baseKey}.platforms.sections.scheduledAuth`)}
+            </h4>
             <ScheduledPrefillPlatformAuthPanel
               serviceKey={serviceKey}
               statuses={authStatuses}

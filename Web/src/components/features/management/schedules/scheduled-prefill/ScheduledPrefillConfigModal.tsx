@@ -789,7 +789,7 @@ export function ScheduledPrefillConfigModal({
                 </div>
 
                 <div className="scheduled-prefill-config-modal__global">
-                  <div className="scheduled-prefill-config-modal__global-field">
+                  <div className="scheduled-prefill-config-modal__global-row">
                     <label
                       className="scheduled-prefill-config-modal__global-label"
                       htmlFor="scheduled-prefill-persistent-validity-days"
@@ -798,6 +798,7 @@ export function ScheduledPrefillConfigModal({
                     </label>
                     <NumberInput
                       id="scheduled-prefill-persistent-validity-days"
+                      className="scheduled-prefill-number-cap"
                       min={PERSISTENT_PREFILL_VALIDITY_BOUNDS.min}
                       max={PERSISTENT_PREFILL_VALIDITY_BOUNDS.max}
                       step={1}
@@ -806,8 +807,18 @@ export function ScheduledPrefillConfigModal({
                       aria-label={t(`${baseKey}.settings.persistentValidityLabel`)}
                       onChange={handlePersistentValidityDaysChange}
                     />
-                  </div>
-                  <div className="scheduled-prefill-config-modal__global-actions">
+                    <Button
+                      type="button"
+                      variant="subtle"
+                      size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                      onClick={() => void handleSaveGlobalSettings()}
+                      disabled={loadingGlobalSettings || savingGlobalSettings}
+                      loading={savingGlobalSettings}
+                    >
+                      {savingGlobalSettings
+                        ? t(`${baseKey}.settings.saving`)
+                        : t(`${baseKey}.settings.save`)}
+                    </Button>
                     {globalSettingsSaved && (
                       <span className="scheduled-prefill-config-modal__global-saved" role="status">
                         {t(`${baseKey}.settings.saved`)}
@@ -823,18 +834,6 @@ export function ScheduledPrefillConfigModal({
                         )}
                       </span>
                     )}
-                    <Button
-                      type="button"
-                      variant="subtle"
-                      size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                      onClick={() => void handleSaveGlobalSettings()}
-                      disabled={loadingGlobalSettings || savingGlobalSettings}
-                      loading={savingGlobalSettings}
-                    >
-                      {savingGlobalSettings
-                        ? t(`${baseKey}.settings.saving`)
-                        : t(`${baseKey}.settings.save`)}
-                    </Button>
                   </div>
                   <p className="scheduled-prefill-config-modal__global-help">
                     {t(`${baseKey}.settings.persistentValidityHelp`, {

@@ -111,6 +111,7 @@ export function ScheduledPrefillScheduleFields({
           </label>
           <NumberInput
             id={`scheduled-prefill-top-count-${serviceKey}`}
+            className="scheduled-prefill-number-cap"
             min={1}
             max={99999}
             step={1}
@@ -207,6 +208,7 @@ export function ScheduledPrefillScheduleFields({
           </label>
           <NumberInput
             id={`scheduled-prefill-concurrency-${serviceKey}`}
+            className="scheduled-prefill-number-cap"
             min={SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.min}
             max={SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.max}
             step={1}

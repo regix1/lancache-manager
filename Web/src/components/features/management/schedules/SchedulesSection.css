@@ -416,34 +416,35 @@
 }
 
 .scheduled-prefill-config-modal__global {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: end;
-  gap: 0.6rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
   padding-top: 1rem;
   border-top: 1px solid var(--theme-border-secondary);
 }
 
-.scheduled-prefill-config-modal__global-field {
+/* Compact inline row: label, capped number input, Save, and the saved/loading
+   status sit on one line; the help text drops to a quiet muted line beneath. */
+.scheduled-prefill-config-modal__global-row {
   display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
 }
 
 .scheduled-prefill-config-modal__global-label {
-  display: block;
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--theme-text-secondary);
 }
 
-.scheduled-prefill-config-modal__global-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.6rem;
+/* Caps lone numeric inputs (validity days, fixed connection count, top N) so they
+   stay compact instead of stretching the whole row. The wrapper is position:relative
+   width:100%, so max-width holds the field tight while the spinner stays pinned. */
+.scheduled-prefill-number-cap {
+  width: 100%;
+  max-width: 7rem;
 }
 
 .scheduled-prefill-config-modal__global-saved {
@@ -750,60 +751,42 @@
   flex-shrink: 0;
 }
 
-.scheduled-prefill-persistent-card__pipeline {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.65rem;
-}
-
-.scheduled-prefill-persistent-card__pipeline-step {
+/* Single compact status line: a colour-coded dot carries meaning only (green =
+   logged in, info = downloading, amber = needs attention, muted = idle) and the
+   label spells it out. Replaces the three green-tinted pipeline boxes. */
+.scheduled-prefill-persistent-card__status {
   display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  min-width: 0;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid var(--theme-border-secondary);
-  border-radius: var(--theme-border-radius);
-  background: var(--theme-bg-secondary);
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.scheduled-prefill-persistent-card__pipeline-step--success {
-  border-color: var(--theme-success-border, var(--theme-border-secondary));
-  background: var(--theme-success-subtle, var(--theme-bg-secondary));
+.scheduled-prefill-persistent-card__status-dot {
+  flex-shrink: 0;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--theme-text-muted);
 }
 
-.scheduled-prefill-persistent-card__pipeline-step--warning {
-  border-color: var(--theme-warning-strong, var(--theme-border-secondary));
-  background: var(--theme-warning-subtle, var(--theme-bg-secondary));
+.scheduled-prefill-persistent-card__status-dot--running {
+  background: var(--theme-success);
 }
 
-.scheduled-prefill-persistent-card__pipeline-step--active {
-  border-color: var(--theme-info-border, var(--theme-border-secondary));
-  background: var(--theme-info-subtle, var(--theme-bg-secondary));
+.scheduled-prefill-persistent-card__status-dot--warning {
+  background: var(--theme-warning);
 }
 
-.scheduled-prefill-persistent-card__pipeline-step--danger {
-  border-color: var(--theme-error-border, var(--theme-border-secondary));
-  background: var(--theme-error-subtle, var(--theme-bg-secondary));
+.scheduled-prefill-persistent-card__status-dot--active {
+  background: var(--theme-info);
 }
 
-.scheduled-prefill-persistent-card__pipeline-label {
-  font-size: 0.6875rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--theme-text-muted);
-}
-
-.scheduled-prefill-persistent-card__pipeline-value {
+.scheduled-prefill-persistent-card__status-text {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--theme-text-secondary);
-  white-space: normal;
-  word-break: break-word;
 }
 
 .scheduled-prefill-persistent-card__meta {
@@ -838,39 +821,23 @@
   color: var(--theme-text-muted);
 }
 
-.scheduled-prefill-persistent-card__stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
+/* Games-selected count and live download readout are plain inline text, not boxes. */
+.scheduled-prefill-persistent-card__games {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--theme-text-secondary);
 }
 
-.scheduled-prefill-persistent-card__stat {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  min-width: 6.5rem;
-  padding: 0.65rem 0.85rem;
-  border: 1px solid var(--theme-border-secondary);
-  border-radius: var(--theme-border-radius);
-  background: var(--theme-bg-secondary);
-}
-
-.scheduled-prefill-persistent-card__stat--active {
-  border-color: var(--theme-info-border, var(--theme-border-secondary));
-  background: var(--theme-info-subtle, var(--theme-bg-secondary));
-}
-
-.scheduled-prefill-persistent-card__stat-value {
-  font-size: 1.125rem;
+.scheduled-prefill-persistent-card__games strong {
   font-weight: 700;
-  line-height: 1.2;
   color: var(--theme-text-primary);
   font-variant-numeric: tabular-nums lining-nums;
 }
 
-.scheduled-prefill-persistent-card__stat-label {
-  font-size: 0.6875rem;
-  line-height: 1.35;
+.scheduled-prefill-persistent-card__downloading {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
   color: var(--theme-text-muted);
 }
 
@@ -1262,13 +1229,6 @@
   color: var(--theme-text-primary);
 }
 
-.scheduled-prefill-platform-section__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-top: 0.45rem;
-}
-
 .scheduled-prefill-platform-section__blocks {
   display: flex;
   flex-direction: column;
@@ -1282,13 +1242,6 @@
   flex-direction: column;
   gap: 0.85rem;
   min-width: 0;
-}
-
-.scheduled-prefill-platform-block__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
 }
 
 .scheduled-prefill-platform-block__title {
@@ -1331,20 +1284,19 @@
   color: var(--theme-text-muted);
 }
 
+/* Plain setting row (no nested box): copy on the left, toggle on the right —
+   matches the other schedule fields, one containment layer only. */
 .scheduled-prefill-schedule-fields__force {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.85rem;
-  padding: 0.9rem 1rem;
-  border: 1px solid var(--theme-border-secondary);
-  border-radius: var(--theme-border-radius);
-  background: var(--theme-bg-tertiary);
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
 }
 
 .scheduled-prefill-schedule-fields__force-copy {
   min-width: 0;
-  width: 100%;
+  flex: 1;
 }
 
 .scheduled-prefill-platform-auth {
@@ -1367,15 +1319,13 @@
   color: var(--theme-text-muted);
 }
 
+/* Plain row inside the auth Card — the Card already supplies containment, so no
+   nested border/fill (one containment layer only). */
 .scheduled-prefill-platform-auth__row {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 0.85rem;
-  padding: 0.85rem;
-  border: 1px solid var(--theme-border-secondary);
-  border-radius: var(--theme-border-radius);
-  background: var(--theme-bg-secondary);
 }
 
 .scheduled-prefill-platform-auth__meta {
@@ -1512,10 +1462,6 @@
   .scheduled-prefill-containers__header {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  .scheduled-prefill-persistent-card__pipeline {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .scheduled-prefill-persistent-card__action-group {

@@ -1,5 +1,4 @@
 import { useTranslation } from 'react-i18next';
-import Badge from '@components/ui/Badge';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -11,12 +10,12 @@ import type { ScheduledPrefillPersistentCardProps } from './scheduledPrefillPers
 const getSecondsUntil = (expiresAtUtc: string): number =>
   Math.floor((new Date(expiresAtUtc).getTime() - Date.now()) / 1000);
 
-type PipelineTone = 'neutral' | 'success' | 'warning' | 'active' | 'danger';
+type StatusTone = 'idle' | 'warning' | 'active' | 'running';
 
-interface PipelineStep {
+interface StatusDisplay {
+  tone: StatusTone;
   label: string;
-  value: string;
-  tone: PipelineTone;
+  busy: boolean;
 }
 
 export function ScheduledPrefillPersistentCard({
@@ -50,41 +49,24 @@ export function ScheduledPrefillPersistentCard({
     ? getSecondsUntil(container.daemonAuthExpiresAtUtc)
     : null;
 
-  const pipelineSteps: PipelineStep[] = [
-    {
-      label: t(`${containersKey}.steps.container`),
-      value: isRunning
-        ? t('prefill.persistent.status.running')
-        : t('prefill.persistent.status.stopped'),
-      tone: isRunning ? 'success' : 'neutral'
-    },
-    {
-      label: t(`${containersKey}.steps.account`),
-      value: !isRunning
-        ? t(`${containersKey}.steps.unavailable`)
-        : isAuthInProgress
-          ? t('prefill.persistent.authenticating')
-          : isAuthenticated
-            ? t('prefill.persistent.status.loggedIn')
-            : t('prefill.persistent.status.notLoggedIn'),
-      tone: !isRunning
-        ? 'neutral'
-        : isAuthInProgress
-          ? 'warning'
-          : isAuthenticated
-            ? 'success'
-            : 'warning'
-    },
-    {
-      label: t(`${containersKey}.steps.activity`),
-      value: !isRunning
-        ? t(`${containersKey}.steps.unavailable`)
-        : isPrefilling
-          ? t(`${containersKey}.steps.downloading`)
-          : t(`${containersKey}.steps.idle`),
-      tone: !isRunning ? 'neutral' : isPrefilling ? 'active' : 'success'
+  // One compact status line replaces the three tinted pipeline boxes: a coloured
+  // dot carries meaning (green = logged in, info = downloading, amber = needs
+  // attention, muted = idle) and the label spells it out.
+  const statusDisplay: StatusDisplay = (() => {
+    if (!isRunning) {
+      return { tone: 'idle', label: t('prefill.persistent.status.stopped'), busy: false };
     }
-  ];
+    if (isAuthInProgress) {
+      return { tone: 'warning', label: t('prefill.persistent.authenticating'), busy: true };
+    }
+    if (!isAuthenticated) {
+      return { tone: 'warning', label: t('prefill.persistent.status.notLoggedIn'), busy: false };
+    }
+    if (isPrefilling) {
+      return { tone: 'active', label: t(`${containersKey}.steps.downloading`), busy: false };
+    }
+    return { tone: 'running', label: t('prefill.persistent.status.loggedIn'), busy: false };
+  })();
 
   const workflowHint = (() => {
     if (!isRunning) {
@@ -105,12 +87,6 @@ export function ScheduledPrefillPersistentCard({
     return t(`${containersKey}.workflow.ready`);
   })();
 
-  const statusBadge = (
-    <Badge variant={isRunning ? 'success' : 'neutral'}>
-      {isRunning ? t('prefill.persistent.states.running') : t('prefill.persistent.states.stopped')}
-    </Badge>
-  );
-
   return (
     <Card padding="md" className="scheduled-prefill-persistent-card">
       <header className="scheduled-prefill-persistent-card__header">
@@ -122,10 +98,11 @@ export function ScheduledPrefillPersistentCard({
             {t(`${baseKey}.persistentContainer.help`)}
           </p>
         </div>
-        <div className="scheduled-prefill-persistent-card__header-badges">
-          {statusLoading && <LoadingSpinner inline size="sm" />}
-          {statusBadge}
-        </div>
+        {statusLoading && (
+          <div className="scheduled-prefill-persistent-card__header-badges">
+            <LoadingSpinner inline size="sm" />
+          </div>
+        )}
       </header>
 
       {isContainerLoading ? (
@@ -136,31 +113,18 @@ export function ScheduledPrefillPersistentCard({
       ) : (
         <>
           <div
-            className="scheduled-prefill-persistent-card__pipeline"
-            aria-label={t(`${containersKey}.pipelineLabel`)}
+            className="scheduled-prefill-persistent-card__status"
+            role="status"
+            aria-live="polite"
           >
-            {pipelineSteps.map((step) => (
-              <div
-                key={step.label}
-                className={`scheduled-prefill-persistent-card__pipeline-step scheduled-prefill-persistent-card__pipeline-step--${step.tone}`}
-              >
-                <span className="scheduled-prefill-persistent-card__pipeline-label">
-                  {step.label}
-                </span>
-                <span className="scheduled-prefill-persistent-card__pipeline-value">
-                  {step.tone === 'warning' &&
-                  isAuthInProgress &&
-                  step.label === t(`${containersKey}.steps.account`) ? (
-                    <>
-                      <LoadingSpinner inline size="xs" />
-                      {step.value}
-                    </>
-                  ) : (
-                    step.value
-                  )}
-                </span>
-              </div>
-            ))}
+            <span
+              className={`scheduled-prefill-persistent-card__status-dot scheduled-prefill-persistent-card__status-dot--${statusDisplay.tone}`}
+              aria-hidden="true"
+            />
+            <span className="scheduled-prefill-persistent-card__status-text">
+              {statusDisplay.busy && <LoadingSpinner inline size="xs" />}
+              {statusDisplay.label}
+            </span>
           </div>
 
           {container && isRunning && (
@@ -198,33 +162,22 @@ export function ScheduledPrefillPersistentCard({
             </div>
           )}
 
-          <div className="scheduled-prefill-persistent-card__stats">
-            <div className="scheduled-prefill-persistent-card__stat">
-              <span className="scheduled-prefill-persistent-card__stat-value">
-                {selectedGamesCount}
-              </span>
-              <span className="scheduled-prefill-persistent-card__stat-label">
-                {t(`${containersKey}.stats.gamesSelected`)}
-              </span>
-            </div>
-            {isPrefilling && container && (
-              <div className="scheduled-prefill-persistent-card__stat scheduled-prefill-persistent-card__stat--active">
-                <span className="scheduled-prefill-persistent-card__stat-value">
-                  {formatBytes(container.totalBytesTransferred ?? 0)}
-                </span>
-                <span className="scheduled-prefill-persistent-card__stat-label">
-                  {container.currentAppName
-                    ? t(`${baseKey}.persistentContainer.downloadProgress`, {
-                        game: container.currentAppName,
-                        bytes: formatBytes(container.totalBytesTransferred ?? 0)
-                      })
-                    : t(`${baseKey}.persistentContainer.downloadProgressGeneric`, {
-                        bytes: formatBytes(container.totalBytesTransferred ?? 0)
-                      })}
-                </span>
-              </div>
-            )}
-          </div>
+          <p className="scheduled-prefill-persistent-card__games">
+            {t(`${containersKey}.stats.gamesSelected`)}: <strong>{selectedGamesCount}</strong>
+          </p>
+
+          {isPrefilling && container && (
+            <p className="scheduled-prefill-persistent-card__downloading">
+              {container.currentAppName
+                ? t(`${baseKey}.persistentContainer.downloadProgress`, {
+                    game: container.currentAppName,
+                    bytes: formatBytes(container.totalBytesTransferred ?? 0)
+                  })
+                : t(`${baseKey}.persistentContainer.downloadProgressGeneric`, {
+                    bytes: formatBytes(container.totalBytesTransferred ?? 0)
+                  })}
+            </p>
+          )}
 
           {isPrefilling && (
             <div
@@ -258,7 +211,8 @@ export function ScheduledPrefillPersistentCard({
               {isRunning ? (
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="filled"
+                  color="red"
                   size={SCHEDULED_PREFILL_BUTTON_SIZE}
                   onClick={onStop}
                   disabled={disabled || action === 'start'}
@@ -297,7 +251,8 @@ export function ScheduledPrefillPersistentCard({
               )}
               <Button
                 type="button"
-                variant="outline"
+                variant="filled"
+                color="gray"
                 size={SCHEDULED_PREFILL_BUTTON_SIZE}
                 onClick={onSelectGames}
                 disabled={disabled || !isRunning || isGameSelectionBlocked}
@@ -315,7 +270,7 @@ export function ScheduledPrefillPersistentCard({
                 {isPrefilling ? (
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="filled"
                     color="red"
                     size={SCHEDULED_PREFILL_BUTTON_SIZE}
                     onClick={onCancelDownload}
