@@ -22,10 +22,8 @@ import {
   SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS,
   SCHEDULED_PREFILL_SERVICE_RUN_ORDER
 } from './constants';
-import { ScheduledPrefillAuthStatus } from './ScheduledPrefillAuthStatus';
-import { ScheduledPrefillContainersSection } from './ScheduledPrefillContainersSection';
+import { ScheduledPrefillPlatformsPanel } from './ScheduledPrefillPlatformsPanel';
 import { PersistentLoginHost } from './PersistentLoginHost';
-import { ScheduledPrefillServiceRow } from './ScheduledPrefillServiceRow';
 import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPersistentTypes';
 import { waitForPersistentContainerAuth } from './waitForPersistentContainerAuth';
 import { usePersistentPrefillContainerSignalR } from './usePersistentPrefillContainerSignalR';
@@ -692,32 +690,6 @@ export function ScheduledPrefillConfigModal({
                 </p>
               </Card>
 
-              <ScheduledPrefillAuthStatus
-                statuses={authStatuses}
-                loading={loadingAuthStatus}
-                disabled={saving || savingGlobalSettings}
-                onRefresh={() => loadAuthStatus()}
-                onError={setAuthError}
-              />
-
-              <Card padding="md" className="scheduled-prefill-config-modal__containers">
-                <ScheduledPrefillContainersSection
-                  disabled={saving || loadingConfig || savingGlobalSettings}
-                  statusLoading={loadingPersistentContainers}
-                  containersByServiceKey={containersByServiceKey}
-                  selectedGamesCountByServiceKey={selectedGamesCountByServiceKey}
-                  persistentAction={persistentAction}
-                  authenticatingServiceKeys={authenticatingServiceKeys}
-                  gameSelectionLoadingServiceKey={loadingGameSelectionService}
-                  onStart={(serviceKey) => void handleStartPersistent(serviceKey)}
-                  onStop={(serviceKey) => void handleStopPersistent(serviceKey)}
-                  onLogin={handlePersistentLogin}
-                  onSelectGames={(serviceKey) => void handleOpenGameSelection(serviceKey)}
-                  onDownload={(serviceKey) => void handlePersistentDownload(serviceKey)}
-                  onCancelDownload={(serviceKey) => void handleCancelPersistentDownload(serviceKey)}
-                />
-              </Card>
-
               <Card padding="md" className="scheduled-prefill-config-modal__settings">
                 <div className="scheduled-prefill-config-modal__section-header">
                   <div>
@@ -796,33 +768,31 @@ export function ScheduledPrefillConfigModal({
               </Card>
 
               {config ? (
-                <section className="scheduled-prefill-config-modal__services">
-                  <div className="scheduled-prefill-config-modal__section-header">
-                    <h3 className="scheduled-prefill-config-modal__section-title">
-                      {t(`${baseKey}.servicesTitle`)}
-                    </h3>
-                    {loadingConfig && (
-                      <span className="scheduled-prefill-config-modal__inline-loading">
-                        <LoadingSpinner inline size="sm" />
-                        {t(`${baseKey}.loading`)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="scheduled-prefill-config-modal__rows">
-                    {SCHEDULED_PREFILL_SERVICE_RUN_ORDER.map((serviceKey) => (
-                      <div key={serviceKey} className="scheduled-prefill-config-modal__row">
-                        <ScheduledPrefillServiceRow
-                          serviceKey={serviceKey}
-                          config={config[serviceKey]}
-                          disabled={saving || loadingConfig}
-                          onChange={(serviceConfig) =>
-                            handleServiceChange(serviceKey, serviceConfig)
-                          }
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </section>
+                <Card padding="md" className="scheduled-prefill-config-modal__platforms">
+                  <ScheduledPrefillPlatformsPanel
+                    config={config}
+                    authStatuses={authStatuses}
+                    authLoading={loadingAuthStatus}
+                    disabled={saving || loadingConfig || savingGlobalSettings}
+                    statusLoading={loadingPersistentContainers}
+                    containersByServiceKey={containersByServiceKey}
+                    selectedGamesCountByServiceKey={selectedGamesCountByServiceKey}
+                    persistentAction={persistentAction}
+                    authenticatingServiceKeys={authenticatingServiceKeys}
+                    gameSelectionLoadingServiceKey={loadingGameSelectionService}
+                    onServiceChange={handleServiceChange}
+                    onRefreshAuth={() => loadAuthStatus()}
+                    onAuthError={setAuthError}
+                    onStart={(serviceKey) => void handleStartPersistent(serviceKey)}
+                    onStop={(serviceKey) => void handleStopPersistent(serviceKey)}
+                    onLogin={handlePersistentLogin}
+                    onSelectGames={(serviceKey) => void handleOpenGameSelection(serviceKey)}
+                    onDownload={(serviceKey) => void handlePersistentDownload(serviceKey)}
+                    onCancelDownload={(serviceKey) =>
+                      void handleCancelPersistentDownload(serviceKey)
+                    }
+                  />
+                </Card>
               ) : (
                 <div className="scheduled-prefill-config-modal__empty">{t(`${baseKey}.empty`)}</div>
               )}

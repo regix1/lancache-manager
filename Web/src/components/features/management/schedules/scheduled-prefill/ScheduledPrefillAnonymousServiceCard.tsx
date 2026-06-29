@@ -5,10 +5,12 @@ import type { ScheduledPrefillServiceKey } from './types';
 
 interface ScheduledPrefillAnonymousServiceCardProps {
   serviceKey: Extract<ScheduledPrefillServiceKey, 'battleNet' | 'riot'>;
+  embedded?: boolean;
 }
 
 export function ScheduledPrefillAnonymousServiceCard({
-  serviceKey
+  serviceKey,
+  embedded = false
 }: ScheduledPrefillAnonymousServiceCardProps) {
   const { t } = useTranslation();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
@@ -22,13 +24,24 @@ export function ScheduledPrefillAnonymousServiceCard({
   );
 
   return (
-    <article className="scheduled-prefill-anonymous-card">
-      <header className="scheduled-prefill-anonymous-card__header">
-        <h4 className="scheduled-prefill-anonymous-card__title">
-          {t(`${baseKey}.services.${serviceKey}`)}
-        </h4>
-        <Badge variant="success">{t(`${containersKey}.anonymous.badge`)}</Badge>
-      </header>
+    <article
+      className={`scheduled-prefill-anonymous-card${
+        embedded ? ' scheduled-prefill-anonymous-card--embedded' : ''
+      }`}
+    >
+      {!embedded && (
+        <header className="scheduled-prefill-anonymous-card__header">
+          <h4 className="scheduled-prefill-anonymous-card__title">
+            {t(`${baseKey}.services.${serviceKey}`)}
+          </h4>
+          <Badge variant="success">{t(`${containersKey}.anonymous.badge`)}</Badge>
+        </header>
+      )}
+      {embedded && (
+        <div className="scheduled-prefill-anonymous-card__embedded-badge">
+          <Badge variant="success">{t(`${containersKey}.anonymous.badge`)}</Badge>
+        </div>
+      )}
       <p className="scheduled-prefill-anonymous-card__description">
         {t(`${containersKey}.anonymous.${serviceKey}.description`)}
       </p>

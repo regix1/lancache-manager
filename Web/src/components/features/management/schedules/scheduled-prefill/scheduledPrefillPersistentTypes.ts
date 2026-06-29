@@ -10,6 +10,8 @@ export interface ScheduledPrefillPersistentActionState {
 
 export interface ScheduledPrefillPersistentCardProps {
   serviceKey: ScheduledPrefillServiceKey;
+  /** Hide platform title when rendered inside a platform section. */
+  embedded?: boolean;
   container?: PersistentPrefillContainerDto;
   selectedGamesCount: number;
   disabled?: boolean;
@@ -23,20 +25,4 @@ export interface ScheduledPrefillPersistentCardProps {
   onSelectGames: () => void;
   onDownload: () => void;
   onCancelDownload: () => void;
-}
-
-export interface ScheduledPrefillContainersSectionProps {
-  disabled?: boolean;
-  statusLoading?: boolean;
-  containersByServiceKey: Map<ScheduledPrefillServiceKey, PersistentPrefillContainerDto>;
-  selectedGamesCountByServiceKey: Record<ScheduledPrefillServiceKey, number>;
-  persistentAction: ScheduledPrefillPersistentActionState | null;
-  authenticatingServiceKeys: ScheduledPrefillServiceKey[];
-  gameSelectionLoadingServiceKey: ScheduledPrefillServiceKey | null;
-  onStart: (serviceKey: ScheduledPrefillServiceKey) => void;
-  onStop: (serviceKey: ScheduledPrefillServiceKey) => void;
-  onLogin: (serviceKey: ScheduledPrefillServiceKey) => void;
-  onSelectGames: (serviceKey: ScheduledPrefillServiceKey) => void;
-  onDownload: (serviceKey: ScheduledPrefillServiceKey) => void;
-  onCancelDownload: (serviceKey: ScheduledPrefillServiceKey) => void;
 }

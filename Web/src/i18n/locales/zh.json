@@ -3024,7 +3024,7 @@
             "summary": "已启用 {{enabled}} / {{total}} 个服务",
             "configure": "配置",
             "modalTitle": "配置计划预填充",
-            "modalDescription": "选择哪些服务按此计划运行，以及每个预填充如何启动。",
+            "modalDescription": "在同一视图中配置每个平台：计划登录、持久容器和计划设置。",
             "servicesTitle": "服务",
             "enabled": "启用",
             "service": "服务",
@@ -3072,21 +3072,21 @@
               "selectGames": "选择游戏"
             },
             "persistentContainer": {
-              "help": "长期容器，用于游戏库、登录和下载 — 与预填充选项卡访客容器使用相同的守护进程命令。",
+              "help": "长期容器，用于游戏库、登录和下载。与预填充选项卡访客容器使用相同的守护进程命令。",
               "error": "持久预填充容器操作失败：{{error}}",
               "downloadNow": "下载所选游戏",
               "cancelDownload": "取消下载",
               "downloadRequiresAuth": "下载前请先登录持久容器。",
               "downloadRequiresSelection": "下载前请至少选择一个游戏。",
-              "downloadProgress": "正在下载 {{game}} — 已传输 {{bytes}}",
-              "downloadProgressGeneric": "正在下载 — 已传输 {{bytes}}"
+              "downloadProgress": "正在下载 {{game}}。已传输 {{bytes}}。",
+              "downloadProgressGeneric": "正在下载。已传输 {{bytes}}。"
             },
             "persistentContainers": {
               "title": "持久容器",
               "description": "账户平台使用长期容器浏览游戏库、登录和下载。匿名平台仅使用下方的计划预设。",
               "helpIntro": "Steam、Epic 和 Xbox 需要持久容器来选择游戏。Battle.net 和 Riot 无需账户登录。",
               "helpAccountServices": "账户服务：启动容器、登录、选择游戏，然后下载或等待计划运行。",
-              "helpAnonymousServices": "Battle.net 和 Riot：无需持久登录 — 在下方服务中配置预设和目标平台。",
+              "helpAnonymousServices": "Battle.net 和 Riot：无需持久登录。在各平台的计划设置中配置预设和目标平台。",
               "pipelineLabel": "容器状态",
               "steps": {
                 "container": "容器",
@@ -3111,17 +3111,17 @@
                 "battleNet": {
                   "description": "Battle.net 计划预填充无需暴雪账户。运行使用临时访客容器及您的预设和平台设置。",
                   "points": [
-                    "认证卡片和持久容器均无需登录。",
-                    "在服务中启用 Battle.net 并选择预设（全部、最近或热门）。",
-                    "立即运行和计划运行会匿名下载到 lancache。"
+                    "计划运行和立即运行均无需登录。",
+                    "在 Battle.net 的计划设置中启用并选择预设（全部、最近或热门）。",
+                    "计划运行和立即运行会匿名下载到 lancache。"
                   ]
                 },
                 "riot": {
                   "description": "Riot 计划预填充无需 Riot 账户。运行使用临时访客容器及您的预设和平台设置。",
                   "points": [
-                    "认证卡片和持久容器均无需登录。",
-                    "在服务中启用 Riot 并选择预设（全部、最近或热门）。",
-                    "立即运行和计划运行会将公共 CDN 内容下载到 lancache。"
+                    "计划运行和立即运行均无需登录。",
+                    "在 Riot 的计划设置中启用并选择预设（全部、最近或热门）。",
+                    "计划运行和立即运行会将公共 CDN 内容下载到 lancache。"
                   ]
                 }
               }
@@ -3142,6 +3142,29 @@
               "error": "保存全局计划预填充设置失败：{{error}}",
               "persistentValidityLabel": "持久容器登录有效期（天）",
               "persistentValidityHelp": "持久容器会无限期运行。其登录会持续此天数，到期后需要重新登录。允许范围：{{min}}-{{max}} 天。"
+            },
+            "platforms": {
+              "description": "选择一个平台，在同一视图中配置该服务的全部设置。",
+              "navLabel": "预填充平台",
+              "nav": {
+                "loginRequired": "需要登录"
+              },
+              "sections": {
+                "scheduledAuth": "计划认证",
+                "persistentContainer": "持久容器",
+                "anonymous": "匿名预填充说明",
+                "schedule": "计划设置"
+              },
+              "status": {
+                "enabled": "已启用",
+                "disabled": "已禁用",
+                "on": "开",
+                "scheduledAuthReady": "计划认证就绪",
+                "scheduledAuthRequired": "需要计划登录",
+                "containerReady": "容器已登录",
+                "containerRunning": "容器需要登录",
+                "containerShort": "容器"
+              }
             },
             "services": {
               "steam": "Steam",
@@ -3183,9 +3206,9 @@
               "authPathsIntro": "计划预填充有三条独立的登录路径。请选择与您目标匹配的路径。它们不共享凭据。",
               "authPathsSteam": "此卡片存储计划运行的 Steam 无头登录。Steam 集成（仓库映射）是独立的，不会提供这些令牌。",
               "authPathsEpicXbox": "Epic 和 Xbox 在此卡片上各有独立登录，与集成页面（游戏映射）分开。",
-              "authPathsBattleNet": "Battle.net 不使用此卡片。计划运行为匿名 — 在下方服务中配置预设。",
-              "authPathsRiot": "Riot 不使用此卡片。计划运行为匿名 — 在下方服务中配置预设。",
-              "authPathsPersistent": "下方持久容器用于 Steam、Epic 和 Xbox 的游戏库浏览和选择。容器登录不会更新此卡片上的 Steam 状态。",
+              "authPathsBattleNet": "Battle.net 不使用计划认证。运行为匿名。请在 Battle.net 计划设置中配置预设。",
+              "authPathsRiot": "Riot 不使用计划认证。运行为匿名。请在 Riot 计划设置中配置预设。",
+              "authPathsPersistent": "持久容器用于 Steam、Epic 和 Xbox 的游戏库浏览和选择。容器登录不会更新计划 Steam 认证状态。",
               "loading": "正在检查认证...",
               "displayName": "已登录为 {{displayName}}",
               "loginExpires": "{{service}} 登录将于 {{date}} 过期",
@@ -3211,6 +3234,19 @@
                 "logIn": "登录",
                 "epicLoginSuccess": "Epic Games 认证成功。",
                 "xboxLoginSuccess": "Xbox 认证成功。"
+              },
+              "platformHelp": {
+                "steam": "计划运行时使用的 Steam 无头登录。与 Steam 集成（仓库映射）分开。",
+                "epic": "计划运行时使用的 Epic 登录。与集成页面（游戏映射）分开。",
+                "xbox": "计划运行时使用的 Xbox 登录。与集成页面（游戏映射）分开。"
+              },
+              "anonymous": {
+                "battleNet": {
+                  "description": "Battle.net 计划预填充无需暴雪账户。"
+                },
+                "riot": {
+                  "description": "Riot 计划预填充无需 Riot 账户。"
+                }
               }
             }
           },

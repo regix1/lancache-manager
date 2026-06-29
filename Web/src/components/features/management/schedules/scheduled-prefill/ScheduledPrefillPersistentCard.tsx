@@ -20,6 +20,7 @@ interface PipelineStep {
 
 export function ScheduledPrefillPersistentCard({
   serviceKey,
+  embedded = false,
   container,
   selectedGamesCount,
   disabled = false,
@@ -104,17 +105,33 @@ export function ScheduledPrefillPersistentCard({
   })();
 
   return (
-    <article className="scheduled-prefill-persistent-card">
-      <header className="scheduled-prefill-persistent-card__header">
-        <div className="scheduled-prefill-persistent-card__title-block">
-          <h4 className="scheduled-prefill-persistent-card__title">
-            {t(`${baseKey}.services.${serviceKey}`)}
-          </h4>
-          <p className="scheduled-prefill-persistent-card__subtitle">
-            {t(`${baseKey}.persistentContainer.help`)}
-          </p>
-        </div>
-        <div className="scheduled-prefill-persistent-card__header-badges">
+    <article
+      className={`scheduled-prefill-persistent-card${
+        embedded ? ' scheduled-prefill-persistent-card--embedded' : ''
+      }`}
+    >
+      {!embedded && (
+        <header className="scheduled-prefill-persistent-card__header">
+          <div className="scheduled-prefill-persistent-card__title-block">
+            <h4 className="scheduled-prefill-persistent-card__title">
+              {t(`${baseKey}.services.${serviceKey}`)}
+            </h4>
+            <p className="scheduled-prefill-persistent-card__subtitle">
+              {t(`${baseKey}.persistentContainer.help`)}
+            </p>
+          </div>
+          <div className="scheduled-prefill-persistent-card__header-badges">
+            {statusLoading && <LoadingSpinner inline size="sm" />}
+            <Badge variant={isRunning ? 'success' : 'neutral'}>
+              {isRunning
+                ? t('prefill.persistent.states.running')
+                : t('prefill.persistent.states.stopped')}
+            </Badge>
+          </div>
+        </header>
+      )}
+      {embedded && (
+        <div className="scheduled-prefill-persistent-card__header-badges scheduled-prefill-persistent-card__header-badges--embedded">
           {statusLoading && <LoadingSpinner inline size="sm" />}
           <Badge variant={isRunning ? 'success' : 'neutral'}>
             {isRunning
@@ -122,7 +139,7 @@ export function ScheduledPrefillPersistentCard({
               : t('prefill.persistent.states.stopped')}
           </Badge>
         </div>
-      </header>
+      )}
 
       <div
         className="scheduled-prefill-persistent-card__pipeline"

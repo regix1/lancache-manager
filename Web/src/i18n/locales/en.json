@@ -3024,7 +3024,7 @@
             "summary": "{{enabled}} of {{total}} services enabled",
             "configure": "Configure",
             "modalTitle": "Configure Scheduled Prefill",
-            "modalDescription": "Choose which services run on this schedule and how each prefill should be started.",
+            "modalDescription": "Configure each platform in one place: scheduled login, persistent container, and schedule settings.",
             "servicesTitle": "Services",
             "enabled": "Enabled",
             "service": "Service",
@@ -3072,21 +3072,21 @@
               "selectGames": "Select games"
             },
             "persistentContainer": {
-              "help": "Long-lived container for game library, login, and downloads — same daemon commands as the Prefill tab guest container.",
+              "help": "Long-lived container for game library, login, and downloads. Uses the same daemon commands as the Prefill tab guest container.",
               "error": "Persistent prefill container action failed: {{error}}",
               "downloadNow": "Download selected",
               "cancelDownload": "Cancel download",
               "downloadRequiresAuth": "Log in to the persistent container before downloading.",
               "downloadRequiresSelection": "Select at least one game before downloading.",
-              "downloadProgress": "Downloading {{game}} — {{bytes}} transferred",
-              "downloadProgressGeneric": "Downloading — {{bytes}} transferred"
+              "downloadProgress": "Downloading {{game}}. {{bytes}} transferred.",
+              "downloadProgressGeneric": "Downloading. {{bytes}} transferred."
             },
             "persistentContainers": {
               "title": "Persistent containers",
               "description": "Account platforms use long-lived containers for library browse, login, and downloads. Anonymous platforms use schedule presets only.",
               "helpIntro": "Steam, Epic, and Xbox need persistent containers for game selection. Battle.net and Riot run without account login.",
               "helpAccountServices": "Account services: start the container, log in, select games, then download or wait for the schedule.",
-              "helpAnonymousServices": "Battle.net and Riot: no persistent login — configure presets and target platforms in Services below.",
+              "helpAnonymousServices": "Battle.net and Riot: no persistent login. Configure presets and target platforms in the schedule section for each platform.",
               "pipelineLabel": "Container status",
               "steps": {
                 "container": "Container",
@@ -3111,17 +3111,17 @@
                 "battleNet": {
                   "description": "Battle.net scheduled prefill runs without a Blizzard account. Runs use temporary guest containers with your preset and platform settings.",
                   "points": [
-                    "No login on the Authentication card or persistent containers.",
-                    "Enable Battle.net in Services and choose a preset (All, Recent, or Top).",
-                    "Run Now and scheduled runs download anonymously to lancache."
+                    "No login is required for scheduled or Run Now downloads.",
+                    "Enable Battle.net and choose a preset (All, Recent, or Top) in the schedule section.",
+                    "Scheduled and Run Now downloads run anonymously to lancache."
                   ]
                 },
                 "riot": {
                   "description": "Riot scheduled prefill runs without a Riot account. Runs use temporary guest containers with your preset and platform settings.",
                   "points": [
-                    "No login on the Authentication card or persistent containers.",
-                    "Enable Riot in Services and choose a preset (All, Recent, or Top).",
-                    "Run Now and scheduled runs download public CDN content to lancache."
+                    "No login is required for scheduled or Run Now downloads.",
+                    "Enable Riot and choose a preset (All, Recent, or Top) in the schedule section.",
+                    "Scheduled and Run Now downloads fetch public CDN content to lancache."
                   ]
                 }
               }
@@ -3142,6 +3142,29 @@
               "error": "Failed to save global scheduled prefill settings: {{error}}",
               "persistentValidityLabel": "Persistent container login validity (days)",
               "persistentValidityHelp": "Persistent containers run indefinitely. Their login lasts this many days, then re-login is required. Allowed range: {{min}}-{{max}} days."
+            },
+            "platforms": {
+              "description": "Pick a platform to configure everything for that service in one view.",
+              "navLabel": "Prefill platforms",
+              "nav": {
+                "loginRequired": "Login required"
+              },
+              "sections": {
+                "scheduledAuth": "Scheduled authentication",
+                "persistentContainer": "Persistent container",
+                "anonymous": "How anonymous prefill works",
+                "schedule": "Schedule settings"
+              },
+              "status": {
+                "enabled": "Enabled",
+                "disabled": "Disabled",
+                "on": "On",
+                "scheduledAuthReady": "Scheduled auth ready",
+                "scheduledAuthRequired": "Scheduled login needed",
+                "containerReady": "Container logged in",
+                "containerRunning": "Container needs login",
+                "containerShort": "Container"
+              }
             },
             "services": {
               "steam": "Steam",
@@ -3183,9 +3206,9 @@
               "authPathsIntro": "Scheduled prefill uses three separate login paths. Pick the one that matches what you want to do. They do not share credentials.",
               "authPathsSteam": "This card stores headless Steam login for scheduled runs. Steam Integrations (depot mapping) is separate and does not supply these tokens.",
               "authPathsEpicXbox": "Epic and Xbox each have their own login on this card, separate from Integrations (game mapping).",
-              "authPathsBattleNet": "Battle.net does not use this card. Scheduled runs are anonymous — configure presets in Services below.",
-              "authPathsRiot": "Riot does not use this card. Scheduled runs are anonymous — configure presets in Services below.",
-              "authPathsPersistent": "Persistent containers below are for Steam, Epic, and Xbox library browse and game selection. Container login does not update Steam status on this card.",
+              "authPathsBattleNet": "Battle.net does not use scheduled authentication. Runs are anonymous. Configure presets in the Battle.net schedule section.",
+              "authPathsRiot": "Riot does not use scheduled authentication. Runs are anonymous. Configure presets in the Riot schedule section.",
+              "authPathsPersistent": "Persistent containers are for Steam, Epic, and Xbox library browse and game selection. Container login does not update scheduled Steam authentication.",
               "loading": "Checking authentication...",
               "displayName": "Logged in as {{displayName}}",
               "loginExpires": "{{service}} login expires {{date}}",
@@ -3211,6 +3234,19 @@
                 "logIn": "Log in",
                 "epicLoginSuccess": "Epic Games authentication successful.",
                 "xboxLoginSuccess": "Xbox authentication successful."
+              },
+              "platformHelp": {
+                "steam": "Headless Steam login used when the schedule runs. Separate from Steam Integrations (depot mapping).",
+                "epic": "Epic login used when the schedule runs. Separate from Integrations (game mapping).",
+                "xbox": "Xbox login used when the schedule runs. Separate from Integrations (game mapping)."
+              },
+              "anonymous": {
+                "battleNet": {
+                  "description": "Battle.net scheduled prefill runs without a Blizzard account."
+                },
+                "riot": {
+                  "description": "Riot scheduled prefill runs without a Riot account."
+                }
               }
             }
           },
