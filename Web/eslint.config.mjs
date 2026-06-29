@@ -126,6 +126,21 @@ export default tseslint.config(
     }
   },
 
+  // Node scripts (git hooks installer, validators)
+  {
+    files: ['scripts/**/*.{js,mjs}'],
+    languageOptions: {
+      ecmaVersion: 2020,
+      sourceType: 'module',
+      globals: {
+        ...globals.node
+      }
+    },
+    rules: {
+      'no-console': 'off'
+    }
+  },
+
   // Prettier config (must be last)
   prettierConfig,
   {
