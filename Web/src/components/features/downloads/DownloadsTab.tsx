@@ -63,8 +63,12 @@ const STORAGE_KEYS = {
   SEARCH_QUERY: 'lancache_downloads_search',
   ITEMS_PER_PAGE: 'lancache_downloads_items',
   ITEMS_PER_PAGE_RETRO: 'lancache_downloads_items_retro',
-  SHOW_METADATA: 'lancache_downloads_metadata',
-  SHOW_SMALL_FILES: 'lancache_downloads_show_small',
+  HIDE_METADATA: 'lancache_downloads_hide_metadata',
+  HIDE_SMALL_FILES: 'lancache_downloads_hide_small',
+  /** @deprecated Legacy show-semantics key — read only for migration */
+  LEGACY_SHOW_METADATA: 'lancache_downloads_metadata',
+  /** @deprecated Legacy show-semantics key — read only for migration */
+  LEGACY_SHOW_SMALL_FILES: 'lancache_downloads_show_small',
   HIDE_LOCALHOST: 'lancache_downloads_hide_localhost',
   HIDE_UNKNOWN_GAMES: 'lancache_downloads_hide_unknown',
   HIDE_EVICTED: 'lancache_downloads_hide_evicted',
@@ -82,6 +86,22 @@ const STORAGE_KEYS = {
   BANNER_ONLY: 'downloads_banner_only',
   GROUP_BY_GAME_RETRO: 'lancache_downloads_group_by_game_retro',
   EVICTED_DATA_MODE: 'lancache_downloads_evicted_data_mode'
+};
+
+const loadHideMetadata = (): boolean => {
+  const saved = storage.getItem(STORAGE_KEYS.HIDE_METADATA);
+  if (saved !== null) return saved === 'true';
+  const legacyShow = storage.getItem(STORAGE_KEYS.LEGACY_SHOW_METADATA);
+  if (legacyShow === null) return false;
+  return legacyShow !== 'true';
+};
+
+const loadHideSmallFiles = (): boolean => {
+  const saved = storage.getItem(STORAGE_KEYS.HIDE_SMALL_FILES);
+  if (saved !== null) return saved === 'true';
+  const legacyShow = storage.getItem(STORAGE_KEYS.LEGACY_SHOW_SMALL_FILES);
+  if (legacyShow === null) return false;
+  return legacyShow === 'false';
 };
 
 // Server-side eviction display mode (mirrors backend contract).
@@ -123,8 +143,8 @@ type PresetType = 'pretty' | 'minimal' | 'showAll' | 'default' | 'custom';
 // Preset configurations
 const PRESETS = {
   pretty: {
-    showZeroBytes: false,
-    showSmallFiles: false,
+    hideMetadata: true,
+    hideSmallFiles: true,
     hideLocalhost: true,
     hideUnknownGames: false,
     hideEvicted: false,
@@ -143,8 +163,8 @@ const PRESETS = {
     bannerImageRendering: 'smooth' as BannerImageRendering
   },
   minimal: {
-    showZeroBytes: false,
-    showSmallFiles: false,
+    hideMetadata: true,
+    hideSmallFiles: true,
     hideLocalhost: true,
     hideUnknownGames: false,
     hideEvicted: false,
@@ -163,8 +183,8 @@ const PRESETS = {
     bannerImageRendering: 'smooth' as BannerImageRendering
   },
   showAll: {
-    showZeroBytes: true,
-    showSmallFiles: true,
+    hideMetadata: false,
+    hideSmallFiles: false,
     hideLocalhost: false,
     hideUnknownGames: false,
     hideEvicted: false,
@@ -183,8 +203,8 @@ const PRESETS = {
     bannerImageRendering: 'smooth' as BannerImageRendering
   },
   default: {
-    showZeroBytes: false,
-    showSmallFiles: true,
+    hideMetadata: false,
+    hideSmallFiles: false,
     hideLocalhost: false,
     hideUnknownGames: false,
     hideEvicted: false,
@@ -206,8 +226,8 @@ const PRESETS = {
 
 // Function to detect current preset
 const detectActivePreset = (settings: {
-  showZeroBytes: boolean;
-  showSmallFiles: boolean;
+  hideMetadata: boolean;
+  hideSmallFiles: boolean;
   hideLocalhost: boolean;
   hideUnknownGames: boolean;
   hideEvicted: boolean;
@@ -230,8 +250,8 @@ const detectActivePreset = (settings: {
   for (const preset of presetKeys) {
     const presetConfig = PRESETS[preset];
     const matches =
-      settings.showZeroBytes === presetConfig.showZeroBytes &&
-      settings.showSmallFiles === presetConfig.showSmallFiles &&
+      settings.hideMetadata === presetConfig.hideMetadata &&
+      settings.hideSmallFiles === presetConfig.hideSmallFiles &&
       settings.hideLocalhost === presetConfig.hideLocalhost &&
       settings.hideUnknownGames === presetConfig.hideUnknownGames &&
       settings.groupUnknownGames === presetConfig.groupUnknownGames &&
@@ -490,8 +510,8 @@ const DownloadsTab: React.FC = () => {
     };
 
     return {
-      showZeroBytes: storage.getItem(STORAGE_KEYS.SHOW_METADATA) === 'true',
-      showSmallFiles: storage.getItem(STORAGE_KEYS.SHOW_SMALL_FILES) !== 'false',
+      hideMetadata: loadHideMetadata(),
+      hideSmallFiles: loadHideSmallFiles(),
       hideLocalhost: storage.getItem(STORAGE_KEYS.HIDE_LOCALHOST) === 'true',
       hideUnknownGames: storage.getItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES) === 'true',
       hideEvicted: storage.getItem(STORAGE_KEYS.HIDE_EVICTED) === 'true',
@@ -584,8 +604,8 @@ const DownloadsTab: React.FC = () => {
 
   // Effect to save settings to localStorage
   useEffect(() => {
-    storage.setItem(STORAGE_KEYS.SHOW_METADATA, settings.showZeroBytes.toString());
-    storage.setItem(STORAGE_KEYS.SHOW_SMALL_FILES, settings.showSmallFiles.toString());
+    storage.setItem(STORAGE_KEYS.HIDE_METADATA, settings.hideMetadata.toString());
+    storage.setItem(STORAGE_KEYS.HIDE_SMALL_FILES, settings.hideSmallFiles.toString());
     storage.setItem(STORAGE_KEYS.HIDE_LOCALHOST, settings.hideLocalhost.toString());
     storage.setItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES, settings.hideUnknownGames.toString());
     storage.setItem(STORAGE_KEYS.HIDE_EVICTED, settings.hideEvicted.toString());
@@ -813,11 +833,11 @@ const DownloadsTab: React.FC = () => {
     }
     let filtered = [...latestDownloads];
 
-    if (!settings.showZeroBytes) {
+    if (settings.hideMetadata) {
       filtered = filtered.filter((d) => d.totalBytes > 0);
     }
 
-    if (!settings.showSmallFiles) {
+    if (settings.hideSmallFiles) {
       filtered = filtered.filter((d) => d.totalBytes === 0 || d.totalBytes >= 1048576);
     }
 
@@ -864,8 +884,8 @@ const DownloadsTab: React.FC = () => {
     return filtered;
   }, [
     latestDownloads,
-    settings.showZeroBytes,
-    settings.showSmallFiles,
+    settings.hideMetadata,
+    settings.hideSmallFiles,
     settings.hideLocalhost,
     settings.hideEvicted,
     evictedDataMode,
@@ -1182,8 +1202,8 @@ const DownloadsTab: React.FC = () => {
     settings.selectedClient,
     settings.searchQuery,
     settings.sortOrder,
-    settings.showZeroBytes,
-    settings.showSmallFiles,
+    settings.hideMetadata,
+    settings.hideSmallFiles,
     settings.hideLocalhost,
     settings.hideUnknownGames,
     settings.viewMode,
@@ -1780,18 +1800,18 @@ const DownloadsTab: React.FC = () => {
                           {t('downloads.tab.sections.filters')}
                         </div>
                         <Checkbox
-                          checked={settings.showZeroBytes}
+                          checked={settings.hideMetadata}
                           onChange={(e) =>
-                            setSettings({ ...settings, showZeroBytes: e.target.checked })
+                            setSettings({ ...settings, hideMetadata: e.target.checked })
                           }
-                          label={t('downloads.tab.filters.showMetadata')}
+                          label={t('downloads.tab.filters.hideMetadata')}
                         />
                         <Checkbox
-                          checked={settings.showSmallFiles}
+                          checked={settings.hideSmallFiles}
                           onChange={(e) =>
-                            setSettings({ ...settings, showSmallFiles: e.target.checked })
+                            setSettings({ ...settings, hideSmallFiles: e.target.checked })
                           }
-                          label={t('downloads.tab.filters.showSmallFiles')}
+                          label={t('downloads.tab.filters.hideSmallFiles')}
                         />
                         <Checkbox
                           checked={settings.hideLocalhost}
@@ -2058,7 +2078,7 @@ const DownloadsTab: React.FC = () => {
                     filterClient={settings.selectedClient}
                     filterSearch={debouncedSearchQuery}
                     filterHideLocalhost={settings.hideLocalhost}
-                    filterShowZeroBytes={settings.showZeroBytes}
+                    filterHideMetadata={settings.hideMetadata}
                     filterHideUnknown={settings.hideUnknownGames}
                     filterStartTime={retroTimeParams.startTime}
                     filterEndTime={retroTimeParams.endTime}

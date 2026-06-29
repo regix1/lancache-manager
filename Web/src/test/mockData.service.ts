@@ -590,8 +590,8 @@ class MockDataService {
       client?: string;
       search?: string;
       hideLocalhost?: boolean;
-      showZeroBytes?: boolean;
-      showSmallFiles?: boolean;
+      hideMetadata?: boolean;
+      hideSmallFiles?: boolean;
       hideUnknownGames?: boolean;
     } = {}
   ): {
@@ -627,8 +627,8 @@ class MockDataService {
       client: filterClient,
       search,
       hideLocalhost = false,
-      showZeroBytes = false,
-      showSmallFiles = true,
+      hideMetadata = false,
+      hideSmallFiles = false,
       hideUnknownGames = false
     } = options;
 
@@ -716,11 +716,11 @@ class MockDataService {
         (item) => item.clientIp !== '127.0.0.1' && item.clientIp !== '::1'
       );
     }
-    if (!showZeroBytes) {
+    if (hideMetadata) {
       filtered = filtered.filter((item) => item.totalBytes > 0);
     }
-    if (!showSmallFiles) {
-      filtered = filtered.filter((item) => item.totalBytes > 1024 * 1024);
+    if (hideSmallFiles) {
+      filtered = filtered.filter((item) => item.totalBytes === 0 || item.totalBytes >= 1048576);
     }
     if (hideUnknownGames) {
       filtered = filtered.filter((item) => item.gameName && item.gameName !== item.service);

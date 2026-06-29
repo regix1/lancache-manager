@@ -89,7 +89,7 @@ public class RetroDownloadQuery
     public string Client { get; set; } = "all";
     public string Search { get; set; } = "";
     public bool HideLocalhost { get; set; } = false;
-    public bool ShowZeroBytes { get; set; } = false;
+    public bool ShowZeroBytes { get; set; } = true;
     public bool HideUnknown { get; set; } = false;
     public bool GroupByGame { get; set; } = false;
     /// <summary>Unix timestamp (seconds) - filter downloads with StartTimeUtc &gt;= this value</summary>

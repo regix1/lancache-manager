@@ -39,7 +39,7 @@ export const STORAGE_KEYS = {
   SERVICE_FILTER: 'lancache_downloads_service',
   ITEMS_PER_PAGE: 'lancache_downloads_items',
   GROUP_GAMES: 'lancache_downloads_group',
-  SHOW_METADATA: 'lancache_downloads_metadata',
-  SHOW_SMALL_FILES: 'lancache_downloads_show_small',
+  HIDE_METADATA: 'lancache_downloads_hide_metadata',
+  HIDE_SMALL_FILES: 'lancache_downloads_hide_small',
   REFRESH_RATE: 'lancache_refresh_rate'
 } as const;

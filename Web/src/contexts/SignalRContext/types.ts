@@ -940,6 +940,25 @@ export interface ScheduledPrefillXboxAuthProgressEvent {
   isTerminal?: boolean;
 }
 
+export interface ScheduledPrefillStartedEvent {
+  operationId: string;
+  serviceCount: number;
+}
+
+export interface ScheduledPrefillProgressEvent {
+  operationId: string;
+  serviceId: string;
+  stage: string;
+  message: string;
+  needsLoginReason?: string | null;
+}
+
+export interface ScheduledPrefillCompletedEvent {
+  operationId: string | null;
+  success: boolean;
+  error?: string | null;
+}
+
 // Mirrors the backend payload emitted by XboxMappingService.MergeDaemonCatalogCoreAsync
 // ({ source, newMappings, newPatterns }). Xbox tracks newly discovered games (newMappings) and
 // newly stored CDN URL fragments (newPatterns); it does NOT compute a running total / updated count

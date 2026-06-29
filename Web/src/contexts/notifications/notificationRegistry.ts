@@ -23,7 +23,11 @@
 
 import type { NotificationRegistryEntry, NotificationType, SimpleRecoveryConfig } from './types';
 import type { OperationStatus } from '@/types/operations';
-import { NOTIFICATION_IDS, NOTIFICATION_STORAGE_KEYS } from './constants';
+import {
+  NOTIFICATION_IDS,
+  NOTIFICATION_STORAGE_KEYS,
+  SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID
+} from './constants';
 import i18n from '@/i18n';
 import {
   formatLogProcessingMessage,
@@ -56,6 +60,7 @@ import {
   formatDataImportFailureMessage
 } from './detailMessageFormatters';
 import { translateStageKeyMessage } from '@utils/stageKeyMessage';
+import { SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY } from '@components/features/management/schedules/scheduled-prefill/constants';
 
 import type {
   LogProcessingStartedEvent,
@@ -93,7 +98,10 @@ import type {
   EvictionScanCompleteEvent,
   EvictionRemovalStartedEvent,
   EvictionRemovalProgressEvent,
-  EvictionRemovalCompleteEvent
+  EvictionRemovalCompleteEvent,
+  ScheduledPrefillStartedEvent,
+  ScheduledPrefillProgressEvent,
+  ScheduledPrefillCompletedEvent
 } from '../SignalRContext/types';
 
 /**
@@ -297,6 +305,7 @@ const CANCEL_TOOLTIP = {
   dataImport: 'common.notifications.cancelDataImport',
   evictionScan: 'common.notifications.cancelEvictionScan',
   cacheSizeScan: 'common.notifications.cancelCacheSizeScan',
+  scheduledPrefill: 'common.notifications.cancelScheduledPrefill',
   evictionRemoval: 'common.notifications.cancelEvictionRemoval',
   depotMapping: 'common.notifications.cancelDepotMapping',
   databaseReset: 'common.notifications.cancelDatabaseReset',
@@ -979,6 +988,68 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         event.error ??
         (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
         i18n.t('signalr.generic.failed')
+    }
+  },
+
+  // ========== Scheduled Prefill ==========
+  {
+    type: 'scheduled_prefill',
+    id: NOTIFICATION_IDS.SCHEDULED_PREFILL,
+    storageKey: NOTIFICATION_STORAGE_KEYS.SCHEDULED_PREFILL,
+    wiring: 'standard',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.scheduledPrefill,
+    recovery: { kind: 'none' },
+    events: {
+      started: 'ScheduledPrefillStarted',
+      progress: 'ScheduledPrefillProgress',
+      complete: 'ScheduledPrefillCompleted'
+    },
+    started: {
+      defaultMessage: 'Scheduled prefill started',
+      getMessage: () => i18n.t('management.schedules.services.scheduledPrefill.events.started'),
+      getDetails: (event: ScheduledPrefillStartedEvent) => ({ operationId: event.operationId }),
+      replaceExisting: true,
+      additionalIdsToRemove: [SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID]
+    },
+    progress: {
+      getMessage: (event: ScheduledPrefillProgressEvent) => {
+        const serviceKey =
+          SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY[event.serviceId] ?? event.serviceId;
+        const serviceLabel = i18n.t(
+          `management.schedules.services.scheduledPrefill.config.services.${serviceKey}`
+        );
+
+        if (event.stage === 'skipped') {
+          return i18n.t('management.schedules.services.scheduledPrefill.events.skipped', {
+            service: serviceLabel,
+            reason: event.message
+          });
+        }
+
+        if (event.stage === 'needs-login') {
+          return i18n.t('management.schedules.services.scheduledPrefill.events.needsLogin', {
+            service: serviceLabel
+          });
+        }
+
+        return i18n.t('management.schedules.services.scheduledPrefill.events.serviceProgress', {
+          service: serviceLabel,
+          message: event.message
+        });
+      },
+      getProgress: () => 50,
+      getStatus: () => undefined,
+      getDetails: (event: ScheduledPrefillProgressEvent) => ({ operationId: event.operationId })
+    },
+    complete: {
+      getSuccessMessage: () =>
+        i18n.t('management.schedules.services.scheduledPrefill.events.completed'),
+      getFailureMessage: (event: ScheduledPrefillCompletedEvent) =>
+        event.error ?? i18n.t('management.schedules.services.scheduledPrefill.events.failed')
+    },
+    onComplete: (removeNotification) => {
+      removeNotification(SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID);
     }
   },
 

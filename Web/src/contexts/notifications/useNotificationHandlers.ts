@@ -54,7 +54,8 @@ function buildStartedHandler(
       defaultMessage: started.defaultMessage,
       getMessage: started.getMessage,
       getDetails: started.getDetails,
-      replaceExisting: started.replaceExisting
+      replaceExisting: started.replaceExisting,
+      additionalIdsToRemove: started.additionalIdsToRemove
     },
     setNotifications,
     cancelAutoDismissTimer

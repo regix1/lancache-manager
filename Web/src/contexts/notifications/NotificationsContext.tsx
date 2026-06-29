@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useMemo, type ReactNode } from 'react';
+import React, { useState, useCallback, useRef, useMemo, useEffect, type ReactNode } from 'react';
 import { useSignalR } from '../SignalRContext/useSignalR';
 import { useAuth } from '../useAuth';
 import themeService from '@services/theme.service';
@@ -10,7 +10,8 @@ import {
   NOTIFICATION_ANIMATION_DURATION_MS,
   TOAST_DEFAULT_DURATION_MS,
   NOTIFICATION_STORAGE_KEYS,
-  NOTIFICATION_IDS
+  NOTIFICATION_IDS,
+  SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID
 } from './constants';
 import { createRecoveryRunner, type FetchWithAuth } from './recoveryFactory';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
@@ -99,6 +100,13 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   // Track when the tab was hidden, so we can debounce visibility recovery
   const tabHiddenAtRef = useRef<number | null>(null);
 
+  // Drop the pre-registry generic scheduled-prefill toast that never received a completion event.
+  useEffect(() => {
+    setNotifications((prev) =>
+      prev.filter((n) => n.id !== SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID)
+    );
+  }, []);
+
   const getNextInstanceId = useCallback((notificationId: string): number => {
     const current = instanceCounterRef.current.get(notificationId) || 0;
     const next = current + 1;
@@ -134,7 +142,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         epic_game_mapping: NOTIFICATION_IDS.EPIC_GAME_MAPPING,
         xbox_game_mapping: NOTIFICATION_IDS.XBOX_GAME_MAPPING,
         eviction_scan: NOTIFICATION_IDS.EVICTION_SCAN,
-        eviction_removal: NOTIFICATION_IDS.EVICTION_REMOVAL
+        eviction_removal: NOTIFICATION_IDS.EVICTION_REMOVAL,
+        scheduled_prefill: NOTIFICATION_IDS.SCHEDULED_PREFILL
       };
 
       if (typeToIdMap[notification.type]) {

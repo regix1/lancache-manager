@@ -23,8 +23,8 @@ interface RetroDownloadsHookOptions {
   search: string;
   /** Whether to hide 127.0.0.1 / ::1 rows. */
   hideLocalhost: boolean;
-  /** Whether to include zero-byte rows. */
-  showZeroBytes: boolean;
+  /** Whether to hide zero-byte rows. */
+  hideMetadata: boolean;
   /** Whether to hide rows whose game name is unknown / equals the service. */
   hideUnknown: boolean;
   /** When true, server merges depot rows by game before paginating. */
@@ -73,7 +73,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
     client,
     search,
     hideLocalhost,
-    showZeroBytes,
+    hideMetadata,
     hideUnknown,
     groupByGame,
     startTime,
@@ -103,7 +103,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
       client,
       search,
       hideLocalhost,
-      showZeroBytes,
+      showZeroBytes: !hideMetadata,
       hideUnknown,
       groupByGame,
       startTime,
@@ -152,7 +152,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
     client,
     search,
     hideLocalhost,
-    showZeroBytes,
+    hideMetadata,
     hideUnknown,
     groupByGame,
     startTime,

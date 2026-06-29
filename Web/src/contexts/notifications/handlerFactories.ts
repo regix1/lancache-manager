@@ -71,6 +71,8 @@ interface StartedHandlerConfig<T> {
   getDetails?: (event: T) => UnifiedNotification['details'];
   /** If true, always replace existing notification (for restartable operations) */
   replaceExisting?: boolean;
+  /** Extra notification ids to remove when this operation starts */
+  additionalIdsToRemove?: string[];
 }
 
 /**
@@ -141,8 +143,9 @@ export function createStartedHandler<T>(
       // Persist to localStorage for recovery on page refresh
       localStorage.setItem(config.storageKey, JSON.stringify(newNotification));
 
-      // Remove any existing notifications with the same ID and add new one
-      const filtered = prev.filter((n) => n.id !== notificationId);
+      // Remove this notification and any legacy/extra ids, then add the new running slot.
+      const idsToRemove = new Set([notificationId, ...(config.additionalIdsToRemove ?? [])]);
+      const filtered = prev.filter((n) => !idsToRemove.has(n.id));
       return [...filtered, newNotification];
     });
   };

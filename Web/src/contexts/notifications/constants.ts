@@ -27,7 +27,8 @@ export const OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE: Record<string, Notificati
   xboxMapping: 'xbox_game_mapping',
   evictionScan: 'eviction_scan',
   evictionRemoval: 'eviction_removal',
-  cacheSizeScan: 'cache_size_scan'
+  cacheSizeScan: 'cache_size_scan',
+  scheduledPrefill: 'scheduled_prefill'
 };
 
 // ============================================================================
@@ -95,8 +96,13 @@ export const NOTIFICATION_STORAGE_KEYS = {
   /** Key for eviction removal operation state */
   EVICTION_REMOVAL: 'eviction-removal-storage',
   /** Key for cache file scan operation state */
-  CACHE_SIZE_SCAN: 'cache-size-scan-storage'
+  CACHE_SIZE_SCAN: 'cache-size-scan-storage',
+  /** Key for scheduled prefill operation state */
+  SCHEDULED_PREFILL: 'notification_scheduled_prefill'
 } as const;
+
+/** Pre-registry generic toast id for scheduled prefill Run Now (never completed). */
+export const SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID = 'generic_Scheduled_prefill_started';
 
 // ============================================================================
 // Notification ID Generators
@@ -141,5 +147,7 @@ export const NOTIFICATION_IDS = {
   /** ID for eviction removal operations */
   EVICTION_REMOVAL: 'eviction-removal-notification',
   /** ID for cache file scan operations */
-  CACHE_SIZE_SCAN: 'cache-size-scan-notification'
+  CACHE_SIZE_SCAN: 'cache-size-scan-notification',
+  /** ID for scheduled prefill operations */
+  SCHEDULED_PREFILL: 'scheduled_prefill'
 } as const;

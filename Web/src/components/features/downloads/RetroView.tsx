@@ -87,8 +87,8 @@ interface RetroViewProps {
   filterSearch?: string;
   /** Server-side filter: hide localhost rows. Only used when serverMode is true. */
   filterHideLocalhost?: boolean;
-  /** Server-side filter: include zero-byte rows. Only used when serverMode is true. */
-  filterShowZeroBytes?: boolean;
+  /** Server-side filter: hide zero-byte rows. Only used when serverMode is true. */
+  filterHideMetadata?: boolean;
   /** Server-side filter: hide rows whose game name is unknown. Only used when serverMode is true. */
   filterHideUnknown?: boolean;
   /** Server-side filter: Unix start time (seconds). Only used when serverMode is true. */
@@ -182,7 +182,7 @@ const RetroView = memo(
         filterClient = 'all',
         filterSearch = '',
         filterHideLocalhost = false,
-        filterShowZeroBytes = false,
+        filterHideMetadata = false,
         filterHideUnknown = false,
         filterStartTime,
         filterEndTime,
@@ -213,7 +213,7 @@ const RetroView = memo(
         client: filterClient,
         search: filterSearch,
         hideLocalhost: filterHideLocalhost,
-        showZeroBytes: filterShowZeroBytes,
+        hideMetadata: filterHideMetadata,
         hideUnknown: filterHideUnknown,
         groupByGame,
         startTime: filterStartTime,

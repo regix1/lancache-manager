@@ -26,6 +26,7 @@ export type NotificationType =
   | 'eviction_scan'
   | 'eviction_removal'
   | 'cache_size_scan'
+  | 'scheduled_prefill'
   | 'bulk_removal'
   | 'generic';
 
@@ -228,6 +229,8 @@ export interface RegistryStartedConfig {
   getDetails?: (event: any) => UnifiedNotification['details'];
   /** If true, always replace existing notification (for restartable operations) */
   replaceExisting?: boolean;
+  /** Extra notification ids to remove when this operation starts (migration/cleanup) */
+  additionalIdsToRemove?: string[];
 }
 
 /**
