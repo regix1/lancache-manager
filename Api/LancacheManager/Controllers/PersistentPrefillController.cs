@@ -626,14 +626,16 @@ public sealed class PersistentServiceRequest
 }
 
 /// <summary>Sets selected apps on the running persistent session.</summary>
-public sealed class PersistentSelectedAppsRequest : PersistentServiceRequest
+public sealed class PersistentSelectedAppsRequest
 {
+    public required PrefillPlatform Service { get; init; }
     public required List<string> AppIds { get; init; }
 }
 
 /// <summary>Starts prefill on the running persistent session (mirrors guest StartPrefillRequest).</summary>
-public sealed class PersistentStartPrefillRequest : PersistentServiceRequest
+public sealed class PersistentStartPrefillRequest
 {
+    public required PrefillPlatform Service { get; init; }
     public List<string>? AppIds { get; init; }
     public bool All { get; init; }
     public bool Recent { get; init; }
