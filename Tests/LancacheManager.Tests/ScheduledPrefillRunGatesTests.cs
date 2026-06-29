@@ -79,6 +79,58 @@ public class ScheduledPrefillRunGatesTests
     }
 
     [Fact]
+    public void TryGetRunnablePersistentSession_ReturnsTrue_AndSessionId_WhenPersistentSessionHealthy()
+    {
+        // Reuse contract: a running, authenticated persistent container is prefilled on its OWN
+        // session id. The scheduler never creates a new (guest) session for this.
+        var session = MakeSession(SystemUserId, isPersistent: true, authState: DaemonAuthState.Authenticated);
+
+        var runnable = ScheduledPrefillRunGates.TryGetRunnablePersistentSession(session, out var sessionId, out var reason);
+
+        Assert.True(runnable);
+        Assert.Equal(session.Id, sessionId);
+        Assert.Equal(string.Empty, reason);
+    }
+
+    [Fact]
+    public void TryGetRunnablePersistentSession_ReturnsFalse_WithReason_WhenNoPersistentSession()
+    {
+        var runnable = ScheduledPrefillRunGates.TryGetRunnablePersistentSession(null, out var sessionId, out var reason);
+
+        Assert.False(runnable);
+        Assert.Equal(string.Empty, sessionId);
+        Assert.False(string.IsNullOrWhiteSpace(reason));
+    }
+
+    [Fact]
+    public void TryGetRunnablePersistentSession_ReturnsFalse_WhenSessionNotAuthenticated()
+    {
+        var session = MakeSession(SystemUserId, isPersistent: true, authState: DaemonAuthState.NotAuthenticated);
+
+        var runnable = ScheduledPrefillRunGates.TryGetRunnablePersistentSession(session, out var sessionId, out var reason);
+
+        Assert.False(runnable);
+        Assert.Equal(string.Empty, sessionId);
+        Assert.False(string.IsNullOrWhiteSpace(reason));
+    }
+
+    [Fact]
+    public void TryGetRunnablePersistentSession_ReturnsFalse_WhenSessionNeedsRelogin()
+    {
+        var session = MakeSession(
+            SystemUserId,
+            isPersistent: true,
+            authState: DaemonAuthState.Authenticated,
+            needsRelogin: true);
+
+        var runnable = ScheduledPrefillRunGates.TryGetRunnablePersistentSession(session, out var sessionId, out var reason);
+
+        Assert.False(runnable);
+        Assert.Equal(string.Empty, sessionId);
+        Assert.False(string.IsNullOrWhiteSpace(reason));
+    }
+
+    [Fact]
     public void GuestPrefillValidation_AcceptsDurationHoursOneThroughThree()
     {
         foreach (var hours in new[] { 1, 2, 3 })
@@ -106,7 +158,9 @@ public class ScheduledPrefillRunGatesTests
         Guid userId,
         bool isPersistent,
         DaemonSessionStatus status = DaemonSessionStatus.Active,
-        bool isPrefilling = false)
+        bool isPrefilling = false,
+        DaemonAuthState authState = DaemonAuthState.Authenticated,
+        bool needsRelogin = false)
     {
         return new DaemonSession
         {
@@ -115,6 +169,8 @@ public class ScheduledPrefillRunGatesTests
             Status = status,
             IsPersistent = isPersistent,
             IsPrefilling = isPrefilling,
+            AuthState = authState,
+            NeedsRelogin = needsRelogin,
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.AddHours(1)
         };

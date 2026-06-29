@@ -18,12 +18,12 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
 {
     private static readonly TimeSpan _defaultInterval = TimeSpan.FromHours(24);
     private static readonly TimeSpan _pollInterval = TimeSpan.FromSeconds(10);
-    private static readonly TimeSpan _authWaitTimeout = TimeSpan.FromSeconds(60);
-    private static readonly TimeSpan _authPollInterval = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan _daemonReadyTimeout = TimeSpan.FromSeconds(45);
-    private static readonly TimeSpan _daemonReadyPollInterval = TimeSpan.FromSeconds(1);
 
     private readonly IServiceScopeFactory _scopeFactory;
+
+    // Retained (injected but no longer called) now that scheduled prefill reuses the already
+    // logged-in persistent container instead of headlessly authenticating a fresh guest container.
+    // Removing the service + its DI registration is a separate, verified follow-up.
     private readonly IScheduledPrefillAuthService _authService;
     private readonly IStateService _stateService;
 
@@ -171,11 +171,13 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
     }
 
     /// <summary>
-    /// Runs a single service's scheduled prefill: resolves the concrete daemon, performs the
-    /// busy/auth gates, creates a system-owned session, drives the prefill, and guarantees
-    /// teardown. Emits <see cref="SignalREvents.ScheduledPrefillProgress"/> at each stage.
+    /// Runs a single service's scheduled prefill: resolves the concrete daemon, reuses the running
+    /// persistent admin container (which authenticates itself from its named auth volume), performs
+    /// the needs-login + busy gates, and drives the prefill on that persistent session. The
+    /// persistent container is system-owned and long-lived, so it is never created or torn down
+    /// here. Emits <see cref="SignalREvents.ScheduledPrefillProgress"/> at each stage.
     /// </summary>
-    /// <returns>True when the service passed early gates and created a download session; false when skipped.</returns>
+    /// <returns>True when the service engaged the persistent container's prefill; false when skipped.</returns>
     private async Task<bool> RunServiceAsync(
         ScheduledPrefillServiceConfigDto serviceConfig,
         string operationId,
@@ -194,7 +196,28 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
             return false;
         }
 
-        // 2. Busy check: never disturb a live manual session or an active prefill run.
+        // 2. Reuse the running persistent admin container. Scheduled prefill is admin-only and
+        // downloads INSIDE the long-lived persistent container, which authenticates itself from its
+        // named auth volume. It never spawns a temporary guest container and never injects a token.
+        var persistentSession = daemon.GetActivePersistentSession();
+        if (!ScheduledPrefillRunGates.TryGetRunnablePersistentSession(persistentSession, out var sessionId, out var needsLoginReason))
+        {
+            await EmitProgressAsync(
+                notifications,
+                operationId,
+                serviceId,
+                "needs-login",
+                $"No logged-in persistent container for {serviceId}",
+                needsLoginReason);
+            return false;
+        }
+
+        // TryGetRunnablePersistentSession only returns true for a non-null, authenticated session.
+        var session = persistentSession!;
+
+        // 3. Busy check: defer when the persistent container is already prefilling (a prior run still
+        // going) or a manual/guest interactive session is live. An idle persistent container does not
+        // block, because it shares the system user id with the scheduler.
         if (ScheduledPrefillRunGates.ShouldSkipForBusySessions(
                 daemon.GetAllSessions(),
                 _systemUserId,
@@ -204,248 +227,130 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
             return false;
         }
 
-        // 3. Resolve the auth plan for this service.
-        var plan = await _authService.EnsureAuthenticatedAsync(
-            serviceId,
-            new ScheduledPrefillAuthContext
-            {
-                Service = serviceId,
-                UserId = ScheduledPrefillConstants.SystemUserId
-            },
-            ct);
-
-        if (plan.State == ScheduledPrefillAuthState.NeedsLogin)
-        {
-            await EmitProgressAsync(
-                notifications,
-                operationId,
-                serviceId,
-                "needs-login",
-                "Service requires a login before it can be scheduled",
-                plan.NeedsLoginReason);
-            return false;
-        }
-
-        // 4. Create a dedicated guest download session (never reuse persistent config containers).
         await EmitProgressAsync(
             notifications,
             operationId,
             serviceId,
             "starting",
-            "Creating guest download container");
-        var session = await daemon.CreateSessionAsync(
-            _systemUserId,
-            sessionType: SessionType.Guest,
-            reuseExistingSession: false,
-            cancellationToken: ct);
-        var sessionId = session.Id;
-        var weOwnSessionForTeardown = !session.IsPersistent;
-
-        _logger.LogInformation(
-            "[ScheduledPrefill] Guest download container steam-daemon-{SessionId} created for {Service} (persistent config containers do not download)",
-            sessionId,
-            serviceId);
-
-        await EmitProgressAsync(
-            notifications,
-            operationId,
-            serviceId,
-            "starting",
-            $"Guest download container steam-daemon-{sessionId} created",
+            "Reusing persistent container",
             downloadSessionId: sessionId);
 
+        // 4. Kick off the prefill. Map preset + OS list to the real daemon signature.
+        // When specific apps are selected, prefill exactly those and ignore the All/Recent/Top
+        // preset; otherwise fall back to the preset selection.
+        var hasSelectedApps = serviceConfig.SelectedAppIds.Count > 0;
+        bool all;
+        bool recent;
+        int? top;
+        if (hasSelectedApps)
+        {
+            all = false;
+            recent = false;
+            top = null;
+        }
+        else
+        {
+            MapPreset(serviceConfig, out all, out recent, out top);
+        }
+
+        var operatingSystems = MapOperatingSystems(serviceConfig.OperatingSystems);
+        var maxConcurrency = serviceConfig.MaxConcurrency.Mode == ScheduledPrefillMaxConcurrencyMode.Fixed
+            ? serviceConfig.MaxConcurrency.Value
+            : null;
+
+        if (hasSelectedApps)
+        {
+            _logger.LogInformation(
+                "[ScheduledPrefill] Setting {Count} selected app(s) on session {SessionId}",
+                serviceConfig.SelectedAppIds.Count,
+                sessionId);
+            await daemon.SetSelectedAppsAsync(sessionId, serviceConfig.SelectedAppIds, ct);
+        }
+
+        _logger.LogInformation(
+            "[ScheduledPrefill] Starting prefill on persistent session {SessionId} (force={Force}, selectedApps={SelectedCount})",
+            sessionId,
+            serviceConfig.Force,
+            serviceConfig.SelectedAppIds.Count);
+
+        PrefillResult result;
         try
         {
-            if (!await WaitForDaemonReadyAsync(daemon, session, ct))
-            {
-                await EmitProgressAsync(
-                    notifications,
-                    operationId,
-                    serviceId,
-                    "failed",
-                    "Timed out waiting for daemon to become ready",
-                    downloadSessionId: sessionId);
-                return true;
-            }
-
-            if (plan.AfterSessionCreatedAsync is not null)
-            {
-                try
-                {
-                    await plan.AfterSessionCreatedAsync(session, ct);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(
-                        ex,
-                        "[ScheduledPrefill] Auto-login failed for guest session {SessionId} ({Service})",
-                        sessionId,
-                        serviceId);
-                    await EmitProgressAsync(
-                        notifications,
-                        operationId,
-                        serviceId,
-                        "failed",
-                        $"Auto-login failed: {ex.Message}",
-                        downloadSessionId: sessionId);
-                    return true;
-                }
-            }
-
-            if (!await WaitForSessionAuthenticatedAsync(daemon, session, ct))
-            {
-                await EmitProgressAsync(
-                    notifications,
-                    operationId,
-                    serviceId,
-                    "failed",
-                    "Timed out waiting for session authentication",
-                    downloadSessionId: sessionId);
-                return true;
-            }
-
-            // 5. Kick off the prefill. Map preset + OS list to the real daemon signature.
-            // When specific apps are selected, prefill exactly those and ignore the All/Recent/Top
-            // preset; otherwise fall back to the preset selection.
-            var hasSelectedApps = serviceConfig.SelectedAppIds.Count > 0;
-            bool all;
-            bool recent;
-            int? top;
-            if (hasSelectedApps)
-            {
-                all = false;
-                recent = false;
-                top = null;
-            }
-            else
-            {
-                MapPreset(serviceConfig, out all, out recent, out top);
-            }
-
-            var operatingSystems = MapOperatingSystems(serviceConfig.OperatingSystems);
-            var maxConcurrency = serviceConfig.MaxConcurrency.Mode == ScheduledPrefillMaxConcurrencyMode.Fixed
-                ? serviceConfig.MaxConcurrency.Value
-                : null;
-
-            if (hasSelectedApps)
-            {
-                _logger.LogInformation(
-                    "[ScheduledPrefill] Setting {Count} selected app(s) on session {SessionId}",
-                    serviceConfig.SelectedAppIds.Count,
-                    sessionId);
-                await daemon.SetSelectedAppsAsync(sessionId, serviceConfig.SelectedAppIds, ct);
-            }
-
-            _logger.LogInformation(
-                "[ScheduledPrefill] Starting prefill on session {SessionId} (force={Force}, selectedApps={SelectedCount})",
+            result = await daemon.PrefillAsync(
                 sessionId,
-                serviceConfig.Force,
-                serviceConfig.SelectedAppIds.Count);
-
-            PrefillResult result;
-            try
-            {
-                result = await daemon.PrefillAsync(
-                    sessionId,
-                    all: all,
-                    recent: recent,
-                    recentlyPurchased: false,
-                    top: top,
-                    force: serviceConfig.Force,
-                    operatingSystems: operatingSystems,
-                    maxConcurrency: maxConcurrency,
-                    cancellationToken: ct);
-            }
-            catch (PrefillAlreadyRunningException)
-            {
-                await EmitProgressAsync(notifications, operationId, serviceId, "skipped", "A prefill is already in progress");
-                return true;
-            }
-
-            // A failed start may leave IsPrefilling already false, which would make the poll loop
-            // exit immediately and wrongly report "completed". Treat a non-Success start as failed.
-            if (!result.Success)
-            {
-                var failureMessage = string.IsNullOrWhiteSpace(result.ErrorMessage)
-                    ? "Prefill failed to start"
-                    : result.ErrorMessage;
-                await EmitProgressAsync(notifications, operationId, serviceId, "failed", failureMessage);
-                return true;
-            }
-
-            await EmitProgressAsync(
-                notifications,
-                operationId,
-                serviceId,
-                "running",
-                "Prefill in progress",
-                downloadSessionId: sessionId);
-
-            // Poll until the daemon clears IsPrefilling, or a guard trips.
-            var runDeadline = DateTime.UtcNow + config.MaxServiceRuntime;
-            while (session.IsPrefilling)
-            {
-                ct.ThrowIfCancellationRequested();
-
-                if (DateTime.UtcNow >= runDeadline)
-                {
-                    await EmitProgressAsync(notifications, operationId, serviceId, "failed", "Exceeded maximum service runtime");
-                    return true;
-                }
-
-                if (PrefillDaemonServiceBase.IsPrefillStalled(session, DateTime.UtcNow, config.StallTimeout))
-                {
-                    await EmitProgressAsync(notifications, operationId, serviceId, "failed", "Prefill stalled (no progress)");
-                    return true;
-                }
-
-                try
-                {
-                    await Task.Delay(_pollInterval, ct);
-                }
-                catch (OperationCanceledException)
-                {
-                    await daemon.CancelPrefillAsync(sessionId, CancellationToken.None);
-                    throw;
-                }
-            }
-
-            await EmitProgressAsync(
-                notifications,
-                operationId,
-                serviceId,
-                "completed",
-                BuildCompletionMessage(session, hasSelectedApps, serviceConfig.Force),
-                bytesDownloaded: session.TotalBytesTransferred,
-                downloadSessionId: sessionId);
+                all: all,
+                recent: recent,
+                recentlyPurchased: false,
+                top: top,
+                force: serviceConfig.Force,
+                operatingSystems: operatingSystems,
+                maxConcurrency: maxConcurrency,
+                cancellationToken: ct);
+        }
+        catch (PrefillAlreadyRunningException)
+        {
+            await EmitProgressAsync(notifications, operationId, serviceId, "skipped", "A prefill is already in progress");
             return true;
         }
-        finally
+
+        // A failed start may leave IsPrefilling already false, which would make the poll loop
+        // exit immediately and wrongly report "completed". Treat a non-Success start as failed.
+        if (!result.Success)
         {
-            if (weOwnSessionForTeardown)
+            var failureMessage = string.IsNullOrWhiteSpace(result.ErrorMessage)
+                ? "Prefill failed to start"
+                : result.ErrorMessage;
+            await EmitProgressAsync(notifications, operationId, serviceId, "failed", failureMessage);
+            return true;
+        }
+
+        await EmitProgressAsync(
+            notifications,
+            operationId,
+            serviceId,
+            "running",
+            "Prefill in progress",
+            downloadSessionId: sessionId);
+
+        // Poll until the daemon clears IsPrefilling, or a guard trips. The persistent container is
+        // never terminated here; on cancellation we only cancel the in-flight prefill.
+        var runDeadline = DateTime.UtcNow + config.MaxServiceRuntime;
+        while (session.IsPrefilling)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (DateTime.UtcNow >= runDeadline)
             {
-                try
-                {
-                    await daemon.TerminateSessionAsync(sessionId, reason: "Scheduled prefill complete", force: true, terminatedBy: "system");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[ScheduledPrefill] Failed to terminate session {SessionId} for {Service}", sessionId, serviceId);
-                }
+                await EmitProgressAsync(notifications, operationId, serviceId, "failed", "Exceeded maximum service runtime");
+                return true;
             }
 
-            if (plan.CleanupAsync is not null)
+            if (PrefillDaemonServiceBase.IsPrefillStalled(session, DateTime.UtcNow, config.StallTimeout))
             {
-                try
-                {
-                    await plan.CleanupAsync(CancellationToken.None);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[ScheduledPrefill] Auth cleanup failed for {Service}", serviceId);
-                }
+                await EmitProgressAsync(notifications, operationId, serviceId, "failed", "Prefill stalled (no progress)");
+                return true;
+            }
+
+            try
+            {
+                await Task.Delay(_pollInterval, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                await daemon.CancelPrefillAsync(sessionId, CancellationToken.None);
+                throw;
             }
         }
+
+        await EmitProgressAsync(
+            notifications,
+            operationId,
+            serviceId,
+            "completed",
+            BuildCompletionMessage(session, hasSelectedApps, serviceConfig.Force),
+            bytesDownloaded: session.TotalBytesTransferred,
+            downloadSessionId: sessionId);
+        return true;
     }
 
     /// <summary>
@@ -551,87 +456,5 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
             bytesDownloaded,
             downloadSessionId
         });
-    }
-
-    /// <summary>
-    /// Polls session auth state (and daemon status as a fallback) until authenticated or timeout.
-    /// </summary>
-    private static async Task<bool> WaitForSessionAuthenticatedAsync(
-        PrefillDaemonServiceBase daemon,
-        DaemonSession session,
-        CancellationToken ct,
-        TimeSpan? timeout = null)
-    {
-        var deadline = DateTime.UtcNow + (timeout ?? _authWaitTimeout);
-
-        while (DateTime.UtcNow < deadline)
-        {
-            ct.ThrowIfCancellationRequested();
-
-            if (session.AuthState == DaemonAuthState.Authenticated)
-            {
-                return true;
-            }
-
-            try
-            {
-                var status = await daemon.GetSessionStatusAsync(session.Id, ct);
-                if (string.Equals(status?.Status, "logged-in", StringComparison.OrdinalIgnoreCase))
-                {
-                    session.AuthState = DaemonAuthState.Authenticated;
-                    return true;
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch
-            {
-                // Transient daemon/socket errors during startup — keep polling until timeout.
-            }
-
-            await Task.Delay(_authPollInterval, ct);
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Polls until the daemon socket responds to status requests (container fully up).
-    /// </summary>
-    private static async Task<bool> WaitForDaemonReadyAsync(
-        PrefillDaemonServiceBase daemon,
-        DaemonSession session,
-        CancellationToken ct,
-        TimeSpan? timeout = null)
-    {
-        var deadline = DateTime.UtcNow + (timeout ?? _daemonReadyTimeout);
-
-        while (DateTime.UtcNow < deadline)
-        {
-            ct.ThrowIfCancellationRequested();
-
-            try
-            {
-                var status = await daemon.GetSessionStatusAsync(session.Id, ct);
-                if (status is not null)
-                {
-                    return true;
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch
-            {
-                // Daemon may still be starting — keep polling until timeout.
-            }
-
-            await Task.Delay(_daemonReadyPollInterval, ct);
-        }
-
-        return false;
     }
 }

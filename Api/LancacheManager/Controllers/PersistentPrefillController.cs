@@ -171,8 +171,7 @@ public class PersistentPrefillController : ControllerBase
             return BadRequest($"No daemon registered for service '{service}'");
         }
 
-        var session = daemon.GetAllSessions()
-            .FirstOrDefault(s => s.IsPersistent && s.Status == DaemonSessionStatus.Active);
+        var session = daemon.GetActivePersistentSession();
         if (session is null)
         {
             return NotFound($"No running persistent session for service '{service}'");
@@ -527,8 +526,7 @@ public class PersistentPrefillController : ControllerBase
             return (null, null, BadRequest($"No daemon registered for service '{service}'"));
         }
 
-        var session = daemon.GetAllSessions()
-            .FirstOrDefault(s => s.IsPersistent && s.Status == DaemonSessionStatus.Active);
+        var session = daemon.GetActivePersistentSession();
         if (session is null)
         {
             return (null, null, NotFound($"No running persistent session for service '{service}'"));

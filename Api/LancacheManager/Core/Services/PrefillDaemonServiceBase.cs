@@ -2024,6 +2024,16 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     }
 
     /// <summary>
+    /// Returns the single running persistent (admin, named-volume) session for this daemon, or
+    /// <c>null</c> when none is up. Centralizes the "running persistent session" lookup so the
+    /// scheduled-prefill reuse path and <c>PersistentPrefillController</c> resolve it identically.
+    /// </summary>
+    public DaemonSession? GetActivePersistentSession()
+    {
+        return _sessions.Values.FirstOrDefault(s => s.IsPersistent && s.Status == DaemonSessionStatus.Active);
+    }
+
+    /// <summary>
     /// Gets sessions for a specific user
     /// </summary>
     public IEnumerable<DaemonSession> GetUserSessions(Guid userId)
