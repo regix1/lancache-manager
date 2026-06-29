@@ -6,6 +6,10 @@ import { fileURLToPath } from 'node:url';
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const hooksDir = path.join(scriptDir, 'git-hooks');
 
+if (!existsSync(path.join(hooksDir, 'pre-commit'))) {
+  process.exit(0);
+}
+
 const hookNames = ['pre-commit', 'pre-push'];
 for (const hookName of hookNames) {
   const hookPath = path.join(hooksDir, hookName);

@@ -16,7 +16,8 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "knip": "knip",
     "knip:fix": "knip --fix --fix-type exports,types --format",
-    "prepare": "node scripts/setup-git-hooks.mjs",
+    "setup:hooks": "node scripts/setup-git-hooks.mjs",
+    "prepare": "node --input-type=module -e \"import { existsSync } from 'node:fs'; if (existsSync('scripts/setup-git-hooks.mjs')) { await import('./scripts/setup-git-hooks.mjs'); }\"",
     "validate:stage-keys": "node scripts/validate-stage-keys.mjs"
   },
   "dependencies": {
