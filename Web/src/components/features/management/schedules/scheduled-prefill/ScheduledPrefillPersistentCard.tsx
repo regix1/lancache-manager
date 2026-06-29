@@ -4,6 +4,7 @@ import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatTimeRemaining } from '@components/features/prefill/types';
 import { formatBytes, formatDateTime } from '@utils/formatters';
+import { SCHEDULED_PREFILL_BUTTON_SIZE } from './constants';
 import type { ScheduledPrefillPersistentCardProps } from './scheduledPrefillPersistentTypes';
 
 const getSecondsUntil = (expiresAtUtc: string): number =>
@@ -245,7 +246,7 @@ export function ScheduledPrefillPersistentCard({
             <Button
               type="button"
               variant="outline"
-              size="sm"
+              size={SCHEDULED_PREFILL_BUTTON_SIZE}
               onClick={onStop}
               disabled={disabled || action === 'start'}
               loading={action === 'stop'}
@@ -257,7 +258,7 @@ export function ScheduledPrefillPersistentCard({
               type="button"
               variant="filled"
               color="blue"
-              size="sm"
+              size={SCHEDULED_PREFILL_BUTTON_SIZE}
               onClick={onStart}
               disabled={disabled || action === 'stop'}
               loading={action === 'start'}
@@ -273,7 +274,7 @@ export function ScheduledPrefillPersistentCard({
               type="button"
               variant="filled"
               color="blue"
-              size="sm"
+              size={SCHEDULED_PREFILL_BUTTON_SIZE}
               onClick={onLogin}
               disabled={disabled || isAuthInProgress}
               loading={isAuthInProgress}
@@ -301,7 +302,7 @@ export function ScheduledPrefillPersistentCard({
                 type="button"
                 variant="outline"
                 color="red"
-                size="sm"
+                size={SCHEDULED_PREFILL_BUTTON_SIZE}
                 onClick={onCancelDownload}
                 disabled={disabled || action === 'download'}
                 loading={action === 'cancel'}
@@ -313,7 +314,7 @@ export function ScheduledPrefillPersistentCard({
                 type="button"
                 variant="filled"
                 color="green"
-                size="sm"
+                size={SCHEDULED_PREFILL_BUTTON_SIZE}
                 onClick={onDownload}
                 disabled={disabled || selectedGamesCount === 0 || action === 'cancel'}
                 loading={action === 'download'}

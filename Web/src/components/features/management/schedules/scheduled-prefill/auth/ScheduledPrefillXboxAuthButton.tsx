@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { XboxAuthModal } from '@components/modals/auth/XboxAuthModal';
 import { useScheduledPrefillXboxAuth } from '@hooks/useScheduledPrefillXboxAuth';
+import { SCHEDULED_PREFILL_BUTTON_SIZE } from '../constants';
 
 interface ScheduledPrefillXboxAuthButtonProps {
   disabled?: boolean;
@@ -53,7 +54,7 @@ export function ScheduledPrefillXboxAuthButton({
       <Button
         type="button"
         variant="filled"
-        size="sm"
+        size={SCHEDULED_PREFILL_BUTTON_SIZE}
         loading={state.loading}
         disabled={disabled}
         onClick={handleLoginClick}

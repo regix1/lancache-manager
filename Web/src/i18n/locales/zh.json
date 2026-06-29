@@ -3083,7 +3083,10 @@
             },
             "persistentContainers": {
               "title": "持久容器",
-              "description": "Steam、Epic 和 Xbox 的长期下载容器。启动容器、登录、选择游戏并下载 — 与预填充选项卡相同的工作流程。",
+              "description": "账户平台使用长期容器浏览游戏库、登录和下载。匿名平台仅使用下方的计划预设。",
+              "helpIntro": "Steam、Epic 和 Xbox 需要持久容器来选择游戏。Battle.net 和 Riot 无需账户登录。",
+              "helpAccountServices": "账户服务：启动容器、登录、选择游戏，然后下载或等待计划运行。",
+              "helpAnonymousServices": "Battle.net 和 Riot：无需持久登录 — 在下方服务中配置预设和目标平台。",
               "pipelineLabel": "容器状态",
               "steps": {
                 "container": "容器",
@@ -3101,6 +3104,26 @@
                 "needsLogin": "登录以浏览游戏库并下载游戏。",
                 "selectGames": "为此平台选择游戏，准备好后即可下载。",
                 "ready": "容器已就绪。可下载所选游戏或等待下次计划运行。"
+              },
+              "anonymous": {
+                "sectionTitle": "匿名平台",
+                "badge": "无需登录",
+                "battleNet": {
+                  "description": "Battle.net 计划预填充无需暴雪账户。运行使用临时访客容器及您的预设和平台设置。",
+                  "points": [
+                    "认证卡片和持久容器均无需登录。",
+                    "在服务中启用 Battle.net 并选择预设（全部、最近或热门）。",
+                    "立即运行和计划运行会匿名下载到 lancache。"
+                  ]
+                },
+                "riot": {
+                  "description": "Riot 计划预填充无需 Riot 账户。运行使用临时访客容器及您的预设和平台设置。",
+                  "points": [
+                    "认证卡片和持久容器均无需登录。",
+                    "在服务中启用 Riot 并选择预设（全部、最近或热门）。",
+                    "立即运行和计划运行会将公共 CDN 内容下载到 lancache。"
+                  ]
+                }
               }
             },
             "selectedGames": {
@@ -3160,7 +3183,9 @@
               "authPathsIntro": "计划预填充有三条独立的登录路径。请选择与您目标匹配的路径。它们不共享凭据。",
               "authPathsSteam": "此卡片存储计划运行的 Steam 无头登录。Steam 集成（仓库映射）是独立的，不会提供这些令牌。",
               "authPathsEpicXbox": "Epic 和 Xbox 在此卡片上各有独立登录，与集成页面（游戏映射）分开。",
-              "authPathsPersistent": "下方的持久容器用于浏览游戏库并选择游戏。不会更新此卡片上的 Steam 状态。Epic 和 Xbox 的容器登录仅限守护进程，不会显示在此处。",
+              "authPathsBattleNet": "Battle.net 不使用此卡片。计划运行为匿名 — 在下方服务中配置预设。",
+              "authPathsRiot": "Riot 不使用此卡片。计划运行为匿名 — 在下方服务中配置预设。",
+              "authPathsPersistent": "下方持久容器用于 Steam、Epic 和 Xbox 的游戏库浏览和选择。容器登录不会更新此卡片上的 Steam 状态。",
               "loading": "正在检查认证...",
               "displayName": "已登录为 {{displayName}}",
               "loginExpires": "{{service}} 登录将于 {{date}} 过期",

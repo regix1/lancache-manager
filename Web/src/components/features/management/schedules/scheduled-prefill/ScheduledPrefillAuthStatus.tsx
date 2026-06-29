@@ -8,7 +8,7 @@ import { ScheduledPrefillEpicAuthButton } from './auth/ScheduledPrefillEpicAuthB
 import { ScheduledPrefillXboxAuthButton } from './auth/ScheduledPrefillXboxAuthButton';
 import { useScheduledPrefillSteamAuth } from '@hooks/useScheduledPrefillSteamAuth';
 import { formatDateTime } from '@utils/formatters';
-import { SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS } from './constants';
+import { SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS, SCHEDULED_PREFILL_BUTTON_SIZE } from './constants';
 import type { ScheduledPrefillAccountServiceId, ScheduledPrefillAuthStatusItem } from './types';
 
 type ScheduledPrefillAuthDisplayServiceId = ScheduledPrefillAccountServiceId | 'battleNet' | 'riot';
@@ -122,7 +122,7 @@ export function ScheduledPrefillAuthStatus({
           <Button
             type="button"
             variant="filled"
-            size="sm"
+            size={SCHEDULED_PREFILL_BUTTON_SIZE}
             loading={state.loading}
             disabled={disabled}
             onClick={handleSteamLogin}
@@ -173,10 +173,10 @@ export function ScheduledPrefillAuthStatus({
   return (
     <>
       <div className="scheduled-prefill-auth-status themed-card border border-themed-primary rounded-lg p-4">
-        <div className="scheduled-prefill-auth-status__header flex items-center justify-between gap-3 mb-4">
-          <h4 className="text-sm font-semibold text-themed-primary">{t(`${baseKey}.title`)}</h4>
+        <div className="scheduled-prefill-auth-status__header">
+          <h4 className="scheduled-prefill-auth-status__title">{t(`${baseKey}.title`)}</h4>
           {loading && (
-            <span className="scheduled-prefill-auth-status__loading flex items-center gap-2 text-xs text-themed-muted">
+            <span className="scheduled-prefill-auth-status__loading">
               <LoadingSpinner inline size="sm" />
               {t(`${baseKey}.loading`)}
             </span>
@@ -190,11 +190,13 @@ export function ScheduledPrefillAuthStatus({
           <ul className="scheduled-prefill-auth-status__help-list">
             <li className="schedule-extra-help">{t(`${baseKey}.authPathsSteam`)}</li>
             <li className="schedule-extra-help">{t(`${baseKey}.authPathsEpicXbox`)}</li>
+            <li className="schedule-extra-help">{t(`${baseKey}.authPathsBattleNet`)}</li>
+            <li className="schedule-extra-help">{t(`${baseKey}.authPathsRiot`)}</li>
             <li className="schedule-extra-help">{t(`${baseKey}.authPathsPersistent`)}</li>
           </ul>
         </div>
 
-        <div className="scheduled-prefill-auth-status__list grid gap-3">
+        <div className="scheduled-prefill-auth-status__list">
           {serviceIds.map((serviceId) => {
             const status =
               serviceId === 'battleNet' || serviceId === 'riot'
@@ -211,16 +213,11 @@ export function ScheduledPrefillAuthStatus({
                 : null;
 
             return (
-              <div
-                key={serviceId}
-                className="scheduled-prefill-auth-status__item flex flex-col gap-2 rounded-lg bg-themed-tertiary p-3 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="scheduled-prefill-auth-status__meta min-w-0">
-                  <p className="text-sm font-medium text-themed-primary">{serviceName}</p>
+              <div key={serviceId} className="scheduled-prefill-auth-status__item">
+                <div className="scheduled-prefill-auth-status__meta">
+                  <p className="scheduled-prefill-auth-status__service-name">{serviceName}</p>
                   {subtitle && (
-                    <p className="text-xs text-themed-muted scheduled-prefill-auth-status__subtitle">
-                      {subtitle}
-                    </p>
+                    <p className="scheduled-prefill-auth-status__subtitle">{subtitle}</p>
                   )}
                   {expiresAt && expiryState && (
                     <p
@@ -233,7 +230,7 @@ export function ScheduledPrefillAuthStatus({
                     </p>
                   )}
                 </div>
-                <div className="scheduled-prefill-auth-status__action shrink-0">
+                <div className="scheduled-prefill-auth-status__action">
                   {renderStatusAction(serviceId)}
                 </div>
               </div>

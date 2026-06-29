@@ -1,7 +1,11 @@
 import { useTranslation } from 'react-i18next';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import { SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS } from './constants';
+import {
+  SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS,
+  SCHEDULED_PREFILL_ANONYMOUS_SERVICE_IDS
+} from './constants';
 import { ScheduledPrefillPersistentCard } from './ScheduledPrefillPersistentCard';
+import { ScheduledPrefillAnonymousServiceCard } from './ScheduledPrefillAnonymousServiceCard';
 import type { ScheduledPrefillContainersSectionProps } from './scheduledPrefillPersistentTypes';
 
 export function ScheduledPrefillContainersSection({
@@ -42,7 +46,17 @@ export function ScheduledPrefillContainersSection({
         )}
       </div>
 
-      <div className="scheduled-prefill-containers__grid">
+      <div className="scheduled-prefill-containers__help">
+        <p className="scheduled-prefill-containers__help-intro">
+          {t(`${containersKey}.helpIntro`)}
+        </p>
+        <ul className="scheduled-prefill-containers__help-list">
+          <li>{t(`${containersKey}.helpAccountServices`)}</li>
+          <li>{t(`${containersKey}.helpAnonymousServices`)}</li>
+        </ul>
+      </div>
+
+      <div className="scheduled-prefill-containers__grid scheduled-prefill-containers__grid--account">
         {SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.map((serviceKey) => {
           const rowAction =
             persistentAction?.serviceKey === serviceKey ? persistentAction.action : null;
@@ -67,6 +81,17 @@ export function ScheduledPrefillContainersSection({
             />
           );
         })}
+      </div>
+
+      <div className="scheduled-prefill-containers__anonymous">
+        <h4 className="scheduled-prefill-containers__anonymous-title">
+          {t(`${containersKey}.anonymous.sectionTitle`)}
+        </h4>
+        <div className="scheduled-prefill-containers__grid scheduled-prefill-containers__grid--anonymous">
+          {SCHEDULED_PREFILL_ANONYMOUS_SERVICE_IDS.map((serviceKey) => (
+            <ScheduledPrefillAnonymousServiceCard key={serviceKey} serviceKey={serviceKey} />
+          ))}
+        </div>
       </div>
     </section>
   );

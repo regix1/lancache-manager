@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
 import { useScheduledPrefillEpicAuth } from '@hooks/useScheduledPrefillEpicAuth';
+import { SCHEDULED_PREFILL_BUTTON_SIZE } from '../constants';
 
 interface ScheduledPrefillEpicAuthButtonProps {
   disabled?: boolean;
@@ -53,7 +54,7 @@ export function ScheduledPrefillEpicAuthButton({
       <Button
         type="button"
         variant="filled"
-        size="sm"
+        size={SCHEDULED_PREFILL_BUTTON_SIZE}
         loading={state.loading}
         disabled={disabled}
         onClick={handleLoginClick}

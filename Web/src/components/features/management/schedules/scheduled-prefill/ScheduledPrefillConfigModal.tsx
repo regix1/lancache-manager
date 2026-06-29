@@ -7,6 +7,7 @@ import { Card } from '@components/ui/Card';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { GameSelectionModal } from '@components/features/prefill/GameSelectionModal';
+import { NumberInput } from '@components/ui/NumberInput';
 import {
   PERSISTENT_PREFILL_SERVICES,
   PERSISTENT_PREFILL_VALIDITY_BOUNDS
@@ -17,6 +18,7 @@ import type {
 } from '@components/features/prefill/persistentPrefillTypes';
 import {
   SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS,
+  SCHEDULED_PREFILL_BUTTON_SIZE,
   SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS,
   SCHEDULED_PREFILL_SERVICE_RUN_ORDER
 } from './constants';
@@ -93,11 +95,6 @@ const mapOperatingSystems = (
 
 const clampToBounds = (value: number, bounds: NumericBounds): number =>
   Math.min(bounds.max, Math.max(bounds.min, Math.trunc(value)));
-
-const parseBoundedInteger = (value: string, bounds: NumericBounds, fallback: number): number => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? clampToBounds(parsed, bounds) : fallback;
-};
 
 const validateServiceConfig = (
   serviceConfig: ScheduledPrefillServiceConfigDto,
@@ -379,10 +376,8 @@ export function ScheduledPrefillConfigModal({
     setGlobalSettingsSaved(false);
   };
 
-  const handlePersistentValidityDaysChange = (value: string) => {
-    setPersistentValidityDays((current) =>
-      parseBoundedInteger(value, PERSISTENT_PREFILL_VALIDITY_BOUNDS, current)
-    );
+  const handlePersistentValidityDaysChange = (value: number) => {
+    setPersistentValidityDays(clampToBounds(value, PERSISTENT_PREFILL_VALIDITY_BOUNDS));
     clearGlobalSettingsNotice();
   };
 
@@ -692,9 +687,6 @@ export function ScheduledPrefillConfigModal({
               )}
 
               <Card padding="md" className="scheduled-prefill-config-modal__intro">
-                <h3 className="scheduled-prefill-config-modal__section-title">
-                  {t(`${baseKey}.modalTitle`)}
-                </h3>
                 <p className="scheduled-prefill-config-modal__description">
                   {t(`${baseKey}.modalDescription`)}
                 </p>
@@ -760,19 +752,22 @@ export function ScheduledPrefillConfigModal({
                 )}
 
                 <div className="scheduled-prefill-config-modal__settings-grid">
-                  <label className="scheduled-prefill-config-modal__settings-field">
-                    <span className="scheduled-prefill-config-modal__settings-label">
+                  <div className="scheduled-prefill-config-modal__settings-field">
+                    <label
+                      className="scheduled-prefill-config-modal__settings-label"
+                      htmlFor="scheduled-prefill-persistent-validity-days"
+                    >
                       {t(`${baseKey}.settings.persistentValidityLabel`)}
-                    </span>
-                    <input
-                      type="number"
+                    </label>
+                    <NumberInput
+                      id="scheduled-prefill-persistent-validity-days"
                       min={PERSISTENT_PREFILL_VALIDITY_BOUNDS.min}
                       max={PERSISTENT_PREFILL_VALIDITY_BOUNDS.max}
                       step={1}
-                      className="themed-input scheduled-prefill-config-modal__settings-input"
                       value={persistentValidityDays}
                       disabled={loadingGlobalSettings || savingGlobalSettings}
-                      onChange={(event) => handlePersistentValidityDaysChange(event.target.value)}
+                      aria-label={t(`${baseKey}.settings.persistentValidityLabel`)}
+                      onChange={handlePersistentValidityDaysChange}
                     />
                     <p className="scheduled-prefill-config-modal__settings-help">
                       {t(`${baseKey}.settings.persistentValidityHelp`, {
@@ -780,7 +775,7 @@ export function ScheduledPrefillConfigModal({
                         max: PERSISTENT_PREFILL_VALIDITY_BOUNDS.max
                       })}
                     </p>
-                  </label>
+                  </div>
                 </div>
 
                 <div className="scheduled-prefill-config-modal__settings-actions">
@@ -788,6 +783,7 @@ export function ScheduledPrefillConfigModal({
                     type="button"
                     variant="filled"
                     color="green"
+                    size={SCHEDULED_PREFILL_BUTTON_SIZE}
                     onClick={() => void handleSaveGlobalSettings()}
                     disabled={loadingGlobalSettings || savingGlobalSettings}
                     loading={savingGlobalSettings}
@@ -837,6 +833,7 @@ export function ScheduledPrefillConfigModal({
             <Button
               type="button"
               variant="default"
+              size={SCHEDULED_PREFILL_BUTTON_SIZE}
               onClick={handleClose}
               disabled={saving || savingGlobalSettings}
             >
@@ -846,6 +843,7 @@ export function ScheduledPrefillConfigModal({
               type="button"
               variant="filled"
               color="green"
+              size={SCHEDULED_PREFILL_BUTTON_SIZE}
               onClick={handleSave}
               disabled={!config || saving || loadingConfig || savingGlobalSettings}
               loading={saving}

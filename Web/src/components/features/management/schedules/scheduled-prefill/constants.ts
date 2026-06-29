@@ -19,6 +19,14 @@ export const SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS = [
   'xbox'
 ] as const satisfies readonly ScheduledPrefillAccountServiceId[];
 
+export const SCHEDULED_PREFILL_ANONYMOUS_SERVICE_IDS = [
+  'battleNet',
+  'riot'
+] as const satisfies readonly ScheduledPrefillServiceKey[];
+
+/** Uniform action button size across the scheduled prefill configure modal. */
+export const SCHEDULED_PREFILL_BUTTON_SIZE = 'sm' as const;
+
 export const SCHEDULED_PREFILL_PRESET_OPTIONS = [
   {
     value: 'All',

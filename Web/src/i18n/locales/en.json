@@ -3083,7 +3083,10 @@
             },
             "persistentContainers": {
               "title": "Persistent containers",
-              "description": "Long-lived download containers for Steam, Epic, and Xbox. Start a container, log in, select games, and download — same workflow as the Prefill tab.",
+              "description": "Account platforms use long-lived containers for library browse, login, and downloads. Anonymous platforms use schedule presets only.",
+              "helpIntro": "Steam, Epic, and Xbox need persistent containers for game selection. Battle.net and Riot run without account login.",
+              "helpAccountServices": "Account services: start the container, log in, select games, then download or wait for the schedule.",
+              "helpAnonymousServices": "Battle.net and Riot: no persistent login — configure presets and target platforms in Services below.",
               "pipelineLabel": "Container status",
               "steps": {
                 "container": "Container",
@@ -3101,6 +3104,26 @@
                 "needsLogin": "Log in to browse your library and download games.",
                 "selectGames": "Select games for this platform, then download when ready.",
                 "ready": "Container is ready. Download selected games or wait for the next scheduled run."
+              },
+              "anonymous": {
+                "sectionTitle": "Anonymous platforms",
+                "badge": "No login required",
+                "battleNet": {
+                  "description": "Battle.net scheduled prefill runs without a Blizzard account. Runs use temporary guest containers with your preset and platform settings.",
+                  "points": [
+                    "No login on the Authentication card or persistent containers.",
+                    "Enable Battle.net in Services and choose a preset (All, Recent, or Top).",
+                    "Run Now and scheduled runs download anonymously to lancache."
+                  ]
+                },
+                "riot": {
+                  "description": "Riot scheduled prefill runs without a Riot account. Runs use temporary guest containers with your preset and platform settings.",
+                  "points": [
+                    "No login on the Authentication card or persistent containers.",
+                    "Enable Riot in Services and choose a preset (All, Recent, or Top).",
+                    "Run Now and scheduled runs download public CDN content to lancache."
+                  ]
+                }
               }
             },
             "selectedGames": {
@@ -3160,7 +3183,9 @@
               "authPathsIntro": "Scheduled prefill uses three separate login paths. Pick the one that matches what you want to do. They do not share credentials.",
               "authPathsSteam": "This card stores headless Steam login for scheduled runs. Steam Integrations (depot mapping) is separate and does not supply these tokens.",
               "authPathsEpicXbox": "Epic and Xbox each have their own login on this card, separate from Integrations (game mapping).",
-              "authPathsPersistent": "The persistent container below is for browsing your library and picking games. It does not update Steam status on this card. Epic and Xbox container login is daemon-only and is not shown here.",
+              "authPathsBattleNet": "Battle.net does not use this card. Scheduled runs are anonymous — configure presets in Services below.",
+              "authPathsRiot": "Riot does not use this card. Scheduled runs are anonymous — configure presets in Services below.",
+              "authPathsPersistent": "Persistent containers below are for Steam, Epic, and Xbox library browse and game selection. Container login does not update Steam status on this card.",
               "loading": "Checking authentication...",
               "displayName": "Logged in as {{displayName}}",
               "loginExpires": "{{service}} login expires {{date}}",

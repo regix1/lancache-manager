@@ -5,6 +5,7 @@ import Badge from '@components/ui/Badge';
 import { MultiSelectDropdown, type MultiSelectOption } from '@components/ui/MultiSelectDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
+import { NumberInput } from '@components/ui/NumberInput';
 import {
   SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS,
   SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS,
@@ -196,19 +197,24 @@ export function ScheduledPrefillServiceRow({
           </div>
 
           {config.preset === 'Top' && (
-            <label className="scheduled-prefill-service-row__field">
-              <span className="scheduled-prefill-service-row__label">
+            <div className="scheduled-prefill-service-row__field">
+              <label
+                className="scheduled-prefill-service-row__label"
+                htmlFor={`scheduled-prefill-top-count-${serviceKey}`}
+              >
                 {t(`${baseKey}.fields.topCount`)}
-              </span>
-              <input
-                type="number"
+              </label>
+              <NumberInput
+                id={`scheduled-prefill-top-count-${serviceKey}`}
                 min={1}
-                className="themed-input scheduled-prefill-service-row__number-input"
-                value={config.topCount ?? ''}
+                max={99999}
+                step={1}
+                value={config.topCount ?? 50}
                 disabled={disabled}
-                onChange={(event) => handleTopCountChange(event.target.value)}
+                aria-label={t(`${baseKey}.fields.topCount`)}
+                onChange={(value) => handleTopCountChange(String(value))}
               />
-            </label>
+            </div>
           )}
 
           <div className="scheduled-prefill-service-row__field">
@@ -281,20 +287,24 @@ export function ScheduledPrefillServiceRow({
           </div>
 
           {config.maxConcurrency.mode === 'Fixed' && (
-            <label className="scheduled-prefill-service-row__field">
-              <span className="scheduled-prefill-service-row__label">
+            <div className="scheduled-prefill-service-row__field">
+              <label
+                className="scheduled-prefill-service-row__label"
+                htmlFor={`scheduled-prefill-concurrency-${serviceKey}`}
+              >
                 {t(`${baseKey}.fields.maxConcurrencyValue`)}
-              </span>
-              <input
-                type="number"
+              </label>
+              <NumberInput
+                id={`scheduled-prefill-concurrency-${serviceKey}`}
                 min={SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.min}
                 max={SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.max}
-                className="themed-input scheduled-prefill-service-row__number-input"
+                step={1}
                 value={fixedConcurrency}
                 disabled={disabled}
-                onChange={(event) => handleFixedConcurrencyChange(event.target.value)}
+                aria-label={t(`${baseKey}.fields.maxConcurrencyValue`)}
+                onChange={(value) => handleFixedConcurrencyChange(String(value))}
               />
-            </label>
+            </div>
           )}
         </div>
       </div>
