@@ -2,14 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import Badge from '@components/ui/Badge';
-import { Button } from '@components/ui/Button';
 import { MultiSelectDropdown, type MultiSelectOption } from '@components/ui/MultiSelectDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
-import LoadingSpinner from '@components/common/LoadingSpinner';
-import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
-import { formatTimeRemaining } from '@components/features/prefill/types';
-import { formatDateTime } from '@utils/formatters';
 import {
   SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS,
   SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS,
@@ -28,15 +23,7 @@ interface ScheduledPrefillServiceRowProps {
   serviceKey: ScheduledPrefillServiceKey;
   config: ScheduledPrefillServiceConfigDto;
   disabled?: boolean;
-  persistentContainer?: PersistentPrefillContainerDto;
-  persistentStatusLoading?: boolean;
-  persistentAuthenticating?: boolean;
-  persistentAction?: 'start' | 'stop' | null;
-  gameSelectionLoading?: boolean;
   onChange: (config: ScheduledPrefillServiceConfigDto) => void;
-  onStartPersistent: () => void;
-  onStopPersistent: () => void;
-  onSelectGames: () => void;
 }
 
 const isScheduledPrefillPreset = (value: string): value is ScheduledPrefillPreset =>
@@ -51,22 +38,11 @@ const isScheduledPrefillMaxConcurrencyMode = (
   value: string
 ): value is ScheduledPrefillMaxConcurrencyMode => value === 'Auto' || value === 'Fixed';
 
-const getSecondsUntil = (expiresAtUtc: string): number =>
-  Math.floor((new Date(expiresAtUtc).getTime() - Date.now()) / 1000);
-
 export function ScheduledPrefillServiceRow({
   serviceKey,
   config,
   disabled = false,
-  persistentContainer,
-  persistentStatusLoading = false,
-  persistentAuthenticating = false,
-  persistentAction = null,
-  gameSelectionLoading = false,
-  onChange,
-  onStartPersistent,
-  onStopPersistent,
-  onSelectGames
+  onChange
 }: ScheduledPrefillServiceRowProps) {
   const { t } = useTranslation();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
@@ -75,15 +51,7 @@ export function ScheduledPrefillServiceRow({
       ? config.maxConcurrency.value
       : SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS.min;
   const [isExpanded, setIsExpanded] = useState(config.enabled);
-  const isPersistentRunning = persistentContainer?.isRunning ?? false;
-  const isPersistentAuthenticated = persistentContainer?.isAuthenticated ?? false;
-  const isPersistentAuthInProgress =
-    isPersistentRunning && !isPersistentAuthenticated && persistentAuthenticating;
-  const isGameSelectionAuthBlocked = isPersistentRunning && !isPersistentAuthenticated;
   const selectedGamesCount = config.selectedAppIds.length;
-  const daemonAuthTimeRemainingSeconds = persistentContainer?.daemonAuthExpiresAtUtc
-    ? getSecondsUntil(persistentContainer.daemonAuthExpiresAtUtc)
-    : null;
   const supportsAccountPersistent = (
     SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS as readonly string[]
   ).includes(serviceKey);
@@ -218,6 +186,13 @@ export function ScheduledPrefillServiceRow({
               fullWidth
               showLabels
             />
+            {supportsAccountPersistent && selectedGamesCount > 0 && (
+              <p className="scheduled-prefill-service-row__selected-override">
+                {t(`${baseKey}.selectedGames.count`, { count: selectedGamesCount })}
+                {' — '}
+                {t(`${baseKey}.selectedGames.overridePreset`)}
+              </p>
+            )}
           </div>
 
           {config.preset === 'Top' && (
@@ -235,168 +210,6 @@ export function ScheduledPrefillServiceRow({
               />
             </label>
           )}
-
-          <div className="scheduled-prefill-service-row__field scheduled-prefill-service-row__field--wide">
-            {supportsAccountPersistent && (
-              <div className="scheduled-prefill-service-row__persistent-panel">
-                <div className="scheduled-prefill-service-row__persistent-header">
-                  <div>
-                    <span className="scheduled-prefill-service-row__label">
-                      {t('prefill.persistent.title')}
-                    </span>
-                    <p className="scheduled-prefill-service-row__help">
-                      {t(`${baseKey}.persistentContainer.help`)}
-                    </p>
-                  </div>
-                  <div className="scheduled-prefill-service-row__persistent-status">
-                    {persistentStatusLoading && <LoadingSpinner inline size="sm" />}
-                    <Badge variant={isPersistentRunning ? 'success' : 'neutral'}>
-                      {t(
-                        isPersistentRunning
-                          ? 'prefill.persistent.status.running'
-                          : 'prefill.persistent.status.stopped'
-                      )}
-                    </Badge>
-                    {isPersistentRunning && (
-                      <Badge
-                        variant={
-                          isPersistentAuthenticated
-                            ? 'success'
-                            : isPersistentAuthInProgress
-                              ? 'warning'
-                              : 'warning'
-                        }
-                        className={
-                          isPersistentAuthInProgress
-                            ? 'scheduled-prefill-service-row__auth-badge scheduled-prefill-service-row__auth-badge--authenticating'
-                            : 'scheduled-prefill-service-row__auth-badge'
-                        }
-                      >
-                        {isPersistentAuthInProgress ? (
-                          <>
-                            <LoadingSpinner inline size="xs" />
-                            {t('prefill.persistent.authenticating')}
-                          </>
-                        ) : (
-                          t(
-                            isPersistentAuthenticated
-                              ? 'prefill.persistent.status.loggedIn'
-                              : 'prefill.persistent.status.notLoggedIn'
-                          )
-                        )}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-
-                {persistentContainer && (
-                  <div className="scheduled-prefill-service-row__persistent-meta">
-                    {persistentContainer.daemonAuthExpiresAtUtc && (
-                      <div>
-                        <span className="scheduled-prefill-service-row__meta-label">
-                          {t('prefill.persistent.tokenExpires')}
-                        </span>
-                        <span className="scheduled-prefill-service-row__meta-value">
-                          {formatDateTime(persistentContainer.daemonAuthExpiresAtUtc)}
-                          {daemonAuthTimeRemainingSeconds !== null && (
-                            <span className="scheduled-prefill-service-row__meta-detail">
-                              {t('prefill.persistent.timeRemaining', {
-                                time: formatTimeRemaining(daemonAuthTimeRemainingSeconds)
-                              })}
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                    )}
-                    <div>
-                      <span className="scheduled-prefill-service-row__meta-label">
-                        {t('prefill.persistent.reloginRequiredBy')}
-                      </span>
-                      <span className="scheduled-prefill-service-row__meta-value">
-                        {formatDateTime(persistentContainer.authExpiresAtUtc)}
-                        <span className="scheduled-prefill-service-row__meta-detail">
-                          {t('prefill.persistent.timeRemaining', {
-                            time: formatTimeRemaining(persistentContainer.authTimeRemainingSeconds)
-                          })}
-                        </span>
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {persistentContainer?.needsRelogin && (
-                  <p className="scheduled-prefill-service-row__warning">
-                    {t('prefill.persistent.needsRelogin')}
-                  </p>
-                )}
-
-                <div className="scheduled-prefill-service-row__persistent-actions">
-                  {isPersistentRunning ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={onStopPersistent}
-                      disabled={disabled || persistentAction === 'start'}
-                      loading={persistentAction === 'stop'}
-                    >
-                      {t('prefill.persistent.actions.stop')}
-                    </Button>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={onStartPersistent}
-                      disabled={disabled || persistentAction === 'stop'}
-                      loading={persistentAction === 'start'}
-                    >
-                      {t('prefill.persistent.actions.start')}
-                    </Button>
-                  )}
-                  <Button
-                    type="button"
-                    variant="filled"
-                    color="blue"
-                    size="sm"
-                    onClick={onSelectGames}
-                    disabled={disabled || !isPersistentRunning || isGameSelectionAuthBlocked}
-                    loading={gameSelectionLoading}
-                    title={
-                      isGameSelectionAuthBlocked
-                        ? t('prefill.persistent.loginToSelectGames')
-                        : undefined
-                    }
-                  >
-                    {t(`${baseKey}.actions.selectGames`)}
-                  </Button>
-                </div>
-
-                <div className="scheduled-prefill-service-row__game-selection-summary">
-                  <p className="scheduled-prefill-service-row__help">
-                    {t(`${baseKey}.selectedGames.count`, { count: selectedGamesCount })}
-                  </p>
-                  {isGameSelectionAuthBlocked && (
-                    <p className="scheduled-prefill-service-row__help">
-                      {isPersistentAuthInProgress
-                        ? t('prefill.persistent.authenticating')
-                        : t('prefill.persistent.loginToSelectGames')}
-                    </p>
-                  )}
-                  {selectedGamesCount > 0 && (
-                    <p className="scheduled-prefill-service-row__selected-override">
-                      {t(`${baseKey}.selectedGames.overridePreset`)}
-                    </p>
-                  )}
-                  {selectedGamesCount === 0 && !isPersistentRunning && (
-                    <p className="scheduled-prefill-service-row__help">
-                      {t(`${baseKey}.selectedGames.requiresPersistentContainer`)}
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
 
           <div className="scheduled-prefill-service-row__field">
             <span className="scheduled-prefill-service-row__label">

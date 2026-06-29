@@ -24,6 +24,7 @@ public class PersistentPrefillController : ControllerBase
     private readonly IServiceProvider _serviceProvider;
     private readonly IStateService _stateService;
     private readonly PrefillCacheService _cacheService;
+    private readonly ILogger<PersistentPrefillController> _logger;
 
     /// <summary>
     /// Deterministic pseudo-user Guid that owns every persistent session, derived identically to
@@ -35,11 +36,13 @@ public class PersistentPrefillController : ControllerBase
     public PersistentPrefillController(
         IServiceProvider serviceProvider,
         IStateService stateService,
-        PrefillCacheService cacheService)
+        PrefillCacheService cacheService,
+        ILogger<PersistentPrefillController> logger)
     {
         _serviceProvider = serviceProvider;
         _stateService = stateService;
         _cacheService = cacheService;
+        _logger = logger;
     }
 
     /// <summary>
@@ -134,7 +137,10 @@ public class PersistentPrefillController : ControllerBase
                     AuthExpiresAtUtc = session.ExpiresAt,
                     AuthTimeRemainingSeconds = remainingSeconds,
                     NeedsRelogin = session.NeedsRelogin,
-                    DaemonAuthExpiresAtUtc = daemonAuthExpiresAtUtc
+                    DaemonAuthExpiresAtUtc = daemonAuthExpiresAtUtc,
+                    IsPrefilling = session.IsPrefilling,
+                    TotalBytesTransferred = session.TotalBytesTransferred,
+                    CurrentAppName = session.CurrentAppName
                 });
             }
         }
@@ -180,20 +186,154 @@ public class PersistentPrefillController : ControllerBase
 
         var games = await daemon.GetOwnedGamesAsync(session.Id, cancellationToken);
 
-        var cachedAppIds = new List<string>();
-        var cachedApps = await _cacheService.GetCachedAppsAsync();
-        var candidateAppIds = cachedApps.Select(a => a.AppId.ToString()).ToList();
-        if (candidateAppIds.Count > 0)
-        {
-            var status = await daemon.GetCacheStatusAsync(session.Id, candidateAppIds, cancellationToken);
-            cachedAppIds = status.Apps.Where(a => a.IsUpToDate).Select(a => a.AppId).ToList();
-        }
+        var ownedAppIds = games
+            .Select(g => g.AppId.ToString())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        // Match the Prefill tab: set the owned library on the daemon, then ask it directly which
+        // apps are up-to-date in lancache (get-selected-apps-status). The old DB-only path missed
+        // games cached via guest sessions until PrefillCachedDepots was populated and could not
+        // see lancache state the way the prefill daemon does.
+        var cachedAppIds = await ResolveCachedAppIdsAsync(daemon, session.Id, ownedAppIds, cancellationToken);
 
         return Ok(new PersistentPrefillGamesDto
         {
             Games = games,
             CachedAppIds = cachedAppIds
         });
+    }
+
+    /// <summary>
+    /// Sets the daemon's selected app list for the RUNNING persistent session (same as guest
+    /// <c>POST …/selected-apps</c>).
+    /// </summary>
+    [HttpPost("selected-apps")]
+    public async Task<ActionResult> SetSelectedAppsAsync(
+        [FromBody] PersistentSelectedAppsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var (daemon, session, error) = ResolveRunningPersistentSession(request.Service);
+        if (error is not null)
+        {
+            return error;
+        }
+
+        await daemon!.SetSelectedAppsAsync(session!.Id, request.AppIds, cancellationToken);
+        return Ok();
+    }
+
+    /// <summary>
+    /// Returns download sizes and cache status for the daemon's current selected apps (same as guest
+    /// hub <c>GetSelectedAppsStatusAsync</c>).
+    /// </summary>
+    [HttpGet("selected-apps-status")]
+    public async Task<ActionResult<SelectedAppsStatus>> GetSelectedAppsStatusAsync(
+        [FromQuery] PrefillPlatform service,
+        [FromQuery] string? operatingSystems,
+        CancellationToken cancellationToken)
+    {
+        var (daemon, session, error) = ResolveRunningPersistentSession(service);
+        if (error is not null)
+        {
+            return error;
+        }
+
+        List<string>? osList = null;
+        if (!string.IsNullOrWhiteSpace(operatingSystems))
+        {
+            osList = operatingSystems
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToList();
+        }
+
+        var status = await daemon!.GetSelectedAppsStatusAsync(session!.Id, osList, cancellationToken);
+        return Ok(status);
+    }
+
+    /// <summary>
+    /// Starts a prefill/download on the RUNNING persistent session (same as guest
+    /// <c>POST …/prefill</c>).
+    /// </summary>
+    [HttpPost("prefill")]
+    public async Task<ActionResult<PrefillResult>> StartPrefillAsync(
+        [FromBody] PersistentStartPrefillRequest request,
+        CancellationToken cancellationToken)
+    {
+        var (daemon, session, error) = ResolveRunningPersistentSession(request.Service);
+        if (error is not null)
+        {
+            return error;
+        }
+
+        _logger.LogInformation(
+            "Starting persistent {Service} prefill on session {SessionId} (force={Force}, selectedApps={Count})",
+            request.Service,
+            session!.Id,
+            request.Force,
+            request.AppIds?.Count ?? 0);
+
+        if (request.AppIds is { Count: > 0 })
+        {
+            await daemon!.SetSelectedAppsAsync(session.Id, request.AppIds, cancellationToken);
+        }
+
+        try
+        {
+            var result = await daemon!.PrefillAsync(
+                session.Id,
+                all: request.All,
+                recent: request.Recent,
+                recentlyPurchased: request.RecentlyPurchased,
+                top: request.Top,
+                force: request.Force,
+                operatingSystems: request.OperatingSystems,
+                maxConcurrency: request.MaxConcurrency,
+                cancellationToken: cancellationToken);
+
+            return Ok(result);
+        }
+        catch (PrefillAlreadyRunningException ex)
+        {
+            return Conflict(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Cancels an in-flight prefill on the RUNNING persistent session.
+    /// </summary>
+    [HttpPost("cancel-prefill")]
+    public async Task<ActionResult> CancelPrefillAsync(
+        [FromBody] PersistentServiceRequest request,
+        CancellationToken cancellationToken)
+    {
+        var (daemon, session, error) = ResolveRunningPersistentSession(request.Service);
+        if (error is not null)
+        {
+            return error;
+        }
+
+        await daemon!.CancelPrefillAsync(session!.Id, cancellationToken);
+        return Ok();
+    }
+
+    /// <summary>
+    /// Clears the daemon's temporary cache directory for the RUNNING persistent session.
+    /// </summary>
+    [HttpPost("clear-cache")]
+    public async Task<ActionResult<ClearCacheResult>> ClearCacheAsync(
+        [FromBody] PersistentServiceRequest request,
+        CancellationToken cancellationToken)
+    {
+        var (daemon, session, error) = ResolveRunningPersistentSession(request.Service);
+        if (error is not null)
+        {
+            return error;
+        }
+
+        var result = await daemon!.ClearCacheAsync(session!.Id, cancellationToken);
+        return Ok(result);
     }
 
     /// <summary>
@@ -345,6 +485,68 @@ public class PersistentPrefillController : ControllerBase
     }
 
     /// <summary>
+    /// Resolves which owned app ids are up-to-date in lancache for a persistent session.
+    /// Prefers live daemon status (set-selected-apps + get-selected-apps-status); falls back to
+    /// manager DB + check-cache-status when the daemon command is unavailable.
+    /// </summary>
+    private async Task<List<string>> ResolveCachedAppIdsAsync(
+        PrefillDaemonServiceBase daemon,
+        string sessionId,
+        List<string> ownedAppIds,
+        CancellationToken cancellationToken)
+    {
+        if (ownedAppIds.Count == 0)
+        {
+            return [];
+        }
+
+        try
+        {
+            await daemon.SetSelectedAppsAsync(sessionId, ownedAppIds, cancellationToken);
+            var selectedStatus = await daemon.GetSelectedAppsStatusAsync(sessionId, null, cancellationToken);
+            return selectedStatus.Apps
+                .Where(a => a.IsUpToDate && !string.IsNullOrWhiteSpace(a.AppId))
+                .Select(a => a.AppId)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Live selected-apps cache status failed for persistent session {SessionId}; falling back to DB cache check",
+                sessionId);
+        }
+
+        return await ResolveCachedAppIdsFromDbAsync(daemon, sessionId, ownedAppIds, cancellationToken);
+    }
+
+    private async Task<List<string>> ResolveCachedAppIdsFromDbAsync(
+        PrefillDaemonServiceBase daemon,
+        string sessionId,
+        List<string> ownedAppIds,
+        CancellationToken cancellationToken)
+    {
+        var cachedApps = await _cacheService.GetCachedAppsAsync();
+        var candidateAppIds = cachedApps
+            .Select(a => a.AppId.ToString())
+            .Where(id => ownedAppIds.Contains(id, StringComparer.Ordinal))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (candidateAppIds.Count == 0)
+        {
+            return [];
+        }
+
+        var status = await daemon.GetCacheStatusAsync(sessionId, candidateAppIds, cancellationToken);
+        return status.Apps
+            .Where(a => a.IsUpToDate)
+            .Select(a => a.AppId)
+            .ToList();
+    }
+
+    /// <summary>
     /// Resolves the daemon + RUNNING persistent session for a platform, applying the exact same
     /// guard pattern as <see cref="GetGamesAsync"/>: returns a populated error <see cref="ActionResult"/>
     /// (BadRequest/NotFound/Forbid) when no running persistent session exists, otherwise returns the
@@ -415,6 +617,31 @@ public class PersistentPrefillController : ControllerBase
 
         return PrefillPlatform.Steam;
     }
+}
+
+/// <summary>Identifies a platform for persistent session operations.</summary>
+public sealed class PersistentServiceRequest
+{
+    public required PrefillPlatform Service { get; init; }
+}
+
+/// <summary>Sets selected apps on the running persistent session.</summary>
+public sealed class PersistentSelectedAppsRequest : PersistentServiceRequest
+{
+    public required List<string> AppIds { get; init; }
+}
+
+/// <summary>Starts prefill on the running persistent session (mirrors guest StartPrefillRequest).</summary>
+public sealed class PersistentStartPrefillRequest : PersistentServiceRequest
+{
+    public List<string>? AppIds { get; init; }
+    public bool All { get; init; }
+    public bool Recent { get; init; }
+    public bool RecentlyPurchased { get; init; }
+    public int? Top { get; init; }
+    public bool Force { get; init; }
+    public List<string>? OperatingSystems { get; init; }
+    public int? MaxConcurrency { get; init; }
 }
 
 /// <summary>Request body for starting a persistent session.</summary>
@@ -493,6 +720,15 @@ public sealed class PersistentPrefillSessionDto
     /// Null when the session is not running, the status call fails, or the daemon does not report it.
     /// </summary>
     public DateTimeOffset? DaemonAuthExpiresAtUtc { get; init; }
+
+    /// <summary>True while a prefill download is in progress on this session.</summary>
+    public bool IsPrefilling { get; init; }
+
+    /// <summary>Aggregate bytes transferred during the current or last prefill run.</summary>
+    public long TotalBytesTransferred { get; init; }
+
+    /// <summary>Name of the app currently being prefilled, if any.</summary>
+    public string? CurrentAppName { get; init; }
 }
 
 /// <summary>Persistent login validity window, in days.</summary>

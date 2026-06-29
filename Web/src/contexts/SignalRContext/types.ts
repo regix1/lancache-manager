@@ -951,6 +951,8 @@ export interface ScheduledPrefillProgressEvent {
   stage: string;
   message: string;
   needsLoginReason?: string | null;
+  bytesDownloaded?: number | null;
+  downloadSessionId?: string | null;
 }
 
 export interface ScheduledPrefillCompletedEvent {

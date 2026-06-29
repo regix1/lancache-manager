@@ -3072,8 +3072,36 @@
               "selectGames": "Select games"
             },
             "persistentContainer": {
-              "help": "Start the persistent container to keep this service logged in and choose specific games for scheduled prefill.",
-              "error": "Persistent prefill container action failed: {{error}}"
+              "help": "Long-lived container for game library, login, and downloads — same daemon commands as the Prefill tab guest container.",
+              "error": "Persistent prefill container action failed: {{error}}",
+              "downloadNow": "Download selected",
+              "cancelDownload": "Cancel download",
+              "downloadRequiresAuth": "Log in to the persistent container before downloading.",
+              "downloadRequiresSelection": "Select at least one game before downloading.",
+              "downloadProgress": "Downloading {{game}} — {{bytes}} transferred",
+              "downloadProgressGeneric": "Downloading — {{bytes}} transferred"
+            },
+            "persistentContainers": {
+              "title": "Persistent containers",
+              "description": "Long-lived download containers for Steam, Epic, and Xbox. Start a container, log in, select games, and download — same workflow as the Prefill tab.",
+              "pipelineLabel": "Container status",
+              "steps": {
+                "container": "Container",
+                "account": "Account",
+                "activity": "Activity",
+                "unavailable": "Unavailable",
+                "idle": "Idle",
+                "downloading": "Downloading"
+              },
+              "stats": {
+                "gamesSelected": "Games selected"
+              },
+              "workflow": {
+                "stopped": "Start the container to enable login, game selection, and downloads.",
+                "needsLogin": "Log in to browse your library and download games.",
+                "selectGames": "Select games for this platform, then download when ready.",
+                "ready": "Container is ready. Download selected games or wait for the next scheduled run."
+              }
             },
             "selectedGames": {
               "count": "{{count}} games selected",

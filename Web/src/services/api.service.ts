@@ -3215,6 +3215,76 @@ class ApiService {
     }
   }
 
+  static async setPersistentPrefillSelectedApps(
+    service: PersistentPrefillServiceId,
+    appIds: string[]
+  ): Promise<void> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/prefill/persistent/selected-apps`,
+        this.getFetchOptions({
+          method: 'POST',
+          body: JSON.stringify({ service, appIds }),
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      await this.handleResponse<void>(res);
+    } catch (error: unknown) {
+      console.error('setPersistentPrefillSelectedApps error:', error);
+      throw error;
+    }
+  }
+
+  static async startPersistentPrefill(
+    service: PersistentPrefillServiceId,
+    options: {
+      appIds: string[];
+      force?: boolean;
+      operatingSystems?: string[];
+      maxConcurrency?: number | null;
+    }
+  ): Promise<{ success: boolean; errorMessage?: string }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/prefill/persistent/prefill`,
+        this.getFetchOptions({
+          method: 'POST',
+          body: JSON.stringify({
+            service,
+            appIds: options.appIds,
+            all: false,
+            recent: false,
+            force: options.force ?? false,
+            operatingSystems: options.operatingSystems,
+            maxConcurrency: options.maxConcurrency ?? undefined
+          }),
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      return await this.handleResponse<{ success: boolean; errorMessage?: string }>(res);
+    } catch (error: unknown) {
+      console.error('startPersistentPrefill error:', error);
+      throw error;
+    }
+  }
+
+  static async cancelPersistentPrefill(service: PersistentPrefillServiceId): Promise<void> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/prefill/persistent/cancel-prefill`,
+        this.getFetchOptions({
+          method: 'POST',
+          body: JSON.stringify({ service }),
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      await this.handleResponse<void>(res);
+    } catch (error: unknown) {
+      console.error('cancelPersistentPrefill error:', error);
+      throw error;
+    }
+  }
+
   static async stopPersistentPrefillContainer(sessionId: string): Promise<void> {
     try {
       const res = await fetch(

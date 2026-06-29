@@ -14,7 +14,8 @@ const CONTAINER_WATCH_BASE_EVENTS = [
   'AuthStateChanged',
   'DaemonSessionUpdated',
   'DaemonSessionCreated',
-  'DaemonSessionTerminated'
+  'DaemonSessionTerminated',
+  'PrefillStateChanged'
 ] as const;
 
 const persistentPrefillServiceToEventKey = (serviceId: PersistentPrefillServiceId): string =>

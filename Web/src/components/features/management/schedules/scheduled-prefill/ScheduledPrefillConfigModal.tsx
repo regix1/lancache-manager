@@ -16,17 +16,21 @@ import type {
   PersistentPrefillServiceId
 } from '@components/features/prefill/persistentPrefillTypes';
 import {
+  SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS,
   SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS,
   SCHEDULED_PREFILL_SERVICE_RUN_ORDER
 } from './constants';
 import { ScheduledPrefillAuthStatus } from './ScheduledPrefillAuthStatus';
+import { ScheduledPrefillContainersSection } from './ScheduledPrefillContainersSection';
 import { PersistentLoginHost } from './PersistentLoginHost';
 import { ScheduledPrefillServiceRow } from './ScheduledPrefillServiceRow';
+import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPersistentTypes';
 import { waitForPersistentContainerAuth } from './waitForPersistentContainerAuth';
 import { usePersistentPrefillContainerSignalR } from './usePersistentPrefillContainerSignalR';
 import type {
   ScheduledPrefillAuthStatusItem,
   ScheduledPrefillConfigDto,
+  ScheduledPrefillOperatingSystem,
   ScheduledPrefillServiceConfigDto,
   ScheduledPrefillServiceKey
 } from './types';
@@ -50,11 +54,6 @@ interface ScheduledPrefillGameSelectionState {
   cachedAppIds: string[];
 }
 
-interface ScheduledPrefillPersistentAction {
-  serviceKey: ScheduledPrefillServiceKey;
-  action: 'start' | 'stop';
-}
-
 interface NumericBounds {
   min: number;
   max: number;
@@ -71,6 +70,25 @@ const getPersistentServiceId = (
   }
 
   return service.service;
+};
+
+const mapOperatingSystems = (
+  operatingSystems: ScheduledPrefillOperatingSystem[]
+): string[] | undefined => {
+  if (operatingSystems.length === 0) {
+    return undefined;
+  }
+
+  return operatingSystems.map((os) => {
+    switch (os) {
+      case 'Windows':
+        return 'windows';
+      case 'Linux':
+        return 'linux';
+      case 'Macos':
+        return 'macos';
+    }
+  });
 };
 
 const clampToBounds = (value: number, bounds: NumericBounds): number =>
@@ -135,9 +153,8 @@ export function ScheduledPrefillConfigModal({
   );
   const [loadingPersistentContainers, setLoadingPersistentContainers] = useState(false);
   const [persistentError, setPersistentError] = useState<string | null>(null);
-  const [persistentAction, setPersistentAction] = useState<ScheduledPrefillPersistentAction | null>(
-    null
-  );
+  const [persistentAction, setPersistentAction] =
+    useState<ScheduledPrefillPersistentActionState | null>(null);
   const [persistentValidityDays, setPersistentValidityDays] = useState(
     DEFAULT_PERSISTENT_PREFILL_VALIDITY_DAYS
   );
@@ -262,6 +279,33 @@ export function ScheduledPrefillConfigModal({
     [persistentContainers]
   );
 
+  const containersByServiceKey = useMemo(() => {
+    const map = new Map<ScheduledPrefillServiceKey, PersistentPrefillContainerDto>();
+    for (const serviceKey of SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS) {
+      const serviceId = getPersistentServiceId(serviceKey);
+      const container = persistentContainerByService.get(serviceId);
+      if (container) {
+        map.set(serviceKey, container);
+      }
+    }
+    return map;
+  }, [persistentContainerByService]);
+
+  const selectedGamesCountByServiceKey = useMemo(() => {
+    const counts = {} as Record<ScheduledPrefillServiceKey, number>;
+    if (!config) {
+      for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
+        counts[serviceKey] = 0;
+      }
+      return counts;
+    }
+
+    for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
+      counts[serviceKey] = config[serviceKey].selectedAppIds.length;
+    }
+    return counts;
+  }, [config]);
+
   useEffect(() => {
     if (!opened) {
       return;
@@ -289,6 +333,17 @@ export function ScheduledPrefillConfigModal({
       void loadPersistentContainers();
     }
   });
+
+  const authenticatingServiceKeys = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...persistentAuthPendingKeys,
+          ...(persistentLoginTarget ? [persistentLoginTarget] : [])
+        ])
+      ),
+    [persistentAuthPendingKeys, persistentLoginTarget]
+  );
 
   const isLoading = loadingConfig || loadingAuthStatus;
   const hasInitialData = config !== null;
@@ -398,6 +453,18 @@ export function ScheduledPrefillConfigModal({
     }
   };
 
+  const handlePersistentLogin = (serviceKey: ScheduledPrefillServiceKey) => {
+    const container = persistentContainerByService.get(getPersistentServiceId(serviceKey));
+    if (!container?.isRunning) {
+      setPersistentError(t(`${baseKey}.selectedGames.requiresPersistentContainer`));
+      return;
+    }
+
+    setPersistentError(null);
+    markPersistentAuthPending(serviceKey);
+    setPersistentLoginTarget(serviceKey);
+  };
+
   const loadGameSelection = useCallback(
     async (serviceKey: ScheduledPrefillServiceKey, sessionId: string) => {
       setLoadingGameSelectionService(serviceKey);
@@ -483,6 +550,71 @@ export function ScheduledPrefillConfigModal({
     setSaveError(null);
     setAuthError(null);
     setGameSelectionError(null);
+
+    const serviceId = getPersistentServiceId(gameSelection.serviceKey);
+    const container = persistentContainerByService.get(serviceId);
+    if (container?.isRunning && container.isAuthenticated) {
+      try {
+        await ApiService.setPersistentPrefillSelectedApps(serviceId, selectedAppIds);
+      } catch (error: unknown) {
+        setGameSelectionError(getErrorMessage(error));
+      }
+    }
+  };
+
+  const handlePersistentDownload = async (serviceKey: ScheduledPrefillServiceKey) => {
+    if (!config) {
+      return;
+    }
+
+    const serviceConfig = config[serviceKey];
+    const serviceId = getPersistentServiceId(serviceKey);
+    const container = persistentContainerByService.get(serviceId);
+
+    if (!container?.isRunning || !container.isAuthenticated) {
+      setPersistentError(t(`${baseKey}.persistentContainer.downloadRequiresAuth`));
+      return;
+    }
+
+    if (serviceConfig.selectedAppIds.length === 0) {
+      setPersistentError(t(`${baseKey}.persistentContainer.downloadRequiresSelection`));
+      return;
+    }
+
+    setPersistentAction({ serviceKey, action: 'download' });
+    setPersistentError(null);
+
+    try {
+      const maxConcurrency =
+        serviceConfig.maxConcurrency.mode === 'Fixed' ? serviceConfig.maxConcurrency.value : null;
+
+      await ApiService.startPersistentPrefill(serviceId, {
+        appIds: serviceConfig.selectedAppIds,
+        force: serviceConfig.force,
+        operatingSystems: mapOperatingSystems(serviceConfig.operatingSystems),
+        maxConcurrency
+      });
+      void loadPersistentContainers();
+    } catch (error: unknown) {
+      setPersistentError(getErrorMessage(error));
+    } finally {
+      setPersistentAction(null);
+    }
+  };
+
+  const handleCancelPersistentDownload = async (serviceKey: ScheduledPrefillServiceKey) => {
+    const serviceId = getPersistentServiceId(serviceKey);
+    setPersistentAction({ serviceKey, action: 'cancel' });
+    setPersistentError(null);
+
+    try {
+      await ApiService.cancelPersistentPrefill(serviceId);
+      void loadPersistentContainers();
+    } catch (error: unknown) {
+      setPersistentError(getErrorMessage(error));
+    } finally {
+      setPersistentAction(null);
+    }
   };
 
   const handleSave = async () => {
@@ -576,6 +708,24 @@ export function ScheduledPrefillConfigModal({
                 onError={setAuthError}
               />
 
+              <Card padding="md" className="scheduled-prefill-config-modal__containers">
+                <ScheduledPrefillContainersSection
+                  disabled={saving || loadingConfig || savingGlobalSettings}
+                  statusLoading={loadingPersistentContainers}
+                  containersByServiceKey={containersByServiceKey}
+                  selectedGamesCountByServiceKey={selectedGamesCountByServiceKey}
+                  persistentAction={persistentAction}
+                  authenticatingServiceKeys={authenticatingServiceKeys}
+                  gameSelectionLoadingServiceKey={loadingGameSelectionService}
+                  onStart={(serviceKey) => void handleStartPersistent(serviceKey)}
+                  onStop={(serviceKey) => void handleStopPersistent(serviceKey)}
+                  onLogin={handlePersistentLogin}
+                  onSelectGames={(serviceKey) => void handleOpenGameSelection(serviceKey)}
+                  onDownload={(serviceKey) => void handlePersistentDownload(serviceKey)}
+                  onCancelDownload={(serviceKey) => void handleCancelPersistentDownload(serviceKey)}
+                />
+              </Card>
+
               <Card padding="md" className="scheduled-prefill-config-modal__settings">
                 <div className="scheduled-prefill-config-modal__section-header">
                   <div>
@@ -663,39 +813,18 @@ export function ScheduledPrefillConfigModal({
                     )}
                   </div>
                   <div className="scheduled-prefill-config-modal__rows">
-                    {SCHEDULED_PREFILL_SERVICE_RUN_ORDER.map((serviceKey) => {
-                      const persistentServiceId = getPersistentServiceId(serviceKey);
-                      const rowPersistentAction =
-                        persistentAction?.serviceKey === serviceKey
-                          ? persistentAction.action
-                          : null;
-                      const rowPersistentAuthenticating =
-                        persistentAuthPendingKeys.includes(serviceKey) ||
-                        persistentLoginTarget === serviceKey;
-
-                      return (
-                        <div key={serviceKey} className="scheduled-prefill-config-modal__row">
-                          <ScheduledPrefillServiceRow
-                            serviceKey={serviceKey}
-                            config={config[serviceKey]}
-                            disabled={saving || loadingConfig}
-                            persistentContainer={persistentContainerByService.get(
-                              persistentServiceId
-                            )}
-                            persistentStatusLoading={loadingPersistentContainers}
-                            persistentAuthenticating={rowPersistentAuthenticating}
-                            persistentAction={rowPersistentAction}
-                            gameSelectionLoading={loadingGameSelectionService === serviceKey}
-                            onChange={(serviceConfig) =>
-                              handleServiceChange(serviceKey, serviceConfig)
-                            }
-                            onStartPersistent={() => void handleStartPersistent(serviceKey)}
-                            onStopPersistent={() => void handleStopPersistent(serviceKey)}
-                            onSelectGames={() => handleOpenGameSelection(serviceKey)}
-                          />
-                        </div>
-                      );
-                    })}
+                    {SCHEDULED_PREFILL_SERVICE_RUN_ORDER.map((serviceKey) => (
+                      <div key={serviceKey} className="scheduled-prefill-config-modal__row">
+                        <ScheduledPrefillServiceRow
+                          serviceKey={serviceKey}
+                          config={config[serviceKey]}
+                          disabled={saving || loadingConfig}
+                          onChange={(serviceConfig) =>
+                            handleServiceChange(serviceKey, serviceConfig)
+                          }
+                        />
+                      </div>
+                    ))}
                   </div>
                 </section>
               ) : (

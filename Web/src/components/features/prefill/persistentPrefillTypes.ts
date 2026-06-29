@@ -11,6 +11,9 @@ export interface PersistentPrefillContainerDto {
   authExpiresAtUtc: string;
   authTimeRemainingSeconds: number;
   needsRelogin: boolean;
+  isPrefilling?: boolean;
+  totalBytesTransferred?: number;
+  currentAppName?: string | null;
 }
 
 export interface PersistentPrefillValiditySettings {

@@ -105,7 +105,9 @@ export function ScheduledPrefillScheduleDetail({
         next.push({
           serviceId: payload.serviceId,
           stage: payload.stage,
-          message: payload.message
+          message: payload.message,
+          bytesDownloaded: payload.bytesDownloaded,
+          downloadSessionId: payload.downloadSessionId
         });
         return next;
       });

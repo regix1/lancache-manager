@@ -4,6 +4,7 @@ using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services;
@@ -226,7 +227,12 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
         }
 
         // 4. Create a dedicated guest download session (never reuse persistent config containers).
-        await EmitProgressAsync(notifications, operationId, serviceId, "starting", "Creating daemon session");
+        await EmitProgressAsync(
+            notifications,
+            operationId,
+            serviceId,
+            "starting",
+            "Creating guest download container");
         var session = await daemon.CreateSessionAsync(
             _systemUserId,
             sessionType: SessionType.Guest,
@@ -234,6 +240,19 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
             cancellationToken: ct);
         var sessionId = session.Id;
         var weOwnSessionForTeardown = !session.IsPersistent;
+
+        _logger.LogInformation(
+            "[ScheduledPrefill] Guest download container steam-daemon-{SessionId} created for {Service} (persistent config containers do not download)",
+            sessionId,
+            serviceId);
+
+        await EmitProgressAsync(
+            notifications,
+            operationId,
+            serviceId,
+            "starting",
+            $"Guest download container steam-daemon-{sessionId} created",
+            downloadSessionId: sessionId);
 
         try
         {
@@ -244,13 +263,33 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
                     operationId,
                     serviceId,
                     "failed",
-                    "Timed out waiting for daemon to become ready");
+                    "Timed out waiting for daemon to become ready",
+                    downloadSessionId: sessionId);
                 return true;
             }
 
             if (plan.AfterSessionCreatedAsync is not null)
             {
-                await plan.AfterSessionCreatedAsync(session, ct);
+                try
+                {
+                    await plan.AfterSessionCreatedAsync(session, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(
+                        ex,
+                        "[ScheduledPrefill] Auto-login failed for guest session {SessionId} ({Service})",
+                        sessionId,
+                        serviceId);
+                    await EmitProgressAsync(
+                        notifications,
+                        operationId,
+                        serviceId,
+                        "failed",
+                        $"Auto-login failed: {ex.Message}",
+                        downloadSessionId: sessionId);
+                    return true;
+                }
             }
 
             if (!await WaitForSessionAuthenticatedAsync(daemon, session, ct))
@@ -260,7 +299,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
                     operationId,
                     serviceId,
                     "failed",
-                    "Timed out waiting for session authentication");
+                    "Timed out waiting for session authentication",
+                    downloadSessionId: sessionId);
                 return true;
             }
 
@@ -333,7 +373,13 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
                 return true;
             }
 
-            await EmitProgressAsync(notifications, operationId, serviceId, "running", "Prefill in progress");
+            await EmitProgressAsync(
+                notifications,
+                operationId,
+                serviceId,
+                "running",
+                "Prefill in progress",
+                downloadSessionId: sessionId);
 
             // Poll until the daemon clears IsPrefilling, or a guard trips.
             var runDeadline = DateTime.UtcNow + config.MaxServiceRuntime;
@@ -364,7 +410,14 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
                 }
             }
 
-            await EmitProgressAsync(notifications, operationId, serviceId, "completed", "Prefill completed");
+            await EmitProgressAsync(
+                notifications,
+                operationId,
+                serviceId,
+                "completed",
+                BuildCompletionMessage(session, hasSelectedApps, serviceConfig.Force),
+                bytesDownloaded: session.TotalBytesTransferred,
+                downloadSessionId: sessionId);
             return true;
         }
         finally
@@ -461,13 +514,31 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
         return mapped;
     }
 
+    private static string BuildCompletionMessage(DaemonSession session, bool hasSelectedApps, bool force)
+    {
+        var bytes = session.TotalBytesTransferred;
+        if (bytes > 0)
+        {
+            return $"Prefill completed ({FormattingUtils.FormatBytes(bytes)} downloaded)";
+        }
+
+        if (hasSelectedApps && !force)
+        {
+            return "Prefill completed — all selected games were already cached (0 bytes). Enable Force to re-download.";
+        }
+
+        return "Prefill completed (0 bytes downloaded)";
+    }
+
     private Task EmitProgressAsync(
         ISignalRNotificationService notifications,
         string operationId,
         PrefillPlatform serviceId,
         string stage,
         string message,
-        string? needsLoginReason = null)
+        string? needsLoginReason = null,
+        long? bytesDownloaded = null,
+        string? downloadSessionId = null)
     {
         _logger.LogInformation("[ScheduledPrefill] {Service} {Stage}: {Message}", serviceId, stage, message);
         return notifications.NotifyAllAsync(SignalREvents.ScheduledPrefillProgress, new
@@ -476,7 +547,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
             serviceId = serviceId.ToString(),
             stage,
             message,
-            needsLoginReason
+            needsLoginReason,
+            bytesDownloaded,
+            downloadSessionId
         });
     }
 
@@ -505,6 +578,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
                 var status = await daemon.GetSessionStatusAsync(session.Id, ct);
                 if (string.Equals(status?.Status, "logged-in", StringComparison.OrdinalIgnoreCase))
                 {
+                    session.AuthState = DaemonAuthState.Authenticated;
                     return true;
                 }
             }

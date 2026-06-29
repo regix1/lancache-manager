@@ -3072,8 +3072,36 @@
               "selectGames": "选择游戏"
             },
             "persistentContainer": {
-              "help": "启动持久容器，以保持此服务已登录并为计划预填充选择特定游戏。",
-              "error": "持久预填充容器操作失败：{{error}}"
+              "help": "长期容器，用于游戏库、登录和下载 — 与预填充选项卡访客容器使用相同的守护进程命令。",
+              "error": "持久预填充容器操作失败：{{error}}",
+              "downloadNow": "下载所选游戏",
+              "cancelDownload": "取消下载",
+              "downloadRequiresAuth": "下载前请先登录持久容器。",
+              "downloadRequiresSelection": "下载前请至少选择一个游戏。",
+              "downloadProgress": "正在下载 {{game}} — 已传输 {{bytes}}",
+              "downloadProgressGeneric": "正在下载 — 已传输 {{bytes}}"
+            },
+            "persistentContainers": {
+              "title": "持久容器",
+              "description": "Steam、Epic 和 Xbox 的长期下载容器。启动容器、登录、选择游戏并下载 — 与预填充选项卡相同的工作流程。",
+              "pipelineLabel": "容器状态",
+              "steps": {
+                "container": "容器",
+                "account": "账户",
+                "activity": "活动",
+                "unavailable": "不可用",
+                "idle": "空闲",
+                "downloading": "正在下载"
+              },
+              "stats": {
+                "gamesSelected": "已选游戏"
+              },
+              "workflow": {
+                "stopped": "启动容器以启用登录、游戏选择和下载。",
+                "needsLogin": "登录以浏览游戏库并下载游戏。",
+                "selectGames": "为此平台选择游戏，准备好后即可下载。",
+                "ready": "容器已就绪。可下载所选游戏或等待下次计划运行。"
+              }
             },
             "selectedGames": {
               "count": "已选择 {{count}} 个游戏",
