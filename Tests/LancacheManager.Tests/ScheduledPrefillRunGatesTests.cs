@@ -79,10 +79,10 @@ public class ScheduledPrefillRunGatesTests
     }
 
     [Fact]
-    public void TryGetRunnablePersistentSession_ReturnsTrue_AndSessionId_WhenPersistentSessionHealthy()
+    public void TryGetRunnablePersistentSession_ReturnsTrue_AndSessionId_WhenPersistentSessionExists()
     {
-        // Reuse contract: a running, authenticated persistent container is prefilled on its OWN
-        // session id. The scheduler never creates a new (guest) session for this.
+        // Reuse contract: a running persistent container is prefilled on its OWN session id. The
+        // scheduler never creates a new (guest) session for this.
         var session = MakeSession(SystemUserId, isPersistent: true, authState: DaemonAuthState.Authenticated);
 
         var runnable = ScheduledPrefillRunGates.TryGetRunnablePersistentSession(session, out var sessionId, out var reason);
@@ -102,20 +102,32 @@ public class ScheduledPrefillRunGatesTests
         Assert.False(string.IsNullOrWhiteSpace(reason));
     }
 
+    // The two removed tests (_WhenSessionNotAuthenticated / _WhenSessionNeedsRelogin) asserted the
+    // OLD contract where the gate rejected on the in-memory AuthState / NeedsRelogin flags. Those
+    // flags are unreliable for a persistent container re-adopted on a manager restart (it stays
+    // NotAuthenticated until interactive login), which is exactly the bug being fixed. The gate no
+    // longer inspects them — the "is logged in" decision now comes from the daemon's LIVE status in
+    // ScheduledPrefillService.RunServiceAsync (status?.Status == "logged-in"). That live poll requires
+    // a daemon client seam and is not exercisable through this pure gate. The two tests below prove
+    // the gate now ignores the stale in-memory auth flags and returns the session id regardless.
+
     [Fact]
-    public void TryGetRunnablePersistentSession_ReturnsFalse_WhenSessionNotAuthenticated()
+    public void TryGetRunnablePersistentSession_ReturnsTrue_WhenInMemoryAuthStateNotAuthenticated()
     {
+        // The core of the fix: a persistent container re-adopted on restart carries a stale
+        // NotAuthenticated in-memory AuthState. The gate must NOT skip on that anymore; the live
+        // daemon status (checked downstream) is the source of truth.
         var session = MakeSession(SystemUserId, isPersistent: true, authState: DaemonAuthState.NotAuthenticated);
 
         var runnable = ScheduledPrefillRunGates.TryGetRunnablePersistentSession(session, out var sessionId, out var reason);
 
-        Assert.False(runnable);
-        Assert.Equal(string.Empty, sessionId);
-        Assert.False(string.IsNullOrWhiteSpace(reason));
+        Assert.True(runnable);
+        Assert.Equal(session.Id, sessionId);
+        Assert.Equal(string.Empty, reason);
     }
 
     [Fact]
-    public void TryGetRunnablePersistentSession_ReturnsFalse_WhenSessionNeedsRelogin()
+    public void TryGetRunnablePersistentSession_ReturnsTrue_WhenInMemoryNeedsRelogin()
     {
         var session = MakeSession(
             SystemUserId,
@@ -125,9 +137,9 @@ public class ScheduledPrefillRunGatesTests
 
         var runnable = ScheduledPrefillRunGates.TryGetRunnablePersistentSession(session, out var sessionId, out var reason);
 
-        Assert.False(runnable);
-        Assert.Equal(string.Empty, sessionId);
-        Assert.False(string.IsNullOrWhiteSpace(reason));
+        Assert.True(runnable);
+        Assert.Equal(session.Id, sessionId);
+        Assert.Equal(string.Empty, reason);
     }
 
     [Fact]

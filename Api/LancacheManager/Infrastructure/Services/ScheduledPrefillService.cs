@@ -211,8 +211,41 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
             return false;
         }
 
-        // TryGetRunnablePersistentSession only returns true for a non-null, authenticated session.
+        // TryGetRunnablePersistentSession only returns true for a non-null session.
         var session = persistentSession!;
+
+        // 2b. Confirm the persistent container is actually logged in using the daemon's LIVE status,
+        // exactly like the persistent-list endpoint (status?.Status == "logged-in"). The daemon is the
+        // source of truth: the in-memory AuthState is unreliable for a persistent container re-adopted
+        // on a manager restart (it stays NotAuthenticated until interactive login). A null status or a
+        // failing/cancelled poll is treated as needs-login rather than crashing the run.
+        bool isLoggedIn;
+        try
+        {
+            var status = await daemon.GetSessionStatusAsync(session.Id, ct);
+            isLoggedIn = status?.Status == "logged-in";
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[ScheduledPrefill] Failed to query persistent container status for {Service}", serviceId);
+            isLoggedIn = false;
+        }
+
+        if (!isLoggedIn)
+        {
+            await EmitProgressAsync(
+                notifications,
+                operationId,
+                serviceId,
+                "needs-login",
+                $"No logged-in persistent container for {serviceId}",
+                "The persistent container is not logged in. Log in to the persistent container before scheduling.");
+            return false;
+        }
 
         // 3. Busy check: defer when the persistent container is already prefilling (a prior run still
         // going) or a manual/guest interactive session is live. An idle persistent container does not

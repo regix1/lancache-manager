@@ -10,11 +10,14 @@ namespace LancacheManager.Infrastructure.Services.ScheduledPrefill;
 public static class ScheduledPrefillRunGates
 {
     /// <summary>
-    /// Decides whether the running persistent admin container is healthy enough for the scheduler
-    /// to reuse: it must exist, be authenticated, and not be flagged for re-login (the container
-    /// authenticates itself from its named auth volume — the manager never injects a token). On
-    /// success returns the session id to prefill on; otherwise yields a needs-login reason for the
-    /// existing needs-login progress path.
+    /// Decides whether a running persistent admin container exists for the scheduler to reuse. This
+    /// gate ONLY checks existence: the "is it logged in?" decision is made separately by polling the
+    /// daemon's LIVE status (see <c>ScheduledPrefillService.RunServiceAsync</c>), because the
+    /// in-memory <see cref="DaemonSession.AuthState"/> / <see cref="DaemonSession.NeedsRelogin"/>
+    /// flags are unreliable for a persistent container that was re-adopted on a manager restart
+    /// (it stays <see cref="DaemonAuthState.NotAuthenticated"/> until an interactive login or a
+    /// pushed status update, neither of which fires on passive reconnect). On success returns the
+    /// session id to prefill on; otherwise yields a needs-login reason for the needs-login progress path.
     /// </summary>
     public static bool TryGetRunnablePersistentSession(
         DaemonSession? persistentSession,
@@ -25,13 +28,6 @@ public static class ScheduledPrefillRunGates
         {
             sessionId = string.Empty;
             needsLoginReason = "No running persistent container. Start and log in the persistent container before scheduling.";
-            return false;
-        }
-
-        if (persistentSession.AuthState != DaemonAuthState.Authenticated || persistentSession.NeedsRelogin)
-        {
-            sessionId = string.Empty;
-            needsLoginReason = "The persistent container is not logged in. Log in to the persistent container before scheduling.";
             return false;
         }
 
