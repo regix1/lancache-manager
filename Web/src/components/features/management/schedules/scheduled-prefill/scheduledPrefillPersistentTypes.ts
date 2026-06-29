@@ -10,8 +10,6 @@ export interface ScheduledPrefillPersistentActionState {
 
 export interface ScheduledPrefillPersistentCardProps {
   serviceKey: ScheduledPrefillServiceKey;
-  /** Hide platform title when rendered inside a platform section. */
-  embedded?: boolean;
   container?: PersistentPrefillContainerDto;
   selectedGamesCount: number;
   disabled?: boolean;

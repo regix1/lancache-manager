@@ -3087,6 +3087,7 @@
               "helpIntro": "Steam、Epic 和 Xbox 需要持久容器来选择游戏。Battle.net 和 Riot 无需账户登录。",
               "helpAccountServices": "账户服务：启动容器、登录、选择游戏，然后下载或等待计划运行。",
               "helpAnonymousServices": "Battle.net 和 Riot：无需持久登录。在各平台的计划设置中配置预设和目标平台。",
+              "loadingStatus": "正在加载容器状态…",
               "pipelineLabel": "容器状态",
               "steps": {
                 "container": "容器",

@@ -3087,6 +3087,7 @@
               "helpIntro": "Steam, Epic, and Xbox need persistent containers for game selection. Battle.net and Riot run without account login.",
               "helpAccountServices": "Account services: start the container, log in, select games, then download or wait for the schedule.",
               "helpAnonymousServices": "Battle.net and Riot: no persistent login. Configure presets and target platforms in the schedule section for each platform.",
+              "loadingStatus": "Loading container status...",
               "pipelineLabel": "Container status",
               "steps": {
                 "container": "Container",

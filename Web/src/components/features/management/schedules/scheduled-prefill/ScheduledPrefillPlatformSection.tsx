@@ -1,10 +1,10 @@
 import { useTranslation } from 'react-i18next';
 import Badge from '@components/ui/Badge';
+import { Card } from '@components/ui/Card';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
 import { ScheduledPrefillAnonymousServiceCard } from './ScheduledPrefillAnonymousServiceCard';
 import { ScheduledPrefillPlatformAuthPanel } from './ScheduledPrefillPlatformAuthPanel';
-import { ScheduledPrefillPlatformSubsection } from './ScheduledPrefillPlatformSubsection';
 import { ScheduledPrefillPersistentCard } from './ScheduledPrefillPersistentCard';
 import { ScheduledPrefillScheduleFields } from './ScheduledPrefillScheduleFields';
 import {
@@ -68,15 +68,14 @@ export function ScheduledPrefillPlatformSection({
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const platformMeta = SCHEDULED_PREFILL_PLATFORM_UI[serviceKey];
   const PlatformIcon = platformMeta.icon;
+  const isAccount = isScheduledPrefillAccountService(serviceKey);
   const isRunning = container?.isRunning ?? false;
   const isAuthenticated = container?.isAuthenticated ?? false;
-  const accountAuthStatus = isScheduledPrefillAccountService(serviceKey)
+  const accountAuthStatus = isAccount
     ? authStatuses.find((status) => status.serviceId === serviceKey)
     : null;
   const scheduledAuthReady = accountAuthStatus?.loginState === 'ready';
   const needsScheduledAuth = accountAuthStatus?.loginState === 'loginRequired';
-  const containerNeedsAttention =
-    isRunning && (!isAuthenticated || container?.needsRelogin || container?.isPrefilling);
 
   const handleEnabledChange = (value: string) => {
     onChange({ ...config, enabled: value === 'enabled' });
@@ -88,15 +87,17 @@ export function ScheduledPrefillPlatformSection({
     <Badge variant="success">{t(`${baseKey}.platforms.status.scheduledAuthReady`)}</Badge>
   ) : null;
 
-  const containerBadge = isRunning ? (
-    <Badge variant={isAuthenticated ? 'success' : 'warning'}>
-      {isAuthenticated
-        ? t(`${baseKey}.platforms.status.containerReady`)
-        : t(`${baseKey}.platforms.status.containerRunning`)}
-    </Badge>
-  ) : (
-    <Badge variant="neutral">{t('prefill.persistent.states.stopped')}</Badge>
-  );
+  const containerBadge = isAccount ? (
+    isRunning ? (
+      <Badge variant={isAuthenticated ? 'success' : 'warning'}>
+        {isAuthenticated
+          ? t(`${baseKey}.platforms.status.containerReady`)
+          : t(`${baseKey}.platforms.status.containerRunning`)}
+      </Badge>
+    ) : (
+      <Badge variant="neutral">{t('prefill.persistent.states.stopped')}</Badge>
+    )
+  ) : null;
 
   return (
     <section
@@ -118,6 +119,8 @@ export function ScheduledPrefillPlatformSection({
                   ? t(`${baseKey}.platforms.status.enabled`)
                   : t(`${baseKey}.platforms.status.disabled`)}
               </Badge>
+              {authBadge}
+              {containerBadge}
             </div>
           </div>
         </div>
@@ -141,9 +144,9 @@ export function ScheduledPrefillPlatformSection({
         />
       </header>
 
-      <div className="scheduled-prefill-platform-section__subsections">
-        <div className="scheduled-prefill-platform-section__schedule-panel">
-          <h4 className="scheduled-prefill-platform-section__subsection-title">
+      <div className="scheduled-prefill-platform-section__blocks">
+        <Card padding="md" className="scheduled-prefill-platform-block">
+          <h4 className="scheduled-prefill-platform-block__title">
             {t(`${baseKey}.platforms.sections.schedule`)}
           </h4>
           <ScheduledPrefillScheduleFields
@@ -152,15 +155,16 @@ export function ScheduledPrefillPlatformSection({
             disabled={disabled || !config.enabled}
             onChange={onChange}
           />
-        </div>
+        </Card>
 
-        {isScheduledPrefillAccountService(serviceKey) && (
-          <ScheduledPrefillPlatformSubsection
-            title={t(`${baseKey}.platforms.sections.scheduledAuth`)}
-            defaultExpanded={needsScheduledAuth}
-            resetKey={serviceKey}
-            badge={authBadge}
-          >
+        {isAccount && (
+          <Card padding="md" className="scheduled-prefill-platform-block">
+            <div className="scheduled-prefill-platform-block__header">
+              <h4 className="scheduled-prefill-platform-block__title">
+                {t(`${baseKey}.platforms.sections.scheduledAuth`)}
+              </h4>
+              {authBadge}
+            </div>
             <ScheduledPrefillPlatformAuthPanel
               serviceKey={serviceKey}
               statuses={authStatuses}
@@ -169,54 +173,30 @@ export function ScheduledPrefillPlatformSection({
               onRefresh={onRefreshAuth}
               onError={onAuthError}
             />
-          </ScheduledPrefillPlatformSubsection>
+          </Card>
         )}
 
-        {isScheduledPrefillAccountService(serviceKey) && (
-          <ScheduledPrefillPlatformSubsection
-            title={t(`${baseKey}.platforms.sections.persistentContainer`)}
-            defaultExpanded={
-              isRunning || selectedGamesCount > 0 || Boolean(containerNeedsAttention)
-            }
-            resetKey={serviceKey}
-            badge={containerBadge}
-          >
-            <p className="scheduled-prefill-platform-section__subsection-help">
-              {t(`${baseKey}.persistentContainer.help`)}
-            </p>
-            <ScheduledPrefillPersistentCard
-              embedded
-              serviceKey={serviceKey}
-              container={container}
-              selectedGamesCount={selectedGamesCount}
-              disabled={disabled}
-              statusLoading={statusLoading}
-              authenticating={authenticating}
-              action={persistentAction?.serviceKey === serviceKey ? persistentAction.action : null}
-              gameSelectionLoading={gameSelectionLoading}
-              onStart={onStart}
-              onStop={onStop}
-              onLogin={onLogin}
-              onSelectGames={onSelectGames}
-              onDownload={onDownload}
-              onCancelDownload={onCancelDownload}
-            />
-          </ScheduledPrefillPlatformSubsection>
+        {isAccount && (
+          <ScheduledPrefillPersistentCard
+            serviceKey={serviceKey}
+            container={container}
+            selectedGamesCount={selectedGamesCount}
+            disabled={disabled}
+            statusLoading={statusLoading}
+            authenticating={authenticating}
+            action={persistentAction?.serviceKey === serviceKey ? persistentAction.action : null}
+            gameSelectionLoading={gameSelectionLoading}
+            onStart={onStart}
+            onStop={onStop}
+            onLogin={onLogin}
+            onSelectGames={onSelectGames}
+            onDownload={onDownload}
+            onCancelDownload={onCancelDownload}
+          />
         )}
 
         {isScheduledPrefillAnonymousService(serviceKey) && (
-          <ScheduledPrefillPlatformSubsection
-            title={t(`${baseKey}.platforms.sections.anonymous`)}
-            defaultExpanded
-            resetKey={serviceKey}
-            badge={
-              <Badge variant="success">
-                {t(`${baseKey}.persistentContainers.anonymous.badge`)}
-              </Badge>
-            }
-          >
-            <ScheduledPrefillAnonymousServiceCard embedded serviceKey={serviceKey} />
-          </ScheduledPrefillPlatformSubsection>
+          <ScheduledPrefillAnonymousServiceCard serviceKey={serviceKey} />
         )}
       </div>
     </section>

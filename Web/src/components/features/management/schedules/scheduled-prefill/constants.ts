@@ -24,8 +24,11 @@ export const SCHEDULED_PREFILL_ANONYMOUS_SERVICE_IDS = [
   'riot'
 ] as const satisfies readonly ScheduledPrefillServiceKey[];
 
-/** Uniform action button size across the scheduled prefill configure modal. */
-export const SCHEDULED_PREFILL_BUTTON_SIZE = 'sm' as const;
+/**
+ * Uniform action button size across the scheduled prefill configure modal.
+ * `md` (~40px) matches the rest of Management; every button on the surface reads from this.
+ */
+export const SCHEDULED_PREFILL_BUTTON_SIZE = 'md' as const;
 
 export const SCHEDULED_PREFILL_PRESET_OPTIONS = [
   {

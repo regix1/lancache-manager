@@ -71,12 +71,21 @@ export function ScheduledPrefillScheduleFields({
     onChange({ ...config, ...patch });
   };
 
+  const presetLabelId = `scheduled-prefill-preset-label-${serviceKey}`;
+  const osLabelId = `scheduled-prefill-os-label-${serviceKey}`;
+  const forceLabelId = `scheduled-prefill-force-label-${serviceKey}`;
+  const concurrencyModeLabelId = `scheduled-prefill-concurrency-mode-label-${serviceKey}`;
+
   return (
     <div className="scheduled-prefill-schedule-fields">
-      <div className="scheduled-prefill-schedule-fields__field">
-        <span className="scheduled-prefill-schedule-fields__label">
+      <div
+        className="scheduled-prefill-schedule-fields__field"
+        role="group"
+        aria-labelledby={presetLabelId}
+      >
+        <label id={presetLabelId} className="scheduled-prefill-schedule-fields__label">
           {t(`${baseKey}.fields.preset`)}
-        </span>
+        </label>
         <SegmentedControl
           options={presetOptions.map((option) => ({ ...option, disabled }))}
           value={config.preset}
@@ -113,10 +122,14 @@ export function ScheduledPrefillScheduleFields({
         </div>
       )}
 
-      <div className="scheduled-prefill-schedule-fields__field">
-        <span className="scheduled-prefill-schedule-fields__label">
+      <div
+        className="scheduled-prefill-schedule-fields__field"
+        role="group"
+        aria-labelledby={osLabelId}
+      >
+        <label id={osLabelId} className="scheduled-prefill-schedule-fields__label">
           {t(`${baseKey}.fields.operatingSystems`)}
-        </span>
+        </label>
         <MultiSelectDropdown
           options={operatingSystemOptions}
           values={config.operatingSystems}
@@ -130,11 +143,15 @@ export function ScheduledPrefillScheduleFields({
       </div>
 
       <div className="scheduled-prefill-schedule-fields__field scheduled-prefill-schedule-fields__field--full">
-        <div className="scheduled-prefill-schedule-fields__force">
+        <div
+          className="scheduled-prefill-schedule-fields__force"
+          role="group"
+          aria-labelledby={forceLabelId}
+        >
           <div className="scheduled-prefill-schedule-fields__force-copy">
-            <span className="scheduled-prefill-schedule-fields__label">
+            <label id={forceLabelId} className="scheduled-prefill-schedule-fields__label">
               {t(`${baseKey}.fields.force`)}
-            </span>
+            </label>
             <p className="scheduled-prefill-schedule-fields__help">
               {t(`${baseKey}.actions.forceDownload`)}
             </p>
@@ -152,10 +169,14 @@ export function ScheduledPrefillScheduleFields({
         </div>
       </div>
 
-      <div className="scheduled-prefill-schedule-fields__field">
-        <span className="scheduled-prefill-schedule-fields__label">
+      <div
+        className="scheduled-prefill-schedule-fields__field"
+        role="group"
+        aria-labelledby={concurrencyModeLabelId}
+      >
+        <label id={concurrencyModeLabelId} className="scheduled-prefill-schedule-fields__label">
           {t(`${baseKey}.fields.maxConcurrency`)}
-        </span>
+        </label>
         <SegmentedControl
           options={[
             { value: 'Auto', label: t(`${baseKey}.maxConcurrency.auto`), disabled },

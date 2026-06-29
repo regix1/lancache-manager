@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Badge from '@components/ui/Badge';
 import { Button } from '@components/ui/Button';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { ScheduledPrefillEpicAuthButton } from './auth/ScheduledPrefillEpicAuthButton';
 import { ScheduledPrefillXboxAuthButton } from './auth/ScheduledPrefillXboxAuthButton';
@@ -198,25 +199,50 @@ export function ScheduledPrefillPlatformAuthPanel({
         <p className="scheduled-prefill-platform-auth__description">
           {t(`${authKey}.platformHelp.${serviceKey}`)}
         </p>
-        {loading && (
-          <p className="scheduled-prefill-platform-auth__loading">{t(`${authKey}.loading`)}</p>
-        )}
-        <div className="scheduled-prefill-platform-auth__row">
-          <div className="scheduled-prefill-platform-auth__meta">
-            {subtitle && <p className="scheduled-prefill-platform-auth__subtitle">{subtitle}</p>}
-            {expiresAt && expiryState && (
-              <p
-                className={`scheduled-prefill-platform-auth__expiry scheduled-prefill-platform-auth__expiry--${expiryState}`}
-              >
-                {t(`${authKey}.${getLoginExpiryKey(expiryState)}`, {
-                  date: expiresAt,
-                  service: serviceName
-                })}
-              </p>
-            )}
+        {loading ? (
+          <div className="scheduled-prefill-platform-auth__state" role="status" aria-live="polite">
+            <LoadingSpinner inline size="sm" />
+            <span>{t(`${authKey}.loading`)}</span>
           </div>
-          <div className="scheduled-prefill-platform-auth__action">{renderAction()}</div>
-        </div>
+        ) : !status ? (
+          <div className="scheduled-prefill-platform-auth__row">
+            <div className="scheduled-prefill-platform-auth__meta">
+              <p className="scheduled-prefill-platform-auth__subtitle">
+                {t(`${authKey}.states.unknown`)}
+              </p>
+            </div>
+            <div className="scheduled-prefill-platform-auth__action">
+              {onRefresh && (
+                <Button
+                  type="button"
+                  variant="default"
+                  size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                  disabled={disabled}
+                  onClick={refreshScheduledAuthStatus}
+                >
+                  {t('common.refresh')}
+                </Button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="scheduled-prefill-platform-auth__row">
+            <div className="scheduled-prefill-platform-auth__meta">
+              {subtitle && <p className="scheduled-prefill-platform-auth__subtitle">{subtitle}</p>}
+              {expiresAt && expiryState && (
+                <p
+                  className={`scheduled-prefill-platform-auth__expiry scheduled-prefill-platform-auth__expiry--${expiryState}`}
+                >
+                  {t(`${authKey}.${getLoginExpiryKey(expiryState)}`, {
+                    date: expiresAt,
+                    service: serviceName
+                  })}
+                </p>
+              )}
+            </div>
+            <div className="scheduled-prefill-platform-auth__action">{renderAction()}</div>
+          </div>
+        )}
       </div>
 
       {serviceKey === 'steam' && (

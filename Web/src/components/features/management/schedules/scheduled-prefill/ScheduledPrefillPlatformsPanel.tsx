@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Badge from '@components/ui/Badge';
-import { HelpPopover } from '@components/ui/HelpPopover';
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
 import { SCHEDULED_PREFILL_SERVICE_RUN_ORDER } from './constants';
 import { ScheduledPrefillPlatformSection } from './ScheduledPrefillPlatformSection';
@@ -90,22 +89,6 @@ export function ScheduledPrefillPlatformsPanel({
 
   return (
     <section className="scheduled-prefill-platforms-panel">
-      <div className="scheduled-prefill-platforms-panel__intro">
-        <p className="scheduled-prefill-platforms-panel__description">
-          {t(`${baseKey}.platforms.description`)}
-        </p>
-        <HelpPopover position="right" width={360} maxHeight="18rem">
-          <p className="schedule-extra-help">{t(`${baseKey}.auth.authPathsIntro`)}</p>
-          <ul className="scheduled-prefill-platforms-panel__help-list">
-            <li className="schedule-extra-help">{t(`${baseKey}.auth.authPathsSteam`)}</li>
-            <li className="schedule-extra-help">{t(`${baseKey}.auth.authPathsEpicXbox`)}</li>
-            <li className="schedule-extra-help">{t(`${baseKey}.auth.authPathsBattleNet`)}</li>
-            <li className="schedule-extra-help">{t(`${baseKey}.auth.authPathsRiot`)}</li>
-            <li className="schedule-extra-help">{t(`${baseKey}.auth.authPathsPersistent`)}</li>
-          </ul>
-        </HelpPopover>
-      </div>
-
       <div className="scheduled-prefill-platforms">
         <nav
           className="scheduled-prefill-platforms__nav"

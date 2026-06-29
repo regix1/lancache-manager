@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
-import { Card } from '@components/ui/Card';
+import Badge from '@components/ui/Badge';
+import { HelpPopover } from '@components/ui/HelpPopover';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { GameSelectionModal } from '@components/features/prefill/GameSelectionModal';
@@ -359,6 +360,77 @@ export function ScheduledPrefillConfigModal({
     return null;
   }, [config, t, baseKey]);
 
+  const enabledCount = useMemo(
+    () =>
+      config
+        ? SCHEDULED_PREFILL_SERVICE_RUN_ORDER.filter((serviceKey) => config[serviceKey].enabled)
+            .length
+        : 0,
+    [config]
+  );
+
+  const hasAuthWarning = useMemo(() => {
+    if (!config) {
+      return false;
+    }
+
+    const authStatusByService = new Map(authStatuses.map((status) => [status.serviceId, status]));
+
+    return SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.some((serviceId) => {
+      if (!config[serviceId].enabled) {
+        return false;
+      }
+
+      const loginState = authStatusByService.get(serviceId)?.loginState;
+      return loginState === 'loginRequired' || loginState === 'unsupported';
+    });
+  }, [config, authStatuses]);
+
+  // Single most-severe banner: errors win over the (yellow) validation hint; success is silent.
+  const banner = useMemo<{ color: 'red' | 'yellow'; message: string } | null>(() => {
+    if (loadError) {
+      return { color: 'red', message: t(`${baseKey}.loadError`, { error: loadError }) };
+    }
+    if (globalSettingsError) {
+      return {
+        color: 'red',
+        message: t(`${baseKey}.settings.error`, { error: globalSettingsError })
+      };
+    }
+    if (saveError) {
+      return { color: 'red', message: t(`${baseKey}.saveError`, { error: saveError }) };
+    }
+    if (authError) {
+      return { color: 'red', message: t(`${baseKey}.authError`, { error: authError }) };
+    }
+    if (persistentError) {
+      return {
+        color: 'red',
+        message: t(`${baseKey}.persistentContainer.error`, { error: persistentError })
+      };
+    }
+    if (gameSelectionError) {
+      return {
+        color: 'red',
+        message: t(`${baseKey}.selectedGames.error`, { error: gameSelectionError })
+      };
+    }
+    if (validationError) {
+      return { color: 'yellow', message: validationError };
+    }
+    return null;
+  }, [
+    loadError,
+    globalSettingsError,
+    saveError,
+    authError,
+    persistentError,
+    gameSelectionError,
+    validationError,
+    t,
+    baseKey
+  ]);
+
   const handleServiceChange = (
     serviceKey: ScheduledPrefillServiceKey,
     serviceConfig: ScheduledPrefillServiceConfigDto
@@ -653,86 +725,73 @@ export function ScheduledPrefillConfigModal({
       <Modal opened={opened} onClose={handleClose} title={t(`${baseKey}.title`)} size="full">
         <div className="scheduled-prefill-config-modal">
           {isLoading && !hasInitialData ? (
-            <div className="scheduled-prefill-config-modal__loading">
-              <LoadingSpinner size="lg" />
-              <span>{t(`${baseKey}.loading`)}</span>
+            <div
+              className="scheduled-prefill-config-modal__skeleton"
+              role="status"
+              aria-busy="true"
+              aria-label={t(`${baseKey}.loading`)}
+            >
+              <div className="scheduled-prefill-config-modal__skeleton-overview" />
+              <div className="scheduled-prefill-config-modal__skeleton-body">
+                <div className="scheduled-prefill-config-modal__skeleton-nav">
+                  {SCHEDULED_PREFILL_SERVICE_RUN_ORDER.map((serviceKey) => (
+                    <div
+                      key={serviceKey}
+                      className="scheduled-prefill-config-modal__skeleton-nav-item"
+                    />
+                  ))}
+                </div>
+                <div className="scheduled-prefill-config-modal__skeleton-detail">
+                  <div className="scheduled-prefill-config-modal__skeleton-block" />
+                  <div className="scheduled-prefill-config-modal__skeleton-block" />
+                  <div className="scheduled-prefill-config-modal__skeleton-block scheduled-prefill-config-modal__skeleton-block--tall" />
+                </div>
+              </div>
             </div>
           ) : (
             <>
-              {loadError && (
-                <Alert color="red" className="scheduled-prefill-config-modal__alert">
-                  {t(`${baseKey}.loadError`, { error: loadError })}
-                </Alert>
-              )}
-              {validationError && (
-                <Alert color="yellow" className="scheduled-prefill-config-modal__alert">
-                  {validationError}
-                </Alert>
-              )}
-              {saveError && (
-                <Alert color="red" className="scheduled-prefill-config-modal__alert">
-                  {t(`${baseKey}.saveError`, { error: saveError })}
-                </Alert>
-              )}
-              {authError && (
-                <Alert color="red" className="scheduled-prefill-config-modal__alert">
-                  {t(`${baseKey}.authError`, { error: authError })}
-                </Alert>
-              )}
-              {persistentError && (
-                <Alert color="red" className="scheduled-prefill-config-modal__alert">
-                  {t(`${baseKey}.persistentContainer.error`, { error: persistentError })}
-                </Alert>
-              )}
-              {gameSelectionError && (
-                <Alert color="red" className="scheduled-prefill-config-modal__alert">
-                  {t(`${baseKey}.selectedGames.error`, { error: gameSelectionError })}
-                </Alert>
-              )}
-
-              <Card padding="md" className="scheduled-prefill-config-modal__intro">
-                <p className="scheduled-prefill-config-modal__description">
-                  {t(`${baseKey}.modalDescription`)}
-                </p>
-              </Card>
-
-              <Card padding="md" className="scheduled-prefill-config-modal__settings">
-                <div className="scheduled-prefill-config-modal__section-header">
-                  <div>
-                    <h3 className="scheduled-prefill-config-modal__section-title">
-                      {t(`${baseKey}.settings.title`)}
-                    </h3>
-                    <p className="scheduled-prefill-config-modal__description">
-                      {t(`${baseKey}.settings.description`)}
-                    </p>
+              <div className="scheduled-prefill-config-modal__overview">
+                <div className="scheduled-prefill-config-modal__overview-main">
+                  <p className="scheduled-prefill-config-modal__overview-description">
+                    {t(`${baseKey}.modalDescription`)}
+                  </p>
+                  <div className="scheduled-prefill-config-modal__overview-status">
+                    <Badge variant="info">
+                      {t(`${baseKey}.summary`, {
+                        enabled: enabledCount,
+                        total: SCHEDULED_PREFILL_SERVICE_RUN_ORDER.length
+                      })}
+                    </Badge>
+                    {hasAuthWarning && (
+                      <Badge variant="warning">{t(`${baseKey}.authWarning`)}</Badge>
+                    )}
+                    <HelpPopover position="left" width={360} maxHeight="20rem">
+                      <p className="schedule-extra-help">{t(`${baseKey}.auth.authPathsIntro`)}</p>
+                      <ul className="scheduled-prefill-config-modal__help-list">
+                        <li className="schedule-extra-help">
+                          {t(`${baseKey}.auth.authPathsSteam`)}
+                        </li>
+                        <li className="schedule-extra-help">
+                          {t(`${baseKey}.auth.authPathsEpicXbox`)}
+                        </li>
+                        <li className="schedule-extra-help">
+                          {t(`${baseKey}.auth.authPathsBattleNet`)}
+                        </li>
+                        <li className="schedule-extra-help">
+                          {t(`${baseKey}.auth.authPathsRiot`)}
+                        </li>
+                        <li className="schedule-extra-help">
+                          {t(`${baseKey}.auth.authPathsPersistent`)}
+                        </li>
+                      </ul>
+                    </HelpPopover>
                   </div>
-                  {(loadingGlobalSettings || savingGlobalSettings) && (
-                    <span className="scheduled-prefill-config-modal__inline-loading">
-                      <LoadingSpinner inline size="sm" />
-                      {t(
-                        savingGlobalSettings
-                          ? `${baseKey}.settings.saving`
-                          : `${baseKey}.settings.loading`
-                      )}
-                    </span>
-                  )}
                 </div>
 
-                {globalSettingsSaved && (
-                  <Alert color="green" className="scheduled-prefill-config-modal__alert">
-                    {t(`${baseKey}.settings.saved`)}
-                  </Alert>
-                )}
-                {globalSettingsError && (
-                  <Alert color="red" className="scheduled-prefill-config-modal__alert">
-                    {t(`${baseKey}.settings.error`, { error: globalSettingsError })}
-                  </Alert>
-                )}
-
-                <div className="scheduled-prefill-config-modal__settings-grid">
-                  <div className="scheduled-prefill-config-modal__settings-field">
+                <div className="scheduled-prefill-config-modal__global">
+                  <div className="scheduled-prefill-config-modal__global-field">
                     <label
-                      className="scheduled-prefill-config-modal__settings-label"
+                      className="scheduled-prefill-config-modal__global-label"
                       htmlFor="scheduled-prefill-persistent-validity-days"
                     >
                       {t(`${baseKey}.settings.persistentValidityLabel`)}
@@ -747,58 +806,73 @@ export function ScheduledPrefillConfigModal({
                       aria-label={t(`${baseKey}.settings.persistentValidityLabel`)}
                       onChange={handlePersistentValidityDaysChange}
                     />
-                    <p className="scheduled-prefill-config-modal__settings-help">
-                      {t(`${baseKey}.settings.persistentValidityHelp`, {
-                        min: PERSISTENT_PREFILL_VALIDITY_BOUNDS.min,
-                        max: PERSISTENT_PREFILL_VALIDITY_BOUNDS.max
-                      })}
-                    </p>
                   </div>
+                  <div className="scheduled-prefill-config-modal__global-actions">
+                    {globalSettingsSaved && (
+                      <span className="scheduled-prefill-config-modal__global-saved" role="status">
+                        {t(`${baseKey}.settings.saved`)}
+                      </span>
+                    )}
+                    {(loadingGlobalSettings || savingGlobalSettings) && (
+                      <span className="scheduled-prefill-config-modal__inline-loading">
+                        <LoadingSpinner inline size="sm" />
+                        {t(
+                          savingGlobalSettings
+                            ? `${baseKey}.settings.saving`
+                            : `${baseKey}.settings.loading`
+                        )}
+                      </span>
+                    )}
+                    <Button
+                      type="button"
+                      variant="subtle"
+                      size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                      onClick={() => void handleSaveGlobalSettings()}
+                      disabled={loadingGlobalSettings || savingGlobalSettings}
+                      loading={savingGlobalSettings}
+                    >
+                      {savingGlobalSettings
+                        ? t(`${baseKey}.settings.saving`)
+                        : t(`${baseKey}.settings.save`)}
+                    </Button>
+                  </div>
+                  <p className="scheduled-prefill-config-modal__global-help">
+                    {t(`${baseKey}.settings.persistentValidityHelp`, {
+                      min: PERSISTENT_PREFILL_VALIDITY_BOUNDS.min,
+                      max: PERSISTENT_PREFILL_VALIDITY_BOUNDS.max
+                    })}
+                  </p>
                 </div>
+              </div>
 
-                <div className="scheduled-prefill-config-modal__settings-actions">
-                  <Button
-                    type="button"
-                    variant="filled"
-                    color="green"
-                    size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                    onClick={() => void handleSaveGlobalSettings()}
-                    disabled={loadingGlobalSettings || savingGlobalSettings}
-                    loading={savingGlobalSettings}
-                  >
-                    {savingGlobalSettings
-                      ? t(`${baseKey}.settings.saving`)
-                      : t(`${baseKey}.settings.save`)}
-                  </Button>
-                </div>
-              </Card>
+              {banner && (
+                <Alert color={banner.color} className="scheduled-prefill-config-modal__alert">
+                  {banner.message}
+                </Alert>
+              )}
 
               {config ? (
-                <Card padding="md" className="scheduled-prefill-config-modal__platforms">
-                  <ScheduledPrefillPlatformsPanel
-                    config={config}
-                    authStatuses={authStatuses}
-                    authLoading={loadingAuthStatus}
-                    disabled={saving || loadingConfig || savingGlobalSettings}
-                    statusLoading={loadingPersistentContainers}
-                    containersByServiceKey={containersByServiceKey}
-                    selectedGamesCountByServiceKey={selectedGamesCountByServiceKey}
-                    persistentAction={persistentAction}
-                    authenticatingServiceKeys={authenticatingServiceKeys}
-                    gameSelectionLoadingServiceKey={loadingGameSelectionService}
-                    onServiceChange={handleServiceChange}
-                    onRefreshAuth={() => loadAuthStatus()}
-                    onAuthError={setAuthError}
-                    onStart={(serviceKey) => void handleStartPersistent(serviceKey)}
-                    onStop={(serviceKey) => void handleStopPersistent(serviceKey)}
-                    onLogin={handlePersistentLogin}
-                    onSelectGames={(serviceKey) => void handleOpenGameSelection(serviceKey)}
-                    onDownload={(serviceKey) => void handlePersistentDownload(serviceKey)}
-                    onCancelDownload={(serviceKey) =>
-                      void handleCancelPersistentDownload(serviceKey)
-                    }
-                  />
-                </Card>
+                <ScheduledPrefillPlatformsPanel
+                  config={config}
+                  authStatuses={authStatuses}
+                  authLoading={loadingAuthStatus}
+                  disabled={saving || loadingConfig || savingGlobalSettings}
+                  statusLoading={loadingPersistentContainers}
+                  containersByServiceKey={containersByServiceKey}
+                  selectedGamesCountByServiceKey={selectedGamesCountByServiceKey}
+                  persistentAction={persistentAction}
+                  authenticatingServiceKeys={authenticatingServiceKeys}
+                  gameSelectionLoadingServiceKey={loadingGameSelectionService}
+                  onServiceChange={handleServiceChange}
+                  onRefreshAuth={() => loadAuthStatus()}
+                  onAuthError={setAuthError}
+                  onStart={(serviceKey) => void handleStartPersistent(serviceKey)}
+                  onStop={(serviceKey) => void handleStopPersistent(serviceKey)}
+                  onLogin={handlePersistentLogin}
+                  onSelectGames={(serviceKey) => void handleOpenGameSelection(serviceKey)}
+                  onDownload={(serviceKey) => void handlePersistentDownload(serviceKey)}
+                  onCancelDownload={(serviceKey) => void handleCancelPersistentDownload(serviceKey)}
+                />
               ) : (
                 <div className="scheduled-prefill-config-modal__empty">{t(`${baseKey}.empty`)}</div>
               )}
