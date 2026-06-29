@@ -85,11 +85,6 @@ export function ScheduledPrefillPlatformsPanel({
       }
     }
 
-    const selectedCount = selectedGamesCountByServiceKey[serviceKey];
-    if (selectedCount > 0) {
-      return t(`${baseKey}.selectedGames.count`, { count: selectedCount });
-    }
-
     return null;
   };
 

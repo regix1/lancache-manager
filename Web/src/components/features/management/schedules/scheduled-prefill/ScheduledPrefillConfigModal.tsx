@@ -519,6 +519,12 @@ export function ScheduledPrefillConfigModal({
     }
 
     clearPersistentAuthPending(serviceKey);
+    setGameSelection({
+      serviceKey,
+      sessionId: container.sessionId,
+      games: [],
+      cachedAppIds: []
+    });
     void loadGameSelection(serviceKey, container.sessionId);
   };
 

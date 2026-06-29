@@ -72,9 +72,9 @@ export function ScheduledPrefillScheduleFields({
   };
 
   return (
-    <div className="scheduled-prefill-service-row__grid">
-      <div className="scheduled-prefill-service-row__field">
-        <span className="scheduled-prefill-service-row__label">
+    <div className="scheduled-prefill-schedule-fields">
+      <div className="scheduled-prefill-schedule-fields__field">
+        <span className="scheduled-prefill-schedule-fields__label">
           {t(`${baseKey}.fields.preset`)}
         </span>
         <SegmentedControl
@@ -93,9 +93,9 @@ export function ScheduledPrefillScheduleFields({
       </div>
 
       {config.preset === 'Top' && (
-        <div className="scheduled-prefill-service-row__field">
+        <div className="scheduled-prefill-schedule-fields__field">
           <label
-            className="scheduled-prefill-service-row__label"
+            className="scheduled-prefill-schedule-fields__label"
             htmlFor={`scheduled-prefill-top-count-${serviceKey}`}
           >
             {t(`${baseKey}.fields.topCount`)}
@@ -113,8 +113,8 @@ export function ScheduledPrefillScheduleFields({
         </div>
       )}
 
-      <div className="scheduled-prefill-service-row__field">
-        <span className="scheduled-prefill-service-row__label">
+      <div className="scheduled-prefill-schedule-fields__field">
+        <span className="scheduled-prefill-schedule-fields__label">
           {t(`${baseKey}.fields.operatingSystems`)}
         </span>
         <MultiSelectDropdown
@@ -129,20 +129,20 @@ export function ScheduledPrefillScheduleFields({
         />
       </div>
 
-      <div className="scheduled-prefill-service-row__field">
-        <div className="scheduled-prefill-service-row__toggle-row">
-          <div>
-            <span className="scheduled-prefill-service-row__label">
+      <div className="scheduled-prefill-schedule-fields__field scheduled-prefill-schedule-fields__field--full">
+        <div className="scheduled-prefill-schedule-fields__force">
+          <div className="scheduled-prefill-schedule-fields__force-copy">
+            <span className="scheduled-prefill-schedule-fields__label">
               {t(`${baseKey}.fields.force`)}
             </span>
-            <p className="scheduled-prefill-service-row__help">
+            <p className="scheduled-prefill-schedule-fields__help">
               {t(`${baseKey}.actions.forceDownload`)}
             </p>
           </div>
           <ToggleSwitch
             options={[
-              { value: 'false', label: t('management.schedules.disabled'), activeColor: 'default' },
-              { value: 'true', label: t(`${baseKey}.fields.enabled`), activeColor: 'warning' }
+              { value: 'false', label: t(`${baseKey}.fields.toggleOff`), activeColor: 'default' },
+              { value: 'true', label: t(`${baseKey}.fields.toggleOn`), activeColor: 'warning' }
             ]}
             value={config.force ? 'true' : 'false'}
             onChange={(value) => updateConfig({ force: value === 'true' })}
@@ -152,8 +152,8 @@ export function ScheduledPrefillScheduleFields({
         </div>
       </div>
 
-      <div className="scheduled-prefill-service-row__field">
-        <span className="scheduled-prefill-service-row__label">
+      <div className="scheduled-prefill-schedule-fields__field">
+        <span className="scheduled-prefill-schedule-fields__label">
           {t(`${baseKey}.fields.maxConcurrency`)}
         </span>
         <SegmentedControl
@@ -177,9 +177,9 @@ export function ScheduledPrefillScheduleFields({
       </div>
 
       {config.maxConcurrency.mode === 'Fixed' && (
-        <div className="scheduled-prefill-service-row__field">
+        <div className="scheduled-prefill-schedule-fields__field">
           <label
-            className="scheduled-prefill-service-row__label"
+            className="scheduled-prefill-schedule-fields__label"
             htmlFor={`scheduled-prefill-concurrency-${serviceKey}`}
           >
             {t(`${baseKey}.fields.maxConcurrencyValue`)}

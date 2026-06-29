@@ -3175,6 +3175,8 @@
             },
             "fields": {
               "enabled": "启用",
+              "toggleOff": "关",
+              "toggleOn": "开",
               "preset": "预设",
               "topCount": "前 N 项数量",
               "operatingSystems": "目标平台",

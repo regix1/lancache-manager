@@ -192,11 +192,10 @@ public class PersistentPrefillController : ControllerBase
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        // Match the Prefill tab: set the owned library on the daemon, then ask it directly which
-        // apps are up-to-date in lancache (get-selected-apps-status). The old DB-only path missed
-        // games cached via guest sessions until PrefillCachedDepots was populated and could not
-        // see lancache state the way the prefill daemon does.
-        var cachedAppIds = await ResolveCachedAppIdsAsync(daemon, session.Id, ownedAppIds, cancellationToken);
+        // Game picker cache badges use manager DB only. Do not call the daemon (set-selected-apps /
+        // get-selected-apps-status / check-cache-status): that is slow for large libraries, mutates
+        // selection, and fails with 500 if the socket drops while the session is stopping.
+        var cachedAppIds = await ResolveCachedAppIdsForGamePickerAsync(ownedAppIds, cancellationToken);
 
         return Ok(new PersistentPrefillGamesDto
         {
@@ -485,13 +484,9 @@ public class PersistentPrefillController : ControllerBase
     }
 
     /// <summary>
-    /// Resolves which owned app ids are up-to-date in lancache for a persistent session.
-    /// Prefers live daemon status (set-selected-apps + get-selected-apps-status); falls back to
-    /// manager DB + check-cache-status when the daemon command is unavailable.
+    /// Resolves cached app ids for the game picker using manager DB only (no live daemon commands).
     /// </summary>
-    private async Task<List<string>> ResolveCachedAppIdsAsync(
-        PrefillDaemonServiceBase daemon,
-        string sessionId,
+    private async Task<List<string>> ResolveCachedAppIdsForGamePickerAsync(
         List<string> ownedAppIds,
         CancellationToken cancellationToken)
     {
@@ -502,48 +497,19 @@ public class PersistentPrefillController : ControllerBase
 
         try
         {
-            await daemon.SetSelectedAppsAsync(sessionId, ownedAppIds, cancellationToken);
-            var selectedStatus = await daemon.GetSelectedAppsStatusAsync(sessionId, null, cancellationToken);
-            return selectedStatus.Apps
-                .Where(a => a.IsUpToDate && !string.IsNullOrWhiteSpace(a.AppId))
-                .Select(a => a.AppId)
+            var cachedApps = await _cacheService.GetCachedAppsAsync();
+            var ownedSet = new HashSet<string>(ownedAppIds, StringComparer.Ordinal);
+            return cachedApps
+                .Select(a => a.AppId.ToString())
+                .Where(id => ownedSet.Contains(id))
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(
-                ex,
-                "Live selected-apps cache status failed for persistent session {SessionId}; falling back to DB cache check",
-                sessionId);
-        }
-
-        return await ResolveCachedAppIdsFromDbAsync(daemon, sessionId, ownedAppIds, cancellationToken);
-    }
-
-    private async Task<List<string>> ResolveCachedAppIdsFromDbAsync(
-        PrefillDaemonServiceBase daemon,
-        string sessionId,
-        List<string> ownedAppIds,
-        CancellationToken cancellationToken)
-    {
-        var cachedApps = await _cacheService.GetCachedAppsAsync();
-        var candidateAppIds = cachedApps
-            .Select(a => a.AppId.ToString())
-            .Where(id => ownedAppIds.Contains(id, StringComparer.Ordinal))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-
-        if (candidateAppIds.Count == 0)
-        {
+            _logger.LogWarning(ex, "Failed to resolve cached app ids for persistent game picker");
             return [];
         }
-
-        var status = await daemon.GetCacheStatusAsync(sessionId, candidateAppIds, cancellationToken);
-        return status.Apps
-            .Where(a => a.IsUpToDate)
-            .Select(a => a.AppId)
-            .ToList();
     }
 
     /// <summary>

@@ -1112,8 +1112,8 @@
 
 .scheduled-prefill-platforms {
   display: grid;
-  grid-template-columns: minmax(11rem, 14rem) minmax(0, 1fr);
-  gap: 1rem;
+  grid-template-columns: minmax(9rem, 10.5rem) minmax(0, 1fr);
+  gap: 1.25rem;
   min-width: 0;
 }
 
@@ -1250,7 +1250,78 @@
 .scheduled-prefill-platform-section__subsections {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0.85rem;
+}
+
+.scheduled-prefill-platform-section__schedule-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--theme-border-secondary);
+  border-radius: var(--theme-border-radius);
+  background: var(--theme-bg-secondary);
+}
+
+.scheduled-prefill-platform-subsection {
+  min-width: 0;
+}
+
+.scheduled-prefill-platform-subsection__content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.scheduled-prefill-schedule-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.1rem;
+  min-width: 0;
+}
+
+.scheduled-prefill-schedule-fields__field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.scheduled-prefill-schedule-fields__field--full {
+  grid-column: 1 / -1;
+}
+
+.scheduled-prefill-schedule-fields__label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--theme-text-secondary);
+}
+
+.scheduled-prefill-schedule-fields__help {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--theme-text-muted);
+}
+
+.scheduled-prefill-schedule-fields__force {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.85rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--theme-border-secondary);
+  border-radius: var(--theme-border-radius);
+  background: var(--theme-bg-tertiary);
+}
+
+.scheduled-prefill-schedule-fields__force-copy {
+  min-width: 0;
+  width: 100%;
 }
 
 .scheduled-prefill-platform-section__subsection {
@@ -1297,10 +1368,9 @@
 
 .scheduled-prefill-platform-auth__row {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.85rem;
   padding: 0.85rem;
   border: 1px solid var(--theme-border-secondary);
   border-radius: var(--theme-border-radius);
@@ -1343,6 +1413,57 @@
   flex-shrink: 0;
 }
 
+.scheduled-prefill-persistent-card--embedded .scheduled-prefill-persistent-card__pipeline {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 640px) {
+  .scheduled-prefill-persistent-card--embedded .scheduled-prefill-persistent-card__pipeline {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.scheduled-prefill-persistent-card--embedded .scheduled-prefill-persistent-card__pipeline-value {
+  white-space: normal;
+  word-break: break-word;
+}
+
+.scheduled-prefill-persistent-card--embedded .scheduled-prefill-persistent-card__actions {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.scheduled-prefill-persistent-card--embedded .scheduled-prefill-persistent-card__action-group {
+  width: 100%;
+}
+
+.scheduled-prefill-persistent-card--embedded
+  .scheduled-prefill-persistent-card__action-group--primary {
+  margin-left: 0;
+}
+
+@media (min-width: 768px) {
+  .scheduled-prefill-schedule-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .scheduled-prefill-persistent-card--embedded .scheduled-prefill-persistent-card__actions {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .scheduled-prefill-persistent-card--embedded
+    .scheduled-prefill-persistent-card__action-group--primary {
+    margin-left: auto;
+  }
+}
+
+@media (min-width: 900px) {
+  .scheduled-prefill-platforms {
+    grid-template-columns: minmax(10rem, 12rem) minmax(0, 1fr);
+  }
+}
+
 .scheduled-prefill-persistent-card__actions .button,
 .scheduled-prefill-persistent-card__actions button {
   min-height: 2rem;
@@ -1376,6 +1497,12 @@
 }
 
 @media (min-width: 640px) {
+  .scheduled-prefill-platform-auth__row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
   .scheduled-prefill-auth-status__item {
     flex-direction: row;
     align-items: center;

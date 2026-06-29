@@ -3175,6 +3175,8 @@
             },
             "fields": {
               "enabled": "Enabled",
+              "toggleOff": "Off",
+              "toggleOn": "On",
               "preset": "Preset",
               "topCount": "Top count",
               "operatingSystems": "Target platforms",
