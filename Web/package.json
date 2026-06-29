@@ -16,6 +16,7 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "knip": "knip",
     "knip:fix": "knip --fix --fix-type exports,types --format",
+    "prepare": "node scripts/setup-git-hooks.mjs",
     "validate:stage-keys": "node scripts/validate-stage-keys.mjs"
   },
   "dependencies": {

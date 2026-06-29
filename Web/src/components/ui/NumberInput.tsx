@@ -1,7 +1,7 @@
 import { useCallback, useId } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 
-export interface NumberInputProps {
+interface NumberInputProps {
   id?: string;
   value: number;
   min: number;
