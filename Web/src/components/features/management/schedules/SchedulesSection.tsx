@@ -303,7 +303,7 @@ const ScheduleCard = memo(function ScheduleCard({
             onClick={handleRunNow}
             disabled={isDisabled}
             loading={isRunningThis}
-            className="schedule-run-button"
+            className="schedule-run-button schedule-control-button"
           >
             {t('management.schedules.runNow')}
           </Button>

@@ -250,6 +250,12 @@
   white-space: nowrap;
 }
 
+/* Match the Run Now / Configure buttons to the interval dropdown trigger height (.ed-trigger is
+   text-sm + py-2 + a 1px border = 2.375rem; the sm Button is shorter at py-1.5 with no border). */
+.schedule-control-button {
+  min-height: 2.375rem;
+}
+
 /* On very narrow phones, stack the interval dropdown above the Run Now button so
    neither gets cramped to an unreadable width. */
 @media (max-width: 380px) {

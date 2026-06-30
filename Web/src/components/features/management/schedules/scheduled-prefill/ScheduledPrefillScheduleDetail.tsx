@@ -227,6 +227,7 @@ export function ScheduledPrefillScheduleDetail({
             variant="filled"
             color="blue"
             size="sm"
+            className="schedule-control-button"
             onClick={() => setModalOpened(true)}
             disabled={disabled}
           >
