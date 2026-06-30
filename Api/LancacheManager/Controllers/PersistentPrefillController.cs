@@ -223,34 +223,6 @@ public class PersistentPrefillController : ControllerBase
     }
 
     /// <summary>
-    /// Returns download sizes and cache status for the daemon's current selected apps (same as guest
-    /// hub <c>GetSelectedAppsStatusAsync</c>).
-    /// </summary>
-    [HttpGet("selected-apps-status")]
-    public async Task<ActionResult<SelectedAppsStatus>> GetSelectedAppsStatusAsync(
-        [FromQuery] PrefillPlatform service,
-        [FromQuery] string? operatingSystems,
-        CancellationToken cancellationToken)
-    {
-        var (daemon, session, error) = ResolveRunningPersistentSession(service);
-        if (error is not null)
-        {
-            return error;
-        }
-
-        List<string>? osList = null;
-        if (!string.IsNullOrWhiteSpace(operatingSystems))
-        {
-            osList = operatingSystems
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .ToList();
-        }
-
-        var status = await daemon!.GetSelectedAppsStatusAsync(session!.Id, osList, cancellationToken);
-        return Ok(status);
-    }
-
-    /// <summary>
     /// Starts a prefill/download on the RUNNING persistent session (same as guest
     /// <c>POST …/prefill</c>).
     /// </summary>
@@ -314,24 +286,6 @@ public class PersistentPrefillController : ControllerBase
 
         await daemon!.CancelPrefillAsync(session!.Id, cancellationToken);
         return Ok();
-    }
-
-    /// <summary>
-    /// Clears the daemon's temporary cache directory for the RUNNING persistent session.
-    /// </summary>
-    [HttpPost("clear-cache")]
-    public async Task<ActionResult<ClearCacheResult>> ClearCacheAsync(
-        [FromBody] PersistentServiceRequest request,
-        CancellationToken cancellationToken)
-    {
-        var (daemon, session, error) = ResolveRunningPersistentSession(request.Service);
-        if (error is not null)
-        {
-            return error;
-        }
-
-        var result = await daemon!.ClearCacheAsync(session!.Id, cancellationToken);
-        return Ok(result);
     }
 
     /// <summary>
