@@ -16,11 +16,28 @@ namespace LancacheManager.Infrastructure.Services;
 /// </summary>
 public sealed class ScheduledPrefillService : ConfigurableScheduledService
 {
-    private static readonly TimeSpan _defaultInterval = TimeSpan.FromHours(24);
+    // OUTER schedule poll cadence: the base loop wakes once a minute and runs only the services that
+    // are DUE per their own IntervalHours + persisted last-run. This is NOT the user-facing schedule.
+    private static readonly TimeSpan _pollCadence = TimeSpan.FromMinutes(1);
+    // INNER prefill-status poll: how often a running prefill's IsPrefilling flag is checked.
     private static readonly TimeSpan _pollInterval = TimeSpan.FromSeconds(10);
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IStateService _stateService;
+
+    /// <summary>
+    /// Set to 1 by <see cref="TriggerImmediateRun"/> (manual "Run Now" / "Run All") and consumed once
+    /// by the next <see cref="ExecuteWorkAsync"/> tick, which then runs EVERY enabled service
+    /// regardless of due. Read-and-cleared atomically via <see cref="Interlocked"/>.
+    /// </summary>
+    private int _manualRunBypass;
+
+    /// <summary>
+    /// Platforms that have actually run at least once in this process. Only the single base scheduling
+    /// loop mutates/reads it, so no lock is needed. Backs the startup-only (<c>-1</c>) due-check, which
+    /// fires once per process and ignores the persisted last-run.
+    /// </summary>
+    private readonly HashSet<PrefillPlatform> _ranThisProcess = new();
 
     /// <summary>
     /// Deterministic pseudo-user Guid that owns every daemon session created by the scheduler.
@@ -49,36 +66,64 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
         ILogger<ScheduledPrefillService> logger,
         IServiceScopeFactory scopeFactory,
         IStateService stateService)
-        : base(logger, _defaultInterval)
+        : base(logger, _pollCadence)
     {
         _scopeFactory = scopeFactory;
         _stateService = stateService;
 
-        // Apply any user-saved interval / run-on-startup overrides from state.json before
-        // the scheduling loop starts. Matches GcScheduledService / SteamKit2Service pattern.
-        LoadStateOverrides(stateService, ScheduleServiceKey);
+        // Per-service scheduling: the base loop runs as a fixed 1-minute POLL cadence and each tick
+        // runs only the services that are DUE (per-service IntervalHours + persisted last-run). The
+        // legacy global ServiceIntervals["scheduledPrefill"] no longer drives the schedule, so it is
+        // NOT applied here (no LoadStateOverrides). It is consumed once as the v1->v2 migration seed
+        // in StateService.ResolveScheduledPrefillConfig.
+    }
+
+    /// <summary>
+    /// Manual "Run Now" / "Run All" from the Schedules page: flag the next tick to bypass the
+    /// per-service due-check and run EVERY enabled service, then wake the loop via the base.
+    /// </summary>
+    public override void TriggerImmediateRun()
+    {
+        Interlocked.Exchange(ref _manualRunBypass, 1);
+        base.TriggerImmediateRun();
     }
 
     protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
         var config = _stateService.GetScheduledPrefillConfig();
-        var services = config.GetEnabledServicesInRunOrder();
 
-        if (services.Count == 0)
+        // A manual "Run Now"/"Run All" bypasses the due-check for this single tick and runs every
+        // enabled service. Read-and-clear atomically so exactly one tick honors the request.
+        var bypassDueCheck = Interlocked.Exchange(ref _manualRunBypass, 0) == 1;
+        var now = DateTime.UtcNow;
+
+        // Build the DUE set: each enabled service whose own IntervalHours + persisted last-run says it
+        // should run this tick (or every enabled service when a manual run bypassed the due-check).
+        var dueServices = new List<ScheduledPrefillServiceConfigDto>();
+        foreach (var serviceConfig in config.GetEnabledServicesInRunOrder())
         {
-            _logger.LogInformation("[ScheduledPrefill] No services enabled; nothing to do");
-            using var emptyScope = _scopeFactory.CreateScope();
-            var emptyNotifications = emptyScope.ServiceProvider.GetRequiredService<ISignalRNotificationService>();
-            await emptyNotifications.NotifyAllAsync(SignalREvents.ScheduledPrefillCompleted, new
+            if (bypassDueCheck)
             {
-                operationId = (string?)null,
-                success = false,
-                error = "No services enabled"
-            });
+                dueServices.Add(serviceConfig);
+                continue;
+            }
+
+            var lastRun = _stateService.GetScheduledPrefillServiceLastRun(serviceConfig.ServiceId.ToString());
+            var hasRunThisProcess = _ranThisProcess.Contains(serviceConfig.ServiceId);
+            if (ScheduledPrefillRunGates.IsServiceDue(serviceConfig.IntervalHours, lastRun, now, hasRunThisProcess))
+            {
+                dueServices.Add(serviceConfig);
+            }
+        }
+
+        // #1 HAZARD: an empty poll tick (no due service) must emit NO Started/Completed notification,
+        // otherwise the 1-minute poll would spam the UI every minute. Only notify when >= 1 runs.
+        if (dueServices.Count == 0)
+        {
             return;
         }
 
-        _logger.LogInformation("[ScheduledPrefill] Starting run for {Count} service(s)", services.Count);
+        _logger.LogInformation("[ScheduledPrefill] Starting run for {Count} due service(s)", dueServices.Count);
 
         // Register a single tracker operation for the whole run. The tracker owns the CTS after a
         // successful RegisterOperation, so we link it to stoppingToken and never dispose it here.
@@ -102,13 +147,13 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
             await notifications.NotifyAllAsync(SignalREvents.ScheduledPrefillStarted, new
             {
                 operationId = operationIdString,
-                serviceCount = services.Count
+                serviceCount = dueServices.Count
             });
 
             var servicesAttempted = 0;
             var anyServiceFailed = false;
 
-            foreach (var serviceConfig in services)
+            foreach (var serviceConfig in dueServices)
             {
                 runToken.ThrowIfCancellationRequested();
 
@@ -134,6 +179,19 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
                     // One service failing must not abort the rest of the run.
                     anyServiceFailed = true;
                     _logger.LogError(ex, "[ScheduledPrefill] Service {Service} failed; continuing", serviceConfig.ServiceId);
+                }
+                finally
+                {
+                    // Stamp last-run + mark process-ran for EVERY due service we attempted this tick
+                    // (including skips/failures), so the 1-minute poll does not immediately re-run it
+                    // (recurring) nor re-fire a startup-only service. A still-needs-login service then
+                    // retries on its next interval rather than spamming a Started/Completed cycle every
+                    // minute. Cancellation is exempt: do not stamp when the run is being torn down.
+                    if (!runToken.IsCancellationRequested)
+                    {
+                        _ranThisProcess.Add(serviceConfig.ServiceId);
+                        _stateService.SetScheduledPrefillServiceLastRun(serviceConfig.ServiceId.ToString(), DateTime.UtcNow);
+                    }
                 }
             }
 

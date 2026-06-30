@@ -52,6 +52,16 @@ public sealed class ScheduledPrefillServiceConfigDto
 {
     public required PrefillPlatform ServiceId { get; init; }
     public required bool Enabled { get; init; }
+
+    /// <summary>
+    /// Per-service schedule cadence in hours, driving the independent due-check in
+    /// <c>ScheduledPrefillService</c>. Follows the shared <c>ScheduleIntervalPicker</c> convention:
+    /// <c>&gt; 0</c> = run every N hours, <c>0</c> = paused, <c>-1</c> = run once on startup only.
+    /// NOT <c>required</c> so a pre-v2 state.json (which had no per-service interval) still
+    /// deserializes; the v1→v2 migration in <see cref="ScheduledPrefillConfigFactory.Migrate"/>
+    /// seeds it from the legacy global <c>ServiceIntervals["scheduledPrefill"]</c> value.
+    /// </summary>
+    public double IntervalHours { get; init; } = ScheduledPrefillConfigFactory.DefaultIntervalHours;
     public required ScheduledPrefillPreset Preset { get; init; }
     public int? TopCount { get; init; }
 
@@ -104,10 +114,17 @@ public sealed class ScheduledPrefillConfigDto
 /// </summary>
 public static class ScheduledPrefillConfigFactory
 {
-    public const int CurrentVersion = 1;
+    // Bumped 1 -> 2 when per-service IntervalHours was added (see Migrate).
+    public const int CurrentVersion = 2;
     public const int DefaultTopCount = 50;
     public const int MinFixedConcurrency = 1;
     public const int MaxFixedConcurrency = 256;
+
+    /// <summary>Default per-service schedule cadence (hours) when none is configured / migrated.</summary>
+    public const double DefaultIntervalHours = 24d;
+
+    /// <summary>Upper bound (hours) for a recurring per-service interval (365 days).</summary>
+    public const double MaxIntervalHours = 8760d;
 
     public static readonly TimeSpan DefaultMaxServiceRuntime = TimeSpan.FromHours(12);
     public static readonly TimeSpan MaxAllowedServiceRuntime = TimeSpan.FromHours(24);
@@ -133,12 +150,77 @@ public static class ScheduledPrefillConfigFactory
         };
     }
 
+    /// <summary>
+    /// Upgrades an older persisted config to <see cref="CurrentVersion"/> before validation. v1 had no
+    /// per-service <c>IntervalHours</c> (a single global cadence lived in
+    /// <c>StateService.ServiceIntervals["scheduledPrefill"]</c>); this seeds every service's interval
+    /// from that legacy global value (sanitized; fallback <see cref="DefaultIntervalHours"/>) so a
+    /// pre-feature schedule keeps firing on its old cadence, now independently per service. A config
+    /// already at the current version is returned unchanged.
+    /// </summary>
+    public static ScheduledPrefillConfigDto Migrate(ScheduledPrefillConfigDto config, double? legacyGlobalIntervalHours)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        if (config.Version >= CurrentVersion)
+        {
+            return config;
+        }
+
+        var seededInterval = legacyGlobalIntervalHours is double legacy && IsIntervalHoursValid(legacy)
+            ? legacy
+            : DefaultIntervalHours;
+
+        return new ScheduledPrefillConfigDto
+        {
+            Version = CurrentVersion,
+            MaxServiceRuntime = config.MaxServiceRuntime,
+            StallTimeout = config.StallTimeout,
+            Steam = WithInterval(config.Steam, seededInterval),
+            Epic = WithInterval(config.Epic, seededInterval),
+            Xbox = WithInterval(config.Xbox, seededInterval),
+            BattleNet = WithInterval(config.BattleNet, seededInterval),
+            Riot = WithInterval(config.Riot, seededInterval)
+        };
+    }
+
+    /// <summary>
+    /// Returns a copy of <paramref name="service"/> with <see cref="ScheduledPrefillServiceConfigDto.IntervalHours"/>
+    /// replaced. Used by <see cref="Migrate"/> to seed the new per-service cadence while preserving
+    /// every other setting (enabled / preset / selected apps / OS / concurrency).
+    /// </summary>
+    private static ScheduledPrefillServiceConfigDto WithInterval(ScheduledPrefillServiceConfigDto service, double intervalHours)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+
+        return new ScheduledPrefillServiceConfigDto
+        {
+            ServiceId = service.ServiceId,
+            Enabled = service.Enabled,
+            IntervalHours = intervalHours,
+            Preset = service.Preset,
+            TopCount = service.TopCount,
+            SelectedAppIds = service.SelectedAppIds,
+            OperatingSystems = service.OperatingSystems,
+            Force = service.Force,
+            MaxConcurrency = service.MaxConcurrency
+        };
+    }
+
+    /// <summary>
+    /// True when an interval value is acceptable: <c>-1</c> (run on startup only), <c>0</c> (paused),
+    /// or a positive value up to <see cref="MaxIntervalHours"/>.
+    /// </summary>
+    public static bool IsIntervalHoursValid(double intervalHours)
+        => intervalHours == -1d || intervalHours == 0d || (intervalHours > 0d && intervalHours <= MaxIntervalHours);
+
     private static ScheduledPrefillServiceConfigDto CreateDefaultService(PrefillPlatform serviceId, bool enabled)
     {
         return new ScheduledPrefillServiceConfigDto
         {
             ServiceId = serviceId,
             Enabled = enabled,
+            IntervalHours = DefaultIntervalHours,
             Preset = ScheduledPrefillPreset.All,
             TopCount = null,
             SelectedAppIds = new List<string>(),
@@ -207,6 +289,12 @@ public static class ScheduledPrefillConfigFactory
         {
             throw new ScheduledPrefillConfigValidationException(
                 $"Service config ServiceId '{service.ServiceId}' does not match its container slot '{expectedServiceId}'.");
+        }
+
+        if (!IsIntervalHoursValid(service.IntervalHours))
+        {
+            throw new ScheduledPrefillConfigValidationException(
+                $"{expectedServiceId} IntervalHours must be -1 (run on startup), 0 (paused), or between 0 (exclusive) and {MaxIntervalHours} hours.");
         }
 
         if (service.SelectedAppIds is null)

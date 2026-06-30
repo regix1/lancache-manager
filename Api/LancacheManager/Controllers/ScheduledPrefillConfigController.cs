@@ -2,6 +2,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services.SteamKit2;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
 using LancacheManager.Services.Xbox;
 using Microsoft.AspNetCore.Authorization;
@@ -62,6 +63,33 @@ public class ScheduledPrefillConfigController : ControllerBase
     public ActionResult<ScheduledPrefillConfigDto> GetConfig()
     {
         return Ok(_stateService.GetScheduledPrefillConfig());
+    }
+
+    /// <summary>
+    /// Returns the independent per-service schedule view: each service's interval, enabled flag, and
+    /// the durable last/next run times. <c>nextRunUtc</c> = <c>lastRun + interval</c>, and is null when
+    /// the service has never run or is paused / startup-only.
+    /// </summary>
+    [HttpGet("schedule")]
+    public ActionResult<ScheduledPrefillServiceScheduleDto[]> GetSchedule()
+    {
+        var config = _stateService.GetScheduledPrefillConfig();
+
+        var schedule = new List<ScheduledPrefillServiceScheduleDto>();
+        foreach (var service in config.GetServicesInRunOrder())
+        {
+            var lastRun = _stateService.GetScheduledPrefillServiceLastRun(service.ServiceId.ToString());
+            schedule.Add(new ScheduledPrefillServiceScheduleDto
+            {
+                ServiceId = service.ServiceId,
+                IntervalHours = service.IntervalHours,
+                Enabled = service.Enabled,
+                LastRunUtc = lastRun,
+                NextRunUtc = ScheduledPrefillRunGates.ComputeNextRunUtc(service.IntervalHours, lastRun)
+            });
+        }
+
+        return Ok(schedule.ToArray());
     }
 
     /// <summary>
@@ -264,6 +292,27 @@ public class ScheduledPrefillConfigController : ControllerBase
         _scheduledPrefillXboxAuthService.CancelLogin();
         return Ok(ApiResponse.Message("Xbox login cancelled"));
     }
+}
+
+/// <summary>
+/// Per-service schedule row returned by <c>GET /api/system/schedules/scheduledPrefill/schedule</c>.
+/// </summary>
+public sealed class ScheduledPrefillServiceScheduleDto
+{
+    /// <summary>Platform this row describes (serializes as the PrefillPlatform name, e.g. "Steam").</summary>
+    public required PrefillPlatform ServiceId { get; init; }
+
+    /// <summary>Per-service cadence in hours: <c>&gt; 0</c> = every N hours, <c>0</c> = paused, <c>-1</c> = startup-only.</summary>
+    public required double IntervalHours { get; init; }
+
+    /// <summary>Master on/off for this service.</summary>
+    public required bool Enabled { get; init; }
+
+    /// <summary>Last time this service actually ran (UTC), or null when it has never run.</summary>
+    public DateTime? LastRunUtc { get; init; }
+
+    /// <summary>Next scheduled run (UTC) = lastRun + interval; null when never-run, paused, or startup-only.</summary>
+    public DateTime? NextRunUtc { get; init; }
 }
 
 /// <summary>

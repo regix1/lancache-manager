@@ -124,6 +124,11 @@ public class AppState
     // Always non-null in memory: StateService default-constructs and validates it via
     // ScheduledPrefillConfigFactory at the read/write boundaries.
     public ScheduledPrefillConfigDto ScheduledPrefill { get; set; } = ScheduledPrefillConfigFactory.CreateDefault();
+
+    // Per-service scheduled-prefill last-run timestamps (UTC), keyed by PrefillPlatform name
+    // (e.g. "Steam"). Drives the independent per-service due-check + next-run computation and is
+    // durable across restart (state.json) so a recurring service is never double-run or skipped.
+    public Dictionary<string, DateTime> ScheduledPrefillServiceLastRunUtc { get; set; } = new();
 }
 
 /// <summary>

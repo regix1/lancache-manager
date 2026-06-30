@@ -166,6 +166,73 @@ public class ScheduledPrefillRunGatesTests
         }
     }
 
+    // ---- Per-service due-check (IsServiceDue) ----
+
+    [Fact]
+    public void IsServiceDue_Paused_IsNeverDue()
+    {
+        // 0 = paused: never due, regardless of last-run or elapsed time.
+        Assert.False(ScheduledPrefillRunGates.IsServiceDue(0d, lastRunUtc: null, nowUtc: DateTime.UtcNow, hasRunThisProcess: false));
+        Assert.False(ScheduledPrefillRunGates.IsServiceDue(0d, lastRunUtc: DateTime.UtcNow.AddDays(-30), nowUtc: DateTime.UtcNow, hasRunThisProcess: false));
+    }
+
+    [Fact]
+    public void IsServiceDue_StartupOnly_DueOncePerProcess()
+    {
+        // -1 = run on startup only: due before it has run this process, never after.
+        Assert.True(ScheduledPrefillRunGates.IsServiceDue(-1d, lastRunUtc: null, nowUtc: DateTime.UtcNow, hasRunThisProcess: false));
+        Assert.False(ScheduledPrefillRunGates.IsServiceDue(-1d, lastRunUtc: null, nowUtc: DateTime.UtcNow, hasRunThisProcess: true));
+        // A persisted last-run from a PRIOR process must NOT suppress the startup run this process.
+        Assert.True(ScheduledPrefillRunGates.IsServiceDue(-1d, lastRunUtc: DateTime.UtcNow.AddHours(-1), nowUtc: DateTime.UtcNow, hasRunThisProcess: false));
+    }
+
+    [Fact]
+    public void IsServiceDue_NeverRunRecurring_IsDue()
+    {
+        Assert.True(ScheduledPrefillRunGates.IsServiceDue(24d, lastRunUtc: null, nowUtc: DateTime.UtcNow, hasRunThisProcess: false));
+    }
+
+    [Fact]
+    public void IsServiceDue_Overdue_IsDue()
+    {
+        var now = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc);
+        var lastRun = now.AddHours(-25); // interval 24h elapsed
+        Assert.True(ScheduledPrefillRunGates.IsServiceDue(24d, lastRun, now, hasRunThisProcess: true));
+    }
+
+    [Fact]
+    public void IsServiceDue_NotYetElapsed_IsNotDue()
+    {
+        var now = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc);
+        var lastRun = now.AddHours(-1); // only 1h of a 24h interval elapsed
+        Assert.False(ScheduledPrefillRunGates.IsServiceDue(24d, lastRun, now, hasRunThisProcess: true));
+    }
+
+    [Fact]
+    public void IsServiceDue_ExactlyAtBoundary_IsDue()
+    {
+        var now = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc);
+        var lastRun = now.AddHours(-24); // now == lastRun + interval
+        Assert.True(ScheduledPrefillRunGates.IsServiceDue(24d, lastRun, now, hasRunThisProcess: true));
+    }
+
+    // ---- Next-run computation (ComputeNextRunUtc) ----
+
+    [Fact]
+    public void ComputeNextRunUtc_RecurringWithLastRun_IsLastRunPlusInterval()
+    {
+        var lastRun = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        Assert.Equal(lastRun.AddHours(24), ScheduledPrefillRunGates.ComputeNextRunUtc(24d, lastRun));
+    }
+
+    [Fact]
+    public void ComputeNextRunUtc_NeverRunOrPausedOrStartupOnly_IsNull()
+    {
+        Assert.Null(ScheduledPrefillRunGates.ComputeNextRunUtc(24d, lastRunUtc: null)); // never run
+        Assert.Null(ScheduledPrefillRunGates.ComputeNextRunUtc(0d, lastRunUtc: DateTime.UtcNow)); // paused
+        Assert.Null(ScheduledPrefillRunGates.ComputeNextRunUtc(-1d, lastRunUtc: DateTime.UtcNow)); // startup-only
+    }
+
     private static DaemonSession MakeSession(
         Guid userId,
         bool isPersistent,

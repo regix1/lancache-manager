@@ -150,7 +150,7 @@ public abstract class ConfigurableScheduledService : BackgroundService
     /// Unlike UpdateInterval, this does NOT set _intervalJustChanged, so the loop will
     /// execute work rather than just re-sleeping.
     /// </summary>
-    public void TriggerImmediateRun()
+    public virtual void TriggerImmediateRun()
     {
         lock (_intervalLock)
         {

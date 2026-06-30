@@ -185,6 +185,11 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             _stateService.ClearServiceInterval(key);
             _stateService.ClearServiceRunOnStartup(key);
         }
+
+        // Scheduled prefill keeps its cadence per-service in the config DTO + durable last-run map
+        // (not in ServiceIntervals), so clear the per-service last-run here too — otherwise a reset
+        // would leave stale next-run times on the schedule view.
+        _stateService.ClearScheduledPrefillServiceLastRun();
     }
 
     public Task TriggerRunAsync(string serviceKey)

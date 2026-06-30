@@ -69,6 +69,12 @@ public interface IStateService
     ScheduledPrefillConfigDto GetScheduledPrefillConfig();
     void SetScheduledPrefillConfig(ScheduledPrefillConfigDto config);
 
+    // Scheduled Prefill Per-Service Last-Run Methods (durable, keyed by PrefillPlatform name).
+    // Drive the independent per-service due-check + next-run computation; persist to state.json.
+    DateTime? GetScheduledPrefillServiceLastRun(string platform);
+    void SetScheduledPrefillServiceLastRun(string platform, DateTime lastRunUtc);
+    void ClearScheduledPrefillServiceLastRun();
+
     // Crawl Interval Methods
     double GetCrawlIntervalHours();
     void SetCrawlIntervalHours(double hours);

@@ -69,6 +69,53 @@ public static class ScheduledPrefillRunGates
     }
 
     /// <summary>
+    /// Pure per-service due decision for the fixed-cadence poll loop. Follows the shared interval
+    /// convention: <c>-1</c> = run on startup only (due once per process, before it has run this
+    /// process); <c>0</c> (or any non-<c>-1</c> value <c>&lt;= 0</c>) = paused, never due; a positive
+    /// value = recurring, due when never run or once <paramref name="nowUtc"/> has reached
+    /// <c>lastRun + intervalHours</c>. The caller pre-filters on the master <c>Enabled</c> flag.
+    /// </summary>
+    public static bool IsServiceDue(double intervalHours, DateTime? lastRunUtc, DateTime nowUtc, bool hasRunThisProcess)
+    {
+        if (intervalHours == -1d)
+        {
+            return !hasRunThisProcess;
+        }
+
+        if (intervalHours <= 0d)
+        {
+            return false;
+        }
+
+        if (lastRunUtc is null)
+        {
+            return true;
+        }
+
+        return nowUtc >= lastRunUtc.Value.AddHours(intervalHours);
+    }
+
+    /// <summary>
+    /// Computes the next scheduled run time for the per-service schedule view: <c>lastRun + interval</c>
+    /// for a recurring service that has run at least once; <c>null</c> when the service is paused
+    /// (<c>&lt;= 0</c>, which also covers startup-only <c>-1</c>) or has never run.
+    /// </summary>
+    public static DateTime? ComputeNextRunUtc(double intervalHours, DateTime? lastRunUtc)
+    {
+        if (intervalHours <= 0d)
+        {
+            return null;
+        }
+
+        if (lastRunUtc is null)
+        {
+            return null;
+        }
+
+        return lastRunUtc.Value.AddHours(intervalHours);
+    }
+
+    /// <summary>
     /// Computes the overall outcome of a completed scheduled-prefill pass. The run is only reported
     /// successful when at least one service actually engaged its persistent container AND no service
     /// threw, skipped, or failed to engage. This stops a partial failure (one service erroring or
