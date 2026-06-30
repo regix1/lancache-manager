@@ -1448,8 +1448,7 @@
   }
 
   .scheduled-prefill-platform-section__header {
-    flex-direction: column;
-    align-items: stretch;
+    flex-wrap: wrap;
   }
 }
 
