@@ -340,6 +340,21 @@
   color: var(--theme-text-secondary);
 }
 
+.scheduled-prefill-card-summary__schedule {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--theme-text-secondary);
+}
+
+.scheduled-prefill-card-summary__schedule-item {
+  white-space: nowrap;
+}
+
+.scheduled-prefill-card-summary__schedule-sep {
+  color: var(--theme-text-muted);
+}
+
 .scheduled-prefill-card-summary__warning,
 .scheduled-prefill-card-summary__error,
 .scheduled-prefill-card-summary__progress {

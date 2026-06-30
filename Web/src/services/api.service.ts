@@ -50,7 +50,8 @@ import type { DashboardBatchResponse } from '../contexts/DashboardDataContext/ty
 import type { ServiceScheduleInfo } from '../components/features/management/schedules/types';
 import type {
   ScheduledPrefillAuthStatusItem,
-  ScheduledPrefillConfigDto
+  ScheduledPrefillConfigDto,
+  ScheduledPrefillServiceScheduleDto
 } from '../components/features/management/schedules/scheduled-prefill/types';
 import type {
   PersistentPrefillContainerDto,
@@ -3004,6 +3005,25 @@ class ApiService {
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
       console.error('updateScheduledPrefillConfig error:', error);
+      throw error;
+    }
+  }
+
+  static async getScheduledPrefillSchedule(
+    signal?: AbortSignal
+  ): Promise<ScheduledPrefillServiceScheduleDto[]> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/schedules/scheduledPrefill/schedule`,
+        this.getFetchOptions({ signal })
+      );
+      return await this.handleResponse<ScheduledPrefillServiceScheduleDto[]>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else {
+        console.error('getScheduledPrefillSchedule error:', error);
+      }
       throw error;
     }
   }

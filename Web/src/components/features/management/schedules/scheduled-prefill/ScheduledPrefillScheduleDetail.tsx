@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -18,6 +18,8 @@ import type {
   ScheduledPrefillProgressEvent,
   ScheduledPrefillRunPhase,
   ScheduledPrefillRunProgressItem,
+  ScheduledPrefillServiceKey,
+  ScheduledPrefillServiceScheduleDto,
   ScheduledPrefillStartedEvent
 } from './types';
 import { getErrorMessage, isAbortError } from '@utils/error';
@@ -33,6 +35,7 @@ export function ScheduledPrefillScheduleDetail({
   const { on, off } = useSignalR();
   const [config, setConfig] = useState<ScheduledPrefillConfigDto | null>(null);
   const [authStatuses, setAuthStatuses] = useState<ScheduledPrefillAuthStatusItem[]>([]);
+  const [schedule, setSchedule] = useState<ScheduledPrefillServiceScheduleDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalOpened, setModalOpened] = useState(false);
@@ -45,12 +48,14 @@ export function ScheduledPrefillScheduleDetail({
   const loadSummary = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     try {
-      const [nextConfig, nextStatuses] = await Promise.all([
+      const [nextConfig, nextStatuses, nextSchedule] = await Promise.all([
         ApiService.getScheduledPrefillConfig(signal),
-        ApiService.getScheduledPrefillAuthStatus(signal)
+        ApiService.getScheduledPrefillAuthStatus(signal),
+        ApiService.getScheduledPrefillSchedule(signal)
       ]);
       setConfig(nextConfig);
       setAuthStatuses(nextStatuses);
+      setSchedule(nextSchedule);
       setError(null);
     } catch (loadError: unknown) {
       if (!isAbortError(loadError)) {
@@ -58,6 +63,16 @@ export function ScheduledPrefillScheduleDetail({
       }
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  // Best-effort refresh of just the per-service schedule (no spinner) after a run
+  // completes, so the next-run summary reflects the freshly stamped last-run times.
+  const refreshSchedule = useCallback(async () => {
+    try {
+      setSchedule(await ApiService.getScheduledPrefillSchedule());
+    } catch {
+      // Keep the prior schedule on failure; SchedulesUpdated / a later load will correct it.
     }
   }, []);
 
@@ -114,6 +129,8 @@ export function ScheduledPrefillScheduleDetail({
     };
 
     const handleCompleted = (payload: ScheduledPrefillCompletedEvent) => {
+      void refreshSchedule();
+
       if (payload.success) {
         setRunPhase('completed');
         setRunError(null);
@@ -133,7 +150,7 @@ export function ScheduledPrefillScheduleDetail({
       off('ScheduledPrefillProgress', handleProgress);
       off('ScheduledPrefillCompleted', handleCompleted);
     };
-  }, [eventsKey, off, on, t]);
+  }, [eventsKey, off, on, refreshSchedule, t]);
 
   const enabledCount = useMemo(
     () =>
@@ -166,6 +183,63 @@ export function ScheduledPrefillScheduleDetail({
     });
   }, [config, authStatuses]);
 
+  const formatTiming = useCallback(
+    (item: ScheduledPrefillServiceScheduleDto): string => {
+      if (item.intervalHours === 0) {
+        return t(`${baseKey}.nextRunSummary.paused`);
+      }
+      if (item.intervalHours === -1) {
+        return t(`${baseKey}.nextRunSummary.startupOnly`);
+      }
+      if (!item.nextRunUtc) {
+        return t(`${baseKey}.nextRunSummary.soon`);
+      }
+
+      const diffMs = new Date(item.nextRunUtc).getTime() - Date.now();
+      if (diffMs <= 0) {
+        return t(`${baseKey}.nextRunSummary.soon`);
+      }
+
+      const diffMinutes = Math.floor(diffMs / 60000);
+      if (diffMinutes < 60) {
+        return t(`${baseKey}.nextRunSummary.inMinutes`, { count: Math.max(1, diffMinutes) });
+      }
+      const diffHours = Math.floor(diffMinutes / 60);
+      if (diffHours < 24) {
+        return t(`${baseKey}.nextRunSummary.inHours`, { count: diffHours });
+      }
+      const diffDays = Math.floor(diffHours / 24);
+      return t(`${baseKey}.nextRunSummary.inDays`, { count: diffDays });
+    },
+    [baseKey, t]
+  );
+
+  const scheduleLines = useMemo(() => {
+    const byServiceKey = new Map<ScheduledPrefillServiceKey, ScheduledPrefillServiceScheduleDto>();
+    for (const item of schedule) {
+      const serviceKey = SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY[item.serviceId];
+      if (serviceKey) {
+        byServiceKey.set(serviceKey, item);
+      }
+    }
+
+    const lines: { key: ScheduledPrefillServiceKey; text: string }[] = [];
+    for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
+      const item = byServiceKey.get(serviceKey);
+      if (!item || !item.enabled) {
+        continue;
+      }
+      lines.push({
+        key: serviceKey,
+        text: t(`${baseKey}.nextRunSummary.item`, {
+          service: t(`${baseKey}.services.${serviceKey}`),
+          timing: formatTiming(item)
+        })
+      });
+    }
+    return lines;
+  }, [schedule, baseKey, formatTiming, t]);
+
   const handleModalSaved = async () => {
     await loadSummary();
   };
@@ -188,6 +262,25 @@ export function ScheduledPrefillScheduleDetail({
               <p className="schedule-extra-help scheduled-prefill-card-summary__text">
                 {t(`${baseKey}.summary`, { enabled: enabledCount, total: totalCount })}
               </p>
+              {scheduleLines.length > 0 && (
+                <p className="scheduled-prefill-card-summary__schedule">
+                  {scheduleLines.map((line, index) => (
+                    <Fragment key={line.key}>
+                      {index > 0 && (
+                        <span
+                          className="scheduled-prefill-card-summary__schedule-sep"
+                          aria-hidden="true"
+                        >
+                          {' · '}
+                        </span>
+                      )}
+                      <span className="scheduled-prefill-card-summary__schedule-item">
+                        {line.text}
+                      </span>
+                    </Fragment>
+                  ))}
+                </p>
+              )}
               {config && enabledCount === 0 && (
                 <p className="scheduled-prefill-card-summary__warning">
                   {t(`${baseKey}.zeroEnabledWarning`)}

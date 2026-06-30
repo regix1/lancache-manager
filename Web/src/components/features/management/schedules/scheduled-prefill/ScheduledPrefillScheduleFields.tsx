@@ -4,6 +4,7 @@ import { MultiSelectDropdown, type MultiSelectOption } from '@components/ui/Mult
 import { NumberInput } from '@components/ui/NumberInput';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
+import ScheduleIntervalPicker from '../ScheduleIntervalPicker';
 import {
   SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS,
   SCHEDULED_PREFILL_OS_OPTIONS,
@@ -71,6 +72,7 @@ export function ScheduledPrefillScheduleFields({
     onChange({ ...config, ...patch });
   };
 
+  const intervalLabelId = `scheduled-prefill-interval-label-${serviceKey}`;
   const presetLabelId = `scheduled-prefill-preset-label-${serviceKey}`;
   const osLabelId = `scheduled-prefill-os-label-${serviceKey}`;
   const forceLabelId = `scheduled-prefill-force-label-${serviceKey}`;
@@ -78,6 +80,24 @@ export function ScheduledPrefillScheduleFields({
 
   return (
     <div className="scheduled-prefill-schedule-fields">
+      <div
+        className="scheduled-prefill-schedule-fields__field scheduled-prefill-schedule-fields__field--full"
+        role="group"
+        aria-labelledby={intervalLabelId}
+      >
+        <label id={intervalLabelId} className="scheduled-prefill-schedule-fields__label">
+          {t(`${baseKey}.fields.interval`)}
+        </label>
+        <ScheduleIntervalPicker
+          intervalHours={config.intervalHours}
+          isDisabled={disabled}
+          onChange={(hours) => updateConfig({ intervalHours: hours })}
+        />
+        <p className="scheduled-prefill-schedule-fields__help">
+          {t(`${baseKey}.fields.intervalHelp`)}
+        </p>
+      </div>
+
       <div
         className="scheduled-prefill-schedule-fields__field"
         role="group"

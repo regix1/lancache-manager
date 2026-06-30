@@ -27,12 +27,26 @@ export type ScheduledPrefillMaxConcurrency =
 export interface ScheduledPrefillServiceConfigDto {
   serviceId: ScheduledPrefillServiceId;
   enabled: boolean;
+  /**
+   * Per-service run interval in hours. `>0` = every N hours, `0` = paused,
+   * `-1` = run on startup only. Saved via the whole-config round-trip.
+   */
+  intervalHours: number;
   preset: ScheduledPrefillPreset;
   selectedAppIds: string[];
   topCount?: number | null;
   operatingSystems: ScheduledPrefillOperatingSystem[];
   force: boolean;
   maxConcurrency: ScheduledPrefillMaxConcurrency;
+}
+
+/** One row of the per-service schedule summary from `GET .../scheduledPrefill/schedule`. */
+export interface ScheduledPrefillServiceScheduleDto {
+  serviceId: ScheduledPrefillServiceId;
+  intervalHours: number;
+  enabled: boolean;
+  lastRunUtc: string | null;
+  nextRunUtc: string | null;
 }
 
 export interface ScheduledPrefillConfigDto {

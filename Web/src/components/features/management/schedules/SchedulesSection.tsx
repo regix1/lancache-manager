@@ -287,15 +287,18 @@ const ScheduleCard = memo(function ScheduleCard({
           </div>
         </div>
 
-        {/* Controls */}
+        {/* Controls. Scheduled prefill hides the card-level single interval picker -
+          each platform owns its own interval in the per-service detail below. */}
         <div className="schedule-controls-row">
-          <div className="schedule-dropdown-wrapper">
-            <ScheduleIntervalPicker
-              intervalHours={service.intervalHours}
-              isDisabled={isDisabled}
-              onChange={handleIntervalChange}
-            />
-          </div>
+          {!isScheduledPrefill && (
+            <div className="schedule-dropdown-wrapper">
+              <ScheduleIntervalPicker
+                intervalHours={service.intervalHours}
+                isDisabled={isDisabled}
+                onChange={handleIntervalChange}
+              />
+            </div>
+          )}
           <Button
             variant="filled"
             color="green"
@@ -349,8 +352,9 @@ const ScheduleCard = memo(function ScheduleCard({
         )}
 
         {/* Run-on-startup toggle - hidden when interval is "Startup only" (-1) since the
-          entire point of that schedule IS to run at startup, making the toggle redundant. */}
-        {service.intervalHours !== -1 && (
+          entire point of that schedule IS to run at startup, making the toggle redundant.
+          Also hidden for scheduled prefill, where startup-vs-interval is set per platform. */}
+        {service.intervalHours !== -1 && !isScheduledPrefill && (
           <div className="schedule-startup-row">
             <Checkbox
               id={`run-on-startup-${service.key}`}

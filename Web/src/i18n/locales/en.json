@@ -3022,6 +3022,15 @@
           "loss": "Disabled services or services needing login will be skipped until their configuration is completed.",
           "config": {
             "summary": "{{enabled}} of {{total}} services enabled",
+            "nextRunSummary": {
+              "item": "{{service}} {{timing}}",
+              "inMinutes": "in {{count}}m",
+              "inHours": "in {{count}}h",
+              "inDays": "in {{count}}d",
+              "soon": "soon",
+              "paused": "paused",
+              "startupOnly": "on startup"
+            },
             "configure": "Configure",
             "modalTitle": "Configure Scheduled Prefill",
             "modalDescription": "Configure each platform in one place: scheduled login, persistent container, and schedule settings.",
@@ -3183,7 +3192,9 @@
               "operatingSystems": "Target platforms",
               "force": "Force re-download",
               "maxConcurrency": "Connections",
-              "maxConcurrencyValue": "Fixed connection count"
+              "maxConcurrencyValue": "Fixed connection count",
+              "interval": "Run every",
+              "intervalHelp": "How often this platform runs. Each platform schedules independently."
             },
             "presets": {
               "all": "All",

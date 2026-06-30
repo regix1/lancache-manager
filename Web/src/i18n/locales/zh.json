@@ -3022,6 +3022,15 @@
           "loss": "已禁用的服务或需要登录的服务会被跳过，直到配置完成。",
           "config": {
             "summary": "已启用 {{enabled}} / {{total}} 个服务",
+            "nextRunSummary": {
+              "item": "{{service}} {{timing}}",
+              "inMinutes": "{{count}} 分钟后",
+              "inHours": "{{count}} 小时后",
+              "inDays": "{{count}} 天后",
+              "soon": "即将运行",
+              "paused": "已暂停",
+              "startupOnly": "启动时运行"
+            },
             "configure": "配置",
             "modalTitle": "配置计划预填充",
             "modalDescription": "在同一视图中配置每个平台：计划登录、持久容器和计划设置。",
@@ -3183,7 +3192,9 @@
               "operatingSystems": "目标平台",
               "force": "强制重新下载",
               "maxConcurrency": "连接数",
-              "maxConcurrencyValue": "固定连接数"
+              "maxConcurrencyValue": "固定连接数",
+              "interval": "运行频率",
+              "intervalHelp": "该平台的运行频率。每个平台独立排程。"
             },
             "presets": {
               "all": "全部",
