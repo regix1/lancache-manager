@@ -19,7 +19,7 @@
 
 .schedule-interval-picker-input {
   width: 5rem;
-  padding: 0.375rem 0.5rem;
+  padding: 5px 0.5rem;
   background-color: var(--theme-bg-tertiary);
   color: var(--theme-text-primary);
   border: 1px solid var(--theme-border-primary);

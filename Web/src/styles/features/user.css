@@ -403,6 +403,8 @@
 
 .filter-chip {
   @apply inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium cursor-pointer;
+  padding-top: 6px;
+  padding-bottom: 6px;
   border-radius: var(--theme-border-radius-xl);
   background: transparent;
   border: 1px solid var(--theme-border-secondary);

@@ -130,12 +130,16 @@ interface EnhancedDropdownProps {
   /** Trigger button style variant. 'card' = dark card bg (default, for headers/nav). 'button' = matches Button component (lighter, for toolbars). */
   variant?: 'card' | 'button';
   /**
-   * Trigger height. Canonical control-height matrix (base 16px font):
-   *   Button md (`px-4 py-2`) ≈ 40px · EnhancedDropdown md (`px-3 py-2 border`) ≈ 38px ·
-   *   Button sm (`px-3 py-1.5 text-sm`) ≈ 32px · `themed-input` (`@apply border`) ≈ button +2px at same padding.
-   * 'md' (default) renders the historical ~38px trigger byte-for-byte; 'sm' ≈ 32px (`py-1.5`);
-   * 'lg' ≈ 40px (`py-2.5`) so a dropdown can be height-matched to an md `Button` in a shared
-   * control cluster directly in TSX, instead of a bespoke per-surface `min-height` CSS rule.
+   * Trigger height. Canonical control-height matrix, measured via getBoundingClientRect
+   * (not CSS math - a prior version of this comment claimed 'lg' ≈ 40px when it actually
+   * measured 42px, which is exactly the kind of drift this prop exists to prevent):
+   *   Button md (`px-4 py-2`) = 40px · Button sm (`px-3 py-1.5 text-sm`) = 32px ·
+   *   EnhancedDropdown 'md' (`px-3 py-[9px] border`) = 40px, height-matched to Button md ·
+   *   EnhancedDropdown 'sm' (`px-3 py-1.5 border`) = 34px · EnhancedDropdown 'lg' (`px-3 py-2.5 border`) = 42px.
+   * 'md' (default) is now height-matched to Button md/SegmentedControl md (all = 40px) - this
+   * used to be the historical ~38px trigger; that value still exists at 'sm'-adjacent but is no
+   * longer the default. 'lg' is kept as-is (42px) for any call site that was relying on the
+   * taller trigger; re-measure before assuming it matches anything else.
    */
   size?: 'sm' | 'md' | 'lg';
 }
@@ -373,8 +377,9 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   const TriggerIcon = TriggerIconOverride ?? selectedOption?.icon;
   const resolvedAriaLabel = triggerAriaLabel || displayLabel;
   // Size → trigger vertical padding (height matrix in the `size` prop doc above).
-  // 'md' MUST resolve to `py-2` so every existing call site stays byte-identical (~38px).
-  const triggerSizeClass = size === 'sm' ? 'py-1.5' : size === 'lg' ? 'py-2.5' : 'py-2';
+  // 'md' resolves to 40px, height-matched to Button md / SegmentedControl md (2026-06-30 global
+  // control-height unification - every existing call site without an explicit size shifts ~2px).
+  const triggerSizeClass = size === 'sm' ? 'py-1.5' : size === 'lg' ? 'py-2.5' : 'py-[9px]';
 
   return (
     <div className={`relative ${className}`}>

@@ -903,7 +903,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
         <button
           ref={triggerRef}
           onClick={handleButtonClick}
-          className={`ed-trigger github-trigger ${isBouncing ? 'bouncing' : ''} px-3 py-2 themed-border-radius border text-left flex items-center text-sm themed-card text-themed-primary ${
+          className={`ed-trigger github-trigger ${isBouncing ? 'bouncing' : ''} px-3 py-[9px] themed-border-radius border text-left flex items-center text-sm themed-card text-themed-primary ${
             isOpen ? 'border-themed-focus' : 'border-themed-primary'
           } ${iconOnly ? 'justify-center' : 'gap-1.5'} cursor-pointer`}
           aria-label={t('nav.githubProjects.ariaLabel')}

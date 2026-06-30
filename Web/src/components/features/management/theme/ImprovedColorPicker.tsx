@@ -263,7 +263,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
           value={value}
           onFocus={onStart}
           onChange={(e) => onChange(e.target.value)}
-          className="w-24 px-2 py-1 text-xs rounded font-mono themed-input"
+          className="w-24 px-2 py-[7px] text-xs rounded font-mono themed-input"
           placeholder=""
         />
 
@@ -272,7 +272,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
           <button
             type="button"
             onClick={() => onCopy(value)}
-            className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
+            className="p-[10px] rounded-lg hover:bg-opacity-50 bg-themed-hover"
             title={t('modals.theme.colorPicker.copyColor')}
           >
             {copiedColor === value ? (
@@ -289,7 +289,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
             type="button"
             onClick={onRestore}
             disabled={!hasHistory}
-            className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover disabled:opacity-30 disabled:cursor-not-allowed transition-none"
+            className="p-[10px] rounded-lg hover:bg-opacity-50 bg-themed-hover disabled:opacity-30 disabled:cursor-not-allowed transition-none"
             title={
               hasHistory
                 ? t('modals.theme.colorPicker.restorePrevious')

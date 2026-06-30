@@ -1510,7 +1510,7 @@ const DownloadsTab: React.FC = () => {
                     size="sm"
                     onClick={() => setSettingsOpened(!settingsOpened)}
                     data-settings-button="true"
-                    className="sm:hidden flex-shrink-0"
+                    className="sm:hidden flex-shrink-0 !p-0 w-[38px] h-[38px] justify-center"
                   >
                     <Settings size={18} />
                   </Button>
@@ -1674,7 +1674,7 @@ const DownloadsTab: React.FC = () => {
                           variant="filled"
                           color="gray"
                           size="md"
-                          className="!px-0 w-10 justify-center"
+                          className="!p-0 w-10 h-10 justify-center"
                           onClick={() => setShowExportOptions(!showExportOptions)}
                           disabled={exportLoading || itemsToDisplay.length === 0}
                           loading={exportLoading}
@@ -1708,7 +1708,7 @@ const DownloadsTab: React.FC = () => {
                         variant="filled"
                         color="gray"
                         size="md"
-                        className="!px-0 w-10 justify-center"
+                        className="!p-0 w-10 h-10 justify-center"
                         onClick={() => retroViewRef.current?.resetWidths()}
                       >
                         <Maximize2 className="w-4 h-4" />
@@ -1722,7 +1722,7 @@ const DownloadsTab: React.FC = () => {
                         variant="filled"
                         color="gray"
                         size="md"
-                        className="!px-0 w-10 justify-center"
+                        className="!p-0 w-10 h-10 justify-center"
                         onClick={handleClearImageCache}
                         disabled={imageCacheClearing}
                       >
@@ -1738,7 +1738,7 @@ const DownloadsTab: React.FC = () => {
                       variant="filled"
                       color="gray"
                       size="md"
-                      className="!px-0 w-10 justify-center"
+                      className="!p-0 w-10 h-10 justify-center"
                       onClick={() => setSettingsOpened(!settingsOpened)}
                       data-settings-button="true"
                     >

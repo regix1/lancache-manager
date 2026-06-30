@@ -32,7 +32,7 @@
   line-height: 1.4;
 }
 
-/* Size: md - for main toolbars. NOTE: this pill is ~27px tall, NOT the ~38px
+/* Size: md - for main toolbars. NOTE: this pill is ~27px tall, NOT the ~40px
    EnhancedDropdown `.ed-trigger`. Do not co-locate with ed-triggers expecting an
    equal height; bump the padding here first if they must share a control row. */
 .toggle-pill--md {

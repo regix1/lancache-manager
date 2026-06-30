@@ -237,7 +237,7 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
         ref={triggerRef}
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="p-2 rounded-md border"
+        className="rounded-md border w-8 h-8 flex items-center justify-center"
         title={t('events.calendar.settings.title')}
         style={{
           backgroundColor: isOpen ? 'var(--theme-primary-subtle)' : 'transparent',
