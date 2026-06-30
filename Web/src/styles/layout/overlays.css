@@ -136,7 +136,8 @@
   /* ===== END UNIVERSAL OVERLAY FIXES ===== */
 
   .smooth-transition {
-    @apply transition-all duration-300 ease-in-out;
+    @apply duration-300 ease-in-out;
+    transition-property: background-color, border-color, color, box-shadow, transform, opacity;
   }
 
   .button-press {

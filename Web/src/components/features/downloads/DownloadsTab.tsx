@@ -1475,7 +1475,7 @@ const DownloadsTab: React.FC = () => {
       {activeTab === 'recent' && (
         <>
           {/* Controls */}
-          <Card padding="sm" className="transition-all duration-300">
+          <Card padding="sm" className="transition duration-300">
             <div className="flex flex-col gap-3">
               {/* Search Input + Settings gear on mobile */}
               <div className="downloads-search-row">
@@ -1489,7 +1489,7 @@ const DownloadsTab: React.FC = () => {
                     value={settings.searchQuery}
                     onChange={(e) => setSettings({ ...settings, searchQuery: e.target.value })}
                     placeholder={t('downloads.tab.searchPlaceholder')}
-                    className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border border-[var(--theme-border-primary)] bg-[var(--theme-bg-primary)] text-[var(--theme-text-primary)] placeholder:text-[var(--theme-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--theme-primary)]/50 focus:border-[var(--theme-primary)] transition-all"
+                    className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border border-[var(--theme-border-primary)] bg-[var(--theme-bg-primary)] text-[var(--theme-text-primary)] placeholder:text-[var(--theme-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--theme-primary)]/50 focus:border-[var(--theme-primary)] transition"
                   />
                   {settings.searchQuery && (
                     <Button

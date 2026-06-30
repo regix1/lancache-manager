@@ -148,7 +148,7 @@ const ResizeHandle: React.FC<{
     onDoubleClick={onDoubleClick}
   >
     {/* Subtle divider - always visible */}
-    <div className="h-4 w-px rounded transition-all duration-150 group-hover:h-full group-hover:w-0.5 bg-[var(--theme-primary)] opacity-30" />
+    <div className="h-4 w-px rounded transition-[width,height] duration-150 group-hover:h-full group-hover:w-0.5 bg-[var(--theme-primary)] opacity-30" />
     {/* Brighter line on hover */}
     <div className="absolute h-full w-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity bg-[var(--theme-primary)]" />
   </div>

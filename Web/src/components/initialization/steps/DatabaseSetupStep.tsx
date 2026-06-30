@@ -234,7 +234,7 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
           <div className="flex items-center gap-2 mt-1">
             <div className="flex-1 h-1.5 rounded-full bg-themed-tertiary overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all ${
+                className={`h-full rounded-full transition-[width] duration-150 ${
                   passwordStrength === 'weak'
                     ? 'w-1/3 bg-red-500'
                     : passwordStrength === 'medium'

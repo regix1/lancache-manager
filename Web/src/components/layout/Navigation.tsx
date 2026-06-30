@@ -163,7 +163,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
           <button
             onClick={onClick}
             aria-current={isActive ? 'page' : undefined}
-            className={`flex items-center space-x-2 px-3 py-2 rounded-lg font-medium transition-all duration-200 bg-transparent ${className}`}
+            className={`flex items-center space-x-2 px-3 py-2 rounded-lg font-medium transition duration-200 bg-transparent ${className}`}
             style={{
               color: isActive ? 'var(--theme-nav-tab-active)' : 'var(--theme-nav-tab-inactive)'
             }}
@@ -237,7 +237,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
 
             {/* Mobile Menu - Animated */}
             <div
-              className="overflow-hidden transition-all duration-300 ease-out"
+              className="overflow-hidden transition-[max-height,opacity] duration-300 ease-out"
               style={{
                 maxHeight: mobileMenuOpen ? `${menuHeight}px` : '0px',
                 opacity: mobileMenuOpen ? 1 : 0
@@ -250,7 +250,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
                 {tabs.map((tab, index) => (
                   <div
                     key={tab.id}
-                    className="transition-all duration-300 ease-out"
+                    className="transition-[opacity,transform] duration-300 ease-out"
                     style={{
                       opacity: mobileMenuOpen ? 1 : 0,
                       transform: mobileMenuOpen ? 'translateX(0)' : 'translateX(-10px)',

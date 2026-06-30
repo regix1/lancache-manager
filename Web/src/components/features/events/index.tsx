@@ -118,7 +118,7 @@ const EventsTab: React.FC = () => {
                   <button
                     key={event.id}
                     onClick={() => handleEditEvent(event)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-sm rounded-full font-medium transition-all hover:scale-105"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-sm rounded-full font-medium transition hover:scale-105"
                     style={getEventColorStyles(event.colorIndex)}
                   >
                     <span

@@ -396,7 +396,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
             const today = isToday(day);
             const disabled = isBeforeMinDate(day);
 
-            let className = 'relative p-2 text-sm transition-all rounded-lg ';
+            let className = 'relative p-2 text-sm transition rounded-lg ';
 
             if (disabled) {
               className += 'text-[var(--theme-text-muted)] cursor-not-allowed opacity-40 ';

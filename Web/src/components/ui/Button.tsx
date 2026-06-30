@@ -50,7 +50,10 @@ export const Button: React.FC<ButtonProps> = ({
       return 'bg-themed-tertiary hover:bg-themed-hover text-themed-primary';
     }
     if (variant === 'outline') {
-      const base = 'border focus:border-[var(--theme-border-focus)]';
+      // Outline variants render as solid fills (aliases of the filled buttons), so no
+      // literal border — it would add ~2px height vs the filled buttons in a cluster.
+      // Focus is still indicated via the global button:focus-visible rule.
+      const base = '';
       const colors = {
         blue: `${base} outline-primary`,
         green: `${base} outline-process`,

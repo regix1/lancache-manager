@@ -622,7 +622,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         <div className="flex gap-1 mb-6 p-1 rounded-lg bg-themed-tertiary">
           <button
             onClick={() => setActiveTab('themes')}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition ${
               activeTab === 'themes'
                 ? 'text-themed-primary shadow-sm tab-active'
                 : 'text-themed-muted hover:text-themed-secondary tab-inactive'
@@ -633,7 +633,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
           </button>
           <button
             onClick={() => setActiveTab('customize')}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition ${
               activeTab === 'customize'
                 ? 'text-themed-primary shadow-sm tab-active'
                 : 'text-themed-muted hover:text-themed-secondary tab-inactive'
@@ -775,7 +775,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                   </Button>
                 </div>
                 <div
-                  className="rounded-lg p-6 text-center transition-all border-2 border-dashed"
+                  className="rounded-lg p-6 text-center transition border-2 border-dashed"
                   style={{
                     borderColor: dragActive
                       ? 'var(--theme-secondary)'

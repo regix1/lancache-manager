@@ -75,7 +75,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
         onChange(options[nextIndex].value);
       }}
       disabled={disabled || loading}
-      className={`flex items-center rounded-full font-medium transition-all bg-themed-secondary ${
+      className={`flex items-center rounded-full font-medium transition bg-themed-secondary ${
         disabled || loading ? 'opacity-60 cursor-wait' : 'cursor-pointer'
       }`}
     >
@@ -84,7 +84,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
         return (
           <span
             key={option.value}
-            className={`flex items-center gap-1.5 ${sizeClasses[size]} rounded-full transition-all ${
+            className={`flex items-center gap-1.5 ${sizeClasses[size]} rounded-full transition ${
               isActive ? 'shadow-sm' : 'text-themed-muted'
             }`}
             style={getActiveStyles(option, isActive)}

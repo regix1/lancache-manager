@@ -93,7 +93,7 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
           {/* Anonymous Mode */}
           <button
             onClick={() => setSelectedMode('anonymous')}
-            className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
+            className={`w-full p-4 rounded-lg border-2 text-left transition ${
               selectedMode === 'anonymous'
                 ? 'border-[var(--theme-primary)] bg-themed-primary-subtle'
                 : 'border-themed-primary bg-transparent'
@@ -120,7 +120,7 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
           {/* Account Login Mode */}
           <button
             onClick={() => handleModeSelect('account')}
-            className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
+            className={`w-full p-4 rounded-lg border-2 text-left transition ${
               selectedMode === 'account'
                 ? 'border-[var(--theme-primary)] bg-themed-primary-subtle'
                 : 'border-themed-primary bg-transparent'

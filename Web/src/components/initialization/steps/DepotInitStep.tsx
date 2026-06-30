@@ -254,7 +254,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
               <div>
                 <div className="w-full rounded-full h-2.5 overflow-hidden bg-themed-tertiary">
                   <div
-                    className="h-full transition-all duration-500 ease-out rounded-full bg-primary"
+                    className="h-full transition-[width] duration-500 ease-out rounded-full bg-primary"
                     style={{ width: `${progress}%` }}
                   />
                 </div>
@@ -345,7 +345,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
           {progress > 0 && progress < 100 && (
             <div className="w-full rounded-full h-1.5 overflow-hidden bg-themed-tertiary">
               <div
-                className="h-full transition-all duration-300 bg-primary"
+                className="h-full transition-[width] duration-300 bg-primary"
                 style={{ width: `${progress}%` }}
               />
             </div>

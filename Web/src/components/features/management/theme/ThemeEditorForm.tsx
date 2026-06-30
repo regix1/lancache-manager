@@ -131,7 +131,7 @@ const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
       <div className="flex gap-2">
         <button
           onClick={() => setOrganizationMode('category')}
-          className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+          className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition duration-200 ${
             organizationMode === 'category'
               ? 'bg-primary text-themed-button'
               : 'bg-themed-tertiary text-themed-secondary hover:bg-themed-hover'
@@ -142,7 +142,7 @@ const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
         </button>
         <button
           onClick={() => setOrganizationMode('page')}
-          className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+          className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition duration-200 ${
             organizationMode === 'page'
               ? 'bg-primary text-themed-button'
               : 'bg-themed-tertiary text-themed-secondary hover:bg-themed-hover'
@@ -155,7 +155,7 @@ const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
 
       {/* Page Selector (when in page mode) */}
       <div
-        className={`transition-all duration-300 overflow-hidden ${
+        className={`transition-[max-height,opacity] duration-300 overflow-hidden ${
           organizationMode === 'page' ? 'max-h-40 opacity-100 mt-4' : 'max-h-0 opacity-0'
         }`}
       >
@@ -169,7 +169,7 @@ const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
               <button
                 key={page.name}
                 onClick={() => setSelectedPage(page.name)}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition duration-200 flex items-center gap-2 ${
                   selectedPage === page.name
                     ? 'bg-primary text-themed-button'
                     : 'bg-themed-tertiary text-themed-secondary hover:bg-themed-hover'
@@ -217,7 +217,7 @@ const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
             >
               <button
                 onClick={() => toggleGroup(group.name)}
-                className={`w-full px-4 py-3 flex items-center justify-between hover:bg-opacity-50 transition-all duration-200 ${
+                className={`w-full px-4 py-3 flex items-center justify-between hover:bg-opacity-50 transition duration-200 ${
                   isExpanded ? 'rounded-t-lg bg-themed-tertiary' : 'rounded-lg bg-transparent'
                 }`}
               >

@@ -425,7 +425,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           <div>
             <div className="w-full rounded-full h-2.5 overflow-hidden bg-themed-tertiary">
               <div
-                className="h-full transition-all duration-500 ease-out rounded-full bg-primary"
+                className="h-full transition-[width] duration-500 ease-out rounded-full bg-primary"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>

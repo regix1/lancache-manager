@@ -553,7 +553,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
               return (
                 <div
                   key={theme.fileName}
-                  className={`rounded-lg border p-3 transition-all hover:border-themed-primary bg-themed-secondary ${
+                  className={`rounded-lg border p-3 transition hover:border-themed-primary bg-themed-secondary ${
                     isInstalled || isImported ? 'border-success' : 'border-themed-secondary'
                   }`}
                 >

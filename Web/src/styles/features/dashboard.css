@@ -37,7 +37,7 @@
 }
 
 .widget-progress-fill {
-  @apply h-full rounded-full transition-all duration-500 ease-out;
+  @apply h-full rounded-full transition-[width] duration-500 ease-out;
 }
 
 /* ===== WIDGET LOADING STATES ===== */

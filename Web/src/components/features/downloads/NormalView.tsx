@@ -612,7 +612,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     </div>
                     <div className="w-full bg-[var(--theme-bg-primary)] rounded-full h-1.5 overflow-hidden">
                       <div
-                        className="h-full bg-[var(--theme-success)] transition-all duration-500"
+                        className="h-full bg-[var(--theme-success)] transition-[width] duration-500"
                         style={{ width: `${hitPercent}%` }}
                       />
                     </div>
@@ -1381,7 +1381,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
               </div>
               <div className="w-full bg-[var(--theme-bg-primary)] rounded-full h-1.5 overflow-hidden">
                 <div
-                  className="h-full bg-[var(--theme-success)] transition-all duration-500"
+                  className="h-full bg-[var(--theme-success)] transition-[width] duration-500"
                   style={{ width: `${hitPercent}%` }}
                 />
               </div>

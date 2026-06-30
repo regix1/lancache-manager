@@ -202,7 +202,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
         {/* Progress Bar */}
         <div className="h-1 bg-themed-tertiary">
           <div
-            className="h-full transition-all duration-300 ease-out bg-primary"
+            className="h-full transition-[width] duration-300 ease-out bg-primary"
             style={{ width: `${(stepInfo.number / stepInfo.total) * 100}%` }}
           />
         </div>

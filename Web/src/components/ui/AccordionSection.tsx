@@ -62,13 +62,13 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         e.stopPropagation();
         onToggle();
       }}
-      className={`flex items-center justify-center w-10 h-10 themed-border-radius transition-all duration-300 flex-shrink-0 ${
+      className={`flex items-center justify-center w-10 h-10 themed-border-radius transition duration-300 flex-shrink-0 ${
         isExpanded ? 'bg-[var(--theme-accent-subtle)]' : 'bg-transparent hover:bg-themed-tertiary'
       }`}
       aria-label={isExpanded ? 'Collapse section' : 'Expand section'}
     >
       <ChevronDown
-        className={`w-5 h-5 transition-all duration-300 ease-out ${
+        className={`w-5 h-5 transition duration-300 ease-out ${
           isExpanded ? 'rotate-180 text-themed-accent' : 'rotate-0 text-themed-muted'
         }`}
       />
@@ -77,7 +77,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
 
   return (
     <div
-      className={`group themed-border-radius overflow-hidden transition-all duration-300 border ${
+      className={`group themed-border-radius overflow-hidden transition duration-300 border ${
         isExpanded
           ? 'bg-themed-secondary border-themed-primary shadow-[0_4px_16px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.12)]'
           : 'bg-[var(--theme-bg-secondary-emphasis)] border-themed-secondary shadow-[0_1px_3px_rgba(0,0,0,0.1)]'
@@ -90,13 +90,13 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         onClick={handleHeaderClick}
         onKeyDown={handleKeyDown}
         onTouchEnd={handleTouchEnd}
-        className="w-full px-4 py-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 text-left transition-all duration-200 group/header bg-transparent cursor-pointer"
+        className="w-full px-4 py-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 text-left transition duration-200 group/header bg-transparent cursor-pointer"
       >
         <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto sm:flex-1">
           {/* Icon with animated background */}
           {Icon && (
             <div
-              className={`w-8 h-8 themed-border-radius flex items-center justify-center transition-all duration-300 flex-shrink-0 ${
+              className={`w-8 h-8 themed-border-radius flex items-center justify-center transition duration-300 flex-shrink-0 ${
                 isExpanded ? 'scale-105' : 'scale-100'
               }`}
               style={{
@@ -125,7 +125,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
           {/* Count Badge */}
           {count !== undefined && (
             <span
-              className={`inline-flex items-center justify-center min-w-[1.5rem] h-[1.5rem] px-2 ml-1.5 text-xs rounded-full font-semibold tabular-nums transition-all duration-300 flex-shrink-0 ${
+              className={`inline-flex items-center justify-center min-w-[1.5rem] h-[1.5rem] px-2 ml-1.5 text-xs rounded-full font-semibold tabular-nums transition duration-300 flex-shrink-0 ${
                 isExpanded ? 'scale-105' : 'scale-100 bg-themed-tertiary text-themed-muted'
               }`}
               style={
@@ -161,7 +161,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
 
       {/* Content with smooth animation */}
       <div
-        className={`overflow-hidden transition-all duration-300 ease-out ${
+        className={`overflow-hidden transition-[max-height,opacity,transform] duration-300 ease-out ${
           isExpanded
             ? 'max-h-[5000px] opacity-100 translate-y-0'
             : 'max-h-0 opacity-0 -translate-y-2'

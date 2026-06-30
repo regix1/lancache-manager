@@ -28,7 +28,7 @@ interface EpicCardProps {
 }
 
 function getCardClassName(isSelected: boolean): string {
-  const base = 'p-4 rounded-lg border-2 cursor-pointer transition-all';
+  const base = 'p-4 rounded-lg border-2 cursor-pointer transition';
   if (isSelected) {
     return `${base} border-[var(--theme-primary)] bg-themed-primary-subtle`;
   }

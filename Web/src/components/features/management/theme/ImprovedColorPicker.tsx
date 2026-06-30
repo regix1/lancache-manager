@@ -197,7 +197,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
             ref={buttonRef}
             type="button"
             onClick={handlePickerToggle}
-            className="w-12 h-8 rounded border-2 cursor-pointer transition-all hover:scale-105 border-themed-secondary"
+            className="w-12 h-8 rounded border-2 cursor-pointer transition hover:scale-105 border-themed-secondary"
             style={{ backgroundColor: value }}
             title={t('modals.theme.colorPicker.pickColor')}
           />

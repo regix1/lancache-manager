@@ -6,6 +6,11 @@ import { X } from 'lucide-react';
 let modalStack: number[] = [];
 let modalIdCounter = 0;
 
+// Non-exported module constant (keeps Fast Refresh happy — only the component is exported).
+const FOCUSABLE_SELECTOR =
+  'a[href],area[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),' +
+  'button:not([disabled]),iframe,object,embed,[tabindex]:not([tabindex="-1"]),[contenteditable="true"]';
+
 type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'full';
 
 interface ModalProps {
@@ -21,6 +26,9 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
   const [isAnimating, setIsAnimating] = React.useState(false);
   const [zIndex, setZIndex] = React.useState(80);
   const modalId = React.useRef<number | null>(null);
+  const contentRef = React.useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = React.useRef<HTMLElement | null>(null);
+  const titleId = React.useId();
 
   const sizes: Record<ModalSize, string> = {
     sm: 'max-w-md',
@@ -31,14 +39,25 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
     full: 'max-w-7xl'
   };
 
+  const setBackgroundInert = (inert: boolean) => {
+    const appRoot = document.getElementById('root');
+    if (!appRoot) return;
+    if (inert) appRoot.setAttribute('aria-hidden', 'true');
+    else appRoot.removeAttribute('aria-hidden');
+  };
+
   React.useEffect(() => {
     if (opened) {
       // Assign unique ID to this modal instance
       modalId.current = ++modalIdCounter;
 
-      // Only lock scroll for the first modal
+      // Remember what had focus so we can restore it on close
+      previouslyFocusedRef.current = (document.activeElement as HTMLElement) ?? null;
+
+      // Only lock scroll / hide background for the first modal
       if (modalStack.length === 0) {
         document.documentElement.classList.add('modal-open');
+        setBackgroundInert(true);
       }
 
       // Add this modal to the stack
@@ -64,10 +83,18 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
           modalId.current = null;
         }
 
-        // Only restore scroll when all modals are closed
+        // Only restore scroll / background when all modals are closed
         if (modalStack.length === 0) {
           document.documentElement.classList.remove('modal-open');
+          setBackgroundInert(false);
         }
+
+        // Restore focus to whatever was focused before this modal opened
+        const prev = previouslyFocusedRef.current;
+        if (prev && typeof prev.focus === 'function' && document.contains(prev)) {
+          prev.focus();
+        }
+        previouslyFocusedRef.current = null;
       }, 250); // Match transition duration
     }
 
@@ -77,27 +104,84 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
         modalStack = modalStack.filter((id) => id !== modalId.current);
         modalId.current = null;
 
-        // Restore scroll if this was the last modal
+        // Restore scroll / background if this was the last modal
         if (modalStack.length === 0) {
           document.documentElement.classList.remove('modal-open');
+          setBackgroundInert(false);
         }
       }
     };
   }, [opened]);
 
+  // Move focus into the modal once it becomes visible. Don't steal focus if the
+  // content already focused something itself (e.g. an autoFocus input).
+  React.useEffect(() => {
+    if (!isVisible) return;
+    const el = contentRef.current;
+    if (!el) return;
+    if (el.contains(document.activeElement)) return;
+    el.focus();
+  }, [isVisible]);
+
   if (!isVisible) return null;
+
+  const getFocusable = (el: HTMLElement): HTMLElement[] =>
+    Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+      (n) => n.offsetParent !== null
+    );
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      onClose();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+
+    const el = contentRef.current;
+    if (!el) return;
+    const focusable = getFocusable(el);
+    if (focusable.length === 0) {
+      e.preventDefault();
+      el.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+
+    // Focus is on the container (or escaped the modal) — pull it back in.
+    if (!el.contains(active) || active === el) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+      return;
+    }
+    if (e.shiftKey && active === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
 
   const modalContent = (
     <div
-      className={`modal-backdrop fixed inset-0 overflow-y-auto overflow-x-hidden py-2 sm:py-4 transition-all duration-250 ease-out ${
+      className={`modal-backdrop fixed inset-0 overflow-y-auto overflow-x-hidden py-2 sm:py-4 transition duration-250 ease-out ${
         isAnimating ? 'bg-black/50 pointer-events-auto' : 'bg-transparent pointer-events-none'
       }`}
       style={{ zIndex }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
+      onKeyDown={handleKeyDown}
     >
       <div className="min-h-full flex items-center justify-center px-4">
         <div
-          className={`themed-card border themed-border-radius ${sizes[size]} w-full max-h-[calc(100vh-1rem)] sm:max-h-[calc(100vh-2rem)] flex flex-col transform transition-all duration-250 ease-out ${
+          ref={contentRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={title ? titleId : undefined}
+          tabIndex={-1}
+          className={`themed-card border themed-border-radius ${sizes[size]} w-full max-h-[calc(100vh-1rem)] sm:max-h-[calc(100vh-2rem)] flex flex-col transform transition duration-250 ease-out focus:outline-none ${
             isAnimating
               ? 'opacity-100 scale-100 translate-y-0 delay-[50ms]'
               : 'opacity-0 scale-90 translate-y-8 delay-0'
@@ -105,7 +189,9 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
         >
           {title && (
             <div className="flex items-center justify-between p-4 sm:p-6 border-b border-themed-secondary flex-shrink-0">
-              <div className="text-base sm:text-lg font-semibold text-themed-primary">{title}</div>
+              <div id={titleId} className="text-base sm:text-lg font-semibold text-themed-primary">
+                {title}
+              </div>
               <button
                 onClick={onClose}
                 aria-label="Close"

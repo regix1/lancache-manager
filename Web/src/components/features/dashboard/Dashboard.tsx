@@ -1013,7 +1013,7 @@ const Dashboard: React.FC = () => {
       {/* Charts Row - Pass the actual data arrays */}
       <div className="dashboard-analytics-row">
         <div
-          className={`dashboard-analytics-pane transition-all duration-300 ${isChartExpanded ? 'dashboard-analytics-pane-chart-expanded' : 'dashboard-analytics-pane-chart-collapsed'}`}
+          className={`dashboard-analytics-pane transition-[width] duration-300 ${isChartExpanded ? 'dashboard-analytics-pane-chart-expanded' : 'dashboard-analytics-pane-chart-collapsed'}`}
         >
           <div className="w-full h-full">
             <ServiceAnalyticsChart
@@ -1024,7 +1024,7 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
         <div
-          className={`dashboard-analytics-pane transition-all duration-300 ${isChartExpanded ? 'dashboard-analytics-pane-downloads-expanded' : 'dashboard-analytics-pane-downloads-collapsed'}`}
+          className={`dashboard-analytics-pane transition-[width] duration-300 ${isChartExpanded ? 'dashboard-analytics-pane-downloads-expanded' : 'dashboard-analytics-pane-downloads-collapsed'}`}
         >
           <div className="w-full h-full">
             <RecentDownloadsPanel

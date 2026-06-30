@@ -267,7 +267,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 <button
                   onClick={() => handleAutoStartPicsChange(true)}
                   disabled={loading || mockMode}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
+                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${
                     loading || mockMode ? 'opacity-50 cursor-not-allowed' : ''
                   } ${autoStartPics ? 'toggle-btn-active' : 'toggle-btn-inactive'}`}
                 >
@@ -276,7 +276,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 <button
                   onClick={() => handleAutoStartPicsChange(false)}
                   disabled={loading || mockMode}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
+                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${
                     loading || mockMode ? 'opacity-50 cursor-not-allowed' : ''
                   } ${!autoStartPics ? 'toggle-btn-active' : 'toggle-btn-inactive'}`}
                 >

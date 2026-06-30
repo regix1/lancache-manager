@@ -1334,7 +1334,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
         {/* Mobile expanded content */}
         <div
-          className={`overflow-hidden transition-all duration-200 ${isExpanded ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}
+          className={`overflow-hidden transition-[max-height,opacity] duration-200 ${isExpanded ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}
         >
           <div
             className={`px-3 pb-3 space-y-3 border-t border-themed-secondary ${isDimmed ? 'opacity-60' : ''}`}

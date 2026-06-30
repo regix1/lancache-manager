@@ -78,7 +78,7 @@
 
   /* Themed Checkbox Styling - Simplified */
   .themed-checkbox {
-    @apply h-4 w-4 cursor-pointer transition-all appearance-none relative;
+    @apply h-4 w-4 cursor-pointer transition appearance-none relative;
     border-radius: var(--theme-border-radius);
     border: 2px solid var(--theme-checkbox-border);
     background-color: var(--theme-checkbox-bg);
@@ -125,7 +125,9 @@
     background: var(--theme-input-bg);
     cursor: pointer;
     position: relative;
-    transition: all 0.2s ease;
+    transition-property: background-color, border-color, color, box-shadow, transform, opacity;
+    transition-duration: 0.2s;
+    transition-timing-function: ease;
   }
 
   input[type='checkbox']:checked {
@@ -206,7 +208,9 @@
     box-shadow:
       0 2px 4px rgba(0, 0, 0, 0.2),
       0 1px 2px rgba(0, 0, 0, 0.1);
-    transition: all 0.2s ease;
+    transition-property: background-color, border-color, color, box-shadow, transform, opacity;
+    transition-duration: 0.2s;
+    transition-timing-function: ease;
   }
 
   /* Thumb styling - Firefox */
@@ -219,7 +223,9 @@
     box-shadow:
       0 2px 4px rgba(0, 0, 0, 0.2),
       0 1px 2px rgba(0, 0, 0, 0.1);
-    transition: all 0.2s ease;
+    transition-property: background-color, border-color, color, box-shadow, transform, opacity;
+    transition-duration: 0.2s;
+    transition-timing-function: ease;
     cursor: pointer;
   }
 
@@ -314,7 +320,9 @@
     border: none;
     color: var(--theme-text-muted);
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition-property: background-color, border-color, color, box-shadow, transform, opacity;
+    transition-duration: 0.15s;
+    transition-timing-function: ease;
     user-select: none;
     border-radius: var(--theme-border-radius);
     padding: 0;
@@ -347,7 +355,9 @@
     @apply relative inline-flex h-6 w-11 items-center rounded-full cursor-pointer;
     background: var(--theme-bg-tertiary);
     border: 1px solid var(--theme-border-secondary);
-    transition: all 0.2s ease;
+    transition-property: background-color, border-color, color, box-shadow, transform, opacity;
+    transition-duration: 0.2s;
+    transition-timing-function: ease;
   }
 
   .modern-toggle.checked {

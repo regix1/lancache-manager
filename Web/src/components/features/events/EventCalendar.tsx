@@ -518,7 +518,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                           );
                         }
                       }}
-                      className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} p-1.5 sm:p-2 rounded-lg border transition-all duration-200 ${pastDay ? 'cursor-not-allowed opacity-60' : 'cursor-pointer group'}`}
+                      className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} p-1.5 sm:p-2 rounded-lg border transition duration-200 ${pastDay ? 'cursor-not-allowed opacity-60' : 'cursor-pointer group'}`}
                       style={{
                         backgroundColor: today
                           ? 'var(--theme-primary-faint)'
@@ -571,7 +571,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                                     : { day, weekIndex: week.weekIndex }
                                 );
                               }}
-                              className="text-[10px] font-semibold px-1.5 rounded-full transition-all hover:scale-105"
+                              className="text-[10px] font-semibold px-1.5 rounded-full transition hover:scale-105"
                               style={{
                                 backgroundColor: 'var(--theme-primary)',
                                 color: 'var(--theme-primary-text)'
@@ -920,7 +920,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                         </div>
                         <button
                           onClick={() => setExpandedDay(null)}
-                          className="w-6 h-6 flex items-center justify-center rounded-md transition-all text-[var(--theme-text-muted)] bg-transparent hover:bg-[var(--theme-bg-hover)] hover:text-[var(--theme-text-primary)]"
+                          className="w-6 h-6 flex items-center justify-center rounded-md transition text-[var(--theme-text-muted)] bg-transparent hover:bg-[var(--theme-bg-hover)] hover:text-[var(--theme-text-primary)]"
                         >
                           <svg
                             width="12"
@@ -959,7 +959,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                                   onEventClick(event);
                                   setExpandedDay(null);
                                 }}
-                                className="w-full text-left px-3 py-2.5 text-xs font-medium truncate transition-all rounded-lg flex items-center gap-2"
+                                className="w-full text-left px-3 py-2.5 text-xs font-medium truncate transition rounded-lg flex items-center gap-2"
                                 style={{
                                   backgroundColor: isEnded ? subtleVar : mutedVar,
                                   borderLeft: `3px solid ${isEnded ? emphasisVar : colorVar}`,

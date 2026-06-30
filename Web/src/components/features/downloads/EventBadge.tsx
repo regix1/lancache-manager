@@ -13,7 +13,7 @@ const EventBadge: React.FC<EventBadgeProps> = ({ event, onClick, size = 'sm' }) 
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-md font-medium transition-all flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)] ${sizeClasses} ${onClick ? 'cursor-pointer hover:opacity-80' : ''}`}
+      className={`inline-flex items-center gap-1.5 rounded-md font-medium transition flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)] ${sizeClasses} ${onClick ? 'cursor-pointer hover:opacity-80' : ''}`}
       onClick={onClick}
       title={event.name}
     >

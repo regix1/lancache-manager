@@ -327,7 +327,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
               onPointerCancel={resolvedHoldEnd}
               onLostPointerCapture={resolvedLostCapture}
               disabled={prevDisabled}
-              className="p-1.5 rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-secondary)]"
+              className="p-1.5 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-secondary)]"
               title={prevTitle}
             >
               <ChevronLeft size={14} />
@@ -344,7 +344,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
               onPointerCancel={resolvedHoldEnd}
               onLostPointerCapture={resolvedLostCapture}
               disabled={nextDisabled}
-              className="p-1.5 rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-secondary)]"
+              className="p-1.5 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-secondary)]"
               title={nextTitle}
             >
               <ChevronRight size={14} />

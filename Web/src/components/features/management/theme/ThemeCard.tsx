@@ -68,7 +68,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
 
   return (
     <div
-      className={`rounded-lg p-4 transition-all hover:shadow-md themed-card relative group isolate bg-themed-secondary border ${
+      className={`rounded-lg p-4 transition hover:shadow-md themed-card relative group isolate bg-themed-secondary border ${
         isActive ? 'border-primary' : isPreviewing ? 'border-warning' : 'border-themed-secondary'
       }`}
     >

@@ -431,7 +431,9 @@
     background-color: var(--theme-bg-tertiary);
     color: var(--theme-text-secondary);
     flex-shrink: 0;
-    transition: all 0.2s ease;
+    transition-property: background-color, border-color, color, box-shadow, transform, opacity;
+    transition-duration: 0.2s;
+    transition-timing-function: ease;
   }
 
   .github-repo-item:hover .github-repo-icon,
@@ -490,7 +492,9 @@
     color: var(--theme-text-muted);
     opacity: 0;
     transform: translateX(-4px);
-    transition: all 0.2s ease;
+    transition-property: opacity, transform;
+    transition-duration: 0.2s;
+    transition-timing-function: ease;
   }
 
   .github-repo-item:hover .github-repo-chevron,
@@ -506,7 +510,9 @@
     padding: 0 0.75rem;
     opacity: 0;
     transform: translateY(-8px);
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    transition-property: max-height, opacity, transform;
+    transition-duration: 0.25s;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .github-repo-item:hover .github-repo-description,
@@ -535,7 +541,9 @@
     background-color: var(--theme-bg-tertiary);
     color: var(--theme-text-muted);
     border: 1px solid var(--theme-border-primary);
-    transition: all 0.2s ease;
+    transition-property: background-color, border-color, color, box-shadow, transform, opacity;
+    transition-duration: 0.2s;
+    transition-timing-function: ease;
     flex-shrink: 0;
   }
 
@@ -574,7 +582,9 @@
       var(--theme-danger-gradient-end) 100%
     );
     border: 1px solid var(--theme-danger-border);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition-property: background-color, border-color, color, box-shadow, transform, opacity;
+    transition-duration: 0.3s;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
     overflow: hidden;
   }

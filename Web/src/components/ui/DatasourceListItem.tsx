@@ -27,7 +27,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
 
   return (
     <div
-      className={`group themed-border-radius overflow-hidden transition-all duration-300 border ${
+      className={`group themed-border-radius overflow-hidden transition duration-300 border ${
         isExpanded
           ? `bg-themed-secondary ${enabled ? 'border-themed-primary' : 'border-themed-secondary'} shadow-[0_4px_16px_rgba(0,0,0,0.25),0_1px_4px_rgba(0,0,0,0.15)]`
           : 'bg-[var(--theme-bg-secondary-emphasis)] border-themed-secondary shadow-[0_1px_3px_rgba(0,0,0,0.12)]'
@@ -35,7 +35,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
     >
       {/* Header - clickable to expand */}
       <button
-        className={`w-full p-3 text-left cursor-pointer transition-all duration-200 ${
+        className={`w-full p-3 text-left cursor-pointer transition duration-200 ${
           isExpanded
             ? 'bg-[linear-gradient(135deg,var(--theme-accent-faint)_0%,transparent_100%)]'
             : 'bg-transparent'
@@ -47,7 +47,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
             {/* Folder Icon */}
             <div
-              className={`w-7 h-7 flex items-center justify-center transition-all duration-300 ${
+              className={`w-7 h-7 flex items-center justify-center transition duration-300 ${
                 isExpanded
                   ? 'bg-[var(--theme-icon-blue-subtle)] scale-105'
                   : 'bg-themed-tertiary scale-100'
@@ -82,7 +82,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
             {/* Status Badge */}
             {statusBadge && (
               <span
-                className={`text-xs inline-flex items-center px-2.5 py-1 rounded-full transition-all duration-300 tabular-nums ${
+                className={`text-xs inline-flex items-center px-2.5 py-1 rounded-full transition duration-300 tabular-nums ${
                   isExpanded
                     ? 'bg-[var(--theme-accent-subtle)] text-themed-accent'
                     : 'bg-themed-tertiary text-themed-muted'
@@ -96,13 +96,13 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
 
             {/* Chevron with rotation animation */}
             <div
-              className={`flex items-center justify-center w-7 h-7 transition-all duration-300 ${
+              className={`flex items-center justify-center w-7 h-7 transition duration-300 ${
                 isExpanded ? 'bg-[var(--theme-accent-subtle)]' : 'bg-transparent'
               }`}
               style={{ borderRadius: 'var(--theme-border-radius)' }}
             >
               <ChevronDown
-                className={`w-4 h-4 transition-all duration-300 ease-out ${
+                className={`w-4 h-4 transition duration-300 ease-out ${
                   isExpanded ? 'rotate-180 text-themed-accent' : 'rotate-0 text-themed-muted'
                 }`}
               />
@@ -112,12 +112,12 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
 
         {/* Path display */}
         <div
-          className={`flex items-center gap-2 mt-2 transition-all duration-300 ${
+          className={`flex items-center gap-2 mt-2 transition duration-300 ${
             isExpanded ? 'opacity-100' : 'opacity-70'
           }`}
         >
           <code
-            className={`text-xs px-2 py-1 rounded truncate transition-all duration-300 max-w-full ${
+            className={`text-xs px-2 py-1 rounded truncate transition duration-300 max-w-full ${
               isExpanded
                 ? 'bg-[var(--theme-bg-tertiary-emphasis)] text-themed-secondary'
                 : 'bg-themed-tertiary text-themed-muted'
@@ -131,7 +131,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
       {/* Expanded content with smooth animation */}
       {children && (
         <div
-          className={`overflow-hidden transition-all duration-300 ease-out ${
+          className={`overflow-hidden transition-[max-height,opacity,transform] duration-300 ease-out ${
             isExpanded
               ? 'max-h-[2000px] opacity-100 translate-y-0'
               : 'max-h-0 opacity-0 -translate-y-2'

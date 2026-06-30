@@ -113,12 +113,9 @@ const StatCard: React.FC<StatCardProps> = ({
             {loading ? (
               <div className="stat-card-skeleton-value" />
             ) : animateValue ? (
-              <AnimatedValue
-                value={value}
-                className="text-2xl font-bold transition-all duration-300"
-              />
+              <AnimatedValue value={value} className="text-2xl font-bold transition duration-300" />
             ) : (
-              <p className="text-2xl font-bold transition-all duration-300 text-[var(--theme-text-primary)]">
+              <p className="text-2xl font-bold transition duration-300 text-[var(--theme-text-primary)]">
                 {value}
               </p>
             )}

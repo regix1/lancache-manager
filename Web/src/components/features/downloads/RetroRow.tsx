@@ -95,7 +95,7 @@ const EfficiencyGauge: React.FC<{ percent: number; size?: number }> = ({ percent
             strokeLinecap="round"
             strokeDasharray={circumference}
             strokeDashoffset={offset}
-            className="transition-all duration-500 ease-out"
+            className="transition-[stroke-dashoffset,stroke] duration-500 ease-out"
           />
         </svg>
         {/* Center percentage */}
@@ -132,7 +132,7 @@ const CombinedProgressBar: React.FC<{
       <div className="h-2 rounded-full overflow-hidden flex w-full bg-[var(--theme-progress-bg)]">
         {/* Cache Hit portion */}
         <div
-          className="h-full transition-all duration-500 ease-out"
+          className="h-full transition-[width] duration-500 ease-out"
           style={{
             width: `${hitPercent}%`,
             background:
@@ -143,7 +143,7 @@ const CombinedProgressBar: React.FC<{
         />
         {/* Cache Miss portion */}
         <div
-          className="h-full transition-all duration-500 ease-out"
+          className="h-full transition-[width] duration-500 ease-out"
           style={{
             width: `${missPercent}%`,
             background:

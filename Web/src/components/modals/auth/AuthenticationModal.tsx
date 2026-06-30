@@ -264,7 +264,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                     <div className="mt-2">
                       <div className="h-1.5 rounded-full overflow-hidden bg-themed-tertiary">
                         <div
-                          className="h-full rounded-full transition-all duration-300 bg-warning"
+                          className="h-full rounded-full transition-[width] duration-300 bg-warning"
                           style={{ width: `${resetStatus.percentComplete}%` }}
                         />
                       </div>

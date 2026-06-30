@@ -20,7 +20,9 @@
   border: 2px solid var(--theme-border-secondary);
   border-radius: 50%;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition-property: background-color, border-color, box-shadow, opacity;
+  transition-duration: 0.15s;
+  transition-timing-function: ease;
   flex-shrink: 0;
   position: relative;
 }

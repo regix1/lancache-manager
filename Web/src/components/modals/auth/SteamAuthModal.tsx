@@ -368,7 +368,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
 // Step indicator dot component
 const StepDot: React.FC<{ active?: boolean; completed?: boolean }> = ({ active, completed }) => (
   <div
-    className={`w-2.5 h-2.5 rounded-full transition-all duration-200 ${
+    className={`w-2.5 h-2.5 rounded-full transition duration-200 ${
       active ? 'bg-primary' : completed ? 'bg-success' : 'bg-themed-hover'
     }`}
   />

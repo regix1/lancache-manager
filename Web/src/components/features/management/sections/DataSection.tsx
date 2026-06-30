@@ -405,7 +405,7 @@ const DataSection: React.FC<DataSectionProps> = ({
             {tables.map((table) => (
               <label
                 key={table.name}
-                className={`db-table-item p-3 rounded-lg cursor-pointer flex items-start gap-3 transition-all duration-150 bg-themed-secondary${selectedTables.includes(table.name) ? ' db-table-item-selected' : ''}`}
+                className={`db-table-item p-3 rounded-lg cursor-pointer flex items-start gap-3 transition duration-150 bg-themed-secondary${selectedTables.includes(table.name) ? ' db-table-item-selected' : ''}`}
               >
                 <input
                   type="checkbox"

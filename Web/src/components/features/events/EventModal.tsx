@@ -282,7 +282,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
                     key={idx}
                     type="button"
                     onClick={() => setColorIndex(idx)}
-                    className={`w-8 h-8 rounded-lg transition-all flex items-center justify-center ${
+                    className={`w-8 h-8 rounded-lg transition flex items-center justify-center ${
                       isSelected ? 'scale-110' : 'hover:scale-105'
                     }`}
                     style={{

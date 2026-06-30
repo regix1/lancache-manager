@@ -387,7 +387,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
             const isHovered = isHoveredDate(day);
             const today = isToday(day);
 
-            let className = 'relative p-2 text-sm transition-all cursor-pointer ';
+            let className = 'relative p-2 text-sm transition cursor-pointer ';
 
             if (isStart && isEnd) {
               className += 'rounded-lg ';

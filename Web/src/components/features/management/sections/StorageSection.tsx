@@ -777,7 +777,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                             {(['show', 'showClean', 'hide', 'remove'] as const).map((mode) => (
                               <label
                                 key={mode}
-                                className={`eviction-mode-option p-3 rounded-lg cursor-pointer flex items-start gap-3 transition-all duration-150${evictionMode === mode ? ' eviction-mode-option-selected' : ''}`}
+                                className={`eviction-mode-option p-3 rounded-lg cursor-pointer flex items-start gap-3 transition duration-150${evictionMode === mode ? ' eviction-mode-option-selected' : ''}`}
                               >
                                 <input
                                   type="radio"
