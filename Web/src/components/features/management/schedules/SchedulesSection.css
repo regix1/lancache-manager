@@ -1433,17 +1433,22 @@
 
   .scheduled-prefill-platforms__nav {
     flex-direction: row;
-    overflow-x: auto;
-    padding-bottom: 0.25rem;
-    scrollbar-width: thin;
+    flex-wrap: wrap;
   }
 
   .scheduled-prefill-platforms__nav-item {
     flex: 0 0 auto;
+    width: auto;
     min-width: 9.5rem;
   }
 
   .scheduled-prefill-platforms__nav-badges {
+    display: none;
+  }
+
+  /* The active nav item already shows the platform icon + name, so repeating
+     both in the detail header below is redundant on a narrow screen. */
+  .scheduled-prefill-platform-section__icon {
     display: none;
   }
 
