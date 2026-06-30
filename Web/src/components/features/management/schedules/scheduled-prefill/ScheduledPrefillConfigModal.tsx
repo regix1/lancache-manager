@@ -36,6 +36,7 @@ import type {
   ScheduledPrefillServiceKey
 } from './types';
 import { getErrorMessage, isAbortError } from '@utils/error';
+import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 
 interface ScheduledPrefillConfigModalProps {
   opened: boolean;
@@ -170,6 +171,9 @@ export function ScheduledPrefillConfigModal({
     ScheduledPrefillServiceKey[]
   >([]);
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
+
+  // Auto-dismiss the "settings saved" notice so it does not linger forever.
+  const scheduleGlobalSavedDismiss = useTimeoutCallback(2500);
 
   const markPersistentAuthPending = useCallback((serviceKey: ScheduledPrefillServiceKey) => {
     setPersistentAuthPendingKeys((current) =>
@@ -465,6 +469,7 @@ export function ScheduledPrefillConfigModal({
       await ApiService.updatePersistentPrefillValidity({ days: nextValidityDays });
       setPersistentValidityDays(nextValidityDays);
       setGlobalSettingsSaved(true);
+      scheduleGlobalSavedDismiss(() => setGlobalSettingsSaved(false));
     } catch (error: unknown) {
       setGlobalSettingsError(getErrorMessage(error));
     } finally {
@@ -855,7 +860,7 @@ export function ScheduledPrefillConfigModal({
                   config={config}
                   authStatuses={authStatuses}
                   authLoading={loadingAuthStatus}
-                  disabled={saving || loadingConfig || savingGlobalSettings}
+                  disabled={saving || loadingConfig}
                   statusLoading={loadingPersistentContainers}
                   containersByServiceKey={containersByServiceKey}
                   selectedGamesCountByServiceKey={selectedGamesCountByServiceKey}
