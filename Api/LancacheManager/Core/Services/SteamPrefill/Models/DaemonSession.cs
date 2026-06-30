@@ -61,7 +61,7 @@ public class DaemonSession
     public DateTime? PrefillStartedAt { get; set; }
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime? EndedAt { get; set; }
-    public DateTime ExpiresAt { get; init; }
+    public DateTime ExpiresAt { get; set; }
 
     /// <summary>
     /// True when this session is a guest/temporary container subject to the manager-enforced

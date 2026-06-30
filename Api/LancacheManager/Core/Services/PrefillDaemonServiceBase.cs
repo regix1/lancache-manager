@@ -2034,6 +2034,43 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     }
 
     /// <summary>
+    /// Pure anchor for a persistent session's validity window: <paramref name="createdAtUtc"/> plus the
+    /// admin-configured <paramref name="validityDays"/>. This is the exact formula used at session
+    /// creation and preserved by the re-adopt path, so re-anchoring with the same validity is a no-op
+    /// and changing it moves the date deterministically (never silently extends like now+validity would).
+    /// </summary>
+    public static DateTime ComputePersistentExpiry(DateTime createdAtUtc, int validityDays)
+        => createdAtUtc.AddDays(validityDays);
+
+    /// <summary>
+    /// Re-anchors every RUNNING persistent session's <see cref="DaemonSession.ExpiresAt"/> to
+    /// <c>createdAt + validityDays</c> (idempotent) and clears a stale <see cref="DaemonSession.NeedsRelogin"/>
+    /// when the new window is in the future (the reaper re-flags it if it is already past). Also persists
+    /// the new <c>ExpiresAtUtc</c> to each session's DB record so a manager restart re-adopts the new
+    /// window rather than a stale longer one (the re-adopt path prefers a future <c>dbRecord.ExpiresAtUtc</c>).
+    /// </summary>
+    public async Task UpdatePersistentSessionExpiryAsync(int validityDays)
+    {
+        var now = DateTime.UtcNow;
+        var targets = _sessions.Values
+            .Where(s => s.IsPersistent && s.Status == DaemonSessionStatus.Active)
+            .ToList();
+
+        foreach (var session in targets)
+        {
+            session.ExpiresAt = ComputePersistentExpiry(session.CreatedAt, validityDays);
+            if (session.ExpiresAt > now)
+            {
+                session.NeedsRelogin = false;
+            }
+
+            // Persist so the new window survives a restart (the re-adopt path prefers a future
+            // dbRecord.ExpiresAtUtc; without this a shrink would leave the old longer value on disk).
+            await _sessionService.UpdateExpiryAsync(session.Id, session.ExpiresAt);
+        }
+    }
+
+    /// <summary>
     /// Gets sessions for a specific user
     /// </summary>
     public IEnumerable<DaemonSession> GetUserSessions(Guid userId)

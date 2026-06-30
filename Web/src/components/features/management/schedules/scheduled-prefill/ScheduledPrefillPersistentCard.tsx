@@ -7,9 +7,6 @@ import { formatBytes, formatDateTime } from '@utils/formatters';
 import { SCHEDULED_PREFILL_BUTTON_SIZE } from './constants';
 import type { ScheduledPrefillPersistentCardProps } from './scheduledPrefillPersistentTypes';
 
-const getSecondsUntil = (expiresAtUtc: string): number =>
-  Math.floor((new Date(expiresAtUtc).getTime() - Date.now()) / 1000);
-
 type StatusTone = 'idle' | 'warning' | 'active' | 'running';
 
 interface StatusDisplay {
@@ -44,10 +41,6 @@ export function ScheduledPrefillPersistentCard({
   const isGameSelectionBlocked = isRunning && !isAuthenticated;
   // Initial container probe with nothing resolved yet — show the loading view.
   const isContainerLoading = statusLoading && container === undefined;
-
-  const daemonAuthTimeRemainingSeconds = container?.daemonAuthExpiresAtUtc
-    ? getSecondsUntil(container.daemonAuthExpiresAtUtc)
-    : null;
 
   // One compact status line replaces the three tinted pipeline boxes: a coloured
   // dot carries meaning (green = logged in, info = downloading, amber = needs
@@ -129,23 +122,6 @@ export function ScheduledPrefillPersistentCard({
 
           {container && isRunning && (
             <div className="scheduled-prefill-persistent-card__meta">
-              {container.daemonAuthExpiresAtUtc && (
-                <div className="scheduled-prefill-persistent-card__meta-item">
-                  <span className="scheduled-prefill-persistent-card__meta-label">
-                    {t('prefill.persistent.tokenExpires')}
-                  </span>
-                  <span className="scheduled-prefill-persistent-card__meta-value">
-                    {formatDateTime(container.daemonAuthExpiresAtUtc)}
-                    {daemonAuthTimeRemainingSeconds !== null && (
-                      <span className="scheduled-prefill-persistent-card__meta-detail">
-                        {t('prefill.persistent.timeRemaining', {
-                          time: formatTimeRemaining(daemonAuthTimeRemainingSeconds)
-                        })}
-                      </span>
-                    )}
-                  </span>
-                </div>
-              )}
               <div className="scheduled-prefill-persistent-card__meta-item">
                 <span className="scheduled-prefill-persistent-card__meta-label">
                   {t('prefill.persistent.reloginRequiredBy')}

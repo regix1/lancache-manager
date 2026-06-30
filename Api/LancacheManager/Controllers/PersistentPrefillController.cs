@@ -102,8 +102,6 @@ public class PersistentPrefillController : ControllerBase
                     continue;
                 }
 
-                var remaining = (session.ExpiresAt - nowUtc).TotalSeconds;
-                long remainingSeconds = remaining > 0 ? (long)remaining : 0L;
                 var isRunning = session.Status == DaemonSessionStatus.Active;
 
                 // Query the daemon's REAL token expiry + live login state only for running sessions.
@@ -128,13 +126,19 @@ public class PersistentPrefillController : ControllerBase
                     }
                 }
 
+                // The honest re-login date is the EARLIER of the manager's validity window and the
+                // daemon's real token expiry, so the UI never promises a window longer than the token.
+                var effectiveRelogin = ComputeEffectiveRelogin(session.ExpiresAt, daemonAuthExpiresAtUtc);
+                var remaining = (effectiveRelogin - nowUtc).TotalSeconds;
+                long remainingSeconds = remaining > 0 ? (long)remaining : 0L;
+
                 results.Add(new PersistentPrefillSessionDto
                 {
                     SessionId = session.Id,
                     Service = ParsePlatform(session.Platform),
                     IsRunning = isRunning,
                     IsAuthenticated = isAuthenticated,
-                    AuthExpiresAtUtc = session.ExpiresAt,
+                    AuthExpiresAtUtc = effectiveRelogin,
                     AuthTimeRemainingSeconds = remainingSeconds,
                     NeedsRelogin = session.NeedsRelogin,
                     DaemonAuthExpiresAtUtc = daemonAuthExpiresAtUtc,
@@ -419,7 +423,7 @@ public class PersistentPrefillController : ControllerBase
     /// Updates the admin-configured persistent login validity window (1-365 days).
     /// </summary>
     [HttpPut("validity")]
-    public ActionResult<PersistentLoginValidityDto> SetValidity([FromBody] PersistentLoginValidityDto request)
+    public async Task<ActionResult<PersistentLoginValidityDto>> SetValidityAsync([FromBody] PersistentLoginValidityDto request)
     {
         try
         {
@@ -428,6 +432,13 @@ public class PersistentPrefillController : ControllerBase
         catch (ArgumentOutOfRangeException ex)
         {
             return BadRequest(ex.Message);
+        }
+
+        // Re-anchor every running persistent session immediately so the new validity is the single
+        // source of truth for the re-login date (and persist it so a restart keeps the new window).
+        foreach (var daemon in ResolveAllDaemons(_serviceProvider))
+        {
+            await daemon.UpdatePersistentSessionExpiryAsync(request.Days);
         }
 
         return Ok(new PersistentLoginValidityDto
@@ -534,6 +545,23 @@ public class PersistentPrefillController : ControllerBase
         }
 
         return PrefillPlatform.Steam;
+    }
+
+    /// <summary>
+    /// Pure display-time cap for the persistent re-login date: the EARLIER of the manager's validity
+    /// window (<paramref name="expiresAt"/>) and the daemon's real token expiry (<paramref name="token"/>).
+    /// Returns <paramref name="expiresAt"/> when the token is null or later, so the UI never shows a
+    /// re-login date that outlives the real token. The stored <c>ExpiresAt</c> is never capped (the
+    /// token is unknown at creation); the cap applies only here, at display.
+    /// </summary>
+    public static DateTime ComputeEffectiveRelogin(DateTime expiresAt, DateTimeOffset? token)
+    {
+        if (token is { } tok && tok.UtcDateTime < expiresAt)
+        {
+            return tok.UtcDateTime;
+        }
+
+        return expiresAt;
     }
 }
 

@@ -363,6 +363,29 @@ public class PrefillSessionService
     }
 
     /// <summary>
+    /// Updates the persisted validity window (<see cref="PrefillSession.ExpiresAtUtc"/>) for a session.
+    /// Called when the admin changes the persistent login validity so the re-anchored expiry survives a
+    /// manager restart: the re-adopt path prefers a future <c>dbRecord.ExpiresAtUtc</c>, so without this
+    /// a shrink would leave the old longer window on disk and be re-adopted on restart. Only Active
+    /// records are updated; terminated/orphaned records keep their historical expiry.
+    /// </summary>
+    public async Task UpdateExpiryAsync(string sessionId, DateTime expiresAt)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var session = await context.PrefillSessions
+            .FirstOrDefaultAsync(s => s.SessionId == sessionId && s.Status == PrefillSessionStatus.Active);
+
+        if (session != null)
+        {
+            session.ExpiresAtUtc = expiresAt;
+            await context.SaveChangesAsync();
+
+            _logger.LogDebug("Updated persisted expiry for session {SessionId} to {ExpiresAt:o}", sessionId, expiresAt);
+        }
+    }
+
+    /// <summary>
     /// Marks a session as terminated.
     /// </summary>
     public async Task TerminateSessionAsync(
