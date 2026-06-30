@@ -418,7 +418,7 @@ export function GameSelectionModal({
                               className="w-full flex items-center gap-3 px-4 py-3 text-left min-h-[44px] transition-[background-color] duration-150 ease-out bg-[var(--theme-primary-faint)] border-b border-[var(--theme-border-secondary)] hover:bg-[var(--theme-primary-subtle)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--theme-border-focus)]"
                             >
                               <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-[var(--theme-primary)] border-2 border-[var(--theme-primary)]">
-                                <Check className="h-3 w-3 text-white" />
+                                <Check className="h-3 w-3 text-[var(--theme-button-text)]" />
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="truncate font-medium text-[var(--theme-text-primary)]">

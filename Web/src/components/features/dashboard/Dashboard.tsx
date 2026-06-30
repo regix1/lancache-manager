@@ -17,7 +17,8 @@ import {
   LayoutGrid,
   X,
   Move,
-  Check
+  Check,
+  Sparkles
 } from 'lucide-react';
 import { useTranslation, Trans } from 'react-i18next';
 import {
@@ -854,12 +855,12 @@ const Dashboard: React.FC = () => {
             <div className="edit-mode-instruction-text flex items-center gap-2">
               {draggedCard ? (
                 <>
-                  <span className="text-base">👆</span>
+                  <Move className="w-4 h-4 flex-shrink-0" />
                   <span>{t('dashboard.editModeInstructions.dragging')}</span>
                 </>
               ) : (
                 <>
-                  <span className="text-base">✨</span>
+                  <Sparkles className="w-4 h-4 flex-shrink-0" />
                   <span>{t('dashboard.editModeInstructions.initial')}</span>
                 </>
               )}

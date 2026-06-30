@@ -2,6 +2,7 @@ import React, { Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@components/ui/Card';
 import HighlightGlow from '@components/ui/HighlightGlow';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { type AuthMode } from '@services/auth.service';
 import SteamLoginManager from '../steam/SteamLoginManager';
 import SteamWebApiStatus from '../steam/SteamWebApiStatus';
@@ -128,10 +129,11 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
           <Suspense
             fallback={
               <Card>
-                <div className="flex items-center justify-center py-8">
-                  <div className="text-themed-muted">
+                <div className="flex items-center justify-center gap-2 py-8">
+                  <LoadingSpinner size="md" />
+                  <span className="text-themed-muted">
                     {t('management.sections.integrations.loadingEndpoints')}
-                  </div>
+                  </span>
                 </div>
               </Card>
             }

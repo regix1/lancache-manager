@@ -1,0 +1,32 @@
+/* ClientsSection — exclude-IP card control rows.
+
+   Each "add IPs" / "known clients" row pairs a bordered control (the .themed-input
+   text field or the MultiSelectDropdown .msd-trigger) with a borderless md Button.
+   The bordered controls carry a 1px border the borderless button does not, so they
+   render ~2px taller and the centered row goes ragged.
+
+   Match them to ONE height (the 40px md-button height) by trimming each bordered
+   control's vertical padding by its border, mirroring the proven
+   .scheduled-prefill-number-cap .themed-input recipe, and pinning every control in
+   the row to the same min-height like .schedule-control-button. Scoped to these rows
+   so the shared .themed-input / MultiSelectDropdown stay unchanged everywhere else. */
+
+.clients-control-row .themed-input,
+.clients-control-row .msd-trigger,
+.clients-control-row .clients-row-button {
+  min-height: 2.5rem;
+}
+
+/* The .themed-input (px-3 py-2 + 1px border) lands ~2px above the borderless md
+   Button; trim its vertical padding by that border to share the 40px height. */
+.clients-control-row .themed-input {
+  padding-top: calc(0.5rem - 1px);
+  padding-bottom: calc(0.5rem - 1px);
+}
+
+/* The MultiSelectDropdown trigger (px-3 py-2.5 + 1px border, text-sm) is ~2px taller
+   than the borderless md Button; trim by the border to land on the same height. */
+.clients-control-row .msd-trigger {
+  padding-top: calc(0.625rem - 1px);
+  padding-bottom: calc(0.625rem - 1px);
+}

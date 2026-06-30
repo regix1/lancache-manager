@@ -88,7 +88,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
               variant="filled"
               color="gray"
               size="sm"
-              className="flex-shrink-0"
+              className="flex-shrink-0 min-h-[44px] sm:min-h-0"
               disabled={isExpanding}
             >
               {isExpanding ? (

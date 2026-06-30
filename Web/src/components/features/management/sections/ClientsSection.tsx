@@ -16,6 +16,7 @@ import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import ClientGroupModal from '@components/modals/ClientGroupModal';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import type { ClientGroup, ClientExclusionRule, ClientExclusionMode } from '../../../../types';
+import './ClientsSection.css';
 
 const UNGROUPED_IPS_PER_PAGE = 20;
 const PAGINATION_TOP_THRESHOLD = 100;
@@ -568,7 +569,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                   <div className="text-xs text-themed-muted uppercase tracking-wide font-semibold">
                     {t('management.sections.clients.pickFromKnownClients')}
                   </div>
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                  <div className="clients-control-row flex flex-col sm:flex-row sm:items-center gap-3">
                     <MultiSelectDropdown
                       options={knownClientOptions}
                       values={selectedKnownIps}
@@ -584,7 +585,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                       onClick={handleAddKnownIps}
                       variant="filled"
                       color="blue"
-                      className="sm:w-40"
+                      className="clients-row-button sm:w-40"
                       disabled={selectedKnownIps.length === 0 || loadingExcluded || savingExcluded}
                     >
                       {t('management.sections.clients.addSelected')}
@@ -599,23 +600,20 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
 
                 <div className="border-t border-themed-primary pt-4" />
 
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="clients-control-row flex flex-col sm:flex-row sm:items-center gap-3">
                   <input
                     type="text"
                     value={excludeInput}
                     onChange={(e) => setExcludeInput(e.target.value)}
                     placeholder={t('management.sections.clients.addIpsPlaceholder')}
-                    className="w-full px-3 py-2 rounded-lg transition-colors
-                             bg-themed-secondary text-themed-primary
-                             border border-themed-secondary focus:border-themed-focus
-                             placeholder:text-themed-muted"
+                    className="themed-input w-full px-3 transition-colors"
                     disabled={loadingExcluded || savingExcluded}
                   />
                   <Button
                     onClick={handleAddExcluded}
                     variant="filled"
                     color="blue"
-                    className="sm:w-32"
+                    className="clients-row-button sm:w-32"
                     disabled={
                       loadingExcluded ||
                       savingExcluded ||

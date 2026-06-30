@@ -579,41 +579,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           border: 1px solid var(--theme-border-secondary);
         }
 
-        .tab-btn {
-          display: flex;
-          align-items: center;
-          gap: 0.4rem;
-          padding: 0.4rem 0.75rem;
-          font-size: 0.75rem;
-          font-weight: 600;
-          color: var(--theme-text-muted);
-          background: transparent;
-          border: none;
-          border-radius: var(--theme-border-radius);
-          cursor: pointer;
-          transition:
-            color 0.2s ease,
-            background-color 0.2s ease,
-            box-shadow 0.2s ease;
-        }
-
-        .tab-btn:hover:not(.active) {
-          color: var(--theme-text-secondary);
-          background: var(--theme-bg-secondary-strong);
-        }
-
-        .tab-btn.active {
-          color: var(--theme-button-text);
-          background: var(--theme-primary);
-          box-shadow: 0 2px 4px var(--theme-primary-muted);
-        }
-
-        .tab-btn svg {
-          width: 14px;
-          height: 14px;
-        }
-
-        .tab-badge {
+.tab-badge {
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -624,7 +590,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           font-weight: 700;
           border-radius: 9px;
           background: var(--theme-success);
-          color: white;
+          color: var(--theme-button-text);
           animation: badge-glow 2s ease-in-out infinite;
         }
 

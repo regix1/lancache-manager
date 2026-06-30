@@ -106,7 +106,9 @@ export function PrefillConfirmModal({
                           </span>
                           <span
                             className={`whitespace-nowrap ${
-                              app.isUnsupportedOs ? 'text-amber-500' : 'text-themed-muted'
+                              app.isUnsupportedOs
+                                ? 'text-[var(--theme-warning)]'
+                                : 'text-themed-muted'
                             }`}
                             title={app.unavailableReason}
                           >

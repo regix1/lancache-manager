@@ -129,6 +129,15 @@ interface EnhancedDropdownProps {
   maxHeight?: string;
   /** Trigger button style variant. 'card' = dark card bg (default, for headers/nav). 'button' = matches Button component (lighter, for toolbars). */
   variant?: 'card' | 'button';
+  /**
+   * Trigger height. Canonical control-height matrix (base 16px font):
+   *   Button md (`px-4 py-2`) ≈ 40px · EnhancedDropdown md (`px-3 py-2 border`) ≈ 38px ·
+   *   Button sm (`px-3 py-1.5 text-sm`) ≈ 32px · `themed-input` (`@apply border`) ≈ button +2px at same padding.
+   * 'md' (default) renders the historical ~38px trigger byte-for-byte; 'sm' ≈ 32px (`py-1.5`);
+   * 'lg' ≈ 40px (`py-2.5`) so a dropdown can be height-matched to an md `Button` in a shared
+   * control cluster directly in TSX, instead of a bespoke per-surface `min-height` CSS rule.
+   */
+  size?: 'sm' | 'md' | 'lg';
 }
 
 export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
@@ -151,7 +160,8 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   footerIcon: FooterIcon,
   cleanStyle = false,
   maxHeight,
-  variant = 'card'
+  variant = 'card',
+  size = 'md'
 }) => {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
@@ -362,6 +372,9 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       : placeholder || t('ui.dropdown.selectOption');
   const TriggerIcon = TriggerIconOverride ?? selectedOption?.icon;
   const resolvedAriaLabel = triggerAriaLabel || displayLabel;
+  // Size → trigger vertical padding (height matrix in the `size` prop doc above).
+  // 'md' MUST resolve to `py-2` so every existing call site stays byte-identical (~38px).
+  const triggerSizeClass = size === 'sm' ? 'py-1.5' : size === 'lg' ? 'py-2.5' : 'py-2';
 
   return (
     <div className={`relative ${className}`}>
@@ -394,7 +407,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         }}
         disabled={disabled}
         aria-label={resolvedAriaLabel}
-        className={`ed-trigger w-full px-3 py-2 themed-border-radius border text-left flex items-center justify-between text-sm text-themed-primary ${
+        className={`ed-trigger w-full px-3 ${triggerSizeClass} themed-border-radius border text-left flex items-center justify-between text-sm text-themed-primary ${
           variant === 'button' ? 'bg-themed-tertiary hover:bg-themed-hover' : 'themed-card'
         } ${
           isOpen

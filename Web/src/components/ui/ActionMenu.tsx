@@ -210,7 +210,7 @@ export const ActionMenuDangerItem: React.FC<ActionMenuDangerItemProps> = ({
   return (
     <button
       onClick={onClick}
-      className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-all duration-150 text-themed-error bg-transparent hover:bg-[var(--theme-error-bg)]"
+      className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors duration-150 text-themed-error bg-transparent hover:bg-[var(--theme-error-bg)]"
     >
       {icon}
       {children}
