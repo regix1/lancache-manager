@@ -394,13 +394,28 @@ public class CacheClearingService : ScheduledBackgroundService
                 var lastLoggedDirs = 0;
                 var lastLogTime = DateTime.UtcNow;
 
-                var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync<RustCacheProgress>(
+                var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
                     startInfo,
                     operationId,
                     cancellationToken,
-                    progressFile,
-                    async progressData =>
+                    async _ =>
                     {
+                        // cache_clear.rs's live stdout event only carries processed/totalDirs/
+                        // activeCount in its free-form context bag (confirmed by reading
+                        // cache_clear.rs directly) — it does not carry BytesDeleted/FilesDeleted/
+                        // the active-directory-name list this callback depends on, which stay
+                        // file-only. Each live stdout tick now triggers exactly one authoritative
+                        // read of the (Rust-side-unchanged) progress file instead of blindly
+                        // polling it every DefaultProgressPollMs regardless of whether anything
+                        // changed — trading the poll-interval latency/wasted reads for an
+                        // event-driven read the instant Rust reports a genuine tick, with zero
+                        // loss of the fields below.
+                        var progressData = await _rustProcessHelper.ReadProgressFileAsync<RustCacheProgress>(progressFile);
+                        if (progressData == null)
+                        {
+                            return;
+                        }
+
                         var currentDirsProcessed = dirsProcessedBefore + progressData.DirectoriesProcessed;
                         var currentBytesDeleted = totalBytesDeleted + (long)progressData.BytesDeleted;
                         var currentFilesDeleted = totalFilesDeleted + (long)progressData.FilesDeleted;

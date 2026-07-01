@@ -15,6 +15,11 @@ public partial class RustProcessHelper
     private readonly IPathResolver _pathResolver;
     private readonly IUnifiedOperationTracker _operationTracker;
 
+    private static readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     /// <summary>
     /// Default interval (ms) between progress-file polls. Shared so the several callers that poll a
     /// Rust progress JSON file (db reset, log removal, cache clear, corruption removal, eviction scan)
@@ -332,6 +337,134 @@ public partial class RustProcessHelper
     }
 
     /// <summary>
+    /// Runs a tracked Rust process, consuming LIVE structured progress events from its stdout
+    /// (progress_events.rs's started/progress/complete NDJSON protocol) instead of polling a
+    /// progress file. Only the binaries that actually emit this protocol (cache_clear,
+    /// cache_game_detect, log_processor) should use this — the other Rust binaries only write a
+    /// progress file and must keep using <see cref="ExecuteTrackedProcessWithProgressAsync{TProgress}"/>.
+    /// The Rust side keeps writing its progress file unchanged (crash-recovery checkpoint); this
+    /// only changes what C# reads live, replacing the up-to-<see cref="DefaultProgressPollMs"/>ms
+    /// poll delay with an event-driven reaction to each line Rust actually emits.
+    /// </summary>
+    public Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
+        ProcessStartInfo startInfo,
+        Guid? operationId,
+        CancellationToken cancellationToken,
+        Func<RustProgressEvent, Task>? onProgressEvent,
+        string processLabel = "rust") =>
+        RunTrackedProcessAsync(
+            startInfo,
+            operationId,
+            cancellationToken,
+            process => ExecuteWithProgressEventsAsync(
+                process,
+                cancellationToken,
+                onProgressEvent,
+                processLabel),
+            processLabel: processLabel);
+
+    private async Task<ProcessExecutionResult> ExecuteWithProgressEventsAsync(
+        Process process,
+        CancellationToken cancellationToken,
+        Func<RustProgressEvent, Task>? onProgressEvent,
+        string processLabel)
+    {
+        var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+
+        try
+        {
+            var output = await ConsumeStdoutProgressEventsAsync(process, onProgressEvent, processLabel, cancellationToken);
+
+            await _processManager.WaitForExitAsync(process, cancellationToken);
+
+            return new ProcessExecutionResult
+            {
+                ExitCode = process.ExitCode,
+                Output = output,
+                Error = await errorTask
+            };
+        }
+        finally
+        {
+            // Mirrors ExecuteWithProgressPollingAsync/LogStderrAsync's defensive stderr
+            // observation: on a cancel/kill the read above may fault or never have been awaited
+            // in the try block; observe it here so it never goes unobserved, and log any captured
+            // stderr at Debug the same way the polling path does.
+            try
+            {
+                var stderr = await errorTask;
+                if (!string.IsNullOrWhiteSpace(stderr))
+                {
+                    _logger.LogDebug("[{ProcessLabel}] Cancelled/exited process stderr: {Stderr}", processLabel, stderr);
+                }
+            }
+            catch { /* read may fault when the child was killed */ }
+        }
+    }
+
+    /// <summary>
+    /// Reads a process's stdout continuously via ReadLineAsync (no polling, mirrors
+    /// RustSpeedTrackerService's stdout-consumption technique), parsing each non-empty line as a
+    /// progress_events.rs-shaped JSON event and invoking <paramref name="onProgressEvent"/> for
+    /// each one successfully parsed. A malformed/partial line is logged at Debug and skipped
+    /// rather than throwing or being silently swallowed. Returns the raw stdout text
+    /// (newline-joined) for callers that also want the verbatim output, mirroring what
+    /// ReadToEndAsync captured on the old polling path. Public so a caller with a bespoke process
+    /// closure (e.g. one that also needs the raw <see cref="Process"/> for other reasons) can
+    /// consume the live event stream directly instead of going through
+    /// <see cref="ExecuteTrackedProcessWithProgressEventsAsync"/>.
+    /// </summary>
+    public async Task<string> ConsumeStdoutProgressEventsAsync(
+        Process process,
+        Func<RustProgressEvent, Task>? onProgressEvent,
+        string processLabel,
+        CancellationToken cancellationToken)
+    {
+        var stdoutLines = new List<string>();
+
+        string? line;
+        while ((line = await process.StandardOutput.ReadLineAsync(cancellationToken)) != null)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            stdoutLines.Add(line);
+
+            if (onProgressEvent == null)
+            {
+                continue;
+            }
+
+            RustProgressEvent? progressEvent;
+            try
+            {
+                progressEvent = JsonSerializer.Deserialize<RustProgressEvent>(line, _jsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "[{ProcessLabel}] Failed to parse stdout progress event line: {Line}", processLabel, line);
+                continue;
+            }
+
+            if (progressEvent != null)
+            {
+                try
+                {
+                    await onProgressEvent(progressEvent);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[{ProcessLabel}] Progress event callback threw for event {Event} ({StageKey})", processLabel, progressEvent.Event, progressEvent.StageKey);
+                }
+            }
+        }
+
+        return string.Join(Environment.NewLine, stdoutLines);
+    }
+
+    /// <summary>
     /// Monitors a progress file and invokes callback with progress updates
     /// </summary>
     public Task MonitorProgressFileAsync<T>(
@@ -396,39 +529,6 @@ public partial class RustProcessHelper
         await DeleteTempFileAsync(outputJsonPath);
 
         return result;
-    }
-
-    /// <summary>
-    /// Creates monitoring tasks for stdout and stderr of a process
-    /// </summary>
-    public (Task stdoutTask, Task stderrTask) CreateOutputTasks(Process process, string processName)
-    {
-        var stdoutTask = Task.Run(async () =>
-        {
-            string? line;
-            while ((line = await process.StandardOutput.ReadLineAsync()) != null)
-            {
-                if (!string.IsNullOrEmpty(line))
-                {
-                    _logger.LogInformation("[{ProcessName}] {Line}", processName, line);
-                }
-            }
-        });
-
-        var stderrTask = Task.Run(async () =>
-        {
-            string? line;
-            while ((line = await process.StandardError.ReadLineAsync()) != null)
-            {
-                if (!string.IsNullOrEmpty(line))
-                {
-                    // Stderr may contain warnings or diagnostic info, log at debug level
-                    _logger.LogInformation("[{ProcessName} stderr] {Line}", processName, line);
-                }
-            }
-        });
-
-        return (stdoutTask, stderrTask);
     }
 
     /// <summary>
@@ -748,6 +848,43 @@ public class ProcessExecutionResult
     public int ExitCode { get; set; }
     public string Output { get; set; } = string.Empty;
     public string Error { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Strongly-typed envelope for the JSON lines Rust's progress_events.rs ProgressReporter emits
+/// over stdout (event types "started"/"progress"/"complete" — see that file's header comment for
+/// the exact wire shape). PercentComplete is only populated on "progress" events; Success/
+/// Cancelled are only populated on "complete" events — the other event types leave them null.
+/// Context is a free-form JSON object whose shape varies by StageKey (Rust declares it as
+/// serde_json::Value, genuinely heterogeneous even within one binary's stream), so it stays a
+/// JsonElement rather than being forced into a fixed shape; callers that need specific fields out
+/// of it read them via Context.Value.TryGetProperty(...).
+/// </summary>
+public class RustProgressEvent
+{
+    [System.Text.Json.Serialization.JsonPropertyName("event")]
+    public string Event { get; set; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("operationId")]
+    public string OperationId { get; set; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
+    public double? PercentComplete { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("status")]
+    public string Status { get; set; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("stageKey")]
+    public string StageKey { get; set; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("context")]
+    public JsonElement? Context { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("success")]
+    public bool? Success { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("cancelled")]
+    public bool? Cancelled { get; set; }
 }
 
 /// <summary>

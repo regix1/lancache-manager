@@ -431,71 +431,48 @@ public partial class GameCacheDetectionService : IDisposable
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, arguments);
 
-                // Start progress monitoring task
-                var progressCts = new CancellationTokenSource();
-                var progressMonitorTask = Task.Run(async () =>
-                {
-                    try
+                // cache_game_detect.rs emits genuine per-tick percent/context data over stdout
+                // (confirmed by reading the binary directly), so each live stdout event now
+                // triggers exactly one authoritative progress-file read in place of the old
+                // Task.Delay(500)-based poll loop. The callback body below (tracker update +
+                // SignalR notify) is unchanged from the previous poll-loop version.
+                var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
+                    startInfo,
+                    operationId,
+                    cancellationToken,
+                    async _ =>
                     {
-                        while (!progressCts.Token.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                        var progress = await _rustProcessHelper.ReadProgressFileAsync<GameDetectionProgressData>(progressFilePath);
+                        if (progress == null)
                         {
-                            await Task.Delay(500, progressCts.Token);
-
-                            var progress = await _rustProcessHelper.ReadProgressFileAsync<GameDetectionProgressData>(progressFilePath);
-                            if (progress != null)
-                            {
-                                // Scale Rust progress (0-100%) to the scanning phase range (1-30%)
-                                var scaledPercent = 1 + (progress.PercentComplete * 29.0 / 100.0);
-                                _operationTracker.UpdateProgress(operationId, scaledPercent, progress.StageKey ?? string.Empty);
-                                // The tracker stores only the stage KEY; persist the Rust progress
-                                // context (e.g. processed/total for services.progress) on the metrics
-                                // so the /api/games/detect/active recovery endpoint can translate it.
-                                _operationTracker.UpdateMetadata(operationId, (object meta) =>
-                                {
-                                    var metrics = (GameDetectionMetrics)meta;
-                                    metrics.CurrentContext = progress.Context;
-                                });
-
-                                // Send SignalR notification for live updates
-                                await _notifications.NotifyAllAsync(SignalREvents.GameDetectionProgress, new
-                                {
-                                    OperationId = operationId,
-                                    PercentComplete = scaledPercent,
-                                    Status = OperationStatus.Running,
-                                    StageKey = progress.StageKey,
-                                    Context = progress.Context,
-                                    gamesProcessed = progress.GamesProcessed,
-                                    totalGames = progress.TotalGames
-                                });
-                            }
+                            return;
                         }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Expected when cancellation is requested
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "[GameDetection] Error in progress monitoring task");
-                    }
-                }, progressCts.Token);
 
-                ProcessExecutionResult result;
-                try
-                {
-                    result = await _rustProcessHelper.ExecuteTrackedProcessAsync(
-                        startInfo,
-                        operationId,
-                        cancellationToken,
-                        "cache_game_detect");
-                }
-                finally
-                {
-                    // Stop progress monitoring
-                    await progressCts.CancelAsync();
-                    try { await progressMonitorTask; } catch { /* ignore cancellation */ }
-                    progressCts.Dispose();
-                }
+                        // Scale Rust progress (0-100%) to the scanning phase range (1-30%)
+                        var scaledPercent = 1 + (progress.PercentComplete * 29.0 / 100.0);
+                        _operationTracker.UpdateProgress(operationId, scaledPercent, progress.StageKey ?? string.Empty);
+                        // The tracker stores only the stage KEY; persist the Rust progress
+                        // context (e.g. processed/total for services.progress) on the metrics
+                        // so the /api/games/detect/active recovery endpoint can translate it.
+                        _operationTracker.UpdateMetadata(operationId, (object meta) =>
+                        {
+                            var metrics = (GameDetectionMetrics)meta;
+                            metrics.CurrentContext = progress.Context;
+                        });
+
+                        // Send SignalR notification for live updates
+                        await _notifications.NotifyAllAsync(SignalREvents.GameDetectionProgress, new
+                        {
+                            OperationId = operationId,
+                            PercentComplete = scaledPercent,
+                            Status = OperationStatus.Running,
+                            StageKey = progress.StageKey,
+                            Context = progress.Context,
+                            gamesProcessed = progress.GamesProcessed,
+                            totalGames = progress.TotalGames
+                        });
+                    },
+                    "cache_game_detect");
 
                 // Log diagnostic output from stderr (contains scan progress and stats)
                 if (!string.IsNullOrWhiteSpace(result.Error))

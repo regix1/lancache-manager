@@ -623,7 +623,35 @@ public class RustLogProcessorService
                 processingToken,
                 async process =>
                 {
-                    var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputTasks(process, "Rust log processor");
+                    // log_processor.rs's stdout NDJSON protocol only emits started/complete/failed
+                    // lifecycle events (confirmed by reading log_processor.rs directly) — unlike
+                    // cache_clear/cache_game_detect it does NOT emit intermediate percent ticks
+                    // over stdout, so MonitorProgressAsync's file poll below remains the only
+                    // source of granular line/byte progress and stays unchanged. Consuming stdout
+                    // via the new structured event parser (instead of the old raw-line stdout logger's
+                    // "log every raw JSON line at Info") turns what used to be raw-JSON log spam
+                    // into clean, low-noise lifecycle log lines; stderr keeps its own line logger.
+                    var stdoutTask = _rustProcessHelper.ConsumeStdoutProgressEventsAsync(
+                        process,
+                        onProgressEvent: evt =>
+                        {
+                            _logger.LogInformation("[Rust log processor] {Event} ({StageKey})", evt.Event, evt.StageKey);
+                            return Task.CompletedTask;
+                        },
+                        processLabel: "log_processor",
+                        processingToken);
+
+                    var stderrTask = Task.Run(async () =>
+                    {
+                        string? line;
+                        while ((line = await process.StandardError.ReadLineAsync(processingToken)) != null)
+                        {
+                            if (!string.IsNullOrEmpty(line))
+                            {
+                                _logger.LogInformation("[Rust log processor stderr] {Line}", line);
+                            }
+                        }
+                    });
 
                     if (!silentMode)
                     {
