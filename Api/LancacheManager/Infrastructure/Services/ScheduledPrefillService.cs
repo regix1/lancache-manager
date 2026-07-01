@@ -201,9 +201,18 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
         }
         catch (OperationCanceledException) when (runToken.IsCancellationRequested)
         {
+            // Cancelled via this run's own operation-tracker CTS (user pressed Cancel) or app
+            // shutdown - NOT an unrelated internal timeout, which surfaces with runToken still
+            // un-cancelled and therefore falls through to the generic catch below and is re-thrown
+            // as a real error. This benign cancel is fully handled here: the finally still notifies
+            // and completes the tracked operation as cancelled, so we swallow the exception instead
+            // of re-throwing. That keeps it out of the shared ConfigurableScheduledService loop,
+            // which would otherwise mis-log a user cancel as a hard "error in scheduled work".
+            // Returning lets the base loop treat this tick as a normal completion and keep ticking.
             success = false;
             error = "Scheduled prefill run cancelled";
-            throw;
+            _logger.LogInformation("[ScheduledPrefill] Scheduled run was cancelled");
+            return;
         }
         catch (Exception ex)
         {
