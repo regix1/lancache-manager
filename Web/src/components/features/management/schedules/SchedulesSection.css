@@ -257,6 +257,14 @@
   min-height: 2.5rem;
 }
 
+/* Scheduled prefill hides its own interval dropdown here (each platform owns its
+   interval in the per-service detail below instead), leaving Run Now as this row's
+   only child. Fill the row instead of floating at content-width with dead space to
+   its right - same intent as the <380px stacked rule below, but for every width. */
+.schedule-controls-row > .schedule-run-button:only-child {
+  width: 100%;
+}
+
 /* On very narrow phones, stack the interval dropdown above the Run Now button so
    neither gets cramped to an unreadable width. */
 @media (max-width: 380px) {
@@ -891,7 +899,7 @@
 }
 
 .scheduled-prefill-persistent-card__hint,
-.scheduled-prefill-persistent-card__override {
+.scheduled-prefill-schedule-fields__override {
   margin: 0;
   font-size: 0.75rem;
   line-height: 1.45;
@@ -906,7 +914,7 @@
   font-weight: 600;
 }
 
-.scheduled-prefill-persistent-card__override {
+.scheduled-prefill-schedule-fields__override {
   color: var(--theme-info-text);
   font-weight: 600;
 }
