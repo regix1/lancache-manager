@@ -231,12 +231,103 @@ public static class ScheduledPrefillConfigFactory
     }
 
     /// <summary>
-    /// Validates a scheduled prefill config. Throws <see cref="ScheduledPrefillConfigValidationException"/>
-    /// with an explicit message on the first failed rule. Returns the same instance for convenience.
+    /// Presets each service's daemon can actually back with real per-user/catalog data. Mirrors
+    /// <c>SCHEDULED_PREFILL_SUPPORTED_PRESETS</c> in
+    /// <c>Web/src/components/features/management/schedules/scheduled-prefill/constants.ts</c> — keep
+    /// both in sync if a daemon's capabilities change. BattleNet/Riot are anonymous catalog mirrors
+    /// with no per-user history or popularity signal to sort by; Epic's API exposes cumulative
+    /// playtime but no last-played timestamp, so "Recent" has nothing to order by.
+    /// </summary>
+    private static readonly Dictionary<PrefillPlatform, IReadOnlySet<ScheduledPrefillPreset>> _supportedPresetsByService =
+        new()
+        {
+            [PrefillPlatform.Steam] = new HashSet<ScheduledPrefillPreset>
+            {
+                ScheduledPrefillPreset.All, ScheduledPrefillPreset.Recent, ScheduledPrefillPreset.Top
+            },
+            [PrefillPlatform.Epic] = new HashSet<ScheduledPrefillPreset>
+            {
+                ScheduledPrefillPreset.All, ScheduledPrefillPreset.Top
+            },
+            [PrefillPlatform.Xbox] = new HashSet<ScheduledPrefillPreset>
+            {
+                ScheduledPrefillPreset.All, ScheduledPrefillPreset.Recent, ScheduledPrefillPreset.Top
+            },
+            [PrefillPlatform.BattleNet] = new HashSet<ScheduledPrefillPreset> { ScheduledPrefillPreset.All },
+            [PrefillPlatform.Riot] = new HashSet<ScheduledPrefillPreset> { ScheduledPrefillPreset.All }
+        };
+
+    /// <summary>
+    /// Coerces any service whose persisted <see cref="ScheduledPrefillServiceConfigDto.Preset"/> is no
+    /// longer supported by that service (e.g. saved before per-service preset capability gating
+    /// existed, or written directly via the API) back to <see cref="ScheduledPrefillPreset.All"/>,
+    /// clearing <see cref="ScheduledPrefillServiceConfigDto.TopCount"/> to match. Called from
+    /// <see cref="Validate"/> before its throwing rules run, so a stale value self-heals on the next
+    /// read/save instead of rejecting the whole config. Returns <paramref name="config"/> unchanged
+    /// when nothing needs reconciling.
+    /// </summary>
+    private static ScheduledPrefillConfigDto ReconcileUnsupportedPresets(ScheduledPrefillConfigDto config)
+    {
+        var steam = ReconcileServicePreset(config.Steam);
+        var epic = ReconcileServicePreset(config.Epic);
+        var xbox = ReconcileServicePreset(config.Xbox);
+        var battleNet = ReconcileServicePreset(config.BattleNet);
+        var riot = ReconcileServicePreset(config.Riot);
+
+        if (ReferenceEquals(steam, config.Steam) && ReferenceEquals(epic, config.Epic) &&
+            ReferenceEquals(xbox, config.Xbox) && ReferenceEquals(battleNet, config.BattleNet) &&
+            ReferenceEquals(riot, config.Riot))
+        {
+            return config;
+        }
+
+        return new ScheduledPrefillConfigDto
+        {
+            Version = config.Version,
+            MaxServiceRuntime = config.MaxServiceRuntime,
+            StallTimeout = config.StallTimeout,
+            Steam = steam,
+            Epic = epic,
+            Xbox = xbox,
+            BattleNet = battleNet,
+            Riot = riot
+        };
+    }
+
+    private static ScheduledPrefillServiceConfigDto ReconcileServicePreset(ScheduledPrefillServiceConfigDto service)
+    {
+        if (!_supportedPresetsByService.TryGetValue(service.ServiceId, out var supportedPresets)
+            || supportedPresets.Contains(service.Preset))
+        {
+            return service;
+        }
+
+        return new ScheduledPrefillServiceConfigDto
+        {
+            ServiceId = service.ServiceId,
+            Enabled = service.Enabled,
+            IntervalHours = service.IntervalHours,
+            Preset = ScheduledPrefillPreset.All,
+            TopCount = null,
+            SelectedAppIds = service.SelectedAppIds,
+            OperatingSystems = service.OperatingSystems,
+            Force = service.Force,
+            MaxConcurrency = service.MaxConcurrency
+        };
+    }
+
+    /// <summary>
+    /// Validates a scheduled prefill config. First reconciles any per-service preset that its own
+    /// service no longer supports (see <see cref="ReconcileUnsupportedPresets"/>), then throws
+    /// <see cref="ScheduledPrefillConfigValidationException"/> with an explicit message on the first
+    /// remaining failed rule. Returns the reconciled instance (the same instance when nothing needed
+    /// reconciling).
     /// </summary>
     public static ScheduledPrefillConfigDto Validate(ScheduledPrefillConfigDto config)
     {
         ArgumentNullException.ThrowIfNull(config);
+
+        config = ReconcileUnsupportedPresets(config);
 
         if (config.Version != CurrentVersion)
         {

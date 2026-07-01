@@ -122,6 +122,88 @@ public class ScheduledPrefillConfigFactoryTests
             () => ScheduledPrefillConfigFactory.Validate(broken));
     }
 
+    [Fact]
+    public void Validate_ReconcilesPresetNoLongerSupportedByService_InsteadOfThrowing()
+    {
+        // BattleNet is All-only; this simulates a config saved before per-service preset capability
+        // gating existed (or written directly via the API) with a preset it can no longer back.
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+        var stale = WithBattleNetPreset(config, ScheduledPrefillPreset.Top, topCount: 50);
+
+        var validated = ScheduledPrefillConfigFactory.Validate(stale);
+
+        Assert.Equal(ScheduledPrefillPreset.All, validated.BattleNet.Preset);
+        Assert.Null(validated.BattleNet.TopCount);
+    }
+
+    [Fact]
+    public void Validate_LeavesSupportedPresetUnchanged_AndReturnsSameInstance()
+    {
+        // Steam supports Top, so nothing should be reconciled and Validate should be a true no-op.
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+        var withTop = WithSteamPreset(config, ScheduledPrefillPreset.Top, topCount: 50);
+
+        var validated = ScheduledPrefillConfigFactory.Validate(withTop);
+
+        Assert.Same(withTop, validated);
+        Assert.Equal(ScheduledPrefillPreset.Top, validated.Steam.Preset);
+        Assert.Equal(50, validated.Steam.TopCount);
+    }
+
+    private static ScheduledPrefillConfigDto WithBattleNetPreset(
+        ScheduledPrefillConfigDto config, ScheduledPrefillPreset preset, int? topCount)
+    {
+        return new ScheduledPrefillConfigDto
+        {
+            Version = config.Version,
+            MaxServiceRuntime = config.MaxServiceRuntime,
+            StallTimeout = config.StallTimeout,
+            Steam = config.Steam,
+            Epic = config.Epic,
+            Xbox = config.Xbox,
+            BattleNet = new ScheduledPrefillServiceConfigDto
+            {
+                ServiceId = config.BattleNet.ServiceId,
+                Enabled = config.BattleNet.Enabled,
+                IntervalHours = config.BattleNet.IntervalHours,
+                Preset = preset,
+                TopCount = topCount,
+                SelectedAppIds = config.BattleNet.SelectedAppIds,
+                OperatingSystems = config.BattleNet.OperatingSystems,
+                Force = config.BattleNet.Force,
+                MaxConcurrency = config.BattleNet.MaxConcurrency
+            },
+            Riot = config.Riot
+        };
+    }
+
+    private static ScheduledPrefillConfigDto WithSteamPreset(
+        ScheduledPrefillConfigDto config, ScheduledPrefillPreset preset, int? topCount)
+    {
+        return new ScheduledPrefillConfigDto
+        {
+            Version = config.Version,
+            MaxServiceRuntime = config.MaxServiceRuntime,
+            StallTimeout = config.StallTimeout,
+            Steam = new ScheduledPrefillServiceConfigDto
+            {
+                ServiceId = config.Steam.ServiceId,
+                Enabled = config.Steam.Enabled,
+                IntervalHours = config.Steam.IntervalHours,
+                Preset = preset,
+                TopCount = topCount,
+                SelectedAppIds = config.Steam.SelectedAppIds,
+                OperatingSystems = config.Steam.OperatingSystems,
+                Force = config.Steam.Force,
+                MaxConcurrency = config.Steam.MaxConcurrency
+            },
+            Epic = config.Epic,
+            Xbox = config.Xbox,
+            BattleNet = config.BattleNet,
+            Riot = config.Riot
+        };
+    }
+
     private static ScheduledPrefillConfigDto BuildV1Config()
     {
         return new ScheduledPrefillConfigDto
