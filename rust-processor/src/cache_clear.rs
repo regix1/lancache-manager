@@ -421,7 +421,7 @@ fn get_available_bytes(_path: &Path) -> Result<u64> {
     Ok(0)
 }
 
-fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, delete_mode: &str, reporter: &ProgressReporter) -> Result<()> {
+fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, delete_mode: &str, reporter: &Arc<ProgressReporter>) -> Result<(usize, usize)> {
     let start_time = Instant::now();
     eprintln!("Starting cache clear operation...");
     eprintln!("Cache path: {}", cache_path);
@@ -491,7 +491,9 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     let progress_path_clone = progress_path.to_path_buf();
     let cache_dir_for_monitor = cache_dir.to_path_buf();
     let progress_enabled = reporter.is_enabled();
-    let operation_id = reporter.operation_id().to_string();
+    // Owned handle for the monitor thread so it can call the shared ProgressReporter
+    // methods directly instead of hand-rolling the JSON envelope itself.
+    let reporter_for_monitor = Arc::clone(reporter);
 
     // Start a background thread to update progress regularly
     let monitor_handle = std::thread::spawn(move || {
@@ -535,25 +537,6 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
                              active_snapshot.join(", "));
                 }
 
-                // Emit JSON progress event if enabled
-                if progress_enabled {
-                    let event = serde_json::json!({
-                        "event": "progress",
-                        "operationId": operation_id,
-                        "percentComplete": percent.clamp(0.0, 100.0),
-                        "status": "running",
-                        "stageKey": "signalr.cacheClear.progress",
-                        "context": {
-                            "processed": processed,
-                            "totalDirs": total_dirs,
-                            "activeCount": active_count
-                        }
-                    });
-                    if let Ok(json) = serde_json::to_string(&event) {
-                        println!("{}", json);
-                    }
-                }
-
                 let progress = ProgressData::new(
                     true,
                     percent,
@@ -569,6 +552,16 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
 
                 if let Err(e) = write_progress(&progress_path_clone, &progress) {
                     eprintln!("Warning: Failed to write progress: {}", e);
+                }
+
+                // File write happens before the stdout emit so a stdout-triggered C#
+                // file read is never stale (mirrors cache_game_detect.rs's ordering).
+                if progress_enabled {
+                    reporter_for_monitor.emit_progress(
+                        percent.clamp(0.0, 100.0),
+                        "signalr.cacheClear.progress",
+                        json!({ "processed": processed, "totalDirs": total_dirs, "activeCount": active_count }),
+                    );
                 }
 
                 last_update = Instant::now();
@@ -631,12 +624,6 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
         let processed = dirs_processed.load(Ordering::Relaxed);
         let percent = if total_dirs > 0 { (processed as f64 / total_dirs as f64) * 100.0 } else { 0.0 };
         eprintln!("Cancellation confirmed — processed {}/{} hex dirs, exiting.", processed, total_dirs);
-        // Emit partial progress via reporter (avoids re-borrowing the moved operation_id string).
-        reporter.emit_progress(
-            percent.clamp(0.0, 100.0),
-            "signalr.cacheClear.progress",
-            json!({ "processed": processed, "totalDirs": total_dirs, "activeCount": 0usize }),
-        );
         let progress = ProgressData::new(
             true,
             percent,
@@ -650,6 +637,14 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
             Vec::new(),
         );
         let _ = write_progress(progress_path, &progress);
+        // File write happens before the stdout emit (same ordering as the monitor
+        // thread above); reporter.emit_progress reads its own operation_id, avoiding
+        // a re-borrow of the String already moved into the monitor thread's closure.
+        reporter.emit_progress(
+            percent.clamp(0.0, 100.0),
+            "signalr.cacheClear.progress",
+            json!({ "processed": processed, "totalDirs": total_dirs, "activeCount": 0usize }),
+        );
         std::process::exit(0);
     }
 
@@ -690,7 +685,7 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     );
     write_progress(progress_path, &progress)?;
 
-    Ok(())
+    Ok((final_dirs, total_dirs))
 }
 
 /// Determine optimal thread count based on delete mode, filesystem type, and available CPUs
@@ -740,8 +735,9 @@ fn main() {
     let cache_path = &args.cache_path;
     let progress_path = Path::new(&args.progress_json_path);
 
-    // Create progress reporter
-    let reporter = ProgressReporter::new(args.progress);
+    // Create progress reporter, wrapped in Arc so the monitor thread inside
+    // clear_cache can hold its own owned handle without cloning ProgressReporter.
+    let reporter = Arc::new(ProgressReporter::new(args.progress));
 
     // Detect filesystem type for optimal configuration
     let cache_dir = Path::new(cache_path);
@@ -785,8 +781,10 @@ fn main() {
     eprintln!("Thread count: {} (mode: {})", thread_count, delete_mode);
 
     match clear_cache(cache_path, progress_path, thread_count, delete_mode, &reporter) {
-        Ok(_) => {
-            reporter.emit_complete("signalr.cacheClear.progress", json!({ "processed": 0usize, "totalDirs": 0usize, "activeCount": 0usize }));
+        Ok((final_dirs, total_dirs)) => {
+            // Same final counts the last write_progress call persisted to the file -
+            // no more hardcoded zeros on the stdout complete event.
+            reporter.emit_complete("signalr.cacheClear.progress", json!({ "processed": final_dirs, "totalDirs": total_dirs, "activeCount": 0usize }));
             std::process::exit(0);
         }
         Err(e) => {

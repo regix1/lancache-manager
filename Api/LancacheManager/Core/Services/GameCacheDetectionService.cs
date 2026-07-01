@@ -460,7 +460,17 @@ public partial class GameCacheDetectionService : IDisposable
                             metrics.CurrentContext = progress.Context;
                         });
 
-                        // Send SignalR notification for live updates
+                        // Send SignalR notification for live updates.
+                        // gamesDetected/servicesDetected mirror the cross-datasource running totals
+                        // SendProgressAsync already reports elsewhere in this method (aggregatedGames/
+                        // aggregatedServices reflect every datasource fully processed so far; the
+                        // datasource currently being scanned by this Rust process hasn't been merged
+                        // in yet, so the count is real but not yet inclusive of it).
+                        // servicesDetected falls back to existingServices when skipServiceScan is active -
+                        // aggregatedServices never gets populated in that mode (Rust is told to skip
+                        // service scanning), so without this fallback the live count would flatline at 0
+                        // for the whole incremental run instead of reporting the real known total (mirrors
+                        // the same existingServices fallback finalServices uses further below).
                         await _notifications.NotifyAllAsync(SignalREvents.GameDetectionProgress, new
                         {
                             OperationId = operationId,
@@ -468,6 +478,8 @@ public partial class GameCacheDetectionService : IDisposable
                             Status = OperationStatus.Running,
                             StageKey = progress.StageKey,
                             Context = progress.Context,
+                            gamesDetected = aggregatedGames.Count,
+                            servicesDetected = skipServiceScan && existingServices != null ? existingServices.Count : aggregatedServices.Count,
                             gamesProcessed = progress.GamesProcessed,
                             totalGames = progress.TotalGames
                         });
