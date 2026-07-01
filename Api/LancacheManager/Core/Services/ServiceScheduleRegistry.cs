@@ -1,3 +1,4 @@
+using System.Reflection;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Base;
@@ -22,6 +23,13 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
     private readonly Dictionary<string, ScheduledBackgroundService> _scheduledServices = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ConfigurableScheduledService> _configurableServices = new(StringComparer.OrdinalIgnoreCase);
+
+    // ConfigurableScheduledService fires its static ServiceWorkCompleted event using the protected
+    // ServiceName (see ConfigurableScheduledService.cs's ExecuteAsync loop and SteamService's identical,
+    // documented dependency on that exact contract), NOT the ScheduleServiceKey that _configurableServices
+    // above is keyed by. Track each tracked configurable service's ServiceName here too so
+    // OnServiceWorkCompletedAsync's tracked-service guard recognizes the event when it arrives.
+    private readonly HashSet<string> _configurableServiceNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly IStateService _stateService;
     private readonly ISignalRNotificationService _notifications;
 
@@ -44,6 +52,14 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             {
                 var key = GetServiceKey(configurableService);
                 _configurableServices[key] = configurableService;
+
+                // Also index by the protected ServiceName used by the ServiceWorkCompleted event
+                // (see _configurableServiceNames above) so the completion guard can recognize it.
+                var serviceName = GetStringProperty(configurableService.GetType(), configurableService, "ServiceName");
+                if (!string.IsNullOrEmpty(serviceName))
+                {
+                    _configurableServiceNames.Add(serviceName);
+                }
             }
         }
 
@@ -53,6 +69,22 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
     private async void OnServiceWorkCompletedAsync(string serviceKey)
     {
+        // Mirror the same allowlist gate applied when populating _scheduledServices/_configurableServices:
+        // a service this registry doesn't track (excluded from _allowedServiceKeys, or an infrastructure
+        // service like PersistentSessionExpiryService) must not trigger a Schedules broadcast either.
+        // Without this check, ANY ScheduledBackgroundService/ConfigurableScheduledService subclass firing
+        // this static event - tracked or not - would still spam every connected client on every tick.
+        //
+        // ConfigurableScheduledService fires this event keyed by ServiceName, not ScheduleServiceKey, so
+        // _configurableServiceNames (populated alongside _configurableServices in the constructor) must
+        // be checked too - otherwise every tracked configurable service's broadcast would be dropped here.
+        if (!_scheduledServices.ContainsKey(serviceKey) &&
+            !_configurableServices.ContainsKey(serviceKey) &&
+            !_configurableServiceNames.Contains(serviceKey))
+        {
+            return;
+        }
+
         try
         {
             await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, GetAll());
@@ -261,7 +293,9 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
     private static string? GetStringProperty(Type type, object instance, string propertyName)
     {
-        var property = type.GetProperty(propertyName);
+        // Public | NonPublic | Instance: ScheduleServiceKey is public, but ServiceName (used by the
+        // ServiceWorkCompleted-event lookup above) is declared protected on ConfigurableScheduledService.
+        var property = type.GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         if (property == null || property.PropertyType != typeof(string))
         {
             return null;

@@ -246,7 +246,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
         var serviceId = serviceConfig.ServiceId;
 
         // 1. Resolve the concrete daemon service for this platform.
-        var daemon = ResolveDaemon(serviceProvider, serviceId);
+        var daemon = PrefillDaemonServiceBase.ResolveDaemon(serviceProvider, serviceId);
         if (daemon is null)
         {
             await EmitProgressAsync(notifications, operationId, serviceId, "skipped", "No daemon registered for this service");
@@ -441,30 +441,6 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
             bytesDownloaded: session.TotalBytesTransferred,
             downloadSessionId: sessionId);
         return true;
-    }
-
-    /// <summary>
-    /// Resolves the concrete daemon singleton for a platform. Each daemon is registered as its
-    /// own concrete type (see Program.cs <c>AddSingletonHostedService&lt;T&gt;</c>), so we resolve
-    /// it directly. Returns null for any platform without a daemon registration.
-    /// </summary>
-    private static PrefillDaemonServiceBase? ResolveDaemon(IServiceProvider provider, PrefillPlatform platform)
-    {
-        switch (platform)
-        {
-            case PrefillPlatform.Steam:
-                return provider.GetRequiredService<SteamDaemonService>();
-            case PrefillPlatform.Epic:
-                return provider.GetRequiredService<EpicPrefillDaemonService>();
-            case PrefillPlatform.Xbox:
-                return provider.GetRequiredService<XboxPrefillDaemonService>();
-            case PrefillPlatform.BattleNet:
-                return provider.GetRequiredService<BattleNetDaemonService>();
-            case PrefillPlatform.Riot:
-                return provider.GetRequiredService<RiotDaemonService>();
-            default:
-                return null;
-        }
     }
 
     private static void MapPreset(ScheduledPrefillServiceConfigDto serviceConfig, out bool all, out bool recent, out int? top)

@@ -7,6 +7,7 @@ using Docker.DotNet.Models;
 using LancacheManager.Models;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.Extensions.Options;
 
@@ -30,7 +31,6 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     protected readonly PrefillCacheService _cacheService;
     protected readonly ConcurrentDictionary<string, DaemonSession> _sessions = new();
     protected DockerClient? _dockerClient;
-    private Timer? _cleanupTimer;
     private bool _disposed;
     protected readonly bool _isRunningInContainer;
     private readonly IOptionsMonitor<PrefillNetworkOptions> _networkOptions;
@@ -364,9 +364,6 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             _dockerClient = null;
         }
 
-        // Start cleanup timer (every minute)
-        _cleanupTimer = new Timer(CleanupExpiredSessions, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
-
         _logger.LogInformation("{ServiceName}PrefillDaemonService started. Docker available: {DockerAvailable}", ServiceName, _dockerClient != null);
     }
 
@@ -686,8 +683,6 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("{ServiceName}PrefillDaemonService stopping...", ServiceName);
-
-        _cleanupTimer?.Change(Timeout.Infinite, 0);
 
         // Terminate all active sessions
         var sessions = _sessions.Values.ToList();
@@ -1026,7 +1021,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         var networkDiagnostics = await TestContainerConnectivityAsync(containerId, containerName, isHostMode, cancellationToken);
 
         // Manager-enforced lifetime. Guest/temporary containers are capped at
-        // createdAt + GuestPrefillMaxLifetimeHours so they are reaped by CleanupExpiredSessions
+        // createdAt + GuestPrefillMaxLifetimeHours so they are reaped by ProcessSessionExpiryAsync
         // exactly when the admin-configured lifetime elapses. The standard session timeout is kept
         // as a backstop (we take whichever expiry comes first). Admin/persistent sessions are never
         // subject to the cap and keep the standard timeout.
@@ -2043,6 +2038,51 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         => createdAtUtc.AddDays(validityDays);
 
     /// <summary>
+    /// Resolves the concrete daemon singleton for a given platform. The single canonical copy of a
+    /// switch that was previously duplicated verbatim in <c>PersistentPrefillController</c> and
+    /// <c>ScheduledPrefillService</c> — both now call this instead. <c>default</c> is unreachable for
+    /// any defined <see cref="PrefillPlatform"/> value; it stays defensive (returns null rather than
+    /// throwing) to match the exact behavior of both prior copies.
+    /// </summary>
+    public static PrefillDaemonServiceBase? ResolveDaemon(IServiceProvider provider, PrefillPlatform platform)
+    {
+        switch (platform)
+        {
+            case PrefillPlatform.Steam:
+                return provider.GetRequiredService<SteamDaemonService>();
+            case PrefillPlatform.Epic:
+                return provider.GetRequiredService<EpicPrefillDaemonService>();
+            case PrefillPlatform.Xbox:
+                return provider.GetRequiredService<XboxPrefillDaemonService>();
+            case PrefillPlatform.BattleNet:
+                return provider.GetRequiredService<BattleNetDaemonService>();
+            case PrefillPlatform.Riot:
+                return provider.GetRequiredService<RiotDaemonService>();
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// Resolves all platform daemon singletons. The single canonical copy of a generator previously
+    /// duplicated verbatim in <c>PersistentPrefillController</c>. Enumerates <see cref="PrefillPlatform"/>
+    /// itself rather than a hand-duplicated platform list, so a future platform added to the enum is
+    /// picked up here automatically - only <see cref="ResolveDaemon"/>'s switch needs a matching case,
+    /// since that is an unavoidable mapping to a concrete type.
+    /// </summary>
+    public static IEnumerable<PrefillDaemonServiceBase> ResolveAllDaemons(IServiceProvider provider)
+    {
+        foreach (var platform in Enum.GetValues<PrefillPlatform>())
+        {
+            var daemon = ResolveDaemon(provider, platform);
+            if (daemon != null)
+            {
+                yield return daemon;
+            }
+        }
+    }
+
+    /// <summary>
     /// Re-anchors every RUNNING persistent session's <see cref="DaemonSession.ExpiresAt"/> to
     /// <c>createdAt + validityDays</c> (idempotent) and clears a stale <see cref="DaemonSession.NeedsRelogin"/>
     /// when the new window is in the future (the reaper re-flags it if it is already past). Also persists
@@ -2255,38 +2295,80 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         }
     }
 
-    private void CleanupExpiredSessions(object? state)
+    /// <summary>
+    /// Single per-tick pass over this daemon's in-memory sessions, called externally once a minute by
+    /// <see cref="LancacheManager.Infrastructure.Services.PersistentSessionExpiryService"/> across all
+    /// platforms (replaces the old per-instance <see cref="System.Threading.Timer"/>-driven
+    /// <c>CleanupExpiredSessions</c>). Does three things, preserving exact prior behavior:
+    /// (1) flags expired persistent sessions <see cref="DaemonSession.NeedsRelogin"/> and pushes a
+    /// SignalR update - the container is NEVER torn down; (2) terminates expired non-persistent
+    /// sessions; (3) fails stalled non-persistent prefills via the existing stall watchdog. Termination
+    /// and stall-failure are properly awaited here (no longer fire-and-forget) since this is no longer
+    /// constrained by a synchronous <see cref="System.Threading.TimerCallback"/> signature. Per-session
+    /// work within each phase runs concurrently via <see cref="Task.WhenAll(IEnumerable{Task})"/>, and
+    /// every unit of work is individually try/catch-isolated so one session's teardown exception can
+    /// never abort processing of the rest of that tick's sessions - this restores the isolation the old
+    /// fire-and-forget pattern gave for free, now that these calls are properly awaited instead.
+    /// </summary>
+    public async Task<PrefillSessionExpiryResult> ProcessSessionExpiryAsync(DateTime nowUtc)
     {
-        var nowUtc = DateTime.UtcNow;
+        var flaggedNeedsRelogin = 0;
+        var terminated = 0;
+        var stalledFailed = 0;
 
         var expiredSessions = _sessions.Values
-            .Where(s => s.Status == DaemonSessionStatus.Active && nowUtc > s.ExpiresAt)
+            .Where(s => s.Status == DaemonSessionStatus.Active && PrefillSessionExpiryGates.IsExpired(s.ExpiresAt, nowUtc))
             .ToList();
 
-        foreach (var session in expiredSessions)
+        async Task ProcessExpiredSessionAsync(DaemonSession session)
         {
-            // Persistent admin sessions are never torn down by the reaper. When past their expiry,
-            // flag NeedsRelogin (once) and leave the container running so the admin can
-            // re-authenticate in place. Non-persistent sessions are reaped exactly as before.
-            if (session.IsPersistent)
+            try
             {
-                if (!session.NeedsRelogin)
+                if (PrefillSessionExpiryGates.ShouldFlagNeedsRelogin(session, nowUtc))
                 {
                     _logger.LogInformation(
                         "Persistent session past expiry: {SessionId}. Flagging for re-login (container left running).",
                         session.Id);
                     session.NeedsRelogin = true;
-                }
-                continue;
-            }
+                    Interlocked.Increment(ref flaggedNeedsRelogin);
 
-            _logger.LogInformation("Session expired: {SessionId}", session.Id);
-            _ = TerminateSessionAsync(session.Id, "Session expired");
+                    // Close the SignalR gap: the prior Timer-based reaper flipped this flag silently (a sync
+                    // TimerCallback can't cleanly await a broadcast). Mirrors NotifyAuthStateChangeAsync's
+                    // "mutate, then broadcast, wrapped in try/catch" shape so a broadcast failure never masks
+                    // the state mutation that already happened above.
+                    try
+                    {
+                        await NotifyHubAsync(EventSessionUpdated, DaemonSessionDto.FromSession(session));
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Failed to broadcast session update after expiry flag for session {SessionId}",
+                            session.Id);
+                    }
+                }
+                else if (PrefillSessionExpiryGates.ShouldTerminate(session, nowUtc))
+                {
+                    _logger.LogInformation("Session expired: {SessionId}", session.Id);
+                    await TerminateSessionAsync(session.Id, "Session expired");
+                    Interlocked.Increment(ref terminated);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Per-session isolation: TerminateSessionAsync is now properly awaited (no longer
+                // fire-and-forget), so without this try/catch one session's teardown exception would
+                // propagate out of the Task.WhenAll below and abort processing of every other session
+                // in this tick - including the stall watchdog phase that runs after this one.
+                _logger.LogError(ex, "Error processing session expiry for session {SessionId}", session.Id);
+            }
         }
 
-        // Stall watchdog: fail any actively-prefilling session that has transferred no new bytes
-        // for longer than the configured threshold. Routes through the existing idempotent terminal
-        // funnel — no DbContext is touched on this timer thread.
+        await Task.WhenAll(expiredSessions.Select(ProcessExpiredSessionAsync));
+
+        // Stall watchdog: fail any actively-prefilling session that has transferred no new bytes for
+        // longer than the configured threshold. Re-reads _sessions fresh (not the snapshot above) to
+        // match prior behavior exactly, since termination above can remove entries mid-tick.
         var stallThreshold = TimeSpan.FromSeconds(GetStallTimeoutSeconds());
         var stalledSessions = _sessions.Values
             .Where(s => s.Status == DaemonSessionStatus.Active &&
@@ -2295,14 +2377,28 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                         IsPrefillStalled(s, nowUtc, stallThreshold))
             .ToList();
 
-        foreach (var session in stalledSessions)
+        async Task ProcessStalledSessionAsync(DaemonSession session)
         {
-            _logger.LogWarning(
-                "Prefill stall detected for session {SessionId}: no new bytes for >{ThresholdSeconds}s. Failing the run.",
-                session.Id, stallThreshold.TotalSeconds);
-            session.ErrorMessage = $"Prefill stalled: no bytes transferred for {(int)stallThreshold.TotalSeconds} seconds.";
-            _ = FailStalledSessionAsync(session);
+            try
+            {
+                _logger.LogWarning(
+                    "Prefill stall detected for session {SessionId}: no new bytes for >{ThresholdSeconds}s. Failing the run.",
+                    session.Id, stallThreshold.TotalSeconds);
+                session.ErrorMessage = $"Prefill stalled: no bytes transferred for {(int)stallThreshold.TotalSeconds} seconds.";
+                await FailStalledSessionAsync(session);
+                Interlocked.Increment(ref stalledFailed);
+            }
+            catch (Exception ex)
+            {
+                // Same per-session isolation guarantee as the expiry phase above - one stalled
+                // session's teardown failure must not stop the rest from being failed this tick.
+                _logger.LogError(ex, "Error failing stalled session {SessionId}", session.Id);
+            }
         }
+
+        await Task.WhenAll(stalledSessions.Select(ProcessStalledSessionAsync));
+
+        return new PrefillSessionExpiryResult(flaggedNeedsRelogin, terminated, stalledFailed);
     }
 
     /// <summary>
@@ -2989,7 +3085,6 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     {
         if (_disposed) return;
 
-        _cleanupTimer?.Dispose();
         _dockerClient?.Dispose();
 
         foreach (var session in _sessions.Values)
@@ -3001,3 +3096,9 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         _disposed = true;
     }
 }
+
+/// <summary>
+/// Result of one <see cref="PrefillDaemonServiceBase.ProcessSessionExpiryAsync"/> pass, for
+/// structured logging/diagnostics at the caller (<c>PersistentSessionExpiryService</c>).
+/// </summary>
+public readonly record struct PrefillSessionExpiryResult(int FlaggedNeedsRelogin, int Terminated, int StalledFailed);

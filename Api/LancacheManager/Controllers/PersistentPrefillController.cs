@@ -51,7 +51,7 @@ public class PersistentPrefillController : ControllerBase
     [HttpPost("start")]
     public async Task<ActionResult<DaemonSessionDto>> StartAsync([FromBody] StartPersistentSessionRequest request)
     {
-        var daemon = ResolveDaemon(_serviceProvider, request.Service);
+        var daemon = PrefillDaemonServiceBase.ResolveDaemon(_serviceProvider, request.Service);
         if (daemon is null)
         {
             return BadRequest($"No daemon registered for service '{request.Service}'");
@@ -72,7 +72,7 @@ public class PersistentPrefillController : ControllerBase
             return BadRequest("sessionId is required");
         }
 
-        foreach (var daemon in ResolveAllDaemons(_serviceProvider))
+        foreach (var daemon in PrefillDaemonServiceBase.ResolveAllDaemons(_serviceProvider))
         {
             if (daemon.GetSession(request.SessionId) is not null)
             {
@@ -93,7 +93,7 @@ public class PersistentPrefillController : ControllerBase
         var nowUtc = DateTime.UtcNow;
         var results = new List<PersistentPrefillSessionDto>();
 
-        foreach (var daemon in ResolveAllDaemons(_serviceProvider))
+        foreach (var daemon in PrefillDaemonServiceBase.ResolveAllDaemons(_serviceProvider))
         {
             foreach (DaemonSession session in daemon.GetAllSessions())
             {
@@ -169,7 +169,7 @@ public class PersistentPrefillController : ControllerBase
         [FromQuery] PrefillPlatform service,
         CancellationToken cancellationToken)
     {
-        var daemon = ResolveDaemon(_serviceProvider, service);
+        var daemon = PrefillDaemonServiceBase.ResolveDaemon(_serviceProvider, service);
         if (daemon is null)
         {
             return BadRequest($"No daemon registered for service '{service}'");
@@ -436,7 +436,7 @@ public class PersistentPrefillController : ControllerBase
 
         // Re-anchor every running persistent session immediately so the new validity is the single
         // source of truth for the re-login date (and persist it so a restart keeps the new window).
-        foreach (var daemon in ResolveAllDaemons(_serviceProvider))
+        foreach (var daemon in PrefillDaemonServiceBase.ResolveAllDaemons(_serviceProvider))
         {
             await daemon.UpdatePersistentSessionExpiryAsync(request.Days);
         }
@@ -485,7 +485,7 @@ public class PersistentPrefillController : ControllerBase
     private (PrefillDaemonServiceBase? Daemon, DaemonSession? Session, ActionResult? Error) ResolveRunningPersistentSession(
         PrefillPlatform service)
     {
-        var daemon = ResolveDaemon(_serviceProvider, service);
+        var daemon = PrefillDaemonServiceBase.ResolveDaemon(_serviceProvider, service);
         if (daemon is null)
         {
             return (null, null, BadRequest($"No daemon registered for service '{service}'"));
@@ -503,38 +503,6 @@ public class PersistentPrefillController : ControllerBase
         }
 
         return (daemon, session, null);
-    }
-
-    /// <summary>
-    /// Resolves the concrete daemon singleton for a platform. Mirrors
-    /// <c>ScheduledPrefillService.ResolveDaemon</c> exactly.
-    /// </summary>
-    private static PrefillDaemonServiceBase? ResolveDaemon(IServiceProvider provider, PrefillPlatform platform)
-    {
-        switch (platform)
-        {
-            case PrefillPlatform.Steam:
-                return provider.GetRequiredService<SteamDaemonService>();
-            case PrefillPlatform.Epic:
-                return provider.GetRequiredService<EpicPrefillDaemonService>();
-            case PrefillPlatform.Xbox:
-                return provider.GetRequiredService<XboxPrefillDaemonService>();
-            case PrefillPlatform.BattleNet:
-                return provider.GetRequiredService<BattleNetDaemonService>();
-            case PrefillPlatform.Riot:
-                return provider.GetRequiredService<RiotDaemonService>();
-            default:
-                return null;
-        }
-    }
-
-    private static IEnumerable<PrefillDaemonServiceBase> ResolveAllDaemons(IServiceProvider provider)
-    {
-        yield return provider.GetRequiredService<SteamDaemonService>();
-        yield return provider.GetRequiredService<EpicPrefillDaemonService>();
-        yield return provider.GetRequiredService<XboxPrefillDaemonService>();
-        yield return provider.GetRequiredService<BattleNetDaemonService>();
-        yield return provider.GetRequiredService<RiotDaemonService>();
     }
 
     private static PrefillPlatform ParsePlatform(string platformName)

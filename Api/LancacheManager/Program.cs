@@ -642,6 +642,11 @@ builder.Services.AddSingletonHostedService<GcScheduledService>();
 // user-configurable interval (managed through the unified Schedules page) as "scheduledPrefill".
 builder.Services.AddSingletonHostedService<ScheduledPrefillService>();
 
+// Register PersistentSessionExpiryService - consolidated per-minute expiry/stall reaper across all 5
+// prefill daemon platforms, replacing 5 independent per-daemon Timers. Hardcoded 1-minute cadence
+// (infra polling, not user-facing), not on the Schedules page (matches the prior mechanism).
+builder.Services.AddSingletonHostedService<PersistentSessionExpiryService>();
+
 // Register OperationStateService
 builder.Services.AddSingletonHostedService<OperationStateService>();
 
