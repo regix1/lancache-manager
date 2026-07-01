@@ -1230,6 +1230,7 @@ function ServicePrefillPanel({
             selectedOS={selectedOS}
             maxConcurrency={maxConcurrency}
             maxThreadLimit={maxThreadLimit}
+            supportedCommands={serviceConfig.prefillCommands}
             onCommandClick={handleCommandClick}
             onSelectedOSChange={handleOSChange}
             onMaxConcurrencyChange={handleConcurrencyChange}

@@ -3,6 +3,7 @@ import { EpicIcon } from '@components/ui/EpicIcon';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { RiotIcon } from '@components/ui/RiotIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
+import type { CommandType } from '../types';
 
 /**
  * Single source of truth for per-service prefill routing/branding.
@@ -28,6 +29,21 @@ interface PrefillServiceConfig {
    * built dynamically) because Tailwind's JIT can't see runtime-concatenated class names.
    */
   iconBgClass: string;
+  /**
+   * Prefill preset commands this service's daemon can actually back with real data, verified
+   * against each daemon's SocketCommandInterface (the manager forwards every preset flag to
+   * every daemon; daemons silently ignore flags they don't parse, so an unfiltered UI offers
+   * buttons that do nothing or fall back to "all"). Manual-prefill twin of
+   * SCHEDULED_PREFILL_SUPPORTED_PRESETS in the schedules feature — update both together:
+   *  - Steam: parses all/recent/recently_purchased/top — every preset is real.
+   *  - Epic: all + top only. Epic's API has no last-played timestamp, so its Recent branch
+   *    falls back to all owned games; recently_purchased is not parsed at all.
+   *  - Xbox: all/recent/top (titlehub lastTimePlayed for Recent, Microsoft's public
+   *    most-played ranking for Top); recently_purchased is not parsed.
+   *  - BattleNet and Riot: all-only — their sockets parse only all/force/products/appIds.
+   * 'prefill' (explicitly selected games) works everywhere via appIds/products.
+   */
+  prefillCommands: readonly CommandType[];
 }
 
 const STEAM_CONFIG: PrefillServiceConfig = {
@@ -36,7 +52,14 @@ const STEAM_CONFIG: PrefillServiceConfig = {
   icon: SteamIcon,
   colorVar: 'var(--theme-steam)',
   subtleColorVar: 'var(--theme-steam-subtle)',
-  iconBgClass: 'bg-[var(--theme-steam)]'
+  iconBgClass: 'bg-[var(--theme-steam)]',
+  prefillCommands: [
+    'prefill',
+    'prefill-all',
+    'prefill-recent',
+    'prefill-recent-purchased',
+    'prefill-top'
+  ]
 };
 
 const EPIC_CONFIG: PrefillServiceConfig = {
@@ -45,7 +68,8 @@ const EPIC_CONFIG: PrefillServiceConfig = {
   icon: EpicIcon,
   colorVar: 'var(--theme-epic)',
   subtleColorVar: 'var(--theme-epic-subtle)',
-  iconBgClass: 'bg-[var(--theme-epic)]'
+  iconBgClass: 'bg-[var(--theme-epic)]',
+  prefillCommands: ['prefill', 'prefill-all', 'prefill-top']
 };
 
 const BATTLENET_CONFIG: PrefillServiceConfig = {
@@ -54,7 +78,8 @@ const BATTLENET_CONFIG: PrefillServiceConfig = {
   icon: BlizzardIcon,
   colorVar: 'var(--theme-blizzard)',
   subtleColorVar: 'var(--theme-blizzard-subtle)',
-  iconBgClass: 'bg-[var(--theme-blizzard)]'
+  iconBgClass: 'bg-[var(--theme-blizzard)]',
+  prefillCommands: ['prefill', 'prefill-all']
 };
 
 const RIOT_CONFIG: PrefillServiceConfig = {
@@ -63,7 +88,8 @@ const RIOT_CONFIG: PrefillServiceConfig = {
   icon: RiotIcon,
   colorVar: 'var(--theme-riot)',
   subtleColorVar: 'var(--theme-riot-subtle)',
-  iconBgClass: 'bg-[var(--theme-riot)]'
+  iconBgClass: 'bg-[var(--theme-riot)]',
+  prefillCommands: ['prefill', 'prefill-all']
 };
 
 const XBOX_CONFIG: PrefillServiceConfig = {
@@ -72,7 +98,8 @@ const XBOX_CONFIG: PrefillServiceConfig = {
   icon: XboxIcon,
   colorVar: 'var(--theme-xbox)',
   subtleColorVar: 'var(--theme-xbox-subtle)',
-  iconBgClass: 'bg-[var(--theme-xbox)]'
+  iconBgClass: 'bg-[var(--theme-xbox)]',
+  prefillCommands: ['prefill', 'prefill-all', 'prefill-recent', 'prefill-top']
 };
 
 /**

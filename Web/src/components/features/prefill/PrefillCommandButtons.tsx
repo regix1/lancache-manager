@@ -24,6 +24,12 @@ interface PrefillCommandButtonsProps {
   selectedOS: string[];
   maxConcurrency: string;
   maxThreadLimit?: number | null;
+  /**
+   * Prefill presets this service's daemon actually supports (prefillServiceConfig.prefillCommands).
+   * PREFILL_COMMANDS is the full catalog; daemons differ (e.g. Battle.net/Riot are all-only),
+   * so unsupported preset tiles are not rendered rather than shown dead.
+   */
+  supportedCommands: readonly CommandType[];
   onCommandClick: (commandType: CommandType) => void;
   onSelectedOSChange: (values: string[]) => void;
   onMaxConcurrencyChange: (value: string) => void;
@@ -39,11 +45,16 @@ export function PrefillCommandButtons({
   selectedOS,
   maxConcurrency,
   maxThreadLimit,
+  supportedCommands,
   onCommandClick,
   onSelectedOSChange,
   onMaxConcurrencyChange
 }: PrefillCommandButtonsProps) {
   const { t } = useTranslation();
+
+  const availablePrefillCommands = PREFILL_COMMANDS.filter((cmd: CommandButton) =>
+    supportedCommands.includes(cmd.id)
+  );
 
   const isGlobalDisabled = isExecuting || !isSessionActive || !isLoggedIn;
 
@@ -206,7 +217,7 @@ export function PrefillCommandButtons({
             </h3>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {PREFILL_COMMANDS.map(renderCommandTile)}
+            {availablePrefillCommands.map(renderCommandTile)}
           </div>
         </div>
 
