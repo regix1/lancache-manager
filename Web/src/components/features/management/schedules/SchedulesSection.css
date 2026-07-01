@@ -1408,6 +1408,13 @@
   padding-block: 0.4rem;
 }
 
+/* The anonymous-service branch renders this chip as a direct child of the column-direction
+   .scheduled-prefill-platform-auth wrapper (no .action row to absorb the stretch), so the
+   default align-items: stretch would otherwise blow the pill out to the full card width. */
+.scheduled-prefill-platform-auth > .scheduled-prefill-platform-auth__chip {
+  align-self: flex-start;
+}
+
 @media (min-width: 768px) {
   .scheduled-prefill-schedule-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
