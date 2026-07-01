@@ -3201,6 +3201,12 @@
               "recent": "Recent",
               "top": "Top"
             },
+            "presetHelp": {
+              "title": "What these presets mean",
+              "all": "Prefill every game owned on this platform.",
+              "recent": "Prefill only the games played most recently.",
+              "top": "Prefill the most popular games right now, capped at the count you set below."
+            },
             "operatingSystems": {
               "windows": "Windows",
               "linux": "Linux",
@@ -3213,7 +3219,8 @@
             "validation": {
               "topCount": "{{service}} needs a top count of at least 1.",
               "operatingSystems": "{{service}} needs at least one target platform.",
-              "maxConcurrency": "{{service}} connections must be between {{min}} and {{max}}."
+              "maxConcurrency": "{{service}} connections must be between {{min}} and {{max}}.",
+              "unsupportedPreset": "{{service}} does not support the {{preset}} preset. Choose a different preset."
             },
             "auth": {
               "title": "Authentication",

@@ -21,7 +21,8 @@ import {
   SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS,
   SCHEDULED_PREFILL_BUTTON_SIZE,
   SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS,
-  SCHEDULED_PREFILL_SERVICE_RUN_ORDER
+  SCHEDULED_PREFILL_SERVICE_RUN_ORDER,
+  SCHEDULED_PREFILL_SUPPORTED_PRESETS
 } from './constants';
 import { ScheduledPrefillPlatformsPanel } from './ScheduledPrefillPlatformsPanel';
 import { PersistentLoginHost } from './PersistentLoginHost';
@@ -96,8 +97,34 @@ const mapOperatingSystems = (
 const clampToBounds = (value: number, bounds: NumericBounds): number =>
   Math.min(bounds.max, Math.max(bounds.min, Math.trunc(value)));
 
+const reconcileServiceConfigPreset = (
+  serviceKey: ScheduledPrefillServiceKey,
+  serviceConfig: ScheduledPrefillServiceConfigDto
+): ScheduledPrefillServiceConfigDto => {
+  if (SCHEDULED_PREFILL_SUPPORTED_PRESETS[serviceKey].includes(serviceConfig.preset)) {
+    return serviceConfig;
+  }
+
+  // A config saved before this service's preset options were capability-gated (or written
+  // directly via the API) can carry a preset this service no longer offers. Fall back to 'All' at
+  // load time so the segmented control always shows a valid active selection instead of nothing.
+  return { ...serviceConfig, preset: 'All', topCount: null };
+};
+
+const reconcileScheduledPrefillConfig = (
+  rawConfig: ScheduledPrefillConfigDto
+): ScheduledPrefillConfigDto => ({
+  ...rawConfig,
+  steam: reconcileServiceConfigPreset('steam', rawConfig.steam),
+  epic: reconcileServiceConfigPreset('epic', rawConfig.epic),
+  xbox: reconcileServiceConfigPreset('xbox', rawConfig.xbox),
+  battleNet: reconcileServiceConfigPreset('battleNet', rawConfig.battleNet),
+  riot: reconcileServiceConfigPreset('riot', rawConfig.riot)
+});
+
 const validateServiceConfig = (
   serviceConfig: ScheduledPrefillServiceConfigDto,
+  serviceKey: ScheduledPrefillServiceKey,
   serviceName: string,
   t: (key: string, values?: Record<string, string | number>) => string
 ): string | null => {
@@ -105,6 +132,15 @@ const validateServiceConfig = (
 
   if (!serviceConfig.enabled) {
     return null;
+  }
+
+  // Defense-in-depth: config is reconciled at load time, so this should not normally trigger, but
+  // it guarantees an unsupported preset+service combination can never be silently re-saved.
+  if (!SCHEDULED_PREFILL_SUPPORTED_PRESETS[serviceKey].includes(serviceConfig.preset)) {
+    return t(`${baseKey}.validation.unsupportedPreset`, {
+      service: serviceName,
+      preset: t(`${baseKey}.presets.${serviceConfig.preset.toLowerCase()}`)
+    });
   }
 
   if (serviceConfig.preset === 'Top' && (!serviceConfig.topCount || serviceConfig.topCount < 1)) {
@@ -189,7 +225,7 @@ export function ScheduledPrefillConfigModal({
     setLoadingConfig(true);
     try {
       const nextConfig = await ApiService.getScheduledPrefillConfig(signal);
-      setConfig(nextConfig);
+      setConfig(reconcileScheduledPrefillConfig(nextConfig));
       setLoadError(null);
     } catch (error: unknown) {
       if (!isAbortError(error)) {
@@ -355,7 +391,7 @@ export function ScheduledPrefillConfigModal({
 
     for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
       const serviceName = t(`${baseKey}.services.${serviceKey}`);
-      const error = validateServiceConfig(config[serviceKey], serviceName, t);
+      const error = validateServiceConfig(config[serviceKey], serviceKey, serviceName, t);
       if (error) {
         return error;
       }

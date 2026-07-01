@@ -3201,6 +3201,12 @@
               "recent": "最近",
               "top": "前 N 项"
             },
+            "presetHelp": {
+              "title": "这些预设的含义",
+              "all": "预填充此平台上拥有的所有游戏。",
+              "recent": "仅预填充最近玩过的游戏。",
+              "top": "预填充当前最热门的游戏，数量上限为下方设置的数值。"
+            },
             "operatingSystems": {
               "windows": "Windows",
               "linux": "Linux",
@@ -3213,7 +3219,8 @@
             "validation": {
               "topCount": "{{service}} 的前 N 项数量必须至少为 1。",
               "operatingSystems": "{{service}} 需要至少一个目标平台。",
-              "maxConcurrency": "{{service}} 的连接数必须介于 {{min}} 和 {{max}} 之间。"
+              "maxConcurrency": "{{service}} 的连接数必须介于 {{min}} 和 {{max}} 之间。",
+              "unsupportedPreset": "{{service}} 不支持「{{preset}}」预设。请选择其他预设。"
             },
             "auth": {
               "title": "认证",

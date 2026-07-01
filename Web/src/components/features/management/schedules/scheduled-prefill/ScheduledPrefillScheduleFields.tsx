@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { HelpPopover, HelpSection, HelpDefinition } from '@components/ui/HelpPopover';
 import { MultiSelectDropdown, type MultiSelectOption } from '@components/ui/MultiSelectDropdown';
 import { NumberInput } from '@components/ui/NumberInput';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
@@ -8,7 +9,8 @@ import ScheduleIntervalPicker from '../ScheduleIntervalPicker';
 import {
   SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS,
   SCHEDULED_PREFILL_OS_OPTIONS,
-  SCHEDULED_PREFILL_PRESET_OPTIONS
+  SCHEDULED_PREFILL_PRESET_OPTIONS,
+  SCHEDULED_PREFILL_SUPPORTED_PRESETS
 } from './constants';
 import type {
   ScheduledPrefillMaxConcurrencyMode,
@@ -52,11 +54,24 @@ export function ScheduledPrefillScheduleFields({
 
   const presetOptions = useMemo(
     () =>
-      SCHEDULED_PREFILL_PRESET_OPTIONS.map((option) => ({
+      SCHEDULED_PREFILL_PRESET_OPTIONS.filter((option) =>
+        SCHEDULED_PREFILL_SUPPORTED_PRESETS[serviceKey].includes(option.value)
+      ).map((option) => ({
         value: option.value,
         label: t(option.labelKey)
       })),
-    [t]
+    [t, serviceKey]
+  );
+
+  const presetHelpItems = useMemo(
+    () =>
+      SCHEDULED_PREFILL_PRESET_OPTIONS.filter((option) =>
+        SCHEDULED_PREFILL_SUPPORTED_PRESETS[serviceKey].includes(option.value)
+      ).map((option) => ({
+        term: t(option.labelKey),
+        description: t(option.helpKey)
+      })),
+    [t, serviceKey]
   );
 
   const operatingSystemOptions = useMemo<MultiSelectOption[]>(
@@ -103,9 +118,16 @@ export function ScheduledPrefillScheduleFields({
         role="group"
         aria-labelledby={presetLabelId}
       >
-        <label id={presetLabelId} className="scheduled-prefill-schedule-fields__label">
-          {t(`${baseKey}.fields.preset`)}
-        </label>
+        <div className="flex items-center gap-1.5">
+          <label id={presetLabelId} className="scheduled-prefill-schedule-fields__label">
+            {t(`${baseKey}.fields.preset`)}
+          </label>
+          <HelpPopover position="left" width={320}>
+            <HelpSection title={t(`${baseKey}.presetHelp.title`)} variant="subtle">
+              <HelpDefinition items={presetHelpItems} />
+            </HelpSection>
+          </HelpPopover>
+        </div>
         <SegmentedControl
           options={presetOptions.map((option) => ({ ...option, disabled }))}
           value={config.preset}
@@ -119,29 +141,35 @@ export function ScheduledPrefillScheduleFields({
           fullWidth
           showLabels
         />
+        {config.selectedAppIds.length > 0 && (
+          <p className="scheduled-prefill-schedule-fields__override">
+            {t(`${baseKey}.selectedGames.overridePreset`)}
+          </p>
+        )}
       </div>
 
-      {config.preset === 'Top' && (
-        <div className="scheduled-prefill-schedule-fields__field">
-          <label
-            className="scheduled-prefill-schedule-fields__label"
-            htmlFor={`scheduled-prefill-top-count-${serviceKey}`}
-          >
-            {t(`${baseKey}.fields.topCount`)}
-          </label>
-          <NumberInput
-            id={`scheduled-prefill-top-count-${serviceKey}`}
-            className="scheduled-prefill-number-cap"
-            min={1}
-            max={99999}
-            step={1}
-            value={config.topCount ?? 50}
-            disabled={disabled}
-            aria-label={t(`${baseKey}.fields.topCount`)}
-            onChange={(value) => updateConfig({ topCount: Math.max(1, value) })}
-          />
-        </div>
-      )}
+      {config.preset === 'Top' &&
+        SCHEDULED_PREFILL_SUPPORTED_PRESETS[serviceKey].includes('Top') && (
+          <div className="scheduled-prefill-schedule-fields__field">
+            <label
+              className="scheduled-prefill-schedule-fields__label"
+              htmlFor={`scheduled-prefill-top-count-${serviceKey}`}
+            >
+              {t(`${baseKey}.fields.topCount`)}
+            </label>
+            <NumberInput
+              id={`scheduled-prefill-top-count-${serviceKey}`}
+              className="scheduled-prefill-number-cap"
+              min={1}
+              max={99999}
+              step={1}
+              value={config.topCount ?? 50}
+              disabled={disabled}
+              aria-label={t(`${baseKey}.fields.topCount`)}
+              onChange={(value) => updateConfig({ topCount: Math.max(1, value) })}
+            />
+          </div>
+        )}
 
       <div
         className="scheduled-prefill-schedule-fields__field"

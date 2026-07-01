@@ -176,12 +176,6 @@ export function ScheduledPrefillPersistentCard({
             </p>
           )}
 
-          {selectedGamesCount > 0 && isAuthenticated && (
-            <p className="scheduled-prefill-persistent-card__override">
-              {t(`${baseKey}.selectedGames.overridePreset`)}
-            </p>
-          )}
-
           <footer className="scheduled-prefill-persistent-card__actions">
             <div className="scheduled-prefill-persistent-card__action-group">
               {isRunning ? (

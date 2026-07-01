@@ -33,20 +33,48 @@ export const SCHEDULED_PREFILL_BUTTON_SIZE = 'md' as const;
 export const SCHEDULED_PREFILL_PRESET_OPTIONS = [
   {
     value: 'All',
-    labelKey: 'management.schedules.services.scheduledPrefill.config.presets.all'
+    labelKey: 'management.schedules.services.scheduledPrefill.config.presets.all',
+    helpKey: 'management.schedules.services.scheduledPrefill.config.presetHelp.all'
   },
   {
     value: 'Recent',
-    labelKey: 'management.schedules.services.scheduledPrefill.config.presets.recent'
+    labelKey: 'management.schedules.services.scheduledPrefill.config.presets.recent',
+    helpKey: 'management.schedules.services.scheduledPrefill.config.presetHelp.recent'
   },
   {
     value: 'Top',
-    labelKey: 'management.schedules.services.scheduledPrefill.config.presets.top'
+    labelKey: 'management.schedules.services.scheduledPrefill.config.presets.top',
+    helpKey: 'management.schedules.services.scheduledPrefill.config.presetHelp.top'
   }
 ] as const satisfies readonly {
   value: ScheduledPrefillPreset;
   labelKey: string;
+  helpKey: string;
 }[];
+
+/**
+ * Presets each service's daemon can actually back with real data, keyed by service.
+ * Reconciled against the daemon workers' real outcomes this swarm:
+ *  - Steam: full All/Recent/Top (pre-existing daemon support).
+ *  - Xbox: full All/Recent/Top (daemon sorts owned titles by titlehub lastTimePlayed for
+ *    Recent, and intersects Microsoft's public most-played ranking for Top).
+ *  - Epic: All + Top only. Epic's API exposes cumulative playtime but no last-played
+ *    timestamp, so a real Recent ordering is impossible; the daemon gracefully falls back to
+ *    all owned games when Recent is requested, so the option is hidden here. Top is real
+ *    (owned games ordered by most-played).
+ *  - BattleNet and Riot: permanently All-only. Their catalogs are flat, anonymous,
+ *    zero-metadata lists with no per-user history or popularity signal to sort by.
+ */
+export const SCHEDULED_PREFILL_SUPPORTED_PRESETS: Record<
+  ScheduledPrefillServiceKey,
+  readonly ScheduledPrefillPreset[]
+> = {
+  steam: ['All', 'Recent', 'Top'],
+  epic: ['All', 'Top'],
+  xbox: ['All', 'Recent', 'Top'],
+  battleNet: ['All'],
+  riot: ['All']
+};
 
 export const SCHEDULED_PREFILL_OS_OPTIONS = [
   {
