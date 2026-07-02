@@ -94,11 +94,6 @@ public class StateService : IStateService
         public bool GuestPrefillEnabledByDefault { get; set; } = false;
         public int GuestPrefillDurationHours { get; set; } = 2;
 
-        // Manager-enforced hard cap (hours) on the lifetime of a guest/temporary prefill
-        // container+session. Stamped at session-create as createdAt + this value; the existing
-        // CleanupExpiredSessions reaper tears the session down at that expiry. Allowed range 1-3.
-        public int GuestPrefillMaxLifetimeHours { get; set; } = 1;
-
         // Validity window (days) for a persistent admin login before re-login is required.
         // Default 90. Allowed range 1-365. See StateService.GetAdminPersistentLoginValidityDays.
         public int AdminPersistentLoginValidityDays { get; set; } = 90;
@@ -1009,7 +1004,6 @@ public class StateService : IStateService
             // Guest prefill permissions
             GuestPrefillEnabledByDefault = persisted.GuestPrefillEnabledByDefault,
             GuestPrefillDurationHours = persisted.GuestPrefillDurationHours,
-            GuestPrefillMaxLifetimeHours = persisted.GuestPrefillMaxLifetimeHours,
             AdminPersistentLoginValidityDays = persisted.AdminPersistentLoginValidityDays,
             // Prefill panel default settings
             DefaultPrefillOperatingSystems = persisted.DefaultPrefillOperatingSystems ?? new List<string> { "windows", "linux", "macos" },
@@ -1110,7 +1104,6 @@ public class StateService : IStateService
             // Guest prefill permissions
             GuestPrefillEnabledByDefault = state.GuestPrefillEnabledByDefault,
             GuestPrefillDurationHours = state.GuestPrefillDurationHours,
-            GuestPrefillMaxLifetimeHours = state.GuestPrefillMaxLifetimeHours,
             AdminPersistentLoginValidityDays = state.AdminPersistentLoginValidityDays,
             // Prefill panel default settings
             DefaultPrefillOperatingSystems = state.DefaultPrefillOperatingSystems ?? new List<string> { "windows", "linux", "macos" },
@@ -1547,44 +1540,6 @@ public class StateService : IStateService
             hours = 2;
         }
         UpdateState(state => state.GuestPrefillDurationHours = hours);
-    }
-
-    /// <summary>
-    /// Manager-enforced hard cap (in hours) on the lifetime of a guest/temporary prefill
-    /// container+session. A guest session is stamped with an expiry of createdAt + this value
-    /// and reaped by the existing CleanupExpiredSessions path at that expiry.
-    /// </summary>
-    public int GetGuestPrefillMaxLifetimeHours()
-    {
-        var hours = GetState().GuestPrefillMaxLifetimeHours;
-        // Clamp on read so a legacy/out-of-range persisted value (e.g. 0 from an older state.json
-        // that predates this field) can never produce a zero/negative lifetime. Range 1-3.
-        if (hours < 1)
-        {
-            return 1;
-        }
-        if (hours > 3)
-        {
-            return 3;
-        }
-        return hours;
-    }
-
-    /// <summary>
-    /// Persists the guest prefill max lifetime. Validates the allowed range 1-3 (inclusive);
-    /// out-of-range values are clamped (no ||/?? defaulting).
-    /// </summary>
-    public void SetGuestPrefillMaxLifetimeHours(int hours)
-    {
-        if (hours < 1)
-        {
-            hours = 1;
-        }
-        else if (hours > 3)
-        {
-            hours = 3;
-        }
-        UpdateState(state => state.GuestPrefillMaxLifetimeHours = hours);
     }
 
     /// <summary>

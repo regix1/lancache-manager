@@ -64,10 +64,11 @@ public class DaemonSession
     public DateTime ExpiresAt { get; set; }
 
     /// <summary>
-    /// True when this session is a guest/temporary container subject to the manager-enforced
-    /// <c>GuestPrefillMaxLifetimeHours</c> cap. When true, <see cref="ExpiresAt"/> was stamped to
-    /// createdAt + the configured cap and the session is reaped by <c>CleanupExpiredSessions</c>
-    /// at that expiry. Admin/persistent sessions leave this false and keep the standard timeout.
+    /// True when this session is a guest/temporary container subject to the manager-enforced,
+    /// per-service guest permission duration cap (<c>PrefillDaemonServiceBase.GetGuestPermissionDurationHours</c>).
+    /// When true, <see cref="ExpiresAt"/> was stamped to createdAt + the configured cap and the
+    /// session is reaped by <c>CleanupExpiredSessions</c> at that expiry. Admin/persistent sessions
+    /// leave this false and keep the standard timeout.
     /// </summary>
     public bool IsTemporary { get; init; }
 

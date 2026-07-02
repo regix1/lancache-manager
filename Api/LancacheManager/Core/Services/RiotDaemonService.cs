@@ -51,6 +51,8 @@ public class RiotDaemonService : PrefillDaemonServiceBase
 
     protected override string GetImageName()
         => _configuration["Prefill:RiotDockerImage"] ?? RiotDockerImage;
+    protected override int GetGuestPermissionDurationHours()
+        => _stateService.GetRiotGuestPrefillDurationHours();
 
     // Diagnostics
     protected override string DiagnosticsConnectivityUrl => "https://lol.dyn.riotcdn.net/";

@@ -44,11 +44,7 @@ public class AppState
 
     // Guest prefill permissions - controls access to the Prefill tab for guests
     public bool GuestPrefillEnabledByDefault { get; set; } = false; // Whether new guests get prefill access by default
-    public int GuestPrefillDurationHours { get; set; } = 2; // Default duration for prefill access (1 or 2 hours)
-
-    // Manager-enforced hard cap (hours, 1-3) on the lifetime of a guest/temporary prefill
-    // container+session. Default 1. See StateService.GetGuestPrefillMaxLifetimeHours.
-    public int GuestPrefillMaxLifetimeHours { get; set; } = 1;
+    public int GuestPrefillDurationHours { get; set; } = 2; // Default duration for prefill access (1 or 2 hours); also caps that service's guest container lifetime.
 
     // Validity window (days, 1-365) for a persistent admin login before re-login is required.
     // Default 90. See StateService.GetAdminPersistentLoginValidityDays.

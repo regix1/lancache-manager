@@ -91,6 +91,16 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     protected abstract string GetImageName();
 
     /// <summary>
+    /// Admin-configured guest permission duration (hours) for this service. Doubles as the hard
+    /// cap on a guest/temporary container's lifetime for this service - the same value gates both
+    /// "is this guest still allowed to access this service's prefill tab" (checked at hub connect
+    /// time) and "how long can this service's container run before being force-killed" (used below
+    /// in the guest env var + expiry stamping), so an admin sets one number per service instead of
+    /// two that could silently diverge.
+    /// </summary>
+    protected abstract int GetGuestPermissionDurationHours();
+
+    /// <summary>
     /// Container path under which the daemon stores its auth/refresh token. The daemon images
     /// declare this directory as a Docker <c>VOLUME</c>, so a non-persistent container gets a fresh
     /// ANONYMOUS volume (wiped on teardown via RemoveVolumes=true). For a persistent session we
@@ -871,7 +881,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         // (no cap) - their lifecycle is governed by NeedsRelogin + admin teardown.
         if (sessionType == SessionType.Guest)
         {
-            var maxLifetimeSeconds = _stateService.GetGuestPrefillMaxLifetimeHours() * 3600;
+            var maxLifetimeSeconds = GetGuestPermissionDurationHours() * 3600;
             env.Add($"PREFILL_MAX_LIFETIME_SECONDS={maxLifetimeSeconds}");
             _logger.LogInformation(
                 "Guest session {SessionId}: capping daemon lifetime at {Seconds}s",
@@ -1021,10 +1031,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         var networkDiagnostics = await TestContainerConnectivityAsync(containerId, containerName, isHostMode, cancellationToken);
 
         // Manager-enforced lifetime. Guest/temporary containers are capped at
-        // createdAt + GuestPrefillMaxLifetimeHours so they are reaped by ProcessSessionExpiryAsync
-        // exactly when the admin-configured lifetime elapses. The standard session timeout is kept
-        // as a backstop (we take whichever expiry comes first). Admin/persistent sessions are never
-        // subject to the cap and keep the standard timeout.
+        // createdAt + GetGuestPermissionDurationHours() so they are reaped by ProcessSessionExpiryAsync
+        // exactly when the admin-configured per-service permission duration elapses. The standard
+        // session timeout is kept as a backstop (we take whichever expiry comes first). Admin/persistent
+        // sessions are never subject to the cap and keep the standard timeout.
         var createdAtUtc = DateTime.UtcNow;
         var isTemporary = sessionType == SessionType.Guest;
         var standardExpiresAt = createdAtUtc.AddMinutes(GetSessionTimeoutMinutes());
@@ -1037,7 +1047,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         }
         else if (isTemporary)
         {
-            var guestCapExpiresAt = createdAtUtc.AddHours(_stateService.GetGuestPrefillMaxLifetimeHours());
+            var guestCapExpiresAt = createdAtUtc.AddHours(GetGuestPermissionDurationHours());
             expiresAt = guestCapExpiresAt < standardExpiresAt ? guestCapExpiresAt : standardExpiresAt;
         }
         else

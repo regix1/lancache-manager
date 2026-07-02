@@ -19,7 +19,3 @@ export interface PersistentPrefillContainerDto {
 export interface PersistentPrefillValiditySettings {
   days: number;
 }
-
-export interface PersistentPrefillGuestLifetimeSettings {
-  hours: number;
-}

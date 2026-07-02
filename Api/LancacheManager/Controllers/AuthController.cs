@@ -772,41 +772,6 @@ public class AuthController : ControllerBase
         });
     }
 
-    [AllowAnonymous]
-    [HttpGet("guest/prefill/container-lifetime")]
-    public IActionResult GetGuestPrefillContainerLifetime()
-    {
-        return Ok(new
-        {
-            hours = _stateService.GetGuestPrefillMaxLifetimeHours()
-        });
-    }
-
-    [Authorize(Policy = "AdminOnly")]
-    [HttpPost("guest/prefill/container-lifetime")]
-    public async Task<IActionResult> SetGuestPrefillContainerLifetimeAsync([FromBody] GuestPrefillContainerLifetimeRequest request)
-    {
-        if (request.Hours is < 1 or > 3)
-        {
-            return BadRequest(new { error = "Hours must be 1, 2, or 3" });
-        }
-
-        _stateService.SetGuestPrefillMaxLifetimeHours(request.Hours);
-
-        _logger.LogInformation("Guest prefill container max lifetime updated: {Hours}h", request.Hours);
-
-        await _signalR.NotifyAllAsync(SignalREvents.GuestPrefillContainerLifetimeChanged, new
-        {
-            hours = _stateService.GetGuestPrefillMaxLifetimeHours()
-        });
-
-        return Ok(new
-        {
-            success = true,
-            hours = _stateService.GetGuestPrefillMaxLifetimeHours()
-        });
-    }
-
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/prefill/toggle/{sessionId:guid}")]
     public async Task<IActionResult> ToggleGuestPrefillAsync(Guid sessionId, [FromBody] GuestPrefillToggleRequest request, [FromQuery] string service = "steam")
@@ -969,9 +934,4 @@ public class XboxGuestPrefillConfigRequest
     public bool EnabledByDefault { get; set; }
     public int DurationHours { get; set; } = 2;
     public int? MaxThreadCount { get; set; }
-}
-
-public class GuestPrefillContainerLifetimeRequest
-{
-    public int Hours { get; set; } = 1;
 }

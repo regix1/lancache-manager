@@ -53,6 +53,8 @@ public class XboxPrefillDaemonService : PrefillDaemonServiceBase
 
     protected override string GetImageName()
         => _configuration["Prefill:XboxDockerImage"] ?? XboxDockerImage;
+    protected override int GetGuestPermissionDurationHours()
+        => _stateService.GetXboxGuestPrefillDurationHours();
 
     // Diagnostics
     protected override string DiagnosticsConnectivityUrl => "https://displaycatalog.mp.microsoft.com/";

@@ -19,8 +19,8 @@ public class DaemonSessionDto
 
     /// <summary>
     /// True when this is a guest/temporary container whose <see cref="ExpiresAt"/> reflects the
-    /// manager-enforced GuestPrefillMaxLifetimeHours cap. The UI can use this to render a lifetime
-    /// countdown (via <see cref="TimeRemainingSeconds"/>) distinct from the standard session timeout.
+    /// manager-enforced, per-service guest permission duration cap. The UI can use this to render a
+    /// lifetime countdown (via <see cref="TimeRemainingSeconds"/>) distinct from the standard session timeout.
     /// </summary>
     public bool IsTemporary { get; set; }
 

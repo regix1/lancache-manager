@@ -36,6 +36,8 @@ public partial class SteamDaemonService : PrefillDaemonServiceBase
     protected override string DefaultDockerImage => SteamDockerImage;
     protected override string GetImageName()
         => _configuration["Prefill:SteamDockerImage"] ?? SteamDockerImage;
+    protected override int GetGuestPermissionDurationHours()
+        => _stateService.GetGuestPrefillDurationHours();
 
     // === Diagnostics ===
 

@@ -956,12 +956,7 @@
         },
         "duration": {
           "label": "Permission Duration",
-          "description": "How long prefill access lasts after being granted"
-        },
-        "containerLifetime": {
-          "label": "Guest container max lifetime",
-          "description": "Temporary prefill containers auto-stop after this many hours",
-          "existingContainersNote": "This setting applies to new prefill containers only. Already running containers are not affected."
+          "description": "How long prefill access lasts after being granted. This also caps how long that service's guest containers can run before being stopped; a change here does not affect containers that are already running."
         },
         "errors": {
           "update": "Failed to update prefill configuration"

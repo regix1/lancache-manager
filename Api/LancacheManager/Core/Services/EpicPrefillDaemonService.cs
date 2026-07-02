@@ -43,6 +43,8 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
 
     protected override string GetImageName()
         => _configuration["Prefill:EpicDockerImage"] ?? EpicDockerImage;
+    protected override int GetGuestPermissionDurationHours()
+        => _stateService.GetEpicGuestPrefillDurationHours();
 
     // Diagnostics
     protected override string DiagnosticsConnectivityUrl => "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/public/assets/Windows?label=Live";

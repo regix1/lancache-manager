@@ -45,8 +45,3 @@ export const PERSISTENT_PREFILL_VALIDITY_BOUNDS = {
   min: 1,
   max: 365
 } as const;
-
-export const PERSISTENT_PREFILL_GUEST_LIFETIME_BOUNDS = {
-  min: 1,
-  max: 3
-} as const;

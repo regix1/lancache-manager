@@ -141,10 +141,6 @@ public interface IStateService
     int GetGuestPrefillDurationHours();
     void SetGuestPrefillDurationHours(int hours);
 
-    // Manager-enforced hard cap (hours, 1-3) on guest/temporary prefill container+session lifetime
-    int GetGuestPrefillMaxLifetimeHours();
-    void SetGuestPrefillMaxLifetimeHours(int hours);
-
     // Validity window (days, 1-365) for a persistent admin login before re-login is required
     int GetAdminPersistentLoginValidityDays();
     void SetAdminPersistentLoginValidityDays(int days);
@@ -182,4 +178,14 @@ public interface IStateService
     void SetBattleNetGuestPrefillEnabledByDefault(bool enabled);
     int GetBattleNetGuestPrefillDurationHours();
     void SetBattleNetGuestPrefillDurationHours(int hours);
+
+    // Riot Guest Prefill Duration (also caps that service's guest container lifetime - see
+    // PrefillDaemonServiceBase.GetGuestPermissionDurationHours)
+    int GetRiotGuestPrefillDurationHours();
+    void SetRiotGuestPrefillDurationHours(int hours);
+
+    // Xbox Guest Prefill Duration (also caps that service's guest container lifetime - see
+    // PrefillDaemonServiceBase.GetGuestPermissionDurationHours)
+    int GetXboxGuestPrefillDurationHours();
+    void SetXboxGuestPrefillDurationHours(int hours);
 }

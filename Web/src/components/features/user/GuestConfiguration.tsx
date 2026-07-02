@@ -9,7 +9,6 @@ import type {
   EpicGuestPrefillConfigChangedEvent,
   BattleNetGuestPrefillConfigChangedEvent,
   RiotGuestPrefillConfigChangedEvent,
-  GuestPrefillContainerLifetimeChangedEvent,
   XboxGuestPrefillConfigChangedEvent
 } from '@contexts/SignalRContext/types';
 import { useAuth } from '@contexts/useAuth';
@@ -18,8 +17,6 @@ import { EpicIcon } from '@components/ui/EpicIcon';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { RiotIcon } from '@components/ui/RiotIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
-import { SegmentedControl } from '@components/ui/SegmentedControl';
-import { PERSISTENT_PREFILL_GUEST_LIFETIME_BOUNDS } from '@components/features/prefill/persistentPrefillConstants';
 import { type ThemeOption, durationOptions, refreshRateOptions, showToast } from './types';
 import AccessSecurityCard from './AccessSecurityCard';
 import PrefillServicePanel from './PrefillServicePanel';
@@ -136,11 +133,6 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const [loadingRiotPrefillConfig, setLoadingRiotPrefillConfig] = useState(false);
   const [updatingRiotPrefillConfig, setUpdatingRiotPrefillConfig] = useState(false);
 
-  // Guest container max lifetime (1-3 hours)
-  const [containerLifetimeHours, setContainerLifetimeHours] = useState(1);
-  const [loadingContainerLifetime, setLoadingContainerLifetime] = useState(false);
-  const [updatingContainerLifetime, setUpdatingContainerLifetime] = useState(false);
-
   // Xbox Prefill permission state (login-required - mirrors Epic, has a thread limit)
   const [xboxPrefillConfig, setXboxPrefillConfig] = useState({
     enabledByDefault: false,
@@ -210,22 +202,6 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     { value: '2', label: t('user.guest.prefillDurationOptions.2') },
     { value: '3', label: t('user.guest.prefillDurationOptions.3') }
   ];
-  const containerLifetimeOptions = Array.from(
-    {
-      length:
-        PERSISTENT_PREFILL_GUEST_LIFETIME_BOUNDS.max -
-        PERSISTENT_PREFILL_GUEST_LIFETIME_BOUNDS.min +
-        1
-    },
-    (_, index) => {
-      const hours = PERSISTENT_PREFILL_GUEST_LIFETIME_BOUNDS.min + index;
-      return {
-        value: String(hours),
-        label: t(`user.guest.prefillDurationOptions.${hours}`),
-        disabled: loadingContainerLifetime || updatingContainerLifetime
-      };
-    }
-  );
   const THREAD_VALUES = [1, 2, 4, 8, 16, 32, 64, 128, 256];
   const maxThreadOptions = [
     { value: '', label: t('user.guest.prefill.maxThreads.noLimit') },
@@ -373,13 +349,6 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       maxThreadCount: null
     });
   }, []);
-
-  const handleContainerLifetimeChanged = useCallback(
-    (data: GuestPrefillContainerLifetimeChangedEvent) => {
-      setContainerLifetimeHours(data.hours);
-    },
-    []
-  );
 
   const handleXboxPrefillConfigChanged = useCallback((data: XboxGuestPrefillConfigChangedEvent) => {
     setXboxPrefillConfig({
@@ -674,32 +643,6 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     }
   };
 
-  const loadContainerLifetime = async () => {
-    try {
-      setLoadingContainerLifetime(true);
-      const data = await ApiService.getGuestPrefillContainerLifetime();
-      setContainerLifetimeHours(data.hours);
-    } catch (err) {
-      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.loadConfig'));
-    } finally {
-      setLoadingContainerLifetime(false);
-    }
-  };
-
-  const updateContainerLifetime = async (hours: number) => {
-    if (authMode !== 'authenticated') return;
-    try {
-      setUpdatingContainerLifetime(true);
-      const data = await ApiService.updateGuestPrefillContainerLifetime({ hours });
-      setContainerLifetimeHours(data.hours);
-      showToast('success', t('user.guest.prefill.updated'));
-    } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.update'));
-    } finally {
-      setUpdatingContainerLifetime(false);
-    }
-  };
-
   // Xbox Prefill config functions (login-required - mirrors Epic, enabled + duration + threads)
   const loadXboxPrefillConfig = async () => {
     try {
@@ -825,12 +768,6 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     void threads;
   }, []);
 
-  const handleContainerLifetimeChange = (value: string) => {
-    const hours = Number(value);
-    if (!Number.isFinite(hours)) return;
-    void updateContainerLifetime(hours);
-  };
-
   const handleXboxToggleEnabled = () => {
     updateXboxPrefillConfig(!xboxPrefillConfig.enabledByDefault, xboxPrefillConfig.durationHours);
   };
@@ -853,7 +790,6 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     loadEpicPrefillConfig();
     loadBattlenetPrefillConfig();
     loadRiotPrefillConfig();
-    loadContainerLifetime();
     loadXboxPrefillConfig();
 
     on('DefaultGuestPreferencesChanged', handleDefaultGuestPreferencesChanged);
@@ -862,7 +798,6 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     on('EpicGuestPrefillConfigChanged', handleEpicPrefillConfigChanged);
     on('BattleNetGuestPrefillConfigChanged', handleBattlenetPrefillConfigChanged);
     on('RiotGuestPrefillConfigChanged', handleRiotPrefillConfigChanged);
-    on('GuestPrefillContainerLifetimeChanged', handleContainerLifetimeChanged);
     on('XboxGuestPrefillConfigChanged', handleXboxPrefillConfigChanged);
 
     return () => {
@@ -872,7 +807,6 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       off('EpicGuestPrefillConfigChanged', handleEpicPrefillConfigChanged);
       off('BattleNetGuestPrefillConfigChanged', handleBattlenetPrefillConfigChanged);
       off('RiotGuestPrefillConfigChanged', handleRiotPrefillConfigChanged);
-      off('GuestPrefillContainerLifetimeChanged', handleContainerLifetimeChanged);
       off('XboxGuestPrefillConfigChanged', handleXboxPrefillConfigChanged);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -885,7 +819,6 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     handleEpicPrefillConfigChanged,
     handleBattlenetPrefillConfigChanged,
     handleRiotPrefillConfigChanged,
-    handleContainerLifetimeChanged,
     handleXboxPrefillConfigChanged
   ]);
 
@@ -911,26 +844,6 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
           </p>
         </div>
         <div className="p-4 sm:p-5 space-y-4">
-          <div className="settings-group settings-group--prefill">
-            <div className="flex flex-col gap-2">
-              <span className="text-sm font-medium text-themed-primary">
-                {t('user.guest.prefill.containerLifetime.label')}
-              </span>
-              <p className="text-xs text-themed-muted">
-                {t('user.guest.prefill.containerLifetime.description')}
-              </p>
-              <SegmentedControl
-                options={containerLifetimeOptions}
-                value={String(containerLifetimeHours)}
-                onChange={handleContainerLifetimeChange}
-                fullWidth
-                showLabels
-              />
-              <p className="text-xs text-themed-muted">
-                {t('user.guest.prefill.containerLifetime.existingContainersNote')}
-              </p>
-            </div>
-          </div>
           <p className="text-xs text-themed-muted">{t('user.guest.prefill.existingGuestsNote')}</p>
           <PrefillServicePanel
             serviceName="Steam"
@@ -945,6 +858,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
             updating={updatingPrefillConfig}
             warningText={t('user.guest.prefill.warning')}
             durationLabel={t('user.guest.prefill.duration.label')}
+            durationHelpText={t('user.guest.prefill.duration.description')}
             maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
             enableLabel={t('user.guest.prefill.enableByDefault.label')}
             enableDescription={t('user.guest.prefill.enableByDefault.description')}
@@ -964,6 +878,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
             updating={updatingEpicPrefillConfig}
             warningText={t('user.guest.prefill.warning')}
             durationLabel={t('user.guest.prefill.duration.label')}
+            durationHelpText={t('user.guest.prefill.duration.description')}
             maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
             enableLabel={t('user.guest.prefill.enableByDefault.label')}
             enableDescription={t('user.guest.prefill.enableByDefault.description')}
@@ -983,6 +898,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
             updating={updatingBattlenetPrefillConfig}
             warningText={t('user.guest.prefill.warning')}
             durationLabel={t('user.guest.prefill.duration.label')}
+            durationHelpText={t('user.guest.prefill.duration.description')}
             enableLabel={t('user.guest.prefill.enableByDefault.label')}
             enableDescription={t('user.guest.prefill.enableByDefault.description')}
             prefillDurationOptions={prefillDurationOptions}
@@ -1001,6 +917,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
             updating={updatingRiotPrefillConfig}
             warningText={t('user.guest.prefill.warning')}
             durationLabel={t('user.guest.prefill.duration.label')}
+            durationHelpText={t('user.guest.prefill.duration.description')}
             enableLabel={t('user.guest.prefill.enableByDefault.label')}
             enableDescription={t('user.guest.prefill.enableByDefault.description')}
             prefillDurationOptions={prefillDurationOptions}
@@ -1019,6 +936,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
             updating={updatingXboxPrefillConfig}
             warningText={t('user.guest.prefill.warning')}
             durationLabel={t('user.guest.prefill.duration.label')}
+            durationHelpText={t('user.guest.prefill.duration.description')}
             maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
             enableLabel={t('user.guest.prefill.enableByDefault.label')}
             enableDescription={t('user.guest.prefill.enableByDefault.description')}

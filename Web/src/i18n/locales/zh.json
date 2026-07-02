@@ -956,12 +956,7 @@
         },
         "duration": {
           "label": "权限时长",
-          "description": "预填充权限授予后的持续时间"
-        },
-        "containerLifetime": {
-          "label": "访客容器最长生命周期",
-          "description": "临时预填充容器会在此小时数后自动停止",
-          "existingContainersNote": "此设置仅影响新创建的预填充容器，已在运行的容器不受影响。"
+          "description": "预填充权限授予后的持续时间。此设置同时决定该服务访客容器的最长运行时间，超时后会自动停止；更改此设置不会影响已在运行的容器。"
         },
         "errors": {
           "update": "更新预填充配置失败"

@@ -3,6 +3,7 @@ import { Network } from 'lucide-react';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Alert } from '@components/ui/Alert';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { HelpPopover, HelpNote } from '@components/ui/HelpPopover';
 
 interface PrefillServicePanelProps {
   serviceName: string;
@@ -21,6 +22,7 @@ interface PrefillServicePanelProps {
   updating: boolean;
   warningText: string;
   durationLabel: string;
+  durationHelpText: string;
   enableLabel: string;
   enableDescription: string;
   prefillDurationOptions: { value: string; label: string }[];
@@ -43,6 +45,7 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
   updating,
   warningText,
   durationLabel,
+  durationHelpText,
   enableLabel,
   enableDescription,
   prefillDurationOptions,
@@ -92,7 +95,12 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
 
       {/* Permission Duration dropdown */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-        <div className="toggle-row-label whitespace-nowrap">{durationLabel}</div>
+        <div className="toggle-row-label whitespace-nowrap flex items-center gap-1.5">
+          {durationLabel}
+          <HelpPopover position="left" width={280}>
+            <HelpNote type="info">{durationHelpText}</HelpNote>
+          </HelpPopover>
+        </div>
         <EnhancedDropdown
           options={prefillDurationOptions}
           value={config.durationHours.toString()}

@@ -51,6 +51,8 @@ public class BattleNetDaemonService : PrefillDaemonServiceBase
 
     protected override string GetImageName()
         => _configuration["Prefill:BattlenetDockerImage"] ?? BattleNetDockerImage;
+    protected override int GetGuestPermissionDurationHours()
+        => _stateService.GetBattleNetGuestPrefillDurationHours();
 
     // Diagnostics
     protected override string DiagnosticsConnectivityUrl => "https://us.cdn.blizzard.com/";
