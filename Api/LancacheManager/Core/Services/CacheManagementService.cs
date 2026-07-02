@@ -1050,14 +1050,28 @@ public partial class CacheManagementService
         Func<RustRemovalProcessResult, Task<TReport>> buildReportAsync)
         where TProgress : class
     {
-        var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync<TProgress>(
+        var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
             startInfo,
             operationId,
             cancellationToken,
-            execution.ProgressJsonPath,
-            onProgress,
-            failedProcessDescription,
-            pollIntervalMs: 250);
+            onProgress == null
+                ? null
+                : async _ =>
+                {
+                    // The stdout event is a zero-latency wake-up only; the removal binaries'
+                    // progress-file DTOs are unchanged, so real data still comes from
+                    // re-reading the same progress file each tick (mirrors
+                    // CacheClearingService's hybrid). The Rust side writes the file before
+                    // emitting the stdout event at every checkpoint, so this read is never stale.
+                    var progressData = await _rustProcessHelper.ReadProgressFileAsync<TProgress>(execution.ProgressJsonPath);
+                    if (progressData == null)
+                    {
+                        return;
+                    }
+
+                    await onProgress(progressData);
+                },
+            failedProcessDescription);
 
         _logger.LogInformation(
             "{LogPrefix} Process exit code for datasource '{DatasourceName}': {Code}",
@@ -1263,17 +1277,30 @@ public partial class CacheManagementService
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var outputFile = Path.Combine(operationsDir, $"cache_size_{Guid.NewGuid()}.json");
 
-            var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, $"\"{cachePath}\" \"{outputFile}\"");
+            var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, $"\"{cachePath}\" \"{outputFile}\" --progress");
 
             // The Rust binary writes ProgressData ticks to the output file while scanning and
             // calibrating, then overwrites it with the final CacheSizeResult. Progress ticks carry
             // a stageKey; the final result does not, so the relay callback can tell them apart.
-            var processResult = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync(
+            // Hybrid transport (mirrors CacheClearingService): cache_size.rs now emits a live stdout
+            // progress event beside each file tick; each event is a zero-latency wake-up that
+            // triggers exactly one read of the (Rust-side-unchanged) progress file, replacing the
+            // old DefaultProgressPollMs file poll. cancellationToken is threaded through unchanged so
+            // the P2-D shutdown-kill path still tears the process down.
+            var processResult = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
                 startInfo,
                 operationId,
                 cancellationToken,
-                progressFilePath: onProgress != null ? outputFile : null,
-                onProgress: onProgress,
+                onProgress == null
+                    ? null
+                    : async _ =>
+                    {
+                        var progress = await _rustProcessHelper.ReadProgressFileAsync<CacheSizeScanProgressData>(outputFile);
+                        if (progress != null)
+                        {
+                            await onProgress(progress);
+                        }
+                    },
                 processLabel: "cache_size");
 
             // Cancel-vs-exit race: tracker cancel kills the process tree BEFORE cancelling the

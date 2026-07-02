@@ -43,7 +43,7 @@ public partial class CacheManagementService
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                     rustBinaryPath,
-                    $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{serviceName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\"");
+                    $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{serviceName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress");
 
                 _logger.LogInformation("[ServiceRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
                     datasource.Name, rustBinaryPath, startInfo.Arguments);

@@ -47,7 +47,7 @@ public partial class CacheManagementService
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                     rustBinaryPath,
-                    $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{gameName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\"");
+                    $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{gameName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress");
 
                 _logger.LogInformation("[EpicGameRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
                     datasource.Name, rustBinaryPath, startInfo.Arguments);

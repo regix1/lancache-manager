@@ -54,7 +54,7 @@ public partial class CacheManagementService
                 // NOT passed as a positional arg — the contract matches the Epic remover.
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                     rustBinaryPath,
-                    $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{gameName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\"");
+                    $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{gameName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress");
 
                 _logger.LogInformation("[NamedGameRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
                     datasource.Name, rustBinaryPath, startInfo.Arguments);
