@@ -145,6 +145,9 @@ PROJECT_TYPE_CONSISTENCY_AUDIT.md
 PROJECT_VARIABLE_USAGE_MAP.md
 EPIC_GAME_MAPPING_PLAN.md
 
+# Rust build artifacts
+rust-processor/target/
+
 # Build test artifacts
 build-test/
 EPIC_IMAGE_FIX_PLAN.md
