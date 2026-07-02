@@ -1,7 +1,13 @@
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
 import type { ScheduledPrefillServiceKey } from './types';
 
-export type ScheduledPrefillPersistentAction = 'start' | 'stop' | 'download' | 'cancel' | null;
+export type ScheduledPrefillPersistentAction =
+  | 'start'
+  | 'stop'
+  | 'logout'
+  | 'download'
+  | 'cancel'
+  | null;
 
 export interface ScheduledPrefillPersistentActionState {
   serviceKey: ScheduledPrefillServiceKey;
@@ -20,6 +26,7 @@ export interface ScheduledPrefillPersistentCardProps {
   onStart: () => void;
   onStop: () => void;
   onLogin: () => void;
+  onLogout: () => void;
   onSelectGames: () => void;
   onDownload: () => void;
   onCancelDownload: () => void;

@@ -26,6 +26,7 @@ export function ScheduledPrefillPersistentCard({
   onStart,
   onStop,
   onLogin,
+  onLogout,
   onSelectGames,
   onDownload,
   onCancelDownload
@@ -214,9 +215,21 @@ export function ScheduledPrefillPersistentCard({
                   size={SCHEDULED_PREFILL_BUTTON_SIZE}
                   onClick={onLogin}
                   disabled={disabled || isAuthInProgress}
-                  loading={isAuthInProgress}
                 >
                   {t('prefill.persistent.logIn')}
+                </Button>
+              )}
+              {isRunning && isAuthenticated && (
+                <Button
+                  type="button"
+                  variant="filled"
+                  color="gray"
+                  size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                  onClick={onLogout}
+                  disabled={disabled || isPrefilling || action === 'start' || action === 'stop'}
+                  loading={action === 'logout'}
+                >
+                  {t('prefill.persistent.logOut')}
                 </Button>
               )}
               <Button

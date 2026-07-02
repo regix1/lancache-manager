@@ -3669,6 +3669,7 @@
       "subtitle": "保持预填充容器就绪，以便计划任务可以继续使用账号登录。",
       "loading": "正在加载持久预填充状态...",
       "logIn": "登录",
+      "logOut": "退出登录",
       "loginToSelectGames": "登录以选择游戏",
       "authenticating": "认证中...",
       "loginFailed": "登录失败：{{error}}",

@@ -481,25 +481,32 @@ export function ScheduledPrefillConfigModal({
     }
   };
 
+  // Starts (or restarts, for logout) the container and waits for it to come up. Shared by
+  // handleStartPersistent and handleLogoutPersistent so both land in the same
+  // "running, needs login" state via a single code path.
+  const runPersistentStartFlow = async (serviceKey: ScheduledPrefillServiceKey) => {
+    const serviceId = getPersistentServiceId(serviceKey);
+    await ApiService.startPersistentPrefillContainer(serviceId);
+    const { containers, container } = await waitForPersistentContainerAuth(serviceId, {
+      signalR,
+      onContainersUpdate: (nextContainers) => setPersistentContainers(nextContainers)
+    });
+    setPersistentContainers(containers);
+    setPersistentError(null);
+    if (container?.isRunning && !container.isAuthenticated) {
+      setPersistentLoginTarget(serviceKey);
+    } else {
+      clearPersistentAuthPending(serviceKey);
+    }
+  };
+
   const handleStartPersistent = async (serviceKey: ScheduledPrefillServiceKey) => {
     setPersistentAction({ serviceKey, action: 'start' });
     setPersistentError(null);
     markPersistentAuthPending(serviceKey);
 
     try {
-      const serviceId = getPersistentServiceId(serviceKey);
-      await ApiService.startPersistentPrefillContainer(serviceId);
-      const { containers, container } = await waitForPersistentContainerAuth(serviceId, {
-        signalR,
-        onContainersUpdate: (nextContainers) => setPersistentContainers(nextContainers)
-      });
-      setPersistentContainers(containers);
-      setPersistentError(null);
-      if (container?.isRunning && !container.isAuthenticated) {
-        setPersistentLoginTarget(serviceKey);
-      } else {
-        clearPersistentAuthPending(serviceKey);
-      }
+      await runPersistentStartFlow(serviceKey);
     } catch (error: unknown) {
       clearPersistentAuthPending(serviceKey);
       setPersistentError(getErrorMessage(error));
@@ -521,6 +528,29 @@ export function ScheduledPrefillConfigModal({
       await ApiService.stopPersistentPrefillContainer(container.sessionId);
       await loadPersistentContainers();
     } catch (error: unknown) {
+      setPersistentError(getErrorMessage(error));
+    } finally {
+      setPersistentAction(null);
+    }
+  };
+
+  // Manual logout: no daemon command clears auth without tearing down the container, so this
+  // stops it and immediately starts a fresh one, landing back at "running, not logged in".
+  const handleLogoutPersistent = async (serviceKey: ScheduledPrefillServiceKey) => {
+    const container = persistentContainerByService.get(getPersistentServiceId(serviceKey));
+    if (!container) {
+      return;
+    }
+
+    setPersistentAction({ serviceKey, action: 'logout' });
+    setPersistentError(null);
+    markPersistentAuthPending(serviceKey);
+
+    try {
+      await ApiService.stopPersistentPrefillContainer(container.sessionId);
+      await runPersistentStartFlow(serviceKey);
+    } catch (error: unknown) {
+      clearPersistentAuthPending(serviceKey);
       setPersistentError(getErrorMessage(error));
     } finally {
       setPersistentAction(null);
@@ -865,6 +895,7 @@ export function ScheduledPrefillConfigModal({
                   onStart={(serviceKey) => void handleStartPersistent(serviceKey)}
                   onStop={(serviceKey) => void handleStopPersistent(serviceKey)}
                   onLogin={handlePersistentLogin}
+                  onLogout={(serviceKey) => void handleLogoutPersistent(serviceKey)}
                   onSelectGames={(serviceKey) => void handleOpenGameSelection(serviceKey)}
                   onDownload={(serviceKey) => void handlePersistentDownload(serviceKey)}
                   onCancelDownload={(serviceKey) => void handleCancelPersistentDownload(serviceKey)}

@@ -3669,6 +3669,7 @@
       "subtitle": "Keep prefill containers ready so account logins stay available for scheduled runs.",
       "loading": "Loading persistent prefill status...",
       "logIn": "Log in",
+      "logOut": "Log out",
       "loginToSelectGames": "Log in to select games",
       "authenticating": "Authenticating...",
       "loginFailed": "Login failed: {{error}}",

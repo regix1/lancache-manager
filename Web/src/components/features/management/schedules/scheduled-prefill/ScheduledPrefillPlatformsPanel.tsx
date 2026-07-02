@@ -32,6 +32,7 @@ interface ScheduledPrefillPlatformsPanelProps {
   onStart: (serviceKey: ScheduledPrefillServiceKey) => void;
   onStop: (serviceKey: ScheduledPrefillServiceKey) => void;
   onLogin: (serviceKey: ScheduledPrefillServiceKey) => void;
+  onLogout: (serviceKey: ScheduledPrefillServiceKey) => void;
   onSelectGames: (serviceKey: ScheduledPrefillServiceKey) => void;
   onDownload: (serviceKey: ScheduledPrefillServiceKey) => void;
   onCancelDownload: (serviceKey: ScheduledPrefillServiceKey) => void;
@@ -50,6 +51,7 @@ export function ScheduledPrefillPlatformsPanel({
   onStart,
   onStop,
   onLogin,
+  onLogout,
   onSelectGames,
   onDownload,
   onCancelDownload
@@ -145,6 +147,7 @@ export function ScheduledPrefillPlatformsPanel({
             onStart={() => onStart(activeServiceKey)}
             onStop={() => onStop(activeServiceKey)}
             onLogin={() => onLogin(activeServiceKey)}
+            onLogout={() => onLogout(activeServiceKey)}
             onSelectGames={() => onSelectGames(activeServiceKey)}
             onDownload={() => onDownload(activeServiceKey)}
             onCancelDownload={() => onCancelDownload(activeServiceKey)}
