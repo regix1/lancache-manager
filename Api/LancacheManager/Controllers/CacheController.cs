@@ -775,57 +775,12 @@ public class CacheController : ControllerBase
                 _logger.LogInformation("[CorruptionRemoval] Processing datasource '{Datasource}' (logs: {LogsPath}, cache: {CachePath})",
                     datasource.Name, logsPath, cachePath);
 
-                // Start progress monitoring task for this datasource
-                using var dsProgressCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
-                var dsProgressToken = dsProgressCts.Token;
-
-                var progressMonitorTask = Task.Run(async () =>
-                {
-                    try
-                    {
-                        while (!dsProgressToken.IsCancellationRequested)
-                        {
-                            await Task.Delay(500, dsProgressToken);
-
-                            var progress = await _rustProcessHelper.ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
-                            if (progress != null)
-                            {
-                                _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.StageKey ?? "");
-                                _operationTracker.UpdateMetadata(operationId, (object meta) =>
-                                {
-                                    var m = (RemovalMetrics)meta;
-                                    m.FilesProcessed = progress.FilesProcessed;
-                                    m.TotalFiles = progress.TotalFiles;
-                                });
-
-                                // Send progress notification via SignalR
-                                await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalProgress,
-                                    new CorruptionRemovalProgress(
-                                        service,
-                                        operationId,
-                                        progress.Status,
-                                        progress.StageKey ?? string.Empty,
-                                        DateTime.UtcNow,
-                                        progress.FilesProcessed,
-                                        progress.TotalFiles,
-                                        progress.PercentComplete,
-                                        progress.Context));
-                            }
-                        }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Expected when datasource processing completes or is cancelled
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "Progress monitoring ended for corruption removal: {Service} datasource: {Datasource}",
-                            service, datasource.Name);
-                    }
-                }, dsProgressToken);
-
                 try
                 {
+                    // Hybrid transport (mirrors CacheClearingService): the stdout progress event
+                    // from corruption_manager is a zero-latency wake-up that triggers exactly one
+                    // read of the (Rust-side-unchanged) progress file, replacing the previous
+                    // standalone Task.Run poll-every-500ms loop.
                     var result = await _rustProcessHelper.RunCorruptionManagerAsync(
                         "remove",
                         logsPath,
@@ -836,11 +791,36 @@ public class CacheController : ControllerBase
                         threshold: threshold,
                         compareToCacheLogs: compareToCacheLogs,
                         detectRedownloads: detectionMode == "redownload",
-                        operationId: operationId);
+                        operationId: operationId,
+                        onProgressEvent: async _ =>
+                        {
+                            var progress = await _rustProcessHelper.ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
+                            if (progress == null)
+                            {
+                                return;
+                            }
 
-                    // Stop progress monitoring for this datasource
-                    await dsProgressCts.CancelAsync();
-                    try { await progressMonitorTask; } catch { /* ignore cancellation */ }
+                            _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.StageKey ?? "");
+                            _operationTracker.UpdateMetadata(operationId, (object meta) =>
+                            {
+                                var m = (RemovalMetrics)meta;
+                                m.FilesProcessed = progress.FilesProcessed;
+                                m.TotalFiles = progress.TotalFiles;
+                            });
+
+                            // Send progress notification via SignalR
+                            await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalProgress,
+                                new CorruptionRemovalProgress(
+                                    service,
+                                    operationId,
+                                    progress.Status,
+                                    progress.StageKey ?? string.Empty,
+                                    DateTime.UtcNow,
+                                    progress.FilesProcessed,
+                                    progress.TotalFiles,
+                                    progress.PercentComplete,
+                                    progress.Context));
+                        });
 
                     if (result.Success)
                     {

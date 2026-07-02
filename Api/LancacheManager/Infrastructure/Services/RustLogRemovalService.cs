@@ -414,7 +414,7 @@ public class RustLogRemovalService
                 var dsSuccess = await _cacheManagementService.ExecuteWithLockAsync(async () =>
                 {
                     // Start Rust process for this datasource
-                    var arguments = $"remove \"{logDir}\" \"{service}\" \"{dsProgressPath}\"";
+                    var arguments = $"remove \"{logDir}\" \"{service}\" \"{dsProgressPath}\" --progress";
                     _logger.LogInformation("Rust arguments for datasource '{DatasourceName}': {Arguments}",
                         datasource.Name, arguments);
 
@@ -439,15 +439,26 @@ public class RustLogRemovalService
                         Datasource = datasource.Name
                     });
 
-                    var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync<ProgressData>(
+                    // Hybrid transport (mirrors CacheClearingService): the stdout progress event is a
+                    // zero-latency wake-up; log_service_manager.rs's progress-file DTO is unchanged, so
+                    // the callback still re-reads it for the real data on every tick.
+                    var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
                         startInfo,
                         _currentTrackerOperationId,
                         _cancellationTokenSource.Token,
-                        dsProgressPath,
-                        // Scale this datasource's inner 0-100% into its band so the outer card moves
-                        // smoothly across datasources instead of jumping at each boundary. The bands fill
-                        // [0, MultiDatasourceFileCeiling]; DB cleanup owns the remaining top slice.
-                        progress => SendProgressAsync(progress, service, datasource.Name, datasourcesProcessed, datasources.Count, MultiDatasourceFileCeiling),
+                        async _ =>
+                        {
+                            var progressData = await _rustProcessHelper.ReadProgressFileAsync<ProgressData>(dsProgressPath);
+                            if (progressData == null)
+                            {
+                                return;
+                            }
+
+                            // Scale this datasource's inner 0-100% into its band so the outer card moves
+                            // smoothly across datasources instead of jumping at each boundary. The bands
+                            // fill [0, MultiDatasourceFileCeiling]; DB cleanup owns the remaining top slice.
+                            await SendProgressAsync(progressData, service, datasource.Name, datasourcesProcessed, datasources.Count, MultiDatasourceFileCeiling);
+                        },
                         processLabel: "log_removal");
 
                     var exitCode = result.ExitCode;
@@ -762,7 +773,7 @@ public class RustLogRemovalService
 
             return await _cacheManagementService.ExecuteWithLockAsync(async () =>
             {
-                var arguments = $"remove \"{logDir}\" \"{service}\" \"{progressPath}\"";
+                var arguments = $"remove \"{logDir}\" \"{service}\" \"{progressPath}\" --progress";
                 _logger.LogInformation("Rust arguments: {Arguments}", arguments);
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
@@ -791,12 +802,23 @@ public class RustLogRemovalService
                     Datasource = datasourceName
                 });
 
-                var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync<ProgressData>(
+                // Hybrid transport (mirrors CacheClearingService): the stdout progress event is a
+                // zero-latency wake-up; the progress-file DTO is unchanged, so the callback still
+                // re-reads it for the real data on every tick.
+                var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
                     startInfo,
                     _currentTrackerOperationId,
                     _cancellationTokenSource.Token,
-                    progressPath,
-                    progress => SendProgressAsync(progress, service, datasourceName),
+                    async _ =>
+                    {
+                        var progressData = await _rustProcessHelper.ReadProgressFileAsync<ProgressData>(progressPath);
+                        if (progressData == null)
+                        {
+                            return;
+                        }
+
+                        await SendProgressAsync(progressData, service, datasourceName);
+                    },
                     processLabel: "log_removal");
 
                 var exitCode = result.ExitCode;

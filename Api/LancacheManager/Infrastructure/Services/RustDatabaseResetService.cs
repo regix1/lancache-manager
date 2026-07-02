@@ -267,19 +267,30 @@ public class RustDatabaseResetService
             // This prevents database connection issues and SignalR disconnects during reset
             var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                 rustExecutablePath,
-                $"\"{dataDirectory}\" \"{progressPath}\"",
+                $"\"{dataDirectory}\" \"{progressPath}\" --progress",
                 Path.GetDirectoryName(rustExecutablePath));
 
             return await _cacheManagementService.ExecuteWithLockAsync(async () =>
             {
-                var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync<ProgressData>(
+                // Hybrid transport (mirrors CacheClearingService): the stdout progress event is a
+                // zero-latency wake-up: db_reset.rs's progress-file DTO/schema is unchanged, so the
+                // callback still re-reads it for the real data on every tick.
+                var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
                     startInfo,
                     _currentTrackerOperationId,
                     _cancellationTokenSource.Token,
-                    progressPath,
-                    async progress => await _notifications.NotifyAllAsync(
-                        SignalREvents.DatabaseResetProgress,
-                        ToProgressPayload(progress)),
+                    async _ =>
+                    {
+                        var progressData = await _rustProcessHelper.ReadProgressFileAsync<ProgressData>(progressPath);
+                        if (progressData == null)
+                        {
+                            return;
+                        }
+
+                        await _notifications.NotifyAllAsync(
+                            SignalREvents.DatabaseResetProgress,
+                            ToProgressPayload(progressData));
+                    },
                     processLabel: "database_reset");
 
                 var exitCode = result.ExitCode;

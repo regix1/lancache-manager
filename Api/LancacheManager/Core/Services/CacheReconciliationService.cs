@@ -297,60 +297,52 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // Create progress file for monitoring
             progressFilePath = Path.GetTempFileName();
 
-            // Start progress monitoring task (only if not silent)
-            CancellationTokenSource? progressCts = null;
-            Task? progressTask = null;
-            if (!scanSilent)
-            {
-                progressCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-                progressTask = _rustProcessHelper.MonitorProgressFileAsync<EvictionScanProgressData>(
-                    progressFilePath,
-                    async (progress) =>
+            // Hybrid transport (mirrors CacheClearingService): the stdout progress event from
+            // cache_eviction_scan.rs is a zero-latency wake-up that triggers exactly one read of
+            // the (Rust-side-unchanged) progress file, replacing the previous standalone
+            // MonitorProgressFileAsync poll-every-500ms task. Only wired when not silent, same as
+            // the old task's `if (!scanSilent)` guard.
+            Func<RustProgressEvent, Task>? onProgressEvent = scanSilent
+                ? null
+                : async _ =>
+                {
+                    var progress = await _rustProcessHelper.ReadProgressFileAsync<EvictionScanProgressData>(progressFilePath!);
+                    if (progress == null)
                     {
-                        var stageKey = string.IsNullOrEmpty(progress.StageKey)
-                            ? "signalr.evictionScan.progress"
-                            : progress.StageKey;
-                        var context = BuildScanProgressContext(progress);
-                        _currentScanProgressContext = context;
+                        return;
+                    }
 
-                        // The Rust disk scan owns 0-85% of the bar. The C# post-processing that
-                        // follows (detection-row updates, post-scan recovery, and the disk-summary
-                        // refresh - minutes on large databases) owns 85-100%. Forwarding the raw
-                        // Rust percent left the bar at 99.5% while most of the wall-clock tail was
-                        // still ahead.
-                        var scaledPercent = progress.PercentComplete * 0.85;
+                    var stageKey = string.IsNullOrEmpty(progress.StageKey)
+                        ? "signalr.evictionScan.progress"
+                        : progress.StageKey;
+                    var context = BuildScanProgressContext(progress);
+                    _currentScanProgressContext = context;
 
-                        _operationTracker.UpdateProgress(operationId, scaledPercent, stageKey);
-                        await _notifications.NotifyAllAsync(SignalREvents.EvictionScanProgress, new EvictionScanProgress(
-                            OperationId: operationId,
-                            Status: progress.Status.ToWireString(),
-                            StageKey: stageKey,
-                            PercentComplete: scaledPercent,
-                            Processed: progress.Processed,
-                            TotalEstimate: progress.TotalEstimate,
-                            Evicted: progress.Evicted,
-                            UnEvicted: progress.UnEvicted,
-                            Context: context));
-                    },
-                    progressCts.Token);
-            }
+                    // The Rust disk scan owns 0-85% of the bar. The C# post-processing that
+                    // follows (detection-row updates, post-scan recovery, and the disk-summary
+                    // refresh - minutes on large databases) owns 85-100%. Forwarding the raw
+                    // Rust percent left the bar at 99.5% while most of the wall-clock tail was
+                    // still ahead.
+                    var scaledPercent = progress.PercentComplete * 0.85;
+
+                    _operationTracker.UpdateProgress(operationId, scaledPercent, stageKey);
+                    await _notifications.NotifyAllAsync(SignalREvents.EvictionScanProgress, new EvictionScanProgress(
+                        OperationId: operationId,
+                        Status: progress.Status.ToWireString(),
+                        StageKey: stageKey,
+                        PercentComplete: scaledPercent,
+                        Processed: progress.Processed,
+                        TotalEstimate: progress.TotalEstimate,
+                        Evicted: progress.Evicted,
+                        UnEvicted: progress.UnEvicted,
+                        Context: context));
+                };
 
             // Execute the Rust binary
             var result = await _rustProcessHelper.RunEvictionScanAsync(
-                datasourceConfigPath, progressFilePath, stoppingToken, operationId);
+                datasourceConfigPath, progressFilePath, stoppingToken, operationId, onProgressEvent);
 
             stoppingToken.ThrowIfCancellationRequested();
-
-            // Stop progress monitoring
-            if (progressCts != null)
-            {
-                await progressCts.CancelAsync();
-                if (progressTask != null)
-                {
-                    try { await progressTask; } catch (OperationCanceledException) { }
-                }
-                progressCts.Dispose();
-            }
 
             // Parse result
             var scanResult = ParseScanResult(result);
@@ -1032,7 +1024,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                 var outputJsonPath = Path.Combine(operationsDir, $"{options.OutputFilePrefix}_{datasource.Name}_{timestamp}.json");
                 var progressJsonPath = Path.Combine(operationsDir, $"{options.OutputFilePrefix}_progress_{datasource.Name}_{timestamp}.json");
-                var args = $"\"{dsLogPath}\" \"{inputJsonPath}\" \"{outputJsonPath}\" --progress-json \"{progressJsonPath}\"";
+                var args = $"\"{dsLogPath}\" \"{inputJsonPath}\" \"{outputJsonPath}\" --progress-json \"{progressJsonPath}\" --progress";
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, args);
 
                 _logger.LogInformation(
@@ -1044,20 +1036,26 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                 try
                 {
-                    // Same per-datasource slice mapping as before, fed from the standard
-                    // progress-file poller instead of stdout JSON lines - cache_purge_log_entries
-                    // now uses the same progress mechanism as every other cache_* binary.
+                    // Same per-datasource slice mapping as before. Hybrid transport (mirrors
+                    // CacheClearingService): the stdout progress event is a zero-latency wake-up;
+                    // cache_purge_log_entries.rs's progress-file DTO is unchanged, so the callback
+                    // still re-reads it for the real data on every tick.
                     var dsSliceStart = options.ProgressStartPercent +
                         (options.ProgressSpanPercent * dsIndex / totalDatasources);
                     var dsSliceSize = options.ProgressSpanPercent / totalDatasources;
 
-                    var purgeResult = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync<PurgeLogProgressData>(
+                    var purgeResult = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
                         startInfo,
                         operationId,
                         stoppingToken,
-                        progressJsonPath,
-                        async progress =>
+                        async _ =>
                         {
+                            var progress = await _rustProcessHelper.ReadProgressFileAsync<PurgeLogProgressData>(progressJsonPath);
+                            if (progress == null)
+                            {
+                                return;
+                            }
+
                             // Failure is surfaced via the non-zero exit code below.
                             if (string.Equals(progress.Status, "failed", StringComparison.OrdinalIgnoreCase))
                             {
