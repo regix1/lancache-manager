@@ -87,6 +87,8 @@ export function ScheduledPrefillScheduleFields({
     onChange({ ...config, ...patch });
   };
 
+  const presetOverridden = config.selectedAppIds.length > 0;
+
   const intervalLabelId = `scheduled-prefill-interval-label-${serviceKey}`;
   const presetLabelId = `scheduled-prefill-preset-label-${serviceKey}`;
   const osLabelId = `scheduled-prefill-os-label-${serviceKey}`;
@@ -114,7 +116,9 @@ export function ScheduledPrefillScheduleFields({
       </div>
 
       <div
-        className="scheduled-prefill-schedule-fields__field"
+        className={`scheduled-prefill-schedule-fields__field${
+          presetOverridden ? ' scheduled-prefill-schedule-fields__field--override' : ''
+        }`}
         role="group"
         aria-labelledby={presetLabelId}
       >
@@ -129,7 +133,10 @@ export function ScheduledPrefillScheduleFields({
           </HelpPopover>
         </div>
         <SegmentedControl
-          options={presetOptions.map((option) => ({ ...option, disabled }))}
+          options={presetOptions.map((option) => ({
+            ...option,
+            disabled: disabled || presetOverridden
+          }))}
           value={config.preset}
           onChange={(value) => {
             if (!isScheduledPrefillPreset(value)) return;
@@ -141,7 +148,7 @@ export function ScheduledPrefillScheduleFields({
           fullWidth
           showLabels
         />
-        {config.selectedAppIds.length > 0 && (
+        {presetOverridden && (
           <p className="scheduled-prefill-schedule-fields__override">
             {t(`${baseKey}.selectedGames.overridePreset`)}
           </p>
@@ -164,7 +171,7 @@ export function ScheduledPrefillScheduleFields({
               max={99999}
               step={1}
               value={config.topCount ?? 50}
-              disabled={disabled}
+              disabled={disabled || presetOverridden}
               aria-label={t(`${baseKey}.fields.topCount`)}
               onChange={(value) => updateConfig({ topCount: Math.max(1, value) })}
             />
