@@ -390,7 +390,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     nameKeyedService={showNameKeyedImage ? nameKeyed!.service : undefined}
                     nameKeyedSlug={showNameKeyedImage ? nameKeyed!.slug : undefined}
                     alt={primaryDownload.gameName || group.name}
-                    className="compact-expanded-banner sm:w-[100px] sm:h-[46px] rounded object-cover border border-[var(--theme-border-secondary)] retro-banner-image"
+                    className="compact-expanded-banner sm:w-[100px] sm:h-[46px] rounded object-cover border border-[var(--theme-border-secondary)]"
                     sizes="(max-width: 639px) 100%, 100px"
                     onError={handleImageError}
                   />

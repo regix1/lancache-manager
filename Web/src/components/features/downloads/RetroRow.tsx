@@ -256,7 +256,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                       nameKeyedService={nameKeyedService || undefined}
                       nameKeyedSlug={nameKeyedSlug || undefined}
                       alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                      className="w-[120px] h-[56px] rounded object-cover retro-banner-image"
+                      className="w-[120px] h-[56px] rounded object-cover"
                       onError={onImageError}
                     />
                   ) : (
@@ -415,7 +415,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                     nameKeyedService={nameKeyedService || undefined}
                     nameKeyedSlug={nameKeyedSlug || undefined}
                     alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                    className="w-[120px] h-[56px] rounded object-cover flex-shrink-0 retro-banner-image"
+                    className="w-[120px] h-[56px] rounded object-cover flex-shrink-0"
                     onError={onImageError}
                   />
                 ) : (
