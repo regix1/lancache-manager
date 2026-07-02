@@ -5929,6 +5929,12 @@
       "clearedUserSessions": "Cleared user sessions ({{count}} rows) and Steam auth data",
       "sessionsCleared": {
         "logout": "All user sessions have been cleared - logging out immediately"
+      },
+      "deleting": "Clearing {{tableName}}... ({{deletedRows}}/{{totalRows}} rows)",
+      "optimizing": "Optimizing database...",
+      "cleanup": "Cleaning up files...",
+      "error": {
+        "fatal": "Database reset failed: {{errorDetail}}"
       }
     },
     "dataImport": {
@@ -6037,7 +6043,10 @@
       "finalizing": "Reconciling evicted downloads...",
       "postProcessing": "Updating detection records...",
       "refreshingSummary": "Refreshing detection summary (this can take a few minutes)...",
-      "complete": "Scan complete: {{totalProcessed}} processed, {{totalEvicted}} evicted, {{totalUnEvicted}} un-evicted"
+      "complete": "Scan complete: {{totalProcessed}} processed, {{totalEvicted}} evicted, {{totalUnEvicted}} un-evicted",
+      "error": {
+        "fatal": "Eviction scan failed: {{errorDetail}}"
+      }
     },
     "cacheSizeScan": {
       "starting": "Starting cache file scan...",
@@ -6045,7 +6054,10 @@
       "sizing": "Measuring total cache size (network filesystem - this can take several minutes)...",
       "counting": "Counting cache files...",
       "calibrating": "Measuring deletion speed (test {{step}} of {{totalSteps}})...",
-      "complete": "Cache file scan completed: {{totalFiles}} files, {{totalSize}}"
+      "complete": "Cache file scan completed: {{totalFiles}} files, {{totalSize}}",
+      "error": {
+        "fatal": "Cache size scan failed: {{errorDetail}}"
+      }
     },
     "gameDetect": {
       "starting": {
@@ -6156,6 +6168,18 @@
       },
       "processingDatasource": "Removing {{service}} entries from datasource '{{datasourceName}}'...",
       "cleaningDatabase": "Cleaning up database records for {{service}}..."
+    },
+    "logService": {
+      "count": {
+        "starting": "Starting service count...",
+        "counting": "Counting log entries by service..."
+      },
+      "progress": "Counting log entries...",
+      "complete": "Service count complete",
+      "cancelled": "Service count was cancelled",
+      "error": {
+        "fatal": "Service count failed: {{errorDetail}}"
+      }
     },
     "serviceRemove": {
       "starting": {

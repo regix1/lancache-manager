@@ -5899,6 +5899,12 @@
       "clearedUserSessions": "已清除用户会话（{{count}} 行）和 Steam 认证数据",
       "sessionsCleared": {
         "logout": "所有用户会话已被清除 - 立即登出"
+      },
+      "deleting": "正在清除 {{tableName}}...（{{deletedRows}}/{{totalRows}} 行）",
+      "optimizing": "正在优化数据库...",
+      "cleanup": "正在清理文件...",
+      "error": {
+        "fatal": "数据库重置失败: {{errorDetail}}"
       }
     },
     "dataImport": {
@@ -6007,7 +6013,10 @@
       "finalizing": "正在核对已淘汰的下载...",
       "postProcessing": "正在更新检测记录...",
       "refreshingSummary": "正在刷新检测摘要（可能需要几分钟）...",
-      "complete": "扫描完成: 已处理 {{totalProcessed}}，已淘汰 {{totalEvicted}}，已取消淘汰 {{totalUnEvicted}}"
+      "complete": "扫描完成: 已处理 {{totalProcessed}}，已淘汰 {{totalEvicted}}，已取消淘汰 {{totalUnEvicted}}",
+      "error": {
+        "fatal": "淘汰扫描失败: {{errorDetail}}"
+      }
     },
     "cacheSizeScan": {
       "starting": "正在启动缓存文件扫描...",
@@ -6015,7 +6024,10 @@
       "sizing": "正在测量缓存总大小（网络文件系统，可能需要几分钟）...",
       "counting": "正在统计缓存文件数量...",
       "calibrating": "正在测量删除速度（测试 {{step}}/{{totalSteps}}）...",
-      "complete": "缓存文件扫描完成: {{totalFiles}} 个文件，{{totalSize}}"
+      "complete": "缓存文件扫描完成: {{totalFiles}} 个文件，{{totalSize}}",
+      "error": {
+        "fatal": "缓存大小扫描失败: {{errorDetail}}"
+      }
     },
     "gameDetect": {
       "starting": {
@@ -6126,6 +6138,18 @@
       },
       "processingDatasource": "正在从数据源 '{{datasourceName}}' 移除 {{service}} 条目...",
       "cleaningDatabase": "正在清理 {{service}} 的数据库记录..."
+    },
+    "logService": {
+      "count": {
+        "starting": "开始统计服务数量...",
+        "counting": "正在按服务统计日志条目..."
+      },
+      "progress": "正在统计日志条目...",
+      "complete": "服务统计完成",
+      "cancelled": "服务统计已被取消",
+      "error": {
+        "fatal": "服务统计失败: {{errorDetail}}"
+      }
     },
     "serviceRemove": {
       "starting": {
