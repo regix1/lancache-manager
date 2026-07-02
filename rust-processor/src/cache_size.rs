@@ -11,8 +11,10 @@ use std::time::Instant;
 
 mod cancel;
 mod cache_utils;
+mod progress_events;
 mod progress_utils;
 use cache_utils::detect_filesystem_type;
+use progress_events::ProgressReporter;
 
 #[derive(Serialize)]
 struct ProgressData {
@@ -171,12 +173,48 @@ fn print_deletion_time_recommendations(estimates: &EstimatedDeletionTimes, is_ne
     eprintln!("  Rsync: {}{}", estimates.rsync_formatted, rsync_indicator);
 }
 
-fn write_progress(progress_path: &Path, progress: &ProgressData) -> Result<()> {
-    progress_utils::write_progress_json(progress_path, progress)
+/// Writes the progress file (unchanged schema), then emits a matching stdout progress event
+/// (file write first). Note: the C# consumer for cache_size.rs lives in
+/// CacheManagementService.cs, owned by a different lane this run - this stdout channel is
+/// dual-channel-ready but not yet consumed on the C# side.
+fn write_progress(progress_path: &Path, reporter: &ProgressReporter, progress: &ProgressData) -> Result<()> {
+    progress_utils::write_progress_json(progress_path, progress)?;
+
+    reporter.emit_progress(
+        progress.percent_complete,
+        &progress.stage_key,
+        serde_json::json!({
+            "directoriesScanned": progress.directories_scanned,
+            "totalDirectories": progress.total_directories,
+            "totalBytes": progress.total_bytes,
+            "totalFiles": progress.total_files,
+            "calibrationStep": progress.calibration_step,
+            "calibrationTotalSteps": progress.calibration_total_steps,
+            "message": progress.message,
+        }),
+    );
+
+    Ok(())
 }
 
-fn write_result(result_path: &Path, result: &CacheSizeResult) -> Result<()> {
-    progress_utils::write_progress_json(result_path, result)
+/// Writes the final result file (unchanged schema), then emits a stdout complete event with the
+/// REAL final counts (file write first). This is always the terminal call for a successful scan.
+fn write_result(result_path: &Path, reporter: &ProgressReporter, result: &CacheSizeResult) -> Result<()> {
+    progress_utils::write_progress_json(result_path, result)?;
+
+    reporter.emit_complete(
+        "signalr.cacheSizeScan.complete",
+        serde_json::json!({
+            "totalBytes": result.total_bytes,
+            "totalFiles": result.total_files,
+            "totalDirectories": result.total_directories,
+            "hexDirectories": result.hex_directories,
+            "scanDurationMs": result.scan_duration_ms,
+            "formattedSize": result.formatted_size,
+        }),
+    );
+
+    Ok(())
 }
 
 fn is_hex(value: &str) -> bool {
@@ -409,6 +447,9 @@ fn measure_rsync_mode(base_dir: &Path, scenario: &TestScenario) -> f64 {
 /// through so the UI keeps showing real numbers during calibration.
 struct CalibrationProgress<'a> {
     progress_path: &'a Path,
+    // Arc'd (not a plain reference) so the same reporter/operation_id can be shared with the
+    // cache-scan monitor thread below, mirroring cache_clear.rs's reporter-via-Arc pattern.
+    reporter: &'a Arc<ProgressReporter>,
     base_percent: f64,
     span_percent: f64,
     total_bytes: u64,
@@ -502,7 +543,7 @@ fn run_dynamic_calibration(
                 calibration_total_steps: total_steps,
                 timestamp: progress_utils::current_timestamp(),
             };
-            if let Err(e) = write_progress(p.progress_path, &tick) {
+            if let Err(e) = write_progress(p.progress_path, p.reporter, &tick) {
                 eprintln!("Warning: Failed to write calibration progress: {}", e);
             }
         }
@@ -855,7 +896,7 @@ fn estimate_deletion_times_dynamic(
     }
 }
 
-fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheSizeResult> {
+fn calculate_cache_size(cache_path: &str, progress_path: &Path, reporter: &Arc<ProgressReporter>) -> Result<CacheSizeResult> {
     let start_time = Instant::now();
     eprintln!("Starting cache size calculation...");
     eprintln!("Cache path: {}", cache_path);
@@ -922,6 +963,7 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
 
         let calibration_progress = CalibrationProgress {
             progress_path,
+            reporter,
             base_percent: 5.0,
             span_percent: 90.0,
             total_bytes: 0,
@@ -975,7 +1017,7 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
             formatted_size: "0 bytes".to_string(),
             timestamp: progress_utils::current_timestamp(),
         };
-        write_result(progress_path, &result)?;
+        write_result(progress_path, reporter, &result)?;
         return Ok(result);
     }
 
@@ -983,7 +1025,7 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
     // The NFS client caches directory information and 'du' leverages this efficiently
     if is_network_fs {
         eprintln!("Network filesystem detected - using optimized du/find approach");
-        return calculate_cache_size_network(cache_dir, progress_path, total_hex_dirs, start_time);
+        return calculate_cache_size_network(cache_dir, progress_path, total_hex_dirs, start_time, reporter);
     }
 
     // For local filesystems, use parallel scanning (fast and reliable)
@@ -1012,13 +1054,14 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
         calibration_total_steps: 0,
         timestamp: progress_utils::current_timestamp(),
     };
-    write_progress(progress_path, &progress)?;
+    write_progress(progress_path, reporter, &progress)?;
 
     // Clone references for progress monitoring
     let bytes_for_monitor = Arc::clone(&total_bytes);
     let files_for_monitor = Arc::clone(&total_files);
     let dirs_for_monitor = Arc::clone(&dirs_scanned);
     let progress_path_clone = progress_path.to_path_buf();
+    let reporter_for_monitor = Arc::clone(reporter);
 
     // Progress monitoring thread
     let monitor_handle = std::thread::spawn(move || {
@@ -1051,7 +1094,7 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
                 timestamp: progress_utils::current_timestamp(),
             };
             
-            if let Err(e) = write_progress(&progress_path_clone, &progress) {
+            if let Err(e) = write_progress(&progress_path_clone, &reporter_for_monitor, &progress) {
                 eprintln!("Warning: Failed to write progress: {}", e);
             }
         }
@@ -1150,6 +1193,7 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
     eprintln!("\nRunning deletion speed calibration...");
     let calibration_progress = CalibrationProgress {
         progress_path,
+        reporter,
         base_percent: 80.0,
         span_percent: 19.0,
         total_bytes: final_bytes,
@@ -1194,7 +1238,7 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
         timestamp: progress_utils::current_timestamp(),
     };
 
-    write_result(progress_path, &result)?;
+    write_result(progress_path, reporter, &result)?;
 
     Ok(result)
 }
@@ -1207,6 +1251,7 @@ fn calculate_cache_size_network(
     progress_path: &Path,
     hex_dir_count: usize,
     start_time: Instant,
+    reporter: &Arc<ProgressReporter>,
 ) -> Result<CacheSizeResult> {
     use std::process::Command;
 
@@ -1229,7 +1274,7 @@ fn calculate_cache_size_network(
         calibration_total_steps: 0,
         timestamp: progress_utils::current_timestamp(),
     };
-    write_progress(progress_path, &progress)?;
+    write_progress(progress_path, reporter, &progress)?;
 
     // Use du -sb for total size (summarize, bytes)
     // This is much more reliable on NFS than iterating with stat()
@@ -1297,7 +1342,7 @@ fn calculate_cache_size_network(
         calibration_total_steps: 0,
         timestamp: progress_utils::current_timestamp(),
     };
-    write_progress(progress_path, &progress)?;
+    write_progress(progress_path, reporter, &progress)?;
 
     // Count files using find (more reliable on NFS). Invoke `find` directly -
     // never via `sh -c` - so a crafted `cache_dir` cannot inject shell
@@ -1354,6 +1399,7 @@ fn calculate_cache_size_network(
     eprintln!("\nRunning deletion speed calibration on network filesystem...");
     let calibration_progress = CalibrationProgress {
         progress_path,
+        reporter,
         base_percent: 75.0,
         span_percent: 24.0,
         total_bytes,
@@ -1398,7 +1444,7 @@ fn calculate_cache_size_network(
         timestamp: progress_utils::current_timestamp(),
     };
 
-    write_result(progress_path, &result)?;
+    write_result(progress_path, reporter, &result)?;
 
     Ok(result)
 }
@@ -1408,11 +1454,20 @@ fn main() {
     // poll cancel::is_cancelled() and bail out cleanly between items.
     cancel::install();
 
-    let args: Vec<String> = env::args().collect();
+    let mut args: Vec<String> = env::args().collect();
+
+    // Emit JSON progress events to stdout (mirrors cache_clear.rs/cache_game_detect.rs's
+    // `-p`/`--progress` flag). Stripped before the existing positional-argument check below.
+    let progress_enabled = if let Some(pos) = args.iter().position(|a| a == "--progress" || a == "-p") {
+        args.remove(pos);
+        true
+    } else {
+        false
+    };
 
     if args.len() != 3 {
         eprintln!("Usage:");
-        eprintln!("  cache_size <cache_path> <output_json_path>");
+        eprintln!("  cache_size <cache_path> <output_json_path> [--progress]");
         eprintln!("\nExample:");
         eprintln!("  cache_size /var/cache/lancache ./data/cache_size.json");
         eprintln!("\nOutput:");
@@ -1422,15 +1477,18 @@ fn main() {
 
     let cache_path = &args[1];
     let output_path = Path::new(&args[2]);
+    let reporter = Arc::new(ProgressReporter::new(progress_enabled));
+    reporter.emit_started("signalr.cacheSizeScan.starting", serde_json::json!({}));
 
-    match calculate_cache_size(cache_path, output_path) {
+    match calculate_cache_size(cache_path, output_path, &reporter) {
         Ok(result) => {
             println!("{}", serde_json::to_string_pretty(&result).unwrap());
             std::process::exit(0);
         }
         Err(e) => {
             eprintln!("Error: {:?}", e);
-            
+            reporter.emit_failed("signalr.cacheSizeScan.error.fatal", serde_json::json!({ "errorDetail": e.to_string() }));
+
             // Write error to output file
             let error_data = serde_json::json!({
                 "error": e.to_string(),

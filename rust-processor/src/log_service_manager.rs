@@ -13,11 +13,13 @@ use tempfile::NamedTempFile;
 mod cancel;
 mod log_discovery;
 mod log_reader;
+mod progress_events;
 mod progress_utils;
 mod service_utils;
 
 use log_discovery::discover_log_files;
 use log_reader::LogFileReader;
+use progress_events::ProgressReporter;
 
 #[derive(Serialize, Clone)]
 struct ProgressData {
@@ -74,9 +76,52 @@ impl ProgressData {
     }
 }
 
-fn write_progress(progress_path: &Path, progress: &ProgressData) -> Result<()> {
+/// Default stdout stage key when `ProgressData.stage_key` is empty (the "count" command's ticks
+/// never call `.with_stage_key(...)`, a pre-existing gap not touched here).
+fn default_stage_key_for_status(status: &str) -> &'static str {
+    match status {
+        "counting" => "signalr.logService.count.counting",
+        "removing" => "signalr.logRemoval.removing",
+        "completed" => "signalr.logService.complete",
+        "cancelled" => "signalr.logService.cancelled",
+        "failed" | "error" => "signalr.logService.error.fatal",
+        _ => "signalr.logService.progress",
+    }
+}
+
+/// Writes the progress file (unchanged schema), then emits the matching stdout event via
+/// `reporter` (file write always first). Reuses `progress.stage_key` when the "remove" path has
+/// already set one via `.with_stage_key(...)`; falls back to a status-derived default otherwise
+/// (the "count" path's ticks) so the stdout channel is always meaningful.
+fn write_progress(progress_path: &Path, reporter: &ProgressReporter, progress: &ProgressData) -> Result<()> {
     // Use shared progress writing utility
-    progress_utils::write_progress_json(progress_path, progress)
+    progress_utils::write_progress_json(progress_path, progress)?;
+
+    let stage_key = if progress.stage_key.is_empty() {
+        default_stage_key_for_status(&progress.status)
+    } else {
+        progress.stage_key.as_str()
+    };
+
+    let context = serde_json::json!({
+        "message": progress.message,
+        "linesProcessed": progress.lines_processed,
+        "linesRemoved": progress.lines_removed,
+        "filesProcessed": progress.files_processed,
+        "datasourceName": progress.datasource_name,
+        // Real data (never omitted on the terminal "completed" tick) - this is the count
+        // command's actual result, otherwise only available via the file.
+        "serviceCounts": progress.service_counts,
+    });
+
+    match progress.status.as_str() {
+        "completed" => reporter.emit_complete(stage_key, context),
+        "cancelled" => reporter.emit_cancelled(stage_key, context),
+        "failed" | "error" => reporter.emit_failed(stage_key, context),
+        _ => reporter.emit_progress(progress.percent_complete, stage_key, context),
+    }
+
+    Ok(())
 }
 
 
@@ -107,7 +152,7 @@ fn line_matches_service(raw_line: &[u8], service_lower: &str) -> bool {
     }
 }
 
-fn count_services(log_path: &str, progress_path: &Path, datasource_name: Option<&str>) -> Result<HashMap<String, u64>> {
+fn count_services(log_path: &str, progress_path: &Path, reporter: &ProgressReporter, datasource_name: Option<&str>) -> Result<HashMap<String, u64>> {
     let start_time = Instant::now();
     let ds_name = datasource_name.map(|s| s.to_string());
     if let Some(ds) = &ds_name {
@@ -147,7 +192,7 @@ fn count_services(log_path: &str, progress_path: &Path, datasource_name: Option<
             Some(HashMap::new()),
             ds_name.clone(),
         );
-        write_progress(progress_path, &progress)?;
+        write_progress(progress_path, reporter, &progress)?;
 
         return Ok(HashMap::new());
     }
@@ -213,7 +258,7 @@ fn count_services(log_path: &str, progress_path: &Path, datasource_name: Option<
                         None,
                         ds_name.clone(),
                     );
-                    write_progress(progress_path, &progress)?;
+                    write_progress(progress_path, reporter, &progress)?;
                     last_progress_update = Instant::now();
                 }
             }
@@ -252,7 +297,7 @@ fn count_services(log_path: &str, progress_path: &Path, datasource_name: Option<
         Some(service_counts.clone()),
         ds_name,
     );
-    write_progress(progress_path, &progress)?;
+    write_progress(progress_path, reporter, &progress)?;
 
     Ok(service_counts)
 }
@@ -261,6 +306,7 @@ fn remove_service_from_logs(
     log_path: &str,
     service_to_remove: &str,
     progress_path: &Path,
+    reporter: &ProgressReporter,
     datasource_name: Option<&str>,
 ) -> Result<()> {
     let start_time = Instant::now();
@@ -302,7 +348,7 @@ fn remove_service_from_logs(
             ds_name.clone(),
         )
         .with_stage_key("signalr.logRemoval.completeNoFiles");
-        write_progress(progress_path, &progress)?;
+        write_progress(progress_path, reporter, &progress)?;
 
         return Ok(());
     }
@@ -338,7 +384,7 @@ fn remove_service_from_logs(
                 None,
                 ds_name.clone(),
             );
-            write_progress(progress_path, &progress)?;
+            write_progress(progress_path, reporter, &progress)?;
             std::process::exit(0);
         }
 
@@ -360,7 +406,7 @@ fn remove_service_from_logs(
                 None,
                 ds_name.clone(),
             ).with_stage_key("signalr.logRemoval.removing");
-            write_progress(progress_path, &progress)?;
+            write_progress(progress_path, reporter, &progress)?;
 
             // Builds the 500ms-throttled progress payload shared by both passes.
             let build_progress = |percent: f64, current_processed: u64, current_removed: u64| {
@@ -423,7 +469,7 @@ fn remove_service_from_logs(
                             total_lines_processed + scan_lines,
                             total_lines_removed + scan_matches,
                         );
-                        write_progress(progress_path, &progress)?;
+                        write_progress(progress_path, reporter, &progress)?;
                         last_progress_update = Instant::now();
                     }
                 }
@@ -517,7 +563,7 @@ fn remove_service_from_logs(
                             total_lines_processed + lines_processed,
                             total_lines_removed + lines_removed,
                         );
-                        write_progress(progress_path, &progress)?;
+                        write_progress(progress_path, reporter, &progress)?;
                         last_progress_update = Instant::now();
                     }
                 }
@@ -605,7 +651,7 @@ fn remove_service_from_logs(
             None,
             ds_name,
         );
-        write_progress(progress_path, &progress)?;
+        write_progress(progress_path, reporter, &progress)?;
         
         anyhow::bail!("{}", error_msg);
     }
@@ -635,7 +681,7 @@ fn remove_service_from_logs(
         None,
         ds_name,
     ).with_stage_key("signalr.logRemoval.complete");
-    write_progress(progress_path, &progress)?;
+    write_progress(progress_path, reporter, &progress)?;
 
     Ok(())
 }
@@ -702,7 +748,17 @@ fn check_cache_validity(log_path: &str, progress_path: &Path) -> Result<HashMap<
 fn main() {
     cancel::install();
 
-    let args: Vec<String> = env::args().collect();
+    let mut args: Vec<String> = env::args().collect();
+
+    // Emit JSON progress events to stdout (mirrors cache_clear.rs/cache_game_detect.rs's
+    // `-p`/`--progress` flag). Stripped before the existing positional-argument checks below.
+    let progress_enabled = if let Some(pos) = args.iter().position(|a| a == "--progress" || a == "-p") {
+        args.remove(pos);
+        true
+    } else {
+        false
+    };
+    let reporter = ProgressReporter::new(progress_enabled);
 
     if args.len() < 4 {
         eprintln!("Usage:");
@@ -739,7 +795,9 @@ fn main() {
                 std::process::exit(0);
             }
 
-            match count_services(log_path, progress_path, datasource_name) {
+            reporter.emit_started("signalr.logService.count.starting", serde_json::json!({}));
+
+            match count_services(log_path, progress_path, &reporter, datasource_name) {
                 Ok(_) => {
                     std::process::exit(0);
                 }
@@ -756,7 +814,7 @@ fn main() {
                         None,
                         datasource_name.map(|s| s.to_string()),
                     );
-                    let _ = write_progress(progress_path, &error_progress);
+                    let _ = write_progress(progress_path, &reporter, &error_progress);
                     std::process::exit(1);
                 }
             }
@@ -774,7 +832,9 @@ fn main() {
                 eprintln!("Processing for datasource: {}", ds);
             }
 
-            match remove_service_from_logs(log_path, service_name, progress_path, datasource_name) {
+            reporter.emit_started("signalr.logRemoval.starting.single", serde_json::json!({ "service": service_name }));
+
+            match remove_service_from_logs(log_path, service_name, progress_path, &reporter, datasource_name) {
                 Ok(_) => {
                     std::process::exit(0);
                 }
@@ -791,7 +851,7 @@ fn main() {
                         None,
                         datasource_name.map(|s| s.to_string()),
                     );
-                    let _ = write_progress(progress_path, &error_progress);
+                    let _ = write_progress(progress_path, &reporter, &error_progress);
                     std::process::exit(1);
                 }
             }

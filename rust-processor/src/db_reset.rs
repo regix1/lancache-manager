@@ -7,7 +7,10 @@ use std::time::Instant;
 
 mod cancel;
 mod db;
+mod progress_events;
 mod progress_utils;
+
+use progress_events::ProgressReporter;
 
 #[derive(Serialize)]
 struct ProgressData {
@@ -49,13 +52,35 @@ impl ProgressData {
     }
 }
 
-fn write_progress(progress_path: &Path, progress: &ProgressData) -> Result<()> {
-    progress_utils::write_progress_json(progress_path, progress)
+/// Writes the progress file (unchanged schema/durability checkpoint), then emits the matching
+/// stdout event via `reporter` (file write ALWAYS happens first). `stage_key` is stdout-only -
+/// db_reset's file-side `ProgressData` has no stage_key/context fields, so this does not touch
+/// the file schema.
+fn write_progress(progress_path: &Path, reporter: &ProgressReporter, stage_key: &str, progress: &ProgressData) -> Result<()> {
+    progress_utils::write_progress_json(progress_path, progress)?;
+
+    let context = serde_json::json!({
+        "tablesCleared": progress.tables_cleared,
+        "totalTables": progress.total_tables,
+        "filesDeleted": progress.files_deleted,
+        "message": progress.message,
+    });
+
+    match progress.status.as_str() {
+        "starting" => reporter.emit_started(stage_key, context),
+        "completed" => reporter.emit_complete(stage_key, context),
+        "cancelled" => reporter.emit_cancelled(stage_key, context),
+        "error" => reporter.emit_failed(stage_key, context),
+        _ => reporter.emit_progress(progress.percent_complete, stage_key, context),
+    }
+
+    Ok(())
 }
 
 async fn reset_database(
     data_directory: &str,
     progress_path: &Path,
+    reporter: &ProgressReporter,
 ) -> Result<()> {
     let start_time = Instant::now();
 
@@ -73,7 +98,7 @@ async fn reset_database(
         4,
         0,
     );
-    write_progress(progress_path, &progress)?;
+    write_progress(progress_path, reporter, "signalr.dbReset.starting", &progress)?;
 
     // Create PostgreSQL connection pool
     let pool = db::create_pool().await?;
@@ -119,7 +144,7 @@ async fn reset_database(
                 "Database reset cancelled. Cleared {} of {} tables, deleted {} files.",
                 tables_cleared, tables.len(), 0usize
             );
-            write_progress(progress_path, &progress)?;
+            write_progress(progress_path, reporter, "signalr.dbReset.cancelled", &progress)?;
             std::process::exit(0);
         }
 
@@ -168,7 +193,7 @@ async fn reset_database(
                     progress.message = format!("Clearing {}... ({} / {} rows)", table_name, deleted_rows, total_rows);
                     progress.percent_complete = overall_progress.min(85.0);
                     progress.status = "deleting".to_string();
-                    write_progress(progress_path, &progress)?;
+                    write_progress(progress_path, reporter, "signalr.dbReset.deleting", &progress)?;
 
                     if batch_num % 10 == 0 {
                         println!("  Batch {}: Deleted {} rows (total: {} / {})", batch_num, deleted, deleted_rows, total_rows);
@@ -184,7 +209,7 @@ async fn reset_database(
                             "Database reset cancelled after {} rows deleted ({} of {} tables fully cleared).",
                             deleted_rows, tables_cleared, tables.len()
                         );
-                        write_progress(progress_path, &progress)?;
+                        write_progress(progress_path, reporter, "signalr.dbReset.cancelled", &progress)?;
                         std::process::exit(0);
                     }
                 }
@@ -214,7 +239,7 @@ async fn reset_database(
     progress.message = "Optimizing database...".to_string();
     progress.percent_complete = 88.0;
     progress.status = "optimizing".to_string();
-    write_progress(progress_path, &progress)?;
+    write_progress(progress_path, reporter, "signalr.dbReset.optimizing", &progress)?;
 
     println!("Running ANALYZE to update statistics...");
     sqlx::query("ANALYZE")
@@ -228,7 +253,7 @@ async fn reset_database(
     progress.message = "Cleaning up files...".to_string();
     progress.percent_complete = 90.0;
     progress.status = "cleanup".to_string();
-    write_progress(progress_path, &progress)?;
+    write_progress(progress_path, reporter, "signalr.dbReset.cleanup", &progress)?;
 
     // Cooperative cancel: check before file deletion loop
     if cancel::is_cancelled() {
@@ -240,7 +265,7 @@ async fn reset_database(
             "Database reset cancelled. Cleared {} of {} tables (all rows deleted), no data files removed.",
             tables_cleared, tables.len()
         );
-        write_progress(progress_path, &progress)?;
+        write_progress(progress_path, reporter, "signalr.dbReset.cancelled", &progress)?;
         std::process::exit(0);
     }
 
@@ -280,7 +305,7 @@ async fn reset_database(
         tables_cleared,
         files_deleted
     );
-    write_progress(progress_path, &progress)?;
+    write_progress(progress_path, reporter, "signalr.dbReset.complete", &progress)?;
 
     println!("\nDatabase reset completed successfully!");
     println!("  Tables cleared: {}", tables_cleared);
@@ -292,10 +317,21 @@ async fn reset_database(
 
 #[tokio::main]
 async fn main() {
-    let args: Vec<String> = env::args().collect();
+    let mut args: Vec<String> = env::args().collect();
+
+    // Emit JSON progress events to stdout (mirrors cache_clear.rs/cache_game_detect.rs's
+    // `-p`/`--progress` flag). Stripped before the existing positional-argument checks below so
+    // it can be appended anywhere without disturbing the required <data_directory>
+    // <progress_json_path> positions.
+    let progress_enabled = if let Some(pos) = args.iter().position(|a| a == "--progress" || a == "-p") {
+        args.remove(pos);
+        true
+    } else {
+        false
+    };
 
     if args.len() != 3 {
-        eprintln!("Usage: database_reset <data_directory> <progress_json_path>");
+        eprintln!("Usage: database_reset <data_directory> <progress_json_path> [--progress]");
         eprintln!("\nExample:");
         eprintln!("  database_reset ./data ./data/reset_progress.json");
         eprintln!("\nNote: Database connection is configured via DATABASE_URL environment variable.");
@@ -306,6 +342,7 @@ async fn main() {
 
     let data_directory = &args[1];
     let progress_path = Path::new(&args[2]);
+    let reporter = ProgressReporter::new(progress_enabled);
 
     // Create data directory if it doesn't exist
     if let Err(e) = fs::create_dir_all(data_directory) {
@@ -313,7 +350,7 @@ async fn main() {
         std::process::exit(1);
     }
 
-    match reset_database(data_directory, progress_path).await {
+    match reset_database(data_directory, progress_path, &reporter).await {
         Ok(_) => {
             std::process::exit(0);
         }
@@ -330,7 +367,7 @@ async fn main() {
                 4,
                 0,
             );
-            let _ = write_progress(progress_path, &error_progress);
+            let _ = write_progress(progress_path, &reporter, "signalr.dbReset.error.fatal", &error_progress);
 
             std::process::exit(1);
         }

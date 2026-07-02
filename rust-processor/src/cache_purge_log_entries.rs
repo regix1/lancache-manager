@@ -27,11 +27,13 @@ mod log_purge;
 mod log_reader;
 mod models;
 mod parser;
+mod progress_events;
 mod progress_utils;
 mod service_utils;
 mod tact_products;
 
 use log_purge::remove_log_entries_for_game;
+use progress_events::ProgressReporter;
 
 /// Bulk purge log entries for a set of evicted games, given their URL + depot_id union.
 #[derive(clap::Parser, Debug)]
@@ -51,6 +53,10 @@ struct Args {
     /// camelCase schema as every other cache_* binary; omit for silent runs.
     #[arg(long)]
     progress_json: Option<String>,
+
+    /// Emit JSON progress events to stdout
+    #[arg(short, long)]
+    progress: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -90,9 +96,13 @@ struct ProgressData {
     timestamp: String,
 }
 
-/// No-op when no progress path was supplied (silent runs).
+/// Writes the (optional) progress file exactly as before, THEN emits the matching stdout event
+/// via `reporter` (file write always happens first when a path is supplied; the reporter itself
+/// is independently gated by the `--progress` flag). No-ops the file write when no progress path
+/// was supplied (silent runs) but still emits stdout when `--progress` is set.
 fn write_progress(
     progress_path: Option<&Path>,
+    reporter: &ProgressReporter,
     status: &str,
     stage_key: &str,
     context: serde_json::Value,
@@ -100,32 +110,40 @@ fn write_progress(
     files_processed: usize,
     total_files: usize,
 ) -> Result<()> {
-    let Some(path) = progress_path else {
-        return Ok(());
-    };
+    if let Some(path) = progress_path {
+        let progress = ProgressData {
+            status: status.to_string(),
+            stage_key: stage_key.to_string(),
+            context: context.clone(),
+            percent_complete,
+            files_processed,
+            total_files,
+            timestamp: progress_utils::current_timestamp(),
+        };
 
-    let progress = ProgressData {
-        status: status.to_string(),
-        stage_key: stage_key.to_string(),
-        context,
-        percent_complete,
-        files_processed,
-        total_files,
-        timestamp: progress_utils::current_timestamp(),
-    };
+        progress_utils::write_progress_json(path, &progress)?;
+    }
 
-    progress_utils::write_progress_json(path, &progress)
+    match status {
+        "starting" => reporter.emit_started(stage_key, context),
+        "completed" => reporter.emit_complete(stage_key, context),
+        "failed" => reporter.emit_failed(stage_key, context),
+        _ => reporter.emit_progress(percent_complete, stage_key, context),
+    }
+
+    Ok(())
 }
 
 fn main() -> Result<()> {
     cancel::install();
     let args = Args::parse();
+    let reporter = ProgressReporter::new(args.progress);
 
     let progress_path_buf = args.progress_json.clone().map(std::path::PathBuf::from);
     let progress_path = progress_path_buf.as_deref();
-    let _ = write_progress(progress_path, "starting", "signalr.logPurge.reading", json!({}), 0.0, 0, 0);
+    let _ = write_progress(progress_path, &reporter, "starting", "signalr.logPurge.reading", json!({}), 0.0, 0, 0);
 
-    let result = run_purge(&args, progress_path);
+    let result = run_purge(&args, progress_path, &reporter);
 
     match &result {
         Ok(report) => {
@@ -136,6 +154,7 @@ fn main() -> Result<()> {
 
             let _ = write_progress(
                 progress_path,
+                &reporter,
                 "completed",
                 "signalr.logPurge.complete",
                 json!({ "linesRemoved": report.lines_removed, "permissionErrors": report.permission_errors }),
@@ -165,6 +184,7 @@ fn main() -> Result<()> {
 
             let _ = write_progress(
                 progress_path,
+                &reporter,
                 "failed",
                 "signalr.logPurge.error.fatal",
                 json!({ "errorDetail": err_msg }),
@@ -179,9 +199,9 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_purge(args: &Args, progress_path: Option<&Path>) -> Result<PurgeReport> {
+fn run_purge(args: &Args, progress_path: Option<&Path>, reporter: &ProgressReporter) -> Result<PurgeReport> {
     // Read input JSON
-    let _ = write_progress(progress_path, "purging", "signalr.logPurge.reading", json!({}), 5.0, 0, 0);
+    let _ = write_progress(progress_path, reporter, "purging", "signalr.logPurge.reading", json!({}), 5.0, 0, 0);
     let input_bytes = fs::read(&args.input_json)
         .with_context(|| format!("Failed to read input JSON {}", args.input_json))?;
     let request: PurgeRequest = serde_json::from_slice(&input_bytes)
@@ -213,6 +233,7 @@ fn run_purge(args: &Args, progress_path: Option<&Path>) -> Result<PurgeReport> {
     );
     let _ = write_progress(
         progress_path,
+        reporter,
         "purging",
         "signalr.logPurge.purging",
         json!({ "urlCount": urls.len(), "depotCount": depot_ids.len() }),
@@ -237,6 +258,7 @@ fn run_purge(args: &Args, progress_path: Option<&Path>) -> Result<PurgeReport> {
             let mapped = 15.0 + fraction * 80.0;
             let _ = write_progress(
                 progress_path,
+                reporter,
                 "purging",
                 "signalr.logPurge.purging",
                 json!({ "urlCount": url_count, "depotCount": depot_count, "filesProcessed": files_done, "totalFiles": total_files }),
@@ -256,6 +278,7 @@ fn run_purge(args: &Args, progress_path: Option<&Path>) -> Result<PurgeReport> {
         eprintln!("Cancellation confirmed — flushing partial progress ({} lines removed so far).", lines_removed);
         let _ = write_progress(
             progress_path,
+            reporter,
             "purging",
             "signalr.logPurge.purging",
             json!({ "urlCount": url_count, "depotCount": depot_count, "linesRemoved": lines_removed }),
@@ -275,6 +298,7 @@ fn run_purge(args: &Args, progress_path: Option<&Path>) -> Result<PurgeReport> {
 
     let _ = write_progress(
         progress_path,
+        reporter,
         "purging",
         "signalr.logPurge.rewrote",
         json!({ "linesRemoved": lines_removed }),

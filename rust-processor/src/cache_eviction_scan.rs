@@ -11,7 +11,10 @@ mod cache_utils;
 mod cache_eviction_paths;
 mod cancel;
 mod db;
+mod progress_events;
 mod progress_utils;
+
+use progress_events::ProgressReporter;
 
 /// Eviction scanner - checks which downloads have been evicted from the nginx cache
 #[derive(Parser, Debug)]
@@ -24,6 +27,10 @@ struct Args {
     /// Path to progress JSON file (use "none" to skip)
     #[arg(default_value = "none")]
     progress_json: Option<String>,
+
+    /// Emit JSON progress events to stdout
+    #[arg(short, long)]
+    progress: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -130,14 +137,36 @@ fn classify_verifiable(has_cache_file: bool, is_evicted: bool, was_cached: bool)
 async fn main() -> Result<()> {
     cancel::install();
     let args = Args::parse();
+    let reporter = ProgressReporter::new(args.progress);
 
     let progress_path = match args.progress_json.as_deref() {
         Some("none") | None => None,
         Some(p) => Some(PathBuf::from(p)),
     };
 
-    match run_scan(&args.datasource_config, progress_path.as_deref()).await {
+    reporter.emit_started("signalr.evictionScan.scanning", json!({}));
+
+    match run_scan(&args.datasource_config, progress_path.as_deref(), &reporter).await {
         Ok(result) => {
+            // Real final counts (never hardcoded zeros) - the exact bug fixed in cache_clear.
+            if result.success {
+                reporter.emit_complete(
+                    "signalr.evictionScan.complete",
+                    json!({
+                        "processed": result.processed,
+                        "evicted": result.evicted,
+                        "unEvicted": result.un_evicted,
+                        "filesOnDisk": result.files_on_disk,
+                    }),
+                );
+            } else {
+                reporter.emit_failed(
+                    "signalr.evictionScan.error.fatal",
+                    json!({ "errorDetail": result.error.clone().unwrap_or_default() }),
+                );
+            }
+            // This final plain-JSON line stays the LAST line on stdout after the progress-event
+            // lines above - the C# caller reads only the last stdout line as the ScanResult.
             let json = serde_json::to_string(&result)?;
             println!("{}", json);
             if result.success {
@@ -147,13 +176,15 @@ async fn main() -> Result<()> {
             }
         }
         Err(e) => {
+            let error_detail = format!("{:#}", e);
+            reporter.emit_failed("signalr.evictionScan.error.fatal", json!({ "errorDetail": error_detail.clone() }));
             let result = ScanResult {
                 success: false,
                 processed: 0,
                 evicted: 0,
                 un_evicted: 0,
                 files_on_disk: 0,
-                error: Some(format!("{:#}", e)),
+                error: Some(error_detail),
             };
             let json = serde_json::to_string(&result)?;
             println!("{}", json);
@@ -162,7 +193,7 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) -> Result<ScanResult> {
+async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, reporter: &ProgressReporter) -> Result<ScanResult> {
     // Step 1: Read datasource configuration
     let config_content = std::fs::read_to_string(datasource_config_path)
         .with_context(|| format!("Failed to read datasource config: {}", datasource_config_path))?;
@@ -191,6 +222,7 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
 
     write_progress(
         progress_path,
+        reporter,
         "running",
         "signalr.evictionScan.scanning",
         json!({}),
@@ -209,6 +241,7 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
         let percent = FILE_SCAN_PROGRESS_START + fraction * file_scan_span;
         let _ = write_progress(
             progress_path,
+            reporter,
             "running",
             "signalr.evictionScan.scanningFiles",
             json!({ "filesFound": files_found }),
@@ -469,6 +502,7 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
 
         write_progress(
             progress_path,
+            reporter,
             "running",
             "signalr.evictionScan.progress",
             json!({ "totalProcessed": total_processed, "totalEstimate": total_estimate }),
@@ -504,6 +538,7 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
     // EvictionScanComplete from C# after post-processing (detection recovery, etc.).
     write_progress(
         progress_path,
+        reporter,
         "running",
         "signalr.evictionScan.finalizing",
         json!({ "totalProcessed": total_processed, "totalEvicted": total_evicted, "totalUnEvicted": total_un_evicted }),
@@ -548,8 +583,13 @@ async fn update_download_eviction_state_tx(
     Ok(())
 }
 
+/// Writes the (optional) progress file exactly as before, then emits a stdout progress event via
+/// `reporter` (file write first). Every checkpoint in this file uses status "running" - the
+/// terminal started/complete/failed events are emitted separately in `main()` from the real
+/// `ScanResult`, so this always maps to `emit_progress`.
 fn write_progress(
     progress_path: Option<&Path>,
+    reporter: &ProgressReporter,
     status: &str,
     stage_key: &str,
     context: serde_json::Value,
@@ -559,23 +599,25 @@ fn write_progress(
     evicted: usize,
     un_evicted: usize,
 ) -> Result<()> {
-    let Some(path) = progress_path else {
-        return Ok(());
-    };
+    if let Some(path) = progress_path {
+        let progress = ProgressData {
+            status: status.to_string(),
+            stage_key: stage_key.to_string(),
+            context: context.clone(),
+            percent_complete,
+            processed,
+            total_estimate,
+            evicted,
+            un_evicted,
+            timestamp: progress_utils::current_timestamp(),
+        };
 
-    let progress = ProgressData {
-        status: status.to_string(),
-        stage_key: stage_key.to_string(),
-        context,
-        percent_complete,
-        processed,
-        total_estimate,
-        evicted,
-        un_evicted,
-        timestamp: progress_utils::current_timestamp(),
-    };
+        progress_utils::write_progress_json(path, &progress)?;
+    }
 
-    progress_utils::write_progress_json(path, &progress)
+    reporter.emit_progress(percent_complete, stage_key, context);
+
+    Ok(())
 }
 
 #[cfg(test)]
