@@ -204,3 +204,20 @@ impl ProgressReporter {
         }
     }
 }
+
+/// Serialize any value to compact JSON, print it as a single NDJSON line, and flush
+/// stdout — the same write/flush guarantee every `ProgressReporter` emit method above
+/// gives its envelope events.
+///
+/// This is a bare emission primitive: it does NOT wrap `value` in the
+/// started/progress/complete envelope those methods use. It exists for callers with
+/// their own continuous wire shape (e.g. `speed_tracker`'s `DownloadSpeedSnapshot`
+/// stream) whose consumer parses the line directly, so wrapping it here would change
+/// the wire format. Use `ProgressReporter`'s methods instead when emitting a tracked
+/// started/progress/complete/failed/cancelled operation.
+pub fn emit_json_line<T: Serialize>(value: &T) {
+    if let Ok(json) = serde_json::to_string(value) {
+        println!("{}", json);
+        let _ = std::io::stdout().flush();
+    }
+}

@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 
 mod cache_utils;
 mod db;
+mod progress_events;
 mod riot_hosts;
 mod service_utils;
 mod tact_products;
@@ -318,10 +319,10 @@ impl SpeedTracker {
             if last_broadcast.elapsed() >= Duration::from_millis(BROADCAST_INTERVAL_MS) {
                 let snapshot = self.calculate_snapshot().await;
 
-                // Output JSON to stdout (C# will read this)
-                if let Ok(json) = serde_json::to_string(&snapshot) {
-                    println!("{}", json);
-                }
+                // Output JSON to stdout (C# will read this) via the shared emission
+                // primitive in progress_events — same compact serialize + println +
+                // flush guarantee, no envelope wrapping (see emit_json_line docs).
+                progress_events::emit_json_line(&snapshot);
 
                 last_broadcast = Instant::now();
             }
