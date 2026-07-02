@@ -3206,7 +3206,7 @@
               "all": "Prefill every game owned on this platform.",
               "recent": "Prefill only the games played most recently.",
               "top": "Prefill the most popular games right now, capped at the count you set below.",
-              "overrideNote": "Ignored when specific games are selected below. Those games are prefilled instead."
+              "overrideNote": "Ignored when games are selected below. Those games are prefilled instead."
             },
             "operatingSystems": {
               "windows": "Windows",
