@@ -4,6 +4,11 @@ import { EpicIcon } from '@components/ui/EpicIcon';
 import { RiotIcon } from '@components/ui/RiotIcon';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
+import { PERSISTENT_PREFILL_SERVICES } from '@components/features/prefill/persistentPrefillConstants';
+import type {
+  PersistentPrefillContainerDto,
+  PersistentPrefillServiceId
+} from '@components/features/prefill/persistentPrefillTypes';
 import {
   SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS,
   SCHEDULED_PREFILL_ANONYMOUS_SERVICE_IDS
@@ -35,3 +40,19 @@ export const isScheduledPrefillAnonymousService = (
   serviceKey: ScheduledPrefillServiceKey
 ): serviceKey is (typeof SCHEDULED_PREFILL_ANONYMOUS_SERVICE_IDS)[number] =>
   (SCHEDULED_PREFILL_ANONYMOUS_SERVICE_IDS as readonly string[]).includes(serviceKey);
+
+export const getPersistentServiceId = (
+  serviceKey: ScheduledPrefillServiceKey
+): PersistentPrefillServiceId => {
+  const service = PERSISTENT_PREFILL_SERVICES.find((item) => item.key === serviceKey);
+  if (!service) {
+    throw new Error(`Unknown scheduled prefill service: ${serviceKey}`);
+  }
+
+  return service.service;
+};
+
+export const needsPersistentLogin = (
+  container: PersistentPrefillContainerDto | undefined
+): boolean =>
+  !container || !container.isRunning || !container.isAuthenticated || container.needsRelogin;

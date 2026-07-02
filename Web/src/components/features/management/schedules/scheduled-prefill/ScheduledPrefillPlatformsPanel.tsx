@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Badge from '@components/ui/Badge';
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
@@ -6,11 +6,11 @@ import { SCHEDULED_PREFILL_SERVICE_RUN_ORDER } from './constants';
 import { ScheduledPrefillPlatformSection } from './ScheduledPrefillPlatformSection';
 import {
   SCHEDULED_PREFILL_PLATFORM_UI,
-  isScheduledPrefillAccountService
+  isScheduledPrefillAccountService,
+  needsPersistentLogin
 } from './scheduledPrefillPlatformUi';
 import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPersistentTypes';
 import type {
-  ScheduledPrefillAuthStatusItem,
   ScheduledPrefillConfigDto,
   ScheduledPrefillServiceConfigDto,
   ScheduledPrefillServiceKey
@@ -18,8 +18,6 @@ import type {
 
 interface ScheduledPrefillPlatformsPanelProps {
   config: ScheduledPrefillConfigDto;
-  authStatuses: ScheduledPrefillAuthStatusItem[];
-  authLoading?: boolean;
   disabled?: boolean;
   statusLoading?: boolean;
   containersByServiceKey: Map<ScheduledPrefillServiceKey, PersistentPrefillContainerDto>;
@@ -31,8 +29,6 @@ interface ScheduledPrefillPlatformsPanelProps {
     serviceKey: ScheduledPrefillServiceKey,
     serviceConfig: ScheduledPrefillServiceConfigDto
   ) => void;
-  onRefreshAuth?: () => void | Promise<void>;
-  onAuthError?: (message: string) => void;
   onStart: (serviceKey: ScheduledPrefillServiceKey) => void;
   onStop: (serviceKey: ScheduledPrefillServiceKey) => void;
   onLogin: (serviceKey: ScheduledPrefillServiceKey) => void;
@@ -43,8 +39,6 @@ interface ScheduledPrefillPlatformsPanelProps {
 
 export function ScheduledPrefillPlatformsPanel({
   config,
-  authStatuses,
-  authLoading = false,
   disabled = false,
   statusLoading = false,
   containersByServiceKey,
@@ -53,8 +47,6 @@ export function ScheduledPrefillPlatformsPanel({
   authenticatingServiceKeys,
   gameSelectionLoadingServiceKey,
   onServiceChange,
-  onRefreshAuth,
-  onAuthError,
   onStart,
   onStop,
   onLogin,
@@ -66,20 +58,17 @@ export function ScheduledPrefillPlatformsPanel({
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const [activeServiceKey, setActiveServiceKey] = useState<ScheduledPrefillServiceKey>('steam');
 
-  const authStatusByService = useMemo(
-    () => new Map(authStatuses.map((status) => [status.serviceId, status])),
-    [authStatuses]
-  );
-
   const getNavHint = (serviceKey: ScheduledPrefillServiceKey): string | null => {
     const serviceConfig = config[serviceKey];
-    if (!serviceConfig.enabled) {
+    // The container list loads independently of config, so don't flag a false "needs login" hint
+    // while it's still loading (or hasn't loaded) - we simply don't know its state yet.
+    if (!serviceConfig.enabled || statusLoading) {
       return null;
     }
 
     if (isScheduledPrefillAccountService(serviceKey)) {
-      const authStatus = authStatusByService.get(serviceKey);
-      if (authStatus?.loginState === 'loginRequired') {
+      const container = containersByServiceKey.get(serviceKey);
+      if (needsPersistentLogin(container)) {
         return t(`${baseKey}.platforms.nav.loginRequired`);
       }
     }
@@ -145,8 +134,6 @@ export function ScheduledPrefillPlatformsPanel({
             key={activeServiceKey}
             serviceKey={activeServiceKey}
             config={config[activeServiceKey]}
-            authStatuses={authStatuses}
-            authLoading={authLoading}
             disabled={disabled}
             statusLoading={statusLoading}
             container={containersByServiceKey.get(activeServiceKey)}
@@ -155,8 +142,6 @@ export function ScheduledPrefillPlatformsPanel({
             authenticating={authenticatingServiceKeys.includes(activeServiceKey)}
             gameSelectionLoading={gameSelectionLoadingServiceKey === activeServiceKey}
             onChange={(serviceConfig) => onServiceChange(activeServiceKey, serviceConfig)}
-            onRefreshAuth={onRefreshAuth}
-            onAuthError={onAuthError}
             onStart={() => onStart(activeServiceKey)}
             onStop={() => onStop(activeServiceKey)}
             onLogin={() => onLogin(activeServiceKey)}

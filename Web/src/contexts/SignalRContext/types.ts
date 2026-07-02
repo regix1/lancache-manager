@@ -236,7 +236,6 @@ export const SIGNALR_EVENTS = [
 
   // Schedules
   'SchedulesUpdated',
-  'ScheduledPrefillXboxAuthProgress',
   'ScheduledPrefillStarted',
   'ScheduledPrefillProgress',
   'ScheduledPrefillCompleted',
@@ -913,18 +912,6 @@ export interface XboxMappingProgressEvent {
   message: string;
   cancelled?: boolean;
   /** True only on the final success/failure/cancel event; interim progress ticks are false. */
-  isTerminal?: boolean;
-}
-
-export interface ScheduledPrefillXboxAuthProgressEvent {
-  operationId: string;
-  status: OperationStatus;
-  percentComplete: number;
-  gamesDiscovered: number;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
-  message: string;
-  cancelled?: boolean;
   isTerminal?: boolean;
 }
 

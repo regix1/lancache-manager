@@ -60,16 +60,6 @@ export interface ScheduledPrefillConfigDto {
   riot: ScheduledPrefillServiceConfigDto;
 }
 
-export type ScheduledPrefillAuthLoginState = 'ready' | 'loginRequired' | 'unsupported';
-
-export interface ScheduledPrefillAuthStatusItem {
-  serviceId: ScheduledPrefillAccountServiceId;
-  isAuthenticated: boolean;
-  displayName: string | null;
-  expiresAtUtc: string | null;
-  loginState: ScheduledPrefillAuthLoginState;
-}
-
 export interface ScheduledPrefillStartedEvent {
   operationId: string;
   serviceCount: number;

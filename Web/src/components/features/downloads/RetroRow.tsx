@@ -15,7 +15,6 @@ import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { GameImage } from '@components/common/GameImage';
-import { getBannerImageClass, type BannerImageRendering } from './bannerImageRendering';
 import BadgesRow from './BadgesRow';
 import DownloadBadges from './DownloadBadges';
 
@@ -176,7 +175,6 @@ interface RetroRowProps {
   showDatasourceColumn: boolean;
   /** Mobile-only inline datasource badge (desktop uses the dedicated column). */
   showDatasourceBadge: boolean;
-  bannerImageRendering: BannerImageRendering;
   onImageError: (gameAppId: string) => void;
   /** Virtualization attributes - present only when the list is virtualized. */
   dataIndex?: number;
@@ -194,7 +192,6 @@ const RetroRow: React.FC<RetroRowProps> = memo(
     showBannerColumn,
     showDatasourceColumn,
     showDatasourceBadge,
-    bannerImageRendering,
     onImageError,
     dataIndex,
     measureRef,
@@ -259,7 +256,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                       nameKeyedService={nameKeyedService || undefined}
                       nameKeyedSlug={nameKeyedSlug || undefined}
                       alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                      className={`w-[120px] h-[56px] rounded object-cover ${getBannerImageClass('retro-banner-image', bannerImageRendering)}`}
+                      className="w-[120px] h-[56px] rounded object-cover retro-banner-image"
                       onError={onImageError}
                     />
                   ) : (
@@ -282,6 +279,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                   </span>
                   <BadgesRow
                     service={data.service}
+                    datasource={data.datasource}
                     showDatasource={false}
                     isEvicted={data.isEvicted}
                     isPartiallyEvicted={data.isPartiallyEvicted}
@@ -417,7 +415,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                     nameKeyedService={nameKeyedService || undefined}
                     nameKeyedSlug={nameKeyedSlug || undefined}
                     alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                    className={`w-[120px] h-[56px] rounded object-cover flex-shrink-0 ${getBannerImageClass('retro-banner-image', bannerImageRendering)}`}
+                    className="w-[120px] h-[56px] rounded object-cover flex-shrink-0 retro-banner-image"
                     onError={onImageError}
                   />
                 ) : (
@@ -451,6 +449,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                   </div>
                   <BadgesRow
                     service={data.service}
+                    datasource={data.datasource}
                     showDatasource={false}
                     isEvicted={data.isEvicted}
                     isPartiallyEvicted={data.isPartiallyEvicted}

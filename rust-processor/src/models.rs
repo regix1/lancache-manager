@@ -23,4 +23,9 @@ pub(crate) struct LogEntry {
     /// URLs carry no product slug, so the host is the only per-game discriminator — used
     /// to map a Riot download to a game name and to group/dedup sessions per game.
     pub(crate) cdn_host: Option<String>,
+    /// True when the request's Referer field equals the lancache-manager prefill marker
+    /// (see `parser::PREFILL_MARKER_REFERER`). Prefill-daemon traffic is tagged here at
+    /// ingest so it aggregates into its own `Datasource='prefill'` Download rows and can be
+    /// excluded from blended hit-rate stats. Real game clients never send the marker.
+    pub(crate) is_prefill: bool,
 }

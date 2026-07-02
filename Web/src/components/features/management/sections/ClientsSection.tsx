@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, CardHeader, CardTitle, CardContent } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
+import { Checkbox } from '@components/ui/Checkbox';
 import { Tooltip } from '@components/ui/Tooltip';
 import { Alert } from '@components/ui/Alert';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
@@ -118,6 +119,58 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
   useEffect(() => {
     loadExcludedIps();
   }, [loadExcludedIps]);
+
+  // Prefill traffic exclusion setting - separate GET/PUT from the excluded-IP rules above
+  // (own AdminOnly REST endpoint), but rendered in the same "Client Exclusions" area since
+  // it's another lever that removes traffic from dashboard totals / hit rate.
+  const [excludePrefillTraffic, setExcludePrefillTraffic] = useState(true);
+  const [savedExcludePrefillTraffic, setSavedExcludePrefillTraffic] = useState(true);
+  const [loadingPrefillFilter, setLoadingPrefillFilter] = useState(false);
+  const [savingPrefillFilter, setSavingPrefillFilter] = useState(false);
+  const hasPrefillFilterChanges = excludePrefillTraffic !== savedExcludePrefillTraffic;
+
+  const loadPrefillFilterSettings = useCallback(async () => {
+    if (!isAdmin) return;
+    setLoadingPrefillFilter(true);
+    try {
+      const response = await ApiService.getPrefillFilterSettings();
+      setExcludePrefillTraffic(response.excludePrefillTrafficFromStats);
+      setSavedExcludePrefillTraffic(response.excludePrefillTrafficFromStats);
+    } catch (err) {
+      onError(
+        err instanceof Error
+          ? err.message
+          : t('management.sections.clients.errors.failedToLoadPrefillFilter')
+      );
+    } finally {
+      setLoadingPrefillFilter(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, onError]);
+
+  useEffect(() => {
+    loadPrefillFilterSettings();
+  }, [loadPrefillFilterSettings]);
+
+  const handleSavePrefillFilter = async () => {
+    setSavingPrefillFilter(true);
+    try {
+      const response = await ApiService.updatePrefillFilterSettings(excludePrefillTraffic);
+      setExcludePrefillTraffic(response.excludePrefillTrafficFromStats);
+      setSavedExcludePrefillTraffic(response.excludePrefillTrafficFromStats);
+      onSuccess(t('management.sections.clients.prefillFilterUpdated'));
+      await refreshStats(true);
+      await refreshDownloads();
+    } catch (err) {
+      onError(
+        err instanceof Error
+          ? err.message
+          : t('management.sections.clients.errors.failedToUpdatePrefillFilter')
+      );
+    } finally {
+      setSavingPrefillFilter(false);
+    }
+  };
 
   const isValidIpv4 = (value: string) => {
     const parts = value.split('.');
@@ -711,6 +764,56 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                   </Button>
                 </div>
               </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Exclude Prefill Traffic from Stats */}
+      <div className="mt-8">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-blue)]" />
+          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            {t('management.sections.clients.prefillFilterTitle')}
+          </h3>
+        </div>
+
+        <Card>
+          <CardContent className="py-5 space-y-4">
+            <div className="text-sm text-themed-secondary">
+              {t('management.sections.clients.prefillFilterDesc')}
+            </div>
+
+            {!isAdmin ? (
+              <Alert color="yellow">
+                <span className="text-sm">
+                  {t('management.sections.clients.authenticateToManage')}
+                </span>
+              </Alert>
+            ) : loadingPrefillFilter ? (
+              <div className="flex items-center gap-2 text-themed-muted text-sm">
+                <LoadingSpinner inline size="sm" />
+                {t('management.sections.clients.loadingPrefillFilter')}
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Checkbox
+                  label={t('management.sections.clients.prefillFilterToggle')}
+                  checked={excludePrefillTraffic}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setExcludePrefillTraffic(e.target.checked)
+                  }
+                  disabled={savingPrefillFilter}
+                />
+                <Button
+                  onClick={handleSavePrefillFilter}
+                  disabled={!hasPrefillFilterChanges || savingPrefillFilter}
+                  loading={savingPrefillFilter}
+                  className="sm:w-40"
+                >
+                  {t('management.sections.clients.saveChanges')}
+                </Button>
+              </div>
             )}
           </CardContent>
         </Card>

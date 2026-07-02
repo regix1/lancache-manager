@@ -5,6 +5,12 @@ use chrono::{FixedOffset, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use regex::Regex;
 
+/// Referer value the lancache-manager prefill daemons send on every CDN download request
+/// (`Referer: lancache-manager-prefill`), letting ingest distinguish prefill traffic from
+/// real client traffic. Real game clients never populate the referer with this value. Must
+/// stay byte-identical to the C# marker (`DownloadKindConstants` / daemon `PrefillHeaders`).
+pub(crate) const PREFILL_MARKER_REFERER: &str = "lancache-manager-prefill";
+
 pub(crate) struct LogParser {
     main_regex: Regex,
     depot_regex: Regex,
@@ -88,6 +94,12 @@ impl LogParser {
         // Extract HTTP Range header from rest (5th quoted field, quotes 9-10)
         let http_range = self.extract_quoted_field(rest, 5);
 
+        // Referer is the 1st quoted field of `rest`. Real game clients send "-" (returned as
+        // empty by extract_quoted_field); the lancache-manager prefill daemons send the marker
+        // so prefill traffic is tagged at ingest. Exact match keeps this cheap and false-positive
+        // free (a stray URL that merely contains the marker won't match).
+        let is_prefill = self.extract_quoted_field(rest, 1).as_str() == PREFILL_MARKER_REFERER;
+
         // Extract depot ID for Steam service
         let service_lower = service.to_lowercase();
         let depot_id = if service_lower == "steam" {
@@ -127,6 +139,7 @@ impl LogParser {
             tact_product,
             http_range,
             cdn_host,
+            is_prefill,
         })
     }
 
@@ -280,5 +293,41 @@ mod tests {
         assert_eq!(entry.url, "/depot/123456/chunk/abcdef");
         assert_eq!(entry.service, "steam");
         assert_eq!(entry.cache_status, "HIT");
+    }
+
+    /// Build a steam access-log line with the given referer as the 1st quoted field.
+    fn line_with_referer(referer: &str) -> String {
+        format!(
+            "[steam] 192.168.1.50 / - - - [01/Jan/2024:00:00:00 +0000] \"GET /depot/1/chunk/a HTTP/1.1\" 200 1024 \"{}\" \"Valve/Steam\" \"MISS\" \"-\" \"-\"",
+            referer
+        )
+    }
+
+    #[test]
+    fn parse_line_tags_prefill_when_referer_matches_marker() {
+        let parser = LogParser::new(chrono_tz::UTC);
+        let entry = parser
+            .parse_line(&line_with_referer(PREFILL_MARKER_REFERER))
+            .expect("line should parse");
+        assert!(entry.is_prefill, "marker referer must classify as prefill");
+        assert_eq!(entry.cache_status, "MISS");
+    }
+
+    #[test]
+    fn parse_line_not_prefill_for_dash_referer() {
+        let parser = LogParser::new(chrono_tz::UTC);
+        let entry = parser
+            .parse_line(&line_with_referer("-"))
+            .expect("line should parse");
+        assert!(!entry.is_prefill, "a real client's '-' referer is not prefill");
+    }
+
+    #[test]
+    fn parse_line_not_prefill_for_arbitrary_referer() {
+        let parser = LogParser::new(chrono_tz::UTC);
+        let entry = parser
+            .parse_line(&line_with_referer("https://store.steampowered.com/"))
+            .expect("line should parse");
+        assert!(!entry.is_prefill, "an arbitrary referer is not prefill");
     }
 }

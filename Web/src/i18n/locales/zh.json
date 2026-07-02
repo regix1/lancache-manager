@@ -83,6 +83,7 @@
     "noData": "无数据",
     "evicted": "已淘汰",
     "partiallyEvicted": "部分已淘汰",
+    "prefill": "预填充",
     "bytes": {
       "units": ["B", "KB", "MB", "GB", "TB"],
       "zero": "0 {{unit}}"
@@ -1267,6 +1268,7 @@
         "hideLocalhost": "隐藏本地主机",
         "hideUnknownGames": "隐藏未知游戏",
         "hideEvicted": "隐藏已淘汰游戏",
+        "showPrefillTraffic": "显示预填充流量",
         "clear": "清除筛选器",
         "active": {
           "search": "• 搜索：\"{{query}}\"",
@@ -1311,9 +1313,6 @@
       "display": {
         "minimalMode": "简约模式",
         "fullHeightBanners": "全高横幅",
-        "bannerImageRendering": "横幅图片缩放",
-        "bannerSmooth": "平滑",
-        "bannerCrisp": "锐利",
         "groupByGameRetro": "按游戏分组"
       },
       "behavior": {
@@ -1983,9 +1982,16 @@
         "delete": "删除",
         "loadingClients": "加载客户端中...",
         "ipsLabel": "IP",
+        "prefillFilterTitle": "预填充流量",
+        "prefillFilterDesc": "预填充守护进程会产生自己的全未命中下载流量。将其从统计信息中排除后，仪表盘总数、命中率和排行榜将只反映真实客户端的下载情况。",
+        "prefillFilterToggle": "从统计信息中排除预填充流量",
+        "prefillFilterUpdated": "预填充流量过滤器已更新",
+        "loadingPrefillFilter": "正在加载预填充流量过滤器...",
         "errors": {
           "failedToUpdateExcluded": "更新排除的 IP 失败",
-          "failedToLoadExcluded": "加载排除的 IP 失败"
+          "failedToLoadExcluded": "加载排除的 IP 失败",
+          "failedToUpdatePrefillFilter": "更新预填充流量过滤器失败",
+          "failedToLoadPrefillFilter": "加载预填充流量过滤器失败"
         }
       }
     },
@@ -3054,9 +3060,6 @@
             "saving": "保存中...",
             "saveFailed": "保存计划预填充配置失败",
             "loadFailed": "加载计划预填充配置失败",
-            "authLoadFailed": "加载计划预填充认证状态失败",
-            "needsLoginWarning": "{{service}} 需要登录后才能运行计划预填充。",
-            "allEnabledServicesBlocked": "所有已启用的账号服务都需要登录。",
             "lastSaved": "上次保存于 {{time}}",
             "title": "配置计划预填充",
             "loading": "正在加载计划预填充配置...",
@@ -3064,9 +3067,8 @@
             "saveError": "保存计划预填充配置失败：{{error}}",
             "empty": "计划预填充配置不可用。",
             "label": "计划预填充",
-            "authWarning": "一个或多个已启用的账号服务需要登录后才能运行计划预填充。",
+            "authWarning": "一个或多个已启用的服务需要登录后才能运行计划预填充。",
             "zeroEnabledWarning": "未启用任何服务。在至少启用一个服务之前，计划预填充不会下载任何内容。",
-            "authError": "身份验证错误：{{error}}",
             "summaryError": "加载计划预填充摘要失败：{{error}}",
             "actions": {
               "configure": "配置",
@@ -3087,10 +3089,10 @@
             },
             "persistentContainers": {
               "title": "持久容器",
-              "description": "账户平台使用长期容器浏览游戏库、登录和下载。匿名平台仅使用下方的计划预设。",
-              "helpIntro": "Steam、Epic 和 Xbox 需要持久容器来选择游戏。Battle.net 和 Riot 无需账户登录。",
+              "description": "每个平台都使用长期持久容器。账户平台登录以浏览游戏库和下载；Battle.net 和 Riot 无需账户登录即可启动。",
+              "helpIntro": "每个平台都使用持久容器来选择游戏。Steam、Epic 和 Xbox 在其中登录；Battle.net 和 Riot 无需账户登录即可启动。",
               "helpAccountServices": "账户服务：启动容器、登录、选择游戏，然后下载或等待计划运行。",
-              "helpAnonymousServices": "Battle.net 和 Riot：无需持久登录。在各平台的计划设置中配置预设和目标平台。",
+              "helpAnonymousServices": "Battle.net 和 Riot：无需账户登录。启动持久容器，可选择游戏，然后在计划设置中配置预设和目标平台。",
               "loadingStatus": "正在加载容器状态…",
               "pipelineLabel": "容器状态",
               "steps": {
@@ -3114,18 +3116,18 @@
                 "sectionTitle": "匿名平台",
                 "badge": "无需登录",
                 "battleNet": {
-                  "description": "Battle.net 计划预填充无需暴雪账户。运行使用临时访客容器及您的预设和平台设置。",
+                  "description": "Battle.net 计划预填充无需暴雪账户。它使用与其他平台相同的持久容器，并沿用您的预设和平台设置。",
                   "points": [
                     "计划运行和立即运行均无需登录。",
-                    "在 Battle.net 的计划设置中启用并选择预设（全部、最近或热门）。",
+                    "在 Battle.net 的计划设置中启用。默认预填充完整公共目录，或选择特定游戏以限定运行范围。",
                     "计划运行和立即运行会匿名下载到 lancache。"
                   ]
                 },
                 "riot": {
-                  "description": "Riot 计划预填充无需 Riot 账户。运行使用临时访客容器及您的预设和平台设置。",
+                  "description": "Riot 计划预填充无需 Riot 账户。它使用与其他平台相同的持久容器，并沿用您的预设和平台设置。",
                   "points": [
                     "计划运行和立即运行均无需登录。",
-                    "在 Riot 的计划设置中启用并选择预设（全部、最近或热门）。",
+                    "在 Riot 的计划设置中启用。默认预填充完整公共目录，或选择特定游戏以限定运行范围。",
                     "计划运行和立即运行会将公共 CDN 内容下载到 lancache。"
                   ]
                 }
@@ -3155,7 +3157,6 @@
                 "loginRequired": "需要登录"
               },
               "sections": {
-                "scheduledAuth": "计划认证",
                 "persistentContainer": "持久容器",
                 "anonymous": "匿名预填充说明",
                 "schedule": "计划设置"
@@ -3164,8 +3165,6 @@
                 "enabled": "已启用",
                 "disabled": "已禁用",
                 "on": "开",
-                "scheduledAuthReady": "计划认证就绪",
-                "scheduledAuthRequired": "需要计划登录",
                 "containerReady": "容器已登录",
                 "containerRunning": "容器需要登录",
                 "containerShort": "容器"
@@ -3219,52 +3218,9 @@
               "unsupportedPreset": "{{service}} 不支持「{{preset}}」预设。请选择其他预设。"
             },
             "auth": {
-              "title": "认证",
-              "authPathsIntro": "计划预填充有三条独立的登录路径。请选择与您目标匹配的路径。它们不共享凭据。",
-              "authPathsSteam": "此卡片存储计划运行的 Steam 无头登录。Steam 集成（仓库映射）是独立的，不会提供这些令牌。",
-              "authPathsEpicXbox": "Epic 和 Xbox 在此卡片上各有独立登录，与集成页面（游戏映射）分开。",
               "authPathsBattleNet": "Battle.net 不使用计划认证。运行为匿名。请在 Battle.net 计划设置中配置预设。",
               "authPathsRiot": "Riot 不使用计划认证。运行为匿名。请在 Riot 计划设置中配置预设。",
-              "authPathsPersistent": "持久容器用于 Steam、Epic 和 Xbox 的游戏库浏览和选择。容器登录不会更新计划 Steam 认证状态。",
-              "loading": "正在检查认证...",
-              "displayName": "已登录为 {{displayName}}",
-              "loginExpires": "{{service}} 登录将于 {{date}} 过期",
-              "loginExpiresSoon": "{{service}} 登录即将于 {{date}} 过期",
-              "loginExpired": "{{service}} 登录已于 {{date}} 过期",
-              "services": {
-                "steam": "Steam",
-                "epic": "Epic",
-                "xbox": "Xbox",
-                "battleNet": "Battle.net",
-                "riot": "Riot"
-              },
-              "states": {
-                "noLoginRequired": "无需登录",
-                "unknown": "未知",
-                "unsupported": "不支持",
-                "loginRequired": "需要登录",
-                "loginPending": "登录处理中",
-                "ready": "就绪",
-                "notAuthenticated": "未认证"
-              },
-              "actions": {
-                "logIn": "登录",
-                "epicLoginSuccess": "Epic Games 认证成功。",
-                "xboxLoginSuccess": "Xbox 认证成功。"
-              },
-              "platformHelp": {
-                "steam": "计划运行时使用的 Steam 无头登录。与 Steam 集成（仓库映射）分开。",
-                "epic": "计划运行时使用的 Epic 登录。与集成页面（游戏映射）分开。",
-                "xbox": "计划运行时使用的 Xbox 登录。与集成页面（游戏映射）分开。"
-              },
-              "anonymous": {
-                "battleNet": {
-                  "description": "Battle.net 计划预填充无需暴雪账户。"
-                },
-                "riot": {
-                  "description": "Riot 计划预填充无需 Riot 账户。"
-                }
-              }
+              "authPathsPersistent": "持久容器用于所有平台的游戏库浏览和游戏选择。启动容器并在其中登录，是计划预填充唯一需要的登录。"
             }
           },
           "events": {
@@ -3774,14 +3730,14 @@
       "epicFeature2": "最近游戏和热门游戏预设",
       "epicFeature3": "强制重新下载和缓存管理",
       "requiresEpicLogin": "基于浏览器的授权码登录",
-      "battlenetDescription": "预填充公开的 Battle.net 内容，包括最近游玩的游戏、热门游戏或从目录中手动挑选的游戏。",
+      "battlenetDescription": "预填充公开的 Battle.net 内容，可选择整个目录或从中手动挑选的游戏。",
       "battlenetFeature1": "预填充整个目录或选择特定游戏",
-      "battlenetFeature2": "最近游戏和热门游戏预设",
+      "battlenetFeature2": "《魔兽世界》《暗黑破坏神》《守望先锋》等",
       "battlenetFeature3": "强制重新下载和缓存管理",
       "requiresBattlenetLogin": "无需账号登录",
       "riotDescription": "预填充公开的 Riot CDN 内容，例如《英雄联盟》和《无畏契约》等游戏。",
       "riotFeature1": "预填充所有产品或选择特定游戏",
-      "riotFeature2": "最近和热门游戏预设",
+      "riotFeature2": "《英雄联盟》和《无畏契约》内容",
       "riotFeature3": "强制重新下载和缓存管理",
       "riotNoLogin": "无需账号登录",
       "requiresRiotLogin": "无需账号登录",
@@ -5943,15 +5899,6 @@
         "authenticating": "正在等待 Microsoft 登录...",
         "collecting": "正在收集 Xbox 游戏库...",
         "completed": "Xbox 登录完成",
-        "cancelled": "Xbox 登录已取消",
-        "failed": "Xbox 登录失败"
-      }
-    },
-    "scheduledPrefill": {
-      "xbox": {
-        "authenticating": "正在等待 Microsoft 登录...",
-        "collecting": "正在确认 Xbox 账户...",
-        "completed": "计划预填充 Xbox 登录完成",
         "cancelled": "Xbox 登录已取消",
         "failed": "Xbox 登录失败"
       }

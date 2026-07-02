@@ -7,35 +7,12 @@
    * and avoid cropping/blurring that comes from forced dimensions
    */
 
-  /* Game banner base layout (rendering mode set via --crisp / --smooth modifiers) */
+  /* Game banner base layout */
   .download-banner-image {
     width: 100%;
     height: 100%;
     object-fit: cover;
     object-position: center;
-  }
-
-  /* Crisp: sharper downscaled banners (image-rendering alone is ignored for photos in most browsers) */
-  .download-banner-image--crisp,
-  .download-banner-image-natural--crisp,
-  .drawer-banner-image--crisp,
-  .card-grid-banner-image--crisp,
-  .retro-banner-image--crisp {
-    image-rendering: -webkit-optimize-contrast;
-    image-rendering: crisp-edges;
-    filter: contrast(1.08) saturate(1.05);
-    transition: filter 0.15s ease;
-  }
-
-  /* Smooth: standard bilinear scaling */
-  .download-banner-image--smooth,
-  .download-banner-image-natural--smooth,
-  .drawer-banner-image--smooth,
-  .card-grid-banner-image--smooth,
-  .retro-banner-image--smooth {
-    image-rendering: auto;
-    filter: contrast(1) saturate(1);
-    transition: filter 0.15s ease;
   }
 
   /* Full-height banner: natural aspect ratio, no cropping */

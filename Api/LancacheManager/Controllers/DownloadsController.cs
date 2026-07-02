@@ -39,7 +39,7 @@ public class DownloadsController : ControllerBase
     }
 
     [HttpGet("latest")]
-    public async Task<IActionResult> GetLatestAsync([FromQuery] int count = int.MaxValue, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] long? eventId = null)
+    public async Task<IActionResult> GetLatestAsync([FromQuery] int count = int.MaxValue, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] long? eventId = null, [FromQuery] bool showPrefillTraffic = false)
     {
         // Convert single eventId to list for filtering
         var eventIdList = eventId.HasValue
@@ -55,7 +55,7 @@ public class DownloadsController : ControllerBase
             // If no time filtering and no event filter, use cached service method
             if (!startTime.HasValue && !endTime.HasValue && eventIdList.Count == 0)
             {
-                downloads = await _statsService.GetLatestDownloadsAsync(count);
+                downloads = await _statsService.GetLatestDownloadsAsync(count, includePrefill: showPrefillTraffic);
             }
             else
             {
@@ -109,11 +109,14 @@ public class DownloadsController : ControllerBase
                     .ToList();
             }
 
-            // Filter out prefill sessions (safety net - StatsDataService already filters, but direct queries may not)
-            downloads = downloads
-                .Where(d => !string.Equals(d.ClientIp, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase))
-                .Where(d => !string.Equals(d.Datasource, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            // Filter out prefill sessions unless explicitly requested (safety net - the cached path
+            // already honors includePrefill, but the time/event-filtered direct queries above do not).
+            if (!showPrefillTraffic)
+            {
+                downloads = downloads
+                    .Where(d => !DownloadKindConstants.IsPrefillDownload(d))
+                    .ToList();
+            }
 
             // ShowClean: include evicted downloads but mask the flag (no badge/dimming on frontend)
             // Note: Hide/Remove modes are already filtered at the DB level via ApplyEvictedFilter
@@ -152,8 +155,7 @@ public class DownloadsController : ControllerBase
             throw new NotFoundException("Download");
         }
 
-        if (string.Equals(download.ClientIp, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(download.Datasource, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase))
+        if (DownloadKindConstants.IsPrefillDownload(download))
         {
             throw new NotFoundException("Download");
         }
@@ -332,6 +334,11 @@ public class DownloadsController : ControllerBase
                 {
                     d.DepotId,
                     d.ClientIp,
+                    // Datasource is part of the key so prefill-daemon rows never re-merge with a real
+                    // client's rows that happen to share the same depot+IP (host-networking collision -
+                    // see log_processor.rs's "_prefill" grouping suffix). Without this, Max(Datasource)
+                    // below would badge a real client's card as prefill and pollute its hit/miss bytes.
+                    d.Datasource,
                     RowKey = d.DepotId == null ? d.Id : 0L
                 })
                 .Select(g => new RetroGroupRow
@@ -340,7 +347,7 @@ public class DownloadsController : ControllerBase
                     ClientIp = g.Key.ClientIp,
                     RowKey = g.Key.RowKey,
                     Service = g.Max(d => d.Service)!,
-                    Datasource = g.Max(d => d.Datasource)!,
+                    Datasource = g.Key.Datasource,
                     GameName = g.Max(d => d.GameName),
                     GameAppId = g.Max(d => d.GameAppId),
                     EpicAppId = g.Max(d => d.EpicAppId),
@@ -373,10 +380,16 @@ public class DownloadsController : ControllerBase
             var grouped = groupedRows.Select(r =>
             {
                 var totalBytes = r.CacheHitBytes + r.CacheMissBytes;
+                // Datasource is now part of the SQL group key, so a depot+IP pair can produce two rows
+                // (e.g. default + prefill). Suffix the id when the datasource isn't the default so the
+                // two rows get distinct ids instead of colliding on the historical "depot-{id}-{ip}" key.
+                var datasourceSuffix = string.Equals(r.Datasource, "default", StringComparison.OrdinalIgnoreCase)
+                    ? string.Empty
+                    : $"-{r.Datasource}";
                 return new RetroDownloadDto
                 {
                     Id = r.DepotId.HasValue
-                        ? $"depot-{r.DepotId.Value}-{r.ClientIp}"
+                        ? $"depot-{r.DepotId.Value}-{r.ClientIp}{datasourceSuffix}"
                         : $"no-depot-{r.Service}-{r.ClientIp}-{r.RowKey}",
                     DepotId = r.DepotId,
                     EpicAppId = r.EpicAppId,
@@ -433,7 +446,7 @@ public class DownloadsController : ControllerBase
                 .Where(r => r.DepotId.HasValue)
                 .ToDictionary(
                     r => r.Id,
-                    r => new List<(long DepotId, string ClientIp)> { (r.DepotId!.Value, r.ClientIp) },
+                    r => new List<(long DepotId, string ClientIp, string Datasource)> { (r.DepotId!.Value, r.ClientIp, r.Datasource) },
                     StringComparer.Ordinal);
 
             // Merge by game when GroupByGame=true (in-memory over the depot-group list)
@@ -465,6 +478,15 @@ public class DownloadsController : ControllerBase
                         mergeKey = $"{row.Service}-unknown-{depotPart}-{row.ClientIp}";
                     }
 
+                    // Prefill traffic never merges into a real client's game card: keeping the two in
+                    // separate buckets is what lets a game's card show the real client's true hit rate
+                    // (e.g. 100%) while the prefill's all-miss traffic gets its own badged card when
+                    // shown. The prefix is empty for real traffic, so existing keys are unchanged.
+                    if (row.IsPrefill)
+                    {
+                        mergeKey = $"prefill-{mergeKey}";
+                    }
+
                     if (!mergedBuckets.TryGetValue(mergeKey, out var bucket))
                     {
                         bucket = new List<RetroDownloadDto>();
@@ -486,7 +508,7 @@ public class DownloadsController : ControllerBase
                     var clientIpsSet = new HashSet<string>(StringComparer.Ordinal);
                     var depotIdsSet = new HashSet<uint>();
                     var allDownloadIds = new List<long>();
-                    var mergedPairs = new List<(long DepotId, string ClientIp)>();
+                    var mergedPairs = new List<(long DepotId, string ClientIp, string Datasource)>();
                     foreach (var row in bucket)
                     {
                         foreach (var ip in row.ClientIps) clientIpsSet.Add(ip);
@@ -608,10 +630,10 @@ public class DownloadsController : ControllerBase
     {
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
 
-        // Base query: filter prefill sessions
+        // Base query: exclude prefill sessions unless the caller opted in via showPrefillTraffic.
         var baseQuery = _context.Downloads
             .AsNoTracking()
-            .ApplyPrefillFilter()
+            .ApplyPrefillFilter(excludePrefill: !query.ShowPrefillTraffic)
             .Where(d => !d.IsActive); // Only completed downloads for retro view
 
         // Exclude hidden client IPs
@@ -755,9 +777,9 @@ public class DownloadsController : ControllerBase
     private async Task FillDownloadIdsAsync(
         RetroDownloadQuery query,
         List<RetroDownloadDto> pageItems,
-        Dictionary<string, List<(long DepotId, string ClientIp)>> pairsByRowId)
+        Dictionary<string, List<(long DepotId, string ClientIp, string Datasource)>> pairsByRowId)
     {
-        var neededPairs = new HashSet<(long DepotId, string ClientIp)>();
+        var neededPairs = new HashSet<(long DepotId, string ClientIp, string Datasource)>();
         foreach (var item in pageItems)
         {
             if (pairsByRowId.TryGetValue(item.Id, out var pairs))
@@ -767,8 +789,8 @@ public class DownloadsController : ControllerBase
         }
         if (neededPairs.Count == 0) return;
 
-        // Over-fetch by depot list + ip list (pair-exact filtering happens in memory below);
-        // both lists are bounded by the page size, so this stays a small indexed query.
+        // Over-fetch by depot list + ip list (pair-exact filtering, including Datasource, happens in
+        // memory below); both lists are bounded by the page size, so this stays a small indexed query.
         var depotIdList = neededPairs.Select(p => p.DepotId).Distinct().ToList();
         var clientIpList = neededPairs.Select(p => p.ClientIp).Distinct().ToList();
 
@@ -776,13 +798,16 @@ public class DownloadsController : ControllerBase
             .Where(d => d.DepotId != null
                      && depotIdList.Contains(d.DepotId.Value)
                      && clientIpList.Contains(d.ClientIp))
-            .Select(d => new { d.Id, DepotId = d.DepotId!.Value, d.ClientIp })
+            .Select(d => new { d.Id, DepotId = d.DepotId!.Value, d.ClientIp, d.Datasource })
             .ToListAsync();
 
-        var idsByPair = new Dictionary<(long DepotId, string ClientIp), List<long>>();
+        // Keyed by (DepotId, ClientIp, Datasource) - not just the pair - so a depot+IP collision
+        // between prefill and real-client traffic (same group key split in BuildRetroBaseQuery's
+        // GroupBy) can't leak the other side's download ids into this row's DownloadIds.
+        var idsByPair = new Dictionary<(long DepotId, string ClientIp, string Datasource), List<long>>();
         foreach (var row in detailRows)
         {
-            var pair = (row.DepotId, row.ClientIp);
+            var pair = (row.DepotId, row.ClientIp, row.Datasource);
             if (!neededPairs.Contains(pair)) continue;
             if (!idsByPair.TryGetValue(pair, out var ids))
             {

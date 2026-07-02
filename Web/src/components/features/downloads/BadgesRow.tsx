@@ -1,7 +1,9 @@
 import { useTranslation } from 'react-i18next';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
+import { PREFILL_DATASOURCE } from '@utils/constants';
 import Badge from '@components/ui/Badge';
 import EvictedBadge from '@components/common/EvictedBadge';
+import PrefillBadge from '@components/common/PrefillBadge';
 
 interface BadgesRowProps {
   service: string;
@@ -26,7 +28,10 @@ export default function BadgesRow({
       <span className="themed-badge" style={getServiceBadgeStyles(service)}>
         {service.toUpperCase()}
       </span>
-      {showDatasource && datasource && <Badge variant="neutral">{datasource}</Badge>}
+      {showDatasource && datasource && datasource !== PREFILL_DATASOURCE && (
+        <Badge variant="neutral">{datasource}</Badge>
+      )}
+      {datasource === PREFILL_DATASOURCE && <PrefillBadge />}
       {isEvicted && <EvictedBadge />}
       {isPartiallyEvicted && <Badge variant="warning">{t('common.partiallyEvicted')}</Badge>}
     </div>

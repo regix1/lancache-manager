@@ -127,6 +127,11 @@ public interface IStateService
     bool GetEvictionScanNotifications();
     void SetEvictionScanNotifications(bool enabled);
 
+    // Prefill-traffic stats exclusion (default on): excludes Datasource='prefill' downloads from
+    // blended dashboard/service hit-rate stats.
+    bool GetExcludePrefillTrafficFromStats();
+    void SetExcludePrefillTrafficFromStats(bool enabled);
+
     // Stats Exclusion Methods
     List<string> GetExcludedClientIps();
     void SetExcludedClientIps(List<string> ips);

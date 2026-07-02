@@ -14,9 +14,9 @@ public static class DownloadQueryExtensions
         return query;
     }
 
-    public static IQueryable<Download> ApplyHiddenClientFilter(this IQueryable<Download> query, List<string> hiddenClientIps)
+    public static IQueryable<Download> ApplyHiddenClientFilter(this IQueryable<Download> query, List<string> hiddenClientIps, bool excludePrefill = true)
     {
-        query = query.ApplyPrefillFilter();
+        query = query.ApplyPrefillFilter(excludePrefill);
 
         if (hiddenClientIps.Count == 0)
         {
@@ -26,8 +26,20 @@ public static class DownloadQueryExtensions
         return query.Where(d => !hiddenClientIps.Contains(d.ClientIp));
     }
 
-    public static IQueryable<Download> ApplyPrefillFilter(this IQueryable<Download> query)
+    /// <summary>
+    /// Excludes prefill-daemon traffic (Datasource/ClientIp == "prefill", tagged at ingest via the
+    /// referer marker) from the query. <paramref name="excludePrefill"/> defaults to true so every
+    /// existing call site keeps today's behavior; stats surfaces pass the
+    /// <c>ExcludePrefillTrafficFromStats</c> setting and the downloads list passes
+    /// <c>!showPrefillTraffic</c> so prefill rows can be re-included on demand.
+    /// </summary>
+    public static IQueryable<Download> ApplyPrefillFilter(this IQueryable<Download> query, bool excludePrefill = true)
     {
+        if (!excludePrefill)
+        {
+            return query;
+        }
+
         return query
             .Where(d => d.ClientIp == null || d.ClientIp.ToLower() != DownloadKindConstants.PrefillToken)
             .Where(d => d.Datasource == null || d.Datasource.ToLower() != DownloadKindConstants.PrefillToken);

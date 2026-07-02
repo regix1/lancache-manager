@@ -1,3 +1,5 @@
+using LancacheManager.Core.Constants;
+
 namespace LancacheManager.Models;
 
 /// <summary>
@@ -46,6 +48,15 @@ public class RetroDownloadDto
     /// <summary>Datasource name for multi-datasource support</summary>
     public string Datasource { get; set; } = string.Empty;
 
+    /// <summary>
+    /// True when this row is prefill-daemon traffic (Datasource or ClientIp == "prefill", matching
+    /// DownloadQueryExtensions.ApplyPrefillFilter). Serializes as <c>isPrefill</c>; the frontend
+    /// badges these rows and only shows them when the <c>showPrefillTraffic</c> toggle is on.
+    /// </summary>
+    public bool IsPrefill =>
+        string.Equals(Datasource, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(ClientIp, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Client IP address</summary>
     public string ClientIp { get; set; } = string.Empty;
 
@@ -92,6 +103,10 @@ public class RetroDownloadQuery
     public bool ShowZeroBytes { get; set; } = true;
     public bool HideUnknown { get; set; } = false;
     public bool GroupByGame { get; set; } = false;
+    /// <summary>When true, prefill-daemon traffic (Datasource='prefill') is included in the list
+    /// (badged via <c>isPrefill</c>). Default false: prefill rows are excluded, matching the
+    /// hit-rate stats behavior.</summary>
+    public bool ShowPrefillTraffic { get; set; } = false;
     /// <summary>Unix timestamp (seconds) - filter downloads with StartTimeUtc &gt;= this value</summary>
     public long? StartTime { get; set; }
     /// <summary>Unix timestamp (seconds) - filter downloads with StartTimeUtc &lt;= this value</summary>

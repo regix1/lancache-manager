@@ -25,12 +25,12 @@ import {
   SCHEDULED_PREFILL_SUPPORTED_PRESETS
 } from './constants';
 import { ScheduledPrefillPlatformsPanel } from './ScheduledPrefillPlatformsPanel';
+import { getPersistentServiceId, needsPersistentLogin } from './scheduledPrefillPlatformUi';
 import { PersistentLoginHost } from './PersistentLoginHost';
 import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPersistentTypes';
 import { waitForPersistentContainerAuth } from './waitForPersistentContainerAuth';
 import { usePersistentPrefillContainerSignalR } from './usePersistentPrefillContainerSignalR';
 import type {
-  ScheduledPrefillAuthStatusItem,
   ScheduledPrefillConfigDto,
   ScheduledPrefillOperatingSystem,
   ScheduledPrefillServiceConfigDto,
@@ -63,17 +63,6 @@ interface NumericBounds {
 }
 
 const DEFAULT_PERSISTENT_PREFILL_VALIDITY_DAYS = 90;
-
-const getPersistentServiceId = (
-  serviceKey: ScheduledPrefillServiceKey
-): PersistentPrefillServiceId => {
-  const service = PERSISTENT_PREFILL_SERVICES.find((item) => item.key === serviceKey);
-  if (!service) {
-    throw new Error(`Unknown scheduled prefill service: ${serviceKey}`);
-  }
-
-  return service.service;
-};
 
 const mapOperatingSystems = (
   operatingSystems: ScheduledPrefillOperatingSystem[]
@@ -173,13 +162,10 @@ export function ScheduledPrefillConfigModal({
 }: ScheduledPrefillConfigModalProps) {
   const { t } = useTranslation();
   const [config, setConfig] = useState<ScheduledPrefillConfigDto | null>(null);
-  const [authStatuses, setAuthStatuses] = useState<ScheduledPrefillAuthStatusItem[]>([]);
   const [loadingConfig, setLoadingConfig] = useState(false);
-  const [loadingAuthStatus, setLoadingAuthStatus] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [persistentContainers, setPersistentContainers] = useState<PersistentPrefillContainerDto[]>(
     []
@@ -236,21 +222,6 @@ export function ScheduledPrefillConfigModal({
     }
   }, []);
 
-  const loadAuthStatus = useCallback(async (signal?: AbortSignal) => {
-    setLoadingAuthStatus(true);
-    try {
-      const nextStatuses = await ApiService.getScheduledPrefillAuthStatus(signal);
-      setAuthStatuses(nextStatuses);
-      setAuthError(null);
-    } catch (error: unknown) {
-      if (!isAbortError(error)) {
-        setAuthError(getErrorMessage(error));
-      }
-    } finally {
-      setLoadingAuthStatus(false);
-    }
-  }, []);
-
   const loadPersistentContainers = useCallback(async (signal?: AbortSignal) => {
     setLoadingPersistentContainers(true);
     try {
@@ -289,7 +260,6 @@ export function ScheduledPrefillConfigModal({
     const controller = new AbortController();
     setValidationError(null);
     setSaveError(null);
-    setAuthError(null);
     setPersistentError(null);
     setGlobalSettingsError(null);
     setGlobalSettingsSaved(false);
@@ -298,14 +268,13 @@ export function ScheduledPrefillConfigModal({
     setPersistentLoginTarget(null);
     setPersistentAuthPendingKeys([]);
     void loadConfig(controller.signal);
-    void loadAuthStatus(controller.signal);
     void loadPersistentContainers(controller.signal);
     void loadGlobalSettings(controller.signal);
 
     return () => {
       controller.abort();
     };
-  }, [opened, loadConfig, loadAuthStatus, loadPersistentContainers, loadGlobalSettings]);
+  }, [opened, loadConfig, loadPersistentContainers, loadGlobalSettings]);
 
   const persistentContainerByService = useMemo(
     () =>
@@ -315,9 +284,12 @@ export function ScheduledPrefillConfigModal({
     [persistentContainers]
   );
 
+  // Every service (account or anonymous) reuses the same addressable persistent-container session
+  // (ScheduledPrefillService.RunServiceAsync dispatches identically for all five platforms), so the
+  // container map is keyed off the full run order, not just the account services.
   const containersByServiceKey = useMemo(() => {
     const map = new Map<ScheduledPrefillServiceKey, PersistentPrefillContainerDto>();
-    for (const serviceKey of SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS) {
+    for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
       const serviceId = getPersistentServiceId(serviceKey);
       const container = persistentContainerByService.get(serviceId);
       if (container) {
@@ -381,7 +353,7 @@ export function ScheduledPrefillConfigModal({
     [persistentAuthPendingKeys, persistentLoginTarget]
   );
 
-  const isLoading = loadingConfig || loadingAuthStatus;
+  const isLoading = loadingConfig;
   const hasInitialData = config !== null;
 
   const validationMessage = useMemo(() => {
@@ -409,22 +381,23 @@ export function ScheduledPrefillConfigModal({
     [config]
   );
 
-  const hasAuthWarning = useMemo(() => {
-    if (!config) {
+  const hasPersistentLoginWarning = useMemo(() => {
+    // Config and the persistent-container list load via independent requests, so config can
+    // resolve before the container list has: don't flag a false "needs login" warning while the
+    // container list is still loading (or failed to load), since we simply don't know its state yet.
+    if (!config || loadingPersistentContainers || persistentError) {
       return false;
     }
-
-    const authStatusByService = new Map(authStatuses.map((status) => [status.serviceId, status]));
 
     return SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.some((serviceId) => {
       if (!config[serviceId].enabled) {
         return false;
       }
 
-      const loginState = authStatusByService.get(serviceId)?.loginState;
-      return loginState === 'loginRequired' || loginState === 'unsupported';
+      const container = persistentContainerByService.get(getPersistentServiceId(serviceId));
+      return needsPersistentLogin(container);
     });
-  }, [config, authStatuses]);
+  }, [config, persistentContainerByService, loadingPersistentContainers, persistentError]);
 
   // Single most-severe banner: errors win over the (yellow) validation hint; success is silent.
   const banner = useMemo<{ color: 'red' | 'yellow'; message: string } | null>(() => {
@@ -439,9 +412,6 @@ export function ScheduledPrefillConfigModal({
     }
     if (saveError) {
       return { color: 'red', message: t(`${baseKey}.saveError`, { error: saveError }) };
-    }
-    if (authError) {
-      return { color: 'red', message: t(`${baseKey}.authError`, { error: authError }) };
     }
     if (persistentError) {
       return {
@@ -463,7 +433,6 @@ export function ScheduledPrefillConfigModal({
     loadError,
     globalSettingsError,
     saveError,
-    authError,
     persistentError,
     gameSelectionError,
     validationError,
@@ -478,7 +447,6 @@ export function ScheduledPrefillConfigModal({
     setConfig((current) => (current ? { ...current, [serviceKey]: serviceConfig } : current));
     setValidationError(null);
     setSaveError(null);
-    setAuthError(null);
   };
 
   const clearGlobalSettingsNotice = () => {
@@ -660,7 +628,6 @@ export function ScheduledPrefillConfigModal({
     );
     setValidationError(null);
     setSaveError(null);
-    setAuthError(null);
     setGameSelectionError(null);
 
     const serviceId = getPersistentServiceId(gameSelection.serviceKey);
@@ -803,18 +770,11 @@ export function ScheduledPrefillConfigModal({
                         total: SCHEDULED_PREFILL_SERVICE_RUN_ORDER.length
                       })}
                     </Badge>
-                    {hasAuthWarning && (
+                    {hasPersistentLoginWarning && (
                       <Badge variant="warning">{t(`${baseKey}.authWarning`)}</Badge>
                     )}
                     <HelpPopover position="left" width={360} maxHeight="20rem">
-                      <p className="schedule-extra-help">{t(`${baseKey}.auth.authPathsIntro`)}</p>
                       <ul className="scheduled-prefill-config-modal__help-list">
-                        <li className="schedule-extra-help">
-                          {t(`${baseKey}.auth.authPathsSteam`)}
-                        </li>
-                        <li className="schedule-extra-help">
-                          {t(`${baseKey}.auth.authPathsEpicXbox`)}
-                        </li>
                         <li className="schedule-extra-help">
                           {t(`${baseKey}.auth.authPathsBattleNet`)}
                         </li>
@@ -894,8 +854,6 @@ export function ScheduledPrefillConfigModal({
               {config ? (
                 <ScheduledPrefillPlatformsPanel
                   config={config}
-                  authStatuses={authStatuses}
-                  authLoading={loadingAuthStatus}
                   disabled={saving || loadingConfig}
                   statusLoading={loadingPersistentContainers}
                   containersByServiceKey={containersByServiceKey}
@@ -904,8 +862,6 @@ export function ScheduledPrefillConfigModal({
                   authenticatingServiceKeys={authenticatingServiceKeys}
                   gameSelectionLoadingServiceKey={loadingGameSelectionService}
                   onServiceChange={handleServiceChange}
-                  onRefreshAuth={() => loadAuthStatus()}
-                  onAuthError={setAuthError}
                   onStart={(serviceKey) => void handleStartPersistent(serviceKey)}
                   onStop={(serviceKey) => void handleStopPersistent(serviceKey)}
                   onLogin={handlePersistentLogin}

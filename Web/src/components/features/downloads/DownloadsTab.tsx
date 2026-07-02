@@ -20,6 +20,7 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { storage } from '@utils/storage';
+import { PREFILL_DATASOURCE } from '@utils/constants';
 import ApiService from '@services/api.service';
 import {
   EVICTION_SETTINGS_CHANGED_EVENT,
@@ -67,6 +68,7 @@ const STORAGE_KEYS = {
   HIDE_LOCALHOST: 'lancache_downloads_hide_localhost',
   HIDE_UNKNOWN_GAMES: 'lancache_downloads_hide_unknown',
   HIDE_EVICTED: 'lancache_downloads_hide_evicted',
+  SHOW_PREFILL_TRAFFIC: 'lancache_downloads_show_prefill_traffic',
   VIEW_MODE: 'lancache_downloads_view_mode',
   SORT_ORDER: 'lancache_downloads_sort_order',
   AESTHETIC_MODE: 'lancache_downloads_aesthetic_mode',
@@ -516,6 +518,7 @@ const DownloadsTab: React.FC = () => {
       hideLocalhost: storage.getItem(STORAGE_KEYS.HIDE_LOCALHOST) === 'true',
       hideUnknownGames: storage.getItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES) === 'true',
       hideEvicted: storage.getItem(STORAGE_KEYS.HIDE_EVICTED) === 'true',
+      showPrefillTraffic: storage.getItem(STORAGE_KEYS.SHOW_PREFILL_TRAFFIC) === 'true',
       selectedService: storage.getItem(STORAGE_KEYS.SERVICE_FILTER) || 'all',
       selectedClient: storage.getItem(STORAGE_KEYS.CLIENT_FILTER) || 'all',
       searchQuery: storage.getItem(STORAGE_KEYS.SEARCH_QUERY) || '',
@@ -550,6 +553,59 @@ const DownloadsTab: React.FC = () => {
   });
 
   viewModeRef.current = settings.viewMode;
+
+  // Compact/Normal views read from the shared `latestDownloads` dashboard batch, which
+  // always excludes prefill-daemon traffic by design (matches the dashboard recent-panel
+  // default). When the user opts in via settings.showPrefillTraffic, fetch prefill rows
+  // directly from /api/downloads/latest?showPrefillTraffic=true and merge them into
+  // filteredDownloads below - mirrors how RetroView fetches its own server data for the
+  // same toggle instead of threading a per-tab flag through the shared batch fetch.
+  const [prefillDownloads, setPrefillDownloads] = useState<Download[]>([]);
+  const [prefillRefreshTick, setPrefillRefreshTick] = useState(0);
+
+  useEffect(() => {
+    const bumpPrefillRefresh = () => setPrefillRefreshTick((prev) => prev + 1);
+    on('DownloadsRefresh', bumpPrefillRefresh);
+    on('LogProcessingComplete', bumpPrefillRefresh);
+    return () => {
+      off('DownloadsRefresh', bumpPrefillRefresh);
+      off('LogProcessingComplete', bumpPrefillRefresh);
+    };
+  }, [on, off]);
+
+  useEffect(() => {
+    if (!settings.showPrefillTraffic || settings.viewMode === 'retro') {
+      setPrefillDownloads([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    ApiService.getLatestDownloads(
+      controller.signal,
+      'unlimited',
+      retroTimeParams.startTime,
+      retroTimeParams.endTime,
+      retroEventId !== undefined ? [retroEventId] : undefined,
+      undefined,
+      true
+    )
+      .then((rows) => {
+        setPrefillDownloads(rows.filter((d) => d.datasource === PREFILL_DATASOURCE));
+      })
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        console.error('Failed to fetch prefill downloads:', err);
+      });
+
+    return () => controller.abort();
+  }, [
+    settings.showPrefillTraffic,
+    settings.viewMode,
+    retroTimeParams.startTime,
+    retroTimeParams.endTime,
+    retroEventId,
+    prefillRefreshTick
+  ]);
 
   // Keep the debounced retro search trailing the live input by 300ms.
   useEffect(() => {
@@ -607,6 +663,7 @@ const DownloadsTab: React.FC = () => {
     storage.setItem(STORAGE_KEYS.HIDE_LOCALHOST, settings.hideLocalhost.toString());
     storage.setItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES, settings.hideUnknownGames.toString());
     storage.setItem(STORAGE_KEYS.HIDE_EVICTED, settings.hideEvicted.toString());
+    storage.setItem(STORAGE_KEYS.SHOW_PREFILL_TRAFFIC, settings.showPrefillTraffic.toString());
     storage.setItem(STORAGE_KEYS.SERVICE_FILTER, settings.selectedService);
     storage.setItem(STORAGE_KEYS.CLIENT_FILTER, settings.selectedClient);
     storage.setItem(STORAGE_KEYS.SEARCH_QUERY, settings.searchQuery);
@@ -828,7 +885,7 @@ const DownloadsTab: React.FC = () => {
       console.error('latestDownloads is not an array:', latestDownloads);
       return [];
     }
-    let filtered = [...latestDownloads];
+    let filtered = [...latestDownloads, ...(settings.showPrefillTraffic ? prefillDownloads : [])];
 
     if (settings.hideMetadata) {
       filtered = filtered.filter((d) => d.totalBytes > 0);
@@ -881,10 +938,12 @@ const DownloadsTab: React.FC = () => {
     return filtered;
   }, [
     latestDownloads,
+    prefillDownloads,
     settings.hideMetadata,
     settings.hideSmallFiles,
     settings.hideLocalhost,
     settings.hideEvicted,
+    settings.showPrefillTraffic,
     evictedDataMode,
     settings.selectedService,
     settings.selectedClient,
@@ -1831,6 +1890,13 @@ const DownloadsTab: React.FC = () => {
                           }
                           label={t('downloads.tab.filters.hideEvicted')}
                         />
+                        <Checkbox
+                          checked={settings.showPrefillTraffic}
+                          onChange={(e) =>
+                            setSettings({ ...settings, showPrefillTraffic: e.target.checked })
+                          }
+                          label={t('downloads.tab.filters.showPrefillTraffic')}
+                        />
                       </div>
 
                       {/* Display Column */}
@@ -2057,6 +2123,7 @@ const DownloadsTab: React.FC = () => {
                     filterStartTime={retroTimeParams.startTime}
                     filterEndTime={retroTimeParams.endTime}
                     filterEventId={retroEventId}
+                    filterShowPrefillTraffic={settings.showPrefillTraffic}
                   />
                 )}
               </Suspense>

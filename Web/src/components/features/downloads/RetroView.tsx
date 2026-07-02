@@ -28,7 +28,6 @@ import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { resolveGameDetection } from '@utils/gameDetection';
 import { nameKeyedImageKey } from '@utils/gameBannerSlug';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import type { BannerImageRendering } from './bannerImageRendering';
 import RetroRow from './RetroRow';
 import { useRetroDownloads } from './useRetroDownloads';
 import {
@@ -63,7 +62,6 @@ interface RetroViewProps {
   onPageChange: (page: number) => void;
   showTimestamps: boolean;
   showBannerColumn: boolean;
-  bannerImageRendering?: BannerImageRendering;
   aestheticMode?: boolean;
   showDatasourceLabels?: boolean;
   hasMultipleDatasources?: boolean;
@@ -97,6 +95,8 @@ interface RetroViewProps {
   filterEndTime?: number;
   /** Server-side filter: event ID. Only used when serverMode is true. */
   filterEventId?: number;
+  /** Server-side filter: include prefill-daemon rows (badged). Only used when serverMode is true. */
+  filterShowPrefillTraffic?: boolean;
 }
 
 // Empty State Component
@@ -169,7 +169,6 @@ const RetroView = memo(
         onPageChange,
         showTimestamps,
         showBannerColumn,
-        bannerImageRendering = 'smooth',
         aestheticMode = false,
         showDatasourceLabels = true,
         hasMultipleDatasources = false,
@@ -186,7 +185,8 @@ const RetroView = memo(
         filterHideUnknown = false,
         filterStartTime,
         filterEndTime,
-        filterEventId
+        filterEventId,
+        filterShowPrefillTraffic = false
       },
       ref
     ) => {
@@ -218,7 +218,8 @@ const RetroView = memo(
         groupByGame,
         startTime: filterStartTime,
         endTime: filterEndTime,
-        eventId: filterEventId
+        eventId: filterEventId,
+        showPrefillTraffic: filterShowPrefillTraffic
       });
 
       // Client-side grouping path: only runs in non-server mode.
@@ -615,7 +616,6 @@ const RetroView = memo(
           showBannerColumn={showBannerColumn}
           showDatasourceColumn={showDatasourceColumn}
           showDatasourceBadge={showDatasourceColumn}
-          bannerImageRendering={bannerImageRendering}
           onImageError={handleImageError}
           dataIndex={virtualAttrs?.dataIndex}
           measureRef={virtualAttrs?.measureRef}

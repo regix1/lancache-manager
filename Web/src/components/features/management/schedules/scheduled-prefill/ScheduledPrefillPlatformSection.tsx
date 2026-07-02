@@ -3,7 +3,6 @@ import { Card } from '@components/ui/Card';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
 import { ScheduledPrefillAnonymousServiceCard } from './ScheduledPrefillAnonymousServiceCard';
-import { ScheduledPrefillPlatformAuthPanel } from './ScheduledPrefillPlatformAuthPanel';
 import { ScheduledPrefillPersistentCard } from './ScheduledPrefillPersistentCard';
 import { ScheduledPrefillScheduleFields } from './ScheduledPrefillScheduleFields';
 import {
@@ -12,17 +11,11 @@ import {
   isScheduledPrefillAnonymousService
 } from './scheduledPrefillPlatformUi';
 import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPersistentTypes';
-import type {
-  ScheduledPrefillAuthStatusItem,
-  ScheduledPrefillServiceConfigDto,
-  ScheduledPrefillServiceKey
-} from './types';
+import type { ScheduledPrefillServiceConfigDto, ScheduledPrefillServiceKey } from './types';
 
 interface ScheduledPrefillPlatformSectionProps {
   serviceKey: ScheduledPrefillServiceKey;
   config: ScheduledPrefillServiceConfigDto;
-  authStatuses: ScheduledPrefillAuthStatusItem[];
-  authLoading?: boolean;
   disabled?: boolean;
   statusLoading?: boolean;
   container?: PersistentPrefillContainerDto;
@@ -31,8 +24,6 @@ interface ScheduledPrefillPlatformSectionProps {
   authenticating: boolean;
   gameSelectionLoading: boolean;
   onChange: (config: ScheduledPrefillServiceConfigDto) => void;
-  onRefreshAuth?: () => void | Promise<void>;
-  onAuthError?: (message: string) => void;
   onStart: () => void;
   onStop: () => void;
   onLogin: () => void;
@@ -44,8 +35,6 @@ interface ScheduledPrefillPlatformSectionProps {
 export function ScheduledPrefillPlatformSection({
   serviceKey,
   config,
-  authStatuses,
-  authLoading = false,
   disabled = false,
   statusLoading = false,
   container,
@@ -54,8 +43,6 @@ export function ScheduledPrefillPlatformSection({
   authenticating,
   gameSelectionLoading,
   onChange,
-  onRefreshAuth,
-  onAuthError,
   onStart,
   onStop,
   onLogin,
@@ -122,20 +109,8 @@ export function ScheduledPrefillPlatformSection({
           />
         </Card>
 
-        {isAccount && (
-          <Card padding="md" className="scheduled-prefill-platform-block">
-            <h4 className="scheduled-prefill-platform-block__title">
-              {t(`${baseKey}.platforms.sections.scheduledAuth`)}
-            </h4>
-            <ScheduledPrefillPlatformAuthPanel
-              serviceKey={serviceKey}
-              statuses={authStatuses}
-              loading={authLoading}
-              disabled={disabled}
-              onRefresh={onRefreshAuth}
-              onError={onAuthError}
-            />
-          </Card>
+        {isScheduledPrefillAnonymousService(serviceKey) && (
+          <ScheduledPrefillAnonymousServiceCard serviceKey={serviceKey} />
         )}
 
         {isAccount && (
@@ -155,10 +130,6 @@ export function ScheduledPrefillPlatformSection({
             onDownload={onDownload}
             onCancelDownload={onCancelDownload}
           />
-        )}
-
-        {isScheduledPrefillAnonymousService(serviceKey) && (
-          <ScheduledPrefillAnonymousServiceCard serviceKey={serviceKey} />
         )}
       </div>
     </section>

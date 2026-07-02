@@ -35,6 +35,8 @@ interface RetroDownloadsHookOptions {
   endTime?: number;
   /** Optional event filter - only downloads tagged to this event. */
   eventId?: number;
+  /** When true, prefill-daemon rows are included (badged via `isPrefill`). Default false. */
+  showPrefillTraffic?: boolean;
 }
 
 interface RetroDownloadsHookResult {
@@ -78,7 +80,8 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
     groupByGame,
     startTime,
     endTime,
-    eventId
+    eventId,
+    showPrefillTraffic
   } = options;
 
   const [data, setData] = useState<RetroDownloadResponse>(EMPTY_RESPONSE);
@@ -108,7 +111,8 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
       groupByGame,
       startTime,
       endTime,
-      eventId
+      eventId,
+      showPrefillTraffic
     };
 
     setIsFetching(true);
@@ -157,7 +161,8 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
     groupByGame,
     startTime,
     endTime,
-    eventId
+    eventId,
+    showPrefillTraffic
   ]);
 
   return {

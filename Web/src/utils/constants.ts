@@ -32,6 +32,10 @@ export type RefreshRate = keyof typeof REFRESH_RATES;
 // File size units
 export const FILE_SIZE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'] as const;
 
+// Datasource value marking rows produced by a prefill daemon session (mirrors
+// DownloadKindConstants.PrefillToken on the backend).
+export const PREFILL_DATASOURCE = 'prefill';
+
 // Storage keys - COMPLETE VERSION
 export const STORAGE_KEYS = {
   DASHBOARD_CARD_ORDER: 'lancache_dashboard_card_order',

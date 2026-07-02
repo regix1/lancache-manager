@@ -4,15 +4,18 @@ import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import ApiService from '@services/api.service';
+import type {
+  PersistentPrefillContainerDto,
+  PersistentPrefillServiceId
+} from '@components/features/prefill/persistentPrefillTypes';
 import {
   SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS,
   SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY,
   SCHEDULED_PREFILL_SERVICE_RUN_ORDER
 } from './constants';
 import { ScheduledPrefillConfigModal } from './ScheduledPrefillConfigModal';
+import { getPersistentServiceId, needsPersistentLogin } from './scheduledPrefillPlatformUi';
 import type {
-  ScheduledPrefillAccountServiceId,
-  ScheduledPrefillAuthStatusItem,
   ScheduledPrefillCompletedEvent,
   ScheduledPrefillConfigDto,
   ScheduledPrefillProgressEvent,
@@ -34,7 +37,9 @@ export function ScheduledPrefillScheduleDetail({
   const { t } = useTranslation();
   const { on, off } = useSignalR();
   const [config, setConfig] = useState<ScheduledPrefillConfigDto | null>(null);
-  const [authStatuses, setAuthStatuses] = useState<ScheduledPrefillAuthStatusItem[]>([]);
+  const [persistentContainers, setPersistentContainers] = useState<PersistentPrefillContainerDto[]>(
+    []
+  );
   const [schedule, setSchedule] = useState<ScheduledPrefillServiceScheduleDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,13 +53,13 @@ export function ScheduledPrefillScheduleDetail({
   const loadSummary = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     try {
-      const [nextConfig, nextStatuses, nextSchedule] = await Promise.all([
+      const [nextConfig, nextContainers, nextSchedule] = await Promise.all([
         ApiService.getScheduledPrefillConfig(signal),
-        ApiService.getScheduledPrefillAuthStatus(signal),
+        ApiService.getPersistentPrefillContainers(signal),
         ApiService.getScheduledPrefillSchedule(signal)
       ]);
       setConfig(nextConfig);
-      setAuthStatuses(nextStatuses);
+      setPersistentContainers(nextContainers);
       setSchedule(nextSchedule);
       setError(null);
     } catch (loadError: unknown) {
@@ -168,20 +173,19 @@ export function ScheduledPrefillScheduleDetail({
       return false;
     }
 
-    const authStatusByService = new Map<
-      ScheduledPrefillAccountServiceId,
-      ScheduledPrefillAuthStatusItem
-    >(authStatuses.map((status) => [status.serviceId, status]));
+    const containerByService = new Map<PersistentPrefillServiceId, PersistentPrefillContainerDto>(
+      persistentContainers.map((container) => [container.service, container])
+    );
 
     return SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.some((serviceId) => {
       if (!config[serviceId].enabled) {
         return false;
       }
 
-      const loginState = authStatusByService.get(serviceId)?.loginState;
-      return loginState === 'loginRequired' || loginState === 'unsupported';
+      const container = containerByService.get(getPersistentServiceId(serviceId));
+      return needsPersistentLogin(container);
     });
-  }, [config, authStatuses]);
+  }, [config, persistentContainers]);
 
   const formatTiming = useCallback(
     (item: ScheduledPrefillServiceScheduleDto): string => {
