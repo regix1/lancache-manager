@@ -3,7 +3,8 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 import './VirtualizedList.css';
 import { ChevronRight, ExternalLink, HardDrive } from 'lucide-react';
-import { formatBytes, formatPercent, formatRelativeTime, formatCount } from '@utils/formatters';
+import { formatBytes, formatPercent, formatCount } from '@utils/formatters';
+import { DownloadTimestamp } from './DownloadTimestamp';
 import BadgesRow from './BadgesRow';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { SteamIcon } from '@components/ui/SteamIcon';
@@ -26,7 +27,6 @@ import { resolveGameDetection } from '@utils/gameDetection';
 import type { Download, DownloadGroup, GameDetectionSummary } from '../../../types';
 import { useFlatRows } from '@hooks/useFlatRows';
 import type { HeaderRowKind } from './types';
-import { getBannerImageClass, type BannerImageRendering } from './bannerImageRendering';
 
 interface CompactViewSectionLabels {
   multipleDownloads: string;
@@ -62,7 +62,6 @@ interface CompactViewProps {
     string,
     { service_name: string; cache_files_found: number; total_size_bytes: number }
   > | null;
-  bannerImageRendering?: BannerImageRendering;
 }
 
 interface GroupRowProps {
@@ -70,7 +69,6 @@ interface GroupRowProps {
   expandedItem: string | null;
   onItemClick: (id: string) => void;
   aestheticMode: boolean;
-  bannerImageRendering: BannerImageRendering;
   imageErrors: Set<string>;
   handleImageError: (gameAppId: string) => void;
   groupPages: Record<string, number>;
@@ -94,7 +92,6 @@ const GroupRow: React.FC<GroupRowProps> = ({
   expandedItem,
   onItemClick,
   aestheticMode,
-  bannerImageRendering,
   imageErrors,
   handleImageError,
   groupPages,
@@ -391,7 +388,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     nameKeyedService={showNameKeyedImage ? nameKeyed!.service : undefined}
                     nameKeyedSlug={showNameKeyedImage ? nameKeyed!.slug : undefined}
                     alt={primaryDownload.gameName || group.name}
-                    className={`compact-expanded-banner sm:w-[100px] sm:h-[46px] rounded object-cover border border-[var(--theme-border-secondary)] ${getBannerImageClass('retro-banner-image', bannerImageRendering)}`}
+                    className="compact-expanded-banner sm:w-[100px] sm:h-[46px] rounded object-cover border border-[var(--theme-border-secondary)] retro-banner-image"
                     sizes="(max-width: 639px) 100%, 100px"
                     onError={handleImageError}
                   />
@@ -423,9 +420,10 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   <span className="text-[var(--theme-text-muted)]">
                     {t('downloads.tab.compact.labels.last')}
                   </span>
-                  <span className="text-[var(--theme-text-secondary)]">
-                    {formatRelativeTime(group.lastSeen)}
-                  </span>
+                  <DownloadTimestamp
+                    dateString={group.lastSeen}
+                    className="text-[var(--theme-text-secondary)]"
+                  />
                 </div>
                 {storeLink && (
                   <a
@@ -575,9 +573,10 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                           </div>
                                         </div>
                                         <div className="flex items-center justify-between mt-1">
-                                          <span className="text-[var(--theme-text-muted)]">
-                                            {formatRelativeTime(download.startTimeUtc)}
-                                          </span>
+                                          <DownloadTimestamp
+                                            dateString={download.startTimeUtc}
+                                            className="text-[var(--theme-text-muted)]"
+                                          />
                                           <div className="flex items-center gap-1">
                                             {download.isEvicted && <EvictedBadge />}
                                             {associations.events.length > 0 && (
@@ -598,9 +597,10 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                             clientIp={download.clientIp}
                                             className="font-mono text-[var(--theme-text-primary)] text-[11px]"
                                           />
-                                          <span className="text-[var(--theme-text-muted)]">
-                                            {formatRelativeTime(download.startTimeUtc)}
-                                          </span>
+                                          <DownloadTimestamp
+                                            dateString={download.startTimeUtc}
+                                            className="text-[var(--theme-text-muted)]"
+                                          />
                                           {download.isEvicted && <EvictedBadge />}
                                           {associations.events.length > 0 && (
                                             <DownloadBadges
@@ -657,8 +657,7 @@ const CompactView = React.memo(function CompactView({
   hasMultipleDatasources = false,
   detectionLookup = null,
   detectionByName = null,
-  detectionByService = null,
-  bannerImageRendering = 'smooth'
+  detectionByService = null
 }: CompactViewProps) {
   const { t } = useTranslation();
   const labels = { ...getDefaultSectionLabels(t), ...sectionLabels };
@@ -676,7 +675,6 @@ const CompactView = React.memo(function CompactView({
       expandedItem={expandedItem}
       onItemClick={onItemClick}
       aestheticMode={aestheticMode}
-      bannerImageRendering={bannerImageRendering}
       imageErrors={imageErrors}
       handleImageError={handleImageError}
       groupPages={groupPages}

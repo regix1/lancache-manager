@@ -6,16 +6,16 @@ import Drawer from '@components/ui/Drawer';
 import {
   ChevronRight,
   ChevronDown,
-  Clock,
   ExternalLink,
   CheckCircle,
   AlertCircle,
   HardDrive
 } from 'lucide-react';
-import { formatBytes, formatCount, formatPercent, formatRelativeTime } from '@utils/formatters';
+import { formatBytes, formatCount, formatPercent } from '@utils/formatters';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
 import EvictedBadge from '@components/common/EvictedBadge';
 import BadgesRow from './BadgesRow';
+import { DownloadTimestamp } from './DownloadTimestamp';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { WsusIcon } from '@components/ui/WsusIcon';
 import { RiotIcon } from '@components/ui/RiotIcon';
@@ -34,7 +34,6 @@ import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
 import { Pagination } from '@components/ui/Pagination';
 import { BackToTopButton } from '@components/ui/BackToTopButton';
-import { getBannerImageClass, type BannerImageRendering } from './bannerImageRendering';
 import IpSessionList from './IpSessionList';
 import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
@@ -73,7 +72,6 @@ interface NormalViewProps {
   showCacheHitBar?: boolean;
   showEventBadges?: boolean;
   bannerOnly?: boolean;
-  bannerImageRendering?: BannerImageRendering;
   detectionLookup?: Map<number, GameDetectionSummary> | null;
   detectionByName?: Map<string, GameDetectionSummary> | null;
   detectionByService?: Map<
@@ -88,7 +86,6 @@ interface GroupCardProps {
   onItemClick: (id: string) => void;
   aestheticMode: boolean;
   fullHeightBanners: boolean;
-  bannerImageRendering: BannerImageRendering;
   imageErrors: Set<string>;
   handleImageError: (gameAppId: string) => void;
   groupPages: Record<string, number>;
@@ -116,7 +113,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
   onItemClick,
   aestheticMode,
   fullHeightBanners,
-  bannerImageRendering,
   imageErrors,
   handleImageError,
   groupPages,
@@ -274,10 +270,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
           nameKeyedService={showNameKeyedImage ? nameKeyed!.service : undefined}
           nameKeyedSlug={showNameKeyedImage ? nameKeyed!.slug : undefined}
           alt={primaryName || group.name}
-          className={getBannerImageClass(
-            fullHeightBanners ? 'download-banner-image-natural' : 'download-banner-image',
-            bannerImageRendering
-          )}
+          className={fullHeightBanners ? 'download-banner-image-natural' : 'download-banner-image'}
           sizes="(max-width: 639px) 100vw, 280px"
           onError={handleImageError}
         />
@@ -401,8 +394,12 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 ) : null}
                 {/* Secondary stats row */}
                 <div className="flex items-center gap-1 text-[var(--theme-text-muted)]">
-                  <Clock size={10} className="flex-shrink-0" />
-                  <span>{formatRelativeTime(group.lastSeen)}</span>
+                  <DownloadTimestamp
+                    dateString={group.lastSeen}
+                    showAbsoluteInline
+                    showIcon
+                    iconSize={10}
+                  />
                 </div>
               </div>
 
@@ -513,8 +510,12 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   <span
                     className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} font-medium text-[var(--theme-text-secondary)] inline-flex items-center gap-1.5`}
                   >
-                    <Clock size={14} />
-                    {formatRelativeTime(group.lastSeen)}
+                    <DownloadTimestamp
+                      dateString={group.lastSeen}
+                      showAbsoluteInline
+                      showIcon
+                      iconSize={14}
+                    />
                   </span>
                 </div>
                 {showCacheHitBar && (
@@ -716,7 +717,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                         {t('downloads.tab.normal.stats.lastActivity')}
                       </span>
                       <span className="text-xs font-medium text-[var(--theme-text-secondary)]">
-                        {formatRelativeTime(group.lastSeen)}
+                        <DownloadTimestamp dateString={group.lastSeen} showAbsoluteInline />
                       </span>
                     </div>
                   </div>
@@ -863,11 +864,16 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                               />
                                             )}
                                             <span className="text-sm text-[var(--theme-text-primary)]">
-                                              {formatRelativeTime(download.startTimeUtc)}
+                                              <DownloadTimestamp
+                                                dateString={download.startTimeUtc}
+                                                showAbsoluteInline
+                                              />
                                             </span>
                                             {download.depotId && (
                                               <span className="text-xs font-mono text-[var(--theme-text-muted)] bg-[var(--theme-bg-tertiary)] px-1.5 rounded">
-                                                {download.depotId}
+                                                {t('downloads.active.depotLabel', {
+                                                  depotId: download.depotId
+                                                })}
                                               </span>
                                             )}
                                             {download.isEvicted && <EvictedBadge />}
@@ -954,7 +960,6 @@ interface GridCardProps {
   showCacheHitBar: boolean;
   showEventBadges: boolean;
   bannerOnly: boolean;
-  bannerImageRendering: BannerImageRendering;
   groupPages: Record<string, number>;
   setGroupPages: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   startHoldTimer: (callback: () => void) => void;
@@ -974,7 +979,6 @@ const GridCard: React.FC<GridCardProps> = ({
   showCacheHitBar,
   showEventBadges,
   bannerOnly,
-  bannerImageRendering,
   groupPages: _groupPages,
   setGroupPages: _setGroupPages,
   startHoldTimer: _startHoldTimer,
@@ -1053,7 +1057,7 @@ const GridCard: React.FC<GridCardProps> = ({
           nameKeyedService={showNameKeyedImage ? nameKeyed!.service : undefined}
           nameKeyedSlug={showNameKeyedImage ? nameKeyed!.slug : undefined}
           alt={primaryName || group.name}
-          className={getBannerImageClass('card-grid-banner-image', bannerImageRendering)}
+          className="card-grid-banner-image"
           sizes="(max-width: 639px) 100vw, 360px"
           onError={handleImageError}
           loading="lazy"
@@ -1131,6 +1135,11 @@ const GridCard: React.FC<GridCardProps> = ({
               <span className="text-[var(--theme-text-muted)]">{group.count} req</span>
             )}
           </div>
+          <DownloadTimestamp
+            dateString={group.lastSeen}
+            showAbsoluteInline
+            className="text-xs text-[var(--theme-text-muted)] mt-1"
+          />
 
           {/* Cache hit bar */}
           {showCacheHitBar && (
@@ -1153,7 +1162,6 @@ const GridCard: React.FC<GridCardProps> = ({
 
 interface GridCardDrawerContentProps {
   group: DownloadGroup;
-  bannerImageRendering: BannerImageRendering;
   imageErrors: Set<string>;
   handleImageError: (gameAppId: string) => void;
   showEventBadges: boolean;
@@ -1174,7 +1182,6 @@ interface GridCardDrawerContentProps {
 
 const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
   group,
-  bannerImageRendering,
   imageErrors,
   handleImageError,
   showEventBadges,
@@ -1288,7 +1295,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
         nameKeyedService={showNameKeyedImage ? nameKeyed!.service : undefined}
         nameKeyedSlug={showNameKeyedImage ? nameKeyed!.slug : undefined}
         alt={primaryName || group.name}
-        className={getBannerImageClass('drawer-banner-image', bannerImageRendering)}
+        className="drawer-banner-image"
         sizes="(max-width: 639px) 100vw, 550px"
         onError={handleImageError}
       />
@@ -1485,7 +1492,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                   {t('downloads.tab.normal.stats.lastActivity')}
                 </span>
                 <span className="text-xs font-medium text-[var(--theme-text-secondary)]">
-                  {formatRelativeTime(group.lastSeen)}
+                  <DownloadTimestamp dateString={group.lastSeen} showAbsoluteInline />
                 </span>
               </div>
             </div>
@@ -1604,11 +1611,16 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                                     />
                                   )}
                                   <span className="text-sm text-[var(--theme-text-primary)]">
-                                    {formatRelativeTime(download.startTimeUtc)}
+                                    <DownloadTimestamp
+                                      dateString={download.startTimeUtc}
+                                      showAbsoluteInline
+                                    />
                                   </span>
                                   {download.depotId && (
                                     <span className="text-xs font-mono text-[var(--theme-text-muted)] bg-[var(--theme-bg-tertiary)] px-1.5 rounded">
-                                      {download.depotId}
+                                      {t('downloads.active.depotLabel', {
+                                        depotId: download.depotId
+                                      })}
                                     </span>
                                   )}
                                 </div>
@@ -1696,7 +1708,6 @@ const NormalView: React.FC<NormalViewProps> = ({
   showCacheHitBar = true,
   showEventBadges = true,
   bannerOnly = false,
-  bannerImageRendering = 'smooth',
   detectionLookup = null,
   detectionByName = null,
   detectionByService = null
@@ -1866,7 +1877,6 @@ const NormalView: React.FC<NormalViewProps> = ({
       onItemClick={onItemClick}
       aestheticMode={aestheticMode}
       fullHeightBanners={fullHeightBanners}
-      bannerImageRendering={bannerImageRendering}
       imageErrors={imageErrors}
       handleImageError={handleImageError}
       groupPages={groupPages}
@@ -1963,7 +1973,6 @@ const NormalView: React.FC<NormalViewProps> = ({
           showCacheHitBar={showCacheHitBar}
           showEventBadges={showEventBadges}
           bannerOnly={bannerOnly}
-          bannerImageRendering={bannerImageRendering}
           groupPages={groupPages}
           setGroupPages={setGroupPages}
           startHoldTimer={startHoldTimer}
@@ -1992,7 +2001,6 @@ const NormalView: React.FC<NormalViewProps> = ({
         {drawerItem && (
           <GridCardDrawerContent
             group={drawerItem}
-            bannerImageRendering={bannerImageRendering}
             imageErrors={imageErrors}
             handleImageError={handleImageError}
             showEventBadges={showEventBadges}

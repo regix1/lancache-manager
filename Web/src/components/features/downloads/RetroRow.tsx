@@ -15,7 +15,6 @@ import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { GameImage } from '@components/common/GameImage';
-import { getBannerImageClass, type BannerImageRendering } from './bannerImageRendering';
 import BadgesRow from './BadgesRow';
 import DownloadBadges from './DownloadBadges';
 
@@ -100,7 +99,7 @@ const EfficiencyGauge: React.FC<{ percent: number; size?: number }> = ({ percent
         </svg>
         {/* Center percentage */}
         <div
-          className="absolute inset-0 flex items-center justify-center font-bold text-sm"
+          className="absolute inset-0 flex items-center justify-center font-bold text-sm tabular-nums"
           style={{ color: getColor() }}
         >
           {Math.round(percent)}%
@@ -156,10 +155,10 @@ const CombinedProgressBar: React.FC<{
       {/* Labels - with truncation support for mobile */}
       {showLabels && (
         <div className="flex justify-between text-[10px] min-w-0 gap-2">
-          <span className="truncate text-[var(--theme-chart-cache-hit)]">
+          <span className="truncate tabular-nums text-[var(--theme-chart-cache-hit)]">
             {formatBytes(hitBytes)} ({formatPercent(hitPercent)})
           </span>
-          <span className="truncate text-right text-[var(--theme-error)]">
+          <span className="truncate text-right tabular-nums text-[var(--theme-error)]">
             {formatBytes(missBytes)} ({formatPercent(missPercent)})
           </span>
         </div>
@@ -176,7 +175,6 @@ interface RetroRowProps {
   showDatasourceColumn: boolean;
   /** Mobile-only inline datasource badge (desktop uses the dedicated column). */
   showDatasourceBadge: boolean;
-  bannerImageRendering: BannerImageRendering;
   onImageError: (gameAppId: string) => void;
   /** Virtualization attributes - present only when the list is virtualized. */
   dataIndex?: number;
@@ -194,7 +192,6 @@ const RetroRow: React.FC<RetroRowProps> = memo(
     showBannerColumn,
     showDatasourceColumn,
     showDatasourceBadge,
-    bannerImageRendering,
     onImageError,
     dataIndex,
     measureRef,
@@ -243,7 +240,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                   className="px-2 min-w-0 text-xs text-[var(--theme-text-secondary)] overflow-hidden whitespace-nowrap"
                   data-cell
                 >
-                  <span className="block truncate" title={timeRange}>
+                  <span className="block truncate tabular-nums" title={timeRange}>
                     {timeRange}
                   </span>
                 </div>
@@ -259,7 +256,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                       nameKeyedService={nameKeyedService || undefined}
                       nameKeyedSlug={nameKeyedSlug || undefined}
                       alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                      className={`w-[120px] h-[56px] rounded object-cover ${getBannerImageClass('retro-banner-image', bannerImageRendering)}`}
+                      className="w-[120px] h-[56px] rounded object-cover retro-banner-image"
                       onError={onImageError}
                     />
                   ) : (
@@ -386,7 +383,9 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                 data-cell
               >
                 <Zap size={12} className="text-[var(--theme-warning)] opacity-70" />
-                <span className="truncate">{formatSpeed(data.averageBytesPerSecond)}</span>
+                <span className="truncate tabular-nums">
+                  {formatSpeed(data.averageBytesPerSecond)}
+                </span>
               </div>
 
               {/* Combined Cache Performance Bar */}
@@ -415,7 +414,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                     nameKeyedService={nameKeyedService || undefined}
                     nameKeyedSlug={nameKeyedSlug || undefined}
                     alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                    className={`w-[120px] h-[56px] rounded object-cover flex-shrink-0 ${getBannerImageClass('retro-banner-image', bannerImageRendering)}`}
+                    className="w-[120px] h-[56px] rounded object-cover flex-shrink-0 retro-banner-image"
                     onError={onImageError}
                   />
                 ) : (
@@ -494,8 +493,8 @@ const RetroRow: React.FC<RetroRowProps> = memo(
 
               {/* Timestamp and Speed */}
               <div className="flex items-center justify-between text-xs text-[var(--theme-text-secondary)] min-w-0">
-                <span className="truncate mr-2">{timeRange}</span>
-                <span className="flex items-center gap-1 text-[var(--theme-text-primary)] flex-shrink-0">
+                <span className="truncate mr-2 tabular-nums">{timeRange}</span>
+                <span className="flex items-center gap-1 text-[var(--theme-text-primary)] flex-shrink-0 tabular-nums">
                   <Zap size={12} className="text-[var(--theme-warning)]" />
                   {formatSpeed(data.averageBytesPerSecond)}
                 </span>
