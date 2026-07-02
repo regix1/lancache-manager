@@ -639,18 +639,16 @@ export function ScheduledPrefillConfigModal({
     void loadGameSelection(serviceKey, container.sessionId);
   };
 
-  const handleSaveGameSelection = async (selectedIds: string[]) => {
-    if (!gameSelection) {
-      return;
-    }
-
-    const selectedAppIds = Array.from(new Set(selectedIds.map((selectedId) => String(selectedId))));
+  const applyGameSelection = async (
+    serviceKey: ScheduledPrefillServiceKey,
+    selectedAppIds: string[]
+  ) => {
     setConfig((current) =>
       current
         ? {
             ...current,
-            [gameSelection.serviceKey]: {
-              ...current[gameSelection.serviceKey],
+            [serviceKey]: {
+              ...current[serviceKey],
               selectedAppIds
             }
           }
@@ -660,7 +658,7 @@ export function ScheduledPrefillConfigModal({
     setSaveError(null);
     setGameSelectionError(null);
 
-    const serviceId = getPersistentServiceId(gameSelection.serviceKey);
+    const serviceId = getPersistentServiceId(serviceKey);
     const container = persistentContainerByService.get(serviceId);
     if (container?.isRunning && container.isAuthenticated) {
       try {
@@ -669,6 +667,19 @@ export function ScheduledPrefillConfigModal({
         setGameSelectionError(getErrorMessage(error));
       }
     }
+  };
+
+  const handleSaveGameSelection = async (selectedIds: string[]) => {
+    if (!gameSelection) {
+      return;
+    }
+
+    const selectedAppIds = Array.from(new Set(selectedIds.map((selectedId) => String(selectedId))));
+    await applyGameSelection(gameSelection.serviceKey, selectedAppIds);
+  };
+
+  const handleClearGameSelection = async (serviceKey: ScheduledPrefillServiceKey) => {
+    await applyGameSelection(serviceKey, []);
   };
 
   const handlePersistentDownload = async (serviceKey: ScheduledPrefillServiceKey) => {
@@ -897,6 +908,7 @@ export function ScheduledPrefillConfigModal({
                   onLogin={handlePersistentLogin}
                   onLogout={(serviceKey) => void handleLogoutPersistent(serviceKey)}
                   onSelectGames={(serviceKey) => void handleOpenGameSelection(serviceKey)}
+                  onClearGames={(serviceKey) => void handleClearGameSelection(serviceKey)}
                   onDownload={(serviceKey) => void handlePersistentDownload(serviceKey)}
                   onCancelDownload={(serviceKey) => void handleCancelPersistentDownload(serviceKey)}
                 />

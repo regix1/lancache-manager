@@ -29,6 +29,7 @@ interface ScheduledPrefillPlatformSectionProps {
   onLogin: () => void;
   onLogout: () => void;
   onSelectGames: () => void;
+  onClearGames: () => void;
   onDownload: () => void;
   onCancelDownload: () => void;
 }
@@ -49,6 +50,7 @@ export function ScheduledPrefillPlatformSection({
   onLogin,
   onLogout,
   onSelectGames,
+  onClearGames,
   onDownload,
   onCancelDownload
 }: ScheduledPrefillPlatformSectionProps) {
@@ -130,6 +132,7 @@ export function ScheduledPrefillPlatformSection({
             onLogin={onLogin}
             onLogout={onLogout}
             onSelectGames={onSelectGames}
+            onClearGames={onClearGames}
             onDownload={onDownload}
             onCancelDownload={onCancelDownload}
           />

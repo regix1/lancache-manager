@@ -3066,7 +3066,8 @@
               "save": "保存配置",
               "saving": "保存中...",
               "forceDownload": "即使已缓存也下载",
-              "selectGames": "选择游戏"
+              "selectGames": "选择游戏",
+              "clearGames": "清除所选"
             },
             "persistentContainer": {
               "help": "长期容器，用于游戏库、登录和下载。与预填充选项卡访客容器使用相同的守护进程命令。",

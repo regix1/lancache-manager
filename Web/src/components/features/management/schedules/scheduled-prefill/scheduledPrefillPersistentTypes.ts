@@ -28,6 +28,7 @@ export interface ScheduledPrefillPersistentCardProps {
   onLogin: () => void;
   onLogout: () => void;
   onSelectGames: () => void;
+  onClearGames: () => void;
   onDownload: () => void;
   onCancelDownload: () => void;
 }

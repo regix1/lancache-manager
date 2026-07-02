@@ -28,6 +28,7 @@ export function ScheduledPrefillPersistentCard({
   onLogin,
   onLogout,
   onSelectGames,
+  onClearGames,
   onDownload,
   onCancelDownload
 }: ScheduledPrefillPersistentCardProps) {
@@ -245,6 +246,16 @@ export function ScheduledPrefillPersistentCard({
                 }
               >
                 {t(`${baseKey}.actions.selectGames`)}
+              </Button>
+              <Button
+                type="button"
+                variant="filled"
+                color="gray"
+                size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                onClick={onClearGames}
+                disabled={disabled || selectedGamesCount === 0 || isPrefilling}
+              >
+                {t(`${baseKey}.actions.clearGames`)}
               </Button>
             </div>
 

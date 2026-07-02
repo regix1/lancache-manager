@@ -3066,7 +3066,8 @@
               "save": "Save configuration",
               "saving": "Saving...",
               "forceDownload": "Download even if already cached",
-              "selectGames": "Select games"
+              "selectGames": "Select games",
+              "clearGames": "Clear selection"
             },
             "persistentContainer": {
               "help": "Long-lived container for game library, login, and downloads. Uses the same daemon commands as the Prefill tab guest container.",
