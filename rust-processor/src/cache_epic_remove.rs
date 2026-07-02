@@ -22,6 +22,7 @@ mod removal_core;
 mod service_utils;
 mod tact_products;
 
+use progress_events::ProgressReporter;
 use removal_core::{LogScope, ProgressCadence, RemovalStageKeys};
 
 /// Epic game cache removal utility - removes all cache files, log entries,
@@ -49,6 +50,9 @@ struct Args {
     /// Path to progress JSON file
     progress_json: String,
 
+    /// Emit JSON progress events to stdout
+    #[arg(short, long)]
+    progress: bool,
 }
 
 /// Epic removal stage keys (`signalr.epicRemove.*`). Only the per-file cache progress
@@ -171,6 +175,7 @@ async fn main() -> Result<()> {
     let game_name = &args.game_name;
     let output_json = PathBuf::from(&args.output_json);
     let progress_path = PathBuf::from(&args.progress_json);
+    let reporter = ProgressReporter::new(args.progress);
 
     eprintln!("Epic Game Cache Removal");
     eprintln!("  Log directory: {}", log_dir.display());
@@ -189,10 +194,10 @@ async fn main() -> Result<()> {
 
     let pool = db::create_pool().await?;
 
-    removal_core::write_progress(&progress_path, "starting", "signalr.epicRemove.starting", json!({ "gameName": game_name }), 0.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, &reporter, "starting", "signalr.epicRemove.starting", json!({ "gameName": game_name }), 0.0, 0, 0)?;
 
     // Query database for URLs
-    removal_core::write_progress(&progress_path, "querying_database", "signalr.epicRemove.db.querying", json!({}), 5.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, &reporter, "querying_database", "signalr.epicRemove.db.querying", json!({}), 5.0, 0, 0)?;
     let url_data = get_epic_game_urls_from_db(&pool, game_name).await?;
 
     if url_data.is_empty() {
@@ -209,7 +214,7 @@ async fn main() -> Result<()> {
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
 
-        removal_core::write_progress(&progress_path, "completed", "signalr.epicRemove.noUrls", json!({}), 100.0, 0, 0)?;
+        removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.epicRemove.noUrls", json!({}), 100.0, 0, 0)?;
         return Ok(());
     }
 
@@ -217,12 +222,13 @@ async fn main() -> Result<()> {
 
     // Step 1: Remove cache files
     let url_count = url_data.len();
-    removal_core::write_progress(&progress_path, "removing_cache", "signalr.epicRemove.cache.removing", json!({ "count": url_count }), 10.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, &reporter, "removing_cache", "signalr.epicRemove.cache.removing", json!({ "count": url_count }), 10.0, 0, 0)?;
     eprintln!("\nRemoving cache files...");
     let outcome = removal_core::remove_cache_files(
         &cache_dir,
         &url_data,
         &progress_path,
+        &reporter,
         &EPIC_STAGE_KEYS,
         ProgressCadence::OnPercentAdvance,
     )?;
@@ -235,12 +241,12 @@ async fn main() -> Result<()> {
     }
 
     // Step 2: Clean up empty directories
-    removal_core::write_progress(&progress_path, "cleaning_directories", "signalr.epicRemove.dirs.cleaning", json!({}), 70.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, &reporter, "cleaning_directories", "signalr.epicRemove.dirs.cleaning", json!({}), 70.0, 0, 0)?;
     eprintln!("\nCleaning up empty directories...");
     let empty_dirs_removed = cache_utils::cleanup_empty_directories(&cache_dir, outcome.parent_dirs);
 
     // Step 3: Remove log entries from access log text files
-    removal_core::write_progress(&progress_path, "removing_logs", "signalr.epicRemove.logs.removing", json!({}), 80.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, &reporter, "removing_logs", "signalr.epicRemove.logs.removing", json!({}), 80.0, 0, 0)?;
     eprintln!("\nRemoving log entries...");
     let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
     let (log_entries_removed, log_permission_errors) =
@@ -266,12 +272,12 @@ async fn main() -> Result<()> {
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
 
-        removal_core::write_progress(&progress_path, "failed", "signalr.epicRemove.error.fatal", json!({ "errorDetail": error_msg }), 90.0, 0, 0)?;
+        removal_core::write_progress(&progress_path, &reporter, "failed", "signalr.epicRemove.error.fatal", json!({ "errorDetail": error_msg }), 90.0, 0, 0)?;
         anyhow::bail!("{}", error_msg);
     }
 
     // Step 5: Delete database records
-    removal_core::write_progress(&progress_path, "removing_database", "signalr.epicRemove.db.deleting", json!({}), 90.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, &reporter, "removing_database", "signalr.epicRemove.db.deleting", json!({}), 90.0, 0, 0)?;
     eprintln!("\nRemoving database records...");
     let (_log_records, _download_records) = delete_epic_game_from_database(&pool, game_name).await?;
 
@@ -287,7 +293,7 @@ async fn main() -> Result<()> {
     let json = serde_json::to_string_pretty(&report)?;
     fs::write(&output_json, json)?;
 
-    removal_core::write_progress(&progress_path, "completed", "signalr.epicRemove.complete", json!({ "files": report.cache_files_deleted, "gb": report.total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": report.log_entries_removed, "gameName": game_name }), 100.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.epicRemove.complete", json!({ "files": report.cache_files_deleted, "gb": report.total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": report.log_entries_removed, "gameName": game_name }), 100.0, 0, 0)?;
 
     eprintln!("\n=== Removal Summary ===");
     eprintln!("Cache files deleted: {}", report.cache_files_deleted);

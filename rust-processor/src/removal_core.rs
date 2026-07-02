@@ -29,6 +29,7 @@ use std::path::{Path, PathBuf};
 use crate::cache_utils;
 use crate::cancel;
 use crate::log_purge;
+use crate::progress_events::ProgressReporter;
 use crate::progress_utils;
 
 /// Progress JSON written to the progress file and tailed by the C# poller.
@@ -50,9 +51,16 @@ pub struct ProgressData {
 }
 
 /// Write a single progress entry to `progress_path`. Mirrors the prior per-bin
-/// `write_progress` helper verbatim (same field population, same timestamp source).
+/// `write_progress` helper verbatim (same field population, same timestamp source),
+/// then emits the matching stdout event via `reporter` — file write ALWAYS happens
+/// first (mirrors cache_game_detect.rs's checkpoint ordering), so a stdout-triggered
+/// C# file re-read is never stale. `status` selects the emit method: "starting" ->
+/// emit_started, "completed" -> emit_complete, "failed" -> emit_failed, anything else
+/// (querying_database/removing_cache/cleaning_directories/removing_logs/removing_database)
+/// -> emit_progress. `reporter` no-ops every emit call when `--progress` was not passed.
 pub fn write_progress(
     progress_path: &Path,
+    reporter: &ProgressReporter,
     status: &str,
     stage_key: &str,
     context: serde_json::Value,
@@ -60,6 +68,7 @@ pub fn write_progress(
     files_processed: usize,
     total_files: usize,
 ) -> Result<()> {
+    let emit_context = context.clone();
     let progress = ProgressData {
         status: status.to_string(),
         stage_key: stage_key.to_string(),
@@ -70,7 +79,16 @@ pub fn write_progress(
         timestamp: progress_utils::current_timestamp(),
     };
 
-    progress_utils::write_progress_json(progress_path, &progress)
+    progress_utils::write_progress_json(progress_path, &progress)?;
+
+    match status {
+        "starting" => reporter.emit_started(stage_key, emit_context),
+        "completed" => reporter.emit_complete(stage_key, emit_context),
+        "failed" => reporter.emit_failed(stage_key, emit_context),
+        _ => reporter.emit_progress(percent_complete, stage_key, emit_context),
+    }
+
+    Ok(())
 }
 
 /// Per-service progress stage keys. These are a "LOCKED CONTRACT" with the frontend
@@ -134,6 +152,7 @@ pub fn remove_cache_files(
     cache_dir: &Path,
     url_data: &HashMap<String, (String, i64)>,
     progress_path: &Path,
+    reporter: &ProgressReporter,
     keys: &RemovalStageKeys,
     cadence: ProgressCadence,
 ) -> Result<CacheRemovalOutcome> {
@@ -258,6 +277,7 @@ pub fn remove_cache_files(
                 let _ = bytes_freed.load(Ordering::Relaxed);
                 let _ = write_progress(
                     progress_path,
+                    reporter,
                     "removing_cache",
                     keys.cache_file_progress,
                     json!({ "n": del_count, "total": total_paths }),
@@ -292,6 +312,7 @@ pub fn remove_cache_files(
         eprintln!("Cancellation requested — flushing partial progress and stopping.");
         let _ = write_progress(
             progress_path,
+            reporter,
             "removing_cache",
             keys.cache_file_progress,
             json!({ "n": final_deleted, "total": total_paths }),

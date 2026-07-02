@@ -22,6 +22,7 @@ mod service_utils;
 mod tact_products;
 
 use log_purge::remove_log_entries_for_service;
+use progress_events::ProgressReporter;
 
 /// Service cache removal utility - removes all cache files for a specific service
 #[derive(clap::Parser, Debug)]
@@ -43,6 +44,9 @@ struct Args {
     /// Path to progress JSON file
     progress_json: String,
 
+    /// Emit JSON progress events to stdout
+    #[arg(short, long)]
+    progress: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -62,6 +66,7 @@ struct ProgressData {
 
 fn write_progress(
     progress_path: &Path,
+    reporter: &ProgressReporter,
     status: &str,
     stage_key: &str,
     context: serde_json::Value,
@@ -69,6 +74,7 @@ fn write_progress(
     files_processed: usize,
     total_files: usize,
 ) -> Result<()> {
+    let emit_context = context.clone();
     let progress = ProgressData {
         status: status.to_string(),
         stage_key: stage_key.to_string(),
@@ -79,7 +85,19 @@ fn write_progress(
         timestamp: progress_utils::current_timestamp(),
     };
 
-    progress_utils::write_progress_json(progress_path, &progress)
+    progress_utils::write_progress_json(progress_path, &progress)?;
+
+    // File write above always precedes the stdout emit (mirrors cache_game_detect.rs's
+    // checkpoint ordering / removal_core.rs's write_progress), so a stdout-triggered C#
+    // file re-read is never stale.
+    match status {
+        "starting" => reporter.emit_started(stage_key, emit_context),
+        "completed" => reporter.emit_complete(stage_key, emit_context),
+        "failed" => reporter.emit_failed(stage_key, emit_context),
+        _ => reporter.emit_progress(percent_complete, stage_key, emit_context),
+    }
+
+    Ok(())
 }
 
 /// Returns each unique URL for the service along with the max BytesServed observed for it,
@@ -120,6 +138,7 @@ fn remove_cache_files_for_service(
     service: &str,
     urls: &HashMap<String, i64>,
     progress_path: &Path,
+    reporter: &ProgressReporter,
 ) -> Result<(usize, u64, usize)> {  // Returns (deleted_count, bytes_freed, permission_errors)
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -210,7 +229,7 @@ fn remove_cache_files_for_service(
                 if should_write {
                     let overall_percent = 10.0 + (checked as f64 / total_paths as f64) * 60.0;
                     let del_count = deleted_files.load(Ordering::Relaxed);
-                    let _ = write_progress(progress_path, "removing_cache", "signalr.serviceRemove.cache.file.progress", json!({ "n": del_count, "total": total_paths }), overall_percent, del_count, total_paths);
+                    let _ = write_progress(progress_path, reporter, "removing_cache", "signalr.serviceRemove.cache.file.progress", json!({ "n": del_count, "total": total_paths }), overall_percent, del_count, total_paths);
                 }
             }
         }
@@ -262,6 +281,7 @@ async fn main() -> Result<()> {
     let cache_dir = PathBuf::from(&args.cache_dir);
     let service = &args.service;
     let progress_path = PathBuf::from(&args.progress_json);
+    let reporter = ProgressReporter::new(args.progress);
 
     eprintln!("Service Cache Removal");
     eprintln!("  Log directory: {}", log_dir.display());
@@ -270,22 +290,22 @@ async fn main() -> Result<()> {
 
     let pool = db::create_pool().await?;
 
-    write_progress(&progress_path, "starting", "signalr.serviceRemove.starting.default", json!({ "service": service }), 0.0, 0, 0)?;
+    write_progress(&progress_path, &reporter, "starting", "signalr.serviceRemove.starting.default", json!({ "service": service }), 0.0, 0, 0)?;
 
     // Step 1: Get all URLs for this service from database
-    write_progress(&progress_path, "querying_database", "signalr.serviceRemove.db.querying", json!({}), 5.0, 0, 0)?;
+    write_progress(&progress_path, &reporter, "querying_database", "signalr.serviceRemove.db.querying", json!({}), 5.0, 0, 0)?;
     let urls = get_service_urls_from_db(&pool, service).await?;
 
     if urls.is_empty() {
         eprintln!("No URLs found for service '{}'", service);
-        write_progress(&progress_path, "completed", "signalr.serviceRemove.noUrls", json!({}), 100.0, 0, 0)?;
+        write_progress(&progress_path, &reporter, "completed", "signalr.serviceRemove.noUrls", json!({}), 100.0, 0, 0)?;
         return Ok(());
     }
 
     // Step 2: Remove cache files
     let url_count = urls.len();
-    write_progress(&progress_path, "removing_cache", "signalr.serviceRemove.cache.removing", json!({ "count": url_count }), 10.0, 0, url_count)?;
-    let (cache_files_deleted, total_bytes_freed, cache_permission_errors) = remove_cache_files_for_service(&cache_dir, service, &urls, &progress_path)?;
+    write_progress(&progress_path, &reporter, "removing_cache", "signalr.serviceRemove.cache.removing", json!({ "count": url_count }), 10.0, 0, url_count)?;
+    let (cache_files_deleted, total_bytes_freed, cache_permission_errors) = remove_cache_files_for_service(&cache_dir, service, &urls, &progress_path, &reporter)?;
 
     // After cache removal: if cancellation arrived, flush partial progress and exit 0.
     // C# re-runs reconciliation/detection after a cancelled remove.
@@ -293,6 +313,7 @@ async fn main() -> Result<()> {
         eprintln!("Cancellation confirmed — flushing partial progress and exiting.");
         let _ = write_progress(
             &progress_path,
+            &reporter,
             "removing_cache",
             "signalr.serviceRemove.cache.file.progress",
             json!({ "n": cache_files_deleted, "total": url_count }),
@@ -304,7 +325,7 @@ async fn main() -> Result<()> {
     }
 
     // Step 3: Remove log entries
-    write_progress(&progress_path, "removing_logs", "signalr.serviceRemove.logs.removing", json!({}), 70.0, cache_files_deleted, url_count)?;
+    write_progress(&progress_path, &reporter, "removing_logs", "signalr.serviceRemove.logs.removing", json!({}), 70.0, cache_files_deleted, url_count)?;
     let url_set: HashSet<String> = urls.keys().cloned().collect();
     let (log_entries_removed, log_permission_errors) = remove_log_entries_for_service(&log_dir, service, &url_set)?;
 
@@ -321,15 +342,15 @@ async fn main() -> Result<()> {
             total_permission_errors, puid, pgid, cache_permission_errors, log_permission_errors
         );
         eprintln!("\n{}", error_msg);
-        write_progress(&progress_path, "failed", "signalr.serviceRemove.error.fatal", json!({ "errorDetail": error_msg }), 70.0, cache_files_deleted, url_count)?;
+        write_progress(&progress_path, &reporter, "failed", "signalr.serviceRemove.error.fatal", json!({ "errorDetail": error_msg }), 70.0, cache_files_deleted, url_count)?;
         std::process::exit(1);
     }
 
     // Step 4: Delete database records (only if no permission errors)
-    write_progress(&progress_path, "removing_database", "signalr.serviceRemove.db.deleting", json!({}), 90.0, cache_files_deleted, url_count)?;
+    write_progress(&progress_path, &reporter, "removing_database", "signalr.serviceRemove.db.deleting", json!({}), 90.0, cache_files_deleted, url_count)?;
     let database_entries_deleted = delete_service_from_database(&pool, service).await?;
 
-    write_progress(&progress_path, "completed", "signalr.serviceRemove.complete", json!({ "files": cache_files_deleted, "gb": total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": log_entries_removed, "dbRecords": database_entries_deleted, "service": service }), 100.0, cache_files_deleted, url_count)?;
+    write_progress(&progress_path, &reporter, "completed", "signalr.serviceRemove.complete", json!({ "files": cache_files_deleted, "gb": total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": log_entries_removed, "dbRecords": database_entries_deleted, "service": service }), 100.0, cache_files_deleted, url_count)?;
 
     eprintln!("\n=== Removal Summary ===");
     eprintln!("Service: {}", service);

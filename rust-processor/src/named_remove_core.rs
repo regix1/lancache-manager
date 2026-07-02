@@ -23,6 +23,7 @@ use std::path::PathBuf;
 
 use crate::db;
 use crate::cache_utils;
+use crate::progress_events::ProgressReporter;
 use crate::removal_core::{self, LogScope, ProgressCadence, RemovalStageKeys};
 
 /// Positional args for a name-keyed removal bin. The owning service is pinned by the
@@ -44,6 +45,10 @@ struct Args {
 
     /// Path to progress JSON file
     progress_json: String,
+
+    /// Emit JSON progress events to stdout
+    #[arg(short, long)]
+    progress: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -230,6 +235,7 @@ pub async fn run(service: &str) -> Result<()> {
     let game_name = &args.game_name;
     let output_json = PathBuf::from(&args.output_json);
     let progress_path = PathBuf::from(&args.progress_json);
+    let reporter = ProgressReporter::new(args.progress);
 
     eprintln!("Named Game Cache Removal");
     eprintln!("  Log directory: {}", log_dir.display());
@@ -249,10 +255,10 @@ pub async fn run(service: &str) -> Result<()> {
 
     let pool = db::create_pool().await?;
 
-    removal_core::write_progress(&progress_path, "starting", "signalr.gameRemove.starting", json!({ "gameName": game_name, "service": service }), 0.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, &reporter, "starting", "signalr.gameRemove.starting", json!({ "gameName": game_name, "service": service }), 0.0, 0, 0)?;
 
     // Query database for URLs
-    removal_core::write_progress(&progress_path, "querying_database", "signalr.gameRemove.db.querying", json!({}), 5.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, &reporter, "querying_database", "signalr.gameRemove.db.querying", json!({}), 5.0, 0, 0)?;
     let url_data = get_named_game_urls_from_db(&pool, &service, game_name).await?;
 
     if url_data.is_empty() {
@@ -269,7 +275,7 @@ pub async fn run(service: &str) -> Result<()> {
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
 
-        removal_core::write_progress(&progress_path, "completed", "signalr.gameRemove.noUrls", json!({}), 100.0, 0, 0)?;
+        removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.gameRemove.noUrls", json!({}), 100.0, 0, 0)?;
         return Ok(());
     }
 
@@ -277,12 +283,13 @@ pub async fn run(service: &str) -> Result<()> {
 
     // Step 1: Remove cache files
     let url_count = url_data.len();
-    removal_core::write_progress(&progress_path, "removing_cache", "signalr.gameRemove.cache.removing", json!({ "count": url_count }), 10.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, &reporter, "removing_cache", "signalr.gameRemove.cache.removing", json!({ "count": url_count }), 10.0, 0, 0)?;
     eprintln!("\nRemoving cache files...");
     let outcome = removal_core::remove_cache_files(
         &cache_dir,
         &url_data,
         &progress_path,
+        &reporter,
         &NAMED_STAGE_KEYS,
         ProgressCadence::OnPercentAdvance,
     )?;
@@ -295,12 +302,12 @@ pub async fn run(service: &str) -> Result<()> {
     }
 
     // Step 2: Clean up empty directories
-    removal_core::write_progress(&progress_path, "cleaning_directories", "signalr.gameRemove.dirs.cleaning", json!({}), 70.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, &reporter, "cleaning_directories", "signalr.gameRemove.dirs.cleaning", json!({}), 70.0, 0, 0)?;
     eprintln!("\nCleaning up empty directories...");
     let empty_dirs_removed = cache_utils::cleanup_empty_directories(&cache_dir, outcome.parent_dirs);
 
     // Step 3: Remove log entries from access log text files
-    removal_core::write_progress(&progress_path, "removing_logs", "signalr.gameRemove.logs.removing", json!({}), 80.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, &reporter, "removing_logs", "signalr.gameRemove.logs.removing", json!({}), 80.0, 0, 0)?;
     eprintln!("\nRemoving log entries...");
     let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
     let (log_entries_removed, log_permission_errors) =
@@ -326,12 +333,12 @@ pub async fn run(service: &str) -> Result<()> {
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
 
-        removal_core::write_progress(&progress_path, "failed", "signalr.gameRemove.error.fatal", json!({ "errorDetail": error_msg }), 90.0, 0, 0)?;
+        removal_core::write_progress(&progress_path, &reporter, "failed", "signalr.gameRemove.error.fatal", json!({ "errorDetail": error_msg }), 90.0, 0, 0)?;
         anyhow::bail!("{}", error_msg);
     }
 
     // Step 5: Delete database records
-    removal_core::write_progress(&progress_path, "removing_database", "signalr.gameRemove.db.deleting", json!({}), 90.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, &reporter, "removing_database", "signalr.gameRemove.db.deleting", json!({}), 90.0, 0, 0)?;
     eprintln!("\nRemoving database records...");
     let (_log_records, _download_records) = delete_named_game_from_database(&pool, &service, game_name).await?;
 
@@ -347,7 +354,7 @@ pub async fn run(service: &str) -> Result<()> {
     let json = serde_json::to_string_pretty(&report)?;
     fs::write(&output_json, json)?;
 
-    removal_core::write_progress(&progress_path, "completed", "signalr.gameRemove.complete", json!({ "files": report.cache_files_deleted, "gb": report.total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": report.log_entries_removed, "gameName": game_name, "service": service }), 100.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.gameRemove.complete", json!({ "files": report.cache_files_deleted, "gb": report.total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": report.log_entries_removed, "gameName": game_name, "service": service }), 100.0, 0, 0)?;
 
     eprintln!("\n=== Removal Summary ===");
     eprintln!("Cache files deleted: {}", report.cache_files_deleted);
