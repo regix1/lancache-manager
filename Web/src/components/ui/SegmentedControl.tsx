@@ -7,6 +7,7 @@ interface SegmentedControlOption {
   icon?: React.ReactNode;
   tooltip?: string;
   disabled?: boolean;
+  activeColor?: 'primary' | 'warning';
 }
 
 interface SegmentedControlProps {
@@ -52,6 +53,10 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
       {options.map((option) => {
         const isActive = value === option.value;
         const isDisabled = option.disabled;
+        const activeClass =
+          option.activeColor === 'warning'
+            ? 'bg-[var(--theme-warning)] text-themed-button shadow-[0_2px_4px_var(--theme-warning-muted)]'
+            : 'bg-[var(--theme-primary)] text-themed-button shadow-[0_2px_4px_var(--theme-primary-muted)]';
 
         const buttonElement = (
           <button
@@ -61,9 +66,7 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
             className={`segmented-control-button ${sizes.button} transition flex items-center justify-center gap-[0.5rem] font-semibold whitespace-nowrap text-xs ${
               fullWidth ? 'flex-1' : ''
             } ${isDisabled && !isActive ? 'opacity-50 cursor-default' : ''} ${
-              isActive
-                ? 'bg-[var(--theme-primary)] text-themed-button shadow-[0_2px_4px_var(--theme-primary-muted)]'
-                : 'bg-transparent text-themed-muted'
+              isActive ? activeClass : 'bg-transparent text-themed-muted'
             } ${isDisabled ? 'cursor-default' : 'cursor-pointer'}`}
           >
             {option.icon && React.isValidElement(option.icon)

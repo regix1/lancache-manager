@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { HelpPopover, HelpSection, HelpDefinition } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpDefinition, HelpNote } from '@components/ui/HelpPopover';
 import { MultiSelectDropdown, type MultiSelectOption } from '@components/ui/MultiSelectDropdown';
 import { NumberInput } from '@components/ui/NumberInput';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
@@ -129,13 +129,15 @@ export function ScheduledPrefillScheduleFields({
           <HelpPopover position="left" width={320}>
             <HelpSection title={t(`${baseKey}.presetHelp.title`)} variant="subtle">
               <HelpDefinition items={presetHelpItems} />
+              <HelpNote type="warning">{t(`${baseKey}.presetHelp.overrideNote`)}</HelpNote>
             </HelpSection>
           </HelpPopover>
         </div>
         <SegmentedControl
           options={presetOptions.map((option) => ({
             ...option,
-            disabled: disabled || presetOverridden
+            disabled: disabled || presetOverridden,
+            activeColor: presetOverridden ? 'warning' : 'primary'
           }))}
           value={config.preset}
           onChange={(value) => {
