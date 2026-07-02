@@ -1032,8 +1032,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         // Manager-enforced lifetime. Guest/temporary containers are capped at
         // createdAt + GetGuestPermissionDurationHours() so they are reaped by ProcessSessionExpiryAsync
-        // exactly when the admin-configured per-service permission duration elapses. The standard
-        // session timeout is kept as a backstop (we take whichever expiry comes first). Admin/persistent
+        // exactly when the admin-configured per-service permission duration elapses. That duration is
+        // already admin-validated (clamped 1-3h), so it is authoritative on its own - it is NOT further
+        // clamped against the generic standard session timeout backstop below (that backstop defaults to
+        // 120 minutes and would silently override any per-service duration configured above 2h, which is
+        // exactly the bug this comment used to gloss over: the container was correctly told to run for
+        // the full configured duration via PREFILL_MAX_LIFETIME_SECONDS, but the manager's own tracked
+        // expiry - and therefore the reaper and any UI countdown - was getting cut short). Admin/persistent
         // sessions are never subject to the cap and keep the standard timeout.
         var createdAtUtc = DateTime.UtcNow;
         var isTemporary = sessionType == SessionType.Guest;
@@ -1047,8 +1052,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         }
         else if (isTemporary)
         {
-            var guestCapExpiresAt = createdAtUtc.AddHours(GetGuestPermissionDurationHours());
-            expiresAt = guestCapExpiresAt < standardExpiresAt ? guestCapExpiresAt : standardExpiresAt;
+            expiresAt = createdAtUtc.AddHours(GetGuestPermissionDurationHours());
         }
         else
         {
