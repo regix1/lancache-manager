@@ -157,9 +157,9 @@ impl Processor {
         // Get timezone from environment variable (same as C# uses)
         let tz_str = env::var("TZ").unwrap_or_else(|_| "UTC".to_string());
         let local_tz: Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
-        println!("Using timezone: {} (from TZ env var)", local_tz);
-        println!("Auto-map depots: {}", auto_map_depots);
-        println!("Datasource: {}", datasource_name);
+        eprintln!("Using timezone: {} (from TZ env var)", local_tz);
+        eprintln!("Auto-map depots: {}", auto_map_depots);
+        eprintln!("Datasource: {}", datasource_name);
 
         Self {
             pool,
@@ -246,20 +246,20 @@ impl Processor {
     }
 
     async fn process(&mut self) -> Result<()> {
-        println!("Starting log processing...");
-        println!("Log directory: {}", self.log_dir.display());
-        println!("Log base name: {}", self.log_base_name);
+        eprintln!("Starting log processing...");
+        eprintln!("Log directory: {}", self.log_dir.display());
+        eprintln!("Log base name: {}", self.log_base_name);
 
         // Discover all log files (access.log, access.log.1, access.log.2.gz, etc.)
         let log_files = discover_log_files(&self.log_dir, &self.log_base_name)?;
 
         if log_files.is_empty() {
-            println!("No log files found matching pattern: {}", self.log_base_name);
+            eprintln!("No log files found matching pattern: {}", self.log_base_name);
             self.write_progress("completed", "No log files found")?;
             return Ok(());
         }
 
-        println!("Found {} log file(s):", log_files.len());
+        eprintln!("Found {} log file(s):", log_files.len());
         for log_file in &log_files {
             let compression_info = if log_file.is_compressed {
                 " (compressed)"
@@ -270,7 +270,7 @@ impl Processor {
                 Some(num) => format!(" [rotation {}]", num),
                 None => " [current]".to_string(),
             };
-            println!("  - {}{}{}", log_file.path.display(), rotation_info, compression_info);
+            eprintln!("  - {}{}{}", log_file.path.display(), rotation_info, compression_info);
         }
 
         // Progress denominator: sum of on-disk file sizes (instant). This replaces
@@ -291,7 +291,7 @@ impl Processor {
             })
             .collect();
         self.total_bytes = file_sizes.iter().sum();
-        println!("Total size across all files: {} bytes", self.total_bytes);
+        eprintln!("Total size across all files: {} bytes", self.total_bytes);
 
         self.write_progress(
             "starting",
@@ -314,7 +314,7 @@ impl Processor {
                 false
             });
             if is_empty {
-                println!("Fresh database detected - skipping duplicate checks for maximum speed");
+                eprintln!("Fresh database detected - skipping duplicate checks for maximum speed");
                 self.skip_dedup = true;
             }
         }
@@ -328,7 +328,7 @@ impl Processor {
         let mut files_with_errors = Vec::new();
 
         for (file_index, log_file) in log_files.iter().enumerate() {
-            println!("\nProcessing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
+            eprintln!("\nProcessing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
 
             let file_size = file_sizes[file_index];
             let file_result = self.process_single_file(log_file, file_size, &mut lines_to_skip).await;
@@ -387,9 +387,9 @@ impl Processor {
         }
 
         if files_with_errors.is_empty() {
-            println!("\nAll files processed successfully!");
+            eprintln!("\nAll files processed successfully!");
         } else {
-            println!(
+            eprintln!(
                 "\nProcessing completed with {} error(s) in {} file(s), {} entries saved",
                 files_with_errors.len(),
                 files_with_errors.len(),
@@ -418,7 +418,7 @@ impl Processor {
 
         // Skip lines if we haven't reached the start position yet
         if *lines_to_skip > 0 {
-            println!("Skipping {} lines in this file to reach start position", lines_to_skip);
+            eprintln!("Skipping {} lines in this file to reach start position", lines_to_skip);
             let mut line = String::new();
             let mut skipped = 0u64;
 
@@ -483,7 +483,7 @@ impl Processor {
                     // Only log when we cross a 5% boundary
                     if current_percent_bucket > last_logged {
                         self.last_logged_percent.store(current_percent_bucket, Ordering::Relaxed);
-                        println!(
+                        eprintln!(
                             "Progress: {} lines ({:.1}%), {} entries saved",
                             parsed, percent, saved
                         );
@@ -496,7 +496,7 @@ impl Processor {
 
                     // Cooperative cancel: check after each flushed batch (clean DB-transaction boundary)
                     if cancel::is_cancelled() {
-                        println!("Cancel requested — stopping after batch flush ({} lines, {} entries saved)", parsed, saved);
+                        eprintln!("Cancel requested — stopping after batch flush ({} lines, {} entries saved)", parsed, saved);
                         self.write_progress(
                             "cancelled",
                             &format!("Cancelled: {} lines parsed, {} entries saved", parsed, saved),
@@ -925,7 +925,7 @@ impl Processor {
                         // Only log each depot mapping once to avoid log spam
                         if !self.logged_depots.contains(&depot_id) {
                             let game_display = app_name.as_ref().map(|n| n.as_str()).unwrap_or("Unknown");
-                            println!("Mapped depot {} -> App {} ({})", depot_id, app_id, game_display);
+                            eprintln!("Mapped depot {} -> App {} ({})", depot_id, app_id, game_display);
                             self.logged_depots.insert(depot_id);
                         }
                         (Some(app_id), app_name)
@@ -948,14 +948,14 @@ impl Processor {
                 match tact_products::resolve_tact_segment(product) {
                     tact_products::TactResolution::Game(name) => {
                         if !self.logged_tact_products.contains(product) {
-                            println!("Mapped Blizzard product {} -> {}", product, name);
+                            eprintln!("Mapped Blizzard product {} -> {}", product, name);
                             self.logged_tact_products.insert(product.to_string());
                         }
                         (None, Some(name))
                     }
                     tact_products::TactResolution::Shared(label) => {
                         if !self.logged_tact_products.contains(product) {
-                            println!("Mapped Blizzard shared path {} -> {}", product, label);
+                            eprintln!("Mapped Blizzard shared path {} -> {}", product, label);
                             self.logged_tact_products.insert(product.to_string());
                         }
                         (None, Some(label))
@@ -966,7 +966,7 @@ impl Processor {
                                 .iter()
                                 .filter(|e| e.tact_product.as_deref() == Some(product))
                                 .count();
-                            println!(
+                            eprintln!(
                                 "Unmapped Blizzard CDN path: {} ({} req)",
                                 product, req_count
                             );
@@ -988,7 +988,7 @@ impl Processor {
                 match riot_hosts::resolve_riot_host(host) {
                     Some(name) => {
                         if !self.logged_riot_hosts.contains(host) {
-                            println!("Mapped Riot host {} -> {}", host, name);
+                            eprintln!("Mapped Riot host {} -> {}", host, name);
                             self.logged_riot_hosts.insert(host.to_string());
                         }
                         (None, Some(name.to_string()))
@@ -999,7 +999,7 @@ impl Processor {
                                 .iter()
                                 .filter(|e| e.cdn_host.as_deref() == Some(host))
                                 .count();
-                            println!("Unmapped Riot CDN host: {} ({} req)", host, req_count);
+                            eprintln!("Unmapped Riot CDN host: {} ({} req)", host, req_count);
                             self.logged_riot_hosts.insert(host.to_string());
                         }
                         (None, None)
@@ -1342,7 +1342,7 @@ impl Processor {
         }
 
         if skipped > 0 {
-            println!(
+            eprintln!(
                 "Skipped {} duplicate entries ({} new/{})",
                 skipped,
                 new_entries.len(),
@@ -1447,7 +1447,7 @@ async fn main() -> Result<()> {
     // Pre-load all SteamDepotMappings into a HashMap so no per-session DB lookups are needed.
     // Only owner apps (IsOwner = true) - matches prior C# behavior.
     let depot_map: HashMap<u32, (u32, Option<String>)> = if auto_map_depots {
-        println!("Pre-loading Steam depot mappings...");
+        eprintln!("Pre-loading Steam depot mappings...");
         let rows = sqlx::query(
             r#"SELECT "DepotId", "AppId", "AppName" FROM "SteamDepotMappings" WHERE "IsOwner" = true"#
         )
@@ -1466,7 +1466,7 @@ async fn main() -> Result<()> {
                 (depot_id as u32, (app_id as u32, app_name))
             })
             .collect();
-        println!("Loaded {} depot mappings", map.len());
+        eprintln!("Loaded {} depot mappings", map.len());
         map
     } else {
         HashMap::new()
