@@ -339,9 +339,11 @@ public partial class RustProcessHelper
     /// <summary>
     /// Runs a tracked Rust process, consuming LIVE structured progress events from its stdout
     /// (progress_events.rs's started/progress/complete NDJSON protocol) instead of polling a
-    /// progress file. Only the binaries that actually emit this protocol (cache_clear,
-    /// cache_game_detect, log_processor) should use this — the other Rust binaries only write a
-    /// progress file and must keep using <see cref="ExecuteTrackedProcessWithProgressAsync{TProgress}"/>.
+    /// progress file. Only a binary that actually emits this protocol (every migrated binary now
+    /// does: cache_clear, cache_game_detect, log_processor, cache_size, cache_eviction_scan,
+    /// corruption_manager, db_reset, log_manager, the purge and cache-removal binaries) should use
+    /// this; a binary that only writes a progress file without emitting events must keep using
+    /// <see cref="ExecuteTrackedProcessWithProgressAsync{TProgress}"/>.
     /// The Rust side keeps writing its progress file unchanged (crash-recovery checkpoint); this
     /// only changes what C# reads live, replacing the up-to-<see cref="DefaultProgressPollMs"/>ms
     /// poll delay with an event-driven reaction to each line Rust actually emits.
@@ -448,7 +450,11 @@ public partial class RustProcessHelper
                 continue;
             }
 
-            if (progressEvent != null)
+            // A JSON line with no "event" field is not a progress_events.rs envelope (every emit
+            // method sets a non-empty event); e.g. cache_eviction_scan prints its one-shot
+            // ScanResult on this same stdout stream. Skip those so a non-envelope line can't fire a
+            // spurious extra terminal callback (duplicate SignalR emit / progress-file read).
+            if (progressEvent != null && !string.IsNullOrEmpty(progressEvent.Event))
             {
                 try
                 {
@@ -575,14 +581,30 @@ public partial class RustProcessHelper
             // Build arguments based on command
             var arguments = command switch
             {
-                "count" => $"count \"{logsPath}\" \"{outputFile}\"",
+                "count" => $"count \"{logsPath}\" \"{outputFile}\" --progress",
                 "remove" when !string.IsNullOrEmpty(service) =>
-                    $"remove \"{logsPath}\" \"{service}\" \"{outputFile}\"",
+                    $"remove \"{logsPath}\" \"{service}\" \"{outputFile}\" --progress",
                 _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
             };
 
             var startInfo = CreateProcessStartInfo(rustBinaryPath, arguments);
-            var result = await ExecuteProcessAsync(startInfo, CancellationToken.None);
+            // No operationId/UI tracking for this call: it's a synchronous one-shot RPC embedded in
+            // a GET handler (LogsController.GetServiceCountsForDatasourceAsync, invoked per-datasource),
+            // not a registered IUnifiedOperationTracker operation - there is no cancellation token or
+            // SignalR notification surface to wire an operationId into. Switching to the stdout-events
+            // transport still removes the buffered ReadToEndAsync in favor of the shared event-driven
+            // reader (log_service_manager.rs now emits ProgressReporter events); the callback only logs,
+            // mirroring RustLogProcessorService's minimal "logging only" hybrid.
+            var result = await ExecuteTrackedProcessWithProgressEventsAsync(
+                startInfo,
+                operationId: null,
+                CancellationToken.None,
+                onProgressEvent: evt =>
+                {
+                    _logger.LogDebug("[log_manager] {Event} ({StageKey})", evt.Event, evt.StageKey);
+                    return Task.CompletedTask;
+                },
+                "log_manager");
 
             if (result.ExitCode == 0)
             {
@@ -657,7 +679,8 @@ public partial class RustProcessHelper
         int threshold = 3,
         bool compareToCacheLogs = true,
         bool detectRedownloads = false,
-        Guid? operationId = null)
+        Guid? operationId = null,
+        Func<RustProgressEvent, Task>? onProgressEvent = null)
     {
         // D-rust-4: the Rust `remove` command's only data sink is its progress_json file, which the
         // CALLER monitors on a 500ms poll loop (CacheController). Previously that same caller path was
@@ -685,19 +708,20 @@ public partial class RustProcessHelper
             var redownloadFlag = detectRedownloads ? " --detect-redownloads" : "";
             var arguments = command switch
             {
-                "summary" => $"summary \"{logsPath}\" \"{cachePath}\" \"{progressArg ?? "none"}\" \"UTC\" {threshold}{noCacheCheckFlag}{redownloadFlag}",
+                "summary" => $"summary \"{logsPath}\" \"{cachePath}\" \"{progressArg ?? "none"}\" \"UTC\" {threshold}{noCacheCheckFlag}{redownloadFlag} --progress",
                 "remove" when !string.IsNullOrEmpty(service) =>
-                    $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressArg}\" {threshold}{noCacheCheckFlag}{redownloadFlag}",
+                    $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressArg}\" {threshold}{noCacheCheckFlag}{redownloadFlag} --progress",
                 _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
             };
 
             _logger.LogInformation("[corruption_manager] Executing: {Binary} {Args}", rustBinaryPath, arguments);
 
             var startInfo = CreateProcessStartInfo(rustBinaryPath, arguments);
-            var result = await ExecuteTrackedProcessAsync(
+            var result = await ExecuteTrackedProcessWithProgressEventsAsync(
                 startInfo,
                 operationId,
                 cancellationToken,
+                onProgressEvent,
                 "corruption_manager");
 
             // Log stdout and stderr for debugging
@@ -779,7 +803,8 @@ public partial class RustProcessHelper
         string datasourceConfigPath,
         string? progressFile = null,
         CancellationToken cancellationToken = default,
-        Guid? operationId = null)
+        Guid? operationId = null,
+        Func<RustProgressEvent, Task>? onProgressEvent = null)
     {
         try
         {
@@ -787,7 +812,7 @@ public partial class RustProcessHelper
             EnsureBinaryExists(rustBinaryPath, "cache_eviction_scan");
 
             var progressArg = progressFile ?? "none";
-            var arguments = $"\"{datasourceConfigPath}\" \"{progressArg}\"";
+            var arguments = $"\"{datasourceConfigPath}\" \"{progressArg}\" --progress";
 
             _logger.LogInformation("[cache_eviction_scan] Executing: {Binary} {Args}", rustBinaryPath, arguments);
 
@@ -795,10 +820,11 @@ public partial class RustProcessHelper
             cancellationToken.ThrowIfCancellationRequested();
 
             var startInfo = CreateProcessStartInfo(rustBinaryPath, arguments);
-            var result = await ExecuteTrackedProcessAsync(
+            var result = await ExecuteTrackedProcessWithProgressEventsAsync(
                 startInfo,
                 operationId,
                 cancellationToken,
+                onProgressEvent,
                 "cache_eviction_scan");
 
             if (!string.IsNullOrEmpty(result.Error))
@@ -806,22 +832,53 @@ public partial class RustProcessHelper
                 _logger.LogInformation("[cache_eviction_scan] stderr: {Error}", result.Error);
             }
 
-            if (result.ExitCode == 0 && !string.IsNullOrEmpty(result.Output))
+            if (result.ExitCode == 0)
             {
-                try
+                // cache_eviction_scan.rs prints its one-shot ScanResult JSON as the FINAL stdout
+                // line, AFTER every NDJSON progress-event envelope. Envelopes always carry an
+                // "event" field; the ScanResult never does. Walk stdout backward for the last JSON
+                // object WITHOUT an "event" field so a truncated or duplicated trailing envelope is
+                // never mis-parsed as the result (that would deserialize to Success=true with zero
+                // processed/evicted counts and let the caller false-complete the scan).
+                foreach (var line in result.Output
+                             .Split('\n')
+                             .Select(l => l.TrimEnd('\r'))
+                             .Reverse())
                 {
-                    var data = System.Text.Json.JsonSerializer.Deserialize<object>(result.Output);
-                    return new RustExecutionResult { Success = true, Data = data, Error = null };
+                    if (string.IsNullOrWhiteSpace(line))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        var element = System.Text.Json.JsonSerializer.Deserialize<JsonElement>(line);
+                        if (element.ValueKind == JsonValueKind.Object && !element.TryGetProperty("event", out _))
+                        {
+                            return new RustExecutionResult { Success = true, Data = element, Error = null };
+                        }
+                    }
+                    catch (JsonException ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to parse cache_eviction_scan stdout JSON line: {Line}", line);
+                    }
                 }
-                catch (Exception ex)
+
+                // Exit 0 but no ScanResult line (empty/truncated stdout, or only progress
+                // envelopes): treat as failure so the caller cannot complete the scan with zeroed
+                // metrics as though it had succeeded.
+                _logger.LogWarning("[cache_eviction_scan] Exited 0 but produced no ScanResult line; treating as scan failure");
+                return new RustExecutionResult
                 {
-                    _logger.LogWarning(ex, "Failed to parse cache_eviction_scan stdout JSON");
-                }
+                    Success = false,
+                    Data = null,
+                    Error = "cache_eviction_scan exited successfully but produced no scan result line"
+                };
             }
 
             return new RustExecutionResult
             {
-                Success = result.ExitCode == 0,
+                Success = false,
                 Data = null,
                 Error = result.Error
             };

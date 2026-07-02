@@ -384,8 +384,10 @@ public class CacheClearingService : ScheduledBackgroundService
                     return;
                 }
 
-                // Build arguments - Rust auto-detects optimal thread count
-                var arguments = $"\"{cachePath}\" \"{progressFile}\" {_deleteMode.ToWireString()}";
+                // Build arguments - Rust auto-detects optimal thread count. --progress enables
+                // cache_clear.rs's live stdout progress events, which the hybrid callback below
+                // waits on; without it ProgressReporter.is_enabled() is false and no events flow.
+                var arguments = $"\"{cachePath}\" \"{progressFile}\" {_deleteMode.ToWireString()} --progress";
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                     rustBinaryPath,

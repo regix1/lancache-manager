@@ -425,9 +425,12 @@ public partial class GameCacheDetectionService : IDisposable
                 // Add --incremental flag for quick scans to skip the expensive cache directory scan
                 var incrementalFlag = incremental ? " --incremental" : "";
                 var skipServiceScanFlag = skipServiceScan ? " --skip-service-scan" : "";
+                // --progress (distinct from --progress-file) enables cache_game_detect.rs's live
+                // stdout progress events, which the hybrid callback below waits on; without it
+                // ProgressReporter.is_enabled() is false and no events flow.
                 string arguments = !string.IsNullOrEmpty(excludedIdsPath)
-                    ? $"\"{cachePath}\" \"{outputJson}\" \"{excludedIdsPath}\"{incrementalFlag}{skipServiceScanFlag} --progress-file \"{progressFilePath}\""
-                    : $"\"{cachePath}\" \"{outputJson}\"{incrementalFlag}{skipServiceScanFlag} --progress-file \"{progressFilePath}\"";
+                    ? $"\"{cachePath}\" \"{outputJson}\" \"{excludedIdsPath}\"{incrementalFlag}{skipServiceScanFlag} --progress-file \"{progressFilePath}\" --progress"
+                    : $"\"{cachePath}\" \"{outputJson}\"{incrementalFlag}{skipServiceScanFlag} --progress-file \"{progressFilePath}\" --progress";
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, arguments);
 
