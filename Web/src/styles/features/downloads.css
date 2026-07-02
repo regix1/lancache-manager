@@ -326,6 +326,13 @@
     }
   }
 
+  .downloads-header .today-stats {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
   .downloads-header .tab-container {
     display: flex;
     padding: 4px;
@@ -503,6 +510,12 @@
       font-size: 0.75rem;
       flex: 1;
       justify-content: center;
+    }
+
+    .downloads-header .today-stats {
+      flex-direction: row;
+      flex: 1;
+      min-width: 0;
     }
 
     .downloads-header .today-stat {
