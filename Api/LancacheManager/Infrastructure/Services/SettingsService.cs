@@ -17,11 +17,6 @@ public class SettingsService : ISettingsService
         _logger = logger;
         _pathResolver = pathResolver;
         _settingsFilePath = _pathResolver.GetSettingsPath("gc-settings.json");
-        var settingsDir = Path.GetDirectoryName(_settingsFilePath);
-        if (!string.IsNullOrEmpty(settingsDir) && !Directory.Exists(settingsDir))
-        {
-            Directory.CreateDirectory(settingsDir);
-        }
         _currentSettings = LoadSettings();
     }
 
@@ -49,6 +44,16 @@ public class SettingsService : ISettingsService
             }
 
             _currentSettings = newSettings;
+        }
+
+        // Ensure the config directory exists before writing. This is created here
+        // (idempotently, immediately before the first real write) rather than
+        // unconditionally in the constructor, so a fresh install that never changes
+        // GC settings doesn't end up with an empty /data/config directory.
+        var settingsDir = Path.GetDirectoryName(_settingsFilePath);
+        if (!string.IsNullOrEmpty(settingsDir) && !Directory.Exists(settingsDir))
+        {
+            Directory.CreateDirectory(settingsDir);
         }
 
         // Save to file

@@ -95,8 +95,6 @@ interface RetroViewProps {
   filterEndTime?: number;
   /** Server-side filter: event ID. Only used when serverMode is true. */
   filterEventId?: number;
-  /** Server-side filter: include prefill-daemon rows (badged). Only used when serverMode is true. */
-  filterShowPrefillTraffic?: boolean;
 }
 
 // Empty State Component
@@ -185,8 +183,7 @@ const RetroView = memo(
         filterHideUnknown = false,
         filterStartTime,
         filterEndTime,
-        filterEventId,
-        filterShowPrefillTraffic = false
+        filterEventId
       },
       ref
     ) => {
@@ -218,8 +215,7 @@ const RetroView = memo(
         groupByGame,
         startTime: filterStartTime,
         endTime: filterEndTime,
-        eventId: filterEventId,
-        showPrefillTraffic: filterShowPrefillTraffic
+        eventId: filterEventId
       });
 
       // Client-side grouping path: only runs in non-server mode.

@@ -27,12 +27,11 @@ public class StatsDataService : IStatsDataService
     /// </summary>
     /// <param name="limit">Maximum number of downloads to return</param>
     /// <param name="activeOnly">If true, only return active (in-progress) downloads</param>
-    /// <param name="includePrefill">If true, prefill-daemon traffic is included (Downloads tab "show prefill" toggle). Default false excludes it.</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    public async Task<List<Download>> GetLatestDownloadsAsync(int limit = int.MaxValue, bool activeOnly = false, bool includePrefill = false, CancellationToken cancellationToken = default)
+    public async Task<List<Download>> GetLatestDownloadsAsync(int limit = int.MaxValue, bool activeOnly = false, CancellationToken cancellationToken = default)
     {
-        // Start with base query; exclude prefill traffic unless the caller opted in.
-        var baseQuery = _context.Downloads.AsNoTracking().ApplyPrefillFilter(excludePrefill: !includePrefill)
+        // Start with base query applying prefill filter
+        var baseQuery = _context.Downloads.AsNoTracking().ApplyPrefillFilter()
             .Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0);
 
         // Apply active-only filter if requested

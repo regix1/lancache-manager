@@ -83,7 +83,6 @@
     "noData": "No data",
     "evicted": "Evicted",
     "partiallyEvicted": "Partially Evicted",
-    "prefill": "Prefill",
     "bytes": {
       "units": ["B", "KB", "MB", "GB", "TB"],
       "zero": "0 {{unit}}"
@@ -1268,7 +1267,6 @@
         "hideLocalhost": "Hide localhost",
         "hideUnknownGames": "Hide unknown games",
         "hideEvicted": "Hide evicted games",
-        "showPrefillTraffic": "Show prefill traffic",
         "clear": "Clear Filters",
         "active": {
           "search": "• Search: \"{{query}}\"",
@@ -1982,16 +1980,9 @@
         "delete": "Delete",
         "loadingClients": "Loading clients...",
         "ipsLabel": "IPs",
-        "prefillFilterTitle": "Prefill Traffic",
-        "prefillFilterDesc": "Prefill daemons generate their own all-miss download traffic. Excluding it from statistics keeps dashboard totals, hit rate, and leaderboards reflecting only real client downloads.",
-        "prefillFilterToggle": "Exclude prefill traffic from statistics",
-        "prefillFilterUpdated": "Prefill traffic filter updated",
-        "loadingPrefillFilter": "Loading prefill traffic filter...",
         "errors": {
           "failedToUpdateExcluded": "Failed to update excluded IPs",
-          "failedToLoadExcluded": "Failed to load excluded IPs",
-          "failedToUpdatePrefillFilter": "Failed to update prefill traffic filter",
-          "failedToLoadPrefillFilter": "Failed to load prefill traffic filter"
+          "failedToLoadExcluded": "Failed to load excluded IPs"
         }
       }
     },

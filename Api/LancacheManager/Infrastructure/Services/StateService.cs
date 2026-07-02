@@ -148,9 +148,6 @@ public class StateService : IStateService
         // Whether the eviction scan shows the universal notification bar
         public bool EvictionScanNotifications { get; set; } = false;
 
-        // Whether prefill-daemon traffic is excluded from blended hit-rate stats (default on).
-        public bool ExcludePrefillTrafficFromStats { get; set; } = true;
-
         // Setup wizard state
         public string? CurrentSetupStep { get; set; }
         public string? DataSourceChoice { get; set; }
@@ -1041,8 +1038,6 @@ public class StateService : IStateService
             EvictedDataMode = EvictedDataModeExtensions.TryParseWire(persisted.EvictedDataMode) ?? EvictedDataMode.Show,
             // Eviction scan on startup
             EvictionScanNotifications = persisted.EvictionScanNotifications,
-            // Exclude prefill traffic from blended hit-rate stats
-            ExcludePrefillTrafficFromStats = persisted.ExcludePrefillTrafficFromStats,
             // Setup wizard state
             CurrentSetupStep = SetupStepExtensions.TryParseWire(persisted.CurrentSetupStep),
             DataSourceChoice = DataSourceChoiceExtensions.TryParseWire(persisted.DataSourceChoice),
@@ -1143,8 +1138,6 @@ public class StateService : IStateService
             EvictedDataMode = state.EvictedDataMode.ToWireString(),
             // Eviction scan on startup
             EvictionScanNotifications = state.EvictionScanNotifications,
-            // Exclude prefill traffic from blended hit-rate stats
-            ExcludePrefillTrafficFromStats = state.ExcludePrefillTrafficFromStats,
             // Setup wizard state
             CurrentSetupStep = state.CurrentSetupStep?.ToWireString(),
             DataSourceChoice = state.DataSourceChoice?.ToWireString(),
@@ -1429,16 +1422,6 @@ public class StateService : IStateService
     public void SetEvictionScanNotifications(bool enabled)
     {
         UpdateState(state => state.EvictionScanNotifications = enabled);
-    }
-
-    public bool GetExcludePrefillTrafficFromStats()
-    {
-        return GetState().ExcludePrefillTrafficFromStats;
-    }
-
-    public void SetExcludePrefillTrafficFromStats(bool enabled)
-    {
-        UpdateState(state => state.ExcludePrefillTrafficFromStats = enabled);
     }
 
     private static List<ClientExclusionRule> ResolveExcludedClientRules(PersistedState persisted)

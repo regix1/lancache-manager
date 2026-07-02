@@ -63,11 +63,6 @@ use session::SessionTracker;
 const BULK_BATCH_SIZE: usize = 5_000;
 const SESSION_GAP_MINUTES: i64 = 5;
 const LINE_BUFFER_CAPACITY: usize = 1024;
-/// Datasource value stamped on prefill-daemon traffic (Referer marker matched at parse time).
-/// Prefill rows get this on both `Downloads` and `LogEntries` so they aggregate into their own
-/// Download rows and the C# `ApplyPrefillFilter` can exclude them from blended hit-rate stats.
-/// Must match the C# `DownloadKindConstants.PrefillToken`.
-const DATASOURCE_PREFILL: &str = "prefill";
 /// Throttle interval for reloading the Xbox CDN fragment patterns from the DB during a run.
 const XBOX_PATTERN_RELOAD: Duration = Duration::from_secs(60);
 
@@ -597,13 +592,7 @@ impl Processor {
             } else {
                 "_nodepot".to_string()
             };
-            // Prefill traffic must never share a session group (and thus a Download row) with a
-            // real client's traffic, even when they collide on client_ip/service/depot (possible
-            // under host-networking where the prefill container shares the host IP). Keying the
-            // session on the prefill flag keeps them in separate Download rows — Datasource is part
-            // of the grouping identity per the pinned contract.
-            let prefill_suffix = if entry.is_prefill { "_prefill" } else { "" };
-            let key = format!("{}_{}{}{}",  entry.client_ip, entry.service, depot_suffix, prefill_suffix);
+            let key = format!("{}_{}{}",  entry.client_ip, entry.service, depot_suffix);
             grouped.entry(key).or_insert_with(Vec::new).push(entry);
         }
 
@@ -855,17 +844,6 @@ impl Processor {
         let client_ip = &first_entry.client_ip;
         let service = &first_entry.service;
 
-        // Every entry in a session group shares one is_prefill value (the flag is part of the
-        // grouping key). Prefill groups stamp Datasource='prefill' on their Downloads/LogEntries
-        // and are scoped away from real-client Download rows in every lookup/deactivate below, so a
-        // prefill session can never adopt or deactivate a real client's download (and vice versa).
-        let group_is_prefill = first_entry.is_prefill;
-        let group_datasource: String = if group_is_prefill {
-            DATASOURCE_PREFILL.to_string()
-        } else {
-            self.datasource_name.clone()
-        };
-
         // Calculate timestamps and aggregations ONLY for new entries
         let first_timestamp = new_entries.iter().map(|e| e.timestamp).min().unwrap();
         let last_timestamp = new_entries.iter().map(|e| e.timestamp).max().unwrap();
@@ -1045,11 +1023,10 @@ impl Processor {
             // download-side identity service so an Xbox session deactivates prior `xbox` sessions
             // (not unrelated generic `wsus` Windows Update sessions for the same client).
             sqlx::query(
-                "UPDATE \"Downloads\" SET \"IsActive\" = false WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"Datasource\" = $3 AND \"IsActive\" = true"
+                "UPDATE \"Downloads\" SET \"IsActive\" = false WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"IsActive\" = true"
             )
             .bind(client_ip)
             .bind(download_service)
-            .bind(&group_datasource)
             .execute(&mut **tx)
             .await?;
 
@@ -1080,18 +1057,13 @@ impl Processor {
             .bind(game_app_id.map(|id| id as i64))
             .bind(&game_name)
             .bind(&game_image_url)
-            .bind(&group_datasource)
+            .bind(&self.datasource_name)
             .bind(&xbox_product_id)
             .fetch_one(&mut **tx)
             .await?;
 
             let download_id: i64 = row.get("Id");
 
-            // Prefill traffic never contributes to the ClientStats/ServiceStats aggregate tables:
-            // it must not surface as a client on the leaderboard nor inflate a service's blended
-            // totals. Its bytes still live on its own Datasource='prefill' Download rows, which the
-            // display layer aggregates (and filters) directly.
-            if !group_is_prefill {
             // Upsert client stats - no pre-check SELECT needed
             sqlx::query(
                 r#"INSERT INTO "ClientStats" ("ClientIp", "TotalCacheHitBytes", "TotalCacheMissBytes", "LastActivityUtc", "LastActivityLocal", "TotalDownloads", "TotalDurationSeconds")
@@ -1129,7 +1101,6 @@ impl Processor {
             .bind(last_local_dt)
             .execute(&mut **tx)
             .await?;
-            } // end if !group_is_prefill (stats upserts)
 
             download_id
         } else {
@@ -1142,23 +1113,21 @@ impl Processor {
                 // UPDATE name it in this batch. Keying on download_service (not the raw wsus service)
                 // is what keeps Xbox sessions from colliding with generic Windows Update rows.
                 sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"Datasource\" = $4 AND (\"GameName\" = $3 OR \"GameName\" IS NULL) ORDER BY (\"GameName\" = $3) DESC, \"StartTimeUtc\" DESC LIMIT 1"
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND (\"GameName\" = $3 OR \"GameName\" IS NULL) ORDER BY (\"GameName\" = $3) DESC, \"StartTimeUtc\" DESC LIMIT 1"
                 )
                 .bind(client_ip)
                 .bind(download_service)
                 .bind(xbox_title)
-                .bind(&group_datasource)
                 .fetch_optional(&mut **tx)
                 .await?
                 .map(|r| r.get::<i64, _>("Id"))
             } else if let Some(depot_id) = primary_depot_id {
                 sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" = $3 AND \"IsActive\" = true AND \"Datasource\" = $4 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" = $3 AND \"IsActive\" = true ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                 )
                 .bind(client_ip)
                 .bind(service)
                 .bind(depot_id as i64)
-                .bind(&group_datasource)
                 .fetch_optional(&mut **tx)
                 .await?
                 .map(|r| r.get::<i64, _>("Id"))
@@ -1167,22 +1136,20 @@ impl Processor {
                 if let Some(path_prefix) = last_url.and_then(|u| Self::extract_epic_path_prefix(u)) {
                     let like_pattern = format!("{}%", path_prefix);
                     sqlx::query(
-                        "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"Datasource\" = $4 AND \"LastUrl\" LIKE $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
+                        "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"LastUrl\" LIKE $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                     )
                     .bind(client_ip)
                     .bind(service)
                     .bind(&like_pattern)
-                    .bind(&group_datasource)
                     .fetch_optional(&mut **tx)
                     .await?
                     .map(|r| r.get::<i64, _>("Id"))
                 } else {
                     sqlx::query(
-                        "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"Datasource\" = $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
+                        "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                     )
                     .bind(client_ip)
                     .bind(service)
-                    .bind(&group_datasource)
                     .fetch_optional(&mut **tx)
                     .await?
                     .map(|r| r.get::<i64, _>("Id"))
@@ -1199,12 +1166,11 @@ impl Processor {
                 // it won't be wrongly adopted here. Prefer the exact-name match first.
                 let resolved_name = game_name.as_deref().unwrap();
                 sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"Datasource\" = $4 AND (\"GameName\" = $3 OR \"GameName\" IS NULL) ORDER BY (\"GameName\" = $3) DESC, \"StartTimeUtc\" DESC LIMIT 1"
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND (\"GameName\" = $3 OR \"GameName\" IS NULL) ORDER BY (\"GameName\" = $3) DESC, \"StartTimeUtc\" DESC LIMIT 1"
                 )
                 .bind(client_ip)
                 .bind(service)
                 .bind(resolved_name)
-                .bind(&group_datasource)
                 .fetch_optional(&mut **tx)
                 .await?
                 .map(|r| r.get::<i64, _>("Id"))
@@ -1214,12 +1180,11 @@ impl Processor {
                 // title's multiple CDN paths (configs + data + patch) attach to ONE
                 // session instead of splitting per CDN path.
                 sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"Datasource\" = $4 AND \"GameName\" = $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"GameName\" = $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                 )
                 .bind(client_ip)
                 .bind(service)
                 .bind(resolved_name)
-                .bind(&group_datasource)
                 .fetch_optional(&mut **tx)
                 .await?
                 .map(|r| r.get::<i64, _>("Id"))
@@ -1232,12 +1197,11 @@ impl Processor {
                 // LOWER(LastUrl) LIKE <lowercased-pattern> to avoid spawning a duplicate session.
                 let like_pattern = format!("%/tpr/{}/%", product);
                 sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"Datasource\" = $4 AND LOWER(\"LastUrl\") LIKE $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND LOWER(\"LastUrl\") LIKE $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                 )
                 .bind(client_ip)
                 .bind(service)
                 .bind(&like_pattern)
-                .bind(&group_datasource)
                 .fetch_optional(&mut **tx)
                 .await?
                 .map(|r| r.get::<i64, _>("Id"))
@@ -1251,21 +1215,19 @@ impl Processor {
                 // kept in separate session-key groups (_riot:<host>); they only converge
                 // here across batches, which is acceptable for the rare unmapped-host case.
                 sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"GameName\" IS NULL AND \"IsActive\" = true AND \"Datasource\" = $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"GameName\" IS NULL AND \"IsActive\" = true ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                 )
                 .bind(client_ip)
                 .bind(service)
-                .bind(&group_datasource)
                 .fetch_optional(&mut **tx)
                 .await?
                 .map(|r| r.get::<i64, _>("Id"))
             } else {
                 sqlx::query(
-                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"Datasource\" = $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                 )
                 .bind(client_ip)
                 .bind(service)
-                .bind(&group_datasource)
                 .fetch_optional(&mut **tx)
                 .await?
                 .map(|r| r.get::<i64, _>("Id"))
@@ -1298,7 +1260,7 @@ impl Processor {
                 .bind(&game_image_url)
                 .bind(last_url)
                 .bind(primary_depot_id.map(|d| d as i64))
-                .bind(&group_datasource)
+                .bind(&self.datasource_name)
                 .bind(&xbox_product_id)
                 .fetch_one(&mut **tx)
                 .await?;
@@ -1331,10 +1293,7 @@ impl Processor {
                 .await?;
             }
 
-            // Update client and service stats (for both new and existing downloads).
-            // Prefill traffic is excluded from these aggregate tables (see the create-new branch):
-            // it must not surface as a leaderboard client or inflate a service's blended totals.
-            if !group_is_prefill {
+            // Update client and service stats (for both new and existing downloads)
             sqlx::query(
                 "UPDATE \"ClientStats\" SET \"TotalCacheHitBytes\" = \"TotalCacheHitBytes\" + $1, \"TotalCacheMissBytes\" = \"TotalCacheMissBytes\" + $2, \"LastActivityUtc\" = $3, \"LastActivityLocal\" = $4 WHERE \"ClientIp\" = $5"
             )
@@ -1356,7 +1315,6 @@ impl Processor {
             .bind(service)
             .execute(&mut **tx)
             .await?;
-            } // end if !group_is_prefill (stats updates)
 
             download_id
         };
@@ -1379,9 +1337,7 @@ impl Processor {
                 depot_id: entry.depot_id.map(|d| d as i64),
                 download_id,
                 created_at: now,
-                // Prefill lines carry Datasource='prefill' on LogEntries too, matching their
-                // Download row, so C# can exclude prefill traffic consistently.
-                datasource: group_datasource.clone(),
+                datasource: self.datasource_name.clone(),
             });
         }
 

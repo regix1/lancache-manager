@@ -82,13 +82,13 @@ docker compose up -d
 
 Then:
 
-1. Grab your API key from the container logs:
+1. Grab your API key from inside the container:
 
    ```bash
-   docker logs lancache-manager | grep "API Key"
+   docker exec lancache-manager cat /data/security/api_key.txt
    ```
 
-   It's also written to `/data/security/api_key.txt`.
+   On Windows Git Bash, prefix it with `MSYS_NO_PATHCONV=1` (`MSYS_NO_PATHCONV=1 docker exec lancache-manager cat /data/security/api_key.txt`) or the path gets rewritten to a local Windows path. If you're using the default bind-mounted `docker-compose.yml`, you can also read it straight from the host at `./data/security/api_key.txt`.
 
 2. Open `http://localhost:8080`.
 3. Head to **Management**, paste your API key, and click **Process Logs** to import your existing cache history.
@@ -955,10 +955,14 @@ docker exec -it lancache-manager ls /cache
 ### Lost API key
 
 ```bash
+# from the host, if /data is bind-mounted (the default docker-compose.yml)
 cat ./data/security/api_key.txt
-# or
-docker logs lancache-manager | grep "API Key"
+
+# from anywhere, reading straight from inside the container (also works with named volumes)
+docker exec lancache-manager cat /data/security/api_key.txt
 ```
+
+On Windows Git Bash, prefix the `docker exec` form with `MSYS_NO_PATHCONV=1` or the path gets rewritten to a local Windows path.
 
 To rotate the key, stop the container, delete `./data/security/api_key.txt`, and start it again.
 
@@ -993,15 +997,11 @@ docker inspect lancache-dns | grep IPAddress
 
 ### Hit rate looks lower than expected after a prefill
 
-The hit rate on the dashboard and in the default (grouped) Downloads view is byte-weighted and aggregates traffic from every client that touched the cache - including the prefill container itself. On an empty cache, a prefill run is close to 100% MISS (it's populating the cache) and the client install that follows is close to 100% HIT. Both get summed into the same total, so one game blends to roughly 50%: 50 GB MISS + 50 GB HIT = 50%. Reinstalling the same game raises the number further, because the MISS bytes are now a fixed floor while each install adds more HIT bytes to the same denominator (50% → 66% → 75% as installs pile up) - that creeping number is the sign it's a blended total, not a single install's real hit rate.
+The hit rate on the dashboard and in the default (grouped) Downloads view is byte-weighted and includes every client that touched the cache - including the prefill container itself (the [Prometheus](#grafana--prometheus) `lancache_service_hit_ratio` metrics are blended the same way). On an empty cache, a prefill run is close to 100% MISS and the install that follows is close to 100% HIT; summed together, one game blends to roughly 50%, and reinstalling it pushes the number toward 66%, 75%, and higher, since the MISS bytes are a fixed floor while each install adds more HIT bytes to the same total.
 
-A new setting, **Exclude prefill traffic from statistics** (Management > Settings, on by default), removes the prefill container's bytes from the dashboard, per-service, per-client, and leaderboard hit-rate calculations so they reflect only real client traffic. It relies on the prefill daemons tagging their own requests, so it only takes effect with updated daemon images going forward - older images and historical data already in the database stay blended even with the setting on.
+To exclude the prefill container from what you're looking at, hide client `127.0.0.1` in the Downloads/Dashboard client filter - the daemon runs on the same host, so this filters its traffic out of view without touching the underlying data. For a specific install's real hit rate, turn off **group by game** in the Downloads tab and check that client's own row, or grep `access.log` for its IP; the manager only counts literal `HIT`/`MISS` from nginx's `upstream_cache_status`, so it always agrees with a manual log count.
 
-To see the real number for a specific install right now, turn off **group by game** in the Downloads tab and look at that client's own row, or grep `access.log` for the client's IP. The manager only counts literal `HIT`/`MISS` from nginx's `upstream_cache_status` (anything else is excluded from both sides), so it will always agree with a manual log count.
-
-Even with the setting on, expect some real misses on a clean install: the prefill daemon only downloads Windows/x64/English depots by default, so other languages, platforms, and architectures always miss; an interrupted prior prefill run without `--force` leaves gaps; and HTTPS CDN traffic plus IPv6 traffic that bypasses `lancache-dns` on Linux clients never touches the cache.
-
-If you're scraping the [Prometheus metrics](#grafana--prometheus) instead, note that `lancache_service_hit_ratio` and the other ratio series always count every client, including the prefill container. The **Exclude prefill traffic from statistics** setting applies to the web UI (dashboard, per-service, per-client, and leaderboard) but not to the Prometheus exporter, so those series stay blended.
+Expect some real misses even on a clean install: the prefill daemon only grabs Windows/x64/English depots by default, an interrupted prior run without `--force` leaves gaps, and HTTPS/IPv6 traffic that bypasses `lancache-dns` never touches the cache.
 
 ### Debug logging
 

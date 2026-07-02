@@ -37,14 +37,10 @@ public class ThemeController : ControllerBase
 
         _themesPath = pathResolver.GetThemesDirectory();
 
-        // Ensure themes directory exists
-        if (!Directory.Exists(_themesPath))
-        {
-            Directory.CreateDirectory(_themesPath);
-            _logger.LogInformation($"Created themes directory: {_themesPath}");
-        }
-
-        // Frontend theme service handles built-in themes, backend only manages custom uploaded themes
+        // Frontend theme service handles built-in themes, backend only manages custom uploaded themes.
+        // The themes directory itself is created lazily, only immediately before the upload handler
+        // actually writes a custom theme file (see UploadThemeAsync) - not here - so a fresh install
+        // that never uploads a custom theme doesn't end up with an empty /data/themes directory.
     }
 
     /// <summary>
@@ -97,8 +93,10 @@ public class ThemeController : ControllerBase
 
         if (!Directory.Exists(_themesPath))
         {
-            Directory.CreateDirectory(_themesPath);
-            _logger.LogInformation($"Created themes directory: {_themesPath}");
+            // No custom theme has ever been uploaded - return the empty list rather than
+            // creating the directory just because the frontend asked for it (this endpoint
+            // fires on nearly every page load).
+            return Ok(themes);
         }
 
         // Get both JSON and TOML files
@@ -228,6 +226,15 @@ public class ThemeController : ControllerBase
             using var stream = file.OpenReadStream();
             using var reader = new StreamReader(stream);
             var content = await reader.ReadToEndAsync();
+
+            // Ensure the themes directory exists before writing (idempotent). This is the
+            // one place that actually needs the directory to exist, since it's the only
+            // handler that ever writes a custom theme file.
+            if (!Directory.Exists(_themesPath))
+            {
+                Directory.CreateDirectory(_themesPath);
+                _logger.LogInformation($"Created themes directory: {_themesPath}");
+            }
 
             if (isToml)
             {
@@ -384,10 +391,11 @@ public class ThemeController : ControllerBase
             // Check results
             if (filesDeleted.Count == 0 && errors.Count == 0)
             {
-                // Neither file existed - this is an error
-                var availableFiles = Directory.GetFiles(_themesPath)
-                    .Select(Path.GetFileName)
-                    .ToArray();
+                // Neither file existed - this is an error. The themes directory may not
+                // exist at all if no custom theme has ever been uploaded.
+                string?[] availableFiles = Directory.Exists(_themesPath)
+                    ? Directory.GetFiles(_themesPath).Select(Path.GetFileName).ToArray()
+                    : Array.Empty<string?>();
 
                 _logger.LogWarning($"Theme not found: {id}. Available files: {string.Join(", ", availableFiles)}");
 
@@ -441,10 +449,11 @@ public class ThemeController : ControllerBase
 
         _logger.LogInformation("Starting theme cleanup operation");
 
-        // Get all theme files
-        var themeFiles = Directory.GetFiles(_themesPath, "*.toml")
-            .Concat(Directory.GetFiles(_themesPath, "*.json"))
-            .ToArray();
+        // Get all theme files. The themes directory may not exist at all if no custom
+        // theme has ever been uploaded - treat that as zero files to clean up.
+        var themeFiles = Directory.Exists(_themesPath)
+            ? Directory.GetFiles(_themesPath, "*.toml").Concat(Directory.GetFiles(_themesPath, "*.json")).ToArray()
+            : Array.Empty<string>();
 
         _logger.LogInformation($"Found {themeFiles.Length} theme files to process");
 

@@ -97,11 +97,6 @@ public class AppState
     // Whether the eviction scan shows the universal notification bar (false = silent/no notification)
     public bool EvictionScanNotifications { get; set; } = false;
 
-    // Whether prefill-daemon traffic (Datasource='prefill') is excluded from blended hit-rate stats
-    // (dashboard totals, per-service stats). Default true: a fresh prefill's all-miss traffic no
-    // longer drags the reported hit rate down. Set false to restore the fully blended figure.
-    public bool ExcludePrefillTrafficFromStats { get; set; } = true;
-
     // Setup wizard state (persisted for resumption across page refreshes)
     public SetupStep? CurrentSetupStep { get; set; }
     public DataSourceChoice? DataSourceChoice { get; set; }

@@ -364,72 +364,78 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
           </button>
         </div>
 
-        <div className="grid grid-cols-7 gap-1 mb-2">
-          {weekDays.map((day) => (
-            <div
-              key={day}
-              className="text-center text-xs font-medium text-[var(--theme-text-secondary)] py-2"
-            >
-              {day}
-            </div>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-7 gap-1" onMouseLeave={handleMouseLeave}>
-          {Array.from({ length: firstDayOfMonth }).map((_, index) => (
-            <div key={`empty-${index}`} />
-          ))}
-          {Array.from({ length: daysInMonth }).map((_, index) => {
-            const day = index + 1;
-            const inRange = isDateInRange(day);
-            const isStart = isStartDate(day);
-            const isEnd = isEndDate(day);
-            const isHovered = isHoveredDate(day);
-            const today = isToday(day);
-
-            let className = 'relative p-2 text-sm transition cursor-pointer ';
-
-            if (isStart && isEnd) {
-              className += 'rounded-lg ';
-            } else if (isStart) {
-              className += 'rounded-l-lg ';
-            } else if (isEnd) {
-              className += 'rounded-r-lg ';
-            } else if (inRange) {
-              className += '';
-            } else {
-              className += 'rounded-lg ';
-            }
-
-            if (isStart || isEnd) {
-              className +=
-                'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-semibold z-10 ';
-            } else if (inRange) {
-              className += 'bg-[var(--theme-primary)]/20 text-[var(--theme-text-primary)] ';
-            } else if (isHovered && startDate && !endDate) {
-              className += 'bg-[var(--theme-bg-tertiary)]/50 text-[var(--theme-text-primary)] ';
-            } else {
-              className += 'hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] ';
-            }
-
-            if (today && !isStart && !isEnd) {
-              className += 'ring-2 ring-[var(--theme-primary)]/50 ';
-            }
-
-            return (
-              <button
+        {/* Hidden (not unmounted, so layout/refs stay stable) while a dropdown is open —
+            the day grid's "today" dot and selected-range cells use their own stacking
+            contexts (z-10) that can otherwise show through the narrow month/year popup. */}
+        <div className={showMonthDropdown || showYearDropdown ? 'invisible' : ''}>
+          <div className="grid grid-cols-7 gap-1 mb-2">
+            {weekDays.map((day) => (
+              <div
                 key={day}
-                onClick={() => handleDateClick(day)}
-                onMouseEnter={() => handleDateHover(day)}
-                className={className}
+                className="text-center text-xs font-medium text-[var(--theme-text-secondary)] py-2"
               >
                 {day}
-                {today && (
-                  <div className="absolute bottom-0.5 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-[var(--theme-primary)] rounded-full" />
-                )}
-              </button>
-            );
-          })}
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-1" onMouseLeave={handleMouseLeave}>
+            {Array.from({ length: firstDayOfMonth }).map((_, index) => (
+              <div key={`empty-${index}`} />
+            ))}
+            {Array.from({ length: daysInMonth }).map((_, index) => {
+              const day = index + 1;
+              const inRange = isDateInRange(day);
+              const isStart = isStartDate(day);
+              const isEnd = isEndDate(day);
+              const isHovered = isHoveredDate(day);
+              const today = isToday(day);
+
+              let className = 'relative p-2 text-sm transition cursor-pointer ';
+
+              if (isStart && isEnd) {
+                className += 'rounded-lg ';
+              } else if (isStart) {
+                className += 'rounded-l-lg ';
+              } else if (isEnd) {
+                className += 'rounded-r-lg ';
+              } else if (inRange) {
+                className += '';
+              } else {
+                className += 'rounded-lg ';
+              }
+
+              if (isStart || isEnd) {
+                className +=
+                  'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-semibold z-10 ';
+              } else if (inRange) {
+                className += 'bg-[var(--theme-primary)]/20 text-[var(--theme-text-primary)] ';
+              } else if (isHovered && startDate && !endDate) {
+                className += 'bg-[var(--theme-bg-tertiary)]/50 text-[var(--theme-text-primary)] ';
+              } else {
+                className +=
+                  'hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] ';
+              }
+
+              if (today && !isStart && !isEnd) {
+                className += 'ring-2 ring-[var(--theme-primary)]/50 ';
+              }
+
+              return (
+                <button
+                  key={day}
+                  onClick={() => handleDateClick(day)}
+                  onMouseEnter={() => handleDateHover(day)}
+                  className={className}
+                >
+                  {day}
+                  {today && (
+                    <div className="absolute bottom-0.5 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-[var(--theme-primary)] rounded-full" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="mt-4 pt-4 border-t border-[var(--theme-border-primary)]">

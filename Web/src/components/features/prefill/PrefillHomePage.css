@@ -76,6 +76,14 @@
   animation-delay: 160ms;
 }
 
+.prefill-service-card:nth-child(4) {
+  animation-delay: 240ms;
+}
+
+.prefill-service-card:nth-child(5) {
+  animation-delay: 320ms;
+}
+
 /* Accent top bar — static, no hover animation */
 .prefill-service-card::before {
   content: '';

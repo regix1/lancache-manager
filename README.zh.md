@@ -88,13 +88,13 @@ docker compose up -d
 
 然后：
 
-1. 从容器的日志中获取你的 API 密钥：
+1. 从容器内部读取你的 API 密钥：
 
    ```bash
-   docker logs lancache-manager | grep "API Key"
+   docker exec lancache-manager cat /data/security/api_key.txt
    ```
 
-   它也会写入 `/data/security/api_key.txt`。
+   在 Windows 的 Git Bash 中，请在命令前加上 `MSYS_NO_PATHCONV=1`（即 `MSYS_NO_PATHCONV=1 docker exec lancache-manager cat /data/security/api_key.txt`），否则路径会被错误改写。如果你使用的是默认的、绑定挂载的 `docker-compose.yml`，也可以直接在主机上读取 `./data/security/api_key.txt`。
 
 2. 打开 `http://localhost:8080`。
 3. 前往**管理**，粘贴你的 API 密钥，点击**处理日志**导入现有的缓存历史。
@@ -961,10 +961,14 @@ docker exec -it lancache-manager ls /cache
 ### 丢失 API 密钥
 
 ```bash
+# 如果 /data 是绑定挂载（默认 docker-compose.yml 就是如此），可在主机上直接读取
 cat ./data/security/api_key.txt
-# 或
-docker logs lancache-manager | grep "API Key"
+
+# 在任何地方都可用，直接读取容器内部的文件（命名卷也适用）
+docker exec lancache-manager cat /data/security/api_key.txt
 ```
+
+在 Windows 的 Git Bash 中，请在 `docker exec` 命令前加上 `MSYS_NO_PATHCONV=1`，否则路径会被改写为本地 Windows 路径。
 
 要轮换密钥，停止容器，删除 `./data/security/api_key.txt`，然后重新启动。
 
@@ -999,15 +1003,11 @@ docker inspect lancache-dns | grep IPAddress
 
 ### 预填充后命中率低于预期
 
-仪表盘和默认（分组）下载视图中的命中率是按字节加权的，会汇总所有触碰过缓存的客户端流量——包括预填充容器本身。在空缓存上，预填充运行接近 100% 未命中（它正在填充缓存），随后的客户端安装则接近 100% 命中。两者被计入同一个总数，因此单个游戏的命中率会被拉平到大约 50%：50 GB 未命中 + 50 GB 命中 = 50%。重新安装同一个游戏会进一步推高这个数字，因为未命中字节数已成为一个固定的基数，而每次安装都会在同一个分母上增加命中字节数（随着安装次数增加：50% → 66% → 75%）——这种持续攀升正是它是一个混合总数、而非单次安装真实命中率的标志。
+仪表盘和默认（分组）下载视图中的命中率按字节加权，包含了所有触碰过缓存的客户端——包括预填充容器本身（[Prometheus](#grafana--prometheus) 的 `lancache_service_hit_ratio` 指标也是同样的混合方式）。在空缓存上，预填充运行接近 100% 未命中，随后的安装则接近 100% 命中；两者相加后，单个游戏的命中率会被拉平到大约 50%，而重复安装会把这个数字进一步推高到 66%、75% 甚至更高——因为未命中字节数是固定的基数，而每次安装都会给同一个总数增加更多命中字节。
 
-新增设置**从统计数据中排除预填充流量**（管理 > 设置，默认开启）会将预填充容器的字节数从仪表盘、按服务、按客户端以及排行榜的命中率计算中剔除，使这些数据只反映真实客户端流量。它依赖预填充守护进程为自身请求打标记，因此只对使用了更新版守护进程镜像之后产生的流量生效——旧版镜像和数据库中已有的历史数据即使开启该设置也依然是混合数据。
+要把预填充容器从你查看的数据中排除，可在下载/仪表盘的客户端筛选器中隐藏客户端 `127.0.0.1`——守护进程运行在同一台主机上，这样就能把它的流量过滤出视图之外，而不影响底层数据。若想查看某次具体安装的真实命中率，可在下载标签页关闭**按游戏分组**，查看该客户端自己的行，或在 `access.log` 中按其 IP 进行 grep 搜索；管理器只统计 nginx `upstream_cache_status` 中字面意义上的 `HIT`/`MISS`，因此结果始终与手动统计日志的结果一致。
 
-要立即查看某次具体安装的真实数字，可在下载标签页关闭**按游戏分组**，查看该客户端自己的行，或者在 `access.log` 中按客户端 IP 进行 grep 搜索。管理器只统计 nginx `upstream_cache_status` 中字面意义上的 `HIT`/`MISS`（其他状态在命中和未命中两侧都不计入），因此结果始终与手动统计日志的结果一致。
-
-即使开启该设置，一次干净的安装仍会出现一些真实的未命中：预填充守护进程默认只下载 Windows/x64/英语的 depot，因此其他语言、平台和架构始终会未命中；未使用 `--force` 而中断的先前预填充运行会留下缺口；此外，HTTPS CDN 流量以及在 Linux 客户端上绕过 `lancache-dns` 的 IPv6 流量永远不会经过缓存。
-
-如果你抓取的是 [Prometheus 指标](#grafana--prometheus)，请注意 `lancache_service_hit_ratio` 及其他比率类指标始终会计入所有客户端，包括预填充容器。**从统计数据中排除预填充流量** 设置仅作用于网页界面（仪表盘、按服务、按客户端和排行榜），并不影响 Prometheus 导出器，因此这些指标序列仍为混合数据。
+即使是一次干净的安装，也应预期会有一些真实的未命中：预填充守护进程默认只抓取 Windows/x64/英语的 depot；未使用 `--force` 而中断的先前运行会留下缺口；此外绕过 `lancache-dns` 的 HTTPS/IPv6 流量永远不会经过缓存。
 
 ### 调试日志
 

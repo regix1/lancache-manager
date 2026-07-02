@@ -13,8 +13,6 @@ import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { GameImage } from '@components/common/GameImage';
 import EvictedBadge from '@components/common/EvictedBadge';
-import PrefillBadge from '@components/common/PrefillBadge';
-import { PREFILL_DATASOURCE } from '@utils/constants';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { nameKeyedImageKey } from '@utils/gameBannerSlug';
@@ -581,9 +579,6 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                           />
                                           <div className="flex items-center gap-1">
                                             {download.isEvicted && <EvictedBadge />}
-                                            {download.datasource === PREFILL_DATASOURCE && (
-                                              <PrefillBadge />
-                                            )}
                                             {associations.events.length > 0 && (
                                               <DownloadBadges
                                                 events={associations.events}
@@ -607,9 +602,6 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                             className="text-[var(--theme-text-muted)]"
                                           />
                                           {download.isEvicted && <EvictedBadge />}
-                                          {download.datasource === PREFILL_DATASOURCE && (
-                                            <PrefillBadge />
-                                          )}
                                           {associations.events.length > 0 && (
                                             <DownloadBadges
                                               events={associations.events}

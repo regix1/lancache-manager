@@ -14,8 +14,6 @@ import {
 import { formatBytes, formatCount, formatPercent } from '@utils/formatters';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
 import EvictedBadge from '@components/common/EvictedBadge';
-import PrefillBadge from '@components/common/PrefillBadge';
-import { PREFILL_DATASOURCE } from '@utils/constants';
 import BadgesRow from './BadgesRow';
 import { DownloadTimestamp } from './DownloadTimestamp';
 import { SteamIcon } from '@components/ui/SteamIcon';
@@ -879,9 +877,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                               </span>
                                             )}
                                             {download.isEvicted && <EvictedBadge />}
-                                            {download.datasource === PREFILL_DATASOURCE && (
-                                              <PrefillBadge />
-                                            )}
                                           </div>
                                           {showEventBadges && associations.events.length > 0 && (
                                             <div className="mt-1">

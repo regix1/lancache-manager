@@ -235,10 +235,8 @@ public class DashboardBatchService : IDashboardBatchService
         List<string> statsExcludedOnlyIps)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        // Per-service stats obey the ExcludePrefillTrafficFromStats setting (blended totals).
-        var excludePrefill = _stateRepository.GetExcludePrefillTrafficFromStats();
         var query = context.Downloads.AsNoTracking()
-            .ApplyHiddenClientFilter(hiddenClientIps, excludePrefill)
+            .ApplyHiddenClientFilter(hiddenClientIps)
             .ApplyEvictedFilter(evictedMode);
 
         query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
@@ -283,13 +281,11 @@ public class DashboardBatchService : IDashboardBatchService
         List<string> statsExcludedOnlyIps)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        // Dashboard totals obey the ExcludePrefillTrafficFromStats setting (blended hit rate).
-        var excludePrefill = _stateRepository.GetExcludePrefillTrafficFromStats();
         DateTime? cutoffTime = startTime.HasValue ? startTime.Value.FromUnixSeconds() : null;
         DateTime? endDateTime = endTime.HasValue ? endTime.Value.FromUnixSeconds() : null;
 
         var downloadsQuery = context.Downloads.AsNoTracking()
-            .ApplyHiddenClientFilter(hiddenClientIps, excludePrefill)
+            .ApplyHiddenClientFilter(hiddenClientIps)
             .ApplyEvictedFilter(evictedMode);
 
         downloadsQuery = downloadsQuery.ApplyEventFilter(eventIdList, eventDownloadIds);
@@ -324,7 +320,7 @@ public class DashboardBatchService : IDashboardBatchService
         // Active downloads (last 5 minutes, not ended)
         var activeThreshold = DateTime.UtcNow.AddMinutes(-5);
         var activeDownloads = await context.Downloads.AsNoTracking()
-            .ApplyHiddenClientFilter(hiddenClientIps, excludePrefill)
+            .ApplyHiddenClientFilter(hiddenClientIps)
             .ApplyEvictedFilter(evictedMode)
             .CountAsync(d => d.StartTimeUtc >= activeThreshold && d.EndTimeUtc == default);
 
@@ -336,7 +332,7 @@ public class DashboardBatchService : IDashboardBatchService
 
         // Combined all-time aggregates: hitBytes + missBytes in ONE query (was 2 round trips)
         var allTimeQuery = context.Downloads.AsNoTracking()
-            .ApplyHiddenClientFilter(hiddenClientIps, excludePrefill)
+            .ApplyHiddenClientFilter(hiddenClientIps)
             .ApplyEvictedFilter(evictedMode);
         if (statsExcludedOnlyIps.Count > 0)
             allTimeQuery = allTimeQuery.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp));
@@ -505,8 +501,7 @@ public class DashboardBatchService : IDashboardBatchService
         List<string> statsExcludedOnlyIps)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        // Sparklines back dashboard stat cards (hit ratio, bandwidth): obey the prefill setting.
-        var query = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode, _stateRepository.GetExcludePrefillTrafficFromStats());
+        var query = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
         query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
 
         if (startTime.HasValue)
@@ -606,8 +601,7 @@ public class DashboardBatchService : IDashboardBatchService
         List<string> statsExcludedOnlyIps)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        // Hourly activity is a dashboard aggregate: obey the prefill-exclusion setting.
-        var query = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode, _stateRepository.GetExcludePrefillTrafficFromStats());
+        var query = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
         query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
 
         DateTime? cutoffTime = null;
@@ -717,15 +711,13 @@ public class DashboardBatchService : IDashboardBatchService
         long currentCacheSize = 0;
         long totalCapacity = totalCacheCapacity;
 
-        // Cache growth (added-to-cache miss bytes) is a dashboard aggregate: obey the setting.
-        var excludePrefill = _stateRepository.GetExcludePrefillTrafficFromStats();
-        var allTimeQuery = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode, excludePrefill);
+        var allTimeQuery = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
         var totalCacheMiss = await AggregateExcludingAsync(allTimeQuery, statsExcludedOnlyIps,
             q => q.SumAsync(d => (long?)d.CacheMissBytes).ContinueWith(t => t.Result ?? 0L));
 
         currentCacheSize = totalCacheMiss;
 
-        var baseQuery = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode, excludePrefill);
+        var baseQuery = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
         baseQuery = baseQuery.ApplyEventFilter(eventIdList, eventDownloadIds);
 
         if (cutoffTime.HasValue)
@@ -905,10 +897,10 @@ public class DashboardBatchService : IDashboardBatchService
 
     // ───────────────────── Shared query helpers ─────────────────────
 
-    private static IQueryable<Download> BuildBaseDownloadsQuery(AppDbContext context, List<string> hiddenClientIps, string evictedMode, bool excludePrefill = true)
+    private static IQueryable<Download> BuildBaseDownloadsQuery(AppDbContext context, List<string> hiddenClientIps, string evictedMode)
     {
         return context.Downloads.AsNoTracking()
-            .ApplyHiddenClientFilter(hiddenClientIps, excludePrefill)
+            .ApplyHiddenClientFilter(hiddenClientIps)
             .ApplyEvictedFilter(evictedMode);
     }
 

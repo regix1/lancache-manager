@@ -92,13 +92,8 @@ public class StatsController : ControllerBase
     /// </summary>
     private IQueryable<Download> BaseDownloadsQuery(List<string> hiddenClientIps, string evictedMode)
     {
-        // Aggregate/dashboard stats surfaces (services, dashboard totals, hourly, cache growth)
-        // all funnel through here, so the ExcludePrefillTrafficFromStats setting is honored once
-        // in this shared helper. Per-client surfaces (GetClientsAsync) deliberately do NOT use this
-        // helper: they always exclude prefill so it can never surface as a client on the leaderboard.
-        var excludePrefill = _stateRepository.GetExcludePrefillTrafficFromStats();
         return _context.Downloads.AsNoTracking()
-            .ApplyHiddenClientFilter(hiddenClientIps, excludePrefill)
+            .ApplyHiddenClientFilter(hiddenClientIps)
             .ApplyEvictedFilter(evictedMode);
     }
 
@@ -407,34 +402,6 @@ public class StatsController : ControllerBase
             Ips = _stateRepository.GetStatsExcludedOnlyClientIps(),
             Rules = _stateRepository.GetExcludedClientRules()
         });
-    }
-
-    /// <summary>
-    /// Returns whether prefill-daemon traffic is excluded from blended hit-rate stats.
-    /// </summary>
-    [HttpGet("prefill-filter")]
-    public IActionResult GetPrefillFilterSettings()
-    {
-        return Ok(new { excludePrefillTrafficFromStats = _stateRepository.GetExcludePrefillTrafficFromStats() });
-    }
-
-    /// <summary>
-    /// Toggles whether prefill-daemon traffic is excluded from blended hit-rate stats
-    /// (dashboard totals and per-service stats). Admin-only: it changes shared, all-user state.
-    /// </summary>
-    [HttpPut("prefill-filter")]
-    [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> UpdatePrefillFilterSettingsAsync([FromBody] UpdatePrefillFilterSettingsRequest request)
-    {
-        _stateRepository.SetExcludePrefillTrafficFromStats(request.ExcludePrefillTrafficFromStats);
-
-        // Prefill exclusion changes the numbers on the dashboard and services tabs, so refresh all.
-        await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
-        {
-            reason = "prefill-filter-updated"
-        });
-
-        return Ok(new { excludePrefillTrafficFromStats = _stateRepository.GetExcludePrefillTrafficFromStats() });
     }
 
     [HttpGet("eviction")]
@@ -1254,9 +1221,7 @@ public class StatsController : ControllerBase
             var query = _context.Downloads.AsNoTracking();
             var hiddenClientIps = _stateRepository.GetHiddenClientIps();
             var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
-            // Sparklines back the dashboard hit-ratio / bandwidth stat cards, so they obey the
-            // ExcludePrefillTrafficFromStats setting like the other dashboard aggregates.
-            query = query.ApplyHiddenClientFilter(hiddenClientIps, _stateRepository.GetExcludePrefillTrafficFromStats());
+            query = query.ApplyHiddenClientFilter(hiddenClientIps);
 
             var evictedMode = _stateRepository.GetEvictedDataMode();
             query = query.ApplyEvictedFilter(evictedMode);

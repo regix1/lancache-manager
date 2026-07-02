@@ -303,14 +303,6 @@ public class UpdateEvictionSettingsRequest
     public bool? EvictionScanNotifications { get; set; }
 }
 
-/// <summary>
-/// Toggles whether prefill-daemon traffic is excluded from blended hit-rate stats.
-/// </summary>
-public class UpdatePrefillFilterSettingsRequest
-{
-    public bool ExcludePrefillTrafficFromStats { get; set; }
-}
-
 #endregion
 
 #region Theme Requests

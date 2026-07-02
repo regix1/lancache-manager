@@ -83,7 +83,6 @@
     "noData": "无数据",
     "evicted": "已淘汰",
     "partiallyEvicted": "部分已淘汰",
-    "prefill": "预填充",
     "bytes": {
       "units": ["B", "KB", "MB", "GB", "TB"],
       "zero": "0 {{unit}}"
@@ -1268,7 +1267,6 @@
         "hideLocalhost": "隐藏本地主机",
         "hideUnknownGames": "隐藏未知游戏",
         "hideEvicted": "隐藏已淘汰游戏",
-        "showPrefillTraffic": "显示预填充流量",
         "clear": "清除筛选器",
         "active": {
           "search": "• 搜索：\"{{query}}\"",
@@ -1982,16 +1980,9 @@
         "delete": "删除",
         "loadingClients": "加载客户端中...",
         "ipsLabel": "IP",
-        "prefillFilterTitle": "预填充流量",
-        "prefillFilterDesc": "预填充守护进程会产生自己的全未命中下载流量。将其从统计信息中排除后，仪表盘总数、命中率和排行榜将只反映真实客户端的下载情况。",
-        "prefillFilterToggle": "从统计信息中排除预填充流量",
-        "prefillFilterUpdated": "预填充流量过滤器已更新",
-        "loadingPrefillFilter": "正在加载预填充流量过滤器...",
         "errors": {
           "failedToUpdateExcluded": "更新排除的 IP 失败",
-          "failedToLoadExcluded": "加载排除的 IP 失败",
-          "failedToUpdatePrefillFilter": "更新预填充流量过滤器失败",
-          "failedToLoadPrefillFilter": "加载预填充流量过滤器失败"
+          "failedToLoadExcluded": "加载排除的 IP 失败"
         }
       }
     },

@@ -190,8 +190,6 @@ export interface RetroDownloadQueryParams {
   startTime?: number;
   endTime?: number;
   eventId?: number;
-  /** When true, prefill-daemon rows (Datasource='prefill') are included, badged via `isPrefill`. Default false. */
-  showPrefillTraffic?: boolean;
 }
 
 class ApiService {
@@ -365,8 +363,7 @@ class ApiService {
     startTime?: number,
     endTime?: number,
     eventIds?: number[],
-    cacheBust?: number,
-    showPrefillTraffic?: boolean
+    cacheBust?: number
   ): Promise<Download[]> {
     try {
       const actualCount = count === 'unlimited' ? 2147483647 : count;
@@ -377,7 +374,6 @@ class ApiService {
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
       if (eventIds && eventIds.length > 0) params.append('eventId', eventIds[0].toString());
       if (cacheBust) params.append('cacheBust', cacheBust.toString());
-      if (showPrefillTraffic) params.append('showPrefillTraffic', 'true');
       url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<Download[]>(res);
@@ -412,8 +408,6 @@ class ApiService {
       if (params.startTime !== undefined) qs.append('startTime', String(params.startTime));
       if (params.endTime !== undefined) qs.append('endTime', String(params.endTime));
       if (params.eventId !== undefined) qs.append('eventId', String(params.eventId));
-      if (params.showPrefillTraffic !== undefined)
-        qs.append('showPrefillTraffic', String(params.showPrefillTraffic));
 
       const url = `${API_BASE}/downloads/retro?${qs.toString()}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
@@ -549,41 +543,6 @@ class ApiService {
       {
         console.error('updateEvictionSettings error:', error);
       }
-      throw error;
-    }
-  }
-
-  static async getPrefillFilterSettings(
-    signal?: AbortSignal
-  ): Promise<{ excludePrefillTrafficFromStats: boolean }> {
-    try {
-      const res = await fetch(`${API_BASE}/stats/prefill-filter`, this.getFetchOptions({ signal }));
-      return await this.handleResponse<{ excludePrefillTrafficFromStats: boolean }>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else {
-        console.error('getPrefillFilterSettings error:', error);
-      }
-      throw error;
-    }
-  }
-
-  static async updatePrefillFilterSettings(
-    excludePrefillTrafficFromStats: boolean
-  ): Promise<{ excludePrefillTrafficFromStats: boolean }> {
-    try {
-      const res = await fetch(
-        `${API_BASE}/stats/prefill-filter`,
-        this.getFetchOptions({
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ excludePrefillTrafficFromStats })
-        })
-      );
-      return await this.handleResponse<{ excludePrefillTrafficFromStats: boolean }>(res);
-    } catch (error: unknown) {
-      console.error('updatePrefillFilterSettings error:', error);
       throw error;
     }
   }
