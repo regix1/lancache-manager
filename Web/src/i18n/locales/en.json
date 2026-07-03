@@ -1317,7 +1317,8 @@
       "display": {
         "minimalMode": "Minimal mode",
         "fullHeightBanners": "Full-height banners",
-        "groupByGameRetro": "Group by game"
+        "groupByGameRetro": "Group by game",
+        "groupByServiceRetro": "Group by service"
       },
       "behavior": {
         "groupUnknown": "Group unknown games",

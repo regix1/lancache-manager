@@ -448,9 +448,11 @@ public class DownloadsController : ControllerBase
                     r => new List<(long DepotId, string ClientIp)> { (r.DepotId!.Value, r.ClientIp) },
                     StringComparer.Ordinal);
 
-            // Merge by game when GroupByGame=true (in-memory over the depot-group list)
+            // Merge by service (coarsest, wins over GroupByGame) or by game (in-memory over the
+            // depot-group list). GroupByService intentionally overrides GroupByGame rather than
+            // combining with it - a per-service total already subsumes a per-game breakdown.
             List<RetroDownloadDto> effectiveList;
-            if (query.GroupByGame)
+            if (query.GroupByService || query.GroupByGame)
             {
                 var mergedBuckets = new Dictionary<string, List<RetroDownloadDto>>(StringComparer.Ordinal);
                 var bucketOrder = new List<string>();
@@ -458,7 +460,11 @@ public class DownloadsController : ControllerBase
                 foreach (var row in grouped)
                 {
                     string mergeKey;
-                    if (row.SteamAppId.HasValue && row.SteamAppId.Value != 0)
+                    if (query.GroupByService)
+                    {
+                        mergeKey = row.Service;
+                    }
+                    else if (row.SteamAppId.HasValue && row.SteamAppId.Value != 0)
                     {
                         mergeKey = $"{row.Service}-app-{row.SteamAppId.Value}";
                     }
@@ -517,13 +523,16 @@ public class DownloadsController : ControllerBase
                     return new RetroDownloadDto
                     {
                         Id = key,
-                        DepotId = first.DepotId,
-                        EpicAppId = first.EpicAppId,
+                        // A service-level bucket can span many depots/apps across many games, so a
+                        // single member row's DepotId/EpicAppId/SteamAppId/AppName would be
+                        // misleading here - null them out and show the service name instead.
+                        DepotId = query.GroupByService ? null : first.DepotId,
+                        EpicAppId = query.GroupByService ? null : first.EpicAppId,
                         ClientIp = first.ClientIp,
                         Service = first.Service,
                         Datasource = first.Datasource,
-                        AppName = first.AppName,
-                        SteamAppId = first.SteamAppId,
+                        AppName = query.GroupByService ? first.Service : first.AppName,
+                        SteamAppId = query.GroupByService ? null : first.SteamAppId,
                         StartTimeUtc = bucket.Min(r => r.StartTimeUtc),
                         EndTimeUtc = bucket.Max(r => r.EndTimeUtc),
                         CacheHitBytes = mergedHitBytes,

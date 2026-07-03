@@ -92,6 +92,8 @@ public class RetroDownloadQuery
     public bool ShowZeroBytes { get; set; } = true;
     public bool HideUnknown { get; set; } = false;
     public bool GroupByGame { get; set; } = false;
+    /// <summary>When true, merges all rows for the same Service into one row, overriding GroupByGame</summary>
+    public bool GroupByService { get; set; } = false;
     /// <summary>Unix timestamp (seconds) - filter downloads with StartTimeUtc &gt;= this value</summary>
     public long? StartTime { get; set; }
     /// <summary>Unix timestamp (seconds) - filter downloads with StartTimeUtc &lt;= this value</summary>

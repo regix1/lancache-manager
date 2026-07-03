@@ -202,6 +202,8 @@ export interface RetroDownloadQueryParams {
   /** Hit/miss bucket filter - 'all' (or omitted) is no filter, 'hit', or 'miss'. */
   hitMiss?: string;
   groupByGame?: boolean;
+  /** When true, merges all rows for the same service into one row, overriding groupByGame. */
+  groupByService?: boolean;
   startTime?: number;
   endTime?: number;
   eventId?: number;
@@ -421,6 +423,8 @@ class ApiService {
       if (params.hideUnknown !== undefined) qs.append('hideUnknown', String(params.hideUnknown));
       if (params.hitMiss) qs.append('hitMiss', params.hitMiss);
       if (params.groupByGame !== undefined) qs.append('groupByGame', String(params.groupByGame));
+      if (params.groupByService !== undefined)
+        qs.append('groupByService', String(params.groupByService));
       if (params.startTime !== undefined) qs.append('startTime', String(params.startTime));
       if (params.endTime !== undefined) qs.append('endTime', String(params.endTime));
       if (params.eventId !== undefined) qs.append('eventId', String(params.eventId));

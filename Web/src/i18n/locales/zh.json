@@ -1317,7 +1317,8 @@
       "display": {
         "minimalMode": "简约模式",
         "fullHeightBanners": "全高横幅",
-        "groupByGameRetro": "按游戏分组"
+        "groupByGameRetro": "按游戏分组",
+        "groupByServiceRetro": "按服务分组"
       },
       "behavior": {
         "groupUnknown": "分组未知游戏",

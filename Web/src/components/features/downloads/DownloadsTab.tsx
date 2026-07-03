@@ -80,6 +80,7 @@ const STORAGE_KEYS = {
   SHOW_BANNER_COLUMN: 'lancache_downloads_show_banner_column',
   BANNER_ONLY: 'downloads_banner_only',
   GROUP_BY_GAME_RETRO: 'lancache_downloads_group_by_game_retro',
+  GROUP_BY_SERVICE_RETRO: 'lancache_downloads_group_by_service_retro',
   EVICTED_DATA_MODE: 'lancache_downloads_evicted_data_mode',
   HIT_MISS_FILTER: 'lancache_downloads_hit_miss_filter'
 };
@@ -161,7 +162,8 @@ const PRESETS = {
     showTimestamps: true,
     showBannerColumn: true,
     bannerOnly: false,
-    groupByGameRetro: false
+    groupByGameRetro: false,
+    groupByServiceRetro: false
   },
   minimal: {
     hideMetadata: true,
@@ -180,7 +182,8 @@ const PRESETS = {
     showTimestamps: false,
     showBannerColumn: false,
     bannerOnly: false,
-    groupByGameRetro: false
+    groupByGameRetro: false,
+    groupByServiceRetro: false
   },
   showAll: {
     hideMetadata: false,
@@ -199,7 +202,8 @@ const PRESETS = {
     showTimestamps: true,
     showBannerColumn: true,
     bannerOnly: false,
-    groupByGameRetro: false
+    groupByGameRetro: false,
+    groupByServiceRetro: false
   },
   default: {
     hideMetadata: false,
@@ -218,7 +222,8 @@ const PRESETS = {
     showTimestamps: true,
     showBannerColumn: true,
     bannerOnly: false,
-    groupByGameRetro: false
+    groupByGameRetro: false,
+    groupByServiceRetro: false
   }
 };
 
@@ -241,6 +246,7 @@ const detectActivePreset = (settings: {
   showBannerColumn: boolean;
   bannerOnly: boolean;
   groupByGameRetro: boolean;
+  groupByServiceRetro: boolean;
 }): PresetType => {
   const presetKeys = ['pretty', 'minimal', 'showAll', 'default'] as const;
 
@@ -262,7 +268,8 @@ const detectActivePreset = (settings: {
       settings.showTimestamps === presetConfig.showTimestamps &&
       settings.showBannerColumn === presetConfig.showBannerColumn &&
       settings.bannerOnly === presetConfig.bannerOnly &&
-      settings.groupByGameRetro === presetConfig.groupByGameRetro;
+      settings.groupByGameRetro === presetConfig.groupByGameRetro &&
+      settings.groupByServiceRetro === presetConfig.groupByServiceRetro;
 
     if (matches) return preset;
   }
@@ -553,7 +560,8 @@ const DownloadsTab: React.FC = () => {
       showTimestamps: storage.getItem(STORAGE_KEYS.SHOW_TIMESTAMPS) !== 'false',
       showBannerColumn: storage.getItem(STORAGE_KEYS.SHOW_BANNER_COLUMN) !== 'false',
       bannerOnly: storage.getItem(STORAGE_KEYS.BANNER_ONLY) === 'true',
-      groupByGameRetro: storage.getItem(STORAGE_KEYS.GROUP_BY_GAME_RETRO) === 'true'
+      groupByGameRetro: storage.getItem(STORAGE_KEYS.GROUP_BY_GAME_RETRO) === 'true',
+      groupByServiceRetro: storage.getItem(STORAGE_KEYS.GROUP_BY_SERVICE_RETRO) === 'true'
     };
   });
 
@@ -639,6 +647,7 @@ const DownloadsTab: React.FC = () => {
     storage.setItem(STORAGE_KEYS.SHOW_BANNER_COLUMN, settings.showBannerColumn.toString());
     storage.setItem(STORAGE_KEYS.BANNER_ONLY, settings.bannerOnly.toString());
     storage.setItem(STORAGE_KEYS.GROUP_BY_GAME_RETRO, settings.groupByGameRetro.toString());
+    storage.setItem(STORAGE_KEYS.GROUP_BY_SERVICE_RETRO, settings.groupByServiceRetro.toString());
   }, [settings]);
 
   // Track previous view mode to detect changes
@@ -1222,6 +1231,7 @@ const DownloadsTab: React.FC = () => {
     settings.viewMode,
     settings.itemsPerPage,
     settings.groupByGameRetro,
+    settings.groupByServiceRetro,
     timeRange,
     customStartDate,
     customEndDate,
@@ -1942,6 +1952,15 @@ const DownloadsTab: React.FC = () => {
                             label={t('downloads.tab.display.groupByGameRetro')}
                           />
                         )}
+                        {settings.viewMode === 'retro' && (
+                          <Checkbox
+                            checked={settings.groupByServiceRetro}
+                            onChange={(e) =>
+                              setSettings({ ...settings, groupByServiceRetro: e.target.checked })
+                            }
+                            label={t('downloads.tab.display.groupByServiceRetro')}
+                          />
+                        )}
                         {['compact', 'card', 'normal'].includes(settings.viewMode) && (
                           <Checkbox
                             checked={settings.groupUnknownGames}
@@ -2113,6 +2132,7 @@ const DownloadsTab: React.FC = () => {
                     showDatasourceLabels={showDatasourceLabels}
                     hasMultipleDatasources={hasMultipleDatasources}
                     groupByGame={settings.groupByGameRetro}
+                    groupByService={settings.groupByServiceRetro}
                     detectionLookup={detectionLookup}
                     detectionByName={detectionByName}
                     detectionByService={detectionByService}

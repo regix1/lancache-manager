@@ -66,6 +66,8 @@ interface RetroViewProps {
   showDatasourceLabels?: boolean;
   hasMultipleDatasources?: boolean;
   groupByGame?: boolean;
+  /** Server-side merge: collapses every row for the same service into one row, overriding groupByGame. Only used when serverMode is true. */
+  groupByService?: boolean;
   detectionLookup?: Map<number, GameDetectionSummary> | null;
   detectionByName?: Map<string, GameDetectionSummary> | null;
   detectionByService?: Map<
@@ -173,6 +175,7 @@ const RetroView = memo(
         showDatasourceLabels = true,
         hasMultipleDatasources = false,
         groupByGame = false,
+        groupByService = false,
         detectionLookup = null,
         detectionByName = null,
         detectionByService = null,
@@ -217,6 +220,7 @@ const RetroView = memo(
         hideUnknown: filterHideUnknown,
         hitMiss: filterHitMiss,
         groupByGame,
+        groupByService,
         startTime: filterStartTime,
         endTime: filterEndTime,
         eventId: filterEventId

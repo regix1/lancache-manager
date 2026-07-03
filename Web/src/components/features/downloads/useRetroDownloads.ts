@@ -32,6 +32,8 @@ interface RetroDownloadsHookOptions {
   hitMiss: HitMissFilter;
   /** When true, server merges depot rows by game before paginating. */
   groupByGame?: boolean;
+  /** When true, server merges all rows for the same service into one row, overriding groupByGame. */
+  groupByService?: boolean;
   /** Unix start time (seconds) from header time filter. */
   startTime?: number;
   /** Unix end time (seconds) from header time filter. */
@@ -80,6 +82,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
     hideUnknown,
     hitMiss,
     groupByGame,
+    groupByService,
     startTime,
     endTime,
     eventId
@@ -111,6 +114,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
       hideUnknown,
       hitMiss,
       groupByGame,
+      groupByService,
       startTime,
       endTime,
       eventId
@@ -161,6 +165,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
     hideUnknown,
     hitMiss,
     groupByGame,
+    groupByService,
     startTime,
     endTime,
     eventId
