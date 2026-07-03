@@ -705,20 +705,38 @@ export function ScheduledPrefillConfigModal({
     }
   };
 
-  // Manual logout: no daemon command clears auth without tearing down the container, so this
-  // stops it and immediately starts a fresh one, landing back at "running, not logged in".
+  // Manual logout: asks the daemon to forget its stored account in place first, landing back at
+  // "running, not logged in" with no restart needed. A genuine failure (socket error, timeout) falls
+  // back to the existing stop+restart flow - which restarts the container but does NOT actually
+  // forget the account (its named auth volume survives a restart) - so the fallback surfaces a
+  // notice telling the admin their daemon image needs updating. Note an un-updated steam/epic image
+  // still reports success here (it tears the live session down, just doesn't delete the account
+  // file yet), so this fallback only ever triggers on a true failure, not on "unsupported command".
+  // Either branch also closes an open login modal for this service immediately - logging out while a
+  // login prompt is showing must not leave a stale modal open against an account that was just
+  // forgotten (or is about to be stopped/restarted).
   const handleLogoutPersistent = async (serviceKey: ScheduledPrefillServiceKey) => {
     const container = persistentContainerByService.get(getPersistentServiceId(serviceKey));
     if (!container) {
       return;
     }
 
+    const serviceId = getPersistentServiceId(serviceKey);
     setPersistentAction({ serviceKey, action: 'logout' });
     setPersistentError(null);
 
     try {
-      await ApiService.stopPersistentPrefillContainer(container.sessionId);
-      await runPersistentStartFlow(serviceKey);
+      const { forgotten } = await ApiService.logoutPersistentPrefillContainer(serviceId);
+      if (forgotten) {
+        resetPersistentLoginState(serviceId);
+        setPersistentLoginTarget((current) => (current === serviceKey ? null : current));
+        await loadPersistentContainers();
+      } else {
+        setPersistentLoginTarget((current) => (current === serviceKey ? null : current));
+        await ApiService.stopPersistentPrefillContainer(container.sessionId);
+        await runPersistentStartFlow(serviceKey);
+        setPersistentError(t('prefill.persistent.messages.logoutFallbackNotice'));
+      }
     } catch (error: unknown) {
       setPersistentError(getErrorMessage(error));
     } finally {

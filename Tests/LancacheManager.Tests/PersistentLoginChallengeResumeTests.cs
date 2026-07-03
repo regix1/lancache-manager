@@ -455,6 +455,9 @@ public class PersistentLoginChallengeResumeTests
 
         public virtual Task CancelLoginAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
+        public virtual Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Unexpected LogoutAsync in this scenario.");
+
         public Task CancelPrefillAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default)

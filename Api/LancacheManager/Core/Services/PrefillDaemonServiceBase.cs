@@ -2083,6 +2083,71 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         _logger.LogInformation("Login cancelled for session {SessionId}, ready for new attempt", sessionId);
     }
 
+    /// <summary>
+    /// Attempts to log a RUNNING persistent session out in place via the daemon's <c>logout</c>
+    /// command, without tearing the container down. IsPersistent-gated defense in depth, mirroring
+    /// the other persistent-only operations in this class. On daemon success, the session is put
+    /// through the SAME auth-state funnel every other login/logout transition uses
+    /// (<see cref="NotifyAuthStateChangeAsync"/>) so subscribers see the account was forgotten, its
+    /// cached resume challenge is cleared, and <see cref="DaemonSession.NeedsRelogin"/> is reset. On
+    /// failure - the daemon reports failure, or the round-trip itself throws (socket error, timeout)
+    /// - this performs NO teardown and returns a not-forgotten result; the caller
+    /// (<see cref="Controllers.PersistentPrefillController"/> / the frontend) decides whether to fall
+    /// back to a stop+restart. NOTE: an un-updated steam/epic daemon image reports SUCCESS here while
+    /// only tearing down the live session, without deleting the stored account file - that case is
+    /// in-band indistinguishable from a true success and is not detected by this method; it
+    /// self-resolves once the daemon image is rebuilt with the account-file-delete fix.
+    /// The pending login challenge / resume wait is cleared BEFORE the daemon round-trip, same
+    /// ordering as <see cref="CancelLoginAsync"/> - a logout must not leave a stale challenge
+    /// resumable while the (possibly slow) daemon call is in flight. Unlike
+    /// <see cref="CancelLoginAsync"/>, that clear is NOT restored if the round-trip fails: logout
+    /// intent is terminal, so there is nothing to resume even on failure.
+    /// </summary>
+    public async Task<PersistentLogoutResult> LogoutPersistentSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var session))
+        {
+            throw new KeyNotFoundException($"Session not found: {sessionId}");
+        }
+
+        if (!session.IsPersistent)
+        {
+            _logger.LogWarning("LogoutPersistentSessionAsync called for non-persistent session {SessionId}", sessionId);
+            return new PersistentLogoutResult(false);
+        }
+
+        ClearPendingLoginChallenge(session);
+        session.Client.ClearPendingChallenges();
+
+        bool loggedOut;
+        try
+        {
+            loggedOut = await session.Client.LogoutAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogInformation(ex,
+                "Daemon logout command failed for persistent session {SessionId}; caller should fall back to a stop+restart",
+                sessionId);
+            return new PersistentLogoutResult(false);
+        }
+
+        if (!loggedOut)
+        {
+            _logger.LogInformation(
+                "Daemon reported logout failed for persistent session {SessionId}; caller should fall back to a stop+restart",
+                sessionId);
+            return new PersistentLogoutResult(false);
+        }
+
+        session.AuthState = DaemonAuthState.NotAuthenticated;
+        session.NeedsRelogin = false;
+        await NotifyAuthStateChangeAsync(session);
+
+        _logger.LogInformation("Session {SessionId} logged out in place; daemon forgot its stored account", sessionId);
+        return new PersistentLogoutResult(true);
+    }
+
 
     /// <summary>
     /// Cancels a running prefill operation.
@@ -3709,3 +3774,14 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 /// structured logging/diagnostics at the caller (<c>PersistentSessionExpiryService</c>).
 /// </summary>
 public readonly record struct PrefillSessionExpiryResult(int FlaggedNeedsRelogin, int Terminated, int StalledFailed);
+
+/// <summary>
+/// Result of <see cref="PrefillDaemonServiceBase.LogoutPersistentSessionAsync"/>. <see cref="LoggedOut"/>
+/// is true when the daemon acknowledged the logout; false covers a genuine failure (a failed response
+/// or the round-trip throwing), which the caller must fall back on with a stop+restart rather than
+/// assuming the account was forgotten. Note this is NOT a reliable "was the account actually deleted"
+/// signal: an un-updated steam/epic daemon image also reports success while only tearing down the
+/// live session, not deleting the stored account file - that case is in-band indistinguishable and
+/// self-resolves once the image is rebuilt.
+/// </summary>
+public readonly record struct PersistentLogoutResult(bool LoggedOut);

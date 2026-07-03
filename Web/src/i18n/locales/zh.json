@@ -3708,7 +3708,8 @@
       "messages": {
         "started": "持久预填充容器已启动。",
         "stopped": "持久预填充容器已停止。",
-        "settingsSaved": "持久预填充设置已保存。"
+        "settingsSaved": "持久预填充设置已保存。",
+        "logoutFallbackNotice": "已通过重启容器退出登录，但容器仍使用同一个已保存的账号。请更新守护进程镜像，以便无需重启即可忘记该账号。"
       },
       "errors": {
         "invalidSettings": "请输入允许范围内的有效整数。"

@@ -358,6 +358,9 @@ public class ScheduledPrefillAnonymousRunPathTests
 
         public Task CancelLoginAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
+        public Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("Anonymous services are not exercised for logout in this test.");
+
         public Task CancelPrefillAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default)

@@ -414,6 +414,37 @@ public class PersistentPrefillController : ControllerBase
     }
 
     /// <summary>
+    /// Logs the RUNNING persistent session out in place - the daemon forgets its stored account
+    /// without the container being restarted. AdminOnly analogue of the other persistent-session
+    /// routes. Delegates to
+    /// <see cref="PrefillDaemonServiceBase.LogoutPersistentSessionAsync(string, CancellationToken)"/>.
+    /// When the attempt genuinely fails (daemon reports failure, or the round-trip throws),
+    /// <c>forgotten</c> is false and the frontend falls back to its existing stop+restart flow. NOTE:
+    /// an un-updated steam/epic daemon image reports success here without actually deleting the
+    /// stored account file - <c>forgotten:true</c> is not a hard guarantee on such images, and this
+    /// endpoint has no way to detect that case; it self-resolves once the image is rebuilt.
+    /// </summary>
+    [HttpPost("logout")]
+    public async Task<ActionResult<PersistentLogoutResponseDto>> LogoutAsync(
+        [FromBody] PersistentLoginRequest request,
+        CancellationToken cancellationToken)
+    {
+        var (daemon, session, error) = ResolveRunningPersistentSession(request.Service);
+        if (error is not null)
+        {
+            return error;
+        }
+
+        var result = await daemon!.LogoutPersistentSessionAsync(session!.Id, cancellationToken);
+
+        return Ok(new PersistentLogoutResponseDto
+        {
+            Forgotten = result.LoggedOut,
+            Fallback = result.LoggedOut ? null : "restart-required"
+        });
+    }
+
+    /// <summary>
     /// Returns the admin-configured persistent login validity window in days.
     /// </summary>
     [HttpGet("validity")]
@@ -605,6 +636,25 @@ public sealed class StopPersistentSessionRequest
 {
     /// <summary>Id of the persistent session to stop.</summary>
     public required string SessionId { get; init; }
+}
+
+/// <summary>Result of a persistent-session logout attempt.</summary>
+public sealed class PersistentLogoutResponseDto
+{
+    /// <summary>
+    /// True when the daemon acknowledged the in-place logout; the container was not restarted. Not a
+    /// hard guarantee the account file was deleted - an un-updated steam/epic daemon image also
+    /// reports success while only tearing down the live session (see
+    /// <see cref="PrefillDaemonServiceBase.LogoutPersistentSessionAsync(string, CancellationToken)"/>).
+    /// </summary>
+    public required bool Forgotten { get; init; }
+
+    /// <summary>
+    /// Present only when <see cref="Forgotten"/> is false: the attempt genuinely failed (daemon
+    /// reported failure, or the round-trip threw), so the caller must fall back to a stop+restart to
+    /// clear the session's auth state.
+    /// </summary>
+    public string? Fallback { get; init; }
 }
 
 /// <summary>Typed view of a persistent prefill session.</summary>

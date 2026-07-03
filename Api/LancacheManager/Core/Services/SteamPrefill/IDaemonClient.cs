@@ -96,6 +96,20 @@ public interface IDaemonClient : IDisposable
     Task CancelLoginAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Requests the daemon log out and forget its stored account in place (no container restart).
+    /// Sends the <c>logout</c> command. Returns true when the daemon acknowledges success; false when
+    /// the response reports failure or the round-trip itself fails (socket error, timeout). Callers
+    /// must treat false as "not supported here" and fall back to a stop+restart of the container.
+    /// NOTE: steam/epic daemon images built before the account-file-delete fix (see
+    /// SteamPrefill/EpicPrefill <c>SocketCommandInterface.HandleLogoutAsync</c>) already had a
+    /// <c>logout</c> command and will report success here even though they only tear down the live
+    /// session without deleting the stored account file - a true-success response is NOT proof the
+    /// account was forgotten on an un-updated image. This is in-band indistinguishable from a real
+    /// success and is not detected; it self-resolves once the daemon image is rebuilt.
+    /// </summary>
+    Task<bool> LogoutAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Cancel running prefill operation.
     /// </summary>
     Task CancelPrefillAsync(CancellationToken cancellationToken = default);

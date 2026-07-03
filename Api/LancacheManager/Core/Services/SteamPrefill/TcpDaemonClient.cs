@@ -757,6 +757,18 @@ public sealed class TcpDaemonClient : IDaemonClient
         await SendCommandAsync("cancel-prefill", timeout: TimeSpan.FromSeconds(10), cancellationToken: cancellationToken);
     }
 
+    /// <summary>
+    /// Log out and forget the daemon's stored account in place. See <see cref="IDaemonClient.LogoutAsync"/>
+    /// for the caveat: an un-updated steam/epic image also reports success here, but without actually
+    /// deleting the stored account file - this method has no way to distinguish that from a true
+    /// success, so callers can only rely on the response for genuine failures (socket errors, timeouts).
+    /// </summary>
+    public async Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await SendCommandAsync("logout", timeout: TimeSpan.FromSeconds(10), cancellationToken: cancellationToken);
+        return response.Success;
+    }
+
     public async Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default)
     {
         var response = await SendCommandAsync("get-owned-games", cancellationToken: cancellationToken);

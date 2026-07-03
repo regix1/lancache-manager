@@ -3708,7 +3708,8 @@
       "messages": {
         "started": "Persistent prefill container started.",
         "stopped": "Persistent prefill container stopped.",
-        "settingsSaved": "Persistent prefill settings saved."
+        "settingsSaved": "Persistent prefill settings saved.",
+        "logoutFallbackNotice": "Logged out by restarting the container, but it kept using the same stored account. Update the daemon image to forget the account without a restart."
       },
       "errors": {
         "invalidSettings": "Enter valid whole numbers within the allowed ranges."
