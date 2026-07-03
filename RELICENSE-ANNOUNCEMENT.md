@@ -40,7 +40,6 @@ closed, proprietary product.
 
 Why the change? To keep LANCache Manager healthy and open for the long run, and
 to make sure improvements flow back to the community instead of disappearing into
-closed forks. Thanks for being here, and happy to answer any questions in the
-comments.
+closed forks. Thanks for being here, and happy to answer any questions in discord.
 
 — Regix
