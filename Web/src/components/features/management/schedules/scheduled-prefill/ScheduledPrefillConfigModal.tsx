@@ -33,9 +33,9 @@ import {
 } from './scheduledPrefillPlatformUi';
 import { PersistentLoginHost } from './PersistentLoginHost';
 import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPersistentTypes';
-import { waitForPersistentContainerAuth } from './waitForPersistentContainerAuth';
 import {
   hasActivePersistentLogin,
+  isPersistentLoginDismissed,
   reconcilePersistentLoginFromServer,
   resetPersistentLoginState
 } from './persistentLoginStore';
@@ -200,23 +200,10 @@ export function ScheduledPrefillConfigModal({
   const [gameSelectionError, setGameSelectionError] = useState<string | null>(null);
   const [persistentLoginTarget, setPersistentLoginTarget] =
     useState<ScheduledPrefillServiceKey | null>(null);
-  const [persistentAuthPendingKeys, setPersistentAuthPendingKeys] = useState<
-    ScheduledPrefillServiceKey[]
-  >([]);
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
 
   // Auto-dismiss the "settings saved" notice so it does not linger forever.
   const scheduleGlobalSavedDismiss = useTimeoutCallback(2500);
-
-  const markPersistentAuthPending = useCallback((serviceKey: ScheduledPrefillServiceKey) => {
-    setPersistentAuthPendingKeys((current) =>
-      current.includes(serviceKey) ? current : [...current, serviceKey]
-    );
-  }, []);
-
-  const clearPersistentAuthPending = useCallback((serviceKey: ScheduledPrefillServiceKey) => {
-    setPersistentAuthPendingKeys((current) => current.filter((key) => key !== serviceKey));
-  }, []);
 
   const loadConfig = useCallback(async (signal?: AbortSignal) => {
     setLoadingConfig(true);
@@ -297,17 +284,41 @@ export function ScheduledPrefillConfigModal({
   // unconditionally, killing a visible auth modal and abandoning an in-progress login
   // (diagnostic §6 item 1). Once the container list is loaded, ask the backend (which caches the
   // pending challenge - see PersistentPrefillController) whether any running-but-unauthenticated
-  // account service still has a login in flight, and resume it instead of losing it. Only runs
-  // when nothing is already active, so it never clobbers a live flow.
+  // account service still has a login in flight, and resume it instead of losing it.
+  //
+  // Only skipped while the CURRENT target still has a real flow in progress (loading or an
+  // already-applied challenge) - it must still run when a target is set but the store is empty
+  // (the wedged state from diagnostic §3.2 W1: start() settled without ever applying the daemon's
+  // challenge), otherwise a challenge cached backend-side could never reach the store again.
+  //
+  // Two guards keep this repair from overreaching:
+  // - When a target is already set, only that service is probed - repair it in place. Scanning
+  //   every account service here (as if no target were set) could find a DIFFERENT service's
+  //   cached challenge first and steal the target away from the one the user is actually on.
+  // - A challenge whose store entry is `dismissed` stays closed. Reconcile exists to restore state
+  //   lost to a reload/unmount, not to reopen a modal the user just closed; only the explicit Log
+  //   in click (which calls resumeModal via beginLogin's hasChallenge branch) reopens that one.
   useEffect(() => {
-    if (!opened || persistentLoginTarget !== null) {
+    if (!opened) {
+      return;
+    }
+
+    if (
+      persistentLoginTarget !== null &&
+      hasActivePersistentLogin(getPersistentServiceId(persistentLoginTarget))
+    ) {
       return;
     }
 
     const controller = new AbortController();
 
     const reconcile = async () => {
-      for (const serviceKey of SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS) {
+      const candidateKeys =
+        persistentLoginTarget !== null
+          ? [persistentLoginTarget]
+          : SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS;
+
+      for (const serviceKey of candidateKeys) {
         if (controller.signal.aborted) {
           return;
         }
@@ -323,8 +334,7 @@ export function ScheduledPrefillConfigModal({
           return;
         }
 
-        if (result === 'challenge') {
-          markPersistentAuthPending(serviceKey);
+        if (result === 'challenge' && !isPersistentLoginDismissed(serviceId)) {
           setPersistentLoginTarget(serviceKey);
           return;
         }
@@ -336,7 +346,7 @@ export function ScheduledPrefillConfigModal({
     return () => {
       controller.abort();
     };
-  }, [opened, persistentLoginTarget, persistentContainerByService, markPersistentAuthPending]);
+  }, [opened, persistentLoginTarget, persistentContainerByService]);
 
   // Every service (account or anonymous) reuses the same addressable persistent-container session
   // (ScheduledPrefillService.RunServiceAsync dispatches identically for all five platforms), so the
@@ -385,10 +395,10 @@ export function ScheduledPrefillConfigModal({
 
   // Authoritative cleanup driven by the live container list (SignalR refresh or the initial load):
   // a service whose container has become authenticated, OR has stopped/disappeared, can never
-  // legitimately resume a login, so its pending-auth bookkeeping AND its persistentLoginStore state
-  // (pendingChallenge/loading/dismissed/challenge flags) must both be dropped here - this restores
-  // the cleanup role the old unconditional reopen-wipe used to provide (stale "authenticating"
-  // badges, abandoned-flow flags) without losing the resumability the wipe's removal was for.
+  // legitimately resume a login, so its persistentLoginStore state (pendingChallenge/loading/
+  // dismissed/challenge flags) must be dropped here - this restores the cleanup role the old
+  // unconditional reopen-wipe used to provide (stale "authenticating" badges, abandoned-flow flags)
+  // without losing the resumability the wipe's removal was for.
   // Resume (the reconcile effect above) is only ever offered for running+unauthenticated+pending -
   // this effect is what retires everything else, including clearing a stale persistentLoginTarget
   // that pointed at one of these services so the auth modal can never reopen on an unresumable login.
@@ -420,7 +430,6 @@ export function ScheduledPrefillConfigModal({
       serviceKey: ScheduledPrefillServiceKey,
       serviceId: PersistentPrefillServiceId
     ) => {
-      clearPersistentAuthPending(serviceKey);
       resetPersistentLoginState(serviceId);
       setPersistentLoginTarget((current) => (current === serviceKey ? null : current));
     };
@@ -458,17 +467,16 @@ export function ScheduledPrefillConfigModal({
         timers.set(service.service, timer);
       }
     }
-  }, [opened, persistentContainerByService, clearPersistentAuthPending]);
+  }, [opened, persistentContainerByService]);
 
   const shouldWatchPersistentAuth = useMemo(
     () =>
       persistentContainers.some((container) => container.isRunning && !container.isAuthenticated) ||
-      persistentLoginTarget !== null ||
-      persistentAuthPendingKeys.length > 0,
-    [persistentContainers, persistentLoginTarget, persistentAuthPendingKeys]
+      persistentLoginTarget !== null,
+    [persistentContainers, persistentLoginTarget]
   );
 
-  const { signalR } = usePersistentPrefillContainerSignalR({
+  usePersistentPrefillContainerSignalR({
     enabled: opened && shouldWatchPersistentAuth,
     onRefresh: () => {
       void loadPersistentContainers();
@@ -480,23 +488,30 @@ export function ScheduledPrefillConfigModal({
   // usePersistentPrefillAuth (which stays wired as the fallback for when SignalR is down).
   // Gated on shouldWatchPersistentAuth ALONE (not `opened &&`): a keep-pending login must keep
   // receiving challenge pushes while the Configure modal is closed, since ScheduledPrefillConfigModal
-  // itself stays mounted and persistentLoginTarget/persistentAuthPendingKeys survive the close - the
-  // hook already unsubscribes on its own once nothing is pending/watched (shouldWatchPersistentAuth
-  // flips false), so this cannot leak a subscription once a login truly ends.
+  // itself stays mounted and persistentLoginTarget survives the close - the hook already
+  // unsubscribes on its own once nothing is pending/watched (shouldWatchPersistentAuth flips
+  // false), so this cannot leak a subscription once a login truly ends.
   usePersistentLoginChallengeSignalR({
     enabled: shouldWatchPersistentAuth,
     containersByService: persistentContainerByService
   });
 
+  // Reflects the REAL login-flow state (store loading/pendingChallenge) instead of click-time
+  // bookkeeping, so a settled flow (success, failure, or an empty response) can never leave a
+  // service stuck showing "Authenticating..." with its Log in button disabled (diagnostic §6/§7
+  // issue 3). Recomputed on every container-list refresh, which keeps running continuously while
+  // any account service sits running-but-unauthenticated (see shouldWatchPersistentAuth above) -
+  // bounding staleness to "within one refresh" per the acceptance criteria.
   const authenticatingServiceKeys = useMemo(
     () =>
-      Array.from(
-        new Set([
-          ...persistentAuthPendingKeys,
-          ...(persistentLoginTarget ? [persistentLoginTarget] : [])
-        ])
-      ),
-    [persistentAuthPendingKeys, persistentLoginTarget]
+      SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.filter((serviceKey) => {
+        const serviceId = getPersistentServiceId(serviceKey);
+        const container = persistentContainerByService.get(serviceId);
+        return (
+          container?.isRunning && !container.isAuthenticated && hasActivePersistentLogin(serviceId)
+        );
+      }),
+    [persistentContainerByService]
   );
 
   const isLoading = loadingConfig;
@@ -627,37 +642,31 @@ export function ScheduledPrefillConfigModal({
     }
   };
 
-  // Starts (or restarts, for logout) the container and waits for it to come up. Shared by
-  // handleStartPersistent and handleLogoutPersistent so both land in the same
-  // "running, needs login" state via a single code path.
+  // Starts (or restarts, for logout) the container and refreshes the list. Shared by
+  // handleStartPersistent and handleLogoutPersistent so both land in the same "running, not
+  // logged in" state via a single code path - neither ever initiates a login itself; only the
+  // explicit Log in click (handlePersistentLogin) or a resumed cached challenge (reconcile effect)
+  // does that (diagnostic §2/§8 fix 1).
   const runPersistentStartFlow = async (serviceKey: ScheduledPrefillServiceKey) => {
     const serviceId = getPersistentServiceId(serviceKey);
     // A stopped container has no live daemon session, so any challenge left over from before it
     // was stopped is stale and must never be resumed against the new one.
     resetPersistentLoginState(serviceId);
+    // The start POST already resolves once the container's daemon socket is connected (i.e. once
+    // it is running - diagnostic §2), so a single refresh is enough to reflect the new state; no
+    // bounded wait is needed here.
     await ApiService.startPersistentPrefillContainer(serviceId);
-    const { containers, container } = await waitForPersistentContainerAuth(serviceId, {
-      signalR,
-      onContainersUpdate: (nextContainers) => setPersistentContainers(nextContainers)
-    });
-    setPersistentContainers(containers);
+    await loadPersistentContainers();
     setPersistentError(null);
-    if (container?.isRunning && !container.isAuthenticated) {
-      setPersistentLoginTarget(serviceKey);
-    } else {
-      clearPersistentAuthPending(serviceKey);
-    }
   };
 
   const handleStartPersistent = async (serviceKey: ScheduledPrefillServiceKey) => {
     setPersistentAction({ serviceKey, action: 'start' });
     setPersistentError(null);
-    markPersistentAuthPending(serviceKey);
 
     try {
       await runPersistentStartFlow(serviceKey);
     } catch (error: unknown) {
-      clearPersistentAuthPending(serviceKey);
       setPersistentError(getErrorMessage(error));
     } finally {
       setPersistentAction(null);
@@ -696,13 +705,11 @@ export function ScheduledPrefillConfigModal({
 
     setPersistentAction({ serviceKey, action: 'logout' });
     setPersistentError(null);
-    markPersistentAuthPending(serviceKey);
 
     try {
       await ApiService.stopPersistentPrefillContainer(container.sessionId);
       await runPersistentStartFlow(serviceKey);
     } catch (error: unknown) {
-      clearPersistentAuthPending(serviceKey);
       setPersistentError(getErrorMessage(error));
     } finally {
       setPersistentAction(null);
@@ -717,7 +724,6 @@ export function ScheduledPrefillConfigModal({
     }
 
     setPersistentError(null);
-    markPersistentAuthPending(serviceKey);
     setPersistentLoginTarget(serviceKey);
   };
 
@@ -753,36 +759,24 @@ export function ScheduledPrefillConfigModal({
     []
   );
 
-  const handleOpenGameSelection = async (serviceKey: ScheduledPrefillServiceKey) => {
+  const handleOpenGameSelection = (serviceKey: ScheduledPrefillServiceKey) => {
     const serviceId = getPersistentServiceId(serviceKey);
     const isAnonymous = isScheduledPrefillAnonymousService(serviceKey);
-    let container = persistentContainerByService.get(serviceId);
+    const container = persistentContainerByService.get(serviceId);
     if (!container?.isRunning) {
       setGameSelectionError(t(`${baseKey}.selectedGames.requiresPersistentContainer`));
       return;
     }
 
+    // Select games never logs the user in on their behalf - only the explicit Log in button does
+    // (diagnostic census #2). Surface the same needs-login hint the button's own disabled-state
+    // tooltip already uses for this state (ScheduledPrefillPersistentCard's isGameSelectionBlocked).
     if (!isAnonymous && !container.isAuthenticated) {
-      markPersistentAuthPending(serviceKey);
-      const { containers, container: refreshed } = await waitForPersistentContainerAuth(serviceId, {
-        signalR,
-        timeoutMs: 6_000,
-        onContainersUpdate: (nextContainers) => setPersistentContainers(nextContainers)
-      });
-      setPersistentContainers(containers);
-      container = refreshed ?? container;
-      if (container.isAuthenticated) {
-        clearPersistentAuthPending(serviceKey);
-      }
-    }
-
-    if (!isAnonymous && !container.isAuthenticated) {
-      setGameSelectionError(null);
-      setPersistentLoginTarget(serviceKey);
+      setGameSelectionError(t('prefill.persistent.loginToSelectGames'));
       return;
     }
 
-    clearPersistentAuthPending(serviceKey);
+    setGameSelectionError(null);
     setGameSelection({
       serviceKey,
       sessionId: container.sessionId,
@@ -1109,11 +1103,9 @@ export function ScheduledPrefillConfigModal({
               ?.isAuthenticated ?? false
           }
           onAuthenticated={() => {
-            clearPersistentAuthPending(persistentLoginTarget);
             void loadPersistentContainers();
           }}
           onDismiss={() => {
-            clearPersistentAuthPending(persistentLoginTarget);
             setPersistentLoginTarget(null);
           }}
         />

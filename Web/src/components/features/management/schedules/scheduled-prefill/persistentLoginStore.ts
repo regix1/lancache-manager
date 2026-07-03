@@ -201,6 +201,16 @@ export function hasActivePersistentLogin(service: PersistentPrefillServiceId): b
   return state.loading || state.pendingChallenge !== null;
 }
 
+/**
+ * Plain (non-hook) read of whether the user explicitly hid this service's auth modal
+ * (`dismissModal`) without cancelling the login. Used by the reconcile effect so it never
+ * re-surfaces a challenge the user just closed - reconcile is for restoring state lost to a
+ * reload/unmount, not for undoing an explicit dismiss.
+ */
+export function isPersistentLoginDismissed(service: PersistentPrefillServiceId): boolean {
+  return getPersistentLoginState(service).dismissed;
+}
+
 export function isPersistentLoginCancelled(service: PersistentPrefillServiceId): boolean {
   return cancelFlags.get(service)?.current ?? false;
 }

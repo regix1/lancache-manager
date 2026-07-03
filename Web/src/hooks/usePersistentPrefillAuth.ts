@@ -54,10 +54,8 @@ export type PollResult =
   | { status: 'pending' };
 
 // SignalR now pushes challenges the instant the daemon emits them (see
-// usePersistentLoginChallengeSignalR); this GET long-poll is the fallback for when SignalR is
-// disconnected, so it can afford a slower interval than before (matches
-// waitForPersistentContainerAuth's 60s default for the same "SignalR is primary, this is the
-// safety net" reasoning).
+// usePersistentLoginChallengeSignalR); this GET long-poll is only the fallback for when SignalR is
+// disconnected, so it can afford a slow interval ("SignalR is primary, this is the safety net").
 const DEFAULT_TIMEOUT_SECONDS = 60;
 const DEVICE_CONFIRMATION_CREDENTIAL = 'confirm';
 
@@ -251,8 +249,13 @@ export function usePersistentPrefillAuth(
           setLoading(false);
           return challenge;
         }
-        // No actionable challenge (empty/pending) - stop the spinner.
-        setLoading(false);
+        // Empty/no-op response: previously stopped the spinner in silence, which is exactly how a
+        // login could go invisible forever - nothing else ever re-fetches this attempt's result
+        // (diagnostic §3.2, wedge W1). Surface it as a real error instead so the card's existing
+        // error alert shows it.
+        fail(
+          'Persistent login did not return a challenge or authentication result. Please try again.'
+        );
         return null;
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to start persistent login';

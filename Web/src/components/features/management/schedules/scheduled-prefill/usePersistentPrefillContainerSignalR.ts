@@ -3,7 +3,12 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useRefreshRate } from '@contexts/useRefreshRate';
 import type { EventHandler } from '@contexts/SignalRContext/types';
 import { PERSISTENT_PREFILL_CONTAINER_SIGNALR_EVENTS } from './persistentPrefillSignalREvents';
-import type { PersistentPrefillSignalRFacade } from './waitForPersistentContainerAuth';
+
+/** Minimal on/off subscription surface for the shared SignalR facade this hook returns. */
+interface PersistentPrefillSignalRFacade {
+  on: (eventName: string, handler: EventHandler) => void;
+  off: (eventName: string, handler: EventHandler) => void;
+}
 
 interface UsePersistentPrefillContainerSignalROptions {
   /** When false, listeners are not registered. */

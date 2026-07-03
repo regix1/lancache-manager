@@ -21,21 +21,6 @@ const CONTAINER_WATCH_BASE_EVENTS = [
 const persistentPrefillServiceToEventKey = (serviceId: PersistentPrefillServiceId): string =>
   PERSISTENT_PREFILL_EVENT_KEY[serviceId];
 
-/** Resolves the platform-specific AuthStateChanged event name. */
-export const getPersistentPrefillAuthStateChangedEvent = (
-  serviceId: PersistentPrefillServiceId
-): string => getEventName('AuthStateChanged', persistentPrefillServiceToEventKey(serviceId));
-
-/** Resolves the platform-specific DaemonSessionUpdated event name. */
-export const getPersistentPrefillSessionUpdatedEvent = (
-  serviceId: PersistentPrefillServiceId
-): string => getEventName('DaemonSessionUpdated', persistentPrefillServiceToEventKey(serviceId));
-
-/** Resolves the platform-specific DaemonSessionTerminated event name. */
-export const getPersistentPrefillSessionTerminatedEvent = (
-  serviceId: PersistentPrefillServiceId
-): string => getEventName('DaemonSessionTerminated', persistentPrefillServiceToEventKey(serviceId));
-
 /** Resolves the platform-specific CredentialChallenge event name. */
 export const getPersistentPrefillCredentialChallengeEvent = (
   serviceId: PersistentPrefillServiceId
@@ -48,6 +33,3 @@ export const PERSISTENT_PREFILL_CONTAINER_SIGNALR_EVENTS = PERSISTENT_PREFILL_SE
       getEventName(base, persistentPrefillServiceToEventKey(service))
     )
 );
-
-export const isPersistentPrefillAuthenticatedAuthState = (authState: string): boolean =>
-  authState === 'Authenticated' || authState === 'logged-in';
