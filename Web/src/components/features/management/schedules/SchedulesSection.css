@@ -1316,7 +1316,12 @@
 }
 
 .scheduled-prefill-schedule-fields__label {
-  display: block;
+  display: flex;
+  align-items: center;
+  /* Matches the Preset field's HelpPopover trigger (p-1 padding + w-4 h-4 icon = 1.5rem) so every
+     label row reserves the same height whether or not it carries a help icon - otherwise the Preset
+     field's row sits ~6px taller than its plain-label grid sibling and the controls below misalign. */
+  min-height: 1.5rem;
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.02em;

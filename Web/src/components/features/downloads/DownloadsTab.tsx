@@ -1586,7 +1586,7 @@ const DownloadsTab: React.FC = () => {
                     ]}
                     value={settings.viewMode}
                     onChange={(value) => setSettings({ ...settings, viewMode: value as ViewMode })}
-                    size="sm"
+                    size="md"
                     className="flex-shrink-0"
                   />
                 </div>

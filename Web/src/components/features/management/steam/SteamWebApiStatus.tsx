@@ -157,7 +157,9 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
 
     return (
       <span
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border ${colorClass}`}
+        // py-[7px] (not the default py-1) so this tonal, non-interactive badge lands on the
+        // same 32px height as the adjacent Button size="sm" refresh action in this row.
+        className={`inline-flex items-center gap-1.5 px-2.5 py-[7px] rounded-md text-xs font-medium border ${colorClass}`}
       >
         <Icon className="w-3.5 h-3.5" />
         {version}

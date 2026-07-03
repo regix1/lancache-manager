@@ -101,7 +101,10 @@ const StatCard: React.FC<StatCardProps> = ({
     >
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1">
+          {/* min-h-6 (1.5rem) reserves the HelpPopover trigger's height (p-1 + w-4 h-4 icon)
+              whether or not THIS card has a tooltip, so cards with and without one still line
+              their value/sparkline up in shared grids like .stat-cards-3col. */}
+          <div className="flex items-center gap-1 min-h-6">
             <p className="text-sm font-medium inline-block transition-colors text-[var(--theme-text-muted)]">
               {title}
             </p>
