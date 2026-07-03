@@ -7,6 +7,8 @@ import type { SteamAuthActions, SteamLoginFlowState } from './useSteamAuthentica
 interface PersistentSteamAuthState extends SteamLoginFlowState {
   error: string | null;
   authenticated: boolean;
+  hasChallenge: boolean;
+  dismissed: boolean;
 }
 
 interface PersistentSteamAuthActions extends SteamAuthActions {
@@ -43,7 +45,9 @@ export function usePersistentSteamAuth(options: UsePersistentSteamAuthOptions = 
     deviceUserCode: '',
     deviceVerificationUri: '',
     error: coreState.error,
-    authenticated: coreState.authenticated
+    authenticated: coreState.authenticated,
+    hasChallenge: coreState.hasChallenge,
+    dismissed: coreState.dismissed
   };
 
   const actions: PersistentSteamAuthActions = {
@@ -62,5 +66,10 @@ export function usePersistentSteamAuth(options: UsePersistentSteamAuthOptions = 
     cancel: coreActions.cancel
   };
 
-  return { state, actions };
+  return {
+    state,
+    actions,
+    dismissModal: coreActions.dismissModal,
+    resumeModal: coreActions.resumeModal
+  };
 }

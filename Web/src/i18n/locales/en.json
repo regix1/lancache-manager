@@ -4192,6 +4192,9 @@
     },
     "steamAuth": {
       "title": "Steam Account Login",
+      "connectingTitle": "Connecting to Steam...",
+      "connectingSubtitle": "Starting the login process",
+      "containerAccountNotice": "Signing in to this container's own Steam account. This is separate from your lancache-manager Steam login.",
       "labels": {
         "username": "Username",
         "password": "Password"
@@ -4240,6 +4243,7 @@
     },
     "epicAuth": {
       "title": "Epic Games Authentication",
+      "containerAccountNotice": "Signing in to this container's own Epic Games account. This is separate from your lancache-manager Epic Games login.",
       "signInTitle": "Sign in with Epic Games",
       "signInDescription": "You'll be redirected to Epic Games to authorize access to your game library. After signing in, you'll receive a code to paste back here.",
       "securityNote": "Authentication uses Epic's official OAuth flow. Your credentials are entered directly on Epic's website and are never shared with this application.",
@@ -4260,6 +4264,7 @@
     },
     "xboxAuth": {
       "title": "Xbox Authentication",
+      "containerAccountNotice": "Signing in to this container's own Xbox account. This is separate from your lancache-manager Xbox login.",
       "signInTitle": "Sign in with your Microsoft account",
       "signInDescription": "You'll get a short code to enter on Microsoft's verification page in your browser. After you approve, this app connects to your Xbox and Microsoft Store library.",
       "securityNote": "Sign-in uses Microsoft's official device code flow. You enter your password only on Microsoft's website, and it is never shared with this application.",

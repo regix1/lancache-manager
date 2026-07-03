@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { XboxAuthModal } from '@components/modals/auth/XboxAuthModal';
 import { usePersistentXboxAuth } from '@hooks/usePersistentXboxAuth';
@@ -21,12 +20,10 @@ export function XboxPersistentLogin({
   onDismiss
 }: XboxPersistentLoginProps) {
   const { t } = useTranslation();
-  const { state, actions, startLogin } = usePersistentXboxAuth();
-  const [authModalOpened, setAuthModalOpened] = useState(false);
+  const { state, actions, startLogin, dismissModal, resumeModal } = usePersistentXboxAuth();
   const handledAuthenticatedRef = useRef(false);
   const startInFlightRef = useRef(false);
   const autoStartedRef = useRef(false);
-  const showLoginButton = isRunning && !isAuthenticated && !autoStart;
 
   useEffect(() => {
     if (!state.authenticated) {
@@ -39,7 +36,6 @@ export function XboxPersistentLogin({
     }
 
     handledAuthenticatedRef.current = true;
-    setAuthModalOpened(false);
     onAuthenticated();
   }, [state.authenticated, onAuthenticated]);
 
@@ -48,16 +44,20 @@ export function XboxPersistentLogin({
       return;
     }
 
+    if (state.hasChallenge) {
+      // Resume: a challenge is already pending for this service - just reveal it, no new login.
+      resumeModal();
+      return;
+    }
+
     startInFlightRef.current = true;
+    resumeModal(); // reveal the modal immediately in its "contacting daemon" state
     try {
-      const challenge = await startLogin();
-      if (challenge) {
-        setAuthModalOpened(true);
-      }
+      await startLogin();
     } finally {
       startInFlightRef.current = false;
     }
-  }, [startLogin]);
+  }, [resumeModal, startLogin, state.hasChallenge]);
 
   useEffect(() => {
     if (!autoStart || !isRunning || isAuthenticated || autoStartedRef.current) {
@@ -68,21 +68,12 @@ export function XboxPersistentLogin({
     void beginLogin();
   }, [autoStart, beginLogin, isAuthenticated, isRunning]);
 
-  const handleAuthModalClose = () => {
-    if (!state.loading) {
-      setAuthModalOpened(false);
-      actions.resetAuthForm();
-      onDismiss?.();
-    }
-  };
+  const authModalOpened =
+    !state.dismissed && !state.authenticated && (state.loading || state.hasChallenge);
+  const showLoginButton = isRunning && !isAuthenticated && !autoStart && !authModalOpened;
 
   return (
     <>
-      {state.error && (
-        <Alert color="red" className="scheduled-prefill-service-row__auth-alert">
-          {t('prefill.persistent.loginFailed', { error: state.error })}
-        </Alert>
-      )}
       {showLoginButton && (
         <Button
           type="button"
@@ -97,9 +88,11 @@ export function XboxPersistentLogin({
       )}
       <XboxAuthModal
         opened={authModalOpened}
-        onClose={handleAuthModalClose}
+        onClose={dismissModal}
         state={state}
         actions={actions}
+        dismissBehavior="keep-pending"
+        onCancelLogin={onDismiss}
       />
     </>
   );

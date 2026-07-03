@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { usePersistentSteamAuth } from '@hooks/usePersistentSteamAuth';
@@ -21,12 +20,10 @@ export function SteamPersistentLogin({
   onDismiss
 }: SteamPersistentLoginProps) {
   const { t } = useTranslation();
-  const { state, actions } = usePersistentSteamAuth();
-  const [authModalOpened, setAuthModalOpened] = useState(false);
+  const { state, actions, dismissModal, resumeModal } = usePersistentSteamAuth();
   const handledAuthenticatedRef = useRef(false);
   const startInFlightRef = useRef(false);
   const autoStartedRef = useRef(false);
-  const showLoginButton = isRunning && !isAuthenticated && !autoStart;
 
   useEffect(() => {
     if (!state.authenticated) {
@@ -39,7 +36,6 @@ export function SteamPersistentLogin({
     }
 
     handledAuthenticatedRef.current = true;
-    setAuthModalOpened(false);
     onAuthenticated();
   }, [state.authenticated, onAuthenticated]);
 
@@ -48,16 +44,20 @@ export function SteamPersistentLogin({
       return;
     }
 
+    if (state.hasChallenge) {
+      // Resume: a challenge is already pending for this service - just reveal it, no new login.
+      resumeModal();
+      return;
+    }
+
     startInFlightRef.current = true;
+    resumeModal(); // reveal the modal immediately in its "contacting daemon" state
     try {
-      const challenge = await actions.start();
-      if (challenge) {
-        setAuthModalOpened(true);
-      }
+      await actions.start();
     } finally {
       startInFlightRef.current = false;
     }
-  }, [actions]);
+  }, [actions, resumeModal, state.hasChallenge]);
 
   useEffect(() => {
     if (!autoStart || !isRunning || isAuthenticated || autoStartedRef.current) {
@@ -68,21 +68,12 @@ export function SteamPersistentLogin({
     void beginLogin();
   }, [autoStart, beginLogin, isAuthenticated, isRunning]);
 
-  const handleAuthModalClose = () => {
-    if (!state.loading) {
-      setAuthModalOpened(false);
-      actions.resetAuthForm();
-      onDismiss?.();
-    }
-  };
+  const authModalOpened =
+    !state.dismissed && !state.authenticated && (state.loading || state.hasChallenge);
+  const showLoginButton = isRunning && !isAuthenticated && !autoStart && !authModalOpened;
 
   return (
     <>
-      {state.error && (
-        <Alert color="red" className="scheduled-prefill-service-row__auth-alert">
-          {t('prefill.persistent.loginFailed', { error: state.error })}
-        </Alert>
-      )}
       {showLoginButton && (
         <Button
           type="button"
@@ -97,10 +88,14 @@ export function SteamPersistentLogin({
       )}
       <SteamAuthModal
         opened={authModalOpened}
-        onClose={handleAuthModalClose}
+        onClose={dismissModal}
         state={state}
         actions={actions}
         isPrefillMode={true}
+        dismissBehavior="keep-pending"
+        disableAutoLogoutClose
+        awaitingChallenge={state.loading && !state.hasChallenge}
+        onCancelLogin={onDismiss}
       />
     </>
   );

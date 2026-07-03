@@ -16,6 +16,19 @@ interface SteamAuthModalProps {
   isPrefillMode?: boolean;
   /** Called when user cancels during device confirmation in prefill mode - should end session */
   onCancelLogin?: () => void;
+  /**
+   * 'cancel' (default, the manager's own mapping-login flow): any close - X, backdrop, Escape, or
+   * the footer button - cancels the in-flight login. 'keep-pending' (the persistent-container
+   * flow): a plain close only hides the modal and leaves the daemon login resumable; only the
+   * footer button actually cancels.
+   */
+  dismissBehavior?: 'cancel' | 'keep-pending';
+  /** Persistent-container flow only: the manager's own SteamAutoLogout event must not force-close
+   *  a container login (that event is about the manager's mapping-flow session, not this one). */
+  disableAutoLogoutClose?: boolean;
+  /** Persistent-container flow only: show a "contacting daemon" state before any challenge has
+   *  arrived, instead of the (empty) credentials form. */
+  awaitingChallenge?: boolean;
 }
 
 export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
@@ -24,10 +37,14 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
   state,
   actions,
   isPrefillMode = false,
-  onCancelLogin
+  onCancelLogin,
+  dismissBehavior = 'cancel',
+  disableAutoLogoutClose = false,
+  awaitingChallenge = false
 }) => {
   const { t } = useTranslation();
   const { on, off } = useSignalR();
+  const isKeepPending = dismissBehavior === 'keep-pending';
   const {
     loading,
     needsTwoFactor,
@@ -52,9 +69,11 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
   // Track if a submit is in progress to prevent spam clicks
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
-  // Listen for SteamAutoLogout event - if session is replaced, close the modal
+  // Listen for SteamAutoLogout event - if session is replaced, close the modal. This is about the
+  // MANAGER's own mapping-flow session; a persistent-container login is unrelated and must not be
+  // force-closed by it (diagnostic §6 item 5).
   useEffect(() => {
-    if (!opened) return;
+    if (!opened || disableAutoLogoutClose) return;
 
     const handleAutoLogout = () => {
       cancelPendingRequest();
@@ -66,7 +85,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     return () => {
       off('SteamAutoLogout', handleAutoLogout);
     };
-  }, [opened, on, off, cancelPendingRequest, actions, onClose]);
+  }, [opened, disableAutoLogoutClose, on, off, cancelPendingRequest, actions, onClose]);
 
   const handleCloseModal = () => {
     // Allow closing when waiting for mobile confirmation (user should be able to cancel)
@@ -92,6 +111,21 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     if (!loading && !isSubmitting) {
       onClose();
     }
+  };
+
+  // keep-pending (persistent-container flow): X/backdrop/Escape only hide the modal - the daemon
+  // login keeps running and stays resumable. Only the explicit Cancel button below actually cancels.
+  const handleSoftClose = () => {
+    if (!isSubmitting) {
+      onClose();
+    }
+  };
+
+  const handleExplicitCancel = () => {
+    cancelPendingRequest();
+    actions.resetAuthForm();
+    onCancelLogin?.();
+    onClose();
   };
 
   const handleSubmit = async () => {
@@ -139,7 +173,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
   return (
     <Modal
       opened={opened}
-      onClose={handleCloseModal}
+      onClose={isKeepPending ? handleSoftClose : handleCloseModal}
       title={
         <div className="flex items-center gap-3">
           <Key className="w-5 h-5 text-steam" />
@@ -149,6 +183,12 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
       size="md"
     >
       <div className="space-y-5">
+        {isKeepPending && (
+          <p className="text-xs text-themed-muted text-center">
+            {t('modals.steamAuth.containerAccountNotice')}
+          </p>
+        )}
+
         {/* Step Indicator */}
         <div className="flex items-center justify-center gap-2">
           <StepDot
@@ -163,8 +203,21 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
 
         {/* Content Area */}
         <div className="min-h-[280px]">
+          {/* Contacting daemon - waiting for the very first challenge (persistent flow only) */}
+          {awaitingChallenge && (
+            <div className="flex flex-col items-center text-center py-12">
+              <LoadingSpinner inline size="sm" className="w-10 h-10 text-steam mb-4" />
+              <h3 className="text-lg font-semibold text-themed-primary mb-2">
+                {t('modals.steamAuth.connectingTitle')}
+              </h3>
+              <p className="text-sm text-themed-muted">
+                {t('modals.steamAuth.connectingSubtitle')}
+              </p>
+            </div>
+          )}
+
           {/* Mobile Confirmation State */}
-          {waitingForMobileConfirmation && (
+          {!awaitingChallenge && waitingForMobileConfirmation && (
             <div className="space-y-4">
               <div className="flex flex-col items-center text-center py-6">
                 <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4 bg-info">
@@ -210,48 +263,51 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
           )}
 
           {/* Credentials Form */}
-          {!needsTwoFactor && !needsEmailCode && !waitingForMobileConfirmation && (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-themed-secondary mb-1.5">
-                  {t('modals.steamAuth.labels.username')}
-                </label>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder={t('modals.steamAuth.placeholders.username')}
-                  className="w-full px-3 py-2.5 themed-input"
-                  disabled={loading}
-                  autoComplete="username"
-                />
-              </div>
+          {!awaitingChallenge &&
+            !needsTwoFactor &&
+            !needsEmailCode &&
+            !waitingForMobileConfirmation && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-themed-secondary mb-1.5">
+                    {t('modals.steamAuth.labels.username')}
+                  </label>
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder={t('modals.steamAuth.placeholders.username')}
+                    className="w-full px-3 py-2.5 themed-input"
+                    disabled={loading}
+                    autoComplete="username"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-themed-secondary mb-1.5">
-                  {t('modals.steamAuth.labels.password')}
-                </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
-                  placeholder={t('modals.steamAuth.placeholders.password')}
-                  className="w-full px-3 py-2.5 themed-input"
-                  disabled={loading}
-                  autoComplete="current-password"
-                />
-              </div>
+                <div>
+                  <label className="block text-sm font-medium text-themed-secondary mb-1.5">
+                    {t('modals.steamAuth.labels.password')}
+                  </label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
+                    placeholder={t('modals.steamAuth.placeholders.password')}
+                    className="w-full px-3 py-2.5 themed-input"
+                    disabled={loading}
+                    autoComplete="current-password"
+                  />
+                </div>
 
-              {/* Security Info */}
-              <div className="flex items-start gap-3 p-3 rounded-lg mt-4 bg-themed-tertiary">
-                <Shield className="w-4 h-4 mt-0.5 flex-shrink-0 text-success" />
-                <p className="text-xs text-themed-muted leading-relaxed">
-                  {t('modals.steamAuth.security.description')}
-                </p>
+                {/* Security Info */}
+                <div className="flex items-start gap-3 p-3 rounded-lg mt-4 bg-themed-tertiary">
+                  <Shield className="w-4 h-4 mt-0.5 flex-shrink-0 text-success" />
+                  <p className="text-xs text-themed-muted leading-relaxed">
+                    {t('modals.steamAuth.security.description')}
+                  </p>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* Email Verification */}
           {needsEmailCode && (
@@ -329,13 +385,15 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
           <div className="flex gap-3 pt-2 border-t border-themed-secondary">
             <Button
               variant="default"
-              onClick={handleCloseModal}
-              disabled={(loading || isSubmitting) && !waitingForMobileConfirmation}
+              onClick={isKeepPending ? handleExplicitCancel : handleCloseModal}
+              disabled={
+                !isKeepPending && (loading || isSubmitting) && !waitingForMobileConfirmation
+              }
               className="flex-1"
             >
               {t('common.cancel')}
             </Button>
-            {!waitingForMobileConfirmation && (
+            {!waitingForMobileConfirmation && !awaitingChallenge && (
               <Button
                 variant="filled"
                 color="green"

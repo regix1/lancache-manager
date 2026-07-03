@@ -1703,6 +1703,20 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     private async Task<CredentialChallenge?> StartLoginCoreAsync(
         DaemonSession session, string sessionId, TimeSpan? timeout, AbandonedLoginCleanupHolder abandonedLoginCleanup, CancellationToken cancellationToken)
     {
+        // Resume path: a challenge from an earlier StartLoginAsync call on this session is still
+        // pending (e.g. the frontend closed/reopened the login modal, or a second request raced in
+        // before the first one's challenge was consumed). Answer with the SAME challenge and issue NO
+        // daemon command at all - the daemon would only reply "already in progress" without
+        // re-emitting it, and the client's own StartLoginAsync destroys its queued copy the moment
+        // it's invoked again, so this check must run before anything touches session.Client.
+        if (session.PendingLoginChallenge is { } pendingLoginChallenge && session.AuthState != DaemonAuthState.Authenticated)
+        {
+            _logger.LogInformation(
+                "Session {SessionId} has a pending login challenge - resuming it instead of starting a new daemon login",
+                sessionId);
+            return pendingLoginChallenge;
+        }
+
         _logger.LogInformation("Starting login for session {SessionId}. ResponsesDir: {ResponsesDir}",
             sessionId, session.ResponsesDir);
 
@@ -1773,6 +1787,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             {
                 _logger.LogInformation("Received challenge for session {SessionId}: Type={Type}, Id={ChallengeId}",
                     sessionId, challenge.CredentialType, challenge.ChallengeId);
+                session.PendingLoginChallenge = challenge;
                 return challenge;
             }
 
@@ -1787,6 +1802,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             {
                 _logger.LogInformation("Received queued challenge for session {SessionId}: Type={Type}, Id={ChallengeId}",
                     sessionId, pendingChallenge.CredentialType, pendingChallenge.ChallengeId);
+                session.PendingLoginChallenge = pendingChallenge;
                 return pendingChallenge;
             }
 
@@ -1925,13 +1941,30 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// (read directly by <c>PersistentPrefillController.StartLoginAsync</c>), resets auth state since the
     /// login definitively failed, and broadcasts the state change so the "authenticating" UI clears.
     /// </summary>
-    private async Task<CredentialChallenge?> FailLoginFastAsync(DaemonSession session, string sessionId, string failureMessage)
+    protected async Task<CredentialChallenge?> FailLoginFastAsync(DaemonSession session, string sessionId, string failureMessage)
     {
         session.LastLoginFailureMessage = failureMessage;
         session.AuthState = DaemonAuthState.NotAuthenticated;
+        // A stale pending challenge must never be handed to a resume after the daemon has reported a
+        // failure for this attempt.
+        ClearPendingLoginChallenge(session);
         _logger.LogWarning("Session {SessionId} login failed fast: {FailureMessage}", sessionId, failureMessage);
         await NotifyAuthStateChangeAsync(session);
         return null;
+    }
+
+    /// <summary>
+    /// Clears a session's cached resumable login challenge (<see cref="DaemonSession.PendingLoginChallenge"/>),
+    /// returning whatever it held. A stale challenge must never be served to a later resume, so every
+    /// transition that invalidates it - a fail-fast failure, a credential being consumed, a cancelled
+    /// login, an auth-state move to Authenticated, or session termination - goes through this single
+    /// place rather than a direct <c>PendingLoginChallenge = null</c> write at each call site.
+    /// </summary>
+    private static CredentialChallenge? ClearPendingLoginChallenge(DaemonSession session)
+    {
+        var previous = session.PendingLoginChallenge;
+        session.PendingLoginChallenge = null;
+        return previous;
     }
 
     /// <summary>
@@ -1948,6 +1981,14 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         {
             throw new KeyNotFoundException($"Session not found: {sessionId}");
         }
+
+        // The caller is answering the session's current pending challenge - drop the cache here so
+        // no concurrent resume/poll (GET /challenge, the reopen reconcile, a SignalR-down poll
+        // fallback) can serve this now-consumed challenge as if it were still live. If the daemon
+        // needs another step, OnCredentialChallengeAsync re-populates the cache with that follow-on
+        // challenge; if not, WaitForChallengeAsync correctly falls through to a live daemon wait
+        // instead of replaying stale data.
+        ClearPendingLoginChallenge(session);
 
         // If this is the username credential, capture it
         if (challenge.CredentialType.Equals("username", StringComparison.OrdinalIgnoreCase))
@@ -1986,6 +2027,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             throw new KeyNotFoundException($"Session not found: {sessionId}");
         }
 
+        // Serve a cached resume challenge immediately - no need to make the poller wait on the
+        // daemon when we already know the answer.
+        if (session.PendingLoginChallenge is { } pendingLoginChallenge && session.AuthState != DaemonAuthState.Authenticated)
+        {
+            return pendingLoginChallenge;
+        }
+
         return await session.Client.WaitForChallengeAsync(timeout, cancellationToken);
     }
 
@@ -2002,6 +2050,15 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         _logger.LogInformation("Cancelling login for session {SessionId}", sessionId);
 
+        // Clear the resume cache and any queued daemon-side challenge FIRST, before the (possibly
+        // slow) daemon cancel round-trip below. CancelLoginAsync takes no lock, so a concurrent
+        // resume/poll landing during that await would otherwise be able to serve a challenge that is
+        // being cancelled out from under it - a cancelled login must never be resumable, not even for
+        // the few ms the daemon round-trip takes. Captured first so it can be restored if the daemon
+        // round-trip itself fails below - a failed cancel must not be treated as a successful one.
+        var capturedPendingChallenge = ClearPendingLoginChallenge(session);
+        session.Client.ClearPendingChallenges();
+
         try
         {
             // Send cancel-login command to daemon - this will abort any pending credential waits
@@ -2009,12 +2066,15 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error sending cancel-login to daemon for session {SessionId}", sessionId);
-            // Continue with local cleanup even if daemon command fails
+            // The daemon round-trip failed, so the daemon may still believe this login is in
+            // progress. Restore the cached challenge so a later StartLoginAsync resumes it instead of
+            // racing a brand-new daemon login against the one that was never actually cancelled - the
+            // exact duplicate-login race the resume cache exists to prevent - and surface the failure
+            // to the caller instead of silently proceeding as if the cancel had succeeded.
+            session.PendingLoginChallenge = capturedPendingChallenge;
+            _logger.LogWarning(ex, "Error sending cancel-login to daemon for session {SessionId}; login was not cancelled", sessionId);
+            throw;
         }
-
-        // Also clear any pending challenge files on our side
-        session.Client.ClearPendingChallenges();
 
         // Reset auth state to allow a new login attempt
         session.AuthState = DaemonAuthState.NotAuthenticated;
@@ -2427,6 +2487,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         session.Status = DaemonSessionStatus.Terminated;
         session.EndedAt = DateTime.UtcNow;
+        ClearPendingLoginChallenge(session);
 
         // Broadcast session termination to all clients for real-time updates (both hubs)
         var terminatedEvent = new { sessionId = session.Id, reason = reason };

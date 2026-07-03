@@ -97,7 +97,11 @@ export async function waitForPersistentContainerAuth(
         void finish();
         return;
       }
-      if (event.status !== 'Active') {
+      // Only a genuinely-terminal status ends the wait early. A transient non-Active blip (e.g.
+      // a brief Error tick during startup, or adopt-or-replace churn) should not abandon the wait
+      // and leave no login target set (diagnostic §6 item 3) - the timeout still bounds this either
+      // way.
+      if (event.status === 'Terminated') {
         void finish();
       }
     };

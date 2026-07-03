@@ -36,6 +36,11 @@ export const getPersistentPrefillSessionTerminatedEvent = (
   serviceId: PersistentPrefillServiceId
 ): string => getEventName('DaemonSessionTerminated', persistentPrefillServiceToEventKey(serviceId));
 
+/** Resolves the platform-specific CredentialChallenge event name. */
+export const getPersistentPrefillCredentialChallengeEvent = (
+  serviceId: PersistentPrefillServiceId
+): string => getEventName('CredentialChallenge', persistentPrefillServiceToEventKey(serviceId));
+
 /** All SignalR events that should trigger a persistent-container list refresh. */
 export const PERSISTENT_PREFILL_CONTAINER_SIGNALR_EVENTS = PERSISTENT_PREFILL_SERVICES.flatMap(
   ({ service }) =>

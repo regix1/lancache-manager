@@ -1,8 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import ApiService from '@services/api.service';
 import type { PersistentPrefillServiceId } from '@components/features/prefill/persistentPrefillTypes';
 import type { CredentialChallenge } from './usePrefillSteamAuth';
 import type { SteamAuthActions, SteamLoginFlowState } from './useSteamAuthentication';
+import {
+  applyPersistentLoginChallenge,
+  getPersistentLoginStartPromise,
+  isPersistentLoginAuthenticatedResponse,
+  isPersistentLoginCancelled,
+  isPersistentLoginCredentialChallenge,
+  resetPersistentLoginState,
+  setPersistentLoginCancelled,
+  setPersistentLoginStartPromise,
+  updatePersistentLoginState,
+  usePersistentLoginStoreState
+} from '@components/features/management/schedules/scheduled-prefill/persistentLoginStore';
 
 interface UsePersistentPrefillAuthOptions {
   service?: PersistentPrefillServiceId;
@@ -14,6 +26,10 @@ interface UsePersistentPrefillAuthOptions {
 interface PersistentPrefillAuthState extends SteamLoginFlowState {
   error: string | null;
   authenticated: boolean;
+  /** True once a challenge has been obtained for the current attempt (drives modal visibility). */
+  hasChallenge: boolean;
+  /** True if the user hid the auth modal without cancelling; the flow stays alive/resumable. */
+  dismissed: boolean;
 }
 
 export interface PersistentPrefillAuthActions extends SteamAuthActions {
@@ -21,6 +37,10 @@ export interface PersistentPrefillAuthActions extends SteamAuthActions {
   submit: (credential: string) => Promise<boolean>;
   poll: () => Promise<PollResult>;
   cancel: () => Promise<void>;
+  /** Hides the auth modal without cancelling the daemon login (default close behavior). */
+  dismissModal: () => void;
+  /** Reveals the auth modal for an already-pending login again, without starting a new one. */
+  resumeModal: () => void;
 }
 
 interface PersistentPrefillAuthResult {
@@ -33,24 +53,13 @@ export type PollResult =
   | { status: 'challenge'; challenge: CredentialChallenge }
   | { status: 'pending' };
 
-const DEFAULT_TIMEOUT_SECONDS = 30;
+// SignalR now pushes challenges the instant the daemon emits them (see
+// usePersistentLoginChallengeSignalR); this GET long-poll is the fallback for when SignalR is
+// disconnected, so it can afford a slower interval than before (matches
+// waitForPersistentContainerAuth's 60s default for the same "SignalR is primary, this is the
+// safety net" reasoning).
+const DEFAULT_TIMEOUT_SECONDS = 60;
 const DEVICE_CONFIRMATION_CREDENTIAL = 'confirm';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function isAuthenticatedResponse(response: unknown): boolean {
-  return (
-    response === 'authenticated' ||
-    (isRecord(response) && response.authenticated === true) ||
-    (isRecord(response) && (response.status === 'authenticated' || response.status === 'logged-in'))
-  );
-}
-
-function isCredentialChallenge(response: unknown): response is CredentialChallenge {
-  return isRecord(response) && typeof response.credentialType === 'string';
-}
 
 export function usePersistentPrefillAuth(
   options: UsePersistentPrefillAuthOptions = {}
@@ -62,97 +71,77 @@ export function usePersistentPrefillAuth(
     onError
   } = options;
 
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [authenticated, setAuthenticated] = useState(false);
-  const [pendingChallenge, setPendingChallenge] = useState<CredentialChallenge | null>(null);
-  const cancelledRef = useRef(false);
-  const startPromiseRef = useRef<Promise<CredentialChallenge | null> | null>(null);
+  const stored = usePersistentLoginStoreState(service);
 
-  const [needsTwoFactor, setNeedsTwoFactor] = useState(false);
-  const [needsEmailCode, setNeedsEmailCode] = useState(false);
-  const [waitingForMobileConfirmation, setWaitingForMobileConfirmation] = useState(false);
   const [useManualCode, setUseManualCode] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [emailCode, setEmailCode] = useState('');
   const [authorizationCode, setAuthorizationCode] = useState('');
-  const [needsAuthorizationCode, setNeedsAuthorizationCode] = useState(false);
-  const [authorizationUrl, setAuthorizationUrl] = useState('');
-  const [needsDeviceCode, setNeedsDeviceCode] = useState(false);
-  const [deviceUserCode, setDeviceUserCode] = useState('');
-  const [deviceVerificationUri, setDeviceVerificationUri] = useState('');
 
-  useEffect(() => {
-    return () => {
-      cancelledRef.current = true;
-    };
-  }, []);
+  const setLoading = useCallback(
+    (loading: boolean) => {
+      updatePersistentLoginState(service, (current) => ({ ...current, loading }));
+    },
+    [service]
+  );
 
-  const clearChallengeFlags = useCallback(() => {
-    setNeedsTwoFactor(false);
-    setNeedsEmailCode(false);
-    setWaitingForMobileConfirmation(false);
-    setNeedsAuthorizationCode(false);
-    setAuthorizationUrl('');
-    setNeedsDeviceCode(false);
-    setDeviceUserCode('');
-    setDeviceVerificationUri('');
-  }, []);
+  const setError = useCallback(
+    (error: string | null) => {
+      updatePersistentLoginState(service, (current) => ({ ...current, error }));
+    },
+    [service]
+  );
+
+  const setNeedsTwoFactor = useCallback(
+    (value: boolean) => {
+      updatePersistentLoginState(service, (current) => ({ ...current, needsTwoFactor: value }));
+    },
+    [service]
+  );
+
+  const setWaitingForMobileConfirmation = useCallback(
+    (value: boolean) => {
+      updatePersistentLoginState(service, (current) => ({
+        ...current,
+        waitingForMobileConfirmation: value
+      }));
+    },
+    [service]
+  );
 
   const applyChallenge = useCallback(
     (challenge: CredentialChallenge) => {
-      setPendingChallenge(challenge);
-      clearChallengeFlags();
-
-      switch (challenge.credentialType) {
-        case '2fa':
-          setNeedsTwoFactor(true);
-          break;
-        case 'steamguard':
-          setNeedsEmailCode(true);
-          break;
-        case 'authorization-url':
-          setNeedsAuthorizationCode(true);
-          setAuthorizationUrl(challenge.authUrl ?? '');
-          break;
-        case 'device-confirmation':
-          setWaitingForMobileConfirmation(true);
-          break;
-        case 'device-code':
-          setNeedsDeviceCode(true);
-          setDeviceUserCode(challenge.userCode ?? '');
-          setDeviceVerificationUri(challenge.verificationUri ?? challenge.authUrl ?? '');
-          break;
-      }
+      applyPersistentLoginChallenge(service, challenge);
     },
-    [clearChallengeFlags]
+    [service]
   );
 
   const finishAuthenticated = useCallback(() => {
-    setAuthenticated(true);
-    setPendingChallenge(null);
-    clearChallengeFlags();
-    setLoading(false);
+    resetPersistentLoginState(service);
+    updatePersistentLoginState(service, (current) => ({ ...current, authenticated: true }));
     onSuccess?.();
-  }, [clearChallengeFlags, onSuccess]);
+  }, [service, onSuccess]);
 
   const fail = useCallback(
     (message: string) => {
-      setError(message);
-      setLoading(false);
+      updatePersistentLoginState(service, (current) => ({
+        ...current,
+        error: message,
+        loading: false
+      }));
       onError?.(message);
     },
-    [onError]
+    [service, onError]
   );
 
   const pollForResult = useCallback(async (): Promise<PollResult> => {
     const response = await ApiService.getPersistentChallenge(service, timeoutSeconds);
-    if (isAuthenticatedResponse(response)) {
+    if (isPersistentLoginAuthenticatedResponse(response)) {
       return { status: 'authenticated' };
     }
-    if (isCredentialChallenge(response)) {
+    if (isPersistentLoginCredentialChallenge(response)) {
       return { status: 'challenge', challenge: response };
     }
     // Empty/204: the long-poll timed out with no new challenge yet (e.g. waiting
@@ -167,10 +156,10 @@ export function usePersistentPrefillAuth(
       await ApiService.providePersistentCredential(service, challenge, credential);
 
       let result = await pollForResult();
-      while (result.status === 'pending' && !cancelledRef.current) {
+      while (result.status === 'pending' && !isPersistentLoginCancelled(service)) {
         result = await pollForResult();
       }
-      if (cancelledRef.current) {
+      if (isPersistentLoginCancelled(service)) {
         setLoading(false);
         return result;
       }
@@ -186,18 +175,18 @@ export function usePersistentPrefillAuth(
       setLoading(false);
       return result;
     },
-    [applyChallenge, finishAuthenticated, pollForResult, service]
+    [applyChallenge, finishAuthenticated, pollForResult, service, setError, setLoading]
   );
 
   const submit = useCallback(
     async (credential: string): Promise<boolean> => {
-      if (!pendingChallenge) {
+      if (!stored.pendingChallenge) {
         fail('No pending credential challenge');
         return false;
       }
 
       try {
-        const result = await submitChallenge(pendingChallenge, credential);
+        const result = await submitChallenge(stored.pendingChallenge, credential);
         return result.status === 'authenticated';
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to submit credential';
@@ -205,7 +194,7 @@ export function usePersistentPrefillAuth(
         return false;
       }
     },
-    [fail, pendingChallenge, submitChallenge]
+    [fail, stored.pendingChallenge, submitChallenge]
   );
 
   const poll = useCallback(async (): Promise<PollResult> => {
@@ -213,7 +202,7 @@ export function usePersistentPrefillAuth(
       setLoading(true);
       setError(null);
       const result = await pollForResult();
-      if (cancelledRef.current) {
+      if (isPersistentLoginCancelled(service)) {
         setLoading(false);
         return result;
       }
@@ -233,30 +222,31 @@ export function usePersistentPrefillAuth(
       fail(message);
       throw err;
     }
-  }, [applyChallenge, fail, finishAuthenticated, pollForResult]);
+  }, [applyChallenge, fail, finishAuthenticated, pollForResult, service, setError, setLoading]);
 
   const start = useCallback(async (): Promise<CredentialChallenge | null> => {
-    if (startPromiseRef.current) {
-      return startPromiseRef.current;
+    const inFlight = getPersistentLoginStartPromise(service);
+    if (inFlight) {
+      return inFlight;
     }
 
     const startPromise = (async (): Promise<CredentialChallenge | null> => {
-      cancelledRef.current = false;
+      setPersistentLoginCancelled(service, false);
       setLoading(true);
       setError(null);
 
       try {
         const challenge = await ApiService.startPersistentLogin(service);
-        if (cancelledRef.current) {
+        if (isPersistentLoginCancelled(service)) {
           setLoading(false);
           return null;
         }
-        if (isAuthenticatedResponse(challenge)) {
+        if (isPersistentLoginAuthenticatedResponse(challenge)) {
           // Container already authenticated (daemon self-authed from its own volume).
           finishAuthenticated();
           return null;
         }
-        if (isCredentialChallenge(challenge)) {
+        if (isPersistentLoginCredentialChallenge(challenge)) {
           applyChallenge(challenge);
           setLoading(false);
           return challenge;
@@ -271,15 +261,15 @@ export function usePersistentPrefillAuth(
       }
     })();
 
-    startPromiseRef.current = startPromise;
+    setPersistentLoginStartPromise(service, startPromise);
     try {
       return await startPromise;
     } finally {
-      if (startPromiseRef.current === startPromise) {
-        startPromiseRef.current = null;
+      if (getPersistentLoginStartPromise(service) === startPromise) {
+        setPersistentLoginStartPromise(service, null);
       }
     }
-  }, [applyChallenge, fail, finishAuthenticated, service]);
+  }, [applyChallenge, fail, finishAuthenticated, service, setError, setLoading]);
 
   const resetAuthForm = useCallback(() => {
     setUsername('');
@@ -288,29 +278,33 @@ export function usePersistentPrefillAuth(
     setEmailCode('');
     setAuthorizationCode('');
     setUseManualCode(false);
-    setPendingChallenge(null);
-    setError(null);
-    setAuthenticated(false);
-    clearChallengeFlags();
-    setLoading(false);
-  }, [clearChallengeFlags]);
+    resetPersistentLoginState(service);
+  }, [service]);
 
   const cancel = useCallback(async (): Promise<void> => {
-    cancelledRef.current = true;
+    setPersistentLoginCancelled(service, true);
     setLoading(false);
     try {
       await ApiService.cancelPersistentLogin(service);
     } finally {
       resetAuthForm();
     }
-  }, [resetAuthForm, service]);
+  }, [resetAuthForm, service, setLoading]);
 
   const cancelPendingRequest = useCallback(() => {
     void cancel();
   }, [cancel]);
 
+  const dismissModal = useCallback(() => {
+    updatePersistentLoginState(service, (current) => ({ ...current, dismissed: true }));
+  }, [service]);
+
+  const resumeModal = useCallback(() => {
+    updatePersistentLoginState(service, (current) => ({ ...current, dismissed: false }));
+  }, [service]);
+
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
-    if (needsTwoFactor) {
+    if (stored.needsTwoFactor) {
       if (!twoFactorCode.trim()) {
         fail('Please enter your 2FA code');
         return false;
@@ -318,7 +312,7 @@ export function usePersistentPrefillAuth(
       return submit(twoFactorCode);
     }
 
-    if (needsEmailCode) {
+    if (stored.needsEmailCode) {
       if (!emailCode.trim()) {
         fail('Please enter your email verification code');
         return false;
@@ -326,7 +320,7 @@ export function usePersistentPrefillAuth(
       return submit(emailCode);
     }
 
-    if (needsAuthorizationCode) {
+    if (stored.needsAuthorizationCode) {
       if (!authorizationCode.trim()) {
         fail('Please enter the authorization code');
         return false;
@@ -340,7 +334,7 @@ export function usePersistentPrefillAuth(
     }
 
     try {
-      let challenge = pendingChallenge ?? (await start());
+      let challenge = stored.pendingChallenge ?? (await start());
       if (!challenge) {
         return false;
       }
@@ -372,23 +366,23 @@ export function usePersistentPrefillAuth(
         return confirmationResult.status === 'authenticated';
       }
 
-      return authenticated;
+      return stored.authenticated;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to authenticate';
       fail(message);
       return false;
     }
   }, [
-    authenticated,
     authorizationCode,
     emailCode,
     fail,
-    needsAuthorizationCode,
-    needsEmailCode,
-    needsTwoFactor,
     password,
-    pendingChallenge,
     start,
+    stored.authenticated,
+    stored.needsAuthorizationCode,
+    stored.needsEmailCode,
+    stored.needsTwoFactor,
+    stored.pendingChallenge,
     submit,
     submitChallenge,
     twoFactorCode,
@@ -396,23 +390,25 @@ export function usePersistentPrefillAuth(
   ]);
 
   const state: PersistentPrefillAuthState = {
-    loading,
-    needsTwoFactor,
-    needsEmailCode,
-    waitingForMobileConfirmation,
+    loading: stored.loading,
+    needsTwoFactor: stored.needsTwoFactor,
+    needsEmailCode: stored.needsEmailCode,
+    waitingForMobileConfirmation: stored.waitingForMobileConfirmation,
     useManualCode,
     username,
     password,
     twoFactorCode,
     emailCode,
-    needsAuthorizationCode,
-    authorizationUrl,
+    needsAuthorizationCode: stored.needsAuthorizationCode,
+    authorizationUrl: stored.authorizationUrl,
     authorizationCode,
-    needsDeviceCode,
-    deviceUserCode,
-    deviceVerificationUri,
-    error,
-    authenticated
+    needsDeviceCode: stored.needsDeviceCode,
+    deviceUserCode: stored.deviceUserCode,
+    deviceVerificationUri: stored.deviceVerificationUri,
+    error: stored.error,
+    authenticated: stored.authenticated,
+    hasChallenge: stored.pendingChallenge !== null,
+    dismissed: stored.dismissed
   };
 
   const actions: PersistentPrefillAuthActions = {
@@ -430,7 +426,9 @@ export function usePersistentPrefillAuth(
     start,
     submit,
     poll,
-    cancel
+    cancel,
+    dismissModal,
+    resumeModal
   };
 
   return { state, actions };

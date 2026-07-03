@@ -1,7 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { SteamPersistentLogin } from './login/SteamPersistentLogin';
 import { EpicPersistentLogin } from './login/EpicPersistentLogin';
 import { XboxPersistentLogin } from './login/XboxPersistentLogin';
+import { getPersistentServiceId } from './scheduledPrefillPlatformUi';
+import { usePersistentLoginStoreState } from './persistentLoginStore';
+import { SCHEDULED_PREFILL_TRANSIENT_STOP_GRACE_MS } from './constants';
 import type { ScheduledPrefillServiceKey } from './types';
 
 interface PersistentLoginHostProps {
@@ -24,10 +27,32 @@ export function PersistentLoginHost({
   onDismiss
 }: PersistentLoginHostProps) {
   const dismissedRef = useRef(false);
+  const serviceId = getPersistentServiceId(serviceKey);
+  const loginState = usePersistentLoginStoreState(serviceId);
+  const hasActiveLogin = loginState.loading || loginState.pendingChallenge !== null;
+  const [stableRunning, setStableRunning] = useState(isRunning);
 
   useEffect(() => {
     dismissedRef.current = false;
   }, [serviceKey]);
+
+  useEffect(() => {
+    if (isRunning) {
+      setStableRunning(true);
+      return;
+    }
+
+    if (!hasActiveLogin) {
+      setStableRunning(false);
+      return;
+    }
+
+    const timer = setTimeout(
+      () => setStableRunning(false),
+      SCHEDULED_PREFILL_TRANSIENT_STOP_GRACE_MS
+    );
+    return () => clearTimeout(timer);
+  }, [isRunning, hasActiveLogin]);
 
   useEffect(() => {
     if (isAuthenticated && !dismissedRef.current) {
@@ -48,14 +73,14 @@ export function PersistentLoginHost({
     }
   };
 
-  if (!isRunning || isAuthenticated) {
+  if (!stableRunning || isAuthenticated) {
     return null;
   }
 
   if (serviceKey === 'steam') {
     return (
       <SteamPersistentLogin
-        isRunning={isRunning}
+        isRunning={stableRunning}
         isAuthenticated={isAuthenticated}
         onAuthenticated={handleAuthenticated}
         autoStart
@@ -67,7 +92,7 @@ export function PersistentLoginHost({
   if (serviceKey === 'epic') {
     return (
       <EpicPersistentLogin
-        isRunning={isRunning}
+        isRunning={stableRunning}
         isAuthenticated={isAuthenticated}
         onAuthenticated={handleAuthenticated}
         autoStart
@@ -79,7 +104,7 @@ export function PersistentLoginHost({
   if (serviceKey === 'xbox') {
     return (
       <XboxPersistentLogin
-        isRunning={isRunning}
+        isRunning={stableRunning}
         isAuthenticated={isAuthenticated}
         onAuthenticated={handleAuthenticated}
         autoStart

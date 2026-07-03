@@ -13,6 +13,13 @@ interface EpicAuthModalProps {
   state: EpicAuthState;
   actions: EpicAuthActions;
   onCancelLogin?: () => void;
+  /**
+   * 'cancel' (default, the manager's own mapping-login flow): any close - X, backdrop, Escape, or
+   * the footer button - cancels the in-flight login. 'keep-pending' (the persistent-container
+   * flow): a plain close only hides the modal and leaves the daemon login resumable; only the
+   * footer button actually cancels.
+   */
+  dismissBehavior?: 'cancel' | 'keep-pending';
 }
 
 export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
@@ -20,9 +27,11 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
   onClose,
   state,
   actions,
-  onCancelLogin
+  onCancelLogin,
+  dismissBehavior = 'cancel'
 }) => {
   const { t } = useTranslation();
+  const isKeepPending = dismissBehavior === 'keep-pending';
   const { loading, needsAuthorizationCode, authorizationUrl, authorizationCode } = state;
 
   const { setAuthorizationCode, handleAuthenticate, cancelPendingRequest } = actions;
@@ -49,6 +58,19 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
     onClose();
   };
 
+  // keep-pending (persistent-container flow): X/backdrop/Escape only hide the modal - the daemon
+  // login keeps running and stays resumable. Only the explicit Cancel button below actually cancels.
+  const handleSoftClose = () => {
+    onClose();
+  };
+
+  const handleExplicitCancel = () => {
+    cancelPendingRequest();
+    actions.resetAuthForm();
+    onCancelLogin?.();
+    onClose();
+  };
+
   const handleSubmit = async () => {
     if (isSubmitting || loading) return;
     setIsSubmitting(true);
@@ -72,7 +94,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
   return (
     <Modal
       opened={opened}
-      onClose={handleCloseModal}
+      onClose={isKeepPending ? handleSoftClose : handleCloseModal}
       title={
         <div className="flex items-center gap-3">
           <EpicIcon size={20} className="text-[var(--theme-epic)]" />
@@ -82,6 +104,12 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
       size="md"
     >
       <div className="space-y-5">
+        {isKeepPending && (
+          <p className="text-xs text-themed-muted text-center">
+            {t('modals.epicAuth.containerAccountNotice')}
+          </p>
+        )}
+
         {/* Step Indicator */}
         <div className="flex items-center justify-center gap-2">
           <StepDot active={!needsAuthorizationCode} completed={needsAuthorizationCode} />
@@ -187,7 +215,11 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
 
         {/* Action Buttons */}
         <div className="flex gap-3 pt-2 border-t border-themed-secondary">
-          <Button variant="default" onClick={handleCloseModal} className="flex-1">
+          <Button
+            variant="default"
+            onClick={isKeepPending ? handleExplicitCancel : handleCloseModal}
+            className="flex-1"
+          >
             {t('common.cancel')}
           </Button>
           {needsAuthorizationCode ? (

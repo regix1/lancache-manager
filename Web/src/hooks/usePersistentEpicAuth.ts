@@ -6,6 +6,8 @@ import type { EpicAuthActions, EpicAuthState } from './useEpicMappingAuth';
 interface PersistentEpicAuthState extends EpicAuthState {
   error: string | null;
   authenticated: boolean;
+  hasChallenge: boolean;
+  dismissed: boolean;
 }
 
 interface UsePersistentEpicAuthOptions {
@@ -45,7 +47,9 @@ export function usePersistentEpicAuth(options: UsePersistentEpicAuthOptions = {}
     authorizationUrl: coreState.authorizationUrl,
     authorizationCode: coreState.authorizationCode,
     error: coreState.error,
-    authenticated: coreState.authenticated
+    authenticated: coreState.authenticated,
+    hasChallenge: coreState.hasChallenge,
+    dismissed: coreState.dismissed
   };
 
   const actions: EpicAuthActions = {
@@ -55,5 +59,11 @@ export function usePersistentEpicAuth(options: UsePersistentEpicAuthOptions = {}
     cancelPendingRequest: coreActions.cancelPendingRequest
   };
 
-  return { state, actions, startLogin };
+  return {
+    state,
+    actions,
+    startLogin,
+    dismissModal: coreActions.dismissModal,
+    resumeModal: coreActions.resumeModal
+  };
 }

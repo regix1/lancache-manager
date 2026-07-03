@@ -9,8 +9,12 @@ public abstract partial class PrefillDaemonServiceBase
 
     /// <summary>
     /// Handles credential challenge events from socket communication.
+    /// Protected (not private) so tests can invoke it directly via a subclass seam, mirroring
+    /// FailLoginFastAsync's accessibility widening in PersistentLoginChallengeResumeTests.cs -
+    /// production session creation wires this to <c>IDaemonClient.OnCredentialChallenge</c>, which
+    /// a test harness that injects a session directly bypasses.
     /// </summary>
-    private async Task OnCredentialChallengeAsync(DaemonSession session, CredentialChallenge challenge)
+    protected async Task OnCredentialChallengeAsync(DaemonSession session, CredentialChallenge challenge)
     {
         try
         {
@@ -25,6 +29,15 @@ public abstract partial class PrefillDaemonServiceBase
                 "authorization-url" => DaemonAuthState.AuthorizationUrlRequired,
                 _ => session.AuthState
             };
+
+            // Cache this as the session's current resumable challenge BEFORE the hub push below.
+            // This is the ONLY place a follow-on challenge (password after username, 2FA after
+            // password, etc.) reaches the cache - StartLoginCoreAsync only sets it for the FIRST
+            // challenge of a fresh attempt. Without this, ProvideCredentialAsync consuming the
+            // prior challenge plus this event delivering the next one would leave a stale earlier
+            // challenge (or nothing) in the cache for any REST resume/poll (GET /challenge, the
+            // reopen reconcile, or a SignalR-down poll fallback) to serve.
+            session.PendingLoginChallenge = challenge;
 
             await NotifyCredentialChallengeAsync(session, challenge);
         }
@@ -169,9 +182,12 @@ public abstract partial class PrefillDaemonServiceBase
         // Single robust point covering every login path (interactive + auto-login): once a
         // session transitions to Authenticated, it no longer needs a re-login. Clear the flag
         // here so a previously-flagged persistent container stops reporting needs-relogin.
+        // Also drop any cached resume challenge - once the daemon has moved on to Authenticated,
+        // that challenge is stale and must never be served to a later resume.
         if (session.AuthState == DaemonAuthState.Authenticated)
         {
             session.NeedsRelogin = false;
+            ClearPendingLoginChallenge(session);
         }
 
         var payload = new { sessionId = session.Id, authState = session.AuthState.ToString() };
@@ -198,6 +214,15 @@ public abstract partial class PrefillDaemonServiceBase
     {
         await BroadcastToSubscribersAsync(session, EventCredentialChallenge,
             new { sessionId = session.Id, challenge });
+
+        // Mirror to DownloadHub (matches NotifyAuthStateChangeAsync's AuthStateChanged/SessionUpdated
+        // mirror above) so the persistent-container config modal - which never calls
+        // SubscribeToSessionAsync, unlike the mapping-flow live login - receives the challenge the
+        // instant the daemon emits it instead of waiting on the REST challenge poll. Same Clients.All
+        // scoping as every other event this funnel already broadcasts; not narrowed to an admin-only
+        // group since no such group plumbing exists for this funnel today (see W4 results for the
+        // scoping rationale).
+        await NotifyHubAsync(EventCredentialChallenge, new { sessionId = session.Id, challenge });
     }
 
     private async Task NotifyStatusChangeAsync(DaemonSession session, DaemonStatus status)

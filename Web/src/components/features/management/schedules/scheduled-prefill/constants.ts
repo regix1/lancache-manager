@@ -99,6 +99,29 @@ export const SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS = {
   max: 256
 } as const;
 
+/**
+ * How long the per-run result line (e.g. "Riot: Prefill completed (130.05 MB downloaded)")
+ * stays visible on the schedule card summary before auto-dismissing back to idle.
+ * Scaled from this folder's own precedent (`ScheduledPrefillConfigModal.tsx`'s 2500ms
+ * "settings saved" dismiss) and the app-wide notification defaults (`AUTO_DISMISS_DELAY_MS`
+ * = 5000ms, `STEAM_ERROR_DISMISS_DELAY_MS` = 2x that for errors): this line carries more
+ * to read (service name + duration/byte count) than a bare "saved" notice, so it gets a
+ * longer completed delay, and failures get the same ~2x multiplier the notification system
+ * already uses for errors.
+ */
+export const SCHEDULED_PREFILL_RUN_COMPLETED_DISMISS_MS = 8000;
+export const SCHEDULED_PREFILL_RUN_FAILED_DISMISS_MS = 15000;
+
+/**
+ * A single container-list refresh reporting a persistent session as stopped/missing can be a
+ * transient blip (adopt-or-replace churn, a SignalR refresh racing the daemon) rather than a real
+ * stop. Both `PersistentLoginHost` (before unmounting an in-flight login) and
+ * `ScheduledPrefillConfigModal`'s cleanup effect (before wiping `persistentLoginStore`) give a
+ * stop this long to prove itself real before acting on it - they must share one grace period so
+ * the modal's store cleanup never lands before the host's own grace timer decides the stop is real.
+ */
+export const SCHEDULED_PREFILL_TRANSIENT_STOP_GRACE_MS = 10_000;
+
 /** Maps backend PrefillPlatform names to frontend service config keys. */
 export const SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY: Record<string, ScheduledPrefillServiceKey> =
   {

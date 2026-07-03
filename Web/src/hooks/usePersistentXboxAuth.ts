@@ -6,6 +6,8 @@ import type { XboxAuthActions, XboxAuthState } from './useXboxMappingAuth';
 interface PersistentXboxAuthState extends XboxAuthState {
   error: string | null;
   authenticated: boolean;
+  hasChallenge: boolean;
+  dismissed: boolean;
 }
 
 interface UsePersistentXboxAuthOptions {
@@ -13,6 +15,14 @@ interface UsePersistentXboxAuthOptions {
   onSuccess?: () => void;
   onError?: (message: string) => void;
 }
+
+// Floor between successive polls that both observe the SAME still-pending challenge (e.g. the
+// device-code the user hasn't confirmed yet). The backend's resume cache (DaemonSession.
+// PendingLoginChallenge) can now resolve a 'challenge' poll result INSTANTLY instead of long-polling
+// up to timeoutSeconds, so without this floor the loop below would spin hot against the endpoint for
+// the entire device-code wait. A genuinely new challenge (or a 'pending' result, which already
+// reflects a real backend-side wait) is never delayed.
+const SAME_CHALLENGE_POLL_BACKOFF_MS = 2500;
 
 export function usePersistentXboxAuth(options: UsePersistentXboxAuthOptions = {}) {
   const { state: coreState, actions: coreActions } = usePersistentPrefillAuth({
@@ -23,11 +33,18 @@ export function usePersistentXboxAuth(options: UsePersistentXboxAuthOptions = {}
 
   const pollUntilAuthenticated = useCallback(
     async (generation: number): Promise<boolean> => {
+      let lastChallengeId: string | null = null;
       while (pollGenerationRef.current === generation) {
         const result = await coreActions.poll();
         if (result.status === 'authenticated') {
           return true;
         }
+
+        const challengeId = result.status === 'challenge' ? result.challenge.challengeId : null;
+        if (challengeId !== null && challengeId === lastChallengeId) {
+          await new Promise((resolve) => setTimeout(resolve, SAME_CHALLENGE_POLL_BACKOFF_MS));
+        }
+        lastChallengeId = challengeId;
       }
 
       return false;
@@ -75,7 +92,9 @@ export function usePersistentXboxAuth(options: UsePersistentXboxAuthOptions = {}
     deviceUserCode: coreState.deviceUserCode,
     deviceVerificationUri: coreState.deviceVerificationUri,
     error: coreState.error,
-    authenticated: coreState.authenticated
+    authenticated: coreState.authenticated,
+    hasChallenge: coreState.hasChallenge,
+    dismissed: coreState.dismissed
   };
 
   const actions: XboxAuthActions = {
@@ -84,5 +103,12 @@ export function usePersistentXboxAuth(options: UsePersistentXboxAuthOptions = {}
     cancelPendingRequest
   };
 
-  return { state, actions, startLogin, cancelLogin };
+  return {
+    state,
+    actions,
+    startLogin,
+    cancelLogin,
+    dismissModal: coreActions.dismissModal,
+    resumeModal: coreActions.resumeModal
+  };
 }

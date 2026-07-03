@@ -4192,6 +4192,9 @@
     },
     "steamAuth": {
       "title": "Steam 账户登录",
+      "connectingTitle": "正在连接 Steam...",
+      "connectingSubtitle": "正在启动登录流程",
+      "containerAccountNotice": "正在登录此容器自己的 Steam 账户。这与您的 lancache-manager Steam 登录是分开的。",
       "labels": {
         "username": "用户名",
         "password": "密码"
@@ -4240,6 +4243,7 @@
     },
     "epicAuth": {
       "title": "Epic Games 认证",
+      "containerAccountNotice": "正在登录此容器自己的 Epic Games 账户。这与您的 lancache-manager Epic Games 登录是分开的。",
       "signInTitle": "使用 Epic Games 登录",
       "signInDescription": "您将被重定向到 Epic Games 以授权访问您的游戏库。登录后，您将收到一个代码并粘贴回此处。",
       "securityNote": "认证使用 Epic 的官方 OAuth 流程。您的凭据直接在 Epic 网站上输入，绝不会与此应用共享。",
@@ -4260,6 +4264,7 @@
     },
     "xboxAuth": {
       "title": "Xbox 认证",
+      "containerAccountNotice": "正在登录此容器自己的 Xbox 账户。这与您的 lancache-manager Xbox 登录是分开的。",
       "signInTitle": "使用您的 Microsoft 账户登录",
       "signInDescription": "您将获得一个短代码，用于在浏览器中的 Microsoft 验证页面上输入。批准后，此应用将连接到您的 Xbox 和 Microsoft Store 库。",
       "securityNote": "登录使用 Microsoft 的官方设备代码流程。您仅在 Microsoft 网站上输入密码，绝不会与此应用共享。",

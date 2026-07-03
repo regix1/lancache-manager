@@ -11,6 +11,8 @@ import type {
 import {
   SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS,
   SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY,
+  SCHEDULED_PREFILL_RUN_COMPLETED_DISMISS_MS,
+  SCHEDULED_PREFILL_RUN_FAILED_DISMISS_MS,
   SCHEDULED_PREFILL_SERVICE_RUN_ORDER
 } from './constants';
 import ScheduleIntervalPicker from '../ScheduleIntervalPicker';
@@ -27,6 +29,7 @@ import type {
   ScheduledPrefillStartedEvent
 } from './types';
 import { getErrorMessage, isAbortError } from '@utils/error';
+import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 
 interface ScheduledPrefillScheduleDetailProps {
   disabled?: boolean;
@@ -50,6 +53,15 @@ export function ScheduledPrefillScheduleDetail({
   const [runError, setRunError] = useState<string | null>(null);
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const eventsKey = 'management.schedules.services.scheduledPrefill.events';
+
+  // Auto-dismiss the terminal run-result line (e.g. "Riot: Prefill completed (130.05 MB
+  // downloaded)") back to idle so it does not linger on the card forever; in-progress runs
+  // never schedule a dismiss. Each hook instance cancels its own prior pending timer, so a
+  // new terminal event for the same kind always restarts the clock.
+  const scheduleRunCompletedDismiss = useTimeoutCallback(
+    SCHEDULED_PREFILL_RUN_COMPLETED_DISMISS_MS
+  );
+  const scheduleRunFailedDismiss = useTimeoutCallback(SCHEDULED_PREFILL_RUN_FAILED_DISMISS_MS);
 
   const loadSummary = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -166,11 +178,19 @@ export function ScheduledPrefillScheduleDetail({
       if (payload.success) {
         setRunPhase('completed');
         setRunError(null);
+        // Only reset to idle if a newer event (e.g. the next scheduled run starting) hasn't
+        // already moved the phase on; otherwise this stale timer would be a no-op by design.
+        scheduleRunCompletedDismiss(() => {
+          setRunPhase((current) => (current === 'completed' ? 'idle' : current));
+        });
         return;
       }
 
       setRunPhase('failed');
       setRunError(payload.error ?? t(`${eventsKey}.failed`));
+      scheduleRunFailedDismiss(() => {
+        setRunPhase((current) => (current === 'failed' ? 'idle' : current));
+      });
     };
 
     on('ScheduledPrefillStarted', handleStarted);
@@ -182,7 +202,15 @@ export function ScheduledPrefillScheduleDetail({
       off('ScheduledPrefillProgress', handleProgress);
       off('ScheduledPrefillCompleted', handleCompleted);
     };
-  }, [eventsKey, off, on, refreshSchedule, t]);
+  }, [
+    eventsKey,
+    off,
+    on,
+    refreshSchedule,
+    scheduleRunCompletedDismiss,
+    scheduleRunFailedDismiss,
+    t
+  ]);
 
   const enabledCount = useMemo(
     () =>

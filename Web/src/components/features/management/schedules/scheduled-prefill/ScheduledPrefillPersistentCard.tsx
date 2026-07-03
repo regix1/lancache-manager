@@ -1,12 +1,17 @@
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
+import { Alert } from '@components/ui/Alert';
 import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatTimeRemaining } from '@components/features/prefill/types';
 import { formatBytes, formatDateTime } from '@utils/formatters';
 import { SCHEDULED_PREFILL_BUTTON_SIZE } from './constants';
-import { isScheduledPrefillAnonymousService } from './scheduledPrefillPlatformUi';
+import {
+  getPersistentServiceId,
+  isScheduledPrefillAnonymousService
+} from './scheduledPrefillPlatformUi';
+import { usePersistentLoginStoreState } from './persistentLoginStore';
 import type { ScheduledPrefillPersistentCardProps } from './scheduledPrefillPersistentTypes';
 
 type StatusTone = 'idle' | 'warning' | 'active' | 'running';
@@ -43,6 +48,11 @@ export function ScheduledPrefillPersistentCard({
   // ready as soon as it's running, so every authenticated-gated conditional below treats
   // "running" as sufficient and the login/logout controls never render.
   const isAnonymous = isScheduledPrefillAnonymousService(serviceKey);
+  // Login-flow state lives in the module-level persistent-login store (survives the auth modal
+  // being hidden/unmounted), so the row can show its own login error directly - no more floating
+  // alert rendered outside any card (diagnostic §6 item 6).
+  const loginState = usePersistentLoginStoreState(getPersistentServiceId(serviceKey));
+  const loginError = isAnonymous ? null : loginState.error;
   const isRunning = container?.isRunning ?? false;
   const isAuthenticated = container?.isAuthenticated ?? false;
   const isPrefilling = container?.isPrefilling ?? false;
@@ -143,6 +153,12 @@ export function ScheduledPrefillPersistentCard({
               {statusDisplay.label}
             </span>
           </div>
+
+          {loginError && (
+            <Alert color="red" className="scheduled-prefill-persistent-card__auth-alert">
+              {t('prefill.persistent.loginFailed', { error: loginError })}
+            </Alert>
+          )}
 
           {!isAnonymous && container && isRunning && (
             <div className="scheduled-prefill-persistent-card__meta">

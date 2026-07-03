@@ -28,6 +28,13 @@ interface XboxAuthModalProps {
   state: XboxAuthModalState;
   actions: XboxAuthModalActions;
   onCancelLogin?: () => void;
+  /**
+   * 'cancel' (default, the manager's own mapping-login flow): any close - X, backdrop, Escape, or
+   * the footer button - cancels the in-flight login. 'keep-pending' (the persistent-container
+   * flow): a plain close only hides the modal (including mid device-code) and leaves the daemon
+   * login resumable; only the footer button actually cancels.
+   */
+  dismissBehavior?: 'cancel' | 'keep-pending';
 }
 
 /**
@@ -43,9 +50,11 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
   onClose,
   state,
   actions,
-  onCancelLogin
+  onCancelLogin,
+  dismissBehavior = 'cancel'
 }) => {
   const { t } = useTranslation();
+  const isKeepPending = dismissBehavior === 'keep-pending';
   const { loading, needsDeviceCode, deviceUserCode, deviceVerificationUri } = state;
 
   const { handleAuthenticate, cancelPendingRequest } = actions;
@@ -61,6 +70,20 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
       return;
     }
 
+    onClose();
+  };
+
+  // keep-pending (persistent-container flow): X/backdrop/Escape only hide the modal, even mid
+  // device-code - the daemon login keeps running and stays resumable (diagnostic §5: Xbox close
+  // used to auto-cancel here). Only the explicit Cancel button below actually cancels.
+  const handleSoftClose = () => {
+    onClose();
+  };
+
+  const handleExplicitCancel = () => {
+    cancelPendingRequest();
+    actions.resetAuthForm();
+    onCancelLogin?.();
     onClose();
   };
 
@@ -87,7 +110,7 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
   return (
     <Modal
       opened={opened}
-      onClose={handleCloseModal}
+      onClose={isKeepPending ? handleSoftClose : handleCloseModal}
       title={
         <div className="flex items-center gap-3">
           <XboxIcon size={20} className="text-[var(--theme-xbox)]" />
@@ -97,6 +120,12 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
       size="md"
     >
       <div className="space-y-5">
+        {isKeepPending && (
+          <p className="text-xs text-themed-muted text-center">
+            {t('modals.xboxAuth.containerAccountNotice')}
+          </p>
+        )}
+
         {/* Step Indicator */}
         <div className="flex items-center justify-center gap-2">
           <StepDot active={!needsDeviceCode} completed={needsDeviceCode} />
@@ -191,7 +220,11 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
 
         {/* Action Buttons */}
         <div className="flex gap-3 pt-2 border-t border-themed-secondary">
-          <Button variant="default" onClick={handleCloseModal} className="flex-1">
+          <Button
+            variant="default"
+            onClick={isKeepPending ? handleExplicitCancel : handleCloseModal}
+            className="flex-1"
+          >
             {t('common.cancel')}
           </Button>
           {!needsDeviceCode && (

@@ -27,6 +27,21 @@ public class DaemonSession
     public string? LastLoginFailureMessage { get; set; }
 
     /// <summary>
+    /// The credential challenge most recently handed back to a caller of
+    /// <see cref="PrefillDaemonServiceBase.StartLoginAsync(string, TimeSpan?, CancellationToken)"/> for this
+    /// session, retained so a SECOND login request arriving while the daemon is still mid-flow (e.g. the
+    /// frontend closed/reopened the login modal) can be answered with the SAME challenge instead of issuing
+    /// another daemon <c>login</c> command - the daemon replies "already in progress" without re-emitting a
+    /// challenge, and the socket/TCP client destroys its own queued copy the moment a second
+    /// <c>StartLoginAsync</c> is invoked, so a resume must never reach the daemon at all. Cleared on
+    /// cancel-login, on any transition to <see cref="DaemonAuthState.Authenticated"/> (see
+    /// <see cref="PrefillDaemonServiceBase.NotifyAuthStateChangeAsync(DaemonSession)"/>), on a fail-fast login
+    /// failure, and on session termination, so a stale challenge is never served once the daemon has moved on.
+    /// Transient - not persisted, not part of <see cref="DaemonSessionDto"/>.
+    /// </summary>
+    public CredentialChallenge? PendingLoginChallenge { get; set; }
+
+    /// <summary>
     /// Serializes login attempts on this session (<c>PrefillDaemonServiceBase.StartLoginAsync</c>).
     /// Overlapping calls would race the daemon's single challenge/status stream, clobber each other's
     /// <see cref="LastLoginFailureMessage"/>/<see cref="AuthState"/> writes, and stack duplicate
