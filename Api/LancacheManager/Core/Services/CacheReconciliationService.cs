@@ -1941,8 +1941,38 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             };
 
             int detectionRowsChanged;
+            bool deletedActiveDetectionRow = false;
             if (!anyRemaining)
             {
+                // The delete below removes the detection row regardless of its IsEvicted flag,
+                // and a row can still be ACTIVE (contributing bytes to the persisted disk
+                // summary) while every one of its downloads is evicted. Deleting such a row
+                // dirties the summary, so capture that before the delete - it decides whether
+                // the expensive disk-summary refresh below can be skipped.
+                deletedActiveDetectionRow = scope switch
+                {
+                    EvictionScope.Steam => await context.CachedGameDetections
+                        .AnyAsync(g => !g.IsEvicted
+                                    && g.GameAppId == long.Parse(key)
+                                    && g.EpicAppId == null, stoppingToken),
+
+                    EvictionScope.Epic => await context.CachedGameDetections
+                        .AnyAsync(g => !g.IsEvicted && g.EpicAppId == key, stoppingToken),
+
+                    EvictionScope.Named => await context.CachedGameDetections
+                        .AnyAsync(g => !g.IsEvicted
+                                    && g.GameAppId == 0
+                                    && g.EpicAppId == null
+                                    && g.Service != null
+                                    && g.Service.ToLower() == keyLower
+                                    && g.GameName == namedGameName, stoppingToken),
+
+                    EvictionScope.Service => await context.CachedServiceDetections
+                        .AnyAsync(s => !s.IsEvicted && s.ServiceName == keyLower, stoppingToken),
+
+                    _ => false
+                };
+
                 detectionRowsChanged = scope switch
                 {
                     EvictionScope.Steam => await context.CachedGameDetections
@@ -2013,13 +2043,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // use case (background reconciliation). It now keys off Downloads.IsEvicted (via
             // GetServicesToUnevictAsync) so it stays correct for that scenario; the targeted
             // un-evict above handles the user-triggered removal.
+            int unevictedRows;
             if (scope == EvictionScope.Service)
             {
-                await UnevictCachedServiceDetectionsAsync(context, _logger, _gameCacheDetectionDataService, stoppingToken);
+                unevictedRows = await UnevictCachedServiceDetectionsAsync(context, _logger, _gameCacheDetectionDataService, stoppingToken);
             }
             else
             {
-                await UnevictCachedGameDetectionsAsync(
+                unevictedRows = await UnevictCachedGameDetectionsAsync(
                     context,
                     _logger,
                     _gameCacheDetectionDataService,
@@ -2027,19 +2058,44 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     stoppingToken);
             }
 
-            // Invalidate the detection cache so the frontend refetch gets fresh data
-            await ReportRemovalProgressAsync(
-                opId,
-                90,
-                "finalizing_removal",
-                "signalr.evictionRemove.finalizingRemoval",
-                downloadsRemoved: downloadsDeleted,
-                logEntriesRemoved: logEntriesDeleted);
-
             var detectionService = _serviceProvider.GetService<GameCacheDetectionService>();
             if (detectionService != null)
             {
-                await detectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
+                // The disk-summary recompute stats every persisted cache path of every ACTIVE
+                // detection row (minutes on large caches) but reads nothing from evicted rows,
+                // so deleting an evicted entity's rows cannot change its result. It is needed
+                // only when this removal flipped rows back to active (partial eviction clears
+                // IsEvicted, or the self-heal un-evicted entities whose files reappeared).
+                // Otherwise invalidating the in-memory detection cache is enough for the
+                // frontend refetch to see the deleted rows, and the op completes in seconds
+                // instead of sitting at 90% through a full path-stat walk.
+                var summaryDirty = (anyRemaining && detectionRowsChanged > 0)
+                    || deletedActiveDetectionRow
+                    || unevictedRows > 0;
+                if (summaryDirty)
+                {
+                    await ReportRemovalProgressAsync(
+                        opId,
+                        90,
+                        "refreshing_detection",
+                        "signalr.evictionRemove.refreshingDetection",
+                        downloadsRemoved: downloadsDeleted,
+                        logEntriesRemoved: logEntriesDeleted);
+
+                    await detectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
+                }
+                else
+                {
+                    await ReportRemovalProgressAsync(
+                        opId,
+                        90,
+                        "finalizing_removal",
+                        "signalr.evictionRemove.finalizingRemoval",
+                        downloadsRemoved: downloadsDeleted,
+                        logEntriesRemoved: logEntriesDeleted);
+
+                    detectionService.InvalidateDetectionCache();
+                }
             }
 
             await CompleteRemovalAsync(

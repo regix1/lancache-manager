@@ -377,6 +377,19 @@ function recoverEvictionRemovals(
       const notificationId = NOTIFICATION_IDS.EVICTION_REMOVAL;
 
       setNotifications((prev: UnifiedNotification[]) => {
+        // A live card for this same operation may already exist (SignalR stayed connected, or
+        // localStorage restored it with its last progress). Keep it - replacing it here would
+        // throw away the current progress/stage and regress the card to the progress-less
+        // "Removing evicted records..." starting state mid-run.
+        const existing = prev.find((n) => n.id === notificationId);
+        if (
+          existing &&
+          existing.status === 'running' &&
+          existing.details?.operationId === op.operationId
+        ) {
+          return prev;
+        }
+
         const filtered = prev.filter((n) => n.id !== notificationId);
         return [
           ...filtered,

@@ -409,10 +409,14 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     // Update the ref for next comparison
     prevConnectionStateRef.current = currentState;
 
-    // Only trigger recovery on RECONNECTION (not initial connection)
-    // Reconnection is when we transition TO 'connected' FROM 'reconnecting' or 'disconnected'
-    // but NOT from null (initial mount) since the auth-based recovery handles that
-    if (currentState === 'connected' && prevState !== null && prevState !== 'connected') {
+    // Trigger recovery on EVERY transition to 'connected', including the initial connection.
+    // The page-load recovery effect races the SignalR connection: it can fetch active ops and
+    // seed a running card BEFORE the hub subscription is live, so a completion emitted in that
+    // gap is lost and the recovered card would stay "running" forever. Re-running recovery once
+    // the connection lands reconciles that window (the no-active-op branch marks the card
+    // completed); live cards are safe because recovery keeps an existing running card for the
+    // same operationId instead of replacing it.
+    if (currentState === 'connected' && prevState !== 'connected') {
       const recoverAllOperations = createRecoveryRunner(
         fetchWithAuth,
         setNotifications,
