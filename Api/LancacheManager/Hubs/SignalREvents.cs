@@ -41,6 +41,7 @@ public static class SignalREvents
     public const string CorruptionDetectionStarted = "CorruptionDetectionStarted";
     public const string CorruptionDetectionProgress = "CorruptionDetectionProgress";
     public const string CorruptionDetectionComplete = "CorruptionDetectionComplete";
+    public const string CorruptionDetailsProgress = "CorruptionDetailsProgress";
     public const string CorruptionRemovalStarted = "CorruptionRemovalStarted";
     public const string CorruptionRemovalProgress = "CorruptionRemovalProgress";
     public const string CorruptionRemovalComplete = "CorruptionRemovalComplete";

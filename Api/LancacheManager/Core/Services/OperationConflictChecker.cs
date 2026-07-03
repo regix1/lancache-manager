@@ -183,10 +183,19 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
 
         if (newType == OperationType.CorruptionDetection && activeOp.Type == OperationType.CorruptionDetection)
         {
-            return BuildResponse(activeOp, activeScope,
-                stageKey: "errors.conflict.duplicate",
-                englishError: "Corruption detection is already running.",
-                context: new Dictionary<string, object?> { ["activeType"] = activeOp.Type.ToString() });
+            // Per-service "view details" fetches only conflict with the bulk scan (which touches
+            // every service) or another fetch for the SAME service. Two detail fetches for
+            // DIFFERENT services are independent read-only lookups and must not block each other -
+            // CacheManagementService already serializes the actual Rust process via its own lock.
+            if (activeScope.Kind == "bulk" || newScope.Kind == "bulk" || newScope.Matches(activeScope))
+            {
+                return BuildResponse(activeOp, activeScope,
+                    stageKey: "errors.conflict.duplicate",
+                    englishError: "Corruption detection is already running.",
+                    context: new Dictionary<string, object?> { ["activeType"] = activeOp.Type.ToString() });
+            }
+
+            return null;
         }
 
         // GameDetection/CorruptionDetection alongside any removal → ALLOW (read-only tolerate).
@@ -408,6 +417,11 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
                 }
                 return new ConflictScope(e.Scope!, e.Key!);
             }
+
+            // Per-service "Corruption Details (service)" fetches carry ServiceName; the bulk
+            // scan's metadata leaves it null, so it correctly falls through to Bulk() below.
+            case CorruptionDetectionMetrics c when !string.IsNullOrEmpty(c.ServiceName):
+                return ConflictScope.Service(c.ServiceName!);
 
             default:
                 // No metadata (global scans / detections / cache-clear / db-reset) - treat as bulk.

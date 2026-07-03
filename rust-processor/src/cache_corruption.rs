@@ -56,6 +56,12 @@ enum Commands {
         /// Detect re-downloaded chunks (HIT retries) instead of MISS-based corruption
         #[arg(long, default_value = "false")]
         detect_redownloads: bool,
+        /// Path to progress JSON file (omit to skip progress-file writes)
+        #[arg(long)]
+        progress_json: Option<String>,
+        /// Emit JSON progress events to stdout
+        #[arg(short, long)]
+        progress: bool,
     },
     /// Quick JSON summary of corrupted chunk counts per service
     Summary {
@@ -296,13 +302,15 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     match args.command {
-        Commands::Detect { log_dir, cache_dir, output_json, timezone, threshold, no_cache_check, detect_redownloads } => {
+        Commands::Detect { log_dir, cache_dir, output_json, timezone, threshold, no_cache_check, detect_redownloads, progress_json, progress } => {
 
             let log_dir = PathBuf::from(&log_dir);
             let cache_dir = PathBuf::from(&cache_dir);
             let output_json = PathBuf::from(&output_json);
             let timezone = timezone.map(|tz| parse_timezone(&tz)).unwrap_or(chrono_tz::UTC);
             let threshold = threshold.unwrap_or(3);
+            let reporter = ProgressReporter::new(progress);
+            let progress_path = progress_json.map(PathBuf::from);
 
             if detect_redownloads {
                 eprintln!("Detecting re-downloaded chunks (HIT retries)...");
@@ -316,31 +324,57 @@ async fn main() -> Result<()> {
             eprintln!("  Skip cache check: {}", no_cache_check);
             eprintln!("  Detect redownloads: {}", detect_redownloads);
 
+            // Seed the (C#-pre-created, empty) progress file before the "started" event so an
+            // event-triggered read never sees empty JSON - mirrors the Summary subcommand's invariant.
+            if let Some(path) = progress_path.as_deref() {
+                let starting = ProgressData {
+                    status: "starting".to_string(),
+                    stage_key: "signalr.corruptionRemove.scanningFiles".to_string(),
+                    context: json!({}),
+                    percent_complete: 0.0,
+                    files_processed: 0,
+                    total_files: 0,
+                    timestamp: progress_utils::current_timestamp(),
+                };
+                if let Err(e) = progress_utils::write_progress_json(path, &starting) {
+                    eprintln!("Warning: failed to seed progress file: {:#}", e);
+                }
+            }
+            reporter.emit_started("signalr.corruptionRemove.scanningFiles", json!({}));
 
             let detector = CorruptionDetector::new(&cache_dir, threshold)
                 .with_skip_cache_check(no_cache_check);
+            // Granular scanning ticks come from cache_corruption_detector.rs's
+            // detect_*_chunks_with_progress (progress-file only); the stdout channel here
+            // brackets the coarse started/complete lifecycle, same split as Commands::Summary.
             let report = if detect_redownloads {
-                match detector.generate_redownload_report(&log_dir, "access.log", timezone) {
+                match detector.generate_redownload_report(&log_dir, "access.log", timezone, progress_path.as_deref()) {
                     Ok(r) => r,
                     Err(e) => {
                         let msg = format!("Failed to generate re-download report: {}", e);
+                        reporter.emit_failed("signalr.corruptionRemove.error.fatal", json!({ "errorDetail": msg }));
                         anyhow::bail!("{}", msg);
                     }
                 }
             } else {
-                match detector.generate_report(&log_dir, "access.log", timezone) {
+                match detector.generate_report(&log_dir, "access.log", timezone, progress_path.as_deref()) {
                     Ok(r) => r,
                     Err(e) => {
                         let msg = format!("Failed to generate corruption report: {}", e);
+                        reporter.emit_failed("signalr.corruptionRemove.error.fatal", json!({ "errorDetail": msg }));
                         anyhow::bail!("{}", msg);
                     }
                 }
             };
 
-
             eprintln!("Found {} corrupted chunks across {} services",
                 report.summary.total_corrupted,
                 report.summary.service_counts.len());
+
+            reporter.emit_complete(
+                "signalr.corruptionRemove.complete",
+                json!({ "totalCorrupted": report.summary.total_corrupted, "serviceCounts": report.summary.service_counts }),
+            );
 
             // Write detailed report to JSON
             let json = serde_json::to_string_pretty(&report)?;

@@ -7,6 +7,7 @@ using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using static LancacheManager.Infrastructure.Utilities.FormattingUtils;
+using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -763,6 +764,7 @@ public partial class CacheManagementService
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
             var outputJson = Path.Combine(operationsDir, $"corruption_details_{service}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
+            var progressFile = Path.Combine(operationsDir, $"corruption_details_progress_{operationId}.json");
 
             var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
 
@@ -774,15 +776,35 @@ public partial class CacheManagementService
                 var redownloadFlag = detectRedownloads ? " --detect-redownloads" : "";
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                     rustBinaryPath,
-                    $"detect \"{logDir}\" \"{cacheDir}\" \"{outputJson}\" \"{timezone}\" {threshold}{noCacheCheckFlag}{redownloadFlag}");
+                    $"detect \"{logDir}\" \"{cacheDir}\" \"{outputJson}\" \"{timezone}\" {threshold}{noCacheCheckFlag}{redownloadFlag} --progress-json \"{progressFile}\" --progress");
 
                 _logger.LogInformation("[CorruptionDetection] Running detect command: {Command} {Args}",
                     rustBinaryPath, startInfo.Arguments);
 
-                var result = await _rustProcessHelper.ExecuteTrackedProcessAsync(
+                var lastReportedPercent = -1.0;
+                var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync<CorruptionDetectionProgressData>(
                     startInfo,
                     operationId,
                     cancellationToken,
+                    progressFile,
+                    async progressData =>
+                    {
+                        var percentChanged = Math.Abs(progressData.PercentComplete - lastReportedPercent) >= 5.0;
+                        if (!percentChanged && progressData.PercentComplete < 100.0)
+                        {
+                            return;
+                        }
+
+                        lastReportedPercent = progressData.PercentComplete;
+                        _operationTracker.UpdateProgress(operationId, progressData.PercentComplete, progressData.Status);
+
+                        await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetailsProgress, new CorruptionDetailsProgress(
+                            OperationId: operationId,
+                            Service: service,
+                            PercentComplete: progressData.PercentComplete,
+                            FilesProcessed: progressData.FilesProcessed,
+                            TotalFiles: progressData.TotalFiles));
+                    },
                     "corruption_manager_detect");
 
                 _logger.LogInformation("[CorruptionDetection] Detect process exit code: {Code}", result.ExitCode);

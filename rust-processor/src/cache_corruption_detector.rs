@@ -65,126 +65,15 @@ impl CorruptionDetector {
         self
     }
 
-    /// Detect corrupted chunks by analyzing log files
-    /// Returns a map of (service, url) -> miss_count for chunks exceeding miss_threshold
-    pub fn detect_corrupted_chunks<P: AsRef<Path>>(
-        &self,
-        log_dir: P,
-        log_base_name: &str,
-        timezone: chrono_tz::Tz,
-    ) -> Result<HashMap<(String, String), usize>> {
-        let log_dir = log_dir.as_ref();
-
-        // Discover all log files
-        let log_files = crate::log_discovery::discover_log_files(log_dir, log_base_name)?;
-
-        if log_files.is_empty() {
-            return Ok(HashMap::new());
-        }
-
-        eprintln!("Scanning {} log files for corrupted chunks...", log_files.len());
-
-        let parser = LogParser::new(timezone);
-        let mut miss_tracker: HashMap<(String, String), usize> = HashMap::new();
-        let mut entries_processed = 0usize;
-
-        // Process each log file
-        for log_file in &log_files {
-            eprintln!("Processing: {}", log_file.path.display());
-
-            // Try to process the file, but skip if corrupted
-            let file_result = (|| -> Result<()> {
-                let mut reader = LogFileReader::open(&log_file.path)?;
-                let mut line = String::new();
-
-                loop {
-                    line.clear();
-                    let bytes_read = reader.read_line(&mut line)?;
-                    if bytes_read == 0 {
-                        break; // EOF
-                    }
-
-                    // Parse log entry
-                    if let Some(entry) = parser.parse_line(line.trim()) {
-                        // Skip health check/heartbeat endpoints
-                        if service_utils::should_skip_url(&entry.url) {
-                            continue;
-                        }
-
-                        // Only track MISS and UNKNOWN status
-                        if entry.cache_status == "MISS" || entry.cache_status == "UNKNOWN" {
-                            let key = (entry.service.clone(), entry.url.clone());
-                            *miss_tracker.entry(key).or_insert(0) += 1;
-                            entries_processed += 1;
-
-                            // Log progress periodically
-                            if entries_processed % 500_000 == 0 {
-                                eprintln!("  Processed {} MISS/UNKNOWN entries, tracking {} unique URLs",
-                                    entries_processed, miss_tracker.len());
-                            }
-                        }
-                        // Skip HIT entries - they're working fine
-                    }
-                }
-                Ok(())
-            })();
-
-            // If this file failed (e.g., corrupted gzip), log warning and skip it
-            if let Err(e) = file_result {
-                eprintln!("WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
-                eprintln!("  Continuing with remaining files...");
-                continue;
-            }
-        }
-
-        // Filter to only chunks with miss_threshold or more MISS/UNKNOWN requests
-        let candidates: HashMap<(String, String), usize> = miss_tracker
-            .into_iter()
-            .filter(|(_, count)| *count >= self.miss_threshold)
-            .collect();
-
-        let candidate_count = candidates.len();
-        eprintln!("Found {} URLs with {}+ MISS/UNKNOWN entries", candidate_count, self.miss_threshold);
-
-        if self.skip_cache_check {
-            eprintln!("Skipping cache file existence check (logs-only mode)");
-            eprintln!("Returning all {} candidate URLs as corrupted", candidate_count);
-            return Ok(candidates);
-        }
-
-        // Filter to only URLs where the cache file actually exists on disk
-        // If the file doesn't exist, the MISSes were likely legitimate cold-cache or eviction events
-        // True corruption = file exists but nginx can't serve it (repeated MISSes despite file presence)
-        let corrupted: HashMap<(String, String), usize> = candidates
-            .into_iter()
-            .filter(|((service, url), _)| {
-                let cache_path = cache_utils::calculate_cache_path_no_range(&self.cache_dir, service, url);
-                if cache_path.exists() {
-                    return true;
-                }
-                // Fallback: check first 1MB chunk in range format (legacy lancache)
-                let range_path = cache_utils::calculate_cache_path(&self.cache_dir, service, url, 0, 1_048_575);
-                range_path.exists()
-            })
-            .collect();
-
-        let filtered_out = candidate_count - corrupted.len();
-        if filtered_out > 0 {
-            eprintln!("Filtered out {} URLs where cache file does not exist on disk (likely cold-cache misses)", filtered_out);
-        }
-        eprintln!("Confirmed {} corrupted chunks (file exists on disk with {}+ MISS/UNKNOWN)", corrupted.len(), self.miss_threshold);
-
-        Ok(corrupted)
-    }
-
     /// Generate full corruption report with cache file paths
     pub fn generate_report<P: AsRef<Path>>(
         &self,
         log_dir: P,
         log_base_name: &str,
         timezone: chrono_tz::Tz,
+        progress_path: Option<&Path>,
     ) -> Result<CorruptionReport> {
-        let corrupted_map = self.detect_corrupted_chunks(log_dir, log_base_name, timezone)?;
+        let corrupted_map = self.detect_corrupted_chunks_with_progress(log_dir, log_base_name, timezone, progress_path)?;
 
         let mut corrupted_chunks = Vec::new();
         let mut service_counts: HashMap<String, usize> = HashMap::new();
@@ -682,9 +571,10 @@ impl CorruptionDetector {
         log_dir: P,
         log_base_name: &str,
         timezone: chrono_tz::Tz,
+        progress_path: Option<&Path>,
     ) -> Result<CorruptionReport> {
         let redownload_map = self.detect_redownloaded_chunks_with_progress(
-            log_dir, log_base_name, timezone, None
+            log_dir, log_base_name, timezone, progress_path
         )?;
 
         let mut corrupted_chunks = Vec::new();

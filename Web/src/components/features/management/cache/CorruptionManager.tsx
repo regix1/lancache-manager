@@ -10,7 +10,10 @@ import { useNotifications } from '@contexts/notifications';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import type { CorruptionRemovalCompleteEvent } from '@contexts/SignalRContext/types';
+import type {
+  CorruptionRemovalCompleteEvent,
+  CorruptionDetailsProgressEvent
+} from '@contexts/SignalRContext/types';
 import { Card } from '@components/ui/Card';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -57,7 +60,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const [corruptionDetails, setCorruptionDetails] = useState<
     Record<string, CorruptedChunkDetail[]>
   >({});
-  const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
+  const [loadingDetailsServices, setLoadingDetailsServices] = useState<Set<string>>(new Set());
+  const [detailsProgress, setDetailsProgress] = useState<Record<string, number>>({});
   const { isLoading, isRefreshing, hasInitiallyLoaded, beginLoad, markLoaded, markFailed } =
     useManagerLoading();
   const {
@@ -336,6 +340,19 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     };
   }, [on, off]);
 
+  // Live percent for the per-service "view details" fetch. Deliberately a separate event from
+  // the bulk scan's CorruptionDetectionProgress so this never surfaces as a global notification.
+  useEffect(() => {
+    const handleDetailsProgress = (event: CorruptionDetailsProgressEvent) => {
+      setDetailsProgress((prev) => ({ ...prev, [event.service]: event.percentComplete }));
+    };
+
+    on('CorruptionDetailsProgress', handleDetailsProgress);
+    return () => {
+      off('CorruptionDetailsProgress', handleDetailsProgress);
+    };
+  }, [on, off]);
+
   // Clear optimistic pending state when matching running SignalR notifications arrive
   useEffect(() => {
     if (anyCorruptionRemovalPending) {
@@ -450,8 +467,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
     setExpandedCorruptionService(service);
 
-    if (!corruptionDetails[service]) {
-      setLoadingDetails(service);
+    if (!corruptionDetails[service] && !loadingDetailsServices.has(service)) {
+      setLoadingDetailsServices((prev) => new Set(prev).add(service));
       try {
         const details = await ApiService.getCorruptionDetails(
           service,
@@ -466,9 +483,19 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           (err instanceof Error ? err.message : String(err)) ||
             t('management.corruption.errors.loadDetails', { service })
         );
-        setExpandedCorruptionService(null);
+        setExpandedCorruptionService((prev) => (prev === service ? null : prev));
       } finally {
-        setLoadingDetails(null);
+        setLoadingDetailsServices((prev) => {
+          const next = new Set(prev);
+          next.delete(service);
+          return next;
+        });
+        setDetailsProgress((prev) => {
+          if (!(service in prev)) return prev;
+          const next = { ...prev };
+          delete next[service];
+          return next;
+        });
       }
     }
   };
@@ -705,8 +732,15 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                           isExpanded={expandedCorruptionService === service}
                           onToggle={() => toggleCorruptionDetails(service)}
                         >
-                          {loadingDetails === service ? (
-                            <LoadingState message={t('management.corruption.loadingDetails')} />
+                          {loadingDetailsServices.has(service) ? (
+                            <LoadingState
+                              message={t('management.corruption.loadingDetails')}
+                              submessage={
+                                detailsProgress[service] != null
+                                  ? `${Math.round(detailsProgress[service])}%`
+                                  : undefined
+                              }
+                            />
                           ) : corruptionDetails[service] &&
                             corruptionDetails[service].length > 0 ? (
                             <div className="flex flex-col gap-3 max-h-96 overflow-y-auto">

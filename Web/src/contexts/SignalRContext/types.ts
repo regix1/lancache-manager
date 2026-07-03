@@ -69,6 +69,7 @@ export const SIGNALR_EVENTS = [
   'CorruptionDetectionStarted',
   'CorruptionDetectionProgress',
   'CorruptionDetectionComplete',
+  'CorruptionDetailsProgress',
   'CorruptionRemovalStarted',
   'CorruptionRemovalProgress',
   'CorruptionRemovalComplete',
@@ -483,6 +484,17 @@ export interface CorruptionDetectionProgressEvent {
   totalFiles?: number;
   currentFile?: string;
   datasourceName?: string;
+}
+
+// Progress for a single-service "view corrupted chunk details" fetch - distinct from
+// CorruptionDetectionProgressEvent (the bulk scan) so it never feeds the global
+// 'corruption_detection' notification card.
+export interface CorruptionDetailsProgressEvent {
+  operationId: string;
+  service: string;
+  percentComplete: number;
+  filesProcessed: number;
+  totalFiles: number;
 }
 
 // C# sends anonymous object: OperationId, Success, Status, Message, Cancelled, totalServicesWithCorruption, totalCorruptedChunks

@@ -164,6 +164,71 @@ public class OperationConflictCheckerTests
         Assert.Null(response);
     }
 
+    [Fact]
+    public async Task Allows_CorruptionDetectionDetails_When_DifferentServiceDetails_IsActiveAsync()
+    {
+        // Two per-service "view details" fetches are independent reads and must not conflict -
+        // this was the bug behind repeated 409s when browsing different services' corruption details.
+        using var tracker = new TrackerHarness();
+        RegisterCorruptionDetectionDetails(tracker.Tracker, serviceName: "steam");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.CorruptionDetection,
+            ConflictScope.Service("blizzard"),
+            CancellationToken.None);
+
+        Assert.Null(response);
+    }
+
+    [Fact]
+    public async Task Blocks_CorruptionDetectionDetails_When_SameServiceDetails_IsActiveAsync()
+    {
+        using var tracker = new TrackerHarness();
+        RegisterCorruptionDetectionDetails(tracker.Tracker, serviceName: "steam");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.CorruptionDetection,
+            ConflictScope.Service("steam"),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.duplicate", response!.StageKey);
+    }
+
+    [Fact]
+    public async Task Blocks_CorruptionDetectionDetails_When_BulkScan_IsActiveAsync()
+    {
+        // The bulk scan touches every service, so a per-service details fetch must wait for it.
+        using var tracker = new TrackerHarness();
+        RegisterBulkCorruptionDetection(tracker.Tracker);
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.CorruptionDetection,
+            ConflictScope.Service("steam"),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.duplicate", response!.StageKey);
+    }
+
+    private static void RegisterCorruptionDetectionDetails(IUnifiedOperationTracker tracker, string serviceName)
+    {
+        tracker.RegisterOperation(
+            OperationType.CorruptionDetection,
+            $"Corruption Details ({serviceName})",
+            new CancellationTokenSource(),
+            new CorruptionDetectionMetrics { ServiceName = serviceName });
+    }
+
+    private static void RegisterBulkCorruptionDetection(IUnifiedOperationTracker tracker)
+    {
+        tracker.RegisterOperation(
+            OperationType.CorruptionDetection,
+            "Corruption Detection",
+            new CancellationTokenSource(),
+            new CorruptionDetectionMetrics());
+    }
+
     private static void RegisterNamedGameRemoval(IUnifiedOperationTracker tracker, string service, string gameName)
     {
         // Mirrors GamesController.RemoveNamedGameFromCacheAsync: entityKind "named",

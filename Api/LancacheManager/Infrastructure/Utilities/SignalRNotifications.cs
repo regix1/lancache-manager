@@ -234,6 +234,21 @@ public static class SignalRNotifications
     );
 
     /// <summary>
+    /// Progress for a single-service "view corrupted chunk details" fetch. Deliberately a
+    /// distinct event from <see cref="CorruptionDetectionProgress"/> - the details fetch is a
+    /// read-only per-row lookup, not the bulk scan, and must not feed the global
+    /// 'corruption_detection' notification card (that would make the Scan button and notification
+    /// bar think a full scan is running just because a service's details are expanded).
+    /// </summary>
+    public record CorruptionDetailsProgress(
+        Guid OperationId,
+        string Service,
+        double PercentComplete,
+        int FilesProcessed,
+        int TotalFiles
+    );
+
+    /// <summary>
     /// Notification when corruption detection completes (success, failure, or cancellation).
     /// One record for ALL terminal paths (replaces the prior anon success object + the separate
     /// force-kill <c>CorruptionDetectionCancelled</c> record). Property names mirror the frontend
