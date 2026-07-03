@@ -144,6 +144,24 @@ async fn main() -> Result<()> {
         Some(p) => Some(PathBuf::from(p)),
     };
 
+    // File-write-before-stdout-emit invariant: the C# event callback reads the progress file
+    // the moment "started" arrives, and the C#-created temp file is empty until our first
+    // write - seed it before emitting so that read never sees empty (unparseable) JSON.
+    // A seed failure is only logged: the scan itself must still run, and the later
+    // write_progress calls surface a persistent file problem anyway.
+    if let Err(e) = write_progress_file(
+        progress_path.as_deref(),
+        "running",
+        "signalr.evictionScan.scanning",
+        &json!({}),
+        0.0,
+        0,
+        0,
+        0,
+        0,
+    ) {
+        eprintln!("[EvictionScan] Warning: failed to seed progress file: {:#}", e);
+    }
     reporter.emit_started("signalr.evictionScan.scanning", json!({}));
 
     match run_scan(&args.datasource_config, progress_path.as_deref(), &reporter).await {
@@ -599,6 +617,37 @@ fn write_progress(
     evicted: usize,
     un_evicted: usize,
 ) -> Result<()> {
+    write_progress_file(
+        progress_path,
+        status,
+        stage_key,
+        &context,
+        percent_complete,
+        processed,
+        total_estimate,
+        evicted,
+        un_evicted,
+    )?;
+
+    reporter.emit_progress(percent_complete, stage_key, context);
+
+    Ok(())
+}
+
+/// File-only half of `write_progress`: writes the checkpoint without emitting any stdout
+/// event, so `main()` can seed the file before `emit_started` (a "started" event has its own
+/// emit and must not be preceded by a stray progress event on the stdout channel).
+fn write_progress_file(
+    progress_path: Option<&Path>,
+    status: &str,
+    stage_key: &str,
+    context: &serde_json::Value,
+    percent_complete: f64,
+    processed: usize,
+    total_estimate: usize,
+    evicted: usize,
+    un_evicted: usize,
+) -> Result<()> {
     if let Some(path) = progress_path {
         let progress = ProgressData {
             status: status.to_string(),
@@ -614,8 +663,6 @@ fn write_progress(
 
         progress_utils::write_progress_json(path, &progress)?;
     }
-
-    reporter.emit_progress(percent_complete, stage_key, context);
 
     Ok(())
 }

@@ -6,7 +6,7 @@
 }
 
 .access-security-card__source-label {
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   color: var(--color-text-muted);
   margin-left: 0.25rem;
 }

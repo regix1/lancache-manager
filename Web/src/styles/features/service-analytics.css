@@ -81,7 +81,7 @@
 }
 
 .service-analytics-heading h3 {
-  font-size: 1.05rem;
+  font-size: var(--font-size-lg);
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--theme-text-primary);
@@ -91,7 +91,7 @@
 .service-analytics-heading p {
   max-width: 32rem;
   margin: 0.25rem 0 0;
-  font-size: 0.72rem;
+  font-size: var(--font-size-sm);
   line-height: 1.4;
   color: var(--theme-text-muted);
 }
@@ -200,7 +200,7 @@
   pointer-events: none;
   padding: 0.625rem 0.875rem;
   border-radius: 0.5rem;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-base);
   line-height: 1.4;
   max-width: min(320px, calc(100vw - 24px));
   color: var(--theme-text-muted);
@@ -302,7 +302,7 @@
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0 0.15rem 0.45rem;
-  font-size: 0.68rem;
+  font-size: var(--font-size-xs);
   font-weight: 700;
   color: var(--theme-text-secondary);
   text-transform: uppercase;
@@ -346,7 +346,7 @@
 }
 
 .chart-center-value {
-  font-size: 1.6rem;
+  font-size: var(--font-size-3xl);
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--theme-text-primary);
@@ -356,12 +356,12 @@
 
 @container (min-width: 500px) {
   .chart-center-value {
-    font-size: 1.85rem;
+    font-size: var(--font-size-4xl);
   }
 }
 
 .chart-center-label {
-  font-size: 0.68rem;
+  font-size: var(--font-size-xs);
   color: var(--theme-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -373,11 +373,11 @@
    This fires at desktop 1024–1440px (panel ≈490–670px) where the row layout applies. */
 @container (max-width: 700px) {
   .chart-center-value {
-    font-size: 1.3rem;
+    font-size: var(--font-size-2xl);
   }
 
   .chart-center-label {
-    font-size: 0.6rem;
+    font-size: var(--font-size-2xs);
     letter-spacing: 0.08em;
     margin-top: 0.2rem;
   }
@@ -448,7 +448,7 @@
 }
 
 .legend-name {
-  font-size: 0.8rem;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--theme-text-primary);
   white-space: nowrap;
@@ -457,7 +457,7 @@
 }
 
 .legend-value {
-  font-size: 0.8rem;
+  font-size: var(--font-size-base);
   font-weight: 600;
   color: var(--theme-text-primary);
   font-variant-numeric: tabular-nums lining-nums;
@@ -467,7 +467,7 @@
 
 .legend-detail {
   padding-left: 1rem;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   color: var(--theme-text-muted);
   font-variant-numeric: tabular-nums lining-nums;
 }
@@ -513,7 +513,7 @@
 }
 
 .analytics-insight-value {
-  font-size: 1rem;
+  font-size: var(--font-size-lg);
   font-weight: 700;
   color: var(--theme-text-primary);
   line-height: 1.25;
@@ -527,7 +527,7 @@
 }
 
 .analytics-insight-label {
-  font-size: 0.68rem;
+  font-size: var(--font-size-xs);
   color: var(--theme-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -724,14 +724,14 @@
 }
 
 .empty-title {
-  font-size: 0.9rem;
+  font-size: var(--font-size-md);
   font-weight: 600;
   color: var(--theme-text-primary);
   margin-bottom: 0.25rem;
 }
 
 .empty-desc {
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   color: var(--theme-text-muted);
 }
 
@@ -864,7 +864,7 @@
   }
 
   .analytics-insight-value {
-    font-size: 0.95rem;
+    font-size: var(--font-size-lg);
   }
 
   .compare-line-chart {

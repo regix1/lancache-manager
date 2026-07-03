@@ -99,7 +99,7 @@
   }
 
   .full-scan-modal-stat-value {
-    font-size: 1.25rem;
+    font-size: var(--font-size-xl);
     font-weight: 600;
     color: var(--theme-text-primary);
     line-height: 1.2;
@@ -107,14 +107,14 @@
   }
 
   .full-scan-modal-stat-label {
-    font-size: 0.75rem;
+    font-size: var(--font-size-sm);
     color: var(--theme-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.025em;
   }
 
   .full-scan-modal-description {
-    font-size: 0.875rem;
+    font-size: var(--font-size-md);
     color: var(--theme-text-secondary);
     line-height: 1.5;
     margin: 0;
@@ -142,7 +142,7 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    font-size: 0.875rem;
+    font-size: var(--font-size-md);
     font-weight: 500;
     color: var(--theme-text-primary);
   }
@@ -150,7 +150,7 @@
   .full-scan-modal-badge {
     margin-left: auto;
     padding: 0.125rem 0.5rem;
-    font-size: 0.625rem;
+    font-size: var(--font-size-2xs);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -168,7 +168,7 @@
     display: flex;
     align-items: center;
     gap: 0.375rem;
-    font-size: 0.75rem;
+    font-size: var(--font-size-sm);
     color: var(--theme-text-muted);
   }
 
@@ -182,7 +182,7 @@
     align-items: center;
     gap: 0.75rem;
     color: var(--theme-text-muted);
-    font-size: 0.75rem;
+    font-size: var(--font-size-sm);
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
@@ -207,7 +207,7 @@
     }
 
     .full-scan-modal-stat-value {
-      font-size: 1.125rem;
+      font-size: var(--font-size-xl);
     }
 
     .full-scan-modal-option {
@@ -238,15 +238,15 @@
     }
 
     .full-scan-modal-stat-value {
-      font-size: 1rem;
+      font-size: var(--font-size-lg);
     }
 
     .full-scan-modal-stat-label {
-      font-size: 0.6875rem;
+      font-size: var(--font-size-xs);
     }
 
     .full-scan-modal-description {
-      font-size: 0.8125rem;
+      font-size: var(--font-size-base);
     }
 
     .full-scan-modal-option {
@@ -254,12 +254,12 @@
     }
 
     .full-scan-modal-option-header {
-      font-size: 0.8125rem;
+      font-size: var(--font-size-base);
       flex-wrap: wrap;
     }
 
     .full-scan-modal-badge {
-      font-size: 0.5625rem;
+      font-size: var(--font-size-2xs);
       padding: 0.125rem 0.375rem;
     }
 
@@ -269,7 +269,7 @@
     }
 
     .full-scan-modal-feature {
-      font-size: 0.6875rem;
+      font-size: var(--font-size-xs);
     }
   }
 }

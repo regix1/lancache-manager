@@ -94,6 +94,15 @@ public partial class RustProcessHelper
                 json = await reader.ReadToEndAsync();
             }
 
+            // An existing-but-empty file means the Rust side hasn't written its first checkpoint
+            // yet (C# pre-creates progress temps via GetTempFileName, and a stdout "started" event
+            // can wake an event-driven reader before that first write lands). Same semantics as a
+            // missing file - not a parse failure.
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return null;
+            }
+
             var options = new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true

@@ -26,6 +26,7 @@ import type {
   XboxGameMappingsUpdatedEvent
 } from '../SignalRContext/types';
 import i18n from '@/i18n';
+import { classifyRemovalKind, removalStageKey, withRemovalIdentity } from './removalKind';
 
 type GameDetectionInterpolation = Record<string, string | number | boolean>;
 
@@ -204,14 +205,14 @@ export const formatLogRemovalCompleteMessage = (event: LogRemovalCompleteEvent):
  * @returns Formatted message string
  */
 export const formatGameRemovalProgressMessage = (event: GameRemovalProgressEvent): string => {
-  const fallbackContext: Record<string, string | number | boolean> = {
-    gameName: event.gameName,
-    ...(event.gameAppId !== null && { gameAppId: event.gameAppId }),
-    ...(event.epicAppId !== null && { epicAppId: event.epicAppId })
-  };
-  const fallbackStageKey = event.epicAppId
-    ? 'signalr.epicRemove.starting'
-    : 'signalr.gameRemove.starting';
+  const kind = classifyRemovalKind(event);
+  const fallbackContext: Record<string, string | number | boolean> = withRemovalIdentity(
+    { gameName: event.gameName },
+    kind,
+    event.gameAppId,
+    event.epicAppId
+  );
+  const fallbackStageKey = removalStageKey(kind, 'starting');
 
   return event.stageKey
     ? i18n.t(event.stageKey, event.context ?? fallbackContext)

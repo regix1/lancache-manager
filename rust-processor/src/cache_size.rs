@@ -1478,6 +1478,29 @@ fn main() {
     let cache_path = &args[1];
     let output_path = Path::new(&args[2]);
     let reporter = Arc::new(ProgressReporter::new(progress_enabled));
+
+    // File-write-before-stdout-emit invariant: seed the (possibly C#-pre-created, empty)
+    // output/progress file before the "started" event so an event-triggered read never sees
+    // empty (unparseable) JSON. Total directory count isn't known yet; calculate_cache_size's
+    // own initial tick overwrites this with the real totals.
+    let starting = ProgressData {
+        is_processing: true,
+        percent_complete: 0.0,
+        status: "scanning".to_string(),
+        message: "Starting cache size scan...".to_string(),
+        stage_key: "signalr.cacheSizeScan.starting".to_string(),
+        directories_scanned: 0,
+        total_directories: 0,
+        total_bytes: 0,
+        total_files: 0,
+        calibration_step: 0,
+        calibration_total_steps: 0,
+        timestamp: progress_utils::current_timestamp(),
+    };
+    if let Err(e) = progress_utils::write_progress_json(output_path, &starting) {
+        eprintln!("Warning: failed to seed progress file: {:#}", e);
+    }
+
     reporter.emit_started("signalr.cacheSizeScan.starting", serde_json::json!({}));
 
     match calculate_cache_size(cache_path, output_path, &reporter) {

@@ -1438,6 +1438,24 @@ async fn main() -> Result<()> {
     // Log file base name (hardcoded for now, could be made configurable)
     let log_base_name = "access.log".to_string();
 
+    // File-write-before-stdout-emit invariant: seed the progress file before the "started"
+    // event so an event-triggered C# read never sees an empty/stale file. Real counters are
+    // unknown yet; the processor's own ticks overwrite this as soon as processing begins.
+    let starting = Progress {
+        total_lines: 0,
+        lines_parsed: 0,
+        entries_saved: 0,
+        bytes_processed: 0,
+        total_bytes: 0,
+        percent_complete: 0.0,
+        status: "starting".to_string(),
+        message: "Starting log processing".to_string(),
+        timestamp: progress_utils::current_timestamp(),
+    };
+    if let Err(e) = progress_utils::write_progress_with_retry(&progress_path, &starting, 5) {
+        eprintln!("Warning: failed to seed progress file: {:#}", e);
+    }
+
     // Emit started event
     reporter.emit_started("signalr.logProcessor.starting", serde_json::json!({}));
     reporter.emit_progress(0.0, "signalr.logProcessor.starting", serde_json::json!({}));

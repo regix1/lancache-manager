@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -13,6 +13,7 @@ import {
   SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY,
   SCHEDULED_PREFILL_SERVICE_RUN_ORDER
 } from './constants';
+import ScheduleIntervalPicker from '../ScheduleIntervalPicker';
 import { ScheduledPrefillConfigModal } from './ScheduledPrefillConfigModal';
 import { getPersistentServiceId, needsPersistentLogin } from './scheduledPrefillPlatformUi';
 import type {
@@ -80,6 +81,32 @@ export function ScheduledPrefillScheduleDetail({
       // Keep the prior schedule on failure; SchedulesUpdated / a later load will correct it.
     }
   }, []);
+
+  // Card-level per-service interval change. Saves via the same whole-config round-trip the
+  // Configure modal uses; optimistic so the picker never flashes back to the old value.
+  const handleServiceIntervalChange = useCallback(
+    async (serviceKey: ScheduledPrefillServiceKey, hours: number) => {
+      if (!config) {
+        return;
+      }
+
+      const previous = config;
+      const updated: ScheduledPrefillConfigDto = {
+        ...config,
+        [serviceKey]: { ...config[serviceKey], intervalHours: hours }
+      };
+      setConfig(updated);
+
+      try {
+        await ApiService.updateScheduledPrefillConfig(updated);
+        await refreshSchedule();
+      } catch (saveError: unknown) {
+        setConfig(previous);
+        setError(getErrorMessage(saveError));
+      }
+    },
+    [config, refreshSchedule]
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -218,7 +245,7 @@ export function ScheduledPrefillScheduleDetail({
     [baseKey, t]
   );
 
-  const scheduleLines = useMemo(() => {
+  const scheduleRows = useMemo(() => {
     const byServiceKey = new Map<ScheduledPrefillServiceKey, ScheduledPrefillServiceScheduleDto>();
     for (const item of schedule) {
       const serviceKey = SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY[item.serviceId];
@@ -227,22 +254,31 @@ export function ScheduledPrefillScheduleDetail({
       }
     }
 
-    const lines: { key: ScheduledPrefillServiceKey; text: string }[] = [];
+    const rows: {
+      key: ScheduledPrefillServiceKey;
+      label: string;
+      intervalHours: number;
+      timing: string | null;
+    }[] = [];
     for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
       const item = byServiceKey.get(serviceKey);
       if (!item || !item.enabled) {
         continue;
       }
-      lines.push({
+      // Prefer the (optimistically updated) config value so the picker reflects a change
+      // immediately; the schedule DTO catches up on the post-save refresh.
+      const intervalHours = config ? config[serviceKey].intervalHours : item.intervalHours;
+      rows.push({
         key: serviceKey,
-        text: t(`${baseKey}.nextRunSummary.item`, {
-          service: t(`${baseKey}.services.${serviceKey}`),
-          timing: formatTiming(item)
-        })
+        label: t(`${baseKey}.services.${serviceKey}`),
+        intervalHours,
+        // Paused (0) / startup-only (-1) are already spelled out by the picker itself;
+        // only show a timing hint when there is an actual upcoming run.
+        timing: intervalHours > 0 ? formatTiming({ ...item, intervalHours }) : null
       });
     }
-    return lines;
-  }, [schedule, baseKey, formatTiming, t]);
+    return rows;
+  }, [schedule, config, baseKey, formatTiming, t]);
 
   const handleModalSaved = async () => {
     await loadSummary();
@@ -266,24 +302,28 @@ export function ScheduledPrefillScheduleDetail({
               <p className="schedule-extra-help scheduled-prefill-card-summary__text">
                 {t(`${baseKey}.summary`, { enabled: enabledCount, total: totalCount })}
               </p>
-              {scheduleLines.length > 0 && (
-                <p className="scheduled-prefill-card-summary__schedule">
-                  {scheduleLines.map((line, index) => (
-                    <Fragment key={line.key}>
-                      {index > 0 && (
-                        <span
-                          className="scheduled-prefill-card-summary__schedule-sep"
-                          aria-hidden="true"
-                        >
-                          {' · '}
+              {scheduleRows.length > 0 && (
+                <div className="scheduled-prefill-card-summary__schedule">
+                  {scheduleRows.map((row) => (
+                    <div key={row.key} className="scheduled-prefill-card-summary__schedule-row">
+                      <span className="scheduled-prefill-card-summary__schedule-service">
+                        {row.label}
+                      </span>
+                      <div className="scheduled-prefill-card-summary__schedule-picker">
+                        <ScheduleIntervalPicker
+                          intervalHours={row.intervalHours}
+                          isDisabled={disabled}
+                          onChange={(hours) => void handleServiceIntervalChange(row.key, hours)}
+                        />
+                      </div>
+                      {row.timing && (
+                        <span className="scheduled-prefill-card-summary__schedule-timing">
+                          {row.timing}
                         </span>
                       )}
-                      <span className="scheduled-prefill-card-summary__schedule-item">
-                        {line.text}
-                      </span>
-                    </Fragment>
+                    </div>
                   ))}
-                </p>
+                </div>
               )}
               {config && enabledCount === 0 && (
                 <p className="scheduled-prefill-card-summary__warning">

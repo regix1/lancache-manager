@@ -427,6 +427,26 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     eprintln!("Cache path: {}", cache_path);
     eprintln!("Deletion mode: {}", delete_mode);
 
+    // File-write-before-stdout-emit invariant: C#'s event callback reads the progress file
+    // the moment "started" arrives, and the C#-created temp file is empty until our first
+    // write - seed it before emitting so that read never sees empty (unparseable) JSON.
+    // Total directory count isn't known yet; the real initial tick below overwrites this.
+    let starting = ProgressData::new(
+        true,
+        0.0,
+        "running".to_string(),
+        "signalr.cacheClear.starting".to_string(),
+        json!({}),
+        0,
+        0,
+        0,
+        0,
+        Vec::new(),
+    );
+    if let Err(e) = write_progress(progress_path, &starting) {
+        eprintln!("Warning: failed to seed progress file: {:#}", e);
+    }
+
     // Emit started event
     reporter.emit_started("signalr.cacheClear.starting", json!({}));
 

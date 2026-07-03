@@ -13,6 +13,7 @@ import {
   OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE
 } from './constants';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
+import { classifyRemovalKind, removalStageKey, withRemovalIdentity } from './removalKind';
 import i18n from '@/i18n';
 
 export type FetchWithAuth = (url: string) => Promise<Response>;
@@ -174,7 +175,7 @@ function createSimpleRecoveryFunction<TData>(
 interface CacheRemovalOperation {
   gameAppId?: number | null;
   epicAppId?: string | null;
-  entityKind?: 'steam' | 'epic' | null;
+  entityKind?: 'steam' | 'epic' | 'named' | null;
   gameName?: string;
   serviceName?: string;
   service?: string;
@@ -227,12 +228,14 @@ function createCacheRemovalsRecoveryFunction(
 
       // Recover game removals.
       // Post-Phase-2 contract: game_removal rehydrates scope-aware identity. Steam entries
-      // emit details.gameAppId (number); Epic entries emit details.epicAppId (string). The
-      // `?? 0` fallback is gone per acceptance criterion 3.7 - ops missing both identity
-      // fields are logged and skipped (legacy/pre-Phase-2 data only).
+      // emit details.gameAppId (number); Epic entries emit details.epicAppId (string); named
+      // entries (blizzard/riot/xbox, entityKind==='named') emit neither - identity lives in
+      // gameName/service, not an appId. Ops missing ALL THREE (no epicAppId, no positive
+      // gameAppId, no entityKind:'named') are legacy/pre-Phase-2 data only - logged and skipped.
       const recoverableGameRemovals = (data.gameRemovals ?? []).filter((op) => {
         if ((op.entityKind === 'epic' || op.epicAppId) && op.epicAppId) return true;
-        if (typeof op.gameAppId === 'number') return true;
+        if (typeof op.gameAppId === 'number' && op.gameAppId > 0) return true;
+        if (op.entityKind === 'named') return true;
         console.warn('[recovery] Skipping game_removal op with no scope identity:', op.operationId);
         return false;
       });
@@ -242,13 +245,17 @@ function createCacheRemovalsRecoveryFunction(
         'game_removal',
         () => NOTIFICATION_IDS.GAME_REMOVAL,
         (op) => {
-          const isEpic = op.entityKind === 'epic' || !!op.epicAppId;
-          const stageKey = isEpic ? 'signalr.epicRemove.starting' : 'signalr.gameRemove.starting';
-          const context = {
-            gameName: op.gameName ?? '',
-            ...(typeof op.gameAppId === 'number' && { gameAppId: op.gameAppId }),
-            ...(op.epicAppId && { epicAppId: op.epicAppId })
-          };
+          // Named (blizzard/riot/xbox): neither epic nor a positive Steam AppId. Reuses the
+          // existing signalr.namedRemove.* family (already wired into GamesController's
+          // Started/Complete events for this same path) - AppID-free, matches epicRemove shape.
+          const kind = classifyRemovalKind(op);
+          const stageKey = removalStageKey(kind, 'starting');
+          const context = withRemovalIdentity(
+            { gameName: op.gameName ?? '' },
+            kind,
+            op.gameAppId,
+            op.epicAppId
+          );
           const baseDetails = {
             operationId: op.operationId,
             gameName: op.gameName ?? '',
@@ -256,12 +263,7 @@ function createCacheRemovalsRecoveryFunction(
             filesDeleted: op.filesDeleted,
             bytesFreed: op.bytesFreed
           };
-          const details =
-            isEpic && op.epicAppId
-              ? { ...baseDetails, epicAppId: op.epicAppId }
-              : typeof op.gameAppId === 'number'
-                ? { ...baseDetails, gameAppId: op.gameAppId }
-                : baseDetails;
+          const details = withRemovalIdentity(baseDetails, kind, op.gameAppId, op.epicAppId);
           return {
             message: i18n.t(stageKey, context),
             details

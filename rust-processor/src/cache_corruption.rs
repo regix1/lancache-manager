@@ -382,6 +382,23 @@ async fn main() -> Result<()> {
             // Granular scanning ticks for Summary come from cache_corruption_detector.rs's
             // generate_*_summary_with_progress (progress-file only, outside this migration's
             // lane) - the stdout channel here brackets the coarse started/complete lifecycle.
+            // File-write-before-stdout-emit invariant: seed the (C#-pre-created, empty)
+            // progress file before the "started" event so an event-triggered read never sees
+            // empty JSON.
+            if let Some(path) = progress_path.as_deref() {
+                let starting = ProgressData {
+                    status: "starting".to_string(),
+                    stage_key: "signalr.corruptionRemove.scanningFiles".to_string(),
+                    context: json!({}),
+                    percent_complete: 0.0,
+                    files_processed: 0,
+                    total_files: 0,
+                    timestamp: progress_utils::current_timestamp(),
+                };
+                if let Err(e) = progress_utils::write_progress_json(path, &starting) {
+                    eprintln!("Warning: failed to seed progress file: {:#}", e);
+                }
+            }
             reporter.emit_started("signalr.corruptionRemove.scanningFiles", json!({}));
 
             let detector = CorruptionDetector::new(&cache_dir, threshold)

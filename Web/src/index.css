@@ -1,4 +1,5 @@
 /* Base */
+@import './styles/base/typography.css';
 @import './styles/base/reset.css';
 
 /* Layout */

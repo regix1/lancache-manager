@@ -8,7 +8,7 @@
 
 /* Secondary "Source: ..." line under the access-mode label */
 .metrics-source-label {
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   color: var(--theme-text-muted);
   margin-top: 0.125rem;
 }

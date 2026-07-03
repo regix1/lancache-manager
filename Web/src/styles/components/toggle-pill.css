@@ -28,7 +28,7 @@
 /* Size: sm - for session filter bars and compact contexts */
 .toggle-pill--sm {
   padding: 0.2rem 0.5rem;
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs);
   line-height: 1.4;
 }
 
@@ -37,18 +37,18 @@
    equal height; bump the padding here first if they must share a control row. */
 .toggle-pill--md {
   padding: 0.375rem 0.75rem;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-base);
   line-height: 1.25;
 }
 
 @media (max-width: 640px) {
   .toggle-pill--sm {
-    font-size: 0.65rem;
+    font-size: var(--font-size-2xs);
     padding: 0.15rem 0.4rem;
   }
 
   .toggle-pill--md {
     padding: 0.25rem 0.5rem;
-    font-size: 0.75rem;
+    font-size: var(--font-size-sm);
   }
 }

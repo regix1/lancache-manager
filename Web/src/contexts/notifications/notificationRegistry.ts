@@ -60,6 +60,7 @@ import {
   formatDataImportFailureMessage
 } from './detailMessageFormatters';
 import { translateStageKeyMessage } from '@utils/stageKeyMessage';
+import { classifyRemovalKind, removalStageKey } from './removalKind';
 import { SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY } from '@components/features/management/schedules/scheduled-prefill/constants';
 
 import type {
@@ -482,7 +483,10 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       // the separate GameRemovalComplete event, so progress stays in `running` until then.
       getStatus: () => undefined,
       getCompletedMessage: (event: GameRemovalProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.gameRemove.complete', event.context ?? {}),
+        i18n.t(
+          event.stageKey ?? removalStageKey(classifyRemovalKind(event), 'complete'),
+          event.context ?? {}
+        ),
       getErrorMessage: (event: GameRemovalProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.gameRemove.error.fatal', event.context ?? {}),
       getDetails: (event: GameRemovalProgressEvent) => ({

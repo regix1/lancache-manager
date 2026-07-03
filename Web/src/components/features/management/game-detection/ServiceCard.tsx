@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { HardDrive, FolderOpen } from 'lucide-react';
 import { formatBytes, formatCount } from '@utils/formatters';
+import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import type { ServiceCacheInfo, CacheEntityVariant } from '../../../../types';
 import ExpandableItemCard, { type ExpandableItemStat } from './ExpandableItemCard';
 import ExpandableList from './ExpandableList';
@@ -76,7 +77,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   return (
     <ExpandableItemCard
       id={service.service_name}
-      title={service.service_name}
+      title={getServiceDisplayName(service.service_name)}
       titleClassName="text-themed-primary font-semibold truncate capitalize"
       subtitle={subtitle}
       stats={stats}

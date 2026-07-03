@@ -65,13 +65,13 @@
       display: grid;
       grid-template-columns: repeat(2, 1fr);
       gap: 0.5rem 1rem;
-      font-size: 0.8125rem;
+      font-size: var(--font-size-base);
     }
 
     /* Service badge adjustments for mobile */
     .download-service-badge {
       padding: 0.25rem 0.5rem;
-      font-size: 0.6875rem;
+      font-size: var(--font-size-xs);
     }
   }
 
@@ -227,7 +227,7 @@
   }
 
   .downloads-header .speed-label {
-    font-size: 0.7rem;
+    font-size: var(--font-size-xs);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -241,7 +241,7 @@
   }
 
   .downloads-header .speed-number {
-    font-size: 2rem;
+    font-size: var(--font-size-4xl);
     font-weight: 700;
     line-height: 1;
     color: var(--theme-text-primary);
@@ -254,7 +254,7 @@
   }
 
   .downloads-header .speed-unit {
-    font-size: 0.875rem;
+    font-size: var(--font-size-md);
     font-weight: 500;
     color: var(--theme-text-muted);
   }
@@ -270,7 +270,7 @@
     align-items: center;
     gap: 0.35rem;
     padding: 0.25rem 0.6rem;
-    font-size: 0.7rem;
+    font-size: var(--font-size-xs);
     font-weight: 500;
     border-radius: var(--theme-border-radius);
     background: var(--theme-bg-tertiary);
@@ -324,7 +324,7 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.5rem 1rem;
-    font-size: 0.8rem;
+    font-size: var(--font-size-base);
     font-weight: 600;
     color: var(--theme-text-muted);
     background: transparent;
@@ -370,7 +370,7 @@
     min-width: 1.25rem;
     height: 1.25rem;
     padding: 0 0.375rem;
-    font-size: 0.65rem;
+    font-size: var(--font-size-2xs);
     font-weight: 700;
     line-height: 1;
     text-align: center;
@@ -420,12 +420,12 @@
   }
 
   .downloads-header .today-label {
-    font-size: 0.7rem;
+    font-size: var(--font-size-xs);
     color: var(--theme-text-muted);
   }
 
   .downloads-header .today-value {
-    font-size: 0.85rem;
+    font-size: var(--font-size-md);
     font-weight: 600;
     color: var(--theme-text-primary);
   }
@@ -467,7 +467,7 @@
     }
 
     .downloads-header .speed-number {
-      font-size: 1.5rem;
+      font-size: var(--font-size-2xl);
     }
 
     .downloads-header .right-section {
@@ -484,7 +484,7 @@
 
     .downloads-header .tab-button {
       padding: 0.4rem 0.75rem;
-      font-size: 0.75rem;
+      font-size: var(--font-size-sm);
       flex: 1;
       justify-content: center;
     }
@@ -574,7 +574,7 @@
     align-items: center;
     gap: 0.5rem;
     margin-top: 0.25rem;
-    font-size: 0.8125rem;
+    font-size: var(--font-size-base);
     color: var(--theme-text-secondary);
   }
 
@@ -779,14 +779,14 @@
   }
 
   .active-empty-state .empty-title {
-    font-size: 1.125rem;
+    font-size: var(--font-size-xl);
     font-weight: 600;
     color: var(--theme-text-primary);
     margin-bottom: 0.5rem;
   }
 
   .active-empty-state .empty-description {
-    font-size: 0.875rem;
+    font-size: var(--font-size-md);
     color: var(--theme-text-muted);
     max-width: 300px;
   }
@@ -818,7 +818,7 @@
     align-items: center;
     gap: 0.4rem;
     padding: 0.4rem 0.75rem;
-    font-size: 0.75rem;
+    font-size: var(--font-size-sm);
     font-weight: 600;
     color: var(--theme-text-muted);
     background: transparent;
@@ -852,7 +852,7 @@
     align-items: center;
     gap: 0.35rem;
     padding: 0.4rem 0.6rem;
-    font-size: 0.7rem;
+    font-size: var(--font-size-xs);
     font-weight: 500;
     color: var(--theme-text-muted);
     background: var(--theme-bg-tertiary);
@@ -969,7 +969,7 @@
 
   .active-downloads-view .active-service-badge {
     padding: 0.1rem 0.4rem;
-    font-size: 0.65rem;
+    font-size: var(--font-size-2xs);
     font-weight: 800;
     border-radius: 0.3rem;
     flex-shrink: 0;
@@ -977,7 +977,7 @@
   }
 
   .active-downloads-view .download-name {
-    font-size: 0.9rem;
+    font-size: var(--font-size-md);
     font-weight: 600;
     color: var(--theme-text-primary);
     white-space: nowrap;
@@ -989,7 +989,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
-    font-size: 0.75rem;
+    font-size: var(--font-size-sm);
     color: var(--theme-text-muted);
   }
 
@@ -1024,14 +1024,14 @@
   }
 
   .active-downloads-view .speed-value {
-    font-size: 1rem;
+    font-size: var(--font-size-lg);
     font-weight: 700;
     color: var(--theme-success);
     font-variant-numeric: tabular-nums;
   }
 
   .active-downloads-view .speed-label {
-    font-size: 0.65rem;
+    font-size: var(--font-size-2xs);
     color: var(--theme-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -1046,7 +1046,7 @@
     border-radius: 8px;
     background: var(--theme-bg-tertiary);
     border: 1px solid var(--theme-border-secondary);
-    font-size: 0.75rem;
+    font-size: var(--font-size-sm);
     color: var(--theme-text-muted);
   }
 
@@ -1112,18 +1112,18 @@
     }
 
     .active-downloads-view .download-name {
-      font-size: 0.8rem;
+      font-size: var(--font-size-base);
     }
 
     .active-downloads-view .download-meta {
-      font-size: 0.7rem;
+      font-size: var(--font-size-xs);
       gap: 0.35rem;
     }
 
     .active-downloads-view .summary-footer {
       flex-wrap: wrap;
       gap: 0.5rem;
-      font-size: 0.7rem;
+      font-size: var(--font-size-xs);
       justify-content: center;
     }
   }
@@ -1171,7 +1171,7 @@
   }
 
   .session-filter-label {
-    font-size: 0.65rem;
+    font-size: var(--font-size-2xs);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.07em;
@@ -1188,7 +1188,7 @@
   .session-filter-bar .msd-trigger,
   .session-filter-bar .ed-trigger {
     padding: 0.2rem 0.5rem;
-    font-size: 0.7rem;
+    font-size: var(--font-size-xs);
     font-weight: 500;
     line-height: 1.4;
     min-height: 0;
@@ -1205,7 +1205,7 @@
   .session-filter-bar .msd-trigger span[class*='rounded-full'] {
     min-width: 0.85rem;
     height: 0.85rem;
-    font-size: 0.55rem;
+    font-size: var(--font-size-2xs);
     padding: 0 0.2rem;
   }
 
@@ -1218,7 +1218,7 @@
   }
 
   .session-filter-count {
-    font-size: 0.7rem;
+    font-size: var(--font-size-xs);
     color: var(--theme-text-muted);
     white-space: nowrap;
     margin-left: auto;
@@ -1226,7 +1226,7 @@
 
   .session-filter-clear {
     padding: 0.2rem 0.55rem;
-    font-size: 0.7rem;
+    font-size: var(--font-size-xs);
     font-weight: 500;
     line-height: 1.4;
     border: 1px solid var(--theme-border-secondary);
@@ -1260,7 +1260,7 @@
     align-items: center;
     gap: 0.3rem;
     padding: 0.2rem 0.45rem;
-    font-size: 0.68rem;
+    font-size: var(--font-size-xs);
     font-weight: 500;
     border-radius: 9999px;
     background: var(--theme-primary-on-bg-hover);
@@ -1331,7 +1331,7 @@
   }
 
   .section-divider-title {
-    font-size: 0.8rem;
+    font-size: var(--font-size-base);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -1340,7 +1340,7 @@
   }
 
   .section-divider-description {
-    font-size: 0.725rem;
+    font-size: var(--font-size-xs);
     font-weight: 400;
     color: var(--theme-text-muted);
     line-height: 1.4;
@@ -1362,7 +1362,7 @@
     }
 
     .session-filter-label {
-      font-size: 0.6rem;
+      font-size: var(--font-size-2xs);
       min-width: 3.5rem;
     }
 
@@ -1372,7 +1372,7 @@
     }
 
     .session-filter-clear {
-      font-size: 0.65rem;
+      font-size: var(--font-size-2xs);
       padding: 0.15rem 0.4rem;
     }
 
@@ -1407,7 +1407,7 @@
   }
 
   .retro-chunked-loading span {
-    font-size: 0.875rem;
+    font-size: var(--font-size-md);
     color: var(--theme-text-muted);
   }
 

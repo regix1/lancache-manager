@@ -49,14 +49,14 @@
   }
 
   .error-boundary-title {
-    font-size: 1.5rem;
+    font-size: var(--font-size-2xl);
     font-weight: 600;
     color: var(--theme-text-primary);
     margin: 0 0 0.75rem 0;
   }
 
   .error-boundary-message {
-    font-size: 0.875rem;
+    font-size: var(--font-size-md);
     color: var(--theme-text-muted);
     word-break: break-word;
     white-space: pre-wrap;
@@ -74,7 +74,7 @@
     padding: 0.75rem 1.5rem;
     background-color: var(--theme-error);
     color: var(--theme-text-primary);
-    font-size: 1rem;
+    font-size: var(--font-size-lg);
     font-weight: 500;
     border: none;
     border-radius: 0.375rem;

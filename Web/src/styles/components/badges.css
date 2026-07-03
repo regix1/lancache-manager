@@ -50,7 +50,7 @@
     padding: 0 0.4rem;
     margin-left: 0.5rem;
     border-radius: 9999px;
-    font-size: 0.6875rem;
+    font-size: var(--font-size-xs);
     font-weight: 700;
     line-height: 1;
     text-align: center;
@@ -65,7 +65,7 @@
     align-items: center;
     width: fit-content;
     flex-shrink: 0;
-    font-size: 0.65rem;
+    font-size: var(--font-size-2xs);
     line-height: 1.2;
     border-radius: 3px;
     white-space: nowrap;

@@ -33,7 +33,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 0.875rem;
+  font-size: var(--font-size-md);
   font-weight: 500;
   transition: background-color 0.15s;
   cursor: pointer;
@@ -53,7 +53,7 @@
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 0.75rem;
-  font-size: 0.875rem;
+  font-size: var(--font-size-md);
   margin-bottom: 0.75rem;
 }
 

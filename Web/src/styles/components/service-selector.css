@@ -49,7 +49,7 @@
 
   /* Text label inside each box */
   .service-selector-label {
-    font-size: 0.8125rem;
+    font-size: var(--font-size-base);
     font-weight: 500;
     line-height: 1;
     white-space: nowrap;
@@ -68,7 +68,7 @@
     }
 
     .service-selector-label {
-      font-size: 0.75rem;
+      font-size: var(--font-size-sm);
     }
   }
 }

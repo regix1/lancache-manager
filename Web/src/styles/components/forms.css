@@ -109,7 +109,7 @@
     left: 50%;
     transform: translate(-50%, -50%);
     color: var(--theme-checkbox-checkmark);
-    font-size: 12px;
+    font-size: var(--font-size-sm);
     font-weight: bold;
     line-height: 1;
   }

@@ -3015,7 +3015,6 @@
           "config": {
             "summary": "{{enabled}} of {{total}} services enabled",
             "nextRunSummary": {
-              "item": "{{service}} {{timing}}",
               "inMinutes": "in {{count}}m",
               "inHours": "in {{count}}h",
               "inDays": "in {{count}}d",

@@ -34,7 +34,7 @@
     display: grid;
     padding: 0.75rem 1rem;
     align-items: center;
-    font-size: 11px;
+    font-size: var(--font-size-xs);
     line-height: 1;
     font-weight: 600;
     text-transform: uppercase;
@@ -238,7 +238,7 @@
     justify-content: center;
     padding: 3rem 1rem;
     color: var(--theme-text-muted);
-    font-size: 0.875rem;
+    font-size: var(--font-size-md);
   }
 
   /* Resizable mode - ensure scroll wrapper works */

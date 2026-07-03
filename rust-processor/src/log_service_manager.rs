@@ -795,6 +795,25 @@ fn main() {
                 std::process::exit(0);
             }
 
+            // File-write-before-stdout-emit invariant: seed the progress file before the
+            // "started" event so an event-triggered C# read never sees empty JSON. Must stay
+            // AFTER the cache-validity check above, which exits early on a still-valid file.
+            let starting = ProgressData::new(
+                true,
+                0.0,
+                "starting".to_string(),
+                "Starting service count".to_string(),
+                0,
+                0,
+                0,
+                None,
+                datasource_name.map(|s| s.to_string()),
+            )
+            .with_stage_key("signalr.logService.count.starting");
+            if let Err(e) = progress_utils::write_progress_json(progress_path, &starting) {
+                eprintln!("Warning: failed to seed progress file: {:#}", e);
+            }
+
             reporter.emit_started("signalr.logService.count.starting", serde_json::json!({}));
 
             match count_services(log_path, progress_path, &reporter, datasource_name) {
@@ -830,6 +849,25 @@ fn main() {
 
             if let Some(ds) = datasource_name {
                 eprintln!("Processing for datasource: {}", ds);
+            }
+
+            // File-write-before-stdout-emit invariant: seed the (C#-pre-created, empty)
+            // progress file before the "started" event so an event-triggered read never sees
+            // empty JSON. The emit keeps its original context shape ({"service"}) untouched.
+            let starting = ProgressData::new(
+                true,
+                0.0,
+                "starting".to_string(),
+                format!("Starting removal of {} entries", service_name),
+                0,
+                0,
+                0,
+                None,
+                datasource_name.map(|s| s.to_string()),
+            )
+            .with_stage_key("signalr.logRemoval.starting.single");
+            if let Err(e) = progress_utils::write_progress_json(progress_path, &starting) {
+                eprintln!("Warning: failed to seed progress file: {:#}", e);
             }
 
             reporter.emit_started("signalr.logRemoval.starting.single", serde_json::json!({ "service": service_name }));

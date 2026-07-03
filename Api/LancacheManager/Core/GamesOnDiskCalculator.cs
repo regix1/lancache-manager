@@ -16,7 +16,8 @@ public readonly record struct IdentifiedCacheAggregate(
 public readonly record struct AttributedCacheResult(
     IdentifiedCacheAggregate Aggregate,
     IReadOnlyDictionary<string, ulong> GameBytesByKey,
-    IReadOnlyDictionary<string, ulong> ServiceBytesByKey);
+    IReadOnlyDictionary<string, ulong> ServiceBytesByKey,
+    IReadOnlySet<string> ClaimedElsewhereGameKeys);
 
 /// <summary>
 /// Computes deduplicated cache-on-disk aggregates from detection results.
@@ -64,6 +65,7 @@ public static class GamesOnDiskCalculator
         var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var gameBytesByKey = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
         var serviceBytesByKey = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
+        var claimedElsewhereGameKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var activeGameCount = 0;
         var activeServiceCount = 0;
 
@@ -74,9 +76,20 @@ public static class GamesOnDiskCalculator
                 continue;
             }
 
-            var contributedBytes = AccumulatePaths(seenPaths, game.CacheFilePaths);
+            var (contributedBytes, claimedElsewhere) = AccumulatePaths(seenPaths, game.CacheFilePaths);
             if (contributedBytes == 0)
             {
+                // A zero contribution means either at least one of this game's paths was already
+                // claimed by an earlier game/service this pass and no other path contributed new
+                // bytes (claimedElsewhere - those bytes are already counted under the earlier
+                // claimant, so this key must NOT be retained into the aggregate later or totals
+                // would double-count), or none of this game's paths resolved to a file on disk at
+                // all and none was claimed by anyone (genuinely stale/reclaimed - safe for the
+                // caller to retain the last-known size for).
+                if (claimedElsewhere)
+                {
+                    claimedElsewhereGameKeys.Add(GetGameKey(game));
+                }
                 continue;
             }
 
@@ -91,7 +104,7 @@ public static class GamesOnDiskCalculator
                 continue;
             }
 
-            var contributedBytes = AccumulatePaths(seenPaths, service.CacheFilePaths);
+            var (contributedBytes, _) = AccumulatePaths(seenPaths, service.CacheFilePaths);
             if (contributedBytes == 0)
             {
                 continue;
@@ -112,23 +125,36 @@ public static class GamesOnDiskCalculator
                 activeGameCount,
                 activeServiceCount),
             gameBytesByKey,
-            serviceBytesByKey);
+            serviceBytesByKey,
+            claimedElsewhereGameKeys);
     }
 
     public static ulong SumPaths(IEnumerable<string> paths)
     {
         var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        return AccumulatePaths(seenPaths, paths.ToList());
+        return AccumulatePaths(seenPaths, paths.ToList()).Bytes;
     }
 
-    private static ulong AccumulatePaths(HashSet<string> seenPaths, List<string>? paths)
+    /// <summary>
+    /// Accumulates the on-disk size of paths not already claimed by an earlier game/service in
+    /// this pass. Returns whether this entity contributed zero new bytes AND at least one of its
+    /// paths had already been claimed by another entity this pass - the signal a caller needs to
+    /// tell "these bytes (if any were owed) are already counted under another active entity"
+    /// apart from "none of these paths exist on disk anywhere" (the genuinely-stale case, which
+    /// must NOT set this flag so the caller can safely retain a last-known size for it).
+    /// A partially-claimed entity (one path claimed elsewhere, another new-but-missing-from-disk)
+    /// still contributes 0 bytes and must be treated as claimed-elsewhere too, otherwise its stale
+    /// persisted size would be retained on top of the earlier claimant's already-counted bytes.
+    /// </summary>
+    private static (ulong Bytes, bool ClaimedElsewhere) AccumulatePaths(HashSet<string> seenPaths, List<string>? paths)
     {
         if (paths == null || paths.Count == 0)
         {
-            return 0;
+            return (0, false);
         }
 
         ulong addedBytes = 0;
+        var anyPathClaimedByOther = false;
 
         foreach (var path in paths)
         {
@@ -140,12 +166,13 @@ public static class GamesOnDiskCalculator
             var normalizedPath = CacheFileSizeHelper.NormalizePath(path);
             if (!seenPaths.Add(normalizedPath))
             {
+                anyPathClaimedByOther = true;
                 continue;
             }
 
             addedBytes += CacheFileSizeHelper.TryGetFileSize(normalizedPath);
         }
 
-        return addedBytes;
+        return (addedBytes, addedBytes == 0 && anyPathClaimedByOther);
     }
 }

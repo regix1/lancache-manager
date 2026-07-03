@@ -237,7 +237,7 @@
   }
 
   .cmd-settings-label {
-    font-size: 0.75rem;
+    font-size: var(--font-size-sm);
     font-weight: 600;
     letter-spacing: 0.025em;
     text-transform: uppercase;
@@ -261,7 +261,7 @@
     padding: 0 0.4rem;
     /* margin-left removed: parent span uses gap-2 for spacing */
     border-radius: var(--theme-border-radius);
-    font-size: 0.6875rem;
+    font-size: var(--font-size-xs);
     font-weight: 700;
     line-height: 1;
     text-align: center;

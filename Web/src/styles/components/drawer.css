@@ -18,7 +18,9 @@
   position: fixed;
   top: 0;
   bottom: 0;
-  width: 550px;
+  /* Widened from 550px - the Downloads card-view stats drawer (this component's only current
+     consumer) packs a two-column label/value layout that felt cramped at the old width. */
+  width: 680px;
   max-width: 90vw;
   z-index: 201;
   display: flex;
@@ -71,7 +73,7 @@
 }
 
 .custom-drawer-title {
-  font-size: 1.125rem;
+  font-size: var(--font-size-xl);
   font-weight: 700;
   margin: 0;
   overflow: hidden;

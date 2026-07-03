@@ -24,7 +24,7 @@
   color: var(--theme-text-primary);
   border: 1px solid var(--theme-border-primary);
   border-radius: var(--theme-border-radius);
-  font-size: 0.875rem;
+  font-size: var(--font-size-md);
   line-height: 1.25rem;
   outline: none;
   transition: border-color 0.15s ease;
@@ -59,13 +59,13 @@
 }
 
 .schedule-interval-picker-suffix {
-  font-size: 0.875rem;
+  font-size: var(--font-size-md);
   color: var(--theme-text-secondary);
   white-space: nowrap;
 }
 
 .schedule-interval-picker-error {
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   color: var(--theme-error);
 }
 

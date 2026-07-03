@@ -232,11 +232,13 @@ async fn main() -> Result<()> {
         eprintln!("  Progress file: {}", path.display());
     }
 
+    // Write initial progress BEFORE the started event (file-write-before-stdout-emit
+    // invariant): C#'s event callback reads the progress file the moment "started" arrives,
+    // and the C#-created temp file is empty until this first write.
+    write_progress(progress_path.as_deref(), "starting", "signalr.gameDetect.starting.default", json!({}), 0.0, 0, 0)?;
+
     // Emit started event
     reporter.emit_started("signalr.gameDetect.starting.default", json!({}));
-
-    // Write initial progress
-    write_progress(progress_path.as_deref(), "starting", "signalr.gameDetect.starting.default", json!({}), 0.0, 0, 0)?;
     reporter.emit_progress(0.0, "signalr.gameDetect.starting.default", json!({}));
 
     if !cache_dir.exists() {

@@ -31,11 +31,11 @@
 .config-error-title {
   margin: 0;
   color: var(--theme-text-primary);
-  font-size: 1.125rem;
+  font-size: var(--font-size-xl);
   font-weight: 600;
 }
 
 .config-error-message {
   color: var(--theme-error-text);
-  font-size: 0.875rem;
+  font-size: var(--font-size-md);
 }

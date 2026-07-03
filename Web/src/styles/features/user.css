@@ -571,7 +571,7 @@
 
   .filter-chip {
     @apply px-2 py-0.5;
-    font-size: 0.6875rem;
+    font-size: var(--font-size-xs);
   }
 
   .settings-group {

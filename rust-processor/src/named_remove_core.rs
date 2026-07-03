@@ -60,11 +60,51 @@ struct RemovalReport {
     log_entries_removed: u64,
 }
 
-/// Name-keyed services reuse the Steam removal stage keys (`signalr.gameRemove.*`),
-/// matching the pre-consolidation `cache_named_game_remove` bin exactly.
+/// Name-keyed services reuse the Steam removal stage keys (`signalr.gameRemove.*`)
+/// for every stage EXCEPT starting/complete, matching the pre-consolidation
+/// `cache_named_game_remove` bin. Steam still owns `signalr.gameRemove.*` for
+/// starting/complete (it has a real gameAppId); named services (blizzard/riot/xbox)
+/// have neither a Steam nor an Epic AppId, so they get the existing AppID-free
+/// `signalr.namedRemove.*` starting/complete keys. This family already exists in
+/// en.json/zh.json (mirrors `signalr.epicRemove.*` text) and is already computed by
+/// `GamesController.StartRemovalAsync`'s `isNamed` branch for the Started/Complete
+/// SignalR events — reused here (not a new `namedGameRemove.*` family) so the
+/// mid-operation progress ticks Rust emits agree with the REST-side keys instead of
+/// introducing a second, parallel AppID-free key family for the same purpose.
 const NAMED_STAGE_KEYS: RemovalStageKeys = RemovalStageKeys {
     cache_file_progress: "signalr.gameRemove.cache.file.progress",
 };
+
+/// Stage key for the starting progress event. AppID-free — named games have no
+/// Steam/Epic AppId, so the template must not reference `{{gameAppId}}`.
+const NAMED_GAME_REMOVE_STARTING_KEY: &str = "signalr.namedRemove.starting";
+/// Stage key for the completed progress event. Same AppID-free rationale.
+const NAMED_GAME_REMOVE_COMPLETE_KEY: &str = "signalr.namedRemove.complete";
+
+/// Context for the starting progress event. Carries `gameName` and `service`, and
+/// deliberately never a `gameAppId` key — named games (blizzard/riot/xbox) don't have
+/// one. Extracted as a pure fn so the shape is unit-testable without a live removal run.
+fn starting_context(game_name: &str, service: &str) -> serde_json::Value {
+    json!({ "gameName": game_name, "service": service })
+}
+
+/// Context for the completed progress event. Same no-`gameAppId` contract as
+/// [`starting_context`].
+fn complete_context(
+    game_name: &str,
+    service: &str,
+    files: usize,
+    gb: f64,
+    log_entries: u64,
+) -> serde_json::Value {
+    json!({
+        "files": files,
+        "gb": gb,
+        "logEntries": log_entries,
+        "gameName": game_name,
+        "service": service,
+    })
+}
 
 /// Normalize the wrapper-pinned service to the form the DB gate expects. The DB
 /// predicate uses `LOWER(d.Service) = $2`, so the bound service must be lowercase;
@@ -255,7 +295,7 @@ pub async fn run(service: &str) -> Result<()> {
 
     let pool = db::create_pool().await?;
 
-    removal_core::write_progress(&progress_path, &reporter, "starting", "signalr.gameRemove.starting", json!({ "gameName": game_name, "service": service }), 0.0, 0, 0)?;
+    removal_core::write_progress(&progress_path, &reporter, "starting", NAMED_GAME_REMOVE_STARTING_KEY, starting_context(game_name, &service), 0.0, 0, 0)?;
 
     // Query database for URLs
     removal_core::write_progress(&progress_path, &reporter, "querying_database", "signalr.gameRemove.db.querying", json!({}), 5.0, 0, 0)?;
@@ -354,7 +394,22 @@ pub async fn run(service: &str) -> Result<()> {
     let json = serde_json::to_string_pretty(&report)?;
     fs::write(&output_json, json)?;
 
-    removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.gameRemove.complete", json!({ "files": report.cache_files_deleted, "gb": report.total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": report.log_entries_removed, "gameName": game_name, "service": service }), 100.0, 0, 0)?;
+    removal_core::write_progress(
+        &progress_path,
+        &reporter,
+        "completed",
+        NAMED_GAME_REMOVE_COMPLETE_KEY,
+        complete_context(
+            game_name,
+            &service,
+            report.cache_files_deleted,
+            report.total_bytes_freed as f64 / 1_073_741_824.0,
+            report.log_entries_removed,
+        ),
+        100.0,
+        0,
+        0,
+    )?;
 
     eprintln!("\n=== Removal Summary ===");
     eprintln!("Cache files deleted: {}", report.cache_files_deleted);
@@ -407,5 +462,37 @@ mod tests {
         // It DOES scope on the Download side via the DownloadId-IN subquery.
         assert!(FALLBACK_URL_QUERY.contains("le.\"DownloadId\" IN ("));
         assert!(FALLBACK_URL_QUERY.contains("LOWER(\"Service\") = $2"));
+    }
+
+    /// The named-removal starting/complete stage keys must be the existing AppID-free
+    /// `namedRemove.*` family (already used by GamesController's REST-side Started/Complete
+    /// events and already present in en.json/zh.json), not the Steam
+    /// `signalr.gameRemove.starting/.complete` keys (which the i18n templates hardcode
+    /// `(AppID {{gameAppId}})` into — the placeholder bug this fix removes).
+    #[test]
+    fn named_stage_keys_are_the_appid_free_family() {
+        assert_eq!(NAMED_GAME_REMOVE_STARTING_KEY, "signalr.namedRemove.starting");
+        assert_eq!(NAMED_GAME_REMOVE_COMPLETE_KEY, "signalr.namedRemove.complete");
+    }
+
+    /// `starting_context` must carry `gameName` and must NEVER carry `gameAppId` — named
+    /// games (blizzard/riot/xbox) have neither a Steam nor an Epic AppId.
+    #[test]
+    fn starting_context_has_game_name_and_no_game_app_id() {
+        let ctx = starting_context("Diablo IV", "blizzard");
+        assert_eq!(ctx.get("gameName").and_then(|v| v.as_str()), Some("Diablo IV"));
+        assert_eq!(ctx.get("service").and_then(|v| v.as_str()), Some("blizzard"));
+        assert!(ctx.get("gameAppId").is_none(), "named context must not carry gameAppId");
+    }
+
+    /// `complete_context` carries the same no-`gameAppId` contract plus the removal totals.
+    #[test]
+    fn complete_context_has_game_name_and_no_game_app_id() {
+        let ctx = complete_context("Halo Infinite", "xbox", 11, 0.0094, 42);
+        assert_eq!(ctx.get("gameName").and_then(|v| v.as_str()), Some("Halo Infinite"));
+        assert_eq!(ctx.get("service").and_then(|v| v.as_str()), Some("xbox"));
+        assert_eq!(ctx.get("files").and_then(|v| v.as_u64()), Some(11));
+        assert_eq!(ctx.get("logEntries").and_then(|v| v.as_u64()), Some(42));
+        assert!(ctx.get("gameAppId").is_none(), "named context must not carry gameAppId");
     }
 }

@@ -3015,7 +3015,6 @@
           "config": {
             "summary": "已启用 {{enabled}} / {{total}} 个服务",
             "nextRunSummary": {
-              "item": "{{service}} {{timing}}",
               "inMinutes": "{{count}} 分钟后",
               "inHours": "{{count}} 小时后",
               "inDays": "{{count}} 天后",

@@ -411,8 +411,12 @@ public sealed partial class GameCacheDetectionDataService
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        var cachedGames = await dbContext.CachedGameDetections.ToListAsync(cancellationToken);
-        var cachedServices = await dbContext.CachedServiceDetections.ToListAsync(cancellationToken);
+        // Ordered by Id so path-claiming attribution (first entity to see a shared path wins it)
+        // is deterministic across refreshes instead of depending on Postgres's unspecified
+        // default row order, which would otherwise let per-row bytes flap between runs for
+        // games/services that share cache paths.
+        var cachedGames = await dbContext.CachedGameDetections.OrderBy(g => g.Id).ToListAsync(cancellationToken);
+        var cachedServices = await dbContext.CachedServiceDetections.OrderBy(s => s.Id).ToListAsync(cancellationToken);
 
         if (cachedGames.Count == 0 && cachedServices.Count == 0)
         {
@@ -426,6 +430,9 @@ public sealed partial class GameCacheDetectionDataService
         var services = cachedServices.Select(ToServiceCacheInfo).ToList();
         var attributed = GamesOnDiskCalculator.ComputeAttributedCacheFromDisk(games, services);
 
+        ulong retainedGameBytes = 0;
+        var retainedGameKeys = new List<string>();
+
         foreach (var cached in cachedGames)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -436,7 +443,28 @@ public sealed partial class GameCacheDetectionDataService
             }
 
             var key = GamesOnDiskCalculator.GetGameKey(ToGameCacheInfo(cached));
-            cached.TotalSizeBytes = attributed.GameBytesByKey.TryGetValue(key, out var bytes) ? bytes : 0;
+            if (attributed.GameBytesByKey.TryGetValue(key, out var bytes))
+            {
+                cached.TotalSizeBytes = bytes;
+            }
+            else if (cached.CacheFilesFound > 0 && !attributed.ClaimedElsewhereGameKeys.Contains(key))
+            {
+                // Re-attribution found none of this game's persisted cache paths on disk right now
+                // (e.g. the underlying cache files were reclaimed between the Rust scan and this
+                // refresh), but the game itself was not evicted through the tracked eviction flow.
+                // Trust the last Rust-computed size instead of clobbering it with 0. Excluded here:
+                // games that contributed 0 bytes because at least one of their paths was already
+                // claimed by an earlier active game/service this pass (even if another of their
+                // paths was merely missing from disk) - those bytes are already counted under the
+                // earlier claimant, so retaining this row's persisted size too would double-count
+                // it in the aggregate.
+                retainedGameBytes += cached.TotalSizeBytes;
+                retainedGameKeys.Add(key);
+            }
+            else
+            {
+                cached.TotalSizeBytes = 0;
+            }
         }
 
         foreach (var cached in cachedServices)
@@ -452,16 +480,33 @@ public sealed partial class GameCacheDetectionDataService
             cached.TotalSizeBytes = attributed.ServiceBytesByKey.TryGetValue(key, out var bytes) ? bytes : 0;
         }
 
-        await UpsertDetectionSummaryAsync(dbContext, attributed.Aggregate, cancellationToken);
+        var aggregate = retainedGameBytes == 0
+            ? attributed.Aggregate
+            : attributed.Aggregate with
+            {
+                TotalBytes = attributed.Aggregate.TotalBytes + retainedGameBytes,
+                GameBytes = attributed.Aggregate.GameBytes + retainedGameBytes,
+                ActiveGameCount = attributed.Aggregate.ActiveGameCount + retainedGameKeys.Count
+            };
+
+        await UpsertDetectionSummaryAsync(dbContext, aggregate, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
+
+        if (retainedGameKeys.Count > 0)
+        {
+            _logger.LogWarning(
+                "[GameDetection] Retained persisted size for {Count} non-evicted game(s) whose cache paths did not resolve on disk during refresh: {Keys}",
+                retainedGameKeys.Count,
+                string.Join(", ", retainedGameKeys));
+        }
 
         _logger.LogInformation(
             "[GameDetection] Refreshed disk summary: {GameCount} games ({GameGb:F2} GB), {ServiceCount} services ({ServiceGb:F2} GB), {IdentifiedGb:F2} GB identified total",
-            attributed.Aggregate.ActiveGameCount,
-            attributed.Aggregate.GameBytes / 1_073_741_824.0,
-            attributed.Aggregate.ActiveServiceCount,
-            attributed.Aggregate.ServiceBytes / 1_073_741_824.0,
-            attributed.Aggregate.TotalBytes / 1_073_741_824.0);
+            aggregate.ActiveGameCount,
+            aggregate.GameBytes / 1_073_741_824.0,
+            aggregate.ActiveServiceCount,
+            aggregate.ServiceBytes / 1_073_741_824.0,
+            aggregate.TotalBytes / 1_073_741_824.0);
     }
 
     private static async Task<(IdentifiedCacheAggregate? Aggregate, DateTime? ComputedAtUtc)> LoadDetectionSummaryAsync(

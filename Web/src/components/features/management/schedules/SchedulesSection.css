@@ -47,14 +47,14 @@
 }
 
 .schedules-section-title {
-  font-size: 1.125rem;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   color: var(--theme-text-primary);
   margin: 0;
 }
 
 .schedules-section-subtitle {
-  font-size: 0.875rem;
+  font-size: var(--font-size-md);
   color: var(--theme-text-muted);
   margin: 0;
 }
@@ -73,7 +73,7 @@
   background-color: var(--theme-error-bg);
   border: 1px solid var(--theme-error);
   color: var(--theme-error-text);
-  font-size: 0.875rem;
+  font-size: var(--font-size-md);
 }
 
 /* Grid */
@@ -145,7 +145,7 @@
 }
 
 .schedule-card-name {
-  font-size: 0.9375rem;
+  font-size: var(--font-size-lg);
   font-weight: 600;
   color: var(--theme-text-primary);
   margin: 0;
@@ -155,7 +155,7 @@
 }
 
 .schedule-card-description {
-  font-size: 0.8125rem;
+  font-size: var(--font-size-base);
   color: var(--theme-text-muted);
   margin: 0;
   line-height: 1.4;
@@ -201,7 +201,7 @@
 }
 
 .schedule-timing-label {
-  font-size: 0.6875rem;
+  font-size: var(--font-size-xs);
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -209,19 +209,19 @@
 }
 
 .schedule-timing-value {
-  font-size: 0.8125rem;
+  font-size: var(--font-size-base);
   color: var(--theme-text-secondary);
 }
 
 .schedule-next-run-date {
-  font-size: 0.6875rem;
+  font-size: var(--font-size-xs);
   color: var(--theme-text-muted);
   margin-top: 0.125rem;
 }
 
 .schedule-countdown {
   font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
-  font-size: 0.875rem;
+  font-size: var(--font-size-md);
   font-weight: 600;
   color: var(--theme-text-accent);
   letter-spacing: 0.02em;
@@ -307,7 +307,7 @@
 }
 
 .schedule-extra-label {
-  font-size: 0.6875rem;
+  font-size: var(--font-size-xs);
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -316,7 +316,7 @@
 
 .schedule-extra-help {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   color: var(--theme-text-muted);
   line-height: 1.4;
 }
@@ -341,7 +341,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   color: var(--theme-text-muted);
 }
 
@@ -350,25 +350,50 @@
 }
 
 .scheduled-prefill-card-summary__schedule {
-  margin: 0;
-  font-size: 0.75rem;
-  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin: 0.25rem 0 0;
+  font-size: var(--font-size-sm);
   color: var(--theme-text-secondary);
 }
 
-.scheduled-prefill-card-summary__schedule-item {
+.scheduled-prefill-card-summary__schedule-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.scheduled-prefill-card-summary__schedule-service {
+  min-width: 5.5rem;
+  font-weight: 500;
+  color: var(--theme-text-primary);
+}
+
+/* The picker stretches to 100% of its container by design (modal usage); cap it here so
+   the row reads as "label - control - hint" instead of the control swallowing the row. */
+.scheduled-prefill-card-summary__schedule-picker {
+  flex: 0 1 13rem;
+  min-width: 10rem;
+}
+
+.scheduled-prefill-card-summary__schedule-timing {
+  color: var(--theme-text-muted);
   white-space: nowrap;
 }
 
-.scheduled-prefill-card-summary__schedule-sep {
-  color: var(--theme-text-muted);
+@media (max-width: 639px) {
+  .scheduled-prefill-card-summary__schedule-picker {
+    flex: 1 1 100%;
+  }
 }
 
 .scheduled-prefill-card-summary__warning,
 .scheduled-prefill-card-summary__error,
 .scheduled-prefill-card-summary__progress {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   line-height: 1.4;
 }
 
@@ -424,7 +449,7 @@
   margin: 0;
   flex: 1 1 18rem;
   min-width: 0;
-  font-size: 0.875rem;
+  font-size: var(--font-size-md);
   line-height: 1.5;
   color: var(--theme-text-muted);
 }
@@ -463,7 +488,7 @@
 }
 
 .scheduled-prefill-config-modal__global-label {
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--theme-text-secondary);
@@ -487,7 +512,7 @@
 }
 
 .scheduled-prefill-config-modal__global-saved {
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--theme-success-text);
 }
@@ -495,7 +520,7 @@
 .scheduled-prefill-config-modal__global-help {
   grid-column: 1 / -1;
   margin: 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
   color: var(--theme-text-muted);
 }
@@ -504,7 +529,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   color: var(--theme-text-muted);
 }
 
@@ -587,7 +612,7 @@
   background-color: var(--theme-bg-tertiary);
   border: 1px solid var(--theme-border-secondary);
   color: var(--theme-text-muted);
-  font-size: 0.8125rem;
+  font-size: var(--font-size-base);
   line-height: 1.45;
 }
 
@@ -652,7 +677,7 @@
 
 .scheduled-prefill-auth-status__expiry {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   line-height: 1.4;
   color: var(--theme-text-muted);
 }
@@ -694,7 +719,7 @@
 
 .scheduled-prefill-service-row__label {
   display: block;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--theme-text-secondary);
@@ -702,7 +727,7 @@
 
 .scheduled-prefill-service-row__help {
   margin: 0.3rem 0 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
   color: var(--theme-text-muted);
 }
@@ -754,7 +779,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-base);
   color: var(--theme-text-muted);
 }
 
@@ -771,14 +796,14 @@
 
 .scheduled-prefill-persistent-card__title {
   margin: 0;
-  font-size: 0.9375rem;
+  font-size: var(--font-size-lg);
   font-weight: 700;
   color: var(--theme-text-primary);
 }
 
 .scheduled-prefill-persistent-card__subtitle {
   margin: 0.35rem 0 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
   color: var(--theme-text-muted);
 }
@@ -823,7 +848,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-base);
   font-weight: 600;
   color: var(--theme-text-secondary);
 }
@@ -841,7 +866,7 @@
 }
 
 .scheduled-prefill-persistent-card__meta-label {
-  font-size: 0.6875rem;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -849,21 +874,21 @@
 }
 
 .scheduled-prefill-persistent-card__meta-value {
-  font-size: 0.8125rem;
+  font-size: var(--font-size-base);
   color: var(--theme-text-secondary);
 }
 
 .scheduled-prefill-persistent-card__meta-detail {
   display: block;
   margin-top: 0.15rem;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   color: var(--theme-text-muted);
 }
 
 /* Games-selected count and live download readout are plain inline text, not boxes. */
 .scheduled-prefill-persistent-card__games {
   margin: 0;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-base);
   color: var(--theme-text-secondary);
 }
 
@@ -875,7 +900,7 @@
 
 .scheduled-prefill-persistent-card__downloading {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
   color: var(--theme-text-muted);
 }
@@ -910,7 +935,7 @@
 .scheduled-prefill-persistent-card__hint,
 .scheduled-prefill-schedule-fields__override {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
 }
 
@@ -950,7 +975,7 @@
 
 .scheduled-prefill-service-row__selected-override {
   margin: 0.5rem 0 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
   font-weight: 600;
   color: var(--theme-info-text);
@@ -999,7 +1024,7 @@
 
 .scheduled-prefill-auth-status__title {
   margin: 0;
-  font-size: 0.875rem;
+  font-size: var(--font-size-md);
   font-weight: 600;
   color: var(--theme-text-primary);
 }
@@ -1008,7 +1033,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   color: var(--theme-text-muted);
 }
 
@@ -1019,14 +1044,14 @@
 
 .scheduled-prefill-auth-status__service-name {
   margin: 0;
-  font-size: 0.875rem;
+  font-size: var(--font-size-md);
   font-weight: 500;
   color: var(--theme-text-primary);
 }
 
 .scheduled-prefill-auth-status__subtitle {
   margin: 0.15rem 0 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   color: var(--theme-text-muted);
 }
 
@@ -1051,7 +1076,7 @@
 
 .scheduled-prefill-containers__help-intro {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
   color: var(--theme-text-secondary);
 }
@@ -1067,7 +1092,7 @@
 
 .scheduled-prefill-containers__help-list li {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
   color: var(--theme-text-muted);
 }
@@ -1083,7 +1108,7 @@
 
 .scheduled-prefill-containers__anonymous-title {
   margin: 0;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-base);
   font-weight: 700;
   color: var(--theme-text-secondary);
 }
@@ -1105,14 +1130,14 @@
 
 .scheduled-prefill-anonymous-card__title {
   margin: 0;
-  font-size: 0.9375rem;
+  font-size: var(--font-size-lg);
   font-weight: 700;
   color: var(--theme-text-primary);
 }
 
 .scheduled-prefill-anonymous-card__description {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
   color: var(--theme-text-muted);
 }
@@ -1128,7 +1153,7 @@
 
 .scheduled-prefill-anonymous-card__list li {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
   color: var(--theme-text-secondary);
 }
@@ -1198,12 +1223,12 @@
 }
 
 .scheduled-prefill-platforms__nav-label {
-  font-size: 0.8125rem;
+  font-size: var(--font-size-base);
   font-weight: 600;
 }
 
 .scheduled-prefill-platforms__nav-hint {
-  font-size: 0.6875rem;
+  font-size: var(--font-size-xs);
   line-height: 1.35;
   color: var(--theme-text-muted);
 }
@@ -1217,7 +1242,7 @@
 }
 
 .scheduled-prefill-platforms__nav-badge {
-  font-size: 0.625rem;
+  font-size: var(--font-size-2xs);
 }
 
 .scheduled-prefill-platforms__content {
@@ -1263,7 +1288,7 @@
 
 .scheduled-prefill-platform-section__title {
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--font-size-lg);
   font-weight: 700;
   color: var(--theme-text-primary);
 }
@@ -1285,7 +1310,7 @@
 
 .scheduled-prefill-platform-block__title {
   margin: 0;
-  font-size: 0.875rem;
+  font-size: var(--font-size-md);
   font-weight: 700;
   color: var(--theme-text-primary);
 }
@@ -1322,7 +1347,7 @@
      label row reserves the same height whether or not it carries a help icon - otherwise the Preset
      field's row sits ~6px taller than its plain-label grid sibling and the controls below misalign. */
   min-height: 1.5rem;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--theme-text-secondary);
@@ -1330,7 +1355,7 @@
 
 .scheduled-prefill-schedule-fields__help {
   margin: 0.25rem 0 0;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-base);
   line-height: 1.5;
   color: var(--theme-text-muted);
 }
@@ -1359,14 +1384,14 @@
 
 .scheduled-prefill-platform-auth__description {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
   color: var(--theme-text-muted);
 }
 
 .scheduled-prefill-platform-auth__loading {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   color: var(--theme-text-muted);
 }
 
@@ -1385,14 +1410,14 @@
 
 .scheduled-prefill-platform-auth__subtitle {
   margin: 0;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-base);
   font-weight: 600;
   color: var(--theme-text-secondary);
 }
 
 .scheduled-prefill-platform-auth__expiry {
   margin: 0.25rem 0 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   line-height: 1.4;
   color: var(--theme-text-muted);
 }
@@ -1411,7 +1436,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-base);
   color: var(--theme-text-muted);
 }
 
@@ -1571,7 +1596,7 @@
   align-items: center;
   gap: 0.5rem;
   padding-top: 0.5rem;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   color: var(--theme-text-muted);
 }
 
@@ -1596,7 +1621,7 @@
   background: none;
   border: none;
   padding: 0.25rem 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--theme-text-muted);
   cursor: pointer;
@@ -1610,7 +1635,7 @@
 .schedule-expand-chevron {
   transition: transform 0.2s ease;
   display: inline-block;
-  font-size: 0.625rem;
+  font-size: var(--font-size-2xs);
   line-height: 1;
 }
 
@@ -1643,7 +1668,7 @@
 }
 
 .schedule-gain-loss-label {
-  font-size: 0.6875rem;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1658,7 +1683,7 @@
 }
 
 .schedule-gain-loss-text {
-  font-size: 0.8125rem;
+  font-size: var(--font-size-base);
   color: var(--theme-text-secondary);
   line-height: 1.45;
 }

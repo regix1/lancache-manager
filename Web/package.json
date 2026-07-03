@@ -21,6 +21,7 @@
     "validate:stage-keys": "node scripts/validate-stage-keys.mjs"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
     "@microsoft/signalr": "^8.0.7",
     "@number-flow/react": "^0.5.10",
     "@tanstack/react-virtual": "^3.13.23",

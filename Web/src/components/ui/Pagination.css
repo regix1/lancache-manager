@@ -35,7 +35,7 @@
 }
 
 .pagination-group__label {
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-weight: 500;
   padding-left: 0.5rem;
@@ -77,7 +77,7 @@
 }
 
 .pagination-inline__label {
-  font-size: 0.625rem;
+  font-size: var(--font-size-2xs);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-weight: 500;
   min-width: 28px;
