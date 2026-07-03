@@ -224,11 +224,11 @@ public class PersistentLoginFailFastTests
     /// </summary>
     private abstract class TestDaemonClientBase : IDaemonClient
     {
-        public event Func<CredentialChallenge, Task>? OnCredentialChallenge;
+        public event Func<CredentialChallenge, Task>? OnCredentialChallenge { add { } remove { } }
         public event Func<DaemonStatus, Task>? OnStatusUpdate;
-        public event Func<SocketPrefillProgress, Task>? OnProgressUpdate;
-        public event Func<string, Task>? OnError;
-        public event Func<Task>? OnDisconnected;
+        public event Func<SocketPrefillProgress, Task>? OnProgressUpdate { add { } remove { } }
+        public event Func<string, Task>? OnError { add { } remove { } }
+        public event Func<Task>? OnDisconnected { add { } remove { } }
 
         /// <summary>The invoker the test scenarios use to raise the daemon's status broadcast.</summary>
         protected Task RaiseStatusUpdateAsync(DaemonStatus status)

@@ -417,11 +417,11 @@ public class PersistentLoginChallengeResumeTests
     /// </summary>
     private abstract class TestDaemonClientBase : IDaemonClient
     {
-        public event Func<CredentialChallenge, Task>? OnCredentialChallenge;
-        public event Func<DaemonStatus, Task>? OnStatusUpdate;
-        public event Func<SocketPrefillProgress, Task>? OnProgressUpdate;
-        public event Func<string, Task>? OnError;
-        public event Func<Task>? OnDisconnected;
+        public event Func<CredentialChallenge, Task>? OnCredentialChallenge { add { } remove { } }
+        public event Func<DaemonStatus, Task>? OnStatusUpdate { add { } remove { } }
+        public event Func<SocketPrefillProgress, Task>? OnProgressUpdate { add { } remove { } }
+        public event Func<string, Task>? OnError { add { } remove { } }
+        public event Func<Task>? OnDisconnected { add { } remove { } }
 
         public Task ConnectAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
