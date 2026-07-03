@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { usePersistentSteamAuth } from '@hooks/usePersistentSteamAuth';
+import { usePersistentLoginRequestNonce } from '../persistentLoginStore';
 
 interface SteamPersistentLoginProps {
   isRunning: boolean;
@@ -21,9 +22,10 @@ export function SteamPersistentLogin({
 }: SteamPersistentLoginProps) {
   const { t } = useTranslation();
   const { state, actions, dismissModal, resumeModal } = usePersistentSteamAuth();
+  const loginRequestNonce = usePersistentLoginRequestNonce('Steam');
   const handledAuthenticatedRef = useRef(false);
   const startInFlightRef = useRef(false);
-  const autoStartedRef = useRef(false);
+  const processedLoginRequestRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!state.authenticated) {
@@ -59,14 +61,22 @@ export function SteamPersistentLogin({
     }
   }, [actions, resumeModal, state.hasChallenge]);
 
+  // Fires once on mount (processedLoginRequestRef starts null, never equal to a real nonce), and
+  // again on every later explicit "Log in" click (ScheduledPrefillConfigModal's
+  // requestPersistentLoginAttempt bumps loginRequestNonce) even when the click didn't change
+  // persistentLoginTarget's value and so didn't remount this component.
   useEffect(() => {
-    if (!autoStart || !isRunning || isAuthenticated || autoStartedRef.current) {
+    if (!autoStart || !isRunning || isAuthenticated) {
       return;
     }
 
-    autoStartedRef.current = true;
+    if (processedLoginRequestRef.current === loginRequestNonce) {
+      return;
+    }
+
+    processedLoginRequestRef.current = loginRequestNonce;
     void beginLogin();
-  }, [autoStart, beginLogin, isAuthenticated, isRunning]);
+  }, [autoStart, beginLogin, isAuthenticated, isRunning, loginRequestNonce]);
 
   const authModalOpened =
     !state.dismissed && !state.authenticated && (state.loading || state.hasChallenge);

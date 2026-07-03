@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { XboxAuthModal } from '@components/modals/auth/XboxAuthModal';
 import { usePersistentXboxAuth } from '@hooks/usePersistentXboxAuth';
+import { usePersistentLoginRequestNonce } from '../persistentLoginStore';
 
 interface XboxPersistentLoginProps {
   isRunning: boolean;
@@ -21,9 +22,10 @@ export function XboxPersistentLogin({
 }: XboxPersistentLoginProps) {
   const { t } = useTranslation();
   const { state, actions, startLogin, dismissModal, resumeModal } = usePersistentXboxAuth();
+  const loginRequestNonce = usePersistentLoginRequestNonce('Xbox');
   const handledAuthenticatedRef = useRef(false);
   const startInFlightRef = useRef(false);
-  const autoStartedRef = useRef(false);
+  const processedLoginRequestRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!state.authenticated) {
@@ -59,14 +61,22 @@ export function XboxPersistentLogin({
     }
   }, [resumeModal, startLogin, state.hasChallenge]);
 
+  // Fires once on mount (processedLoginRequestRef starts null, never equal to a real nonce), and
+  // again on every later explicit "Log in" click (ScheduledPrefillConfigModal's
+  // requestPersistentLoginAttempt bumps loginRequestNonce) even when the click didn't change
+  // persistentLoginTarget's value and so didn't remount this component.
   useEffect(() => {
-    if (!autoStart || !isRunning || isAuthenticated || autoStartedRef.current) {
+    if (!autoStart || !isRunning || isAuthenticated) {
       return;
     }
 
-    autoStartedRef.current = true;
+    if (processedLoginRequestRef.current === loginRequestNonce) {
+      return;
+    }
+
+    processedLoginRequestRef.current = loginRequestNonce;
     void beginLogin();
-  }, [autoStart, beginLogin, isAuthenticated, isRunning]);
+  }, [autoStart, beginLogin, isAuthenticated, isRunning, loginRequestNonce]);
 
   const authModalOpened =
     !state.dismissed && !state.authenticated && (state.loading || state.hasChallenge);

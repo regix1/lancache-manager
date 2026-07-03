@@ -37,6 +37,7 @@ import {
   hasActivePersistentLogin,
   isPersistentLoginDismissed,
   reconcilePersistentLoginFromServer,
+  requestPersistentLoginAttempt,
   resetPersistentLoginState
 } from './persistentLoginStore';
 import { usePersistentPrefillContainerSignalR } from './usePersistentPrefillContainerSignalR';
@@ -502,13 +503,22 @@ export function ScheduledPrefillConfigModal({
   // issue 3). Recomputed on every container-list refresh, which keeps running continuously while
   // any account service sits running-but-unauthenticated (see shouldWatchPersistentAuth above) -
   // bounding staleness to "within one refresh" per the acceptance criteria.
+  //
+  // A dismissed-but-still-pending challenge (the user closed the auth modal via X/backdrop/Escape,
+  // which keeps the daemon login and its challenge alive - see persistentLoginStore's `dismissed`
+  // flag) does NOT count as "authenticating" here: `hasActivePersistentLogin` stays true for it
+  // (pendingChallenge is intentionally untouched by a soft dismiss), so without this exclusion the
+  // card's Log in button would stay disabled forever with no way back into the modal.
   const authenticatingServiceKeys = useMemo(
     () =>
       SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.filter((serviceKey) => {
         const serviceId = getPersistentServiceId(serviceKey);
         const container = persistentContainerByService.get(serviceId);
         return (
-          container?.isRunning && !container.isAuthenticated && hasActivePersistentLogin(serviceId)
+          container?.isRunning &&
+          !container.isAuthenticated &&
+          hasActivePersistentLogin(serviceId) &&
+          !isPersistentLoginDismissed(serviceId)
         );
       }),
     [persistentContainerByService]
@@ -725,6 +735,12 @@ export function ScheduledPrefillConfigModal({
 
     setPersistentError(null);
     setPersistentLoginTarget(serviceKey);
+    // Setting the target above is a same-value no-op for React whenever this service was already
+    // the target (a dismissed-but-pending challenge, or a wedge where a prior start() settled with
+    // nothing) - the mounted login component would never see the click. This nonce is watched by
+    // its autostart effect independently of the target's value, so the click always reaches
+    // beginLogin(), which itself decides resume-vs-fresh-start via state.hasChallenge.
+    requestPersistentLoginAttempt(getPersistentServiceId(serviceKey));
   };
 
   const loadGameSelection = useCallback(

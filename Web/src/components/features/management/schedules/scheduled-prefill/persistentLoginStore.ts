@@ -115,6 +115,11 @@ const listeners = new Map<PersistentPrefillServiceId, Set<Listener>>();
 // since-remounted component instance still needs to observe a later cancel() call correctly.
 const cancelFlags = new Map<PersistentPrefillServiceId, { current: boolean }>();
 const startPromises = new Map<PersistentPrefillServiceId, Promise<CredentialChallenge | null>>();
+// Also kept separate from the persisted state above (and NOT cleared by resetPersistentLoginState):
+// an explicit "Log in" click must always be observable by an already-mounted login component, even
+// across a store reset, so this counter's value is never reused/collided with a prior click.
+const loginAttemptCounters = new Map<PersistentPrefillServiceId, number>();
+const loginAttemptListeners = new Map<PersistentPrefillServiceId, Set<Listener>>();
 
 function notify(service: PersistentPrefillServiceId): void {
   listeners.get(service)?.forEach((listener) => listener());
@@ -209,6 +214,44 @@ export function hasActivePersistentLogin(service: PersistentPrefillServiceId): b
  */
 export function isPersistentLoginDismissed(service: PersistentPrefillServiceId): boolean {
   return getPersistentLoginState(service).dismissed;
+}
+
+function notifyLoginAttempt(service: PersistentPrefillServiceId): void {
+  loginAttemptListeners.get(service)?.forEach((listener) => listener());
+}
+
+function subscribeLoginAttempt(
+  service: PersistentPrefillServiceId,
+  listener: Listener
+): () => void {
+  const set = loginAttemptListeners.get(service) ?? new Set<Listener>();
+  set.add(listener);
+  loginAttemptListeners.set(service, set);
+  return () => {
+    set.delete(listener);
+  };
+}
+
+/**
+ * Bumped once per explicit "Log in" click (ScheduledPrefillConfigModal's `handlePersistentLogin`),
+ * independent of whether `persistentLoginTarget`'s value actually changes. Setting the target to a
+ * service it already points at (a dismissed-but-still-pending challenge, or a wedge where `start()`
+ * settled with nothing) is a same-value no-op for React, so an already-mounted login component would
+ * otherwise never see the click. Its autostart effect watches this nonce instead of firing only once
+ * per mount, so an explicit click always reaches `beginLogin` again.
+ */
+export function requestPersistentLoginAttempt(service: PersistentPrefillServiceId): void {
+  loginAttemptCounters.set(service, (loginAttemptCounters.get(service) ?? 0) + 1);
+  notifyLoginAttempt(service);
+}
+
+/** Reads the nonce `requestPersistentLoginAttempt` bumps - see its doc comment for why this exists
+ *  as a hook a login component subscribes to, rather than a one-shot mount ref alone. */
+export function usePersistentLoginRequestNonce(service: PersistentPrefillServiceId): number {
+  return useSyncExternalStore(
+    (listener) => subscribeLoginAttempt(service, listener),
+    () => loginAttemptCounters.get(service) ?? 0
+  );
 }
 
 export function isPersistentLoginCancelled(service: PersistentPrefillServiceId): boolean {
