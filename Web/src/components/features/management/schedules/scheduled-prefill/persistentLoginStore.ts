@@ -13,20 +13,18 @@ import type { CredentialChallenge } from '@hooks/usePrefillSteamAuth';
  * is the single source of truth for the UI, and `reconcilePersistentLoginFromServer` is what makes
  * it safe to resume even after a full page reload, by reading the backend's own pending-challenge
  * cache (see PersistentPrefillController / DaemonSession).
+ *
+ * The store keeps only the raw `pendingChallenge` from the daemon - it does NOT also flatten the
+ * challenge into separate `needsTwoFactor`/`needsDeviceCode`/etc. fields. Those are UI rendering
+ * detail (which form fields the auth modal shows), not state-machine detail, so they are derived
+ * on read by `derivePersistentChallengeFlags` instead of being duplicated storage that every
+ * challenge-applying code path had to keep in sync with `pendingChallenge` by hand.
  */
 interface PersistentLoginStoreState {
   loading: boolean;
   error: string | null;
   authenticated: boolean;
   pendingChallenge: CredentialChallenge | null;
-  needsTwoFactor: boolean;
-  needsEmailCode: boolean;
-  waitingForMobileConfirmation: boolean;
-  needsAuthorizationCode: boolean;
-  authorizationUrl: string;
-  needsDeviceCode: boolean;
-  deviceUserCode: string;
-  deviceVerificationUri: string;
   /**
    * True once the user has hidden the auth modal without cancelling. The daemon login flow (and
    * the cached challenge) stays alive; the modal reopens showing the same challenge next time
@@ -43,7 +41,7 @@ interface PersistentLoginStoreState {
   sessionUnavailableState: PersistentSessionNotFoundState | null;
 }
 
-interface ChallengeFlags {
+interface PersistentChallengeFlags {
   needsTwoFactor: boolean;
   needsEmailCode: boolean;
   waitingForMobileConfirmation: boolean;
@@ -54,7 +52,7 @@ interface ChallengeFlags {
   deviceVerificationUri: string;
 }
 
-const EMPTY_CHALLENGE_FLAGS: ChallengeFlags = {
+const EMPTY_CHALLENGE_FLAGS: PersistentChallengeFlags = {
   needsTwoFactor: false,
   needsEmailCode: false,
   waitingForMobileConfirmation: false,
@@ -66,7 +64,6 @@ const EMPTY_CHALLENGE_FLAGS: ChallengeFlags = {
 };
 
 const INITIAL_PERSISTENT_LOGIN_STATE: PersistentLoginStoreState = {
-  ...EMPTY_CHALLENGE_FLAGS,
   loading: false,
   error: null,
   authenticated: false,
@@ -93,9 +90,18 @@ export function isPersistentLoginCredentialChallenge(
   return isRecord(response) && typeof response.credentialType === 'string';
 }
 
-/** Derives the challenge-type UI flags from a challenge - the same mapping the auth modals key off. */
-function challengeToFlags(challenge: CredentialChallenge): ChallengeFlags {
-  const flags: ChallengeFlags = { ...EMPTY_CHALLENGE_FLAGS };
+/**
+ * Derives the challenge-type UI flags (which fields the auth modal should show) from the store's
+ * raw `pendingChallenge` - the ONLY place this mapping happens, so the flags can never drift out
+ * of sync with the challenge that produced them. `null` (no pending challenge) maps to all-false.
+ */
+export function derivePersistentChallengeFlags(
+  challenge: CredentialChallenge | null
+): PersistentChallengeFlags {
+  if (!challenge) {
+    return EMPTY_CHALLENGE_FLAGS;
+  }
+  const flags: PersistentChallengeFlags = { ...EMPTY_CHALLENGE_FLAGS };
   switch (challenge.credentialType) {
     case '2fa':
       flags.needsTwoFactor = true;
@@ -195,7 +201,6 @@ export function applyPersistentLoginChallenge(
     const isRedelivery = current.pendingChallenge?.challengeId === challenge.challengeId;
     return {
       ...current,
-      ...challengeToFlags(challenge),
       pendingChallenge: challenge,
       dismissed: isRedelivery ? current.dismissed : false
     };

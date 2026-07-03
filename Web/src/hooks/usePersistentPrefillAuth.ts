@@ -5,6 +5,7 @@ import type { CredentialChallenge } from './usePrefillSteamAuth';
 import type { SteamAuthActions, SteamLoginFlowState } from './useSteamAuthentication';
 import {
   applyPersistentLoginChallenge,
+  derivePersistentChallengeFlags,
   getPersistentLoginStartPromise,
   isPersistentLoginAuthenticatedResponse,
   isPersistentLoginCancelled,
@@ -95,6 +96,11 @@ export function usePersistentPrefillAuth(
   } = options;
 
   const stored = usePersistentLoginStoreState(service);
+  // Single derivation point for the challenge-type UI flags - see derivePersistentChallengeFlags's
+  // doc comment. Recomputed each render from `stored.pendingChallenge`, which is cheap (a switch
+  // over one string) and only actually changes reference when a new challenge is applied or the
+  // store resets.
+  const challengeFlags = derivePersistentChallengeFlags(stored.pendingChallenge);
 
   const [useManualCode, setUseManualCode] = useState(false);
   const [username, setUsername] = useState('');
@@ -117,22 +123,15 @@ export function usePersistentPrefillAuth(
     [service]
   );
 
-  const setNeedsTwoFactor = useCallback(
-    (value: boolean) => {
-      updatePersistentLoginState(service, (current) => ({ ...current, needsTwoFactor: value }));
-    },
-    [service]
-  );
-
-  const setWaitingForMobileConfirmation = useCallback(
-    (value: boolean) => {
-      updatePersistentLoginState(service, (current) => ({
-        ...current,
-        waitingForMobileConfirmation: value
-      }));
-    },
-    [service]
-  );
+  // The challenge-type flags (needsTwoFactor/waitingForMobileConfirmation/etc.) are now derived
+  // read-only from `stored.pendingChallenge` (see derivePersistentChallengeFlags) instead of being
+  // independently-settable store fields. SteamAuthModal only calls these two setters from its
+  // "switch to manual code entry" escape hatch, which it renders exclusively when `isPrefillMode`
+  // is false - every persistent-login caller of this hook always passes `isPrefillMode={true}`, so
+  // these are structurally unreachable here. Kept as no-ops only to satisfy the shared
+  // SteamAuthActions interface.
+  const setNeedsTwoFactor = useCallback((_value: boolean) => undefined, []);
+  const setWaitingForMobileConfirmation = useCallback((_value: boolean) => undefined, []);
 
   const applyChallenge = useCallback(
     (challenge: CredentialChallenge) => {
@@ -341,7 +340,9 @@ export function usePersistentPrefillAuth(
   }, [service]);
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
-    if (stored.needsTwoFactor) {
+    const flags = derivePersistentChallengeFlags(stored.pendingChallenge);
+
+    if (flags.needsTwoFactor) {
       if (!twoFactorCode.trim()) {
         fail('Please enter your 2FA code');
         return false;
@@ -349,7 +350,7 @@ export function usePersistentPrefillAuth(
       return submit(twoFactorCode);
     }
 
-    if (stored.needsEmailCode) {
+    if (flags.needsEmailCode) {
       if (!emailCode.trim()) {
         fail('Please enter your email verification code');
         return false;
@@ -357,7 +358,7 @@ export function usePersistentPrefillAuth(
       return submit(emailCode);
     }
 
-    if (stored.needsAuthorizationCode) {
+    if (flags.needsAuthorizationCode) {
       if (!authorizationCode.trim()) {
         fail('Please enter the authorization code');
         return false;
@@ -416,9 +417,6 @@ export function usePersistentPrefillAuth(
     password,
     start,
     stored.authenticated,
-    stored.needsAuthorizationCode,
-    stored.needsEmailCode,
-    stored.needsTwoFactor,
     stored.pendingChallenge,
     submit,
     submitChallenge,
@@ -428,20 +426,13 @@ export function usePersistentPrefillAuth(
 
   const state: PersistentPrefillAuthState = {
     loading: stored.loading,
-    needsTwoFactor: stored.needsTwoFactor,
-    needsEmailCode: stored.needsEmailCode,
-    waitingForMobileConfirmation: stored.waitingForMobileConfirmation,
+    ...challengeFlags,
     useManualCode,
     username,
     password,
     twoFactorCode,
     emailCode,
-    needsAuthorizationCode: stored.needsAuthorizationCode,
-    authorizationUrl: stored.authorizationUrl,
     authorizationCode,
-    needsDeviceCode: stored.needsDeviceCode,
-    deviceUserCode: stored.deviceUserCode,
-    deviceVerificationUri: stored.deviceVerificationUri,
     error: stored.error,
     authenticated: stored.authenticated,
     hasChallenge: stored.pendingChallenge !== null,
