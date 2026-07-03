@@ -12,6 +12,7 @@ import { buildSeededRunningNotification } from '@contexts/notifications/seedOper
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type {
   CorruptionRemovalCompleteEvent,
+  CorruptionDetectionCompleteEvent,
   CorruptionDetailsProgressEvent
 } from '@contexts/SignalRContext/types';
 import { Card } from '@components/ui/Card';
@@ -258,52 +259,50 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     }
   }, [isScanning, mockMode, missThreshold, compareToCacheLogs, detectionMode, addNotification, t]);
 
-  // Listen for corruption detection completion via notifications
+  // Listen for corruption detection completion via SignalR directly (same rationale as the
+  // removal handler below). The event fires exactly once per bulk scan, so no per-operation
+  // dedup bookkeeping is needed, and unlike a local "did this page click Scan" flag it still
+  // refreshes after an earlier attempt was cancelled or when the scan was started elsewhere.
   useEffect(() => {
-    // Handle corruption detection completion - ONLY if we were starting a scan
-    if (isStartingScan) {
-      const corruptionDetectionCompleteNotifs = notifications.filter(
-        (n) => n.type === 'corruption_detection' && n.status === 'completed'
-      );
-      if (corruptionDetectionCompleteNotifs.length > 0) {
-        setIsStartingScan(false);
-        beginLoad(true);
+    const handleDetectionComplete = (event: CorruptionDetectionCompleteEvent) => {
+      setIsStartingScan(false);
 
-        // Load fresh results from the database (backend already saved them)
-        const loadResults = async () => {
-          try {
-            const result = await ApiService.getCachedCorruptionDetection();
-            if (result.hasCachedResults && result.corruptionCounts) {
-              setCorruptionSummary(result.corruptionCounts);
-              setLastDetectionTime(result.lastDetectionTime || null);
-              setHasCachedResults(true);
-            } else {
-              // Scan completed but found zero corruption
-              // Still mark as "has results" so UI shows "No corrupted chunks detected"
-              setCorruptionSummary({});
-              setLastDetectionTime(new Date().toISOString());
-              setHasCachedResults(true);
-            }
-          } catch (err) {
-            console.error('[CorruptionManager] Failed to load detection results:', err);
-          } finally {
-            markLoaded();
+      if (!event.success) {
+        // Failure/cancel is surfaced in the notification bar, no inline error needed
+        return;
+      }
+
+      beginLoad(true);
+
+      // Load fresh results from the database (backend already saved them)
+      const loadResults = async () => {
+        try {
+          const result = await ApiService.getCachedCorruptionDetection();
+          if (result.hasCachedResults && result.corruptionCounts) {
+            setCorruptionSummary(result.corruptionCounts);
+            setLastDetectionTime(result.lastDetectionTime || null);
+            setHasCachedResults(true);
+          } else {
+            // Scan completed but found zero corruption
+            // Still mark as "has results" so UI shows "No corrupted chunks detected"
+            setCorruptionSummary({});
+            setLastDetectionTime(new Date().toISOString());
+            setHasCachedResults(true);
           }
-        };
-        loadResults();
-      }
+        } catch (err) {
+          console.error('[CorruptionManager] Failed to load detection results:', err);
+        } finally {
+          markLoaded();
+        }
+      };
+      loadResults();
+    };
 
-      // Handle corruption detection failure - ONLY if we were starting a scan
-      const corruptionDetectionFailedNotifs = notifications.filter(
-        (n) => n.type === 'corruption_detection' && n.status === 'failed'
-      );
-      if (corruptionDetectionFailedNotifs.length > 0) {
-        console.error('[CorruptionManager] Corruption detection failed');
-        setIsStartingScan(false);
-        // Note: Error is displayed in notification bar, no inline error needed
-      }
-    }
-  }, [notifications, isStartingScan, beginLoad, markLoaded]);
+    on('CorruptionDetectionComplete', handleDetectionComplete);
+    return () => {
+      off('CorruptionDetectionComplete', handleDetectionComplete);
+    };
+  }, [on, off, beginLoad, markLoaded]);
 
   // Listen for corruption removal completion via SignalR directly. Subscribing to the
   // raw event (instead of deriving from notifications.filter(status === 'completed'))
@@ -801,6 +800,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                   mockMode ||
                                   anyCorruptionRemovalPending ||
                                   isCorruptionRemovalActive ||
+                                  loadingDetailsServices.has(service) ||
                                   authMode !== 'authenticated' ||
                                   logsReadOnly ||
                                   cacheReadOnly ||
