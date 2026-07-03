@@ -3353,6 +3353,7 @@ export interface PrefillSessionDto {
   isLive: boolean;
   platform?: string;
   username?: string;
+  isPersistent?: boolean;
 }
 
 export interface DnsTestResult {
@@ -3404,6 +3405,9 @@ export interface DaemonSessionDto {
   networkDiagnostics?: NetworkDiagnostics;
   platform?: string;
   username?: string;
+  isPersistent?: boolean;
+  isTemporary?: boolean;
+  needsRelogin?: boolean;
 }
 
 interface PrefillSessionsResponse {

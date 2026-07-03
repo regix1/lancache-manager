@@ -65,6 +65,15 @@ public class PrefillSession
     public bool IsPrefilling { get; set; }
 
     /// <summary>
+    /// Whether this row represents a persistent (system-owned, deterministically-named) daemon
+    /// container rather than a guest/temporary session. Derived at insert/reactivate time from the
+    /// container naming convention (see <c>PrefillSessionService.IsPersistentContainerName</c>);
+    /// pre-existing rows default to false since legacy container names used a random suffix and cannot
+    /// be reliably backfilled.
+    /// </summary>
+    public bool IsPersistent { get; set; }
+
+    /// <summary>
     /// When the session was created
     /// </summary>
     public DateTime CreatedAtUtc { get; set; }

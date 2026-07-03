@@ -17,6 +17,25 @@ public class DaemonSession
     public bool IsPrefilling { get; set; }
 
     /// <summary>
+    /// The daemon's real "Login failed: &lt;reason&gt;" text from the most recent
+    /// <see cref="PrefillDaemonServiceBase.StartLoginAsync(string, TimeSpan?, CancellationToken)"/> attempt,
+    /// captured via the fail-fast <c>OnStatusUpdate</c> race. Null when the last attempt had no observed
+    /// failure (success, still pending, or never attempted). Reset to null at the start of every attempt
+    /// so stale text from a previous failure never leaks into a later one. Transient - not persisted, not
+    /// part of <see cref="DaemonSessionDto"/> (only the persistent-login endpoint reads it directly).
+    /// </summary>
+    public string? LastLoginFailureMessage { get; set; }
+
+    /// <summary>
+    /// Serializes login attempts on this session (<c>PrefillDaemonServiceBase.StartLoginAsync</c>).
+    /// Overlapping calls would race the daemon's single challenge/status stream, clobber each other's
+    /// <see cref="LastLoginFailureMessage"/>/<see cref="AuthState"/> writes, and stack duplicate
+    /// <c>OnStatusUpdate</c> subscriptions. A second concurrent attempt is rejected outright (try-acquire,
+    /// never queued) rather than silently waiting behind one the caller doesn't know about.
+    /// </summary>
+    public SemaphoreSlim LoginLock { get; } = new(1, 1);
+
+    /// <summary>
     /// High-level lifecycle state of the current/last prefill run. Driven by the terminal
     /// socket state (not the start ack), so it stays <see cref="PrefillState.Downloading"/>
     /// for the duration of the real download.

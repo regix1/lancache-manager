@@ -150,6 +150,29 @@ public class ScheduledPrefillConfigFactoryTests
         Assert.Equal(50, validated.Steam.TopCount);
     }
 
+    // ---- Anonymous-service (BattleNet/Riot) allowed-games parity: ReconcileUnsupportedPresets
+    // must not clear SelectedAppIds when it resets an unsupported preset. Both services are
+    // All-only, so a stale Top/Recent preset gets reset to All here, but the explicit games list
+    // (which overrides the preset at runtime regardless of preset value, per
+    // ScheduledPrefillService.cs's SelectedAppIds override) must survive untouched. ----
+
+    [Theory]
+    [InlineData(PrefillPlatform.BattleNet)]
+    [InlineData(PrefillPlatform.Riot)]
+    public void Validate_ReconcilesPresetNoLongerSupportedByAnonymousService_PreservesSelectedAppIds(PrefillPlatform service)
+    {
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+        var selectedAppIds = new List<string> { "wow", "d3" };
+        var stale = WithAnonymousServicePresetAndSelectedApps(config, service, ScheduledPrefillPreset.Top, topCount: 50, selectedAppIds);
+
+        var validated = ScheduledPrefillConfigFactory.Validate(stale);
+
+        var reconciled = service == PrefillPlatform.BattleNet ? validated.BattleNet : validated.Riot;
+        Assert.Equal(ScheduledPrefillPreset.All, reconciled.Preset);
+        Assert.Null(reconciled.TopCount);
+        Assert.Equal(selectedAppIds, reconciled.SelectedAppIds);
+    }
+
     private static ScheduledPrefillConfigDto WithBattleNetPreset(
         ScheduledPrefillConfigDto config, ScheduledPrefillPreset preset, int? topCount)
     {
@@ -174,6 +197,39 @@ public class ScheduledPrefillConfigFactoryTests
                 MaxConcurrency = config.BattleNet.MaxConcurrency
             },
             Riot = config.Riot
+        };
+    }
+
+    private static ScheduledPrefillConfigDto WithAnonymousServicePresetAndSelectedApps(
+        ScheduledPrefillConfigDto config,
+        PrefillPlatform service,
+        ScheduledPrefillPreset preset,
+        int? topCount,
+        List<string> selectedAppIds)
+    {
+        ScheduledPrefillServiceConfigDto Reconciled(ScheduledPrefillServiceConfigDto original) => new()
+        {
+            ServiceId = original.ServiceId,
+            Enabled = original.Enabled,
+            IntervalHours = original.IntervalHours,
+            Preset = preset,
+            TopCount = topCount,
+            SelectedAppIds = selectedAppIds,
+            OperatingSystems = original.OperatingSystems,
+            Force = original.Force,
+            MaxConcurrency = original.MaxConcurrency
+        };
+
+        return new ScheduledPrefillConfigDto
+        {
+            Version = config.Version,
+            MaxServiceRuntime = config.MaxServiceRuntime,
+            StallTimeout = config.StallTimeout,
+            Steam = config.Steam,
+            Epic = config.Epic,
+            Xbox = config.Xbox,
+            BattleNet = service == PrefillPlatform.BattleNet ? Reconciled(config.BattleNet) : config.BattleNet,
+            Riot = service == PrefillPlatform.Riot ? Reconciled(config.Riot) : config.Riot
         };
     }
 

@@ -3079,11 +3079,6 @@
               "downloadProgressGeneric": "正在下载。已传输 {{bytes}}。"
             },
             "persistentContainers": {
-              "title": "持久容器",
-              "description": "每个平台都使用长期持久容器。账户平台登录以浏览游戏库和下载；Battle.net 和 Riot 无需账户登录即可启动。",
-              "helpIntro": "每个平台都使用持久容器来选择游戏。Steam、Epic 和 Xbox 在其中登录；Battle.net 和 Riot 无需账户登录即可启动。",
-              "helpAccountServices": "账户服务：启动容器、登录、选择游戏，然后下载或等待计划运行。",
-              "helpAnonymousServices": "Battle.net 和 Riot：无需账户登录。启动持久容器，可选择游戏，然后在计划设置中配置预设和目标平台。",
               "loadingStatus": "正在加载容器状态…",
               "pipelineLabel": "容器状态",
               "steps": {
@@ -3099,28 +3094,18 @@
               },
               "workflow": {
                 "stopped": "启动容器以启用登录、游戏选择和下载。",
+                "stoppedAnonymous": "启动容器以启用游戏选择和下载。",
                 "needsLogin": "登录以浏览游戏库并下载游戏。",
                 "selectGames": "为此平台选择游戏，准备好后即可下载。",
                 "ready": "容器已就绪。可下载所选游戏或等待下次计划运行。"
               },
               "anonymous": {
-                "sectionTitle": "匿名平台",
                 "badge": "无需登录",
                 "battleNet": {
-                  "description": "Battle.net 计划预填充无需暴雪账户。它使用与其他平台相同的持久容器，并沿用您的预设和平台设置。",
-                  "points": [
-                    "计划运行和立即运行均无需登录。",
-                    "在 Battle.net 的计划设置中启用。默认预填充完整公共目录，或选择特定游戏以限定运行范围。",
-                    "计划运行和立即运行会匿名下载到 lancache。"
-                  ]
+                  "description": "Battle.net 计划预填充无需暴雪账户。它使用与其他平台相同的持久容器，并沿用您的预设和平台设置。"
                 },
                 "riot": {
-                  "description": "Riot 计划预填充无需 Riot 账户。它使用与其他平台相同的持久容器，并沿用您的预设和平台设置。",
-                  "points": [
-                    "计划运行和立即运行均无需登录。",
-                    "在 Riot 的计划设置中启用。默认预填充完整公共目录，或选择特定游戏以限定运行范围。",
-                    "计划运行和立即运行会将公共 CDN 内容下载到 lancache。"
-                  ]
+                  "description": "Riot 计划预填充无需 Riot 账户。它使用与其他平台相同的持久容器，并沿用您的预设和平台设置。"
                 }
               }
             },
@@ -3149,7 +3134,6 @@
               },
               "sections": {
                 "persistentContainer": "持久容器",
-                "anonymous": "匿名预填充说明",
                 "schedule": "计划设置"
               },
               "status": {
@@ -3404,6 +3388,8 @@
         "expired": "已过期",
         "orphaned": "孤儿",
         "cleaned": "已清理",
+        "cancelled": "已取消",
+        "error": "错误",
         "live": "实时"
       },
       "historyStatusBadges": {
@@ -3418,6 +3404,8 @@
         "unauthorizedAccount": "未授权的 Steam 账户",
         "notLoggedInSession": "未登录的会话",
         "anonymousAccount": "Battle.net — 无需登录",
+        "persistentContainer": "持久化容器",
+        "persistentBadge": "持久化",
         "loading": "加载中...",
         "created": "创建时间",
         "ended": "已结束",
@@ -3432,6 +3420,25 @@
         "completed": "完成：{{time}}",
         "games": "个游戏",
         "sessions": "个会话"
+      },
+      "persistentSessions": {
+        "title": "持久化会话",
+        "loading": "正在加载持久化容器...",
+        "noContainers": "没有持久化容器",
+        "noContainersDesc": "持久化容器在“管理 > 计划任务”中启动和管理。",
+        "errors": {
+          "load": "加载持久化容器失败"
+        },
+        "status": {
+          "running": "运行中",
+          "stopped": "已停止",
+          "authenticated": "已验证",
+          "needsRelogin": "需要重新登录",
+          "notLoggedIn": "未登录"
+        },
+        "prefilling": "正在预填充 {{game}}",
+        "prefillingGeneric": "正在预填充",
+        "tokenExpiresAt": "需在此前重新登录"
       },
       "tooltips": {
         "sessionActive": "会话当前在内存中活跃",

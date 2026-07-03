@@ -1113,51 +1113,6 @@
   color: var(--theme-text-secondary);
 }
 
-/* Inner card chrome comes from ui/ Card; this only owns the internal rhythm. */
-.scheduled-prefill-anonymous-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  min-width: 0;
-}
-
-.scheduled-prefill-anonymous-card__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.scheduled-prefill-anonymous-card__title {
-  margin: 0;
-  font-size: var(--font-size-lg);
-  font-weight: 700;
-  color: var(--theme-text-primary);
-}
-
-.scheduled-prefill-anonymous-card__description {
-  margin: 0;
-  font-size: var(--font-size-sm);
-  line-height: 1.45;
-  color: var(--theme-text-muted);
-}
-
-.scheduled-prefill-anonymous-card__list {
-  margin: 0;
-  padding-left: 1.1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  list-style: disc;
-}
-
-.scheduled-prefill-anonymous-card__list li {
-  margin: 0;
-  font-size: var(--font-size-sm);
-  line-height: 1.45;
-  color: var(--theme-text-secondary);
-}
-
 .scheduled-prefill-platforms {
   display: grid;
   grid-template-columns: minmax(9rem, 10.5rem) minmax(0, 1fr);

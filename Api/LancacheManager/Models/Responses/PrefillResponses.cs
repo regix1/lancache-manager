@@ -1,3 +1,5 @@
+using LancacheManager.Core.Services.SteamPrefill;
+
 namespace LancacheManager.Models;
 
 /// <summary>
@@ -43,6 +45,44 @@ public class PrefillSessionDto
     public string? TerminationReason { get; set; }
     public string? TerminatedBy { get; set; }
     public bool IsLive { get; set; }
+
+    /// <summary>
+    /// True when this row represents a persistent (system-owned) daemon container rather than a
+    /// guest/temporary session. See <see cref="LancacheManager.Models.PrefillSession.IsPersistent"/>.
+    /// </summary>
+    public bool IsPersistent { get; set; }
+
+    /// <summary>
+    /// Maps a persisted history row to its wire DTO, enriching with the matching live in-memory
+    /// session when one exists. Extracted as a pure factory (mirrors <see cref="DaemonSessionDto.FromSession"/>)
+    /// so the enrichment rules - "IsAuthenticated = live-or-persisted", "IsPersistent = persisted OR live" -
+    /// stay in one place and are unit-testable without a DbContext or the daemon services
+    /// PrefillAdminController depends on.
+    /// </summary>
+    public static PrefillSessionDto FromEntity(PrefillSession entity, DaemonSession? liveSession)
+    {
+        return new PrefillSessionDto
+        {
+            Id = entity.Id,
+            SessionId = entity.SessionId,
+            CreatedBySessionId = entity.CreatedBySessionId,
+            ContainerId = entity.ContainerId,
+            ContainerName = entity.ContainerName,
+            SteamUsername = liveSession?.SteamUsername ?? entity.SteamUsername,
+            Platform = liveSession?.Platform ?? entity.Platform.ToString(),
+            Username = liveSession != null ? (liveSession.Username ?? liveSession.SteamUsername) : entity.SteamUsername,
+            Status = liveSession?.Status.ToString() ?? entity.Status.ToString(),
+            IsAuthenticated = liveSession?.AuthState == DaemonAuthState.Authenticated || entity.IsAuthenticated,
+            IsPrefilling = liveSession?.IsPrefilling ?? entity.IsPrefilling,
+            CreatedAtUtc = entity.CreatedAtUtc,
+            EndedAtUtc = entity.EndedAtUtc,
+            ExpiresAtUtc = entity.ExpiresAtUtc,
+            TerminationReason = entity.TerminationReason,
+            TerminatedBy = entity.TerminatedBy,
+            IsLive = liveSession != null,
+            IsPersistent = entity.IsPersistent || (liveSession?.IsPersistent ?? false)
+        };
+    }
 }
 
 /// <summary>

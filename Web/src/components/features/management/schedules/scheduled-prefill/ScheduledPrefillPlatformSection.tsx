@@ -2,14 +2,9 @@ import { useTranslation } from 'react-i18next';
 import { Card } from '@components/ui/Card';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
-import { ScheduledPrefillAnonymousServiceCard } from './ScheduledPrefillAnonymousServiceCard';
 import { ScheduledPrefillPersistentCard } from './ScheduledPrefillPersistentCard';
 import { ScheduledPrefillScheduleFields } from './ScheduledPrefillScheduleFields';
-import {
-  SCHEDULED_PREFILL_PLATFORM_UI,
-  isScheduledPrefillAccountService,
-  isScheduledPrefillAnonymousService
-} from './scheduledPrefillPlatformUi';
+import { SCHEDULED_PREFILL_PLATFORM_UI } from './scheduledPrefillPlatformUi';
 import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPersistentTypes';
 import type { ScheduledPrefillServiceConfigDto, ScheduledPrefillServiceKey } from './types';
 
@@ -58,7 +53,6 @@ export function ScheduledPrefillPlatformSection({
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const platformMeta = SCHEDULED_PREFILL_PLATFORM_UI[serviceKey];
   const PlatformIcon = platformMeta.icon;
-  const isAccount = isScheduledPrefillAccountService(serviceKey);
 
   const handleEnabledChange = (value: string) => {
     onChange({ ...config, enabled: value === 'enabled' });
@@ -113,30 +107,24 @@ export function ScheduledPrefillPlatformSection({
           />
         </Card>
 
-        {isScheduledPrefillAnonymousService(serviceKey) && (
-          <ScheduledPrefillAnonymousServiceCard serviceKey={serviceKey} />
-        )}
-
-        {isAccount && (
-          <ScheduledPrefillPersistentCard
-            serviceKey={serviceKey}
-            container={container}
-            selectedGamesCount={selectedGamesCount}
-            disabled={disabled}
-            statusLoading={statusLoading}
-            authenticating={authenticating}
-            action={persistentAction?.serviceKey === serviceKey ? persistentAction.action : null}
-            gameSelectionLoading={gameSelectionLoading}
-            onStart={onStart}
-            onStop={onStop}
-            onLogin={onLogin}
-            onLogout={onLogout}
-            onSelectGames={onSelectGames}
-            onClearGames={onClearGames}
-            onDownload={onDownload}
-            onCancelDownload={onCancelDownload}
-          />
-        )}
+        <ScheduledPrefillPersistentCard
+          serviceKey={serviceKey}
+          container={container}
+          selectedGamesCount={selectedGamesCount}
+          disabled={disabled}
+          statusLoading={statusLoading}
+          authenticating={authenticating}
+          action={persistentAction?.serviceKey === serviceKey ? persistentAction.action : null}
+          gameSelectionLoading={gameSelectionLoading}
+          onStart={onStart}
+          onStop={onStop}
+          onLogin={onLogin}
+          onLogout={onLogout}
+          onSelectGames={onSelectGames}
+          onClearGames={onClearGames}
+          onDownload={onDownload}
+          onCancelDownload={onCancelDownload}
+        />
       </div>
     </section>
   );

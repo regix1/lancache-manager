@@ -6,7 +6,6 @@ import {
   StopCircle,
   Ban,
   Shield,
-  CheckCircle,
   AlertTriangle,
   Clock,
   RefreshCw,
@@ -15,7 +14,8 @@ import {
   ChevronUp,
   Gamepad2,
   XCircle,
-  Activity
+  Activity,
+  Server
 } from 'lucide-react';
 import { Card, CardContent } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -26,6 +26,7 @@ import { Pagination } from '@components/ui/Pagination';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { Checkbox } from '@components/ui/Checkbox';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import Badge from '@components/ui/Badge';
 import ApiService, {
   type PrefillSessionDto,
   type DaemonSessionDto,
@@ -41,6 +42,8 @@ import { usePaginatedList } from '@hooks/usePaginatedList';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { cleanIpAddress } from '@components/features/user/types';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import type { PersistentPrefillContainerDto } from '@components/features/prefill/persistentPrefillTypes';
+import { usePersistentPrefillContainerSignalR } from '@components/features/management/schedules/scheduled-prefill/usePersistentPrefillContainerSignalR';
 import type {
   DaemonSessionCreatedEvent,
   DaemonSessionUpdatedEvent,
@@ -145,40 +148,62 @@ const resolveServiceId = (platform: string): GameServiceId => {
 const serviceDisplayName = (serviceId: GameServiceId): string =>
   GAME_SERVICES.find((service) => service.id === serviceId)?.name ?? serviceId;
 
-// Status badge component
+// Battle.net and Riot are anonymous prefill services (no account login).
+const isAnonymousServiceId = (serviceId: GameServiceId): boolean =>
+  serviceId === 'battlenet' || serviceId === 'riot';
+
+// Session/container lifecycle status -> single Badge variant + i18n key. One shared map
+// so the session-card status pill and the persistent-container status text agree on tone.
+const STATUS_BADGE_KEY: Record<string, string> = {
+  active: 'active',
+  authenticated: 'authenticated',
+  pendingauth: 'pendingAuth',
+  awaitingcredential: 'awaitingCredential',
+  terminated: 'terminated',
+  expired: 'expired',
+  orphaned: 'orphaned',
+  cleaned: 'cleaned',
+  cancelled: 'cancelled',
+  error: 'error'
+};
+
+const STATUS_BADGE_VARIANT: Record<string, 'success' | 'warning' | 'error' | 'neutral'> = {
+  active: 'success',
+  authenticated: 'success',
+  pendingauth: 'warning',
+  awaitingcredential: 'warning',
+  terminated: 'error',
+  expired: 'error',
+  orphaned: 'neutral',
+  cleaned: 'neutral',
+  cancelled: 'neutral',
+  error: 'error'
+};
+
+const getStatusBadgeVariant = (status: string): 'success' | 'warning' | 'error' | 'neutral' =>
+  STATUS_BADGE_VARIANT[status.toLowerCase()] ?? 'neutral';
+
+const getStatusBadgeLabelKey = (status: string): string | null =>
+  STATUS_BADGE_KEY[status.toLowerCase()] ?? null;
+
+// Status badge component — ONE Badge carries the session's lifecycle state; a small
+// tone dot (not a second pill) marks a session as currently live in memory, since that
+// distinction only ever needs to be visible in Session History (Live Sessions is always live).
 const StatusBadge: React.FC<{ status: string; isLive?: boolean }> = ({ status, isLive }) => {
   const { t } = useTranslation();
-
-  const getStatusClass = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'active':
-      case 'authenticated':
-        return 'prefill-session-badge prefill-session-active';
-      case 'pendingauth':
-      case 'awaitingcredential':
-        return 'prefill-session-badge prefill-session-pending';
-      case 'terminated':
-      case 'expired':
-        return 'prefill-session-badge prefill-session-terminated';
-      case 'orphaned':
-        return 'prefill-session-badge prefill-session-orphaned';
-      case 'cleaned':
-        return 'prefill-session-badge prefill-session-cleaned';
-      default:
-        return 'prefill-session-badge prefill-session-default';
-    }
-  };
+  const labelKey = getStatusBadgeLabelKey(status);
+  const label = labelKey ? t(`management.prefillSessions.statusBadges.${labelKey}`) : status;
 
   return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      <span className={getStatusClass(status)}>{status}</span>
+    <div className="prefill-status-line">
       {isLive && (
         <Tooltip content={t('management.prefillSessions.tooltips.sessionActive')}>
-          <span className="prefill-live-badge">
-            <span className="prefill-live-indicator" />
-            {t('management.prefillSessions.statusBadges.live')}
-          </span>
+          <span className="prefill-status-live-dot" aria-hidden="true" />
         </Tooltip>
+      )}
+      <Badge variant={getStatusBadgeVariant(status)}>{label}</Badge>
+      {isLive && (
+        <span className="sr-only">{t('management.prefillSessions.statusBadges.live')}</span>
       )}
     </div>
   );
@@ -261,9 +286,11 @@ const SessionCard: React.FC<{
     ? (session as DaemonSessionDto).platform || 'Steam'
     : (session as PrefillSessionDto).platform || 'Steam';
   const serviceId = resolveServiceId(platform);
-  // Battle.net and Riot are anonymous prefill services (no account login).
-  const isAnonymousService = serviceId === 'battlenet' || serviceId === 'riot';
+  const isAnonymousService = isAnonymousServiceId(serviceId);
   const platformDisplayName = serviceDisplayName(serviceId);
+  const isPersistentSession = isDaemonSession
+    ? ((session as DaemonSessionDto).isPersistent ?? false)
+    : ((session as PrefillSessionDto).isPersistent ?? false);
 
   const displayUsername = isDaemonSession
     ? (session as DaemonSessionDto).username || (session as DaemonSessionDto).steamUsername
@@ -345,19 +372,19 @@ const SessionCard: React.FC<{
                   <span className="prefill-session-no-user">
                     {isAnonymousService
                       ? t('management.prefillSessions.labels.anonymousAccount')
-                      : isAuthenticated_
-                        ? t('management.prefillSessions.labels.unauthorizedAccount')
-                        : t('management.prefillSessions.labels.notLoggedInSession')}
+                      : isPersistentSession
+                        ? t('management.prefillSessions.labels.persistentContainer')
+                        : isAuthenticated_
+                          ? t('management.prefillSessions.labels.unauthorizedAccount')
+                          : t('management.prefillSessions.labels.notLoggedInSession')}
                   </span>
                 )}
                 <StatusBadge status={status} isLive={isLive} />
-                <span className={`prefill-platform-badge prefill-platform-${serviceId}`}>
-                  {platformDisplayName}
-                </span>
-                {!isDaemonSession && (session as PrefillSessionDto).isAuthenticated && (
-                  <Tooltip content={t('management.prefillSessions.tooltips.steamAuthenticated')}>
-                    <CheckCircle className="w-4 h-4 icon-green flex-shrink-0" />
-                  </Tooltip>
+                <Badge variant="neutral">{platformDisplayName}</Badge>
+                {isPersistentSession && (
+                  <Badge variant="neutral">
+                    {t('management.prefillSessions.labels.persistentBadge')}
+                  </Badge>
                 )}
               </div>
 
@@ -380,23 +407,23 @@ const SessionCard: React.FC<{
               {(gamesCount > 0 ||
                 totalBytesFromHistory > 0 ||
                 (!isPrefilling && (totalBytesTransferred ?? 0) > 0)) && (
-                <div className="prefill-session-stats">
+                <div className="prefill-stat-line">
                   {gamesCount > 0 && (
                     <Tooltip
                       content={t('management.prefillSessions.tooltips.gamesPrefilled', {
                         count: gamesCount
                       })}
                     >
-                      <span className="prefill-stat-badge prefill-stat-games">
+                      <span className="prefill-stat-item">
                         <Gamepad2 className="w-3.5 h-3.5" />
-                        <span>{gamesCount}</span>
+                        <span className="tabular-nums">{gamesCount}</span>
                       </span>
                     </Tooltip>
                   )}
                   {(totalBytesFromHistory > 0 ||
                     (!isPrefilling && (totalBytesTransferred ?? 0) > 0)) && (
                     <Tooltip content={t('management.prefillSessions.tooltips.totalDataDownloaded')}>
-                      <span className="prefill-stat-badge prefill-stat-bytes">
+                      <span className="prefill-stat-item tabular-nums">
                         {formatBytes(totalBytesFromHistory || totalBytesTransferred || 0)}
                       </span>
                     </Tooltip>
@@ -621,11 +648,11 @@ const BannedUserCard: React.FC<{
           <span className="prefill-ban-username">
             {ban.username || t('management.prefillSessions.bannedUsers.unknown')}
           </span>
-          <span className={`prefill-ban-status ${ban.isActive ? 'active' : 'lifted'}`}>
+          <Badge variant={ban.isActive ? 'error' : 'neutral'} className="prefill-ban-badge">
             {ban.isActive
               ? t('management.prefillSessions.bannedUsers.active')
               : t('management.prefillSessions.bannedUsers.lifted')}
-          </span>
+          </Badge>
         </div>
         <div className="prefill-ban-meta">
           <span>
@@ -669,6 +696,95 @@ const BannedUserCard: React.FC<{
   );
 };
 
+// Persistent container card — read-only monitoring, dot-row status idiom (tone dot + plain
+// text, no pill wall) modeled on ScheduledPrefillPersistentCard's status line but split into
+// two facts (running state, login state) since both need to be independently scannable here.
+const PersistentContainerCard: React.FC<{ container: PersistentPrefillContainerDto }> = ({
+  container
+}) => {
+  const { t } = useTranslation();
+  const baseKey = 'management.prefillSessions.persistentSessions';
+  const serviceId = resolveServiceId(container.service);
+  const isAnonymous = isAnonymousServiceId(serviceId);
+  const displayName = serviceDisplayName(serviceId);
+
+  const runTone: 'idle' | 'running' = container.isRunning ? 'running' : 'idle';
+  const runLabel = container.isRunning
+    ? t(`${baseKey}.status.running`)
+    : t(`${baseKey}.status.stopped`);
+
+  const showLoginState = container.isRunning && !isAnonymous;
+  const loginTone: 'active' | 'warning' = container.needsRelogin
+    ? 'warning'
+    : container.isAuthenticated
+      ? 'active'
+      : 'warning';
+  const loginLabel = container.needsRelogin
+    ? t(`${baseKey}.status.needsRelogin`)
+    : container.isAuthenticated
+      ? t(`${baseKey}.status.authenticated`)
+      : t(`${baseKey}.status.notLoggedIn`);
+
+  const isPrefilling = container.isRunning && (container.isPrefilling ?? false);
+
+  return (
+    <Card className="prefill-persistent-card">
+      <CardContent className="prefill-persistent-card__body">
+        <div className="prefill-persistent-card__header">
+          <Badge variant="neutral">{displayName}</Badge>
+        </div>
+
+        <div className="prefill-persistent-card__status-row">
+          <span
+            className={`prefill-persistent-card__status-dot prefill-persistent-card__status-dot--${runTone}`}
+            aria-hidden="true"
+          />
+          <span className="prefill-persistent-card__status-text">{runLabel}</span>
+        </div>
+
+        {showLoginState && (
+          <div className="prefill-persistent-card__status-row">
+            <span
+              className={`prefill-persistent-card__status-dot prefill-persistent-card__status-dot--${loginTone}`}
+              aria-hidden="true"
+            />
+            <span className="prefill-persistent-card__status-text">{loginLabel}</span>
+          </div>
+        )}
+
+        {isPrefilling && (
+          <p className="prefill-persistent-card__activity">
+            {container.currentAppName
+              ? t(`${baseKey}.prefilling`, { game: container.currentAppName })
+              : t(`${baseKey}.prefillingGeneric`)}
+            {(container.totalBytesTransferred ?? 0) > 0 && (
+              <span className="tabular-nums">
+                {' '}
+                &middot; {formatBytes(container.totalBytesTransferred ?? 0)}
+              </span>
+            )}
+          </p>
+        )}
+
+        {container.isRunning && !isAnonymous && container.daemonAuthExpiresAtUtc && (
+          <div className="prefill-persistent-card__meta-item">
+            <span className="prefill-persistent-card__meta-label">
+              {t(`${baseKey}.tokenExpiresAt`)}
+            </span>
+            <span className="prefill-persistent-card__meta-value">
+              <FormattedTimestamp timestamp={container.daemonAuthExpiresAtUtc} />
+            </span>
+          </div>
+        )}
+
+        <div className="prefill-persistent-card__container-name font-mono">
+          {container.sessionId}
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
 const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   isAdmin,
   onError,
@@ -679,8 +795,16 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
   // Accordion states
   const [liveSessionsExpanded, setLiveSessionsExpanded] = useState(true);
+  const [persistentExpanded, setPersistentExpanded] = useState(true);
   const [historyExpanded, setHistoryExpanded] = useState(true);
   const [bansExpanded, setBansExpanded] = useState(true);
+
+  // Persistent containers state (system-owned, read-only monitoring)
+  const [persistentContainers, setPersistentContainers] = useState<PersistentPrefillContainerDto[]>(
+    []
+  );
+  const [loadingPersistent, setLoadingPersistent] = useState(true);
+  const [persistentError, setPersistentError] = useState<string | null>(null);
 
   // Sessions state
   const [sessions, setSessions] = useState<PrefillSessionDto[]>([]);
@@ -786,6 +910,21 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     }
   }, [onError]);
 
+  // Load persistent containers (system-owned; separate list from guest live sessions)
+  const loadPersistentContainers = useCallback(async () => {
+    setLoadingPersistent(true);
+    setPersistentError(null);
+    try {
+      const containers = await ApiService.getPersistentPrefillContainers();
+      setPersistentContainers(containers);
+    } catch (error) {
+      setPersistentError(getErrorMessage(error));
+      onError(getErrorMessage(error));
+    } finally {
+      setLoadingPersistent(false);
+    }
+  }, [onError]);
+
   // Load prefill history for a session
   const loadHistory = useCallback(
     async (sessionId: string) => {
@@ -833,6 +972,15 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   useEffect(() => {
     loadBans();
   }, [loadBans]);
+
+  useEffect(() => {
+    loadPersistentContainers();
+  }, [loadPersistentContainers]);
+
+  // Live-update the persistent containers list on relevant daemon/auth SignalR events
+  // (purpose-built hook, shared with the Schedules persistent card — drops in cleanly here
+  // since it only depends on the global SignalR + refresh-rate contexts, not page-specific state).
+  usePersistentPrefillContainerSignalR({ enabled: true, onRefresh: loadPersistentContainers });
 
   // SignalR subscriptions
   useEffect(() => {
@@ -1000,6 +1148,13 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     }
   };
 
+  // Persistent containers are system-owned and shown in their own section below; a running
+  // persistent container must not also appear (unlabeled) among the guest Live Sessions.
+  const guestActiveSessions = useMemo(
+    () => activeSessions.filter((s) => !s.isPersistent),
+    [activeSessions]
+  );
+
   const totalPages = Math.ceil(totalCount / pageSize);
   const activeBansCount = bans.filter((b) => b.isActive).length;
   const visibleBans = useMemo(
@@ -1029,19 +1184,22 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             onClick={() => {
               loadSessions();
               loadBans();
+              loadPersistentContainers();
             }}
-            disabled={loadingSessions || loadingBans}
+            disabled={loadingSessions || loadingBans || loadingPersistent}
             // min-h-10 holds this steady when its label collapses to icon-only below sm - its
             // "Terminate All" row-mate never fully collapses (keeps a count digit), so without
             // this it visibly shrinks next to that one on mobile.
             className="min-h-10"
           >
             <RefreshCw
-              className={`w-4 h-4 ${loadingSessions || loadingBans ? 'animate-spin' : ''}`}
+              className={`w-4 h-4 ${
+                loadingSessions || loadingBans || loadingPersistent ? 'animate-spin' : ''
+              }`}
             />
             <span className="hidden sm:inline">{t('common.refresh')}</span>
           </Button>
-          {isAdmin && activeSessions.length > 0 && (
+          {isAdmin && guestActiveSessions.length > 0 && (
             <Button
               variant="filled"
               color="red"
@@ -1051,9 +1209,9 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             >
               <StopCircle className="w-4 h-4" />
               <span className="hidden sm:inline">
-                {t('management.prefillSessions.endAll', { count: activeSessions.length })}
+                {t('management.prefillSessions.endAll', { count: guestActiveSessions.length })}
               </span>
-              <span className="sm:hidden">{activeSessions.length}</span>
+              <span className="sm:hidden">{guestActiveSessions.length}</span>
             </Button>
           )}
         </div>
@@ -1063,7 +1221,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       <div className="prefill-stats-grid">
         <StatCard
           icon={<Play className="w-5 h-5 icon-green" />}
-          value={activeSessions.length}
+          value={guestActiveSessions.length}
           label={t('management.prefillSessions.activeSessions')}
           iconBgClass="icon-bg-green"
         />
@@ -1084,7 +1242,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       {/* Live Sessions Accordion */}
       <AccordionSection
         title={t('management.prefillSessions.liveSessions')}
-        count={activeSessions.length}
+        count={guestActiveSessions.length}
         icon={Play}
         iconColor="var(--theme-icon-green)"
         isExpanded={liveSessionsExpanded}
@@ -1095,14 +1253,14 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             <LoadingSpinner inline size="lg" className="text-themed-muted" />
             <span>{t('management.prefillSessions.loadingSessions')}</span>
           </div>
-        ) : sessionsError && activeSessions.length === 0 ? (
+        ) : sessionsError && guestActiveSessions.length === 0 ? (
           <PrefillErrorBlock
             title={t('management.prefillSessions.errors.loadSessions')}
             message={sessionsError}
             retryLabel={t('common.retry')}
             onRetry={loadSessions}
           />
-        ) : activeSessions.length === 0 ? (
+        ) : guestActiveSessions.length === 0 ? (
           <div className="prefill-empty-state">
             <Container className="w-12 h-12 opacity-50" />
             <p className="prefill-empty-title">
@@ -1114,7 +1272,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           </div>
         ) : (
           <div className="prefill-sessions-list">
-            {activeSessions.map((session) => (
+            {guestActiveSessions.map((session) => (
               <SessionCard
                 key={session.id}
                 session={session}
@@ -1137,6 +1295,46 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                   setHistoryPage((prev) => ({ ...prev, [session.id]: p }))
                 }
               />
+            ))}
+          </div>
+        )}
+      </AccordionSection>
+
+      {/* Persistent Sessions Accordion — system-owned containers, read-only monitoring */}
+      <AccordionSection
+        title={t('management.prefillSessions.persistentSessions.title')}
+        count={persistentContainers.length}
+        icon={Server}
+        iconColor="var(--theme-icon-blue)"
+        isExpanded={persistentExpanded}
+        onToggle={() => setPersistentExpanded(!persistentExpanded)}
+      >
+        {loadingPersistent && persistentContainers.length === 0 ? (
+          <div className="prefill-loading-state">
+            <LoadingSpinner inline size="lg" className="text-themed-muted" />
+            <span>{t('management.prefillSessions.persistentSessions.loading')}</span>
+          </div>
+        ) : persistentError && persistentContainers.length === 0 ? (
+          <PrefillErrorBlock
+            title={t('management.prefillSessions.persistentSessions.errors.load')}
+            message={persistentError}
+            retryLabel={t('common.retry')}
+            onRetry={loadPersistentContainers}
+          />
+        ) : persistentContainers.length === 0 ? (
+          <div className="prefill-empty-state">
+            <Server className="w-12 h-12 opacity-50" />
+            <p className="prefill-empty-title">
+              {t('management.prefillSessions.persistentSessions.noContainers')}
+            </p>
+            <p className="prefill-empty-desc">
+              {t('management.prefillSessions.persistentSessions.noContainersDesc')}
+            </p>
+          </div>
+        ) : (
+          <div className="prefill-persistent-list">
+            {persistentContainers.map((container) => (
+              <PersistentContainerCard key={container.sessionId} container={container} />
             ))}
           </div>
         )}
@@ -1241,10 +1439,12 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                   isLoadingHistory={loadingHistory.has(session.sessionId)}
                   onToggleHistory={() => toggleHistory(session.sessionId)}
                   onTerminate={
-                    session.isLive ? () => handleTerminateSession(session.sessionId) : undefined
+                    session.isLive && !session.isPersistent
+                      ? () => handleTerminateSession(session.sessionId)
+                      : undefined
                   }
                   onBan={
-                    session.isLive && session.sessionId
+                    session.isLive && !session.isPersistent && session.sessionId
                       ? () => setBanConfirm({ sessionId: session.sessionId, reason: '' })
                       : undefined
                   }
@@ -1343,7 +1543,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         <div className="space-y-4">
           <p className="text-themed-secondary">
             {t('management.prefillSessions.modals.terminateAll.message', {
-              count: activeSessions.length
+              count: guestActiveSessions.length
             })}
           </p>
           <Alert color="yellow">

@@ -97,28 +97,8 @@ public class PrefillAdminController : ControllerBase
         // Compare via their canonical string forms so matching remains consistent.
         var enrichedSessions = sessions.Select(s =>
         {
-            var sessionIdString = s.SessionId.ToString();
-            var liveSession = liveSessions.FirstOrDefault(ls => ls.Id == sessionIdString);
-            return new PrefillSessionDto
-            {
-                Id = s.Id,
-                SessionId = sessionIdString,
-                CreatedBySessionId = s.CreatedBySessionId,
-                ContainerId = s.ContainerId,
-                ContainerName = s.ContainerName,
-                SteamUsername = liveSession?.SteamUsername ?? s.SteamUsername,
-                Platform = liveSession?.Platform ?? s.Platform.ToString(),
-                Username = liveSession != null ? (liveSession.Username ?? liveSession.SteamUsername) : s.SteamUsername,
-                Status = liveSession?.Status.ToString() ?? s.Status.ToString(),
-                IsAuthenticated = liveSession?.AuthState == DaemonAuthState.Authenticated || s.IsAuthenticated,
-                IsPrefilling = liveSession?.IsPrefilling ?? s.IsPrefilling,
-                CreatedAtUtc = s.CreatedAtUtc,
-                EndedAtUtc = s.EndedAtUtc,
-                ExpiresAtUtc = s.ExpiresAtUtc,
-                TerminationReason = s.TerminationReason,
-                TerminatedBy = s.TerminatedBy,
-                IsLive = liveSession != null
-            };
+            var liveSession = liveSessions.FirstOrDefault(ls => ls.Id == s.SessionId);
+            return PrefillSessionDto.FromEntity(s, liveSession);
         }).ToList();
 
         return Ok(new PrefillSessionsResponse
@@ -185,6 +165,19 @@ public class PrefillAdminController : ControllerBase
         var reason = request?.Reason ?? "Terminated by admin";
         var force = request?.Force ?? false;
 
+        var targetSession = _steamDaemonService.GetAllSessions()
+            .Concat(_epicDaemonService.GetAllSessions())
+            .Concat(_battleNetDaemonService.GetAllSessions())
+            .Concat(_riotDaemonService.GetAllSessions())
+            .Concat(_xboxDaemonService.GetAllSessions())
+            .FirstOrDefault(s => s.Id == sessionId);
+
+        if (targetSession != null && !PrefillSessionService.IsTerminatableByAdmin(targetSession))
+        {
+            return BadRequest(ApiResponse.Error(
+                "This session belongs to a persistent container and cannot be terminated here. Stop it from Management > Schedules (PersistentPrefillController.StopAsync) instead."));
+        }
+
         _logger.LogWarning("Admin session {AdminId} terminating session {SessionId}: {Reason}",
             adminSessionId, sessionId, reason);
 
@@ -210,15 +203,17 @@ public class PrefillAdminController : ControllerBase
         var reason = request?.Reason ?? "All sessions terminated by admin";
         var force = request?.Force ?? true;
 
-        var steamSessions = _steamDaemonService.GetAllSessions().ToList();
-        var epicSessions = _epicDaemonService.GetAllSessions().ToList();
-        var battleNetSessions = _battleNetDaemonService.GetAllSessions().ToList();
-        var riotSessions = _riotDaemonService.GetAllSessions().ToList();
-        var xboxSessions = _xboxDaemonService.GetAllSessions().ToList();
+        // Persistent (system-owned) containers are excluded: they have their own dedicated stop path
+        // (PersistentPrefillController.StopAsync) and must survive a guest "end all sessions" sweep.
+        var steamSessions = _steamDaemonService.GetAllSessions().Where(PrefillSessionService.IsTerminatableByAdmin).ToList();
+        var epicSessions = _epicDaemonService.GetAllSessions().Where(PrefillSessionService.IsTerminatableByAdmin).ToList();
+        var battleNetSessions = _battleNetDaemonService.GetAllSessions().Where(PrefillSessionService.IsTerminatableByAdmin).ToList();
+        var riotSessions = _riotDaemonService.GetAllSessions().Where(PrefillSessionService.IsTerminatableByAdmin).ToList();
+        var xboxSessions = _xboxDaemonService.GetAllSessions().Where(PrefillSessionService.IsTerminatableByAdmin).ToList();
         var allSessions = steamSessions.Concat(epicSessions).Concat(battleNetSessions).Concat(riotSessions).Concat(xboxSessions).ToList();
         var count = allSessions.Count;
 
-        _logger.LogWarning("Admin session {AdminId} terminating all {Count} sessions: {Reason}",
+        _logger.LogWarning("Admin session {AdminId} terminating all {Count} non-persistent sessions: {Reason}",
             adminSessionId, count, reason);
 
         foreach (var session in steamSessions)

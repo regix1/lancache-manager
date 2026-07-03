@@ -315,12 +315,18 @@ public class PersistentPrefillController : ControllerBase
 
         if (challenge == null)
         {
-            // No challenge means either already logged in or timeout (same shape as the user route).
+            // No challenge means either already logged in, a fail-fast daemon failure, or a genuine timeout.
             var status = await daemon.GetSessionStatusAsync(session.Id, cancellationToken);
             if (status?.Status == "logged-in")
             {
                 return Ok(new { message = "Already logged in", status = "logged-in" });
             }
+
+            if (!string.IsNullOrEmpty(session.LastLoginFailureMessage))
+            {
+                return BadRequest(ApiResponse.Error(session.LastLoginFailureMessage));
+            }
+
             return BadRequest(ApiResponse.Error("Login timeout - daemon may not be ready"));
         }
 

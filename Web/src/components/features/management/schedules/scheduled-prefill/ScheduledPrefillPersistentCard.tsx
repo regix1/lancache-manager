@@ -1,10 +1,12 @@
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
+import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatTimeRemaining } from '@components/features/prefill/types';
 import { formatBytes, formatDateTime } from '@utils/formatters';
 import { SCHEDULED_PREFILL_BUTTON_SIZE } from './constants';
+import { isScheduledPrefillAnonymousService } from './scheduledPrefillPlatformUi';
 import type { ScheduledPrefillPersistentCardProps } from './scheduledPrefillPersistentTypes';
 
 type StatusTone = 'idle' | 'warning' | 'active' | 'running';
@@ -16,6 +18,7 @@ interface StatusDisplay {
 }
 
 export function ScheduledPrefillPersistentCard({
+  serviceKey,
   container,
   selectedGamesCount,
   disabled = false,
@@ -36,11 +39,18 @@ export function ScheduledPrefillPersistentCard({
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const containersKey = `${baseKey}.persistentContainers`;
 
+  // Anonymous services (Battle.net/Riot) have no login step: the persistent container is
+  // ready as soon as it's running, so every authenticated-gated conditional below treats
+  // "running" as sufficient and the login/logout controls never render.
+  const isAnonymous = isScheduledPrefillAnonymousService(serviceKey);
   const isRunning = container?.isRunning ?? false;
   const isAuthenticated = container?.isAuthenticated ?? false;
   const isPrefilling = container?.isPrefilling ?? false;
-  const isAuthInProgress = isRunning && !isAuthenticated && authenticating;
-  const isGameSelectionBlocked = isRunning && !isAuthenticated;
+  // Anonymous services never need to authenticate, so they're "ready" the moment they're
+  // running; authenticated services are only ready once login succeeds.
+  const isReady = isAnonymous || isAuthenticated;
+  const isAuthInProgress = !isAnonymous && isRunning && !isAuthenticated && authenticating;
+  const isGameSelectionBlocked = isRunning && !isReady;
   // Initial container probe with nothing resolved yet — show the loading view.
   const isContainerLoading = statusLoading && container === undefined;
 
@@ -50,6 +60,11 @@ export function ScheduledPrefillPersistentCard({
   const statusDisplay: StatusDisplay = (() => {
     if (!isRunning) {
       return { tone: 'idle', label: t('prefill.persistent.status.stopped'), busy: false };
+    }
+    if (isAnonymous) {
+      return isPrefilling
+        ? { tone: 'active', label: t(`${containersKey}.steps.downloading`), busy: false }
+        : { tone: 'running', label: t('prefill.persistent.status.running'), busy: false };
     }
     if (isAuthInProgress) {
       return { tone: 'warning', label: t('prefill.persistent.authenticating'), busy: true };
@@ -65,12 +80,14 @@ export function ScheduledPrefillPersistentCard({
 
   const workflowHint = (() => {
     if (!isRunning) {
-      return t(`${containersKey}.workflow.stopped`);
+      return isAnonymous
+        ? t(`${containersKey}.workflow.stoppedAnonymous`)
+        : t(`${containersKey}.workflow.stopped`);
     }
-    if (container?.needsRelogin) {
+    if (!isAnonymous && container?.needsRelogin) {
       return t('prefill.persistent.needsRelogin');
     }
-    if (!isAuthenticated) {
+    if (!isAnonymous && !isAuthenticated) {
       return t(`${containersKey}.workflow.needsLogin`);
     }
     if (selectedGamesCount === 0) {
@@ -90,12 +107,17 @@ export function ScheduledPrefillPersistentCard({
             {t(`${baseKey}.platforms.sections.persistentContainer`)}
           </h4>
           <p className="scheduled-prefill-persistent-card__subtitle">
-            {t(`${baseKey}.persistentContainer.help`)}
+            {isAnonymous
+              ? t(`${containersKey}.anonymous.${serviceKey}.description`)
+              : t(`${baseKey}.persistentContainer.help`)}
           </p>
         </div>
-        {statusLoading && (
+        {(isAnonymous || statusLoading) && (
           <div className="scheduled-prefill-persistent-card__header-badges">
-            <LoadingSpinner inline size="sm" />
+            {isAnonymous && (
+              <Badge variant="success">{t(`${containersKey}.anonymous.badge`)}</Badge>
+            )}
+            {statusLoading && <LoadingSpinner inline size="sm" />}
           </div>
         )}
       </header>
@@ -122,7 +144,7 @@ export function ScheduledPrefillPersistentCard({
             </span>
           </div>
 
-          {container && isRunning && (
+          {!isAnonymous && container && isRunning && (
             <div className="scheduled-prefill-persistent-card__meta">
               <div className="scheduled-prefill-persistent-card__meta-item">
                 <span className="scheduled-prefill-persistent-card__meta-label">
@@ -171,7 +193,9 @@ export function ScheduledPrefillPersistentCard({
           {workflowHint && (
             <p
               className={`scheduled-prefill-persistent-card__hint${
-                container?.needsRelogin ? ' scheduled-prefill-persistent-card__hint--warning' : ''
+                !isAnonymous && container?.needsRelogin
+                  ? ' scheduled-prefill-persistent-card__hint--warning'
+                  : ''
               }`}
             >
               {workflowHint}
@@ -208,7 +232,7 @@ export function ScheduledPrefillPersistentCard({
             </div>
 
             <div className="scheduled-prefill-persistent-card__action-group">
-              {isRunning && !isAuthenticated && (
+              {isRunning && !isReady && (
                 <Button
                   type="button"
                   variant="filled"
@@ -220,7 +244,7 @@ export function ScheduledPrefillPersistentCard({
                   {t('prefill.persistent.logIn')}
                 </Button>
               )}
-              {isRunning && isAuthenticated && (
+              {!isAnonymous && isRunning && isAuthenticated && (
                 <Button
                   type="button"
                   variant="filled"
@@ -259,7 +283,7 @@ export function ScheduledPrefillPersistentCard({
               </Button>
             </div>
 
-            {isRunning && isAuthenticated && (
+            {isRunning && isReady && (
               <div className="scheduled-prefill-persistent-card__action-group scheduled-prefill-persistent-card__action-group--primary">
                 {isPrefilling ? (
                   <Button

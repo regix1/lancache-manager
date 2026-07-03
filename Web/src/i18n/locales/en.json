@@ -3079,11 +3079,6 @@
               "downloadProgressGeneric": "Downloading. {{bytes}} transferred."
             },
             "persistentContainers": {
-              "title": "Persistent containers",
-              "description": "Every platform uses a long-lived persistent container. Account platforms log in for library browse and downloads; Battle.net and Riot start theirs without an account login.",
-              "helpIntro": "Every platform uses a persistent container for game selection. Steam, Epic, and Xbox log in there; Battle.net and Riot start theirs without an account login.",
-              "helpAccountServices": "Account services: start the container, log in, select games, then download or wait for the schedule.",
-              "helpAnonymousServices": "Battle.net and Riot: no account login. Start the persistent container, optionally select games, then configure presets and target platforms in the schedule section.",
               "loadingStatus": "Loading container status...",
               "pipelineLabel": "Container status",
               "steps": {
@@ -3099,28 +3094,18 @@
               },
               "workflow": {
                 "stopped": "Start the container to enable login, game selection, and downloads.",
+                "stoppedAnonymous": "Start the container to enable game selection and downloads.",
                 "needsLogin": "Log in to browse your library and download games.",
                 "selectGames": "Select games for this platform, then download when ready.",
                 "ready": "Container is ready. Download selected games or wait for the next scheduled run."
               },
               "anonymous": {
-                "sectionTitle": "Anonymous platforms",
                 "badge": "No login required",
                 "battleNet": {
-                  "description": "Battle.net scheduled prefill runs without a Blizzard account. It uses the same persistent container as other platforms, with your preset and platform settings.",
-                  "points": [
-                    "No login is required for scheduled or Run Now downloads.",
-                    "Enable Battle.net in the schedule section. It prefills the full public catalog, or pick specific titles to limit the run.",
-                    "Scheduled and Run Now downloads run anonymously to lancache."
-                  ]
+                  "description": "Battle.net scheduled prefill runs without a Blizzard account. It uses the same persistent container as other platforms, with your preset and platform settings."
                 },
                 "riot": {
-                  "description": "Riot scheduled prefill runs without a Riot account. It uses the same persistent container as other platforms, with your preset and platform settings.",
-                  "points": [
-                    "No login is required for scheduled or Run Now downloads.",
-                    "Enable Riot in the schedule section. It prefills the full public catalog, or pick specific titles to limit the run.",
-                    "Scheduled and Run Now downloads fetch public CDN content to lancache."
-                  ]
+                  "description": "Riot scheduled prefill runs without a Riot account. It uses the same persistent container as other platforms, with your preset and platform settings."
                 }
               }
             },
@@ -3149,7 +3134,6 @@
               },
               "sections": {
                 "persistentContainer": "Persistent container",
-                "anonymous": "How anonymous prefill works",
                 "schedule": "Schedule settings"
               },
               "status": {
@@ -3404,6 +3388,8 @@
         "expired": "Expired",
         "orphaned": "Orphaned",
         "cleaned": "Cleaned",
+        "cancelled": "Cancelled",
+        "error": "Error",
         "live": "Live"
       },
       "historyStatusBadges": {
@@ -3418,6 +3404,8 @@
         "unauthorizedAccount": "Unauthorized Steam account",
         "notLoggedInSession": "Not logged in session",
         "anonymousAccount": "Battle.net — no login required",
+        "persistentContainer": "Persistent container",
+        "persistentBadge": "Persistent",
         "loading": "Loading...",
         "created": "Created",
         "ended": "Ended",
@@ -3432,6 +3420,25 @@
         "completed": "Completed: {{time}}",
         "games": "games",
         "sessions": "sessions"
+      },
+      "persistentSessions": {
+        "title": "Persistent Sessions",
+        "loading": "Loading persistent containers...",
+        "noContainers": "No persistent containers",
+        "noContainersDesc": "Persistent containers are started and managed from Management > Schedules.",
+        "errors": {
+          "load": "Failed to load persistent containers"
+        },
+        "status": {
+          "running": "Running",
+          "stopped": "Stopped",
+          "authenticated": "Authenticated",
+          "needsRelogin": "Needs re-login",
+          "notLoggedIn": "Not logged in"
+        },
+        "prefilling": "Prefilling {{game}}",
+        "prefillingGeneric": "Prefilling",
+        "tokenExpiresAt": "Re-login required by"
       },
       "tooltips": {
         "sessionActive": "Session is currently active in memory",

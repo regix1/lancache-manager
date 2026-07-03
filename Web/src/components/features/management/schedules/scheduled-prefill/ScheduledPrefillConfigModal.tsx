@@ -25,7 +25,11 @@ import {
   SCHEDULED_PREFILL_SUPPORTED_PRESETS
 } from './constants';
 import { ScheduledPrefillPlatformsPanel } from './ScheduledPrefillPlatformsPanel';
-import { getPersistentServiceId, needsPersistentLogin } from './scheduledPrefillPlatformUi';
+import {
+  getPersistentServiceId,
+  isScheduledPrefillAnonymousService,
+  needsPersistentLogin
+} from './scheduledPrefillPlatformUi';
 import { PersistentLoginHost } from './PersistentLoginHost';
 import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPersistentTypes';
 import { waitForPersistentContainerAuth } from './waitForPersistentContainerAuth';
@@ -603,13 +607,14 @@ export function ScheduledPrefillConfigModal({
 
   const handleOpenGameSelection = async (serviceKey: ScheduledPrefillServiceKey) => {
     const serviceId = getPersistentServiceId(serviceKey);
+    const isAnonymous = isScheduledPrefillAnonymousService(serviceKey);
     let container = persistentContainerByService.get(serviceId);
     if (!container?.isRunning) {
       setGameSelectionError(t(`${baseKey}.selectedGames.requiresPersistentContainer`));
       return;
     }
 
-    if (!container.isAuthenticated) {
+    if (!isAnonymous && !container.isAuthenticated) {
       markPersistentAuthPending(serviceKey);
       const { containers, container: refreshed } = await waitForPersistentContainerAuth(serviceId, {
         signalR,
@@ -623,7 +628,7 @@ export function ScheduledPrefillConfigModal({
       }
     }
 
-    if (!container.isAuthenticated) {
+    if (!isAnonymous && !container.isAuthenticated) {
       setGameSelectionError(null);
       setPersistentLoginTarget(serviceKey);
       return;
@@ -660,7 +665,8 @@ export function ScheduledPrefillConfigModal({
 
     const serviceId = getPersistentServiceId(serviceKey);
     const container = persistentContainerByService.get(serviceId);
-    if (container?.isRunning && container.isAuthenticated) {
+    const isAnonymous = isScheduledPrefillAnonymousService(serviceKey);
+    if (container?.isRunning && (isAnonymous || container.isAuthenticated)) {
       try {
         await ApiService.setPersistentPrefillSelectedApps(serviceId, selectedAppIds);
       } catch (error: unknown) {
@@ -690,8 +696,9 @@ export function ScheduledPrefillConfigModal({
     const serviceConfig = config[serviceKey];
     const serviceId = getPersistentServiceId(serviceKey);
     const container = persistentContainerByService.get(serviceId);
+    const isAnonymous = isScheduledPrefillAnonymousService(serviceKey);
 
-    if (!container?.isRunning || !container.isAuthenticated) {
+    if (!container?.isRunning || (!isAnonymous && !container.isAuthenticated)) {
       setPersistentError(t(`${baseKey}.persistentContainer.downloadRequiresAuth`));
       return;
     }

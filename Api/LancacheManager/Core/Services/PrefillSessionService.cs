@@ -1,3 +1,4 @@
+using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +21,32 @@ public class PrefillSessionService
         _contextFactory = contextFactory;
         _logger = logger;
     }
+
+    /// <summary>
+    /// True when a container name matches the deterministic persistent-container naming convention
+    /// (<c>{ContainerPrefix}persistent</c>, e.g. <c>steam-daemon-persistent</c> - see
+    /// <c>PrefillDaemonServiceBase.CreateSessionCoreAsync</c>, ~line 1089). Guest/temporary
+    /// containers carry a random session-id suffix instead and never match. Legacy containers created
+    /// before this naming convention shipped also never match, which is intentional: their history rows
+    /// are left IsPersistent=false rather than backfilled, since a random-suffix name cannot be told
+    /// apart from a guest container after the fact.
+    /// </summary>
+    private static bool IsPersistentContainerName(string? containerName)
+        => containerName != null && containerName.EndsWith("persistent", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// True for a live daemon session that admin "terminate" endpoints (single-session terminate,
+    /// terminate-all) are allowed to tear down. Persistent (system-owned) sessions are excluded - they
+    /// are stopped only via the dedicated <c>PersistentPrefillController.StopAsync</c> path, so a guest
+    /// "end all sessions" sweep or a stray per-session terminate call can never take one down. Extracted
+    /// as a pure predicate so <c>PrefillAdminController.TerminateAllAsync</c>/<c>TerminateAsync</c> stay
+    /// unit-testable without constructing the controller's five concrete daemon-service dependencies.
+    /// Also checks the container-name convention directly (defense-in-depth): guards against a session
+    /// whose <c>IsPersistent</c> flag wasn't set correctly but whose container name still matches the
+    /// deterministic persistent-container convention.
+    /// </summary>
+    public static bool IsTerminatableByAdmin(DaemonSession session) =>
+        !session.IsPersistent && !IsPersistentContainerName(session.ContainerName);
 
     #region Ban Management
 
@@ -237,6 +264,7 @@ public class PrefillSessionService
                 ? parsedPlatform
                 : PrefillPlatform.Steam,
             Status = PrefillSessionStatus.Active,
+            IsPersistent = IsPersistentContainerName(containerName),
             CreatedAtUtc = DateTime.UtcNow,
             ExpiresAtUtc = expiresAt
         };
@@ -284,6 +312,7 @@ public class PrefillSessionService
                     ? parsedPlatform
                     : PrefillPlatform.Steam,
                 Status = PrefillSessionStatus.Active,
+                IsPersistent = IsPersistentContainerName(containerName),
                 CreatedAtUtc = DateTime.UtcNow,
                 ExpiresAtUtc = expiresAt
             };
@@ -294,6 +323,7 @@ public class PrefillSessionService
             session.Status = PrefillSessionStatus.Active;
             session.ContainerId = containerId;
             session.ContainerName = containerName;
+            session.IsPersistent = IsPersistentContainerName(containerName);
             session.ExpiresAtUtc = expiresAt;
             session.EndedAtUtc = null;
             session.TerminationReason = null;

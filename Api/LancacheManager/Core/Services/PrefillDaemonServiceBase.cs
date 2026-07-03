@@ -59,6 +59,17 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// </summary>
     private string? _lastInjectedLancacheIp;
 
+    /// <summary>
+    /// Serializes the persistent-session start span (reuse-check through container creation) per
+    /// service so two concurrent "Start persistent session" calls can never both pass the reuse
+    /// check and each create a container (leak M3). One instance per derived service (Steam/Epic/
+    /// Xbox/BattleNet/Riot each own their own <see cref="PrefillDaemonServiceBase"/> singleton), so a
+    /// single instance-level lock is sufficient - no dictionary keyed by service needed. The guest
+    /// session path takes no lock; it has its own semantics (multiple concurrent guest sessions are
+    /// expected). Idiom matches <c>CacheClearingService._startLock</c>.
+    /// </summary>
+    private readonly SemaphoreSlim _persistentStartLock = new(1, 1);
+
     // Configuration defaults
     private const int DefaultSessionTimeoutMinutes = 120;
     private const int DefaultStallTimeoutSeconds = 180;
@@ -428,7 +439,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                             "Preserving running persistent {ServiceName} container {Name} ({Id}) for re-adoption",
                             ServiceName,
                             container.Names.FirstOrDefault() ?? "unknown",
-                            container.ID.Length >= 12 ? container.ID[..12] : container.ID);
+                            ShortContainerId(container.ID));
                         continue;
                     }
 
@@ -444,27 +455,20 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                     // RemoveVolumes: a login-required daemon (Xbox/Epic) stores its anonymous token
                     // in an anonymous container volume; without RemoveVolumes those volumes linger
                     // after teardown and accumulate. Force kills it if still running.
-                    await _dockerClient.Containers.RemoveContainerAsync(
-                        container.ID,
-                        new ContainerRemoveParameters { Force = true, RemoveVolumes = true },
-                        cancellationToken);
+                    if (!await RemoveContainerForceAsync(container.ID, cancellationToken, removeVolumes: true))
+                    {
+                        // Already gone, or another sweep is mid-removal - not actually cleaned up by
+                        // THIS call, so don't mark it cleaned or log success for it.
+                        _logger.LogDebug("Container {Id} removal already in progress or already gone, skipping cleanup mark", ShortContainerId(container.ID));
+                        continue;
+                    }
 
                     _logger.LogInformation("Cleaned up orphaned container: {Name} ({Id})",
                         container.Names.FirstOrDefault() ?? "unknown",
-                        container.ID[..12]);
+                        ShortContainerId(container.ID));
 
                     // Mark as cleaned in database
                     await _sessionService.MarkOrphanCleanedAsync(container.ID);
-                }
-                catch (DockerApiException ex) when (ex.Message.Contains("removal") && ex.Message.Contains("already in progress"))
-                {
-                    // Another cleanup operation is already removing this container - that's fine
-                    _logger.LogDebug("Container {Id} removal already in progress, skipping", container.ID[..12]);
-                }
-                catch (DockerContainerNotFoundException)
-                {
-                    // Container was already removed (AutoRemove or concurrent cleanup)
-                    _logger.LogDebug("Container {Id} already removed", container.ID[..12]);
                 }
                 catch (Exception ex)
                 {
@@ -503,6 +507,9 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         try
         {
+            // Prefix-based (not exact-name) filter deliberately: this also catches leftover
+            // random-suffix persistent containers from before deterministic naming shipped, so the
+            // migration below cleans those up too, not just future exact-name duplicates.
             var containers = await _dockerClient.Containers.ListContainersAsync(
                 new ContainersListParameters
                 {
@@ -515,32 +522,73 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 },
                 cancellationToken);
 
-            var persistentRunning = containers
-                .Where(c => string.Equals(c.State, "running", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-            if (persistentRunning.Count == 0)
+            if (containers.Count == 0)
             {
                 return;
             }
 
-            _logger.LogInformation(
-                "Re-adopting {Count} running persistent {ServiceName} prefill daemon container(s) after restart",
-                persistentRunning.Count, ServiceName);
+            var decision = PersistentSingletonGates.DecideExistingContainerAction(containers.ToList(), GetAdoptedPersistentContainerIds());
 
-            foreach (var container in persistentRunning)
+            // Adopt-newest-remove-rest: whenever more than one persistent container matched, every
+            // container besides the one we are about to adopt/remove is a leaked duplicate from M1 -
+            // clean them all up as a one-time migration regardless of which branch below runs.
+            foreach (var extra in decision.ExtrasToRemove)
             {
-                try
+                _logger.LogWarning(
+                    "Startup re-adopt: removing extra/leaked persistent {ServiceName} container {Id}",
+                    ServiceName, ShortContainerId(extra.ID));
+                await RemoveContainerForceAsync(extra.ID, cancellationToken);
+            }
+
+            switch (decision.Action)
+            {
+                case PersistentContainerAction.Remove:
+                    // No running container to adopt - only stopped/leftover ones. Nothing legitimately
+                    // running is affected by removing them; CleanupOrphanedContainersAsync would never
+                    // touch these (it exempts anything persistent-labeled), so this is the only place
+                    // that reaps a dead persistent container left behind by a prior crash.
+                    _logger.LogInformation(
+                        "Startup re-adopt: removing stopped persistent {ServiceName} container {Id} (no running container to adopt)",
+                        ServiceName, ShortContainerId(decision.Target!.ID));
+                    await RemoveContainerForceAsync(decision.Target!.ID, cancellationToken);
+                    return;
+
+                case PersistentContainerAction.Adopt:
+                    break;
+
+                default:
+                    // CreateFresh (already adopted or nothing to do) / RetryLater (mid-removal - the
+                    // next Start attempt or restart will re-decide) - nothing more to do at startup.
+                    return;
+            }
+
+            var target = decision.Target!;
+            _logger.LogInformation(
+                "Re-adopting running persistent {ServiceName} prefill daemon container {Id} after restart",
+                ServiceName, ShortContainerId(target.ID));
+
+            try
+            {
+                await ReconnectPersistentSessionAsync(target, cancellationToken);
+
+                if (GetActivePersistentSession() == null)
                 {
-                    await ReconnectPersistentSessionAsync(container, cancellationToken);
+                    // ReconnectPersistentSessionAsync has several silent (non-throwing) failure exits
+                    // (missing session-id label, missing socket secret, etc.). Left alone, the
+                    // container keeps running but is invisible to _sessions forever - exactly leak M1.
+                    // Remove it instead so it cannot become an invisible zombie.
+                    _logger.LogWarning(
+                        "Re-adopt of persistent {ServiceName} container {Id} produced no active session; removing it",
+                        ServiceName, ShortContainerId(target.ID));
+                    await RemoveContainerForceAsync(target.ID, cancellationToken);
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex,
-                        "Failed to re-adopt persistent {ServiceName} container {Id}; admin can Start it manually",
-                        ServiceName,
-                        container.ID.Length >= 12 ? container.ID[..12] : container.ID);
-                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to re-adopt persistent {ServiceName} container {Id}; removing it so it cannot become an invisible zombie",
+                    ServiceName, ShortContainerId(target.ID));
+                await RemoveContainerForceAsync(target.ID, cancellationToken);
             }
         }
         catch (Exception ex)
@@ -562,7 +610,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         if (_dockerClient == null) return;
 
         var containerId = container.ID;
-        var shortId = containerId.Length >= 12 ? containerId[..12] : containerId;
+        var shortId = ShortContainerId(containerId);
 
         var labels = container.Labels ?? new Dictionary<string, string>();
         if (!labels.TryGetValue(SessionIdLabelKey, out var sessionId) || string.IsNullOrWhiteSpace(sessionId))
@@ -615,7 +663,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         var responsesDir = Path.Combine(sessionPath, "responses");
         var socketPath = Path.Combine(responsesDir, "daemon.sock");
 
-        var containerName = container.Names?.FirstOrDefault()?.TrimStart('/') ?? $"{ContainerPrefix}{sessionId}";
+        // This method only ever adopts a PERSISTENT container (called from ReadoptPersistentContainersAsync
+        // and the persistent create/adopt path), so the fallback (used only when Docker returned no Names,
+        // which should not happen in practice) must match the deterministic persistent name, not a
+        // sessionId-based guest-shaped name.
+        var containerName = container.Names?.FirstOrDefault()?.TrimStart('/') ?? $"{ContainerPrefix}persistent";
 
         // Preserve the original validity window when the prior DB record is available; otherwise restamp
         // from the admin-configured persistent login validity.
@@ -650,6 +702,148 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             isReconnect: true,
             cancellationToken);
     }
+
+
+    /// <summary>
+    /// Ids of every persistent session currently registered in-memory, keyed by their live
+    /// container id. Used by the singleton gate to avoid re-adopting (and thus double-registering)
+    /// a container that is already tracked.
+    /// </summary>
+    private HashSet<string> GetAdoptedPersistentContainerIds()
+        => new(_sessions.Values.Where(s => s.IsPersistent).Select(s => s.ContainerId));
+
+    /// <summary>
+    /// Lists Docker containers matching this service's deterministic persistent name + label, then
+    /// asks <see cref="PersistentSingletonGates.DecideExistingContainerAction"/> what to do about
+    /// them. Retries briefly (a few x ~1s) while the decision is <see cref="PersistentContainerAction.RetryLater"/>
+    /// (a match is mid-removal, e.g. logout's stop-then-start racing this call) before giving up and
+    /// letting the caller proceed to create - <see cref="CreatePersistentContainerWithConflictRetryAsync"/>
+    /// is the final backstop against a still-lingering name conflict at that point.
+    /// </summary>
+    private async Task<PersistentContainerDecision> ResolvePersistentContainerDecisionAsync(CancellationToken cancellationToken)
+    {
+        var deterministicName = $"{ContainerPrefix}persistent";
+        const int maxRetryLaterAttempts = 3;
+
+        for (var attempt = 0; ; attempt++)
+        {
+            var containers = await _dockerClient!.Containers.ListContainersAsync(
+                new ContainersListParameters
+                {
+                    All = true,
+                    Filters = new Dictionary<string, IDictionary<string, bool>>
+                    {
+                        ["name"] = new Dictionary<string, bool> { [deterministicName] = true },
+                        ["label"] = new Dictionary<string, bool> { [$"{PersistentLabelKey}=true"] = true }
+                    }
+                },
+                cancellationToken);
+
+            var decision = PersistentSingletonGates.DecideExistingContainerAction(containers.ToList(), GetAdoptedPersistentContainerIds());
+
+            if (decision.Action != PersistentContainerAction.RetryLater || attempt >= maxRetryLaterAttempts)
+            {
+                return decision;
+            }
+
+            _logger.LogInformation(
+                "Persistent {ServiceName} container is mid-removal; retrying in 1s (attempt {Attempt}/{Max})",
+                ServiceName, attempt + 1, maxRetryLaterAttempts);
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Creates the persistent container, retrying on a 409 "name already in use" conflict (another
+    /// container still occupies the deterministic name - e.g. a concurrent removal that
+    /// <see cref="ResolvePersistentContainerDecisionAsync"/> raced with). After a few short retries,
+    /// force-removes whatever is occupying the name and makes one final create attempt. Follows the
+    /// same message-matching <see cref="DockerApiException"/> handling style as <see cref="TerminateSessionAsync"/>.
+    /// </summary>
+    private async Task<CreateContainerResponse> CreatePersistentContainerWithConflictRetryAsync(
+        CreateContainerParameters parameters, CancellationToken cancellationToken)
+    {
+        const int maxRetries = 3;
+        for (var attempt = 0; attempt < maxRetries; attempt++)
+        {
+            try
+            {
+                return await _dockerClient!.Containers.CreateContainerAsync(parameters, cancellationToken);
+            }
+            catch (DockerApiException ex) when (IsNameConflict(ex))
+            {
+                _logger.LogWarning(
+                    "Persistent container name {Name} still in use (attempt {Attempt}/{Max}); retrying",
+                    parameters.Name, attempt + 1, maxRetries);
+                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+            }
+        }
+
+        _logger.LogWarning(
+            "Persistent container name {Name} still conflicting after {Max} retries; force-removing and creating once more",
+            parameters.Name, maxRetries);
+        await ForceRemoveContainersByExactNameAsync(parameters.Name!, cancellationToken);
+        return await _dockerClient!.Containers.CreateContainerAsync(parameters, cancellationToken);
+    }
+
+    private static bool IsNameConflict(DockerApiException ex)
+        => ex.Message.Contains("Conflict", StringComparison.OrdinalIgnoreCase)
+           && ex.Message.Contains("already in use", StringComparison.OrdinalIgnoreCase);
+
+    private async Task ForceRemoveContainersByExactNameAsync(string containerName, CancellationToken cancellationToken)
+    {
+        var matches = await _dockerClient!.Containers.ListContainersAsync(
+            new ContainersListParameters
+            {
+                All = true,
+                Filters = new Dictionary<string, IDictionary<string, bool>>
+                {
+                    ["name"] = new Dictionary<string, bool> { [containerName] = true }
+                }
+            },
+            cancellationToken);
+
+        foreach (var match in matches.Where(c => (c.Names ?? new List<string>()).Any(n => n.TrimStart('/') == containerName)))
+        {
+            await RemoveContainerForceAsync(match.ID, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Force-removes a container by id, tolerating the two races already handled elsewhere in this
+    /// class (already gone; another sweep mid-removal) - see <see cref="TerminateSessionAsync"/> for
+    /// the origin of this exact exception-matching shape. Returns true when this call actually removed
+    /// the container, false when removal was swallowed as one of the two known races (so callers that
+    /// only want to log/mark-cleaned on genuine success can gate on the result). RemoveVolumes defaults
+    /// to false: most callers force-remove a leaked/duplicate/stopped sibling that shares the SAME named
+    /// auth volume with a surviving container (<see cref="GetPersistentConfigVolumeName"/>) and must
+    /// never wipe it; pass <paramref name="removeVolumes"/> true only for teardown paths that own the
+    /// container's volume outright (e.g. non-persistent session termination, orphan cleanup).
+    /// </summary>
+    private async Task<bool> RemoveContainerForceAsync(string containerId, CancellationToken cancellationToken, bool removeVolumes = false)
+    {
+        try
+        {
+            await _dockerClient!.Containers.RemoveContainerAsync(
+                containerId,
+                new ContainerRemoveParameters { Force = true, RemoveVolumes = removeVolumes },
+                cancellationToken);
+            return true;
+        }
+        catch (DockerContainerNotFoundException)
+        {
+            // Already gone.
+            return false;
+        }
+        catch (DockerApiException ex) when (ex.Message.Contains("removal") && ex.Message.Contains("already in progress"))
+        {
+            // Another sweep/removal is already in flight for this container - fine.
+            return false;
+        }
+    }
+
+    private static string ShortContainerId(string containerId)
+        => containerId.Length >= 12 ? containerId[..12] : containerId;
 
     /// <summary>
     /// Returns the value of a <c>KEY=VALUE</c> entry from a container's inspected env list, or null.
@@ -723,7 +917,43 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 "Docker is not running or not accessible. Please start Docker Desktop and try again.");
         }
 
-        // Check if user already has an active session - return it instead of creating a new one
+        if (!isPersistent)
+        {
+            return await CreateSessionCoreAsync(userId, ipAddress, userAgent, sessionType, isPersistent, reuseExistingSession, cancellationToken);
+        }
+
+        // Persistent starts are serialized per service (this instance) so two concurrent "Start
+        // persistent session" calls can never both pass the reuse/adopt checks and each create a
+        // container (leak M3): the second caller blocks here, then its reuse-check inside
+        // CreateSessionCoreAsync finds the session the first caller just created/adopted. Guest
+        // sessions take no lock - multiple concurrent guest sessions are expected.
+        await _persistentStartLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await CreateSessionCoreAsync(userId, ipAddress, userAgent, sessionType, isPersistent, reuseExistingSession, cancellationToken);
+        }
+        finally
+        {
+            _persistentStartLock.Release();
+        }
+    }
+
+
+    private async Task<DaemonSession> CreateSessionCoreAsync(
+        Guid userId,
+        string? ipAddress,
+        string? userAgent,
+        SessionType sessionType,
+        bool isPersistent,
+        bool reuseExistingSession,
+        CancellationToken cancellationToken)
+    {
+        // Check if user already has an active session - return it instead of creating a new one.
+        // This match is userId-keyed and only safe because every persistent create path derives userId
+        // via DeriveSystemUserId (a single stable system-user id) and always passes
+        // reuseExistingSession:true - see PersistentSingletonGates and its callers. A future caller that
+        // creates a persistent session for a different, per-admin userId must not reach this reuse check
+        // as-is, or it would collide with (and silently return) another admin's persistent session.
         if (reuseExistingSession)
         {
             var existingSession = _sessions.Values.FirstOrDefault(s => s.UserId == userId && s.Status == DaemonSessionStatus.Active);
@@ -745,6 +975,84 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         // Always pull latest image before creating session
         await EnsureImageExistsAsync(cancellationToken);
+
+        if (isPersistent)
+        {
+            // Error-state replacement (kills leak M2): a socket-disconnect flips a persistent session
+            // to Error without tearing its container down; the reuse-check above only matches Active,
+            // so left alone every future Start would try to create a duplicate alongside it. Replace
+            // it in place instead.
+            var existingErrorSession = _sessions.Values.FirstOrDefault(s => PersistentSingletonGates.ShouldReplaceErroredSession(s));
+            if (existingErrorSession != null)
+            {
+                _logger.LogInformation(
+                    "Existing persistent {ServiceName} session {SessionId} is in Error state; replacing it",
+                    ServiceName, existingErrorSession.Id);
+                await TerminateSessionAsync(existingErrorSession.Id, "Replacing errored persistent session", force: true);
+            }
+
+            // Docker-level adopt-or-replace pre-create check (kills leak M1's leftover/409 path):
+            // an unadopted-but-running container for this service should be reconnected to instead of
+            // shadowed by a second container; a stopped one should be removed first so the
+            // deterministic name is free.
+            var decision = await ResolvePersistentContainerDecisionAsync(cancellationToken);
+
+            foreach (var extra in decision.ExtrasToRemove)
+            {
+                _logger.LogInformation(
+                    "Removing extra leaked persistent {ServiceName} container {Id}",
+                    ServiceName, ShortContainerId(extra.ID));
+                await RemoveContainerForceAsync(extra.ID, cancellationToken);
+            }
+
+            if (decision.Action == PersistentContainerAction.Adopt)
+            {
+                var target = decision.Target!;
+                try
+                {
+                    await ReconnectPersistentSessionAsync(target, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to adopt existing persistent {ServiceName} container {Id}",
+                        ServiceName, ShortContainerId(target.ID));
+                }
+
+                var adopted = GetActivePersistentSession();
+                if (adopted != null)
+                {
+                    return adopted;
+                }
+
+                // Adoption failed (thrown or one of ReconnectPersistentSessionAsync's silent exits) -
+                // the container is now a zombie occupying the deterministic name. Remove it rather
+                // than leaving it running and invisible, then fall through to create fresh below.
+                _logger.LogWarning(
+                    "Adoption of persistent {ServiceName} container {Id} did not produce an active session; removing it and creating fresh",
+                    ServiceName, ShortContainerId(target.ID));
+                await RemoveContainerForceAsync(target.ID, cancellationToken);
+            }
+            else if (decision.Action == PersistentContainerAction.Remove)
+            {
+                _logger.LogInformation(
+                    "Removing stopped persistent {ServiceName} container {Id} before creating fresh",
+                    ServiceName, ShortContainerId(decision.Target!.ID));
+                await RemoveContainerForceAsync(decision.Target!.ID, cancellationToken);
+            }
+            else if (decision.Action == PersistentContainerAction.RetryLater)
+            {
+                // ResolvePersistentContainerDecisionAsync's bounded retries were exhausted while a
+                // matching container was still mid-removal or restarting. Falling through to create
+                // here would either collide with Docker's own in-flight removal for the deterministic
+                // name (a 409 that CreatePersistentContainerWithConflictRetryAsync would then have to
+                // force through) or force-remove a container that might still recover from a restart
+                // loop. Fail the start explicitly instead - the name will be free (or the container
+                // will have stabilized) by the time the admin/scheduler retries.
+                throw new InvalidOperationException(
+                    $"An existing persistent {ServiceName} container is still being removed or restarting. Please try again shortly.");
+            }
+        }
 
         var sessionId = Guid.NewGuid().ToString("N")[..16];
         var basePath = GetDaemonBasePath();
@@ -774,8 +1082,11 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         _logger.LogDebug("Container paths: commands={CommandsDir}, responses={ResponsesDir}", commandsDir, responsesDir);
         _logger.LogDebug("Host paths: commands={HostCommandsDir}, responses={HostResponsesDir}", hostCommandsDir, hostResponsesDir);
 
-        // Create and start container
-        var containerName = $"{ContainerPrefix}{sessionId}";
+        // Create and start container. Persistent containers get a deterministic name (one per
+        // service) so Docker itself enforces the singleton via a 409 name conflict if this fix's
+        // pre-create adopt-or-replace check above somehow missed a concurrent creator; guest/temporary
+        // containers keep the unique sessionId-based name so many can run at once.
+        var containerName = isPersistent ? $"{ContainerPrefix}persistent" : $"{ContainerPrefix}{sessionId}";
         var imageName = GetImageName();
 
         // Get network configuration for prefill container
@@ -949,26 +1260,28 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             };
         }
 
-        var createResponse = await _dockerClient.Containers.CreateContainerAsync(
-            new CreateContainerParameters
-            {
-                Name = containerName,
-                Image = imageName,
-                Cmd = cmd,
-                Env = env,
-                HostConfig = hostConfig,
-                Labels = containerLabels,
-                ExposedPorts = useTcpMode && tcpContainerPort.HasValue
-                    ? new Dictionary<string, EmptyStruct> { [$"{tcpContainerPort.Value}/tcp"] = default }
-                    : null
-            },
-            cancellationToken);
+        var createParameters = new CreateContainerParameters
+        {
+            Name = containerName,
+            Image = imageName,
+            Cmd = cmd,
+            Env = env,
+            HostConfig = hostConfig,
+            Labels = containerLabels,
+            ExposedPorts = useTcpMode && tcpContainerPort.HasValue
+                ? new Dictionary<string, EmptyStruct> { [$"{tcpContainerPort.Value}/tcp"] = default }
+                : null
+        };
+
+        var createResponse = isPersistent
+            ? await CreatePersistentContainerWithConflictRetryAsync(createParameters, cancellationToken)
+            : await _dockerClient!.Containers.CreateContainerAsync(createParameters, cancellationToken);
 
         var containerId = createResponse.ID;
         _logger.LogInformation("Created container {ContainerId} for session {SessionId}", containerId, sessionId);
 
         // Start container
-        var started = await _dockerClient.Containers.StartContainerAsync(containerId, null, cancellationToken);
+        var started = await _dockerClient!.Containers.StartContainerAsync(containerId, null, cancellationToken);
         if (!started)
         {
             throw new InvalidOperationException($"Failed to start container {containerId}");
@@ -1341,97 +1654,283 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             throw new KeyNotFoundException($"Session not found: {sessionId}");
         }
 
+        // Serializes login attempts on this session (Cursor #3): overlapping calls would race the
+        // daemon's single challenge/status stream and clobber each other's failure text/auth state.
+        // A second concurrent attempt is rejected outright (try-acquire, never queued) so the caller
+        // gets an immediate, unambiguous error instead of silently waiting behind one it doesn't know
+        // about.
+        if (!await session.LoginLock.WaitAsync(0, cancellationToken))
+        {
+            throw new InvalidOperationException($"A login attempt is already in progress for session {sessionId}.");
+        }
+
+        var abandonedLoginCleanup = new AbandonedLoginCleanupHolder();
+        try
+        {
+            return await StartLoginCoreAsync(session, sessionId, timeout, abandonedLoginCleanup, cancellationToken);
+        }
+        finally
+        {
+            // Normally releases immediately. But when a fail-fast completion abandoned a still-running
+            // daemon task (Cursor #1), AwaitChallengeOrLoginFailureAsync stashed its cleanup task here
+            // instead of awaiting it inline - the real CancelLoginAsync clears the pending challenge
+            // wait synchronously but then also awaits its own "cancel-login" command round-trip to the
+            // daemon (up to that command's own timeout), so it must never be awaited on the hot
+            // fail-fast return path. The lock is released only once that cleanup finishes, so a later
+            // login attempt on this session can never overlap with the abandoned one (Cursor #1+#3).
+            if (abandonedLoginCleanup.Task is { } cleanupTask)
+            {
+                _ = cleanupTask.ContinueWith(_ => session.LoginLock.Release(), TaskScheduler.Default);
+            }
+            else
+            {
+                session.LoginLock.Release();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Mutable single-slot holder used to pass an abandoned-login-task cleanup <see cref="Task"/> out of
+    /// <see cref="AwaitChallengeOrLoginFailureAsync"/> to <see cref="StartLoginAsync"/>'s <c>finally</c>
+    /// without adding permanent state to <see cref="DaemonSession"/> - it only exists for the lifetime
+    /// of one <see cref="StartLoginAsync"/> call.
+    /// </summary>
+    private sealed class AbandonedLoginCleanupHolder
+    {
+        public Task? Task;
+    }
+
+    private async Task<CredentialChallenge?> StartLoginCoreAsync(
+        DaemonSession session, string sessionId, TimeSpan? timeout, AbandonedLoginCleanupHolder abandonedLoginCleanup, CancellationToken cancellationToken)
+    {
         _logger.LogInformation("Starting login for session {SessionId}. ResponsesDir: {ResponsesDir}",
             sessionId, session.ResponsesDir);
 
-        // If already authenticated, don't change state - just check with daemon
-        if (session.AuthState == DaemonAuthState.Authenticated)
+        // Reset any stale failure text from a previous attempt before racing this one.
+        session.LastLoginFailureMessage = null;
+
+        // The daemon broadcasts "Login failed: <reason>" (status "awaiting-login") within
+        // milliseconds when it can't proceed (e.g. an undecryptable stored token). Racing that
+        // broadcast against the blind challenge waits below lets a doomed login fail in seconds
+        // with the daemon's real error text instead of burning the full 30s/10s wait chain.
+        var loginFailureTcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Func<DaemonStatus, Task> onDaemonStatusUpdate = status =>
         {
-            _logger.LogInformation("Session {SessionId} is already authenticated, checking daemon status", sessionId);
-            var existingChallenge = await session.Client.StartLoginAsync(timeout, cancellationToken);
-            if (existingChallenge == null)
+            if (status != null && TryGetLoginFailureMessage(status, out var failureMessage))
             {
-                // Daemon confirms we're still logged in
-                _logger.LogInformation("Session {SessionId} confirmed authenticated by daemon", sessionId);
+                loginFailureTcs.TrySetResult(failureMessage);
+            }
+            return Task.CompletedTask;
+        };
+
+        session.Client.OnStatusUpdate += onDaemonStatusUpdate;
+        try
+        {
+            // If already authenticated, don't change state - just check with daemon
+            if (session.AuthState == DaemonAuthState.Authenticated)
+            {
+                _logger.LogInformation("Session {SessionId} is already authenticated, checking daemon status", sessionId);
+                var existingChallenge = await AwaitChallengeOrLoginFailureAsync(
+                    session, session.Client.StartLoginAsync(timeout, cancellationToken), loginFailureTcs, abandonedLoginCleanup);
+                if (loginFailureTcs.Task.IsCompleted)
+                {
+                    return await FailLoginFastAsync(session, sessionId, loginFailureTcs.Task.Result);
+                }
+                if (existingChallenge == null)
+                {
+                    // Daemon confirms we're still logged in
+                    _logger.LogInformation("Session {SessionId} confirmed authenticated by daemon", sessionId);
+                    return null;
+                }
+                // Daemon needs re-authentication - fall through to normal flow
+                _logger.LogInformation("Session {SessionId} requires re-authentication", sessionId);
+            }
+
+            // Log what files exist in the responses directory
+            if (Directory.Exists(session.ResponsesDir))
+            {
+                var files = Directory.GetFiles(session.ResponsesDir);
+                _logger.LogInformation("Files in responses dir before login: {Files}",
+                    files.Length > 0 ? string.Join(", ", files.Select(Path.GetFileName)) : "(empty)");
+            }
+            else
+            {
+                _logger.LogWarning("Responses directory does not exist: {ResponsesDir}", session.ResponsesDir);
+            }
+
+            session.AuthState = DaemonAuthState.LoggingIn;
+            await NotifyAuthStateChangeAsync(session);
+
+            var challenge = await AwaitChallengeOrLoginFailureAsync(
+                session, session.Client.StartLoginAsync(timeout, cancellationToken), loginFailureTcs, abandonedLoginCleanup);
+            if (loginFailureTcs.Task.IsCompleted)
+            {
+                return await FailLoginFastAsync(session, sessionId, loginFailureTcs.Task.Result);
+            }
+
+            // Log result
+            if (challenge != null)
+            {
+                _logger.LogInformation("Received challenge for session {SessionId}: Type={Type}, Id={ChallengeId}",
+                    sessionId, challenge.CredentialType, challenge.ChallengeId);
+                return challenge;
+            }
+
+            // If login is already in progress, a challenge might already be queued.
+            var pendingChallenge = await AwaitChallengeOrLoginFailureAsync(
+                session, session.Client.WaitForChallengeAsync(TimeSpan.FromSeconds(10), cancellationToken), loginFailureTcs, abandonedLoginCleanup);
+            if (loginFailureTcs.Task.IsCompleted)
+            {
+                return await FailLoginFastAsync(session, sessionId, loginFailureTcs.Task.Result);
+            }
+            if (pendingChallenge != null)
+            {
+                _logger.LogInformation("Received queued challenge for session {SessionId}: Type={Type}, Id={ChallengeId}",
+                    sessionId, pendingChallenge.CredentialType, pendingChallenge.ChallengeId);
+                return pendingChallenge;
+            }
+
+            var status = await session.Client.GetStatusAsync(cancellationToken);
+            if (status?.Status == "logged-in")
+            {
+                session.AuthState = DaemonAuthState.Authenticated;
+                await NotifyAuthStateChangeAsync(session);
+
+                // Notify derived class that a session is now authenticated
+                FireAndForgetAsync(OnSessionAuthenticatedAsync, nameof(OnSessionAuthenticatedAsync));
+
+                _logger.LogInformation("Session {SessionId} already authenticated - no challenge needed", sessionId);
                 return null;
             }
-            // Daemon needs re-authentication - fall through to normal flow
-            _logger.LogInformation("Session {SessionId} requires re-authentication", sessionId);
+
+            if (Directory.Exists(session.ResponsesDir))
+            {
+                var files = Directory.GetFiles(session.ResponsesDir);
+                _logger.LogWarning("No challenge received. Files in responses dir: {Files}",
+                    files.Length > 0 ? string.Join(", ", files.Select(Path.GetFileName)) : "(empty)");
+            }
+
+            // Defensive guard: a persistent container may already be authenticated from its own named auth
+            // volume (the daemon self-authenticates; the manager never injects a token). In that case the
+            // daemon emits no challenge. Re-check the live daemon status before failing - if it reports
+            // logged-in, treat this as an already-authenticated result (no challenge needed) rather than
+            // throwing, so a stray login attempt on an already-logged-in container does not error.
+            var finalStatus = await session.Client.GetStatusAsync(cancellationToken);
+            if (finalStatus?.Status == "logged-in")
+            {
+                session.AuthState = DaemonAuthState.Authenticated;
+                await NotifyAuthStateChangeAsync(session);
+                FireAndForgetAsync(OnSessionAuthenticatedAsync, nameof(OnSessionAuthenticatedAsync));
+                _logger.LogInformation(
+                    "Session {SessionId} already authenticated per daemon status - no challenge needed", sessionId);
+                return null;
+            }
+
+            _logger.LogWarning(
+                "Session {SessionId} login started but no challenge was received from the daemon",
+                sessionId);
+            return null;
+        }
+        finally
+        {
+            session.Client.OnStatusUpdate -= onDaemonStatusUpdate;
+        }
+    }
+
+    /// <summary>
+    /// Races a daemon challenge-producing call against <paramref name="loginFailureTcs"/>. Returns the
+    /// daemon's result when it wins the race; returns null when the failure broadcast wins - the
+    /// caller checks <c>loginFailureTcs.Task.IsCompleted</c> to distinguish "daemon said no challenge
+    /// yet" from "daemon reported a login failure".
+    /// </summary>
+    /// <remarks>
+    /// When the failure broadcast wins, <paramref name="daemonTask"/> (the daemon client's
+    /// StartLoginAsync/WaitForChallengeAsync call) is still running. Returning immediately here -
+    /// rather than awaiting its cleanup inline - preserves the fail-fast latency guarantee: the real
+    /// <see cref="IDaemonClient.CancelLoginAsync"/> clears the pending challenge wait synchronously but
+    /// then also awaits its own "cancel-login" command round-trip to the daemon, which can itself take
+    /// up to that command's own timeout - awaiting it here would reintroduce the exact blind-wait
+    /// latency this fix eliminates. Instead the cancel+observe work is stashed on
+    /// <paramref name="abandonedLoginCleanup"/> for <see cref="StartLoginAsync"/> to await before
+    /// releasing <see cref="DaemonSession.LoginLock"/> (Cursor #1+#3 together): a later login attempt
+    /// on this session is rejected by the lock until the abandoned task is fully resolved, so it can
+    /// never overlap with it.
+    /// </remarks>
+    private async Task<CredentialChallenge?> AwaitChallengeOrLoginFailureAsync(
+        DaemonSession session,
+        Task<CredentialChallenge?> daemonTask,
+        TaskCompletionSource<string> loginFailureTcs,
+        AbandonedLoginCleanupHolder abandonedLoginCleanup)
+    {
+        var completed = await Task.WhenAny(daemonTask, loginFailureTcs.Task);
+        if (completed != loginFailureTcs.Task)
+        {
+            return await daemonTask;
         }
 
-        // Log what files exist in the responses directory
-        if (Directory.Exists(session.ResponsesDir))
+        abandonedLoginCleanup.Task = ObserveAbandonedLoginTaskAsync(session, daemonTask);
+        return null;
+    }
+
+    /// <summary>
+    /// Best-effort cancels the daemon's in-flight login wait and then awaits it to completion,
+    /// swallowing any resulting exception so it is never left unobserved (Cursor #1). Always uses
+    /// <see cref="CancellationToken.None"/> for the cancel command itself - this cleanup must run to
+    /// completion regardless of whether the original caller's request/token has since been cancelled
+    /// or disposed.
+    /// </summary>
+    private async Task ObserveAbandonedLoginTaskAsync(DaemonSession session, Task<CredentialChallenge?> daemonTask)
+    {
+        try
         {
-            var files = Directory.GetFiles(session.ResponsesDir);
-            _logger.LogInformation("Files in responses dir before login: {Files}",
-                files.Length > 0 ? string.Join(", ", files.Select(Path.GetFileName)) : "(empty)");
+            await session.Client.CancelLoginAsync(CancellationToken.None);
         }
-        else
+        catch (Exception ex)
         {
-            _logger.LogWarning("Responses directory does not exist: {ResponsesDir}", session.ResponsesDir);
+            _logger.LogDebug(ex,
+                "CancelLoginAsync failed while abandoning a fail-fast-superseded login task for session {SessionId}",
+                session.Id);
         }
 
-        session.AuthState = DaemonAuthState.LoggingIn;
+        try
+        {
+            await daemonTask;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex,
+                "Abandoned login task for session {SessionId} completed with an exception after fail-fast cancellation (expected)",
+                session.Id);
+        }
+    }
+
+    /// <summary>
+    /// Matches the daemon's uniform failure broadcast shape (steam/epic/xbox all call
+    /// <c>BroadcastStatusAsync("awaiting-login", $"Login failed: {ex.Message}")</c> on a login exception).
+    /// </summary>
+    private static bool TryGetLoginFailureMessage(DaemonStatus status, out string failureMessage)
+    {
+        if (!string.IsNullOrEmpty(status.Message) &&
+            status.Message.Contains("Login failed:", StringComparison.OrdinalIgnoreCase))
+        {
+            failureMessage = status.Message;
+            return true;
+        }
+        failureMessage = string.Empty;
+        return false;
+    }
+
+    /// <summary>
+    /// Terminal handler for a fail-fast login: records the daemon's real error text on the session
+    /// (read directly by <c>PersistentPrefillController.StartLoginAsync</c>), resets auth state since the
+    /// login definitively failed, and broadcasts the state change so the "authenticating" UI clears.
+    /// </summary>
+    private async Task<CredentialChallenge?> FailLoginFastAsync(DaemonSession session, string sessionId, string failureMessage)
+    {
+        session.LastLoginFailureMessage = failureMessage;
+        session.AuthState = DaemonAuthState.NotAuthenticated;
+        _logger.LogWarning("Session {SessionId} login failed fast: {FailureMessage}", sessionId, failureMessage);
         await NotifyAuthStateChangeAsync(session);
-
-        var challenge = await session.Client.StartLoginAsync(timeout, cancellationToken);
-
-        // Log result
-        if (challenge != null)
-        {
-            _logger.LogInformation("Received challenge for session {SessionId}: Type={Type}, Id={ChallengeId}",
-                sessionId, challenge.CredentialType, challenge.ChallengeId);
-            return challenge;
-        }
-
-        // If login is already in progress, a challenge might already be queued.
-        var pendingChallenge = await session.Client.WaitForChallengeAsync(TimeSpan.FromSeconds(10), cancellationToken);
-        if (pendingChallenge != null)
-        {
-            _logger.LogInformation("Received queued challenge for session {SessionId}: Type={Type}, Id={ChallengeId}",
-                sessionId, pendingChallenge.CredentialType, pendingChallenge.ChallengeId);
-            return pendingChallenge;
-        }
-
-        var status = await session.Client.GetStatusAsync(cancellationToken);
-        if (status?.Status == "logged-in")
-        {
-            session.AuthState = DaemonAuthState.Authenticated;
-            await NotifyAuthStateChangeAsync(session);
-
-            // Notify derived class that a session is now authenticated
-            FireAndForgetAsync(OnSessionAuthenticatedAsync, nameof(OnSessionAuthenticatedAsync));
-
-            _logger.LogInformation("Session {SessionId} already authenticated - no challenge needed", sessionId);
-            return null;
-        }
-
-        if (Directory.Exists(session.ResponsesDir))
-        {
-            var files = Directory.GetFiles(session.ResponsesDir);
-            _logger.LogWarning("No challenge received. Files in responses dir: {Files}",
-                files.Length > 0 ? string.Join(", ", files.Select(Path.GetFileName)) : "(empty)");
-        }
-
-        // Defensive guard: a persistent container may already be authenticated from its own named auth
-        // volume (the daemon self-authenticates; the manager never injects a token). In that case the
-        // daemon emits no challenge. Re-check the live daemon status before failing - if it reports
-        // logged-in, treat this as an already-authenticated result (no challenge needed) rather than
-        // throwing, so a stray login attempt on an already-logged-in container does not error.
-        var finalStatus = await session.Client.GetStatusAsync(cancellationToken);
-        if (finalStatus?.Status == "logged-in")
-        {
-            session.AuthState = DaemonAuthState.Authenticated;
-            await NotifyAuthStateChangeAsync(session);
-            FireAndForgetAsync(OnSessionAuthenticatedAsync, nameof(OnSessionAuthenticatedAsync));
-            _logger.LogInformation(
-                "Session {SessionId} already authenticated per daemon status - no challenge needed", sessionId);
-            return null;
-        }
-
-        _logger.LogWarning(
-            "Session {SessionId} login started but no challenge was received from the daemon",
-            sessionId);
         return null;
     }
 
@@ -1857,8 +2356,32 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 sessionId);
         }
 
-        // Reuse the existing teardown; IsPersistent keeps RemoveVolumes=false so the daemon's auth survives.
-        return TerminateSessionAsync(sessionId, "Persistent session stopped", force: false, terminatedBy: terminatedBy);
+        return StopPersistentSessionCoreAsync(sessionId, terminatedBy);
+    }
+
+    /// <summary>
+    /// Runs the actual teardown under <see cref="_persistentStartLock"/> so a Stop can never interleave
+    /// with a concurrent persistent Start/adopt/replace for this service (Cursor #2) - e.g. a Stop
+    /// racing a Start that is mid-adopt of the very container being stopped. Safe against the lock
+    /// already being held by <c>CreateSessionCoreAsync</c>'s Error-state-replacement call into
+    /// <see cref="TerminateSessionAsync"/>: that call happens on a DIFFERENT logical entry (the create
+    /// path already holds the lock and never re-enters it), and <see cref="TerminateSessionAsync"/>
+    /// itself never acquires <see cref="_persistentStartLock"/> - only the two public entry points
+    /// (this one and the persistent branch of <c>CreateSessionAsync</c>) do, so there is no reentrant
+    /// self-deadlock.
+    /// </summary>
+    private async Task StopPersistentSessionCoreAsync(string sessionId, string? terminatedBy)
+    {
+        await _persistentStartLock.WaitAsync();
+        try
+        {
+            // Reuse the existing teardown; IsPersistent keeps RemoveVolumes=false so the daemon's auth survives.
+            await TerminateSessionAsync(sessionId, "Persistent session stopped", force: false, terminatedBy: terminatedBy);
+        }
+        finally
+        {
+            _persistentStartLock.Release();
+        }
     }
 
     /// <summary>
@@ -1961,20 +2484,17 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 //    container/manager restarts so the admin does not have to re-login every stop.
                 // Force=true is a no-op once already stopped/killed.
                 var removeVolumes = !session.IsPersistent;
-                try
+                if (await RemoveContainerForceAsync(session.ContainerId, CancellationToken.None, removeVolumes))
                 {
-                    await _dockerClient.Containers.RemoveContainerAsync(
-                        session.ContainerId,
-                        new ContainerRemoveParameters { Force = true, RemoveVolumes = removeVolumes });
-
                     _logger.LogInformation(
                         "Removed container {ContainerId} (RemoveVolumes={RemoveVolumes}) for session {SessionId}",
                         session.ContainerId, removeVolumes, sessionId);
                 }
-                catch (DockerApiException removeEx) when (removeEx.Message.Contains("removal") && removeEx.Message.Contains("already in progress"))
+                else
                 {
-                    // Another teardown/orphan sweep is already removing this container - that's fine.
-                    _logger.LogDebug("Container {ContainerId} removal already in progress", session.ContainerId);
+                    // Already gone, or another teardown/orphan sweep is already removing this
+                    // container - that's fine.
+                    _logger.LogDebug("Container {ContainerId} removal already in progress or already gone", session.ContainerId);
                 }
             }
             catch (DockerContainerNotFoundException)
@@ -2148,10 +2668,22 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// Called when authentication is logged out.
     /// </summary>
     /// <param name="reason">Reason for termination (for logging)</param>
+    /// <param name="includePersistent">
+    /// When false (the default), persistent (system-owned) sessions are skipped: they are stopped only
+    /// via the dedicated <c>PersistentPrefillController.StopAsync</c> path, so a credential logout (e.g.
+    /// <c>SteamKit2Service.Authentication.LogoutAsync</c>'s PICS logout) never tears down the reused
+    /// persistent container. Passing true bypasses that guard AND the per-service persistent start lock
+    /// (<c>_persistentStartLock</c>), so only pass true from a caller that cannot race a persistent start
+    /// (e.g. full service shutdown); otherwise stop persistent sessions via
+    /// <c>PersistentPrefillController.StopAsync</c> / <c>StopPersistentSessionAsync</c> instead.
+    /// </param>
     public async Task TerminateAllSessionsAsync(
-        string reason = "Authentication logged out")
+        string reason = "Authentication logged out",
+        bool includePersistent = false)
     {
-        var sessions = _sessions.Values.ToList();
+        var sessions = _sessions.Values
+            .Where(s => includePersistent || PrefillSessionService.IsTerminatableByAdmin(s))
+            .ToList();
         var terminatedCount = 0;
 
         foreach (var session in sessions)
