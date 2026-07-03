@@ -274,6 +274,24 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
     private static ServiceScheduleInfo MapConfigurableService(ConfigurableScheduledService service)
     {
+        // A service like ScheduledPrefillService can implement IScheduleEnabledGate when its own
+        // ConfiguredInterval is a fixed outer poll cadence that never reflects whether any of its
+        // nested per-service configs are actually enabled. When nothing is enabled, report the
+        // schedule as paused (interval 0, no next-run) instead of that fixed cadence, reusing the
+        // same paused representation the frontend already renders for interval-0 services.
+        if (service is IScheduleEnabledGate gate && !gate.HasAnyServiceEnabled())
+        {
+            return new ServiceScheduleInfo
+            {
+                Key = GetServiceKey(service),
+                IntervalHours = 0,
+                RunOnStartup = service.RunOnStartup,
+                IsRunning = service.IsCurrentlyExecuting,
+                LastRunUtc = service.LastRunUtc,
+                NextRunUtc = null,
+            };
+        }
+
         return new ServiceScheduleInfo
         {
             Key = GetServiceKey(service),

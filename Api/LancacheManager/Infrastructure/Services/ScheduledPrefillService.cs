@@ -14,7 +14,7 @@ namespace LancacheManager.Infrastructure.Services;
 /// interval (managed through the unified Schedules page via <see cref="ServiceScheduleRegistry"/>).
 /// Lane B1 provided the compiling skeleton; Lane B2 fills in the per-service lifecycle.
 /// </summary>
-public sealed class ScheduledPrefillService : ConfigurableScheduledService
+public sealed class ScheduledPrefillService : ConfigurableScheduledService, IScheduleEnabledGate
 {
     // OUTER schedule poll cadence: the base loop wakes once a minute and runs only the services that
     // are DUE per their own IntervalHours + persisted last-run. This is NOT the user-facing schedule.
@@ -87,6 +87,15 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
         Interlocked.Exchange(ref _manualRunBypass, 1);
         base.TriggerImmediateRun();
     }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Backs <see cref="ServiceScheduleRegistry"/>'s schedule-payload gate: when nothing is
+    /// enabled, the registry reports this schedule as paused instead of exposing the fixed
+    /// 1-minute outer poll cadence as a live countdown.
+    /// </remarks>
+    public bool HasAnyServiceEnabled()
+        => ScheduledPrefillRunGates.HasAnyEnabledService(_stateService.GetScheduledPrefillConfig().GetServicesInRunOrder());
 
     protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
