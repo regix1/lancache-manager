@@ -98,4 +98,6 @@ public class RetroDownloadQuery
     public long? EndTime { get; set; }
     /// <summary>When set, only include downloads tagged to this event</summary>
     public long? EventId { get; set; }
+    /// <summary>Byte-weighted hit/miss bucket filter: "hit" (CacheHitPercent &gt;= 50), "miss" (&lt; 50), or "all"/empty for no filtering</summary>
+    public string HitMiss { get; set; } = "all";
 }

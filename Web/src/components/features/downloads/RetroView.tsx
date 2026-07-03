@@ -13,7 +13,7 @@ import { HardDrive, Download } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
 import './VirtualizedList.css';
-import type { RetroViewHandle, RetroRowData } from './RetroView.types';
+import type { RetroViewHandle, RetroRowData, HitMissFilter } from './RetroView.types';
 import { useIsDesktop } from '@hooks/useMediaQuery';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
@@ -89,6 +89,8 @@ interface RetroViewProps {
   filterHideMetadata?: boolean;
   /** Server-side filter: hide rows whose game name is unknown. Only used when serverMode is true. */
   filterHideUnknown?: boolean;
+  /** Server-side filter: hit/miss bucket ('all' | 'hit' | 'miss'). Only used when serverMode is true. */
+  filterHitMiss?: HitMissFilter;
   /** Server-side filter: Unix start time (seconds). Only used when serverMode is true. */
   filterStartTime?: number;
   /** Server-side filter: Unix end time (seconds). Only used when serverMode is true. */
@@ -181,6 +183,7 @@ const RetroView = memo(
         filterHideLocalhost = false,
         filterHideMetadata = false,
         filterHideUnknown = false,
+        filterHitMiss = 'all',
         filterStartTime,
         filterEndTime,
         filterEventId
@@ -212,6 +215,7 @@ const RetroView = memo(
         hideLocalhost: filterHideLocalhost,
         hideMetadata: filterHideMetadata,
         hideUnknown: filterHideUnknown,
+        hitMiss: filterHitMiss,
         groupByGame,
         startTime: filterStartTime,
         endTime: filterEndTime,

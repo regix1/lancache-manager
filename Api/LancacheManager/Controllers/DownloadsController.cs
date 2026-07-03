@@ -427,6 +427,18 @@ public class DownloadsController : ControllerBase
                     .ToList();
             }
 
+            // Filter: hit/miss bucket, byte-weighted CacheHitPercent >= 50 = "hit", < 50 = "miss".
+            // Applied to the aggregated per (DepotId, ClientIp) group, before the GroupByGame merge
+            // and before pagination, so TotalItems/TotalPages reflect the filtered set.
+            if (query.HitMiss == "hit")
+            {
+                grouped = grouped.Where(r => r.CacheHitPercent >= 50).ToList();
+            }
+            else if (query.HitMiss == "miss")
+            {
+                grouped = grouped.Where(r => r.CacheHitPercent < 50).ToList();
+            }
+
             // Track which (DepotId, ClientIp) pairs make up each row so the page's DownloadIds
             // can be fetched after pagination. Game-merged rows span multiple pairs.
             var pairsByRowId = grouped

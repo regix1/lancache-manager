@@ -5,6 +5,7 @@ import ApiService, {
   type RetroDownloadResponse,
   type RetroDownloadQueryParams
 } from '@services/api.service';
+import type { HitMissFilter } from './RetroView.types';
 
 interface RetroDownloadsHookOptions {
   /** Active gating - if false, the hook does not fetch. */
@@ -27,6 +28,8 @@ interface RetroDownloadsHookOptions {
   hideMetadata: boolean;
   /** Whether to hide rows whose game name is unknown / equals the service. */
   hideUnknown: boolean;
+  /** Hit/miss bucket filter - 'all', 'hit', or 'miss'. */
+  hitMiss: HitMissFilter;
   /** When true, server merges depot rows by game before paginating. */
   groupByGame?: boolean;
   /** Unix start time (seconds) from header time filter. */
@@ -75,6 +78,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
     hideLocalhost,
     hideMetadata,
     hideUnknown,
+    hitMiss,
     groupByGame,
     startTime,
     endTime,
@@ -105,6 +109,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
       hideLocalhost,
       showZeroBytes: !hideMetadata,
       hideUnknown,
+      hitMiss,
       groupByGame,
       startTime,
       endTime,
@@ -154,6 +159,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
     hideLocalhost,
     hideMetadata,
     hideUnknown,
+    hitMiss,
     groupByGame,
     startTime,
     endTime,

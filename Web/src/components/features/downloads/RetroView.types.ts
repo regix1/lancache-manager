@@ -1,6 +1,12 @@
 import type { DepotGroupedData } from './retroGrouping';
 import type { EventSummary } from '../../../types';
 
+// Server-side hit/miss bucket filter shared with the Downloads toolbar's
+// All/Hit/Miss control. Mirrors the local, unexported type of the same name
+// in DownloadsTab.tsx (a .tsx file cannot export a type, so this is the
+// canonical, importable declaration).
+export type HitMissFilter = 'all' | 'hit' | 'miss';
+
 // Ref handle exposed by RetroView to parent components.
 export interface RetroViewHandle {
   resetWidths: () => void;

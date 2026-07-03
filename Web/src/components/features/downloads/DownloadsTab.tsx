@@ -80,7 +80,8 @@ const STORAGE_KEYS = {
   SHOW_BANNER_COLUMN: 'lancache_downloads_show_banner_column',
   BANNER_ONLY: 'downloads_banner_only',
   GROUP_BY_GAME_RETRO: 'lancache_downloads_group_by_game_retro',
-  EVICTED_DATA_MODE: 'lancache_downloads_evicted_data_mode'
+  EVICTED_DATA_MODE: 'lancache_downloads_evicted_data_mode',
+  HIT_MISS_FILTER: 'lancache_downloads_hit_miss_filter'
 };
 
 const loadHideMetadata = (): boolean => {
@@ -119,6 +120,12 @@ const DEFAULT_ITEMS_PER_PAGE = {
 
 // View modes
 type ViewMode = 'compact' | 'card' | 'normal' | 'retro';
+
+// Hit/Miss content filter for the toolbar's cache-status control.
+// 'all' (default) shows every row — byte/pixel-identical to pre-feature behavior.
+// 'hit' narrows to byte-weighted cacheHitPercent >= 50, 'miss' to < 50 (mutually exclusive,
+// exhaustive split; matches the backend Retro predicate's threshold exactly).
+type HitMissFilter = 'all' | 'hit' | 'miss';
 
 // Sort order type
 type SortOrder =
@@ -516,6 +523,7 @@ const DownloadsTab: React.FC = () => {
       hideLocalhost: storage.getItem(STORAGE_KEYS.HIDE_LOCALHOST) === 'true',
       hideUnknownGames: storage.getItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES) === 'true',
       hideEvicted: storage.getItem(STORAGE_KEYS.HIDE_EVICTED) === 'true',
+      hitMissFilter: (storage.getItem(STORAGE_KEYS.HIT_MISS_FILTER) || 'all') as HitMissFilter,
       selectedService: storage.getItem(STORAGE_KEYS.SERVICE_FILTER) || 'all',
       selectedClient: storage.getItem(STORAGE_KEYS.CLIENT_FILTER) || 'all',
       searchQuery: storage.getItem(STORAGE_KEYS.SEARCH_QUERY) || '',
@@ -607,6 +615,7 @@ const DownloadsTab: React.FC = () => {
     storage.setItem(STORAGE_KEYS.HIDE_LOCALHOST, settings.hideLocalhost.toString());
     storage.setItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES, settings.hideUnknownGames.toString());
     storage.setItem(STORAGE_KEYS.HIDE_EVICTED, settings.hideEvicted.toString());
+    storage.setItem(STORAGE_KEYS.HIT_MISS_FILTER, settings.hitMissFilter);
     storage.setItem(STORAGE_KEYS.SERVICE_FILTER, settings.selectedService);
     storage.setItem(STORAGE_KEYS.CLIENT_FILTER, settings.selectedClient);
     storage.setItem(STORAGE_KEYS.SEARCH_QUERY, settings.searchQuery);
@@ -846,6 +855,12 @@ const DownloadsTab: React.FC = () => {
       filtered = filtered.filter((d) => !d.isEvicted);
     }
 
+    if (settings.hitMissFilter !== 'all') {
+      filtered = filtered.filter((d) =>
+        settings.hitMissFilter === 'hit' ? d.cacheHitPercent >= 50 : d.cacheHitPercent < 50
+      );
+    }
+
     if (settings.selectedService !== 'all') {
       filtered = filtered.filter((d) => d.service.toLowerCase() === settings.selectedService);
     }
@@ -886,6 +901,7 @@ const DownloadsTab: React.FC = () => {
     settings.hideLocalhost,
     settings.hideEvicted,
     evictedDataMode,
+    settings.hitMissFilter,
     settings.selectedService,
     settings.selectedClient,
     settings.searchQuery,
@@ -1533,7 +1549,7 @@ const DownloadsTab: React.FC = () => {
                 </div>
 
                 {/* Mobile: Second row with items per page, sort, and view mode */}
-                <div className="flex sm:hidden gap-2 w-full items-center">
+                <div className="flex sm:hidden gap-2 w-full items-center flex-wrap">
                   <EnhancedDropdown
                     options={itemsPerPageOptions}
                     value={
@@ -1586,6 +1602,21 @@ const DownloadsTab: React.FC = () => {
                     ]}
                     value={settings.viewMode}
                     onChange={(value) => setSettings({ ...settings, viewMode: value as ViewMode })}
+                    size="md"
+                    className="flex-shrink-0"
+                  />
+
+                  {/* Hit/Miss content filter */}
+                  <SegmentedControl
+                    options={[
+                      { value: 'all', label: t('downloads.tab.filters.hitMissAll') },
+                      { value: 'hit', label: t('downloads.tab.filters.hitMissHit') },
+                      { value: 'miss', label: t('downloads.tab.filters.hitMissMiss') }
+                    ]}
+                    value={settings.hitMissFilter}
+                    onChange={(value) =>
+                      setSettings({ ...settings, hitMissFilter: value as HitMissFilter })
+                    }
                     size="md"
                     className="flex-shrink-0"
                   />
@@ -1658,6 +1689,20 @@ const DownloadsTab: React.FC = () => {
                     onChange={(value) => setSettings({ ...settings, viewMode: value as ViewMode })}
                     size="md"
                     showLabels="responsive"
+                  />
+
+                  {/* Hit/Miss content filter */}
+                  <SegmentedControl
+                    options={[
+                      { value: 'all', label: t('downloads.tab.filters.hitMissAll') },
+                      { value: 'hit', label: t('downloads.tab.filters.hitMissHit') },
+                      { value: 'miss', label: t('downloads.tab.filters.hitMissMiss') }
+                    ]}
+                    value={settings.hitMissFilter}
+                    onChange={(value) =>
+                      setSettings({ ...settings, hitMissFilter: value as HitMissFilter })
+                    }
+                    size="md"
                   />
 
                   {/* Export Button */}
@@ -2054,6 +2099,7 @@ const DownloadsTab: React.FC = () => {
                     filterHideLocalhost={settings.hideLocalhost}
                     filterHideMetadata={settings.hideMetadata}
                     filterHideUnknown={settings.hideUnknownGames}
+                    filterHitMiss={settings.hitMissFilter}
                     filterStartTime={retroTimeParams.startTime}
                     filterEndTime={retroTimeParams.endTime}
                     filterEventId={retroEventId}

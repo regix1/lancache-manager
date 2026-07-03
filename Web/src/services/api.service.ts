@@ -199,6 +199,8 @@ export interface RetroDownloadQueryParams {
   hideLocalhost?: boolean;
   showZeroBytes?: boolean;
   hideUnknown?: boolean;
+  /** Hit/miss bucket filter - 'all' (or omitted) is no filter, 'hit', or 'miss'. */
+  hitMiss?: string;
   groupByGame?: boolean;
   startTime?: number;
   endTime?: number;
@@ -417,6 +419,7 @@ class ApiService {
       if (params.showZeroBytes !== undefined)
         qs.append('showZeroBytes', String(params.showZeroBytes));
       if (params.hideUnknown !== undefined) qs.append('hideUnknown', String(params.hideUnknown));
+      if (params.hitMiss) qs.append('hitMiss', params.hitMiss);
       if (params.groupByGame !== undefined) qs.append('groupByGame', String(params.groupByGame));
       if (params.startTime !== undefined) qs.append('startTime', String(params.startTime));
       if (params.endTime !== undefined) qs.append('endTime', String(params.endTime));

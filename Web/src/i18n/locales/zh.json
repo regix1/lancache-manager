@@ -1267,6 +1267,9 @@
         "hideLocalhost": "隐藏本地主机",
         "hideUnknownGames": "隐藏未知游戏",
         "hideEvicted": "隐藏已淘汰游戏",
+        "hitMissAll": "全部",
+        "hitMissHit": "命中",
+        "hitMissMiss": "未命中",
         "clear": "清除筛选器",
         "active": {
           "search": "• 搜索：\"{{query}}\"",

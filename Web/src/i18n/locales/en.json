@@ -1267,6 +1267,9 @@
         "hideLocalhost": "Hide localhost",
         "hideUnknownGames": "Hide unknown games",
         "hideEvicted": "Hide evicted games",
+        "hitMissAll": "All",
+        "hitMissHit": "Hit",
+        "hitMissMiss": "Miss",
         "clear": "Clear Filters",
         "active": {
           "search": "• Search: \"{{query}}\"",
