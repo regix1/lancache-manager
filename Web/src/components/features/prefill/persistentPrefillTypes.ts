@@ -19,3 +19,11 @@ export interface PersistentPrefillContainerDto {
 export interface PersistentPrefillValiditySettings {
   days: number;
 }
+
+/**
+ * Discriminator for a 404 from GET .../persistent/challenge (PersistentPrefillController's
+ * ResolveRunningPersistentSession; wire shape PersistentSessionNotFoundResponse). Distinguishes a
+ * persistent session that flipped to Error (daemon socket dropped) from one that was simply never
+ * started, so the UI can show different copy for each.
+ */
+export type PersistentSessionNotFoundState = 'notStarted' | 'errored';
