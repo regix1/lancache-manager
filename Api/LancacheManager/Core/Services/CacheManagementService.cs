@@ -1645,6 +1645,18 @@ public partial class CacheManagementService
     }
 
     /// <summary>
+    /// Returns the last persisted cache scan as a stale (IsCached=true) result without
+    /// triggering a scan, or null if none has ever been persisted. Used by the controller as
+    /// the fallback when a fresh <see cref="GetCacheSizeAsync"/> call returns null and no scan
+    /// is currently active - a previous result beats a 500.
+    /// </summary>
+    public async Task<CacheSizeResponse?> GetStaleCachedSizeResultAsync()
+    {
+        await LoadCachedScanAsync();
+        return BuildStaleResult();
+    }
+
+    /// <summary>
     /// Returns the last good cached scan as a stale (IsCached=true) response, or null when no
     /// cached scan exists. Used when a fresh scan was cancelled or failed so dashboards keep
     /// showing the previous scan's data + timestamp (graceful staleness) instead of an error.

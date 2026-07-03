@@ -1,4 +1,5 @@
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services.ScheduledPrefill;
 
@@ -67,6 +68,15 @@ public static class ScheduledPrefillRunGates
         skipMessage = string.Empty;
         return false;
     }
+
+    /// <summary>
+    /// True when at least one per-service config is enabled. Used as an early-exit gate so the
+    /// 1-minute poll tick can skip building the due-set (and the daemon/session/tracker work that
+    /// would follow) entirely while every service is disabled — the schedule stays idle until
+    /// something is (re)enabled, saving the per-minute state lookups in the meantime.
+    /// </summary>
+    public static bool HasAnyEnabledService(IReadOnlyList<ScheduledPrefillServiceConfigDto> services)
+        => services.Any(s => s.Enabled);
 
     /// <summary>
     /// Pure per-service due decision for the fixed-cadence poll loop. Follows the shared interval

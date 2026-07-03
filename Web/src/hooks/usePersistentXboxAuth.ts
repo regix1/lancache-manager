@@ -60,7 +60,9 @@ export function usePersistentXboxAuth(options: UsePersistentXboxAuthOptions = {}
     const challenge = await coreActions.start();
     if (challenge?.credentialType === 'device-code') {
       void pollUntilAuthenticated(generation).catch(() => {
-        /* poll failure already surfaced via state.error */
+        // A 404 (session gone - diagnostic ADDENDUM) or any other poll failure already ends this
+        // loop via the throw from coreActions.poll() and surfaces via state.error or
+        // state.sessionUnavailableState; nothing further to do here.
       });
     }
 

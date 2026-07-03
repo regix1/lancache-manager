@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { usePersistentSteamAuth } from '@hooks/usePersistentSteamAuth';
-import { usePersistentLoginRequestNonce } from '../persistentLoginStore';
+import { consumeLoginAttemptNonce, usePersistentLoginRequestNonce } from '../persistentLoginStore';
 
 interface SteamPersistentLoginProps {
   isRunning: boolean;
@@ -25,7 +25,6 @@ export function SteamPersistentLogin({
   const loginRequestNonce = usePersistentLoginRequestNonce('Steam');
   const handledAuthenticatedRef = useRef(false);
   const startInFlightRef = useRef(false);
-  const processedLoginRequestRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!state.authenticated) {
@@ -61,20 +60,21 @@ export function SteamPersistentLogin({
     }
   }, [actions, resumeModal, state.hasChallenge]);
 
-  // Fires once on mount (processedLoginRequestRef starts null, never equal to a real nonce), and
-  // again on every later explicit "Log in" click (ScheduledPrefillConfigModal's
+  // Fires once on mount (nonce 0 is never pre-consumed - see consumeLoginAttemptNonce), and again
+  // on every later explicit "Log in" click (ScheduledPrefillConfigModal's
   // requestPersistentLoginAttempt bumps loginRequestNonce) even when the click didn't change
-  // persistentLoginTarget's value and so didn't remount this component.
+  // persistentLoginTarget's value and so didn't remount this component. The nonce is consumed in
+  // the STORE (not a component ref), so a remount can never re-fire this for a nonce already acted
+  // on - see the store's doc comment for the wedge this closes.
   useEffect(() => {
     if (!autoStart || !isRunning || isAuthenticated) {
       return;
     }
 
-    if (processedLoginRequestRef.current === loginRequestNonce) {
+    if (!consumeLoginAttemptNonce('Steam', loginRequestNonce)) {
       return;
     }
 
-    processedLoginRequestRef.current = loginRequestNonce;
     void beginLogin();
   }, [autoStart, beginLogin, isAuthenticated, isRunning, loginRequestNonce]);
 

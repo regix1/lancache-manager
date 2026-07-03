@@ -2,8 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { SteamPersistentLogin } from './login/SteamPersistentLogin';
 import { EpicPersistentLogin } from './login/EpicPersistentLogin';
 import { XboxPersistentLogin } from './login/XboxPersistentLogin';
-import { getPersistentServiceId } from './scheduledPrefillPlatformUi';
-import { usePersistentLoginStoreState } from './persistentLoginStore';
 import { SCHEDULED_PREFILL_TRANSIENT_STOP_GRACE_MS } from './constants';
 import type { ScheduledPrefillServiceKey } from './types';
 
@@ -27,23 +25,20 @@ export function PersistentLoginHost({
   onDismiss
 }: PersistentLoginHostProps) {
   const dismissedRef = useRef(false);
-  const serviceId = getPersistentServiceId(serviceKey);
-  const loginState = usePersistentLoginStoreState(serviceId);
-  const hasActiveLogin = loginState.loading || loginState.pendingChallenge !== null;
   const [stableRunning, setStableRunning] = useState(isRunning);
 
   useEffect(() => {
     dismissedRef.current = false;
   }, [serviceKey]);
 
+  // Grace period applies unconditionally on every reported stop, regardless of whether a login is
+  // active (diagnostic §3 fix direction) - a single transient container-list refresh reporting
+  // isRunning=false must never itself unmount the login children, since that remount is exactly
+  // what re-triggers diagnostic §2's automatic login wedge. The grace timer alone decides whether
+  // a stop is real; it is cancelled below the moment isRunning flips back to true.
   useEffect(() => {
     if (isRunning) {
       setStableRunning(true);
-      return;
-    }
-
-    if (!hasActiveLogin) {
-      setStableRunning(false);
       return;
     }
 
@@ -52,7 +47,7 @@ export function PersistentLoginHost({
       SCHEDULED_PREFILL_TRANSIENT_STOP_GRACE_MS
     );
     return () => clearTimeout(timer);
-  }, [isRunning, hasActiveLogin]);
+  }, [isRunning]);
 
   useEffect(() => {
     if (isAuthenticated && !dismissedRef.current) {

@@ -64,6 +64,56 @@ public class CacheSizeResponse
 }
 
 /// <summary>
+/// Response for GET /api/cache/size when no result is available yet because a cache size
+/// scan is actively running. The frontend should treat this as a waiting state (poll
+/// GET /api/cache/size/scan/status or retry) instead of an error.
+/// </summary>
+public class CacheSizeScanningResponse
+{
+    public bool Scanning { get; set; } = true;
+    public Guid? OperationId { get; set; }
+}
+
+/// <summary>
+/// Outcomes for a null cache-size-scan result (<c>CacheManagementService.GetCacheSizeAsync</c>):
+/// an active scan wins (report scanning), else a previously persisted stale result if one
+/// exists, else a genuine failure with nothing to fall back on.
+/// </summary>
+public enum CacheSizeNullOutcomeKind
+{
+    Scanning,
+    Stale,
+    Failure
+}
+
+/// <summary>
+/// Pure mapping from "GetCacheSizeAsync returned null" plus the caller's active-scan/stale-cache
+/// lookups to the response the controller should send. Kept dependency-free so the decision is
+/// unit-testable without constructing the controller or service.
+/// </summary>
+public class CacheSizeNullOutcome
+{
+    public CacheSizeNullOutcomeKind Kind { get; private init; }
+    public Guid? ScanOperationId { get; private init; }
+    public CacheSizeResponse? StaleResult { get; private init; }
+
+    public static CacheSizeNullOutcome Resolve(Guid? activeScanOperationId, CacheSizeResponse? staleResult)
+    {
+        if (activeScanOperationId.HasValue)
+        {
+            return new CacheSizeNullOutcome { Kind = CacheSizeNullOutcomeKind.Scanning, ScanOperationId = activeScanOperationId };
+        }
+
+        if (staleResult != null)
+        {
+            return new CacheSizeNullOutcome { Kind = CacheSizeNullOutcomeKind.Stale, StaleResult = staleResult };
+        }
+
+        return new CacheSizeNullOutcome { Kind = CacheSizeNullOutcomeKind.Failure };
+    }
+}
+
+/// <summary>
 /// Estimated deletion times for different methods
 /// </summary>
 public class EstimatedDeletionTimes

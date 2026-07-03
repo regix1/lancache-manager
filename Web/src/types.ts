@@ -38,6 +38,15 @@ export interface CacheSizeInfo {
   };
 }
 
+/**
+ * GET /api/cache/size returns this (202) instead of a CacheSizeInfo when no cached value
+ * exists yet and a scan is already running elsewhere - a waiting state, not an error.
+ */
+export interface CacheSizeScanningInfo {
+  scanning: true;
+  operationId?: string;
+}
+
 export interface Download {
   id: number;
   service: string;

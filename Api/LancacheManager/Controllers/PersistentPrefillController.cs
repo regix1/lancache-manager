@@ -531,7 +531,15 @@ public class PersistentPrefillController : ControllerBase
         var session = daemon.GetActivePersistentSession();
         if (session is null)
         {
-            return (null, null, NotFound($"No running persistent session for service '{service}'"));
+            // Distinguish a session that flipped to Error (e.g. the daemon's socket dropped
+            // mid-poll) from no session ever having been started, so the frontend can show
+            // "press Start to restart" instead of a generic not-running message.
+            var erroredSession = daemon.GetAllSessions().Any(s => s.IsPersistent && s.Status == DaemonSessionStatus.Error);
+            return (null, null, NotFound(new PersistentSessionNotFoundResponse
+            {
+                Error = $"No running persistent session for service '{service}'",
+                State = erroredSession ? PersistentSessionNotFoundState.Errored : PersistentSessionNotFoundState.NotStarted
+            }));
         }
 
         if (!session.IsPersistent)

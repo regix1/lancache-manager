@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using LancacheManager.Core.Services.SteamPrefill;
 
 namespace LancacheManager.Models;
@@ -10,6 +12,38 @@ public class PrefillCacheStatusResponse
     public List<string> UpToDateAppIds { get; set; } = new();
     public List<string> OutdatedAppIds { get; set; } = new();
     public string? Message { get; set; }
+}
+
+/// <summary>
+/// 404 body for "no running persistent session" lookups (<see cref="Controllers.PersistentPrefillController"/>).
+/// Distinguishes a session that exists but flipped to <see cref="DaemonSessionStatus.Error"/>
+/// (e.g. the daemon's socket dropped) from no session ever having been started, so the frontend
+/// can show "press Start to restart" vs a generic "not running" message.
+/// </summary>
+public class PersistentSessionNotFoundResponse
+{
+    public string Error { get; set; } = string.Empty;
+    public PersistentSessionNotFoundState State { get; set; } = PersistentSessionNotFoundState.NotStarted;
+}
+
+/// <summary>
+/// Discriminator for <see cref="PersistentSessionNotFoundResponse"/>. Serialized as a camelCase
+/// string ("notStarted"/"errored") to match the rest of the codebase's wire-enum convention
+/// (see <see cref="OperationStatus"/>).
+/// </summary>
+[JsonConverter(typeof(PersistentSessionNotFoundStateJsonConverter))]
+public enum PersistentSessionNotFoundState
+{
+    NotStarted,
+    Errored
+}
+
+internal sealed class PersistentSessionNotFoundStateJsonConverter : JsonStringEnumConverter<PersistentSessionNotFoundState>
+{
+    public PersistentSessionNotFoundStateJsonConverter()
+        : base(JsonNamingPolicy.CamelCase, allowIntegerValues: false)
+    {
+    }
 }
 
 /// <summary>

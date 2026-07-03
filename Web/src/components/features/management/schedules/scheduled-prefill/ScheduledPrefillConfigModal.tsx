@@ -179,9 +179,11 @@ export function ScheduledPrefillConfigModal({
   const [validationError, setValidationError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [persistentContainers, setPersistentContainers] = useState<PersistentPrefillContainerDto[]>(
-    []
-  );
+  // null = never loaded yet (drives the initial-load-only spinner below); an empty array means a
+  // load completed and found no containers, which is a real, renderable state, not "loading".
+  const [persistentContainers, setPersistentContainers] = useState<
+    PersistentPrefillContainerDto[] | null
+  >(null);
   const [loadingPersistentContainers, setLoadingPersistentContainers] = useState(false);
   const [persistentError, setPersistentError] = useState<string | null>(null);
   const [persistentAction, setPersistentAction] =
@@ -221,18 +223,39 @@ export function ScheduledPrefillConfigModal({
     }
   }, []);
 
+  // Single-flight: the click-handler path (runPersistentStartFlow etc.) and the SignalR onRefresh
+  // subscription both call this independently, and used to double-fire back-to-back on the same
+  // click, each toggling loadingPersistentContainers and producing two visible flicker cycles
+  // (diagnostic §3 step 2). A concurrent second call now just joins the first's in-flight promise
+  // instead of starting a redundant fetch - kept as a join rather than dropping either caller's
+  // load, since the manual call is still the only path when SignalR is disconnected.
+  const persistentContainersRequestRef = useRef<Promise<void> | null>(null);
+
   const loadPersistentContainers = useCallback(async (signal?: AbortSignal) => {
-    setLoadingPersistentContainers(true);
-    try {
-      const nextContainers = await ApiService.getPersistentPrefillContainers(signal);
-      setPersistentContainers(nextContainers);
-      setPersistentError(null);
-    } catch (error: unknown) {
-      if (!isAbortError(error)) {
-        setPersistentError(getErrorMessage(error));
+    if (persistentContainersRequestRef.current) {
+      return persistentContainersRequestRef.current;
+    }
+
+    const request = (async () => {
+      setLoadingPersistentContainers(true);
+      try {
+        const nextContainers = await ApiService.getPersistentPrefillContainers(signal);
+        setPersistentContainers(nextContainers);
+        setPersistentError(null);
+      } catch (error: unknown) {
+        if (!isAbortError(error)) {
+          setPersistentError(getErrorMessage(error));
+        }
+      } finally {
+        setLoadingPersistentContainers(false);
       }
+    })();
+
+    persistentContainersRequestRef.current = request;
+    try {
+      await request;
     } finally {
-      setLoadingPersistentContainers(false);
+      persistentContainersRequestRef.current = null;
     }
   }, []);
 
@@ -276,7 +299,7 @@ export function ScheduledPrefillConfigModal({
   const persistentContainerByService = useMemo(
     () =>
       new Map<PersistentPrefillServiceId, PersistentPrefillContainerDto>(
-        persistentContainers.map((container) => [container.service, container])
+        (persistentContainers ?? []).map((container) => [container.service, container])
       ),
     [persistentContainers]
   );
@@ -472,8 +495,9 @@ export function ScheduledPrefillConfigModal({
 
   const shouldWatchPersistentAuth = useMemo(
     () =>
-      persistentContainers.some((container) => container.isRunning && !container.isAuthenticated) ||
-      persistentLoginTarget !== null,
+      (persistentContainers ?? []).some(
+        (container) => container.isRunning && !container.isAuthenticated
+      ) || persistentLoginTarget !== null,
     [persistentContainers, persistentLoginTarget]
   );
 
@@ -526,6 +550,12 @@ export function ScheduledPrefillConfigModal({
 
   const isLoading = loadingConfig;
   const hasInitialData = config !== null;
+
+  // Keep-previous-data: once the container list has loaded once, a background refresh must never
+  // swap the persistent card's body (or the nav hints) back to a loading placeholder (diagnostic
+  // §3 fix direction) - only the very first load, before any data has ever arrived, shows it.
+  const isInitialPersistentContainersLoad =
+    loadingPersistentContainers && persistentContainers === null;
 
   const validationMessage = useMemo(() => {
     if (!config) {
@@ -1079,7 +1109,7 @@ export function ScheduledPrefillConfigModal({
                 <ScheduledPrefillPlatformsPanel
                   config={config}
                   disabled={saving || loadingConfig}
-                  statusLoading={loadingPersistentContainers}
+                  statusLoading={isInitialPersistentContainersLoad}
                   containersByServiceKey={containersByServiceKey}
                   selectedGamesCountByServiceKey={selectedGamesCountByServiceKey}
                   persistentAction={persistentAction}

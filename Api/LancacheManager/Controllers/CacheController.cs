@@ -94,6 +94,26 @@ public class CacheController : ControllerBase
         var result = await _cacheService.GetCacheSizeAsync(force, datasource);
         if (result == null)
         {
+            // Graceful fallback only applies to the cached "all datasources" scan - a
+            // per-datasource scan has no cache/scan-tracker seam to fall back to (comment
+            // on GetCacheSizeAsync: per-datasource scans are always live, never cached).
+            if (string.IsNullOrEmpty(datasource))
+            {
+                var activeScan = _operationTracker.GetActiveOperations(OperationType.CacheSizeScan).FirstOrDefault();
+                var staleResult = activeScan == null ? await _cacheService.GetStaleCachedSizeResultAsync() : null;
+                var outcome = CacheSizeNullOutcome.Resolve(activeScan?.Id, staleResult);
+
+                if (outcome.Kind == CacheSizeNullOutcomeKind.Scanning)
+                {
+                    return Accepted(new CacheSizeScanningResponse { Scanning = true, OperationId = outcome.ScanOperationId });
+                }
+
+                if (outcome.Kind == CacheSizeNullOutcomeKind.Stale)
+                {
+                    return Ok(outcome.StaleResult);
+                }
+            }
+
             return StatusCode(500, new ErrorResponse { Error = "Failed to calculate cache size" });
         }
 

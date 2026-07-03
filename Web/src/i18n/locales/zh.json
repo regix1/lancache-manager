@@ -3678,6 +3678,8 @@
       "loginToSelectGames": "登录以选择游戏",
       "authenticating": "认证中...",
       "loginFailed": "登录失败：{{error}}",
+      "sessionUnavailable": "此容器的登录会话已不可用。请点击启动以重新运行。",
+      "sessionErrored": "此容器的会话发生错误（连接已断开）。请点击启动以重新启动。",
       "services": {
         "steam": "Steam",
         "epic": "Epic Games",

@@ -9,6 +9,7 @@ import type {
 import type {
   CacheInfo,
   CacheSizeInfo,
+  CacheSizeScanningInfo,
   Download,
   ClientStat,
   ServiceStat,
@@ -55,7 +56,8 @@ import type {
 import type {
   PersistentPrefillContainerDto,
   PersistentPrefillServiceId,
-  PersistentPrefillValiditySettings
+  PersistentPrefillValiditySettings,
+  PersistentSessionNotFoundState
 } from '../components/features/prefill/persistentPrefillTypes';
 import type { CredentialChallenge } from '../hooks/usePrefillSteamAuth';
 import type { MetricsSecurityResponse } from '../components/features/management/grafana/GrafanaEndpoints.types';
@@ -97,6 +99,18 @@ type PersistentChallengeResponse =
   | 'authenticated'
   | { authenticated: true }
   | { status: 'authenticated' | 'logged-in'; message?: string };
+
+/**
+ * Structural info attached as `.cause` on the Error thrown by `getPersistentChallenge` for a 404
+ * (matches the existing pattern below of attaching a typed body to `.cause` for 409s). Exists
+ * because the generic `handleResponse` throws `errorData.error` verbatim with no "HTTP 404" prefix
+ * whenever the body has an `error` field - which ResolveRunningPersistentSession's typed NotFound
+ * body now always does - so a caller can no longer rely on message-sniffing alone to detect this.
+ */
+export interface PersistentSessionNotFoundInfo {
+  status: 404;
+  state: PersistentSessionNotFoundState;
+}
 
 /**
  * Result of POST persistent/logout. `forgotten` is true when the daemon acknowledged an in-place
@@ -1325,8 +1339,13 @@ class ApiService {
     }
   }
 
-  // Get cache size with deletion time estimates
-  static async getCacheSize(datasource?: string, force?: boolean): Promise<CacheSizeInfo> {
+  // Get cache size with deletion time estimates. May return a CacheSizeScanningInfo
+  // (202 waiting state) instead when no cached value exists yet and a scan is already
+  // running elsewhere - callers must check for the `scanning` flag before using the result.
+  static async getCacheSize(
+    datasource?: string,
+    force?: boolean
+  ): Promise<CacheSizeInfo | CacheSizeScanningInfo> {
     try {
       const params = new URLSearchParams();
       if (datasource) params.set('datasource', datasource);
@@ -1335,7 +1354,7 @@ class ApiService {
       const url = queryString ? `${API_BASE}/cache/size?${queryString}` : `${API_BASE}/cache/size`;
       // No timeout - cache size calculation can take a very long time for large caches
       const res = await fetch(url, this.getFetchOptions());
-      return await this.handleResponse<CacheSizeInfo>(res);
+      return await this.handleResponse<CacheSizeInfo | CacheSizeScanningInfo>(res);
     } catch (error) {
       console.error('getCacheSize error:', error);
       throw error;
@@ -3144,6 +3163,32 @@ class ApiService {
         `${API_BASE}/system/prefill/persistent/challenge?${params.toString()}`,
         this.getFetchOptions()
       );
+      if (res.status === 404) {
+        // Handled here, not by the generic handleResponse below: ResolveRunningPersistentSession's
+        // typed NotFound body has an `error` field, so handleResponse's structured-error branch
+        // would throw that message with no "HTTP 404" prefix, breaking the poller's terminal-404
+        // detection (usePersistentPrefillAuth's isPersistentChallengeNotFoundError). Parse the
+        // typed body ourselves and attach status+state as `.cause` so detection is structural.
+        const bodyText = await res.text().catch(() => '');
+        let state: PersistentSessionNotFoundState = 'notStarted';
+        let message = 'HTTP 404: persistent session not found';
+        try {
+          const body = bodyText ? JSON.parse(bodyText) : null;
+          if (body?.state === 'errored' || body?.state === 'notStarted') {
+            state = body.state;
+          }
+          if (typeof body?.error === 'string' && body.error) {
+            message = `HTTP 404: ${body.error}`;
+          }
+        } catch {
+          // Not JSON - fall through with the defaults above
+        }
+        const notFoundError = new Error(message) as Error & {
+          cause?: PersistentSessionNotFoundInfo;
+        };
+        notFoundError.cause = { status: 404, state };
+        throw notFoundError;
+      }
       return await this.handleResponse<PersistentChallengeResponse>(res);
     } catch (error: unknown) {
       console.error('getPersistentChallenge error:', error);

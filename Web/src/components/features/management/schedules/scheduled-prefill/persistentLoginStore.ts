@@ -1,6 +1,9 @@
 import { useSyncExternalStore } from 'react';
 import ApiService from '@services/api.service';
-import type { PersistentPrefillServiceId } from '@components/features/prefill/persistentPrefillTypes';
+import type {
+  PersistentPrefillServiceId,
+  PersistentSessionNotFoundState
+} from '@components/features/prefill/persistentPrefillTypes';
 import type { CredentialChallenge } from '@hooks/usePrefillSteamAuth';
 
 /**
@@ -30,6 +33,14 @@ interface PersistentLoginStoreState {
    * instead of restarting the login.
    */
   dismissed: boolean;
+  /**
+   * Non-null after a challenge poll came back 404 (the daemon session backing this login is gone -
+   * socket dropped, container stopped, etc. - see diagnostic ADDENDUM). Carries the backend's
+   * errored-vs-never-started discriminator so the card can show distinct copy for each, instead of
+   * the raw HTTP error that triggered the reset. Cleared by the next `resetPersistentLoginState`
+   * (Start/Stop/Logout all call it).
+   */
+  sessionUnavailableState: PersistentSessionNotFoundState | null;
 }
 
 interface ChallengeFlags {
@@ -60,7 +71,8 @@ const INITIAL_PERSISTENT_LOGIN_STATE: PersistentLoginStoreState = {
   error: null,
   authenticated: false,
   pendingChallenge: null,
-  dismissed: false
+  dismissed: false,
+  sessionUnavailableState: null
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -148,6 +160,22 @@ export function resetPersistentLoginState(service: PersistentPrefillServiceId): 
     return;
   }
   states.set(service, INITIAL_PERSISTENT_LOGIN_STATE);
+  notify(service);
+}
+
+/**
+ * Terminal reset for a challenge poll that came back 404 (see diagnostic ADDENDUM): the daemon
+ * session backing this login is gone entirely (socket dropped, container stopped, etc.), so
+ * continuing to poll it is pointless. Resets the flow to idle like `resetPersistentLoginState`,
+ * but sets `sessionUnavailableState` so the card can show a friendly "not running - press Start"
+ * (or, for an errored session, "session errored - press Start to restart") message instead of
+ * leaving the raw HTTP 404 that triggered this in `error`.
+ */
+export function terminatePersistentLoginSessionUnavailable(
+  service: PersistentPrefillServiceId,
+  state: PersistentSessionNotFoundState = 'notStarted'
+): void {
+  states.set(service, { ...INITIAL_PERSISTENT_LOGIN_STATE, sessionUnavailableState: state });
   notify(service);
 }
 
@@ -252,6 +280,37 @@ export function usePersistentLoginRequestNonce(service: PersistentPrefillService
     (listener) => subscribeLoginAttempt(service, listener),
     () => loginAttemptCounters.get(service) ?? 0
   );
+}
+
+// Highest login-attempt nonce (see loginAttemptCounters above) that has already triggered exactly
+// one beginLogin() attempt for a service. -1 means "nothing consumed yet", so nonce 0 (the value
+// before any explicit click ever happens this session) still attempts once - matching the old
+// per-component ref's null-sentinel behavior, which is what lets a reconciled/resumed challenge
+// reveal itself on mount without a click. Deliberately NOT cleared by resetPersistentLoginState,
+// for the same reason loginAttemptCounters isn't: it tracks nonce VALUES already acted on, not
+// login-flow state, and a stale service that later starts fresh still must not re-attempt a nonce
+// it already consumed.
+const consumedLoginAttemptNonces = new Map<PersistentPrefillServiceId, number>();
+
+/**
+ * Attempts to consume `nonce` for `service`. Returns true exactly once per nonce value - the first
+ * caller (any component instance, across any number of remounts) to observe a given nonce gets
+ * true and should proceed with `beginLogin()`; every subsequent observation of that same (or an
+ * older) nonce - including from a component that just remounted, losing its own local state -
+ * gets false. This is what closes the diagnostic §2 wedge: a `PersistentLoginHost` remount used to
+ * reset a per-component ref and let an already-settled nonce re-fire `start()` with no user click;
+ * consuming the nonce here instead, in the module-level store, survives the remount.
+ */
+export function consumeLoginAttemptNonce(
+  service: PersistentPrefillServiceId,
+  nonce: number
+): boolean {
+  const consumed = consumedLoginAttemptNonces.get(service) ?? -1;
+  if (nonce <= consumed) {
+    return false;
+  }
+  consumedLoginAttemptNonces.set(service, nonce);
+  return true;
 }
 
 export function isPersistentLoginCancelled(service: PersistentPrefillServiceId): boolean {

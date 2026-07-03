@@ -92,6 +92,15 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService
     {
         var config = _stateService.GetScheduledPrefillConfig();
 
+        // Nothing enabled: skip the whole tick before building the due-set or touching any
+        // daemon/session/tracker state. Saves the per-minute work while the feature is fully idle;
+        // the schedule resumes normally as soon as any service is re-enabled.
+        if (!ScheduledPrefillRunGates.HasAnyEnabledService(config.GetServicesInRunOrder()))
+        {
+            _logger.LogDebug("[ScheduledPrefill] Skipping tick - no services are enabled");
+            return;
+        }
+
         // A manual "Run Now"/"Run All" bypasses the due-check for this single tick and runs every
         // enabled service. Read-and-clear atomically so exactly one tick honors the request.
         var bypassDueCheck = Interlocked.Exchange(ref _manualRunBypass, 0) == 1;

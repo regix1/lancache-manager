@@ -15,24 +15,40 @@ import type { DepotMappingCompleteEvent } from '../SignalRContext/types';
 import i18n from '@/i18n';
 
 /**
- * Merges incoming event details over existing card details. When the incoming details
- * carry a DIFFERENT operationId (a re-spawned or queue-promoted operation reusing the same
- * per-type singleton card), stale per-operation cancel flags are dropped first - otherwise
- * a leftover cancelRequested/cancelSent from the PREVIOUS op makes the deferred-cancel
- * watchdog in UniversalNotificationBar auto-cancel the brand-new operation (the
- * phantom-cancel half of the cancel->respawn loop).
+ * Merges incoming event details over existing card details. Stale per-operation cancel
+ * flags (cancelRequested/cancelSent/cancelling) are dropped before merging whenever they
+ * would otherwise survive onto a NEW operationId - otherwise a leftover flag from a
+ * PREVIOUS or not-yet-known op makes the deferred-cancel watchdog in
+ * UniversalNotificationBar auto-cancel a brand-new operation (the phantom-cancel half of
+ * the cancel->respawn loop).
+ *
+ * `forNewOperationEvent` distinguishes the two call sites:
+ * - createStartedHandler (forNewOperationEvent: true): a Started event only reaches this
+ *   merge when the singleton card is ALREADY 'running' (see the caller), which - given the
+ *   backend's one-op-per-type lock - can only mean a re-spawned/queue-promoted operation,
+ *   never a second delivery for the same op. Stale flags are stripped whenever the
+ *   incoming payload carries any operationId, regardless of what (if anything) the
+ *   existing card's operationId was.
+ * - createStatusAwareProgressHandler (default): progress events are continuations of the
+ *   SAME running operation, so flags are stripped only when the existing card already had
+ *   a different operationId. This preserves the legitimate deferred-cancel case (user
+ *   clicks X before the card has an operationId) - the cancelRequested flag must survive
+ *   until a progress event delivers that operation's first operationId.
  */
 function mergeEventDetails(
   existing: UnifiedNotification['details'],
-  incoming: UnifiedNotification['details']
+  incoming: UnifiedNotification['details'],
+  forNewOperationEvent = false
 ): UnifiedNotification['details'] {
   if (!incoming) return existing;
   const base: NonNullable<UnifiedNotification['details']> = { ...existing };
-  if (
-    typeof incoming.operationId === 'string' &&
-    typeof base.operationId === 'string' &&
-    incoming.operationId !== base.operationId
-  ) {
+  const incomingHasOperationId = typeof incoming.operationId === 'string';
+  const shouldStripStaleCancelFlags = forNewOperationEvent
+    ? incomingHasOperationId
+    : incomingHasOperationId &&
+      typeof base.operationId === 'string' &&
+      incoming.operationId !== base.operationId;
+  if (shouldStripStaleCancelFlags) {
     delete base.cancelRequested;
     delete base.cancelSent;
     delete base.cancelling;
@@ -121,7 +137,9 @@ export function createStartedHandler<T>(
             const merged: UnifiedNotification = {
               ...existing,
               message: config.getMessage?.(event) ?? existing.message,
-              details: mergeEventDetails(existing.details, eventDetails)
+              // A Started event reaching this branch always means a NEW operation (the
+              // singleton card is already 'running'); strip stale cancel flags unconditionally.
+              details: mergeEventDetails(existing.details, eventDetails, true)
             };
             localStorage.setItem(config.storageKey, JSON.stringify(merged));
             return prev.map((n) => (n.id === notificationId ? merged : n));

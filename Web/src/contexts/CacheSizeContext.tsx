@@ -31,6 +31,12 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
 
       try {
         const size = await ApiService.getCacheSize(undefined, force);
+        if ('scanning' in size) {
+          // A scan is already running elsewhere (e.g. the scheduled service holds the
+          // scan lock) - a waiting state, not an error. Keep showing whatever cache size
+          // is already loaded instead of clearing it or surfacing an error toast.
+          return;
+        }
         setCacheSize(size);
       } catch (err) {
         // Don't log or set error for aborted requests

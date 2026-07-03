@@ -53,6 +53,13 @@ export function ScheduledPrefillPersistentCard({
   // alert rendered outside any card (diagnostic §6 item 6).
   const loginState = usePersistentLoginStoreState(getPersistentServiceId(serviceKey));
   const loginError = isAnonymous ? null : loginState.error;
+  // Set when a challenge poll 404'd (the daemon session behind it is gone - diagnostic ADDENDUM),
+  // distinct from `loginError`: this is a terminal "nothing to resume, press Start" state, not a
+  // failed login attempt, so it renders its own friendly copy instead of the loginFailed wrapper.
+  // The backend distinguishes a session that flipped to Error (socket dropped) from one that was
+  // never started, so this picks between two copies rather than one generic message.
+  const sessionUnavailableState = isAnonymous ? null : loginState.sessionUnavailableState;
+  const isSessionUnavailable = sessionUnavailableState !== null;
   const isRunning = container?.isRunning ?? false;
   const isAuthenticated = container?.isAuthenticated ?? false;
   const isPrefilling = container?.isPrefilling ?? false;
@@ -154,7 +161,17 @@ export function ScheduledPrefillPersistentCard({
             </span>
           </div>
 
-          {loginError && (
+          {isSessionUnavailable && (
+            <Alert color="yellow" className="scheduled-prefill-persistent-card__auth-alert">
+              {t(
+                sessionUnavailableState === 'errored'
+                  ? 'prefill.persistent.sessionErrored'
+                  : 'prefill.persistent.sessionUnavailable'
+              )}
+            </Alert>
+          )}
+
+          {loginError && !isSessionUnavailable && (
             <Alert color="red" className="scheduled-prefill-persistent-card__auth-alert">
               {t('prefill.persistent.loginFailed', { error: loginError })}
             </Alert>

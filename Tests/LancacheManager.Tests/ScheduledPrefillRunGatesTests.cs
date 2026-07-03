@@ -1,6 +1,7 @@
 using LancacheManager.Controllers;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
+using LancacheManager.Models;
 
 namespace LancacheManager.Tests;
 
@@ -164,6 +165,50 @@ public class ScheduledPrefillRunGatesTests
             Assert.False(isValid);
             Assert.False(string.IsNullOrWhiteSpace(error));
         }
+    }
+
+    // ---- Idle-schedule gate (HasAnyEnabledService) ----
+
+    [Fact]
+    public void HasAnyEnabledService_ReturnsFalse_WhenAllServicesDisabled()
+    {
+        var services = new[]
+        {
+            MakeServiceConfig(PrefillPlatform.Steam, enabled: false),
+            MakeServiceConfig(PrefillPlatform.Epic, enabled: false),
+            MakeServiceConfig(PrefillPlatform.BattleNet, enabled: false)
+        };
+
+        Assert.False(ScheduledPrefillRunGates.HasAnyEnabledService(services));
+    }
+
+    [Fact]
+    public void HasAnyEnabledService_ReturnsTrue_WhenAnyServiceEnabled()
+    {
+        var services = new[]
+        {
+            MakeServiceConfig(PrefillPlatform.Steam, enabled: false),
+            MakeServiceConfig(PrefillPlatform.Epic, enabled: false),
+            MakeServiceConfig(PrefillPlatform.BattleNet, enabled: true)
+        };
+
+        Assert.True(ScheduledPrefillRunGates.HasAnyEnabledService(services));
+    }
+
+    private static ScheduledPrefillServiceConfigDto MakeServiceConfig(PrefillPlatform serviceId, bool enabled)
+    {
+        return new ScheduledPrefillServiceConfigDto
+        {
+            ServiceId = serviceId,
+            Enabled = enabled,
+            Preset = ScheduledPrefillPreset.All,
+            OperatingSystems = new List<ScheduledPrefillOperatingSystem>(),
+            Force = false,
+            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto
+            {
+                Mode = ScheduledPrefillMaxConcurrencyMode.Auto
+            }
+        };
     }
 
     // ---- Per-service due-check (IsServiceDue) ----
