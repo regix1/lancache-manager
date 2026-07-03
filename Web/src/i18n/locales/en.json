@@ -1270,6 +1270,9 @@
         "hitMissAll": "All",
         "hitMissHit": "Hit",
         "hitMissMiss": "Miss",
+        "hitMissAllTooltip": "Show every download, cache hits and misses combined",
+        "hitMissHitTooltip": "Show only downloads served mostly from cache (hides mostly-miss downloads)",
+        "hitMissMissTooltip": "Show only downloads fetched mostly fresh from the internet (hides mostly-hit downloads)",
         "clear": "Clear Filters",
         "active": {
           "search": "• Search: \"{{query}}\"",

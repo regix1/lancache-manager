@@ -1609,9 +1609,21 @@ const DownloadsTab: React.FC = () => {
                   {/* Hit/Miss content filter */}
                   <SegmentedControl
                     options={[
-                      { value: 'all', label: t('downloads.tab.filters.hitMissAll') },
-                      { value: 'hit', label: t('downloads.tab.filters.hitMissHit') },
-                      { value: 'miss', label: t('downloads.tab.filters.hitMissMiss') }
+                      {
+                        value: 'all',
+                        label: t('downloads.tab.filters.hitMissAll'),
+                        tooltip: t('downloads.tab.filters.hitMissAllTooltip')
+                      },
+                      {
+                        value: 'hit',
+                        label: t('downloads.tab.filters.hitMissHit'),
+                        tooltip: t('downloads.tab.filters.hitMissHitTooltip')
+                      },
+                      {
+                        value: 'miss',
+                        label: t('downloads.tab.filters.hitMissMiss'),
+                        tooltip: t('downloads.tab.filters.hitMissMissTooltip')
+                      }
                     ]}
                     value={settings.hitMissFilter}
                     onChange={(value) =>
@@ -1694,9 +1706,21 @@ const DownloadsTab: React.FC = () => {
                   {/* Hit/Miss content filter */}
                   <SegmentedControl
                     options={[
-                      { value: 'all', label: t('downloads.tab.filters.hitMissAll') },
-                      { value: 'hit', label: t('downloads.tab.filters.hitMissHit') },
-                      { value: 'miss', label: t('downloads.tab.filters.hitMissMiss') }
+                      {
+                        value: 'all',
+                        label: t('downloads.tab.filters.hitMissAll'),
+                        tooltip: t('downloads.tab.filters.hitMissAllTooltip')
+                      },
+                      {
+                        value: 'hit',
+                        label: t('downloads.tab.filters.hitMissHit'),
+                        tooltip: t('downloads.tab.filters.hitMissHitTooltip')
+                      },
+                      {
+                        value: 'miss',
+                        label: t('downloads.tab.filters.hitMissMiss'),
+                        tooltip: t('downloads.tab.filters.hitMissMissTooltip')
+                      }
                     ]}
                     value={settings.hitMissFilter}
                     onChange={(value) =>

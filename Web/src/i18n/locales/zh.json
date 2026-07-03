@@ -1270,6 +1270,9 @@
         "hitMissAll": "全部",
         "hitMissHit": "命中",
         "hitMissMiss": "未命中",
+        "hitMissAllTooltip": "显示所有下载内容，包括缓存命中和未命中",
+        "hitMissHitTooltip": "仅显示主要从缓存提供的下载内容（隐藏主要未命中的下载）",
+        "hitMissMissTooltip": "仅显示主要从互联网新获取的下载内容（隐藏主要命中的下载）",
         "clear": "清除筛选器",
         "active": {
           "search": "• 搜索：\"{{query}}\"",
