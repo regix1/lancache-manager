@@ -1031,6 +1031,10 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               loadBans();
             }}
             disabled={loadingSessions || loadingBans}
+            // min-h-10 holds this steady when its label collapses to icon-only below sm - its
+            // "Terminate All" row-mate never fully collapses (keeps a count digit), so without
+            // this it visibly shrinks next to that one on mobile.
+            className="min-h-10"
           >
             <RefreshCw
               className={`w-4 h-4 ${loadingSessions || loadingBans ? 'animate-spin' : ''}`}

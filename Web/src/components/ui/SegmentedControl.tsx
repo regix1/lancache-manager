@@ -32,13 +32,17 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
   const sizeClasses = {
     sm: {
       container: 'p-[3px]',
-      button: 'px-2 py-1',
+      // min-h-6 (24px) + the container's own border+padding (8px) = 32px, holding steady even
+      // when showLabels="responsive" drops to icon-only and there's no text line-height left
+      // to fill the button out.
+      button: 'px-2 py-1 min-h-6',
       icon: 14,
       text: 'text-xs'
     },
     md: {
       container: 'p-[3px]',
-      button: 'px-3 py-[6px]',
+      // min-h-8 (32px) + the container's own border+padding (8px) = 40px, same reasoning as sm.
+      button: 'px-3 py-[6px] min-h-8',
       icon: 14,
       text: 'text-sm'
     }

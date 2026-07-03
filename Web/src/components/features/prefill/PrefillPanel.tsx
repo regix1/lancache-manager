@@ -1121,7 +1121,9 @@ function ServicePrefillPanel({
               color="red"
               size="md"
               onClick={handleEndSession}
-              className="flex-shrink-0"
+              // min-h-10 holds this at the Session Timer chip's fixed h-10 even when the label
+              // collapses to icon-only below sm - without it, icon+padding alone falls short.
+              className="flex-shrink-0 min-h-10"
             >
               <X className="h-4 w-4" />
               <span className="hidden sm:inline">{t('prefill.endSession')}</span>

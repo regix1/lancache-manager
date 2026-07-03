@@ -835,12 +835,16 @@ const Dashboard: React.FC = () => {
 
           {/* Reset Layout Button */}
           <Tooltip content={t('tooltips.resetCardLayout')} strategy="overlay">
+            {/* min-h-10 (2.5rem) so this stays 40px on mobile once its label collapses to
+                icon-only (hidden below sm) - without it, padding+icon alone only reaches ~32px,
+                shorter than the Edit/Done button next to it which always shows text. */}
             <Button
               variant="filled"
               color="gray"
               size="md"
               onClick={resetCardOrder}
               leftSection={<LayoutGrid className="w-4 h-4" />}
+              className="min-h-10"
             >
               <span className="hidden sm:inline">{t('dashboard.resetLayout')}</span>
             </Button>
