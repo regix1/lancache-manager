@@ -161,7 +161,7 @@ public static class GamesOnDiskCalculator
     private static (ulong Bytes, bool ClaimedElsewhere) AccumulatePaths(
         HashSet<string> seenPaths,
         List<string>? paths,
-        IReadOnlyDictionary<string, ulong>? sizeByPath = null)
+        Dictionary<string, ulong>? sizeByPath = null)
     {
         if (paths == null || paths.Count == 0)
         {
