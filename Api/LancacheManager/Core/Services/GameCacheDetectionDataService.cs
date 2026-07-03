@@ -405,7 +405,9 @@ public sealed partial class GameCacheDetectionDataService
     /// Recomputes deduplicated on-disk totals from persisted detection rows and stores the singleton summary row.
     /// Runs after detection scans and other detection mutations — not on dashboard reads.
     /// </summary>
-    public async Task RefreshDiskSummaryAsync(CancellationToken cancellationToken = default)
+    public async Task RefreshDiskSummaryAsync(
+        CancellationToken cancellationToken = default,
+        Action<int, int>? onPathProgress = null)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -428,7 +430,7 @@ public sealed partial class GameCacheDetectionDataService
 
         var games = cachedGames.Select(ToGameCacheInfo).ToList();
         var services = cachedServices.Select(ToServiceCacheInfo).ToList();
-        var attributed = GamesOnDiskCalculator.ComputeAttributedCacheFromDisk(games, services);
+        var attributed = GamesOnDiskCalculator.ComputeAttributedCacheFromDisk(games, services, onPathProgress);
 
         ulong retainedGameBytes = 0;
         var retainedGameKeys = new List<string>();

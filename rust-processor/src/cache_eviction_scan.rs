@@ -106,19 +106,20 @@ enum VerifiableAction {
     /// Genuine eviction: content was cached (positive evidence) but is now confirmed absent.
     Evict,
     /// Clear the flag: either the content is back on disk (re-cached), OR it is absent AND there
-    /// is no evidence it was ever cached (pure MISS / non-cacheable / aborted) — in which case a
-    /// pre-existing `IsEvicted` flag is a false positive that we heal.
+    /// is no evidence it was ever cached (zero bytes served - aborted / metadata-only) — in which
+    /// case a pre-existing `IsEvicted` flag is a false positive that we heal.
     Unevict,
     /// Nothing to change.
     NoOp,
 }
 
 /// Pure classification for the verifiable branch of the eviction scan. Gating evict on
-/// `was_cached` (CacheHitBytes > 0) stops pure cache-MISS content — logged but never written to
-/// disk — from being mislabeled "evicted", and heals rows already wrongly flagged that way.
+/// `was_cached` stops content that was never written to disk (zero bytes served - aborted or
+/// metadata-only rows) from being mislabeled "evicted", and heals rows already wrongly flagged.
 ///
 /// `has_cache_file` is the ANY-probe-key on-disk result; `is_evicted` is the current DB flag;
-/// `was_cached` is true when the download has positive cache evidence (CacheHitBytes > 0).
+/// `was_cached` is true when nginx actually served bytes for the download (HIT or MISS - a
+/// lancache MISS writes the content to cache, so both prove the content landed on disk).
 fn classify_verifiable(has_cache_file: bool, is_evicted: bool, was_cached: bool) -> VerifiableAction {
     if has_cache_file {
         // Content present on disk → never evicted; clear any stale flag (re-cached).
@@ -127,8 +128,8 @@ fn classify_verifiable(has_cache_file: bool, is_evicted: bool, was_cached: bool)
         // Absent AND was once cached → genuine nginx eviction.
         if !is_evicted { VerifiableAction::Evict } else { VerifiableAction::NoOp }
     } else {
-        // Absent AND never cached (pure MISS / non-cacheable / aborted) → NOT an eviction.
-        // Heal a pre-existing false-positive flag.
+        // Absent AND never cached (zero bytes served - aborted / metadata-only) → NOT an
+        // eviction. Heal a pre-existing false-positive flag.
         if is_evicted { VerifiableAction::Unevict } else { VerifiableAction::NoOp }
     }
 }
@@ -318,7 +319,8 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, re
         // Step A: Fetch a batch of distinct inactive download IDs
         let download_rows = sqlx::query(
             r#"
-            SELECT "Id" as download_id, "IsEvicted" as is_evicted, "CacheHitBytes" as cache_hit_bytes
+            SELECT "Id" as download_id, "IsEvicted" as is_evicted,
+                   "CacheHitBytes" as cache_hit_bytes, "CacheMissBytes" as cache_miss_bytes
             FROM "Downloads"
             WHERE "IsActive" = false AND "Id" > $1
             ORDER BY "Id"
@@ -339,11 +341,18 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, re
         let download_evicted: HashMap<i64, bool> = download_rows.iter()
             .map(|r| (r.get("download_id"), r.get("is_evicted")))
             .collect();
-        // Positive cache evidence per download: CacheHitBytes > 0 ⇔ served from cache at least
-        // once ⇔ definitely was cached. Gates the verifiable→evict decision so pure-MISS content
-        // (logged but never written to disk) is never mislabeled "evicted".
-        let download_hit_bytes: HashMap<i64, i64> = download_rows.iter()
-            .map(|r| (r.get("download_id"), r.get("cache_hit_bytes")))
+        // Positive cache evidence per download: any bytes actually served (HIT or MISS). A
+        // lancache MISS proxies the content AND writes it to the cache, so MISS bytes are
+        // just as much proof the content landed on disk as HIT bytes are - gating on
+        // CacheHitBytes alone made every game downloaded exactly once (pure-MISS, the common
+        // case) permanently undetectable as evicted. Zero-byte rows (aborted transfers /
+        // metadata-only sessions where nothing was ever written) remain excluded.
+        let download_served_bytes: HashMap<i64, i64> = download_rows.iter()
+            .map(|r| {
+                let hit: i64 = r.get("cache_hit_bytes");
+                let miss: i64 = r.get("cache_miss_bytes");
+                (r.get("download_id"), hit.saturating_add(miss))
+            })
             .collect();
 
         let Some(last_download_id) = download_ids.last().copied() else {
@@ -474,10 +483,11 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, re
                         .expect("probe memo must contain every key collected this batch")
                 });
 
-            // Gate the evict decision on POSITIVE cache evidence: only content that was once
-            // served from cache (CacheHitBytes > 0) can be "evicted". Absent content that was
-            // never cached (pure MISS) is healed of any stale flag, not freshly flagged.
-            let was_cached = download_hit_bytes.get(download_id).copied().unwrap_or(0) > 0;
+            // Gate the evict decision on POSITIVE cache evidence: only content nginx actually
+            // served bytes for (HIT or MISS - a MISS writes to cache too) can be "evicted".
+            // Absent content with zero served bytes (never written) is healed of any stale
+            // flag, not freshly flagged.
+            let was_cached = download_served_bytes.get(download_id).copied().unwrap_or(0) > 0;
             match classify_verifiable(has_cache_file, is_evicted, was_cached) {
                 VerifiableAction::Evict => ids_to_evict.push(*download_id),
                 VerifiableAction::Unevict => ids_to_unevict.push(*download_id),

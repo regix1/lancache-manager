@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core;
@@ -57,11 +58,22 @@ public static class GamesOnDiskCalculator
     /// <summary>
     /// Deduplicates cache file paths across games and services using actual on-disk file sizes.
     /// Returns global totals and per-entity unique contributions (Option A attribution).
+    /// The expensive per-path stat calls run in a parallel pre-fetch phase (sequential stats
+    /// over millions of NFS paths took minutes); the first-claimant-wins attribution then runs
+    /// sequentially over the pre-fetched sizes so its deterministic ordering is unchanged.
+    /// <paramref name="onPathProgress"/> (statted, total) fires throttled from worker threads
+    /// during the pre-fetch so callers can surface live progress.
     /// </summary>
     public static AttributedCacheResult ComputeAttributedCacheFromDisk(
         IEnumerable<GameCacheInfo> games,
-        IEnumerable<ServiceCacheInfo> services)
+        IEnumerable<ServiceCacheInfo> services,
+        Action<int, int>? onPathProgress = null)
     {
+        var gameList = games as IReadOnlyList<GameCacheInfo> ?? games.ToList();
+        var serviceList = services as IReadOnlyList<ServiceCacheInfo> ?? services.ToList();
+
+        var sizeByPath = PreStatPathsInParallel(gameList, serviceList, onPathProgress);
+
         var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var gameBytesByKey = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
         var serviceBytesByKey = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
@@ -69,14 +81,14 @@ public static class GamesOnDiskCalculator
         var activeGameCount = 0;
         var activeServiceCount = 0;
 
-        foreach (var game in games)
+        foreach (var game in gameList)
         {
             if (game.IsEvicted)
             {
                 continue;
             }
 
-            var (contributedBytes, claimedElsewhere) = AccumulatePaths(seenPaths, game.CacheFilePaths);
+            var (contributedBytes, claimedElsewhere) = AccumulatePaths(seenPaths, game.CacheFilePaths, sizeByPath);
             if (contributedBytes == 0)
             {
                 // A zero contribution means either at least one of this game's paths was already
@@ -97,14 +109,14 @@ public static class GamesOnDiskCalculator
             activeGameCount++;
         }
 
-        foreach (var service in services)
+        foreach (var service in serviceList)
         {
             if (service.IsEvicted)
             {
                 continue;
             }
 
-            var (contributedBytes, _) = AccumulatePaths(seenPaths, service.CacheFilePaths);
+            var (contributedBytes, _) = AccumulatePaths(seenPaths, service.CacheFilePaths, sizeByPath);
             if (contributedBytes == 0)
             {
                 continue;
@@ -146,7 +158,10 @@ public static class GamesOnDiskCalculator
     /// still contributes 0 bytes and must be treated as claimed-elsewhere too, otherwise its stale
     /// persisted size would be retained on top of the earlier claimant's already-counted bytes.
     /// </summary>
-    private static (ulong Bytes, bool ClaimedElsewhere) AccumulatePaths(HashSet<string> seenPaths, List<string>? paths)
+    private static (ulong Bytes, bool ClaimedElsewhere) AccumulatePaths(
+        HashSet<string> seenPaths,
+        List<string>? paths,
+        IReadOnlyDictionary<string, ulong>? sizeByPath = null)
     {
         if (paths == null || paths.Count == 0)
         {
@@ -170,9 +185,82 @@ public static class GamesOnDiskCalculator
                 continue;
             }
 
-            addedBytes += CacheFileSizeHelper.TryGetFileSize(normalizedPath);
+            // Sizes come from the parallel pre-fetch when available (the attribution pass
+            // itself must stay sequential for deterministic first-claimant ordering);
+            // direct stat is the fallback for callers without a pre-fetch (SumPaths).
+            addedBytes += sizeByPath != null
+                ? (sizeByPath.TryGetValue(normalizedPath, out var size) ? size : 0UL)
+                : CacheFileSizeHelper.TryGetFileSize(normalizedPath);
         }
 
         return (addedBytes, addedBytes == 0 && anyPathClaimedByOther);
+    }
+
+    /// <summary>
+    /// Stats every unique normalized cache path of all non-evicted entities in parallel.
+    /// The stat syscall dominates the disk-summary refresh (millions of paths, sequential
+    /// round-trips on network filesystems); fanning it out cuts the wall clock by roughly
+    /// the degree of parallelism while leaving the attribution semantics untouched.
+    /// </summary>
+    private static Dictionary<string, ulong> PreStatPathsInParallel(
+        IReadOnlyList<GameCacheInfo> games,
+        IReadOnlyList<ServiceCacheInfo> services,
+        Action<int, int>? onPathProgress)
+    {
+        var uniquePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Collect(List<string>? paths)
+        {
+            if (paths == null)
+            {
+                return;
+            }
+
+            foreach (var path in paths)
+            {
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    uniquePaths.Add(CacheFileSizeHelper.NormalizePath(path));
+                }
+            }
+        }
+
+        foreach (var game in games)
+        {
+            if (!game.IsEvicted)
+            {
+                Collect(game.CacheFilePaths);
+            }
+        }
+
+        foreach (var service in services)
+        {
+            if (!service.IsEvicted)
+            {
+                Collect(service.CacheFilePaths);
+            }
+        }
+
+        var total = uniquePaths.Count;
+        var sizeByPath = new ConcurrentDictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
+        var statted = 0;
+
+        // Stat calls are I/O-bound (network round-trips, not CPU), so go well past core
+        // count; 32 concurrent stats is a safe ceiling for NFS/SMB servers.
+        Parallel.ForEach(
+            uniquePaths,
+            new ParallelOptions { MaxDegreeOfParallelism = 32 },
+            path =>
+            {
+                sizeByPath[path] = CacheFileSizeHelper.TryGetFileSize(path);
+
+                var done = Interlocked.Increment(ref statted);
+                if (onPathProgress != null && (done % 25_000 == 0 || done == total))
+                {
+                    onPathProgress(done, total);
+                }
+            });
+
+        return new Dictionary<string, ulong>(sizeByPath, StringComparer.OrdinalIgnoreCase);
     }
 }

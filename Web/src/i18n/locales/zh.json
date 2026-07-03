@@ -5955,7 +5955,8 @@
       "complete": "淘汰移除完成。",
       "cancelled": "淘汰移除已取消。",
       "failed": "淘汰移除失败。",
-      "refreshingDetection": "正在刷新缓存检测数据..."
+      "refreshingDetection": "正在刷新缓存检测数据...",
+      "refreshingDetectionCounted": "正在刷新缓存检测数据（已检查 {{filesChecked}} / {{filesTotal}} 个文件）..."
     },
     "evictionScan": {
       "scanning": "正在扫描缓存文件...",
@@ -5963,7 +5964,8 @@
       "progress": "已处理 {{totalProcessed}} / ~{{totalEstimate}} 个下载...",
       "finalizing": "正在核对已淘汰的下载...",
       "postProcessing": "正在更新检测记录...",
-      "refreshingSummary": "正在刷新检测摘要（可能需要几分钟）...",
+      "refreshingSummary": "正在刷新缓存文件检测摘要...",
+      "refreshingSummaryCounted": "正在刷新检测摘要（已检查 {{filesChecked}} / {{filesTotal}} 个文件）...",
       "complete": "扫描完成: 已处理 {{totalProcessed}}，已淘汰 {{totalEvicted}}，已取消淘汰 {{totalUnEvicted}}",
       "error": {
         "fatal": "淘汰扫描失败: {{errorDetail}}"
@@ -5992,7 +5994,7 @@
         "noNewGames": "未检测到新游戏（共 {{totalGamesDetected}} 个有缓存文件的游戏）",
         "full": "检测到 {{totalGamesDetected}} 个有缓存文件的游戏"
       },
-      "refreshingSummary": "正在刷新检测摘要（可能需要几分钟）...",
+      "refreshingSummary": "正在刷新缓存文件检测摘要...",
       "scan": {
         "skippedIncremental": "跳过缓存文件扫描（增量模式）...",
         "inProgress": "正在扫描缓存文件...",

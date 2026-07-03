@@ -70,8 +70,20 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         if (saved) {
           const parsed = JSON.parse(saved) as UnifiedNotification;
           if (parsed.status === 'running') {
+            // Strip cancel-intent flags: they are live-session UI state. A persisted
+            // cancelRequested (X clicked before the operationId arrived) would re-arm the
+            // deferred-cancel watchdog after reload, and the NEXT operation of this type to
+            // land an operationId in the slot gets cancelled at birth - seen as corruption
+            // removals / cache clears / cache size scans dying instantly after registration.
+            const details = parsed.details ? { ...parsed.details } : undefined;
+            if (details) {
+              delete details.cancelRequested;
+              delete details.cancelSent;
+              delete details.cancelling;
+            }
             restoredNotifications.push({
               ...parsed,
+              details,
               startedAt: new Date(parsed.startedAt)
             });
           }

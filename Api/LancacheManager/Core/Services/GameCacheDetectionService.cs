@@ -1038,9 +1038,11 @@ public partial class GameCacheDetectionService : IDisposable
     /// Recomputes persisted disk-summary totals and clears the in-memory detection cache.
     /// Call once after batch detection mutations (evictions, removals, scans).
     /// </summary>
-    public async Task RefreshDiskSummaryAndInvalidateAsync(CancellationToken cancellationToken = default)
+    public async Task RefreshDiskSummaryAndInvalidateAsync(
+        CancellationToken cancellationToken = default,
+        Action<int, int>? onPathProgress = null)
     {
-        await _detectionDataService.RefreshDiskSummaryAsync(cancellationToken);
+        await _detectionDataService.RefreshDiskSummaryAsync(cancellationToken, onPathProgress);
         InvalidateDetectionCache();
     }
 

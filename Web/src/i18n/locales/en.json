@@ -5985,7 +5985,8 @@
       "complete": "Eviction removal complete.",
       "cancelled": "Eviction removal cancelled.",
       "failed": "Eviction removal failed.",
-      "refreshingDetection": "Refreshing cache detection data..."
+      "refreshingDetection": "Refreshing cache detection data...",
+      "refreshingDetectionCounted": "Refreshing cache detection data ({{filesChecked}} of {{filesTotal}} files checked)..."
     },
     "evictionScan": {
       "scanning": "Scanning cache files...",
@@ -5993,7 +5994,8 @@
       "progress": "Processed {{totalProcessed}} of ~{{totalEstimate}} downloads...",
       "finalizing": "Reconciling evicted downloads...",
       "postProcessing": "Updating detection records...",
-      "refreshingSummary": "Refreshing detection summary (this can take a few minutes)...",
+      "refreshingSummary": "Refreshing detection summary of cached files...",
+      "refreshingSummaryCounted": "Refreshing detection summary ({{filesChecked}} of {{filesTotal}} files checked)...",
       "complete": "Scan complete: {{totalProcessed}} processed, {{totalEvicted}} evicted, {{totalUnEvicted}} un-evicted",
       "error": {
         "fatal": "Eviction scan failed: {{errorDetail}}"
@@ -6022,7 +6024,7 @@
         "noNewGames": "No new games detected ({{totalGamesDetected}} total with cache files)",
         "full": "Detected {{totalGamesDetected}} games with cache files"
       },
-      "refreshingSummary": "Refreshing detection summary (this can take a few minutes)...",
+      "refreshingSummary": "Refreshing detection summary of cached files...",
       "scan": {
         "skippedIncremental": "Skipping cache file scan (incremental mode)...",
         "inProgress": "Scanning cache files...",

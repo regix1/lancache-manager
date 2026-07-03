@@ -447,8 +447,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     }
 
                     // The disk-summary recompute is the long pole of the whole scan on large
-                    // databases (minutes). Give it its own labeled stage at 92% so the bar
-                    // honestly shows substantial remaining work instead of sitting at ~100%.
+                    // databases. Give it its own labeled stage at 92% and stream the parallel
+                    // path-stat counts into 92-99% so the bar visibly moves instead of sitting
+                    // frozen while millions of files are checked.
                     if (!scanSilent)
                     {
                         await NotifyScanProgressAsync(
@@ -458,7 +459,25 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                             scanResult);
                     }
 
-                    await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
+                    // The callback fires from Parallel.ForEach worker threads (already
+                    // throttled inside the calculator), so notify fire-and-forget.
+                    Action<int, int>? onPathProgress = scanSilent
+                        ? null
+                        : (statted, totalPaths) =>
+                        {
+                            var percent = totalPaths > 0
+                                ? 92.0 + (statted / (double)totalPaths) * 7.0
+                                : 92.0;
+                            _ = NotifyScanProgressAsync(
+                                operationId,
+                                percent,
+                                "signalr.evictionScan.refreshingSummaryCounted",
+                                scanResult,
+                                filesChecked: statted,
+                                filesTotal: totalPaths);
+                        };
+
+                    await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken, onPathProgress);
                 }
 
                 stoppingToken.ThrowIfCancellationRequested();
@@ -617,7 +636,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         Guid operationId,
         double percentComplete,
         string stageKey,
-        EvictionScanResult scanResult)
+        EvictionScanResult scanResult,
+        int? filesChecked = null,
+        int? filesTotal = null)
     {
         var context = new Dictionary<string, object?>
         {
@@ -625,6 +646,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             ["totalEvicted"] = scanResult.Evicted,
             ["totalUnEvicted"] = scanResult.UnEvicted
         };
+
+        // Live counts for the disk-summary refresh stage (refreshingSummaryCounted).
+        if (filesChecked.HasValue)
+        {
+            context["filesChecked"] = filesChecked.Value.ToString("N0");
+        }
+        if (filesTotal.HasValue)
+        {
+            context["filesTotal"] = filesTotal.Value.ToString("N0");
+        }
 
         _operationTracker.UpdateProgress(operationId, percentComplete, stageKey);
         await _notifications.NotifyAllAsync(SignalREvents.EvictionScanProgress, new EvictionScanProgress(
@@ -1324,8 +1355,23 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 downloadsRemoved: downloadsDeleted,
                 logEntriesRemoved: logEntriesDeleted);
 
-            // Refresh persisted disk-summary totals so dashboard reads reflect post-removal state
-            await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
+            // Refresh persisted disk-summary totals so dashboard reads reflect post-removal
+            // state, streaming the parallel path-stat counts into 90-99% (callback fires from
+            // worker threads, already throttled inside the calculator - fire-and-forget).
+            await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(
+                stoppingToken,
+                (statted, totalPaths) => _ = ReportRemovalProgressAsync(
+                    opId,
+                    totalPaths > 0 ? 90.0 + (statted / (double)totalPaths) * 9.0 : 90.0,
+                    "refreshing_detection",
+                    "signalr.evictionRemove.refreshingDetectionCounted",
+                    downloadsRemoved: downloadsDeleted,
+                    logEntriesRemoved: logEntriesDeleted,
+                    context: new Dictionary<string, object?>
+                    {
+                        ["filesChecked"] = statted.ToString("N0"),
+                        ["filesTotal"] = totalPaths.ToString("N0")
+                    }));
             _logger.LogDebug("[EvictedRemoval] Detection cache refreshed after bulk removal");
 
             await CompleteRemovalAsync(
@@ -2082,7 +2128,20 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         downloadsRemoved: downloadsDeleted,
                         logEntriesRemoved: logEntriesDeleted);
 
-                    await detectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
+                    await detectionService.RefreshDiskSummaryAndInvalidateAsync(
+                        stoppingToken,
+                        (statted, totalPaths) => _ = ReportRemovalProgressAsync(
+                            opId,
+                            totalPaths > 0 ? 90.0 + (statted / (double)totalPaths) * 9.0 : 90.0,
+                            "refreshing_detection",
+                            "signalr.evictionRemove.refreshingDetectionCounted",
+                            downloadsRemoved: downloadsDeleted,
+                            logEntriesRemoved: logEntriesDeleted,
+                            context: new Dictionary<string, object?>
+                            {
+                                ["filesChecked"] = statted.ToString("N0"),
+                                ["filesTotal"] = totalPaths.ToString("N0")
+                            }));
                 }
                 else
                 {
