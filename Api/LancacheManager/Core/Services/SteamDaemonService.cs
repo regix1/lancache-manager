@@ -32,6 +32,7 @@ public partial class SteamDaemonService : PrefillDaemonServiceBase
     // === Abstract property implementations ===
 
     protected override string ServiceName => "Steam";
+    protected override PrefillPlatform Platform => PrefillPlatform.Steam;
     protected override string ContainerPrefix => "steam-daemon-";
     protected override string DefaultDockerImage => SteamDockerImage;
     protected override string GetImageName()

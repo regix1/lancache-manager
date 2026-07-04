@@ -23,6 +23,7 @@ import {
   SCHEDULED_PREFILL_BUTTON_SIZE,
   SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS,
   SCHEDULED_PREFILL_SERVICE_RUN_ORDER,
+  SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS,
   SCHEDULED_PREFILL_SUPPORTED_PRESETS,
   SCHEDULED_PREFILL_TRANSIENT_STOP_GRACE_MS
 } from './constants';
@@ -115,15 +116,44 @@ const reconcileServiceConfigPreset = (
   return { ...serviceConfig, preset: 'All', topCount: null };
 };
 
+const reconcileServiceConfigOperatingSystems = (
+  serviceKey: ScheduledPrefillServiceKey,
+  serviceConfig: ScheduledPrefillServiceConfigDto
+): ScheduledPrefillServiceConfigDto => {
+  const supportedOperatingSystems = SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS[serviceKey];
+  if (serviceConfig.operatingSystems.every((os) => supportedOperatingSystems.includes(os))) {
+    return serviceConfig;
+  }
+
+  // A config saved before this service's platform selection was capability-gated (or written
+  // directly via the API) can carry OS values this service no longer supports. Drop them at load
+  // time so the (now-hidden, for this service) field never resurfaces an unsupported selection.
+  return {
+    ...serviceConfig,
+    operatingSystems: serviceConfig.operatingSystems.filter((os) =>
+      supportedOperatingSystems.includes(os)
+    )
+  };
+};
+
+const reconcileServiceConfig = (
+  serviceKey: ScheduledPrefillServiceKey,
+  serviceConfig: ScheduledPrefillServiceConfigDto
+): ScheduledPrefillServiceConfigDto =>
+  reconcileServiceConfigOperatingSystems(
+    serviceKey,
+    reconcileServiceConfigPreset(serviceKey, serviceConfig)
+  );
+
 const reconcileScheduledPrefillConfig = (
   rawConfig: ScheduledPrefillConfigDto
 ): ScheduledPrefillConfigDto => ({
   ...rawConfig,
-  steam: reconcileServiceConfigPreset('steam', rawConfig.steam),
-  epic: reconcileServiceConfigPreset('epic', rawConfig.epic),
-  xbox: reconcileServiceConfigPreset('xbox', rawConfig.xbox),
-  battleNet: reconcileServiceConfigPreset('battleNet', rawConfig.battleNet),
-  riot: reconcileServiceConfigPreset('riot', rawConfig.riot)
+  steam: reconcileServiceConfig('steam', rawConfig.steam),
+  epic: reconcileServiceConfig('epic', rawConfig.epic),
+  xbox: reconcileServiceConfig('xbox', rawConfig.xbox),
+  battleNet: reconcileServiceConfig('battleNet', rawConfig.battleNet),
+  riot: reconcileServiceConfig('riot', rawConfig.riot)
 });
 
 const validateServiceConfig = (
@@ -151,7 +181,12 @@ const validateServiceConfig = (
     return t(`${baseKey}.validation.topCount`, { service: serviceName });
   }
 
-  if (serviceConfig.operatingSystems.length === 0) {
+  // Services with no supported operating systems have the field hidden entirely, so they can
+  // never populate this list - only require a selection where the field is actually shown.
+  if (
+    SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS[serviceKey].length > 0 &&
+    serviceConfig.operatingSystems.length === 0
+  ) {
     return t(`${baseKey}.validation.operatingSystems`, { service: serviceName });
   }
 

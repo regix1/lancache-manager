@@ -224,7 +224,11 @@ public static class ScheduledPrefillConfigFactory
             Preset = ScheduledPrefillPreset.All,
             TopCount = null,
             SelectedAppIds = new List<string>(),
-            OperatingSystems = new List<ScheduledPrefillOperatingSystem> { ScheduledPrefillOperatingSystem.Windows },
+            // Must stay consistent with _supportedOperatingSystemsByService, or Validate() would
+            // reconcile (reallocate) the factory's own default config instead of being a no-op.
+            OperatingSystems = SupportsOperatingSystemSelection(serviceId)
+                ? new List<ScheduledPrefillOperatingSystem> { ScheduledPrefillOperatingSystem.Windows }
+                : new List<ScheduledPrefillOperatingSystem>(),
             Force = false,
             MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
         };
@@ -256,6 +260,39 @@ public static class ScheduledPrefillConfigFactory
             [PrefillPlatform.BattleNet] = new HashSet<ScheduledPrefillPreset> { ScheduledPrefillPreset.All },
             [PrefillPlatform.Riot] = new HashSet<ScheduledPrefillPreset> { ScheduledPrefillPreset.All }
         };
+
+    /// <summary>
+    /// Operating systems each service's daemon can actually filter downloads by. Mirrors
+    /// <c>SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS</c> in
+    /// <c>Web/src/components/features/management/schedules/scheduled-prefill/constants.ts</c> — keep
+    /// both in sync if a daemon's capabilities change. Steam is the only daemon that filters depots
+    /// by its own PICS <c>config.oslist</c> metadata; Epic/Xbox/BattleNet/Riot either hardcode a
+    /// single platform or have no platform concept at all and silently ignore any OS filter sent to
+    /// them, so they support none (unlike <see cref="_supportedPresetsByService"/>, there is no
+    /// universally-safe non-empty fallback value here).
+    /// </summary>
+    private static readonly Dictionary<PrefillPlatform, IReadOnlySet<ScheduledPrefillOperatingSystem>> _supportedOperatingSystemsByService =
+        new()
+        {
+            [PrefillPlatform.Steam] = new HashSet<ScheduledPrefillOperatingSystem>
+            {
+                ScheduledPrefillOperatingSystem.Windows, ScheduledPrefillOperatingSystem.Linux, ScheduledPrefillOperatingSystem.Macos
+            },
+            [PrefillPlatform.Epic] = new HashSet<ScheduledPrefillOperatingSystem>(),
+            [PrefillPlatform.Xbox] = new HashSet<ScheduledPrefillOperatingSystem>(),
+            [PrefillPlatform.BattleNet] = new HashSet<ScheduledPrefillOperatingSystem>(),
+            [PrefillPlatform.Riot] = new HashSet<ScheduledPrefillOperatingSystem>()
+        };
+
+    /// <summary>
+    /// True when <paramref name="serviceId"/>'s daemon actually supports filtering downloads by
+    /// operating system. Shared by <see cref="ReconcileServiceOperatingSystems"/> (self-heals a
+    /// persisted config on load) and <see cref="Core.Services.PrefillDaemonServiceBase.PrefillAsync"/>
+    /// (the single runtime enforcement point that strips any OS filter before it reaches a daemon
+    /// that would silently ignore it).
+    /// </summary>
+    public static bool SupportsOperatingSystemSelection(PrefillPlatform serviceId)
+        => _supportedOperatingSystemsByService.TryGetValue(serviceId, out var supported) && supported.Count > 0;
 
     /// <summary>
     /// Coerces any service whose persisted <see cref="ScheduledPrefillServiceConfigDto.Preset"/> is no
@@ -317,17 +354,80 @@ public static class ScheduledPrefillConfigFactory
     }
 
     /// <summary>
-    /// Validates a scheduled prefill config. First reconciles any per-service preset that its own
-    /// service no longer supports (see <see cref="ReconcileUnsupportedPresets"/>), then throws
-    /// <see cref="ScheduledPrefillConfigValidationException"/> with an explicit message on the first
-    /// remaining failed rule. Returns the reconciled instance (the same instance when nothing needed
-    /// reconciling).
+    /// Coerces any service whose persisted <see cref="ScheduledPrefillServiceConfigDto.OperatingSystems"/>
+    /// contains a value that service's daemon doesn't actually support (see
+    /// <see cref="_supportedOperatingSystemsByService"/>) down to only the still-supported subset —
+    /// an empty list for every service except Steam, since there is no lesser fallback value. Called
+    /// from <see cref="Validate"/> alongside <see cref="ReconcileUnsupportedPresets"/>, before its
+    /// throwing rules run. Returns <paramref name="config"/> unchanged when nothing needs reconciling.
+    /// </summary>
+    private static ScheduledPrefillConfigDto ReconcileUnsupportedOperatingSystems(ScheduledPrefillConfigDto config)
+    {
+        var steam = ReconcileServiceOperatingSystems(config.Steam);
+        var epic = ReconcileServiceOperatingSystems(config.Epic);
+        var xbox = ReconcileServiceOperatingSystems(config.Xbox);
+        var battleNet = ReconcileServiceOperatingSystems(config.BattleNet);
+        var riot = ReconcileServiceOperatingSystems(config.Riot);
+
+        if (ReferenceEquals(steam, config.Steam) && ReferenceEquals(epic, config.Epic) &&
+            ReferenceEquals(xbox, config.Xbox) && ReferenceEquals(battleNet, config.BattleNet) &&
+            ReferenceEquals(riot, config.Riot))
+        {
+            return config;
+        }
+
+        return new ScheduledPrefillConfigDto
+        {
+            Version = config.Version,
+            MaxServiceRuntime = config.MaxServiceRuntime,
+            StallTimeout = config.StallTimeout,
+            Steam = steam,
+            Epic = epic,
+            Xbox = xbox,
+            BattleNet = battleNet,
+            Riot = riot
+        };
+    }
+
+    private static ScheduledPrefillServiceConfigDto ReconcileServiceOperatingSystems(ScheduledPrefillServiceConfigDto service)
+    {
+        var supportedOperatingSystems = _supportedOperatingSystemsByService.TryGetValue(service.ServiceId, out var supported)
+            ? supported
+            : new HashSet<ScheduledPrefillOperatingSystem>();
+
+        if (service.OperatingSystems.All(supportedOperatingSystems.Contains))
+        {
+            return service;
+        }
+
+        return new ScheduledPrefillServiceConfigDto
+        {
+            ServiceId = service.ServiceId,
+            Enabled = service.Enabled,
+            IntervalHours = service.IntervalHours,
+            Preset = service.Preset,
+            TopCount = service.TopCount,
+            SelectedAppIds = service.SelectedAppIds,
+            OperatingSystems = service.OperatingSystems.Where(supportedOperatingSystems.Contains).ToList(),
+            Force = service.Force,
+            MaxConcurrency = service.MaxConcurrency
+        };
+    }
+
+    /// <summary>
+    /// Validates a scheduled prefill config. First reconciles any per-service preset or operating
+    /// system selection that its own service no longer supports (see
+    /// <see cref="ReconcileUnsupportedPresets"/>, <see cref="ReconcileUnsupportedOperatingSystems"/>),
+    /// then throws <see cref="ScheduledPrefillConfigValidationException"/> with an explicit message
+    /// on the first remaining failed rule. Returns the reconciled instance (the same instance when
+    /// nothing needed reconciling).
     /// </summary>
     public static ScheduledPrefillConfigDto Validate(ScheduledPrefillConfigDto config)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         config = ReconcileUnsupportedPresets(config);
+        config = ReconcileUnsupportedOperatingSystems(config);
 
         if (config.Version != CurrentVersion)
         {

@@ -45,6 +45,7 @@ public class XboxPrefillDaemonService : PrefillDaemonServiceBase
 
     // Service identity
     protected override string ServiceName => "Xbox";
+    protected override PrefillPlatform Platform => PrefillPlatform.Xbox;
     protected override string ContainerPrefix => "xbox-daemon-";
     protected override string DefaultDockerImage => XboxDockerImage;
 

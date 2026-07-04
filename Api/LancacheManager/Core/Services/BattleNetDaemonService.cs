@@ -41,6 +41,7 @@ public class BattleNetDaemonService : PrefillDaemonServiceBase
 
     // Service identity
     protected override string ServiceName => "battlenet";
+    protected override PrefillPlatform Platform => PrefillPlatform.BattleNet;
     protected override string ContainerPrefix => "battlenet-prefill-";
     protected override string DefaultDockerImage => BattleNetDockerImage;
 

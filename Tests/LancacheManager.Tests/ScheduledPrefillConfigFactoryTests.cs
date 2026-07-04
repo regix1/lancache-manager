@@ -150,6 +150,50 @@ public class ScheduledPrefillConfigFactoryTests
         Assert.Equal(50, validated.Steam.TopCount);
     }
 
+    [Fact]
+    public void Validate_ReconcilesOperatingSystemsNotSupportedByService_ToEmpty_InsteadOfThrowing()
+    {
+        // Epic has no platform concept at all; this simulates a config saved before per-service OS
+        // capability gating existed (or written directly via the API) with an OS selection its
+        // daemon cannot act on.
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+        var stale = WithEpicOperatingSystems(config, new List<ScheduledPrefillOperatingSystem>
+        {
+            ScheduledPrefillOperatingSystem.Windows
+        });
+
+        var validated = ScheduledPrefillConfigFactory.Validate(stale);
+
+        Assert.Empty(validated.Epic.OperatingSystems);
+    }
+
+    [Fact]
+    public void Validate_LeavesSteamOperatingSystemsUnchanged_AndReturnsSameInstance()
+    {
+        // Steam supports all three OS values, so nothing should be reconciled and Validate should be
+        // a true no-op for OperatingSystems.
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+        var withAllOs = WithSteamOperatingSystems(config, new List<ScheduledPrefillOperatingSystem>
+        {
+            ScheduledPrefillOperatingSystem.Windows, ScheduledPrefillOperatingSystem.Linux, ScheduledPrefillOperatingSystem.Macos
+        });
+
+        var validated = ScheduledPrefillConfigFactory.Validate(withAllOs);
+
+        Assert.Same(withAllOs, validated);
+        Assert.Equal(withAllOs.Steam.OperatingSystems, validated.Steam.OperatingSystems);
+    }
+
+    [Fact]
+    public void SupportsOperatingSystemSelection_MatchesVerdicts()
+    {
+        Assert.True(ScheduledPrefillConfigFactory.SupportsOperatingSystemSelection(PrefillPlatform.Steam));
+        Assert.False(ScheduledPrefillConfigFactory.SupportsOperatingSystemSelection(PrefillPlatform.Epic));
+        Assert.False(ScheduledPrefillConfigFactory.SupportsOperatingSystemSelection(PrefillPlatform.Xbox));
+        Assert.False(ScheduledPrefillConfigFactory.SupportsOperatingSystemSelection(PrefillPlatform.BattleNet));
+        Assert.False(ScheduledPrefillConfigFactory.SupportsOperatingSystemSelection(PrefillPlatform.Riot));
+    }
+
     // ---- Anonymous-service (BattleNet/Riot) allowed-games parity: ReconcileUnsupportedPresets
     // must not clear SelectedAppIds when it resets an unsupported preset. Both services are
     // All-only, so a stale Top/Recent preset gets reset to All here, but the explicit games list
@@ -230,6 +274,60 @@ public class ScheduledPrefillConfigFactoryTests
             Xbox = config.Xbox,
             BattleNet = service == PrefillPlatform.BattleNet ? Reconciled(config.BattleNet) : config.BattleNet,
             Riot = service == PrefillPlatform.Riot ? Reconciled(config.Riot) : config.Riot
+        };
+    }
+
+    private static ScheduledPrefillConfigDto WithEpicOperatingSystems(
+        ScheduledPrefillConfigDto config, List<ScheduledPrefillOperatingSystem> operatingSystems)
+    {
+        return new ScheduledPrefillConfigDto
+        {
+            Version = config.Version,
+            MaxServiceRuntime = config.MaxServiceRuntime,
+            StallTimeout = config.StallTimeout,
+            Steam = config.Steam,
+            Epic = new ScheduledPrefillServiceConfigDto
+            {
+                ServiceId = config.Epic.ServiceId,
+                Enabled = config.Epic.Enabled,
+                IntervalHours = config.Epic.IntervalHours,
+                Preset = config.Epic.Preset,
+                TopCount = config.Epic.TopCount,
+                SelectedAppIds = config.Epic.SelectedAppIds,
+                OperatingSystems = operatingSystems,
+                Force = config.Epic.Force,
+                MaxConcurrency = config.Epic.MaxConcurrency
+            },
+            Xbox = config.Xbox,
+            BattleNet = config.BattleNet,
+            Riot = config.Riot
+        };
+    }
+
+    private static ScheduledPrefillConfigDto WithSteamOperatingSystems(
+        ScheduledPrefillConfigDto config, List<ScheduledPrefillOperatingSystem> operatingSystems)
+    {
+        return new ScheduledPrefillConfigDto
+        {
+            Version = config.Version,
+            MaxServiceRuntime = config.MaxServiceRuntime,
+            StallTimeout = config.StallTimeout,
+            Steam = new ScheduledPrefillServiceConfigDto
+            {
+                ServiceId = config.Steam.ServiceId,
+                Enabled = config.Steam.Enabled,
+                IntervalHours = config.Steam.IntervalHours,
+                Preset = config.Steam.Preset,
+                TopCount = config.Steam.TopCount,
+                SelectedAppIds = config.Steam.SelectedAppIds,
+                OperatingSystems = operatingSystems,
+                Force = config.Steam.Force,
+                MaxConcurrency = config.Steam.MaxConcurrency
+            },
+            Epic = config.Epic,
+            Xbox = config.Xbox,
+            BattleNet = config.BattleNet,
+            Riot = config.Riot
         };
     }
 

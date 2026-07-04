@@ -41,6 +41,7 @@ public class RiotDaemonService : PrefillDaemonServiceBase
 
     // Service identity
     protected override string ServiceName => "riot";
+    protected override PrefillPlatform Platform => PrefillPlatform.Riot;
     protected override string ContainerPrefix => "riot-prefill-";
     protected override string DefaultDockerImage => RiotDockerImage;
 

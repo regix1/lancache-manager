@@ -92,6 +92,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// <summary>Service display name (e.g., "Steam", "Epic")</summary>
     protected abstract string ServiceName { get; }
 
+    /// <summary>
+    /// Strongly-typed platform identity for this daemon service. Used by <see cref="PrefillAsync"/>
+    /// to look up <see cref="ScheduledPrefillConfigFactory.SupportsOperatingSystemSelection"/> so an
+    /// OS filter is never forwarded to a daemon that can't act on it.
+    /// </summary>
+    protected abstract PrefillPlatform Platform { get; }
+
     /// <summary>Container name prefix (e.g., "steam-daemon-", "epic-daemon-")</summary>
     protected abstract string ContainerPrefix { get; }
 
@@ -2584,6 +2591,14 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         await NotifyPrefillStartedAsync(session);
         var startDto = DaemonSessionDto.FromSession(session);
         await NotifyHubAsync(EventSessionUpdated, startDto);
+
+        // Only Steam's daemon actually filters downloads by operating system; Epic/Xbox/BattleNet/Riot
+        // silently ignore an OS filter today, so never forward one to them regardless of what any of
+        // the 3 trigger paths (guest, persistent, scheduled) passed in.
+        if (!ScheduledPrefillConfigFactory.SupportsOperatingSystemSelection(Platform))
+        {
+            operatingSystems = null;
+        }
 
         try
         {

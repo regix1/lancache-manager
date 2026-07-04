@@ -44,6 +44,14 @@ interface PrefillServiceConfig {
    * 'prefill' (explicitly selected games) works everywhere via appIds/products.
    */
   prefillCommands: readonly CommandType[];
+  /**
+   * Target-platform (OS) values this service's daemon actually honours. Only Steam's socket
+   * reads an `os` filter (PICS config.oslist); Epic/Xbox/BattleNet/Riot silently ignore it
+   * (Epic hardcodes Windows manifest URLs, Xbox has no platform concept, BattleNet/Riot
+   * hardcode Windows CDN/patchline lookups). An empty array hides the "Target platforms"
+   * field entirely for that service rather than offering a control with no effect.
+   */
+  supportedOperatingSystems: readonly string[];
 }
 
 const STEAM_CONFIG: PrefillServiceConfig = {
@@ -59,7 +67,8 @@ const STEAM_CONFIG: PrefillServiceConfig = {
     'prefill-recent',
     'prefill-recent-purchased',
     'prefill-top'
-  ]
+  ],
+  supportedOperatingSystems: ['windows', 'linux', 'macos']
 };
 
 const EPIC_CONFIG: PrefillServiceConfig = {
@@ -69,7 +78,8 @@ const EPIC_CONFIG: PrefillServiceConfig = {
   colorVar: 'var(--theme-epic)',
   subtleColorVar: 'var(--theme-epic-subtle)',
   iconBgClass: 'bg-[var(--theme-epic)]',
-  prefillCommands: ['prefill', 'prefill-all', 'prefill-top']
+  prefillCommands: ['prefill', 'prefill-all', 'prefill-top'],
+  supportedOperatingSystems: []
 };
 
 const BATTLENET_CONFIG: PrefillServiceConfig = {
@@ -79,7 +89,8 @@ const BATTLENET_CONFIG: PrefillServiceConfig = {
   colorVar: 'var(--theme-blizzard)',
   subtleColorVar: 'var(--theme-blizzard-subtle)',
   iconBgClass: 'bg-[var(--theme-blizzard)]',
-  prefillCommands: ['prefill', 'prefill-all']
+  prefillCommands: ['prefill', 'prefill-all'],
+  supportedOperatingSystems: []
 };
 
 const RIOT_CONFIG: PrefillServiceConfig = {
@@ -89,7 +100,8 @@ const RIOT_CONFIG: PrefillServiceConfig = {
   colorVar: 'var(--theme-riot)',
   subtleColorVar: 'var(--theme-riot-subtle)',
   iconBgClass: 'bg-[var(--theme-riot)]',
-  prefillCommands: ['prefill', 'prefill-all']
+  prefillCommands: ['prefill', 'prefill-all'],
+  supportedOperatingSystems: []
 };
 
 const XBOX_CONFIG: PrefillServiceConfig = {
@@ -99,7 +111,8 @@ const XBOX_CONFIG: PrefillServiceConfig = {
   colorVar: 'var(--theme-xbox)',
   subtleColorVar: 'var(--theme-xbox-subtle)',
   iconBgClass: 'bg-[var(--theme-xbox)]',
-  prefillCommands: ['prefill', 'prefill-all', 'prefill-recent', 'prefill-top']
+  prefillCommands: ['prefill', 'prefill-all', 'prefill-recent', 'prefill-top'],
+  supportedOperatingSystems: []
 };
 
 /**

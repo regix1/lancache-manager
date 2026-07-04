@@ -30,6 +30,13 @@ interface PrefillCommandButtonsProps {
    * so unsupported preset tiles are not rendered rather than shown dead.
    */
   supportedCommands: readonly CommandType[];
+  /**
+   * Target-platform (OS) values this service's daemon actually honours
+   * (prefillServiceConfig.supportedOperatingSystems). Only Steam's socket reads an `os` filter;
+   * the other daemons silently ignore it, so the "Target platforms" field is hidden entirely
+   * (not just emptied) when this is an empty array.
+   */
+  supportedOperatingSystems: readonly string[];
   onCommandClick: (commandType: CommandType) => void;
   onSelectedOSChange: (values: string[]) => void;
   onMaxConcurrencyChange: (value: string) => void;
@@ -46,6 +53,7 @@ export function PrefillCommandButtons({
   maxConcurrency,
   maxThreadLimit,
   supportedCommands,
+  supportedOperatingSystems,
   onCommandClick,
   onSelectedOSChange,
   onMaxConcurrencyChange
@@ -55,6 +63,8 @@ export function PrefillCommandButtons({
   const availablePrefillCommands = PREFILL_COMMANDS.filter((cmd: CommandButton) =>
     supportedCommands.includes(cmd.id)
   );
+
+  const hasTargetPlatforms = supportedOperatingSystems.length > 0;
 
   const isGlobalDisabled = isExecuting || !isSessionActive || !isLoggedIn;
 
@@ -169,25 +179,29 @@ export function PrefillCommandButtons({
               </h3>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="cmd-settings-field">
-                <label className="cmd-settings-label flex items-center gap-1.5">
-                  <Monitor className="h-3 w-3" />
-                  {t('prefill.settings.targetPlatforms')}
-                </label>
-                <MultiSelectDropdown
-                  options={OS_OPTIONS.map((opt) => ({
-                    ...opt,
-                    label: t(`prefill.settings.os.${opt.value}.label`),
-                    description: t(`prefill.settings.os.${opt.value}.description`)
-                  }))}
-                  values={selectedOS}
-                  onChange={onSelectedOSChange}
-                  disabled={isGlobalDisabled}
-                  minSelections={1}
-                  placeholder={t('prefill.placeholders.selectPlatforms')}
-                />
-              </div>
-              <div className="cmd-settings-field">
+              {hasTargetPlatforms && (
+                <div className="cmd-settings-field">
+                  <label className="cmd-settings-label flex items-center gap-1.5">
+                    <Monitor className="h-3 w-3" />
+                    {t('prefill.settings.targetPlatforms')}
+                  </label>
+                  <MultiSelectDropdown
+                    options={OS_OPTIONS.filter((opt) =>
+                      supportedOperatingSystems.includes(opt.value)
+                    ).map((opt) => ({
+                      ...opt,
+                      label: t(`prefill.settings.os.${opt.value}.label`),
+                      description: t(`prefill.settings.os.${opt.value}.description`)
+                    }))}
+                    values={selectedOS}
+                    onChange={onSelectedOSChange}
+                    disabled={isGlobalDisabled}
+                    minSelections={1}
+                    placeholder={t('prefill.placeholders.selectPlatforms')}
+                  />
+                </div>
+              )}
+              <div className={`cmd-settings-field ${hasTargetPlatforms ? '' : 'sm:col-span-2'}`}>
                 <label className="cmd-settings-label flex items-center gap-1.5">
                   <Link className="w-3 h-3" />
                   {t('prefill.settings.downloadThreads')}

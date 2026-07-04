@@ -94,6 +94,27 @@ export const SCHEDULED_PREFILL_OS_OPTIONS = [
   labelKey: string;
 }[];
 
+/**
+ * Services whose daemon actually varies output by target platform, keyed by service. Reconciled
+ * against this swarm's daemon investigation (session 20260704-143707-433023485):
+ *  - Steam: real support. The `os` param filters depots via Steam's own PICS `config.oslist`
+ *    metadata (`DepotHandler.FilterDepotsToDownloadAsync`, unit-tested).
+ *  - Epic, Xbox, BattleNet, Riot: no daemon-side platform concept exists at all - each hardcodes a
+ *    single platform (or has none) and silently ignores any `os`/`platform` parameter sent to it.
+ *    An empty set means the whole "Target platforms" field is hidden for that service, not just
+ *    its options - unlike presets, there is no safe partial-support fallback for this capability.
+ */
+export const SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS: Record<
+  ScheduledPrefillServiceKey,
+  readonly ScheduledPrefillOperatingSystem[]
+> = {
+  steam: ['Windows', 'Linux', 'Macos'],
+  epic: [],
+  xbox: [],
+  battleNet: [],
+  riot: []
+};
+
 export const SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS = {
   min: 1,
   max: 256

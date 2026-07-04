@@ -38,6 +38,7 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
 
     // Service identity
     protected override string ServiceName => "Epic";
+    protected override PrefillPlatform Platform => PrefillPlatform.Epic;
     protected override string ContainerPrefix => "epic-daemon-";
     protected override string DefaultDockerImage => EpicDockerImage;
 

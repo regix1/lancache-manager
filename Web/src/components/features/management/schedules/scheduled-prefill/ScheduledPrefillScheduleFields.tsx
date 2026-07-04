@@ -10,6 +10,7 @@ import {
   SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS,
   SCHEDULED_PREFILL_OS_OPTIONS,
   SCHEDULED_PREFILL_PRESET_OPTIONS,
+  SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS,
   SCHEDULED_PREFILL_SUPPORTED_PRESETS
 } from './constants';
 import type {
@@ -76,11 +77,13 @@ export function ScheduledPrefillScheduleFields({
 
   const operatingSystemOptions = useMemo<MultiSelectOption[]>(
     () =>
-      SCHEDULED_PREFILL_OS_OPTIONS.map((option) => ({
+      SCHEDULED_PREFILL_OS_OPTIONS.filter((option) =>
+        SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS[serviceKey].includes(option.value)
+      ).map((option) => ({
         value: option.value,
         label: t(option.labelKey)
       })),
-    [t]
+    [t, serviceKey]
   );
 
   const updateConfig = (patch: Partial<ScheduledPrefillServiceConfigDto>) => {
@@ -180,25 +183,27 @@ export function ScheduledPrefillScheduleFields({
           </div>
         )}
 
-      <div
-        className="scheduled-prefill-schedule-fields__field"
-        role="group"
-        aria-labelledby={osLabelId}
-      >
-        <label id={osLabelId} className="scheduled-prefill-schedule-fields__label">
-          {t(`${baseKey}.fields.operatingSystems`)}
-        </label>
-        <MultiSelectDropdown
-          options={operatingSystemOptions}
-          values={config.operatingSystems}
-          onChange={(values) =>
-            updateConfig({ operatingSystems: values.filter(isScheduledPrefillOperatingSystem) })
-          }
-          disabled={disabled}
-          minSelections={0}
-          placeholder={t(`${baseKey}.fields.operatingSystems`)}
-        />
-      </div>
+      {SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS[serviceKey].length > 0 && (
+        <div
+          className="scheduled-prefill-schedule-fields__field"
+          role="group"
+          aria-labelledby={osLabelId}
+        >
+          <label id={osLabelId} className="scheduled-prefill-schedule-fields__label">
+            {t(`${baseKey}.fields.operatingSystems`)}
+          </label>
+          <MultiSelectDropdown
+            options={operatingSystemOptions}
+            values={config.operatingSystems}
+            onChange={(values) =>
+              updateConfig({ operatingSystems: values.filter(isScheduledPrefillOperatingSystem) })
+            }
+            disabled={disabled}
+            minSelections={0}
+            placeholder={t(`${baseKey}.fields.operatingSystems`)}
+          />
+        </div>
+      )}
 
       <div className="scheduled-prefill-schedule-fields__field scheduled-prefill-schedule-fields__field--full">
         <div
