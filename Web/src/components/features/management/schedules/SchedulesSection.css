@@ -556,6 +556,13 @@
   min-width: 7rem;
 }
 
+/* Same idea for the SECOND control (Disable all, Save settings): "Save settings" is the longer
+   label, so without a shared floor "Disable all" renders narrower and its right edge falls short
+   of "Save settings" - the two buttons look unaligned even though they now start at the same x. */
+.scheduled-prefill-config-modal__setting-actions > :nth-child(2) {
+  min-width: 8.5rem;
+}
+
 .scheduled-prefill-config-modal__global-label {
   font-size: var(--font-size-sm);
   font-weight: 700;
