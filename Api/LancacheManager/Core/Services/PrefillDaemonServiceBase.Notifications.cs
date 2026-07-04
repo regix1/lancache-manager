@@ -18,6 +18,24 @@ public abstract partial class PrefillDaemonServiceBase
     {
         try
         {
+            // RC3 (session 20260703-221336-2070027597): a challenge can still arrive from a daemon
+            // client whose session was already terminated/replaced - the client read loop delivering a
+            // queued "username" challenge right after Stop removed the session, just as a fresh
+            // container becomes the service's active session. Writing it to PendingLoginChallenge or
+            // broadcasting it would repopulate a dead session's state and let that stale challenge leak
+            // toward the replacement (the "Received queued challenge for session <dead>" anomaly).
+            // Ignore any challenge whose session is no longer the live, Active session under its id.
+            if (!_sessions.TryGetValue(session.Id, out var liveSession)
+                || !ReferenceEquals(liveSession, session)
+                || session.Status != DaemonSessionStatus.Active)
+            {
+                _logger.LogWarning(
+                    "Ignoring credential challenge {ChallengeId} ({CredentialType}) for session {SessionId}: " +
+                    "session is no longer the active live session (status {Status})",
+                    challenge.ChallengeId, challenge.CredentialType, session.Id, session.Status);
+                return;
+            }
+
             // Update auth state based on credential type
             session.AuthState = challenge.CredentialType switch
             {

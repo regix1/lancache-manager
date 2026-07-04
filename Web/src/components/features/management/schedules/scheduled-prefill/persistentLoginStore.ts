@@ -39,6 +39,14 @@ interface PersistentLoginStoreState {
    * (Start/Stop/Logout all call it).
    */
   sessionUnavailableState: PersistentSessionNotFoundState | null;
+  /**
+   * RC3 fix (session 20260703-221336-2070027597): the `DaemonSession.Id` this login flow is
+   * currently pinned to, taken from the `sessionId` every persistent-login REST response now
+   * carries. Every follow-up call (challenge poll, provide-credential, cancel-login) sends this
+   * back so the server can reject a request that has been superseded by a newer session instead of
+   * silently substituting it (the pre-fix cross-session leak). `null` when no login is pinned yet.
+   */
+  sessionId: string | null;
 }
 
 interface PersistentChallengeFlags {
@@ -69,11 +77,26 @@ const INITIAL_PERSISTENT_LOGIN_STATE: PersistentLoginStoreState = {
   authenticated: false,
   pendingChallenge: null,
   dismissed: false,
-  sessionUnavailableState: null
+  sessionUnavailableState: null,
+  sessionId: null
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+/**
+ * Reads the `sessionId` field a persistent-login REST response now carries (RC3 fix, session
+ * 20260703-221336-2070027597), regardless of which response variant it is (challenge object,
+ * `{authenticated:true}`, `{status:...}`, or the SignalR `CredentialChallengePayload` wrapper -
+ * all of them put `sessionId` at the top level). Returns `null` for the legacy bare `'authenticated'`
+ * string variant or any shape missing the field.
+ */
+export function extractPersistentSessionId(response: unknown): string | null {
+  if (isRecord(response) && typeof response.sessionId === 'string') {
+    return response.sessionId;
+  }
+  return null;
 }
 
 export function isPersistentLoginAuthenticatedResponse(response: unknown): boolean {
@@ -186,23 +209,48 @@ export function terminatePersistentLoginSessionUnavailable(
 }
 
 /**
+ * Terminal reset for a REST call (challenge poll or credential submit) that came back 409 because
+ * the pinned session was superseded by a newer one (RC3 fix, session 20260703-221336-2070027597):
+ * the daemon session this login flow was pinned to is no longer the active one for this service
+ * (the user stopped it and a fresh container started, or a scheduled run replaced it). Continuing
+ * to poll/submit against the dead session is exactly the cross-session leak RC3 closed on the
+ * backend, so the flow resets to idle - like `resetPersistentLoginState` - but carries a translated
+ * `message` (set as `error`, the same field the card's existing login-error alert already renders)
+ * so the reset explains itself instead of just silently going blank.
+ */
+export function resetPersistentLoginSessionReplaced(
+  service: PersistentPrefillServiceId,
+  message: string
+): void {
+  states.set(service, { ...INITIAL_PERSISTENT_LOGIN_STATE, error: message });
+  notify(service);
+}
+
+/**
  * Applies a challenge to the store - from either delivery path (the REST resume/poll response, or
  * the SignalR CredentialChallenge push). The two can race and deliver the SAME challenge twice
  * (e.g. the poll's in-flight response lands right after SignalR already applied it): when the
  * incoming challenge's id matches what's already stored, this is a re-delivery, not a new
  * challenge, so `dismissed` is left untouched instead of being force-reset to false - otherwise a
  * modal the user deliberately dismissed would silently reopen itself.
+ *
+ * `sessionId` (RC3 fix, session 20260703-221336-2070027597) pins the store to the session this
+ * challenge came from, when the caller has one to supply - omit it (`undefined`) to leave an
+ * already-pinned session untouched (e.g. a caller that hasn't resolved a session id itself yet).
+ * Pass `null` explicitly only to deliberately clear the pin.
  */
 export function applyPersistentLoginChallenge(
   service: PersistentPrefillServiceId,
-  challenge: CredentialChallenge
+  challenge: CredentialChallenge,
+  sessionId?: string | null
 ): void {
   updatePersistentLoginState(service, (current) => {
     const isRedelivery = current.pendingChallenge?.challengeId === challenge.challengeId;
     return {
       ...current,
       pendingChallenge: challenge,
-      dismissed: isRedelivery ? current.dismissed : false
+      dismissed: isRedelivery ? current.dismissed : false,
+      sessionId: sessionId !== undefined ? sessionId : current.sessionId
     };
   });
 }
@@ -247,6 +295,19 @@ export function hasActivePersistentLogin(service: PersistentPrefillServiceId): b
  */
 export function isPersistentLoginDismissed(service: PersistentPrefillServiceId): boolean {
   return getPersistentLoginState(service).dismissed;
+}
+
+/**
+ * Plain (non-hook) read of the sessionId a service's in-flight login is currently pinned to (RC3
+ * fix, session 20260703-221336-2070027597). Used by the SignalR credential-challenge handler
+ * (`usePersistentLoginChallengeSignalR`), which runs outside render and cannot subscribe via
+ * `usePersistentLoginStoreState`: it fences an incoming push against this pin so a challenge for
+ * an already-superseded session can never be applied, even if the caller's own `containersByService`
+ * (React state, refreshed on its own cadence) is momentarily stale and would otherwise let the same
+ * stale push through.
+ */
+export function getPersistentLoginSessionId(service: PersistentPrefillServiceId): string | null {
+  return getPersistentLoginState(service).sessionId;
 }
 
 function notifyLoginAttempt(service: PersistentPrefillServiceId): void {
@@ -385,19 +446,34 @@ type PersistentLoginReconcileResult = 'authenticated' | 'challenge' | 'none';
  * PersistentPrefillController/DaemonSession) and hydrates the store when one is found, so a login
  * survives a full page reload, not just a component remount. Any failure is treated as "no pending
  * login" - this is a best-effort probe, not a user-facing action.
+ *
+ * `sessionId` (RC3 fix, session 20260703-221336-2070027597) is now REQUIRED by the challenge GET -
+ * the caller passes the currently-known container's session id (`PersistentPrefillContainerDto.sessionId`,
+ * already loaded for the reconcile effect's own running/authenticated checks). A 409
+ * `session_replaced` here (the container list was momentarily stale) is just another "no pending
+ * login" outcome for this best-effort probe, not a special case - the catch-all below covers it.
  */
 export async function reconcilePersistentLoginFromServer(
-  service: PersistentPrefillServiceId
+  service: PersistentPrefillServiceId,
+  sessionId: string
 ): Promise<PersistentLoginReconcileResult> {
   try {
-    const response = await ApiService.getPersistentChallenge(service, RESUME_PROBE_TIMEOUT_SECONDS);
+    const response = await ApiService.getPersistentChallenge(
+      service,
+      RESUME_PROBE_TIMEOUT_SECONDS,
+      sessionId
+    );
     if (isPersistentLoginAuthenticatedResponse(response)) {
       resetPersistentLoginState(service);
       updatePersistentLoginState(service, (current) => ({ ...current, authenticated: true }));
       return 'authenticated';
     }
     if (isPersistentLoginCredentialChallenge(response)) {
-      applyPersistentLoginChallenge(service, response);
+      applyPersistentLoginChallenge(
+        service,
+        response,
+        extractPersistentSessionId(response) ?? sessionId
+      );
       return 'challenge';
     }
     return 'none';

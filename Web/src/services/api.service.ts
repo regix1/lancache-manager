@@ -94,11 +94,17 @@ interface CachedGameDetectionResponse {
   lastDetectionTime?: string;
 }
 
+// Session 20260703-221336-2070027597 (RC3 fix): every persistent-login response variant now
+// carries the DaemonSession.Id the login started/resolved on, so the frontend can pin it and
+// reject/detect a later cross-session mismatch instead of trusting whichever session the backend
+// happens to resolve as "active" on each call. The bare `'authenticated'` string literal cannot
+// carry a field - it is kept only for backward compatibility with `isPersistentLoginAuthenticatedResponse`
+// and is not expected to be emitted once the backend contract change lands.
 type PersistentChallengeResponse =
-  | CredentialChallenge
+  | (CredentialChallenge & { sessionId: string })
   | 'authenticated'
-  | { authenticated: true }
-  | { status: 'authenticated' | 'logged-in'; message?: string };
+  | { authenticated: true; sessionId?: string }
+  | { status: 'authenticated' | 'logged-in'; message?: string; sessionId?: string };
 
 /**
  * Structural info attached as `.cause` on the Error thrown by `getPersistentChallenge` for a 404
@@ -110,6 +116,21 @@ type PersistentChallengeResponse =
 export interface PersistentSessionNotFoundInfo {
   status: 404;
   state: PersistentSessionNotFoundState;
+}
+
+/**
+ * Structural info attached as `.cause` on the Error thrown by `getPersistentChallenge`/
+ * `providePersistentCredential` for a 409 (RC3 fix, session 20260703-221336-2070027597):
+ * `PersistentPrefillController` now rejects a supplied `sessionId` that no longer matches the
+ * live session instead of silently substituting the current one. `session_replaced` is the
+ * mismatch itself; `credential_rejected` is the RC4 manager-leg signal (the daemon reported
+ * `Success: false` on `provide-credential`, e.g. a challenge that was already consumed). Read
+ * structurally via `.cause`, never by sniffing the thrown message.
+ */
+export interface PersistentSessionConflictInfo {
+  status: 409;
+  error: 'session_replaced' | 'credential_rejected';
+  state: string;
 }
 
 /**
@@ -3129,20 +3150,56 @@ class ApiService {
     }
   }
 
+  /**
+   * Parses the typed 409 body `{ error, state }` from the persistent-login session-pinning REST
+   * leg (RC3 fix, session 20260703-221336-2070027597) and attaches it as `.cause`, mirroring the
+   * `getPersistentChallenge` 404 pattern below - a caller detects this structurally via
+   * `.cause.error`, never by sniffing the message text.
+   */
+  private static async buildPersistentSessionConflictError(
+    res: Response
+  ): Promise<Error & { cause: PersistentSessionConflictInfo }> {
+    const bodyText = await res.text().catch(() => '');
+    let errorKind: PersistentSessionConflictInfo['error'] = 'session_replaced';
+    let state = '';
+    let message = 'HTTP 409: persistent session replaced';
+    try {
+      const body = bodyText ? JSON.parse(bodyText) : null;
+      if (body?.error === 'credential_rejected' || body?.error === 'session_replaced') {
+        errorKind = body.error;
+      }
+      if (typeof body?.state === 'string') {
+        state = body.state;
+      }
+      if (typeof body?.error === 'string' && body.error) {
+        message = `HTTP 409: ${body.error}`;
+      }
+    } catch {
+      // Not JSON - fall through with the defaults above
+    }
+    const conflictError = new Error(message) as Error & { cause?: PersistentSessionConflictInfo };
+    conflictError.cause = { status: 409, error: errorKind, state };
+    return conflictError as Error & { cause: PersistentSessionConflictInfo };
+  }
+
   static async providePersistentCredential(
     service: PersistentPrefillServiceId,
     challenge: CredentialChallenge,
-    credential: string
+    credential: string,
+    sessionId: string
   ): Promise<void> {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/credential`,
         this.getFetchOptions({
           method: 'POST',
-          body: JSON.stringify({ service, challenge, credential }),
+          body: JSON.stringify({ service, challenge, credential, sessionId }),
           headers: { 'Content-Type': 'application/json' }
         })
       );
+      if (res.status === 409) {
+        throw await this.buildPersistentSessionConflictError(res);
+      }
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
       console.error('providePersistentCredential error:', error);
@@ -3152,10 +3209,11 @@ class ApiService {
 
   static async getPersistentChallenge(
     service: PersistentPrefillServiceId,
-    timeoutSeconds?: number
+    timeoutSeconds: number | undefined,
+    sessionId: string
   ): Promise<PersistentChallengeResponse> {
     try {
-      const params = new URLSearchParams({ service });
+      const params = new URLSearchParams({ service, sessionId });
       if (timeoutSeconds !== undefined) {
         params.set('timeoutSeconds', timeoutSeconds.toString());
       }
@@ -3189,6 +3247,11 @@ class ApiService {
         notFoundError.cause = { status: 404, state };
         throw notFoundError;
       }
+      if (res.status === 409) {
+        // sessionId no longer matches the active session (RC3) - never serve another session's
+        // challenge. See buildPersistentSessionConflictError.
+        throw await this.buildPersistentSessionConflictError(res);
+      }
       return await this.handleResponse<PersistentChallengeResponse>(res);
     } catch (error: unknown) {
       console.error('getPersistentChallenge error:', error);
@@ -3196,16 +3259,22 @@ class ApiService {
     }
   }
 
-  static async cancelPersistentLogin(service: PersistentPrefillServiceId): Promise<void> {
+  static async cancelPersistentLogin(
+    service: PersistentPrefillServiceId,
+    sessionId: string
+  ): Promise<void> {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/cancel-login`,
         this.getFetchOptions({
           method: 'POST',
-          body: JSON.stringify({ service }),
+          body: JSON.stringify({ service, sessionId }),
           headers: { 'Content-Type': 'application/json' }
         })
       );
+      // Per plan.md F3: a sessionId mismatch here is an idempotent 200 no-op (it must NOT cancel a
+      // replacement session's login), so there is no 409 branch to special-case - unlike challenge/
+      // provide-credential above.
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
       console.error('cancelPersistentLogin error:', error);

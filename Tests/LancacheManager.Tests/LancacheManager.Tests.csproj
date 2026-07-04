@@ -23,6 +23,14 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- The persistent-login session-pinning tests exercise PersistentPrefillController directly and
+       assert on its MVC ActionResult types (ConflictObjectResult / BadRequestObjectResult), which
+       live in the ASP.NET Core shared framework. A non-web SDK test project does not inherit that
+       framework from the referenced web project, so reference it explicitly. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\Api\LancacheManager\LancacheManager.csproj" />
   </ItemGroup>

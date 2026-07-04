@@ -319,7 +319,14 @@ public class PersistentPrefillController : ControllerBase
             var status = await daemon.GetSessionStatusAsync(session.Id, cancellationToken);
             if (status?.Status == "logged-in")
             {
-                return Ok(new { message = "Already logged in", status = "logged-in" });
+                // RC3 (session 20260703-221336-2070027597): every login response variant carries the
+                // resolved sessionId so the frontend can pin the session this flow belongs to.
+                return Ok(new PersistentLoginStatusResponse
+                {
+                    SessionId = session.Id,
+                    Status = "logged-in",
+                    Message = "Already logged in"
+                });
             }
 
             if (!string.IsNullOrEmpty(session.LastLoginFailureMessage))
@@ -330,6 +337,10 @@ public class PersistentPrefillController : ControllerBase
             return BadRequest(ApiResponse.Error("Login timeout - daemon may not be ready"));
         }
 
+        // Stamp the resolved sessionId onto the challenge so the frontend pins the flow to THIS session
+        // (RC3). The value is invariant for the session, so mutating even the cached challenge instance
+        // is safe.
+        challenge.SessionId = session.Id;
         return Ok(challenge);
     }
 
@@ -344,7 +355,14 @@ public class PersistentPrefillController : ControllerBase
         [FromBody] PersistentProvideCredentialRequest request,
         CancellationToken cancellationToken)
     {
-        var (daemon, session, error) = ResolveRunningPersistentSession(request.Service);
+        // RC3 (session 20260703-221336-2070027597): sessionId is REQUIRED - no fallback defaults - so a
+        // credential can never be resolved against whichever session happens to be active now.
+        if (string.IsNullOrWhiteSpace(request.SessionId))
+        {
+            return BadRequest(ApiResponse.Required("sessionId"));
+        }
+
+        var (daemon, session, error) = ResolveRunningPersistentSession(request.Service, request.SessionId);
         if (error is not null)
         {
             return error;
@@ -355,7 +373,24 @@ public class PersistentPrefillController : ControllerBase
             return BadRequest(ApiResponse.Required("Challenge and credential"));
         }
 
-        await daemon!.ProvideCredentialAsync(session!.Id, request.Challenge, request.Credential, cancellationToken);
+        try
+        {
+            await daemon!.ProvideCredentialAsync(session!.Id, request.Challenge, request.Credential, cancellationToken);
+        }
+        catch (DaemonCredentialRejectedException ex)
+        {
+            // RC4 (session 20260703-221336-2070027597): a fixed daemon reported it had no matching
+            // pending challenge for this credential. Surface it as a typed conflict the frontend reads
+            // via error.cause, so a misrouted/rejected credential is never celebrated as accepted.
+            _logger.LogWarning(ex,
+                "Daemon rejected credential for persistent {Service} session {SessionId}",
+                request.Service, session!.Id);
+            return Conflict(new PersistentLoginConflictResponse
+            {
+                Error = PersistentLoginConflictReasons.CredentialRejected,
+                State = "active"
+            });
+        }
 
         return Ok(ApiResponse.Message("Credential sent"));
     }
@@ -368,10 +403,18 @@ public class PersistentPrefillController : ControllerBase
     [HttpGet("challenge")]
     public async Task<ActionResult<CredentialChallenge>> GetChallengeAsync(
         [FromQuery] PrefillPlatform service,
+        [FromQuery] string? sessionId = null,
         [FromQuery] int timeoutSeconds = 30,
         CancellationToken cancellationToken = default)
     {
-        var (daemon, session, error) = ResolveRunningPersistentSession(service);
+        // RC3 (session 20260703-221336-2070027597): sessionId is REQUIRED - no fallback defaults - so a
+        // poller pinned to session A can never be served session B's challenge after a stop/start race.
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return BadRequest(ApiResponse.Required("sessionId"));
+        }
+
+        var (daemon, session, error) = ResolveRunningPersistentSession(service, sessionId);
         if (error is not null)
         {
             return error;
@@ -384,11 +427,13 @@ public class PersistentPrefillController : ControllerBase
             var status = await daemon.GetSessionStatusAsync(session.Id, cancellationToken);
             if (status?.Status == "logged-in")
             {
-                return Ok(new { status = "logged-in" });
+                return Ok(new PersistentLoginStatusResponse { SessionId = session.Id, Status = "logged-in" });
             }
             return NoContent();
         }
 
+        // Stamp the resolved sessionId onto the challenge so the frontend can (re-)pin the flow (RC3).
+        challenge.SessionId = session.Id;
         return Ok(challenge);
     }
 
@@ -399,16 +444,34 @@ public class PersistentPrefillController : ControllerBase
     /// </summary>
     [HttpPost("cancel-login")]
     public async Task<ActionResult> CancelLoginAsync(
-        [FromBody] PersistentLoginRequest request,
+        [FromBody] PersistentCancelLoginRequest request,
         CancellationToken cancellationToken)
     {
+        // RC3 (session 20260703-221336-2070027597): sessionId is REQUIRED - no fallback defaults.
+        if (string.IsNullOrWhiteSpace(request.SessionId))
+        {
+            return BadRequest(ApiResponse.Required("sessionId"));
+        }
+
         var (daemon, session, error) = ResolveRunningPersistentSession(request.Service);
         if (error is not null)
         {
             return error;
         }
 
-        await daemon!.CancelLoginAsync(session!.Id, cancellationToken);
+        // RC3: unlike the other pinned routes, a cancel for a since-replaced session is an idempotent
+        // no-op, NOT a 409 - a cancel targeting session A that B has already replaced has effectively
+        // already happened, and must NEVER cancel B's live login. Report success without touching the
+        // daemon so the frontend's cancel/reset flow completes cleanly.
+        if (!string.Equals(session!.Id, request.SessionId, StringComparison.Ordinal))
+        {
+            _logger.LogInformation(
+                "Ignoring cancel-login for persistent {Service}: pinned session {Expected} is no longer active (current {Actual})",
+                request.Service, request.SessionId, session.Id);
+            return Ok(ApiResponse.Message("Login already cancelled"));
+        }
+
+        await daemon!.CancelLoginAsync(session.Id, cancellationToken);
 
         return Ok(ApiResponse.Message("Login cancelled"));
     }
@@ -568,7 +631,8 @@ public class PersistentPrefillController : ControllerBase
     /// daemon and session with a null error. Defense-in-depth: never resolves a non-persistent session.
     /// </summary>
     private (PrefillDaemonServiceBase? Daemon, DaemonSession? Session, ActionResult? Error) ResolveRunningPersistentSession(
-        PrefillPlatform service)
+        PrefillPlatform service,
+        string? expectedSessionId = null)
     {
         var daemon = PrefillDaemonServiceBase.ResolveDaemon(_serviceProvider, service);
         if (daemon is null)
@@ -593,6 +657,22 @@ public class PersistentPrefillController : ControllerBase
         if (!session.IsPersistent)
         {
             return (null, null, Forbid());
+        }
+
+        // RC3 (session 20260703-221336-2070027597): when a caller pinned a specific session, refuse to
+        // silently substitute a different one. A login flow started against session A must never land on
+        // a replacement session B just because B became "the" active session for the service in between
+        // - that is the exact cross-session leak that misrouted a dead session's username challenge onto
+        // a freshly created container. A 409 lets the frontend reset the flow instead of celebrating a
+        // credential the wrong daemon never asked for.
+        if (!string.IsNullOrEmpty(expectedSessionId)
+            && !string.Equals(session.Id, expectedSessionId, StringComparison.Ordinal))
+        {
+            return (null, null, Conflict(new PersistentLoginConflictResponse
+            {
+                Error = PersistentLoginConflictReasons.SessionReplaced,
+                State = "active"
+            }));
         }
 
         return (daemon, session, null);
@@ -680,11 +760,35 @@ public sealed class PersistentProvideCredentialRequest
     /// <summary>Platform whose running persistent session the credential targets.</summary>
     public required PrefillPlatform Service { get; init; }
 
+    /// <summary>
+    /// Id of the persistent session this credential answers a challenge for. REQUIRED (RC3, session
+    /// 20260703-221336-2070027597): a mismatch against the currently-active session yields a 409
+    /// <c>session_replaced</c> rather than letting the credential land on a replacement session.
+    /// </summary>
+    public string? SessionId { get; init; }
+
     /// <summary>The challenge being answered (same shape as the user credential route).</summary>
     public CredentialChallenge? Challenge { get; init; }
 
     /// <summary>The encrypted credential value (same shape as the user credential route).</summary>
     public string? Credential { get; init; }
+}
+
+/// <summary>
+/// Request body for cancelling a persistent interactive login. Carries the pinned session id so a
+/// cancel for a since-replaced session (RC3, session 20260703-221336-2070027597) is an idempotent
+/// no-op that never cancels the replacement session's login.
+/// </summary>
+public sealed class PersistentCancelLoginRequest
+{
+    /// <summary>Platform whose running persistent session's login should be cancelled.</summary>
+    public required PrefillPlatform Service { get; init; }
+
+    /// <summary>
+    /// Id of the persistent session whose in-flight login should be cancelled. REQUIRED - a mismatch is
+    /// treated as an idempotent no-op (200) that does not touch the currently-active session's login.
+    /// </summary>
+    public string? SessionId { get; init; }
 }
 
 /// <summary>Request body for stopping a persistent session.</summary>

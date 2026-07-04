@@ -3690,6 +3690,8 @@
       "loginFailed": "登录失败：{{error}}",
       "sessionUnavailable": "此容器的登录会话已不可用。请点击启动以重新运行。",
       "sessionErrored": "此容器的会话发生错误（连接已断开）。请点击启动以重新启动。",
+      "sessionReplaced": "此登录会话已被新的会话替换。请重新登录。",
+      "credentialRejected": "守护进程拒绝了此凭据。请重新登录。",
       "services": {
         "steam": "Steam",
         "epic": "Epic Games",

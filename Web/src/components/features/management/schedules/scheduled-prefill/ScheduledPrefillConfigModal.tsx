@@ -36,6 +36,7 @@ import { PersistentLoginHost } from './PersistentLoginHost';
 import { normalizePersistentLoginClearResults } from './persistentLoginClearResult';
 import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPersistentTypes';
 import {
+  getPersistentLoginSessionId,
   hasActivePersistentLogin,
   isPersistentLoginDismissed,
   reconcilePersistentLoginFromServer,
@@ -361,7 +362,7 @@ export function ScheduledPrefillConfigModal({
           continue;
         }
 
-        const result = await reconcilePersistentLoginFromServer(serviceId);
+        const result = await reconcilePersistentLoginFromServer(serviceId, container.sessionId);
         if (controller.signal.aborted) {
           return;
         }
@@ -817,7 +818,15 @@ export function ScheduledPrefillConfigModal({
 
     try {
       if (hasActivePersistentLogin(serviceId)) {
-        await ApiService.cancelPersistentLogin(serviceId);
+        // The pinned sessionId (RC3 fix, session 20260703-221336-2070027597) is the login flow's
+        // OWN session, which may already differ from `container.sessionId` if a replacement
+        // container has since started - falling back to the container's id only covers the edge
+        // where cancel is clicked before the login ever pinned one (see usePersistentPrefillAuth's
+        // cancel() for the matching case); cancel-login is idempotent on a mismatch either way.
+        await ApiService.cancelPersistentLogin(
+          serviceId,
+          getPersistentLoginSessionId(serviceId) ?? container.sessionId
+        );
         resetPersistentLoginState(serviceId);
         setPersistentLoginTarget((current) => (current === serviceKey ? null : current));
         await loadPersistentContainers();

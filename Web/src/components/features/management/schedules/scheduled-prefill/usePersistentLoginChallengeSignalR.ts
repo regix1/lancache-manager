@@ -9,7 +9,7 @@ import type { CredentialChallenge } from '@hooks/usePrefillSteamAuth';
 import { SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS } from './constants';
 import { getPersistentServiceId } from './scheduledPrefillPlatformUi';
 import { getPersistentPrefillCredentialChallengeEvent } from './persistentPrefillSignalREvents';
-import { applyPersistentLoginChallenge } from './persistentLoginStore';
+import { applyPersistentLoginChallenge, getPersistentLoginSessionId } from './persistentLoginStore';
 
 const LOGIN_REQUIRED_SERVICE_IDS: readonly PersistentPrefillServiceId[] =
   SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.map(getPersistentServiceId);
@@ -38,6 +38,13 @@ interface UsePersistentLoginChallengeSignalROptions {
  * concurrent guest login for the same platform (a different session, same event family) can never
  * leak its challenge into the admin's persistent login flow, and a stale event for a service with
  * no login pending is silently ignored.
+ *
+ * RC3 hardening (session 20260703-221336-2070027597): `containersByService` is React state that
+ * refreshes on its own cadence, so at the exact moment of a stop-then-start race it can itself
+ * still report the just-replaced session for a beat. Once the login store has pinned a sessionId
+ * (from this login flow's own login/challenge response - see `applyPersistentLoginChallenge`),
+ * that pin is checked too and wins over a stale container lookup: a push for any other session id
+ * is dropped even if `containersByService` hasn't caught up yet.
  */
 export function usePersistentLoginChallengeSignalR({
   enabled,
@@ -58,7 +65,11 @@ export function usePersistentLoginChallengeSignalR({
         if (!container || container.sessionId !== event.sessionId) {
           return;
         }
-        applyPersistentLoginChallenge(serviceId, event.challenge);
+        const pinnedSessionId = getPersistentLoginSessionId(serviceId);
+        if (pinnedSessionId !== null && pinnedSessionId !== event.sessionId) {
+          return;
+        }
+        applyPersistentLoginChallenge(serviceId, event.challenge, event.sessionId);
       };
       on(eventName, handler);
       return { eventName, handler };

@@ -2253,6 +2253,14 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             return PersistentVolumeClearResult.DockerUnavailable;
         }
 
+        // RC5 (session 20260703-221336-2070027597): with deterministic naming a STOPPED
+        // {ContainerPrefix}persistent container keeps this service's named auth volume ATTACHED, so the
+        // force:false remove below 409s -> InUse and "clear stored logins" silently no-ops. Reap the
+        // lingering stopped container first so the volume can actually be removed. A still-RUNNING
+        // container is left untouched: the remove below then reports InUse, preserving the existing
+        // refuse-while-running behavior instead of tearing down a live login.
+        await RemoveStoppedPersistentContainersAsync(cancellationToken);
+
         var volumeName = GetPersistentConfigVolumeName();
         try
         {
@@ -2269,6 +2277,68 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         {
             _logger.LogWarning("Persistent {ServiceName} auth volume {Volume} is still attached to a container; not removed", ServiceName, volumeName);
             return PersistentVolumeClearResult.InUse;
+        }
+    }
+
+    /// <summary>
+    /// RC5 (session 20260703-221336-2070027597): force-removes any STOPPED
+    /// <c>{ContainerPrefix}persistent</c> container that still holds this service's named auth volume
+    /// attached, so <see cref="ClearPersistentAuthVolumeAsync"/> can actually delete the volume. A
+    /// RUNNING container is deliberately skipped (the caller's <c>GetActivePersistentSession()==null</c>
+    /// precondition means there is no live session, but a zombie could still be running - leave it so
+    /// the volume remove reports InUse rather than killing it). Never throws: a failed list/remove is
+    /// logged and swallowed, leaving the volume remove to report its own honest result.
+    /// <paramref name="cancellationToken"/> bounds the docker calls. RemoveVolumes stays false - the
+    /// named volume is removed separately by the caller, and this reaps only the container shell.
+    /// </summary>
+    private async Task RemoveStoppedPersistentContainersAsync(CancellationToken cancellationToken)
+    {
+        if (_dockerClient == null)
+        {
+            return;
+        }
+
+        var containerName = $"{ContainerPrefix}persistent";
+        IList<ContainerListResponse> matches;
+        try
+        {
+            matches = await _dockerClient.Containers.ListContainersAsync(
+                new ContainersListParameters
+                {
+                    All = true,
+                    Filters = new Dictionary<string, IDictionary<string, bool>>
+                    {
+                        ["name"] = new Dictionary<string, bool> { [containerName] = true }
+                    }
+                },
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to list persistent {ServiceName} containers while clearing auth volume; leaving the volume remove to report its own result",
+                ServiceName);
+            return;
+        }
+
+        // Docker's name filter is a substring match, so re-assert an EXACT name match (same shape as
+        // ForceRemoveContainersByExactNameAsync) to avoid touching an unrelated container.
+        foreach (var match in matches.Where(c => (c.Names ?? new List<string>()).Any(n => n.TrimStart('/') == containerName)))
+        {
+            if (string.Equals(match.State, "running", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning(
+                    "Persistent {ServiceName} container {Name} is still running; not removing it before clearing its auth volume",
+                    ServiceName, containerName);
+                continue;
+            }
+
+            if (await RemoveContainerForceAsync(match.ID, cancellationToken))
+            {
+                _logger.LogInformation(
+                    "Removed stopped persistent {ServiceName} container {Id} so its auth volume can be cleared",
+                    ServiceName, ShortContainerId(match.ID));
+            }
         }
     }
 
@@ -2676,7 +2746,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         session.Status = DaemonSessionStatus.Terminated;
         session.EndedAt = DateTime.UtcNow;
+        // RC3 (session 20260703-221336-2070027597): clear BOTH the manager-side resume cache and the
+        // client's own queued/awaited challenge so a challenge the dying daemon already emitted can
+        // never be replayed after this session is gone (paired with the dead-session guard in
+        // OnCredentialChallengeAsync). Status is flipped to Terminated first so any challenge racing
+        // in during teardown is rejected by that guard.
         ClearPendingLoginChallenge(session);
+        session.Client.ClearPendingChallenges();
 
         // User policy: a persistent container's login exists ONLY while that container is alive -
         // stopping it must forget the daemon's stored account so a later Start never silently inherits

@@ -632,7 +632,7 @@ public sealed class SocketDaemonClient : IDaemonClient
             credential,
             HkdfInfo);
 
-        await SendCommandAsync("provide-credential", new Dictionary<string, string>
+        var response = await SendCommandAsync("provide-credential", new Dictionary<string, string>
         {
             ["challengeId"] = encrypted.ChallengeId,
             ["clientPublicKey"] = encrypted.ClientPublicKey,
@@ -640,6 +640,19 @@ public sealed class SocketDaemonClient : IDaemonClient
             ["nonce"] = encrypted.Nonce,
             ["tag"] = encrypted.Tag
         }, timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
+
+        // RC4 (session 20260703-221336-2070027597): a fixed daemon replies Success=false when it had
+        // no matching pending challenge for this credential (the RC3 cross-session misroute). Surface
+        // that as a real error instead of returning as if the credential were accepted - the persistent
+        // login REST layer maps it to a typed conflict the frontend can act on. An un-updated daemon
+        // still masks the drop as Success=true; this check simply never trips against such an image.
+        if (!response.Success)
+        {
+            throw new DaemonCredentialRejectedException(
+                response.Error
+                ?? response.Message
+                ?? "The daemon rejected the credential: no matching login challenge was pending.");
+        }
     }
 
     /// <summary>

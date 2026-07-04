@@ -1,15 +1,21 @@
 import { useCallback, useState } from 'react';
-import ApiService, { type PersistentSessionNotFoundInfo } from '@services/api.service';
+import { useTranslation } from 'react-i18next';
+import ApiService, {
+  type PersistentSessionConflictInfo,
+  type PersistentSessionNotFoundInfo
+} from '@services/api.service';
 import type { PersistentPrefillServiceId } from '@components/features/prefill/persistentPrefillTypes';
 import type { CredentialChallenge } from './usePrefillSteamAuth';
 import type { SteamAuthActions, SteamLoginFlowState } from './useSteamAuthentication';
 import {
   applyPersistentLoginChallenge,
   derivePersistentChallengeFlags,
+  extractPersistentSessionId,
   getPersistentLoginStartPromise,
   isPersistentLoginAuthenticatedResponse,
   isPersistentLoginCancelled,
   isPersistentLoginCredentialChallenge,
+  resetPersistentLoginSessionReplaced,
   resetPersistentLoginState,
   setPersistentLoginCancelled,
   setPersistentLoginStartPromise,
@@ -40,6 +46,25 @@ function isPersistentChallengeNotFoundError(
     return true;
   }
   return /^HTTP 404\b/.test(error.message);
+}
+
+// RC3 fix (session 20260703-221336-2070027597): the challenge GET and provide-credential 409
+// structurally when the pinned sessionId no longer matches the active session, or (provide-
+// credential only) when the daemon reported it dropped the credential (RC4 manager leg). Detected
+// via `.cause`, mirroring isPersistentChallengeNotFoundError above - never by message-sniffing.
+function isPersistentSessionConflictError(
+  error: unknown
+): error is Error & { cause: PersistentSessionConflictInfo } {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const cause = (error as Error & { cause?: unknown }).cause;
+  return (
+    typeof cause === 'object' &&
+    cause !== null &&
+    ((cause as { error?: unknown }).error === 'session_replaced' ||
+      (cause as { error?: unknown }).error === 'credential_rejected')
+  );
 }
 
 interface UsePersistentPrefillAuthOptions {
@@ -95,6 +120,7 @@ export function usePersistentPrefillAuth(
     onError
   } = options;
 
+  const { t } = useTranslation();
   const stored = usePersistentLoginStoreState(service);
   // Single derivation point for the challenge-type UI flags - see derivePersistentChallengeFlags's
   // doc comment. Recomputed each render from `stored.pendingChallenge`, which is cheap (a switch
@@ -134,10 +160,25 @@ export function usePersistentPrefillAuth(
   const setWaitingForMobileConfirmation = useCallback((_value: boolean) => undefined, []);
 
   const applyChallenge = useCallback(
-    (challenge: CredentialChallenge) => {
-      applyPersistentLoginChallenge(service, challenge);
+    (challenge: CredentialChallenge, sessionId?: string | null) => {
+      applyPersistentLoginChallenge(service, challenge, sessionId);
     },
     [service]
+  );
+
+  // Single choke point for the RC3 409 conflict (session 20260703-221336-2070027597): both
+  // `pollForResult` (challenge GET) and `submitChallenge` (provide-credential) funnel their 409
+  // here so the reset + translated message are applied exactly once, from exactly one place,
+  // regardless of which REST call surfaced the conflict.
+  const handleSessionConflict = useCallback(
+    (err: Error & { cause: PersistentSessionConflictInfo }) => {
+      const message =
+        err.cause.error === 'session_replaced'
+          ? t('prefill.persistent.sessionReplaced')
+          : t('prefill.persistent.credentialRejected');
+      resetPersistentLoginSessionReplaced(service, message);
+    },
+    [service, t]
   );
 
   const finishAuthenticated = useCallback(() => {
@@ -159,23 +200,46 @@ export function usePersistentPrefillAuth(
   );
 
   const pollForResult = useCallback(async (): Promise<PollResult> => {
-    const response = await ApiService.getPersistentChallenge(service, timeoutSeconds);
-    if (isPersistentLoginAuthenticatedResponse(response)) {
-      return { status: 'authenticated' };
+    try {
+      const response = await ApiService.getPersistentChallenge(
+        service,
+        timeoutSeconds,
+        stored.sessionId ?? ''
+      );
+      if (isPersistentLoginAuthenticatedResponse(response)) {
+        return { status: 'authenticated' };
+      }
+      if (isPersistentLoginCredentialChallenge(response)) {
+        return { status: 'challenge', challenge: response };
+      }
+      // Empty/204: the long-poll timed out with no new challenge yet (e.g. waiting
+      // for the user to confirm a device code). Keep polling instead of erroring.
+      return { status: 'pending' };
+    } catch (err) {
+      if (isPersistentSessionConflictError(err)) {
+        handleSessionConflict(err);
+      }
+      throw err;
     }
-    if (isPersistentLoginCredentialChallenge(response)) {
-      return { status: 'challenge', challenge: response };
-    }
-    // Empty/204: the long-poll timed out with no new challenge yet (e.g. waiting
-    // for the user to confirm a device code). Keep polling instead of erroring.
-    return { status: 'pending' };
-  }, [service, timeoutSeconds]);
+  }, [handleSessionConflict, service, stored.sessionId, timeoutSeconds]);
 
   const submitChallenge = useCallback(
     async (challenge: CredentialChallenge, credential: string): Promise<PollResult> => {
       setLoading(true);
       setError(null);
-      await ApiService.providePersistentCredential(service, challenge, credential);
+      try {
+        await ApiService.providePersistentCredential(
+          service,
+          challenge,
+          credential,
+          stored.sessionId ?? ''
+        );
+      } catch (err) {
+        if (isPersistentSessionConflictError(err)) {
+          handleSessionConflict(err);
+        }
+        throw err;
+      }
 
       let result = await pollForResult();
       while (result.status === 'pending' && !isPersistentLoginCancelled(service)) {
@@ -192,12 +256,21 @@ export function usePersistentPrefillAuth(
       }
 
       if (result.status === 'challenge') {
-        applyChallenge(result.challenge);
+        applyChallenge(result.challenge, extractPersistentSessionId(result.challenge));
       }
       setLoading(false);
       return result;
     },
-    [applyChallenge, finishAuthenticated, pollForResult, service, setError, setLoading]
+    [
+      applyChallenge,
+      finishAuthenticated,
+      handleSessionConflict,
+      pollForResult,
+      service,
+      setError,
+      setLoading,
+      stored.sessionId
+    ]
   );
 
   const submit = useCallback(
@@ -211,6 +284,11 @@ export function usePersistentPrefillAuth(
         const result = await submitChallenge(stored.pendingChallenge, credential);
         return result.status === 'authenticated';
       } catch (err) {
+        if (isPersistentSessionConflictError(err)) {
+          // Already reset (with its own translated message) inside submitChallenge/pollForResult's
+          // own catch - a generic fail() here would stomp that reset with a second, unrelated write.
+          return false;
+        }
         const message = err instanceof Error ? err.message : 'Failed to submit credential';
         fail(message);
         return false;
@@ -235,7 +313,7 @@ export function usePersistentPrefillAuth(
       }
 
       if (result.status === 'challenge') {
-        applyChallenge(result.challenge);
+        applyChallenge(result.challenge, extractPersistentSessionId(result.challenge));
       }
       setLoading(false);
       return result;
@@ -247,6 +325,11 @@ export function usePersistentPrefillAuth(
         // caller (usePersistentXboxAuth's pollUntilAuthenticated) relies on the throw to end its
         // while loop.
         terminatePersistentLoginSessionUnavailable(service, err.cause?.state ?? 'notStarted');
+        throw err;
+      }
+      if (isPersistentSessionConflictError(err)) {
+        // Already reset (with its own translated message) inside pollForResult's own catch - avoid
+        // a second, unrelated fail() write here.
         throw err;
       }
       const message = err instanceof Error ? err.message : 'Failed to poll persistent login';
@@ -278,7 +361,7 @@ export function usePersistentPrefillAuth(
           return null;
         }
         if (isPersistentLoginCredentialChallenge(challenge)) {
-          applyChallenge(challenge);
+          applyChallenge(challenge, extractPersistentSessionId(challenge));
           setLoading(false);
           return challenge;
         }
@@ -321,11 +404,18 @@ export function usePersistentPrefillAuth(
     setPersistentLoginCancelled(service, true);
     setLoading(false);
     try {
-      await ApiService.cancelPersistentLogin(service);
+      // No sessionId is pinned yet only when cancel is clicked in the brief window before start()'s
+      // very first response ever lands (RC3, session 20260703-221336-2070027597) - there is no
+      // known daemon session id to send, and the cancel flag set above already makes start() bail
+      // out locally the moment it resolves, so skipping the round-trip here is safe rather than a
+      // silent no-op: nothing server-side has been told about this login attempt yet either.
+      if (stored.sessionId) {
+        await ApiService.cancelPersistentLogin(service, stored.sessionId);
+      }
     } finally {
       resetAuthForm();
     }
-  }, [resetAuthForm, service, setLoading]);
+  }, [resetAuthForm, service, setLoading, stored.sessionId]);
 
   const cancelPendingRequest = useCallback(() => {
     void cancel();
@@ -406,6 +496,11 @@ export function usePersistentPrefillAuth(
 
       return stored.authenticated;
     } catch (err) {
+      if (isPersistentSessionConflictError(err)) {
+        // Already reset (with its own translated message) inside submitChallenge/pollForResult's
+        // own catch - avoid a second, unrelated fail() write here.
+        return false;
+      }
       const message = err instanceof Error ? err.message : 'Failed to authenticate';
       fail(message);
       return false;

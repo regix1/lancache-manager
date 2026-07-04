@@ -3690,6 +3690,8 @@
       "loginFailed": "Login failed: {{error}}",
       "sessionUnavailable": "This container's login session is no longer available. Press Start to relaunch it.",
       "sessionErrored": "This container's session encountered an error (connection lost). Press Start to restart it.",
+      "sessionReplaced": "This login session was replaced by a newer one. Please try logging in again.",
+      "credentialRejected": "The daemon rejected this credential. Please try logging in again.",
       "services": {
         "steam": "Steam",
         "epic": "Epic Games",

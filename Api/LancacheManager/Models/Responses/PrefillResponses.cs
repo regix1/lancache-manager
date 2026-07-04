@@ -47,6 +47,59 @@ internal sealed class PersistentSessionNotFoundStateJsonConverter : JsonStringEn
 }
 
 /// <summary>
+/// Stable <c>error</c> discriminators for <see cref="PersistentLoginConflictResponse"/> (RC3, session
+/// 20260703-221336-2070027597). The frontend reads these off <c>error.cause</c> structurally - never
+/// by sniffing the message text - so they are a wire contract shared 1:1 with
+/// <c>usePersistentPrefillAuth.ts</c>.
+/// </summary>
+public static class PersistentLoginConflictReasons
+{
+    /// <summary>The session a login flow was pinned to has been replaced by a different active session.</summary>
+    public const string SessionReplaced = "session_replaced";
+
+    /// <summary>The daemon rejected the credential (no matching pending challenge) - see RC4.</summary>
+    public const string CredentialRejected = "credential_rejected";
+}
+
+/// <summary>
+/// 409 body for a persistent-login REST call that was pinned to a session which is no longer the one
+/// the server would act on (RC3, session 20260703-221336-2070027597): either a different session has
+/// become active for the service (<see cref="PersistentLoginConflictReasons.SessionReplaced"/>) or the
+/// daemon dropped the supplied credential (<see cref="PersistentLoginConflictReasons.CredentialRejected"/>).
+/// The frontend reads <see cref="Error"/> + <see cref="State"/> from <c>error.cause</c>.
+/// </summary>
+public class PersistentLoginConflictResponse
+{
+    /// <summary>One of <see cref="PersistentLoginConflictReasons"/>.</summary>
+    public string Error { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Current server-side state of the service's persistent session, for display: "active" when a
+    /// different persistent session is now running for the service, "errored" when the current one is
+    /// in the Error status, or "notStarted" when none is running.
+    /// </summary>
+    public string State { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Success body for the persistent login/challenge routes when the session is already authenticated
+/// (no credential challenge to answer). Carries the resolved <see cref="SessionId"/> so the frontend
+/// can pin the session the flow belongs to (RC3, session 20260703-221336-2070027597), plus the
+/// existing <c>status:"logged-in"</c> shape the frontend already type-guards on.
+/// </summary>
+public class PersistentLoginStatusResponse
+{
+    /// <summary>Id of the persistent session the login resolved on.</summary>
+    public required string SessionId { get; set; }
+
+    /// <summary>Login status; "logged-in" for the already-authenticated case.</summary>
+    public string Status { get; set; } = "logged-in";
+
+    /// <summary>Optional human-readable message (e.g. "Already logged in").</summary>
+    public string? Message { get; set; }
+}
+
+/// <summary>
 /// Response for paginated prefill sessions
 /// </summary>
 public class PrefillSessionsResponse
