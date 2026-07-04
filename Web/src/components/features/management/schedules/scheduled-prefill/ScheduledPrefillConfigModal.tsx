@@ -796,6 +796,15 @@ export function ScheduledPrefillConfigModal({
   // Either branch also closes an open login modal for this service immediately - logging out while a
   // login prompt is showing must not leave a stale modal open against an account that was just
   // forgotten (or is about to be stopped/restarted).
+  //
+  // A login still mid-challenge (not yet authenticated) is a separate case, checked first: the
+  // daemon's "logout" command rejects any pre-login session outright on some daemon images (it
+  // requires an authenticated session), so `forgotten` would always come back false here and this
+  // handler would fall through to the stop+restart fallback - tearing the container down and
+  // immediately starting a brand new one/login in the same click, an infinite-looking restart loop
+  // for exactly the case an admin would use Logout to cancel. Cancelling the in-flight daemon login
+  // instead (the same RPC the auth modal's own Cancel action uses) is accepted before authentication
+  // completes on every daemon image, and never restarts the container.
   const handleLogoutPersistent = async (serviceKey: ScheduledPrefillServiceKey) => {
     const container = persistentContainerByService.get(getPersistentServiceId(serviceKey));
     if (!container) {
@@ -807,6 +816,14 @@ export function ScheduledPrefillConfigModal({
     setPersistentError(null);
 
     try {
+      if (hasActivePersistentLogin(serviceId)) {
+        await ApiService.cancelPersistentLogin(serviceId);
+        resetPersistentLoginState(serviceId);
+        setPersistentLoginTarget((current) => (current === serviceKey ? null : current));
+        await loadPersistentContainers();
+        return;
+      }
+
       const { forgotten } = await ApiService.logoutPersistentPrefillContainer(serviceId);
       if (forgotten) {
         resetPersistentLoginState(serviceId);

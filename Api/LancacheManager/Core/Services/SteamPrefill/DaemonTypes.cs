@@ -71,6 +71,16 @@ public class CommandResponse
     public DateTime CompletedAt { get; set; }
 }
 
+/// <summary>
+/// Result of a daemon "logout" round-trip, distinguishing a genuine failure from an older daemon
+/// image's pre-login command gate rejecting the command outright because the session hasn't
+/// finished authenticating yet (its <c>PreLoginCommands</c> allowlist is missing "logout" - see the
+/// erase-on-stop regression diagnosis). <see cref="RequiresLogin"/> mirrors
+/// <see cref="CommandResponse.RequiresLogin"/> for that rejection case; callers should log/treat it
+/// as "nothing to log out yet", not as a real failure.
+/// </summary>
+public sealed record LogoutOutcome(bool Success, bool RequiresLogin);
+
 public class DaemonStatus
 {
     [JsonPropertyName("type")]

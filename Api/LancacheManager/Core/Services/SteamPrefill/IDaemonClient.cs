@@ -110,6 +110,21 @@ public interface IDaemonClient : IDisposable
     Task<bool> LogoutAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Same round-trip as <see cref="LogoutAsync"/>, but also exposes whether the daemon rejected the
+    /// command because this session hasn't finished authenticating yet - an older daemon image's
+    /// pre-login command gate (its <c>PreLoginCommands</c> allowlist is missing "logout"), not a
+    /// genuine failure. The default implementation adapts <see cref="LogoutAsync"/> for
+    /// implementations (and test fakes) that don't override it, reporting <c>RequiresLogin: false</c>;
+    /// only <c>SocketDaemonClient</c> and <c>TcpDaemonClient</c> currently override this with the real
+    /// signal carried on the daemon's <c>CommandResponse.RequiresLogin</c>.
+    /// </summary>
+    async Task<LogoutOutcome> LogoutWithReasonAsync(CancellationToken cancellationToken = default)
+    {
+        var success = await LogoutAsync(cancellationToken);
+        return new LogoutOutcome(success, RequiresLogin: false);
+    }
+
+    /// <summary>
     /// Cancel running prefill operation.
     /// </summary>
     Task CancelPrefillAsync(CancellationToken cancellationToken = default);

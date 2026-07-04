@@ -896,8 +896,15 @@ public sealed class SocketDaemonClient : IDaemonClient
     /// </summary>
     public async Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
     {
+        var outcome = await LogoutWithReasonAsync(cancellationToken);
+        return outcome.Success;
+    }
+
+    /// <inheritdoc cref="IDaemonClient.LogoutWithReasonAsync"/>
+    public async Task<LogoutOutcome> LogoutWithReasonAsync(CancellationToken cancellationToken = default)
+    {
         var response = await SendCommandAsync("logout", timeout: TimeSpan.FromSeconds(10), cancellationToken: cancellationToken);
-        return response.Success;
+        return new LogoutOutcome(response.Success, response.RequiresLogin == true);
     }
 
     /// <summary>

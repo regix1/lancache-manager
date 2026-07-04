@@ -3,6 +3,12 @@ import { SteamPersistentLogin } from './login/SteamPersistentLogin';
 import { EpicPersistentLogin } from './login/EpicPersistentLogin';
 import { XboxPersistentLogin } from './login/XboxPersistentLogin';
 import { SCHEDULED_PREFILL_TRANSIENT_STOP_GRACE_MS } from './constants';
+import { getPersistentServiceId } from './scheduledPrefillPlatformUi';
+import {
+  hasUnconsumedLoginAttempt,
+  usePersistentLoginRequestNonce,
+  usePersistentLoginStoreState
+} from './persistentLoginStore';
 import type { ScheduledPrefillServiceKey } from './types';
 
 interface PersistentLoginHostProps {
@@ -24,6 +30,27 @@ export function PersistentLoginHost({
   onAuthenticated,
   onDismiss
 }: PersistentLoginHostProps) {
+  const serviceId = getPersistentServiceId(serviceKey);
+  const loginState = usePersistentLoginStoreState(serviceId);
+  // Subscribed for its re-render alone, not its value: hasUnconsumedLoginAttempt() below is a
+  // plain Map peek, not itself reactive. Without this subscription, a "Log in" click that bumps
+  // the nonce without changing persistentLoginTarget (the target was already this service - a
+  // dismissed-but-pending challenge, or a retry after a wedge) would never make this component
+  // re-render, so autoStart would stay on its stale value and the login component's own nonce
+  // effect would see a stale `false` and silently skip beginLogin().
+  const loginAttemptNonce = usePersistentLoginRequestNonce(serviceId);
+  // Structural (not incidental) explicit-click-only gate: this host only exists to bridge two
+  // legitimate triggers into the login components' own autoStart effect - an explicit "Log in"
+  // click (bumps the nonce these components consume exactly once - see
+  // `requestPersistentLoginAttempt`/`consumeLoginAttemptNonce`) or a reconcile-confirmed cached
+  // challenge already applied to the store (`pendingChallenge !== null` - see
+  // `reconcilePersistentLoginFromServer`). `persistentLoginTarget` is in fact only ever set to this
+  // service by those same two callers, so this mirrors the current invariant exactly; deriving it
+  // here instead of hardcoding `true` means a future caller that sets the target without either
+  // signal gets a visible "Log in" button (the login components' own showLoginButton fallback)
+  // instead of silently auto-firing a real daemon login.
+  const autoStart =
+    loginState.pendingChallenge !== null || hasUnconsumedLoginAttempt(serviceId, loginAttemptNonce);
   const dismissedRef = useRef(false);
   const [stableRunning, setStableRunning] = useState(isRunning);
 
@@ -78,7 +105,7 @@ export function PersistentLoginHost({
         isRunning={stableRunning}
         isAuthenticated={isAuthenticated}
         onAuthenticated={handleAuthenticated}
-        autoStart
+        autoStart={autoStart}
         onDismiss={handleDismiss}
       />
     );
@@ -90,7 +117,7 @@ export function PersistentLoginHost({
         isRunning={stableRunning}
         isAuthenticated={isAuthenticated}
         onAuthenticated={handleAuthenticated}
-        autoStart
+        autoStart={autoStart}
         onDismiss={handleDismiss}
       />
     );
@@ -102,7 +129,7 @@ export function PersistentLoginHost({
         isRunning={stableRunning}
         isAuthenticated={isAuthenticated}
         onAuthenticated={handleAuthenticated}
-        autoStart
+        autoStart={autoStart}
         onDismiss={handleDismiss}
       />
     );

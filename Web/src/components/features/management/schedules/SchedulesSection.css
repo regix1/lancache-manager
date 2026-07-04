@@ -119,6 +119,19 @@
   gap: 1rem;
 }
 
+/* Wraps the parts of a schedule card's body that should dim together when the
+   schedule is disabled (interval 0). Split into more than one instance per card
+   so content that must stay clickable/legible - the scheduled prefill Configure
+   button and its "no services enabled" warning - can sit outside the wrapper
+   instead of inheriting the dim: opacity on an ancestor cannot be undone by a
+   descendant's own opacity, so exclusion requires the dimmed content to live in
+   a separate subtree rather than a CSS-only override. */
+.schedule-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
 /* Disabled state - service interval is 0 or startup-only */
 .schedule-card-disabled {
   opacity: 0.55;
@@ -331,6 +344,16 @@
 }
 
 .scheduled-prefill-card-summary__content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+/* Holds everything in the summary except the zero-enabled warning, so that warning (and
+   the Configure button, which lives outside this whole content block) can stay at full
+   opacity while the schedule-card-disabled tint is applied here. */
+.scheduled-prefill-card-summary__dimmable {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;

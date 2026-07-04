@@ -318,6 +318,28 @@ export function consumeLoginAttemptNonce(
   return true;
 }
 
+/**
+ * Peek-only companion to `consumeLoginAttemptNonce`: true when a login-attempt nonce has been
+ * bumped (an explicit "Log in" click happened, or this is a fresh service that has never consumed
+ * its initial nonce 0) but not yet consumed by any login component this session. Does not mutate
+ * `consumedLoginAttemptNonces` - only `consumeLoginAttemptNonce` itself does that, exactly once per
+ * nonce. Used by `PersistentLoginHost` to derive `autoStart` structurally instead of hardcoding it,
+ * alongside `pendingChallenge !== null` (an already reconcile-confirmed cached challenge) - see its
+ * doc comment for why either signal alone is what makes auto-firing `beginLogin()` legitimate.
+ *
+ * `nonce` defaults to a live Map read, but callers that already hold a value subscribed via
+ * `usePersistentLoginRequestNonce` should pass it explicitly - this function itself is not
+ * reactive, so a caller relying only on the default would need its own re-render trigger to ever
+ * observe a bump.
+ */
+export function hasUnconsumedLoginAttempt(
+  service: PersistentPrefillServiceId,
+  nonce: number = loginAttemptCounters.get(service) ?? 0
+): boolean {
+  const consumed = consumedLoginAttemptNonces.get(service) ?? -1;
+  return nonce > consumed;
+}
+
 export function isPersistentLoginCancelled(service: PersistentPrefillServiceId): boolean {
   return cancelFlags.get(service)?.current ?? false;
 }

@@ -7,6 +7,7 @@ using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -123,8 +124,28 @@ public class PersistentEraseOnStopTests
         await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: true, isReconnect: false);
     }
 
+    [Fact]
+    public async Task TerminateSessionAsync_DaemonRejectsPreLoginLogout_LogsDistinctFromGenericFailure()
+    {
+        // Older daemon image: its pre-login command gate rejects "logout" outright while the session
+        // hasn't finished authenticating (erase-on-stop regression diagnosis) - this must be logged as
+        // "nothing to log out" rather than "daemon reported failure", so an admin cancelling a
+        // mid-challenge login doesn't see what looks like a real daemon fault every time.
+        var client = new PreLoginRejectionDaemonClient();
+        var logger = new CapturingLogger();
+        var (daemon, session) = CreateSessionWithClient(client, isPersistent: true, logger: logger);
+
+        await daemon.TerminateSessionAsync(session.Id, "test stop");
+
+        Assert.Contains(logger.Entries, entry =>
+            entry.Level == LogLevel.Information &&
+            entry.Message.Contains("declined logout") &&
+            entry.Message.Contains("nothing to log out"));
+        Assert.DoesNotContain(logger.Entries, entry => entry.Message.Contains("daemon reported failure"));
+    }
+
     private static (PrefillDaemonServiceBase Daemon, DaemonSession Session) CreateSessionWithClient(
-        IDaemonClient client, bool isPersistent)
+        IDaemonClient client, bool isPersistent, ILogger<SteamDaemonService>? logger = null)
     {
         var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"persistent_erase_on_stop_{Guid.NewGuid():N}")
@@ -139,7 +160,7 @@ public class PersistentEraseOnStopTests
         var networkOptions = new StaticOptionsMonitor<PrefillNetworkOptions>(new PrefillNetworkOptions());
 
         var daemon = new TestableSteamDaemonService(
-            NullLogger<SteamDaemonService>.Instance, notifications, configuration, pathResolver,
+            logger ?? NullLogger<SteamDaemonService>.Instance, notifications, configuration, pathResolver,
             stateService, sessionService, cacheService, networkOptions);
 
         var session = new DaemonSession
@@ -291,6 +312,16 @@ public class PersistentEraseOnStopTests
 
         public abstract Task<bool> LogoutAsync(CancellationToken cancellationToken = default);
 
+        // Explicit (virtual, not DIM-inherited) so a subclass can override it the normal OOP way to
+        // simulate the daemon's RequiresLogin signal - mirrors TestDaemonClientBase in PersistentLogoutTests.cs.
+        // Fakes that don't override this just adapt whatever LogoutAsync returns, matching
+        // IDaemonClient's own default implementation.
+        public virtual async Task<LogoutOutcome> LogoutWithReasonAsync(CancellationToken cancellationToken = default)
+        {
+            var success = await LogoutAsync(cancellationToken);
+            return new LogoutOutcome(success, RequiresLogin: false);
+        }
+
         public Task CancelPrefillAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default)
@@ -361,5 +392,51 @@ public class PersistentEraseOnStopTests
     {
         public override Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("Simulated daemon logout round-trip failure.");
+    }
+
+    /// <summary>
+    /// Scenario: an older daemon image's pre-login command gate rejects "logout" outright because the
+    /// session hasn't finished authenticating - a real daemon response (not a transport error), just
+    /// one that carries <c>RequiresLogin: true</c> alongside <c>Success: false</c>.
+    /// </summary>
+    private sealed class PreLoginRejectionDaemonClient : TestDaemonClientBase
+    {
+        public override Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public override Task<LogoutOutcome> LogoutWithReasonAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(new LogoutOutcome(false, RequiresLogin: true));
+    }
+
+    private sealed record LogEntry(LogLevel Level, string Message);
+
+    /// <summary>Captures log entries so a test can assert on the exact text a scenario produces -
+    /// mirrors ScheduledPrefillServiceTests.cs's CapturingLogger.</summary>
+    private sealed class CapturingLogger : ILogger<SteamDaemonService>
+    {
+        private readonly object _sync = new();
+        private readonly List<LogEntry> _entries = [];
+
+        public IReadOnlyList<LogEntry> Entries
+        {
+            get { lock (_sync) return _entries.ToArray(); }
+        }
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            lock (_sync)
+            {
+                _entries.Add(new LogEntry(logLevel, formatter(state, exception)));
+            }
+        }
     }
 }

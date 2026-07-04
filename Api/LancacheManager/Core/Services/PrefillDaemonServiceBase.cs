@@ -1611,10 +1611,23 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            var loggedOut = await session.Client.LogoutAsync(cts.Token);
-            _logger.LogInformation(
-                "Best-effort logout for persistent {ServiceName} session {SessionId} ({Context}): {Result}",
-                ServiceName, session.Id, context, loggedOut ? "acknowledged" : "daemon reported failure");
+            var outcome = await session.Client.LogoutWithReasonAsync(cts.Token);
+            if (!outcome.Success && outcome.RequiresLogin)
+            {
+                // Older daemon image: its pre-login command gate rejects "logout" outright while the
+                // session hasn't finished authenticating (see the erase-on-stop regression diagnosis) -
+                // this is expected for a container being cancelled mid-challenge, not a real failure.
+                _logger.LogInformation(
+                    "Best-effort logout for persistent {ServiceName} session {SessionId} ({Context}): " +
+                    "daemon declined logout before authentication (older daemon image); nothing to log out",
+                    ServiceName, session.Id, context);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Best-effort logout for persistent {ServiceName} session {SessionId} ({Context}): {Result}",
+                    ServiceName, session.Id, context, outcome.Success ? "acknowledged" : "daemon reported failure");
+            }
         }
         catch (Exception ex)
         {
@@ -2180,10 +2193,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         ClearPendingLoginChallenge(session);
         session.Client.ClearPendingChallenges();
 
-        bool loggedOut;
+        LogoutOutcome outcome;
         try
         {
-            loggedOut = await session.Client.LogoutAsync(cancellationToken);
+            outcome = await session.Client.LogoutWithReasonAsync(cancellationToken);
         }
         catch (Exception ex)
         {
@@ -2193,11 +2206,25 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             return new PersistentLogoutResult(false);
         }
 
-        if (!loggedOut)
+        if (!outcome.Success)
         {
-            _logger.LogInformation(
-                "Daemon reported logout failed for persistent session {SessionId}; caller should fall back to a stop+restart",
-                sessionId);
+            if (outcome.RequiresLogin)
+            {
+                // Older daemon image's pre-login command gate rejected "logout" outright because this
+                // session hasn't finished authenticating - not a genuine failure. Still returns
+                // forgotten=false; the caller (frontend) routes this case to cancelling the in-flight
+                // login instead of falling back to a stop+restart.
+                _logger.LogInformation(
+                    "Daemon declined logout for persistent session {SessionId} before authentication completed " +
+                    "(older daemon image); nothing to log out",
+                    sessionId);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Daemon reported logout failed for persistent session {SessionId}; caller should fall back to a stop+restart",
+                    sessionId);
+            }
             return new PersistentLogoutResult(false);
         }
 

@@ -181,6 +181,12 @@ const ScheduleCard = memo(function ScheduleCard({
   const isScheduledPrefill = service.key === 'scheduledPrefill';
   const isCacheReconciliation = service.key === 'cacheReconciliation';
   const isRunningThis = runningKey === service.key;
+  // Zero interval means the schedule effectively won't run (for scheduled prefill this is
+  // the HasAnyEnabledService gate reporting "no services enabled"). The dim only lives on
+  // wrapper divs around the card body, not the Card itself, so ScheduledPrefillScheduleDetail
+  // can keep its own Configure button and warning text at full opacity - opacity on an
+  // ancestor cannot be undone by a descendant's own opacity.
+  const isDimmed = service.intervalHours === 0;
 
   const formatLastRun = (lastRunUtc: string | null): string => {
     if (!lastRunUtc) {
@@ -245,163 +251,167 @@ const ScheduleCard = memo(function ScheduleCard({
 
   return (
     <HighlightGlow enabled={justCompleted} variant={completedVariant}>
-      <Card
-        className={`schedule-card${service.intervalHours === 0 ? ' schedule-card-disabled' : ''}`}
-      >
-        {/* Header */}
-        <div className="schedule-card-header">
-          <div className="schedule-card-title-group">
-            <h3 className="schedule-card-name">
-              <span
-                className={`schedule-status-dot${service.isRunning && service.intervalHours > 0 ? ' running' : ''}`}
-                aria-label={
-                  service.isRunning
-                    ? t('management.schedules.statusRunning')
-                    : t('management.schedules.statusIdle')
-                }
-              />
-              {t(`management.schedules.services.${service.key}.displayName`)}
-            </h3>
-            <p className="schedule-card-description">
-              {t(`management.schedules.services.${service.key}.description`)}
-            </p>
+      <Card className="schedule-card">
+        <div className={`schedule-card-body${isDimmed ? ' schedule-card-disabled' : ''}`}>
+          {/* Header */}
+          <div className="schedule-card-header">
+            <div className="schedule-card-title-group">
+              <h3 className="schedule-card-name">
+                <span
+                  className={`schedule-status-dot${service.isRunning && service.intervalHours > 0 ? ' running' : ''}`}
+                  aria-label={
+                    service.isRunning
+                      ? t('management.schedules.statusRunning')
+                      : t('management.schedules.statusIdle')
+                  }
+                />
+                {t(`management.schedules.services.${service.key}.displayName`)}
+              </h3>
+              <p className="schedule-card-description">
+                {t(`management.schedules.services.${service.key}.description`)}
+              </p>
+            </div>
           </div>
-        </div>
 
-        {/* Timing Info */}
-        <div className="schedule-timing-row">
-          <div className="schedule-timing-item">
-            <span className="schedule-timing-label">{t('management.schedules.lastRun')}</span>
-            <span className="schedule-timing-value">{formatLastRun(service.lastRunUtc)}</span>
-          </div>
-          <div className="schedule-timing-item">
-            <span className="schedule-timing-label">{t('management.schedules.nextRun')}</span>
-            <CountdownDisplay
-              nextRunUtc={service.nextRunUtc}
-              intervalHours={service.intervalHours}
-              isRunning={service.isRunning}
-            />
-            {service.nextRunUtc && service.intervalHours > 0 && !service.isRunning && (
-              <span className="schedule-next-run-date">{formattedNextRun}</span>
-            )}
-          </div>
-        </div>
-
-        {/* Controls. Scheduled prefill hides the card-level single interval picker -
-          each platform owns its own interval in the per-service detail below. */}
-        <div className="schedule-controls-row">
-          {!isScheduledPrefill && (
-            <div className="schedule-dropdown-wrapper">
-              <ScheduleIntervalPicker
+          {/* Timing Info */}
+          <div className="schedule-timing-row">
+            <div className="schedule-timing-item">
+              <span className="schedule-timing-label">{t('management.schedules.lastRun')}</span>
+              <span className="schedule-timing-value">{formatLastRun(service.lastRunUtc)}</span>
+            </div>
+            <div className="schedule-timing-item">
+              <span className="schedule-timing-label">{t('management.schedules.nextRun')}</span>
+              <CountdownDisplay
+                nextRunUtc={service.nextRunUtc}
                 intervalHours={service.intervalHours}
-                isDisabled={isDisabled}
-                onChange={handleIntervalChange}
+                isRunning={service.isRunning}
+              />
+              {service.nextRunUtc && service.intervalHours > 0 && !service.isRunning && (
+                <span className="schedule-next-run-date">{formattedNextRun}</span>
+              )}
+            </div>
+          </div>
+
+          {/* Controls. Scheduled prefill hides the card-level single interval picker -
+          each platform owns its own interval in the per-service detail below. */}
+          <div className="schedule-controls-row">
+            {!isScheduledPrefill && (
+              <div className="schedule-dropdown-wrapper">
+                <ScheduleIntervalPicker
+                  intervalHours={service.intervalHours}
+                  isDisabled={isDisabled}
+                  onChange={handleIntervalChange}
+                />
+              </div>
+            )}
+            <Button
+              variant="filled"
+              color="green"
+              size="sm"
+              onClick={handleRunNow}
+              disabled={isDisabled}
+              loading={isRunningThis}
+              className="schedule-run-button schedule-control-button"
+            >
+              {t('management.schedules.runNow')}
+            </Button>
+          </div>
+
+          {isDepotMapping && (
+            <div className="schedule-extra-row">
+              <div className="schedule-extra-copy">
+                <span className="schedule-extra-label">
+                  {t('management.schedules.services.depotMapping.scanModeLabel')}
+                </span>
+                <p className="schedule-extra-help">
+                  {t('management.schedules.services.depotMapping.scanModeHelp')}
+                </p>
+              </div>
+              <div className="schedule-extra-control">
+                <DepotScheduleModeDropdown
+                  mode={depotScheduledMode}
+                  isDisabled={isDisabled}
+                  isSteamWebApiAvailable={isSteamWebApiAvailable}
+                  onChange={handleDepotScanModeChange}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {isScheduledPrefill && (
+          <ScheduledPrefillScheduleDetail disabled={isDisabled} dimmed={isDimmed} />
+        )}
+
+        <div className={`schedule-card-body${isDimmed ? ' schedule-card-disabled' : ''}`}>
+          {/* Reverse of the management-side "View Schedule" button: jumps to the Eviction
+          Detection and Removal card in the Storage section and glows it into view. */}
+          {isCacheReconciliation && onNavigateToEvictionSettings && (
+            <div className="schedule-nav-row">
+              <Button
+                variant="filled"
+                color="blue"
+                size="sm"
+                onClick={onNavigateToEvictionSettings}
+                rightSection={<Sliders className="w-3.5 h-3.5" />}
+              >
+                {t('management.schedules.services.cacheReconciliation.viewManagement')}
+              </Button>
+            </div>
+          )}
+
+          {/* Run-on-startup toggle - hidden when interval is "Startup only" (-1) since the
+          entire point of that schedule IS to run at startup, making the toggle redundant.
+          Also hidden for scheduled prefill, where startup-vs-interval is set per platform. */}
+          {service.intervalHours !== -1 && !isScheduledPrefill && (
+            <div className="schedule-startup-row">
+              <Checkbox
+                id={`run-on-startup-${service.key}`}
+                checked={service.runOnStartup}
+                disabled={isDisabled}
+                onChange={handleRunOnStartupChange}
+                title={t('management.schedules.runOnStartupTooltip')}
+                label={t('management.schedules.runOnStartup')}
               />
             </div>
           )}
-          <Button
-            variant="filled"
-            color="green"
-            size="sm"
-            onClick={handleRunNow}
-            disabled={isDisabled}
-            loading={isRunningThis}
-            className="schedule-run-button schedule-control-button"
-          >
-            {t('management.schedules.runNow')}
-          </Button>
-        </div>
 
-        {isDepotMapping && (
-          <div className="schedule-extra-row">
-            <div className="schedule-extra-copy">
-              <span className="schedule-extra-label">
-                {t('management.schedules.services.depotMapping.scanModeLabel')}
-              </span>
-              <p className="schedule-extra-help">
-                {t('management.schedules.services.depotMapping.scanModeHelp')}
-              </p>
-            </div>
-            <div className="schedule-extra-control">
-              <DepotScheduleModeDropdown
-                mode={depotScheduledMode}
-                isDisabled={isDisabled}
-                isSteamWebApiAvailable={isSteamWebApiAvailable}
-                onChange={handleDepotScanModeChange}
-              />
-            </div>
-          </div>
-        )}
-
-        {isScheduledPrefill && <ScheduledPrefillScheduleDetail disabled={isDisabled} />}
-
-        {/* Reverse of the management-side "View Schedule" button: jumps to the Eviction
-          Detection and Removal card in the Storage section and glows it into view. */}
-        {isCacheReconciliation && onNavigateToEvictionSettings && (
-          <div className="schedule-nav-row">
-            <Button
-              variant="filled"
-              color="blue"
-              size="sm"
-              onClick={onNavigateToEvictionSettings}
-              rightSection={<Sliders className="w-3.5 h-3.5" />}
-            >
-              {t('management.schedules.services.cacheReconciliation.viewManagement')}
-            </Button>
-          </div>
-        )}
-
-        {/* Run-on-startup toggle - hidden when interval is "Startup only" (-1) since the
-          entire point of that schedule IS to run at startup, making the toggle redundant.
-          Also hidden for scheduled prefill, where startup-vs-interval is set per platform. */}
-        {service.intervalHours !== -1 && !isScheduledPrefill && (
-          <div className="schedule-startup-row">
-            <Checkbox
-              id={`run-on-startup-${service.key}`}
-              checked={service.runOnStartup}
-              disabled={isDisabled}
-              onChange={handleRunOnStartupChange}
-              title={t('management.schedules.runOnStartupTooltip')}
-              label={t('management.schedules.runOnStartup')}
-            />
-          </div>
-        )}
-
-        {/* Expandable Gain/Loss */}
-        {hasExpandableContent && (
-          <div>
-            <button
-              className="schedule-expand-toggle"
-              onClick={handleToggleExpand}
-              aria-expanded={expanded}
-            >
-              <span className={`schedule-expand-chevron${expanded ? ' open' : ''}`}>▼</span>
-              {expanded
-                ? t('management.schedules.hideDetails')
-                : t('management.schedules.showDetails')}
-            </button>
-            <div className={`schedule-expandable${expanded ? ' open' : ''}`}>
-              <div className="schedule-expandable-inner">
-                <div className="schedule-gain-loss-item">
-                  <span className="schedule-gain-loss-label gain">
-                    {t('management.schedules.gain')}
-                  </span>
-                  <p className="schedule-gain-loss-text">
-                    {t(`management.schedules.services.${service.key}.gain`)}
-                  </p>
-                </div>
-                <div className="schedule-gain-loss-item">
-                  <span className="schedule-gain-loss-label loss">
-                    {t('management.schedules.loss')}
-                  </span>
-                  <p className="schedule-gain-loss-text">
-                    {t(`management.schedules.services.${service.key}.loss`)}
-                  </p>
+          {/* Expandable Gain/Loss */}
+          {hasExpandableContent && (
+            <div>
+              <button
+                className="schedule-expand-toggle"
+                onClick={handleToggleExpand}
+                aria-expanded={expanded}
+              >
+                <span className={`schedule-expand-chevron${expanded ? ' open' : ''}`}>▼</span>
+                {expanded
+                  ? t('management.schedules.hideDetails')
+                  : t('management.schedules.showDetails')}
+              </button>
+              <div className={`schedule-expandable${expanded ? ' open' : ''}`}>
+                <div className="schedule-expandable-inner">
+                  <div className="schedule-gain-loss-item">
+                    <span className="schedule-gain-loss-label gain">
+                      {t('management.schedules.gain')}
+                    </span>
+                    <p className="schedule-gain-loss-text">
+                      {t(`management.schedules.services.${service.key}.gain`)}
+                    </p>
+                  </div>
+                  <div className="schedule-gain-loss-item">
+                    <span className="schedule-gain-loss-label loss">
+                      {t('management.schedules.loss')}
+                    </span>
+                    <p className="schedule-gain-loss-text">
+                      {t(`management.schedules.services.${service.key}.loss`)}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </Card>
     </HighlightGlow>
   );

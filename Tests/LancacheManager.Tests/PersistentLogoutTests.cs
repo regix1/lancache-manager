@@ -7,6 +7,7 @@ using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -126,8 +127,34 @@ public class PersistentLogoutTests
             () => daemon.LogoutPersistentSessionAsync("no-such-session", CancellationToken.None));
     }
 
+    [Fact]
+    public async Task LogoutPersistentSessionAsync_DaemonRejectsPreLoginLogout_ReturnsLoggedOutFalse_NoTeardown_DistinctLog()
+    {
+        // Older daemon image: its pre-login command gate rejects "logout" outright while the session
+        // hasn't finished authenticating (erase-on-stop regression diagnosis). Must still return
+        // forgotten=false (the frontend routes this to cancelling the in-flight login instead of a
+        // stop+restart), but the log line must say so distinctly rather than reading as a genuine
+        // daemon failure every single time an admin cancels a mid-challenge login.
+        var client = new PreLoginRejectionDaemonClient();
+        var logger = new CapturingLogger();
+        var (daemon, session) = CreateSessionWithClient(client, logger: logger);
+        session.AuthState = DaemonAuthState.Authenticated;
+        var pending = new CredentialChallenge { ChallengeId = "still-pending", CredentialType = "username" };
+        session.PendingLoginChallenge = pending;
+
+        var result = await daemon.LogoutPersistentSessionAsync(session.Id, CancellationToken.None);
+
+        Assert.False(result.LoggedOut);
+        Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
+        Assert.Null(session.PendingLoginChallenge);
+        Assert.Contains(logger.Entries, entry =>
+            entry.Level == LogLevel.Information &&
+            entry.Message.Contains("before authentication completed"));
+        Assert.DoesNotContain(logger.Entries, entry => entry.Message.Contains("Daemon reported logout failed"));
+    }
+
     private static (PrefillDaemonServiceBase Daemon, DaemonSession Session) CreateSessionWithClient(
-        IDaemonClient client, bool isPersistent = true)
+        IDaemonClient client, bool isPersistent = true, ILogger<SteamDaemonService>? logger = null)
     {
         var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"persistent_logout_{Guid.NewGuid():N}")
@@ -142,7 +169,7 @@ public class PersistentLogoutTests
         var networkOptions = new StaticOptionsMonitor<PrefillNetworkOptions>(new PrefillNetworkOptions());
 
         var daemon = new TestableSteamDaemonService(
-            NullLogger<SteamDaemonService>.Instance, notifications, configuration, pathResolver,
+            logger ?? NullLogger<SteamDaemonService>.Instance, notifications, configuration, pathResolver,
             stateService, sessionService, cacheService, networkOptions);
 
         var session = new DaemonSession
@@ -295,6 +322,16 @@ public class PersistentLogoutTests
 
         public abstract Task<bool> LogoutAsync(CancellationToken cancellationToken = default);
 
+        // Explicit (virtual, not DIM-inherited) so a subclass can override it the normal OOP way to
+        // simulate the daemon's RequiresLogin signal - mirrors TestDaemonClientBase in
+        // PersistentEraseOnStopTests.cs. Fakes that don't override this just adapt whatever
+        // LogoutAsync returns, matching IDaemonClient's own default implementation.
+        public virtual async Task<LogoutOutcome> LogoutWithReasonAsync(CancellationToken cancellationToken = default)
+        {
+            var success = await LogoutAsync(cancellationToken);
+            return new LogoutOutcome(success, RequiresLogin: false);
+        }
+
         public Task CancelPrefillAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default)
@@ -365,6 +402,20 @@ public class PersistentLogoutTests
     }
 
     /// <summary>
+    /// Scenario: an older daemon image's pre-login command gate rejects "logout" outright because the
+    /// session hasn't finished authenticating - a real daemon response (not a transport error), just
+    /// one that carries <c>RequiresLogin: true</c> alongside <c>Success: false</c>.
+    /// </summary>
+    private sealed class PreLoginRejectionDaemonClient : TestDaemonClientBase
+    {
+        public override Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public override Task<LogoutOutcome> LogoutWithReasonAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(new LogoutOutcome(false, RequiresLogin: true));
+    }
+
+    /// <summary>
     /// Records the order in which <see cref="ClearPendingChallenges"/> and <see cref="LogoutAsync"/>
     /// are invoked, and snapshots whether the session's cached <c>PendingLoginChallenge</c> was already
     /// cleared by the time the daemon round-trip starts - proves the clear-before-round-trip ordering
@@ -386,6 +437,38 @@ public class PersistentLogoutTests
             CallOrder.Add(nameof(LogoutAsync));
             ChallengeWasAlreadyNullDuringLogoutCall = Session?.PendingLoginChallenge is null;
             return Task.FromResult(true);
+        }
+    }
+
+    private sealed record LogEntry(LogLevel Level, string Message);
+
+    /// <summary>Captures log entries so a test can assert on the exact text a scenario produces -
+    /// mirrors ScheduledPrefillServiceTests.cs's CapturingLogger.</summary>
+    private sealed class CapturingLogger : ILogger<SteamDaemonService>
+    {
+        private readonly object _sync = new();
+        private readonly List<LogEntry> _entries = [];
+
+        public IReadOnlyList<LogEntry> Entries
+        {
+            get { lock (_sync) return _entries.ToArray(); }
+        }
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            lock (_sync)
+            {
+                _entries.Add(new LogEntry(logLevel, formatter(state, exception)));
+            }
         }
     }
 }
