@@ -69,6 +69,27 @@ function isPersistentSessionConflictError(
   );
 }
 
+/**
+ * Thrown by pollForResult instead of ever calling the challenge-GET REST endpoint when the store
+ * has no pinned sessionId for this service anymore. This is a normal, already-ended flow, not a
+ * failure: something else (a successful SignalR auth, a container-list retire on a stop, the
+ * overall login timeout) already reset the store, but a free-standing poll loop that isn't wired
+ * to observe that reset (see usePersistentXboxAuth's own guard, which is the primary fix) can still
+ * fire one more iteration. Sending an empty sessionId would always 400 with a scary-looking
+ * "sessionId is required" - recognized and swallowed everywhere it can surface (poll/submit/
+ * handleAuthenticate below) instead of being treated like a real failure.
+ */
+class PersistentLoginNoPinnedSessionError extends Error {
+  constructor(service: string) {
+    super(`No pinned session for ${service} - the login flow already ended`);
+    this.name = 'PersistentLoginNoPinnedSessionError';
+  }
+}
+
+function isNoPinnedSessionError(error: unknown): error is PersistentLoginNoPinnedSessionError {
+  return error instanceof PersistentLoginNoPinnedSessionError;
+}
+
 interface UsePersistentPrefillAuthOptions {
   service?: PersistentPrefillServiceId;
   timeoutSeconds?: number;
@@ -202,20 +223,23 @@ export function usePersistentPrefillAuth(
   );
 
   const pollForResult = useCallback(async (): Promise<PollResult> => {
+    // Read the session id LIVE (not the `stored` snapshot closed over when this callback was
+    // created) - Xbox's device-code flow calls this from a poll loop that starts synchronously
+    // right after start() resolves, in the same render pass that just wrote the real sessionId
+    // into the store. That write only schedules a re-render; reading `stored.sessionId` here
+    // would still see the pre-login `null` until the next render. getPersistentLoginSessionId
+    // reads the module store directly, so it always sees the value as of THIS call.
+    const sessionId = getPersistentLoginSessionId(service);
+    if (!sessionId) {
+      // Nothing pinned anymore - the flow already ended elsewhere (successful auth, a container
+      // retire, the overall timeout). Never send an empty sessionId; the backend always 400s on
+      // one ("sessionId is required"), which looks like a real failure but isn't. See
+      // PersistentLoginNoPinnedSessionError's doc comment.
+      throw new PersistentLoginNoPinnedSessionError(service);
+    }
+
     try {
-      // Read the session id LIVE (not the `stored` snapshot closed over when this callback was
-      // created) - Xbox's device-code flow calls this from a poll loop that starts synchronously
-      // right after start() resolves, in the same render pass that just wrote the real sessionId
-      // into the store. That write only schedules a re-render; reading `stored.sessionId` here
-      // would still see the pre-login `null` until the next render, sending an empty sessionId and
-      // getting rejected with "sessionId is required" even though nothing is actually wrong - the
-      // daemon is just waiting on the user. getPersistentLoginSessionId reads the module store
-      // directly, so it always sees the value as of THIS call, not as of this closure's creation.
-      const response = await ApiService.getPersistentChallenge(
-        service,
-        timeoutSeconds,
-        getPersistentLoginSessionId(service) ?? ''
-      );
+      const response = await ApiService.getPersistentChallenge(service, timeoutSeconds, sessionId);
       // TEMP DIAGNOSTIC (persistent device-confirmation completion): shows what the REST poll returns
       // while waiting for phone approval (authenticated / a new challenge / pending). Remove once fixed.
       const pollStatus = isPersistentLoginAuthenticatedResponse(response)
@@ -306,9 +330,11 @@ export function usePersistentPrefillAuth(
         const result = await submitChallenge(stored.pendingChallenge, credential);
         return result.status === 'authenticated';
       } catch (err) {
-        if (isPersistentSessionConflictError(err)) {
-          // Already reset (with its own translated message) inside submitChallenge/pollForResult's
-          // own catch - a generic fail() here would stomp that reset with a second, unrelated write.
+        if (isNoPinnedSessionError(err) || isPersistentSessionConflictError(err)) {
+          // Not real failures - see PersistentLoginNoPinnedSessionError's doc comment and the
+          // session-conflict handling above; a generic fail() here would stomp whatever the
+          // originating catch already did (or, for the no-pinned-session case, write a scary error
+          // over a flow that already ended cleanly elsewhere).
           return false;
         }
         const message = err instanceof Error ? err.message : 'Failed to submit credential';
@@ -340,6 +366,12 @@ export function usePersistentPrefillAuth(
       setLoading(false);
       return result;
     } catch (err) {
+      if (isNoPinnedSessionError(err)) {
+        // Not a real failure - see PersistentLoginNoPinnedSessionError's doc comment. Just let the
+        // exception propagate so the caller's poll loop (usePersistentXboxAuth's
+        // pollUntilAuthenticated) stops, without ever writing an error into the store.
+        throw err;
+      }
       if (isPersistentChallengeNotFoundError(err)) {
         // Terminal, not a transient failure: the daemon session behind this poll is gone, so
         // continuing to poll it is pointless. Reset to a friendly idle state instead of leaving
@@ -523,9 +555,9 @@ export function usePersistentPrefillAuth(
 
       return stored.authenticated;
     } catch (err) {
-      if (isPersistentSessionConflictError(err)) {
-        // Already reset (with its own translated message) inside submitChallenge/pollForResult's
-        // own catch - avoid a second, unrelated fail() write here.
+      if (isNoPinnedSessionError(err) || isPersistentSessionConflictError(err)) {
+        // Not real failures - see PersistentLoginNoPinnedSessionError's doc comment and the
+        // session-conflict handling above; avoid a second, unrelated fail() write here.
         return false;
       }
       const message = err instanceof Error ? err.message : 'Failed to authenticate';

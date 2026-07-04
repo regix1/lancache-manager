@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { usePersistentPrefillAuth } from './usePersistentPrefillAuth';
+import { getPersistentLoginSessionId } from '@components/features/management/schedules/scheduled-prefill/persistentLoginStore';
 import type { CredentialChallenge } from './usePrefillSteamAuth';
 import type { XboxAuthActions, XboxAuthState } from './useXboxMappingAuth';
 
@@ -34,7 +35,18 @@ export function usePersistentXboxAuth(options: UsePersistentXboxAuthOptions = {}
   const pollUntilAuthenticated = useCallback(
     async (generation: number): Promise<boolean> => {
       let lastChallengeId: string | null = null;
-      while (pollGenerationRef.current === generation) {
+      // Also stop once nothing is pinned anymore (getPersistentLoginSessionId('Xbox') === null) -
+      // this loop has no other way to observe an external reset (a successful auth via SignalR, a
+      // container-list retire on a stop, the overall login timeout). Without this check the loop
+      // would keep running on its own local generation ref alone and fire one more poll with an
+      // empty sessionId, which the backend always rejects with a misleading "sessionId is required"
+      // even though the flow already ended cleanly. pollForResult has its own last-resort guard for
+      // the same condition (a race can still slip between this check and the call below), but
+      // checking here avoids even attempting the doomed request in the common case.
+      while (
+        pollGenerationRef.current === generation &&
+        getPersistentLoginSessionId('Xbox') !== null
+      ) {
         const result = await coreActions.poll();
         if (result.status === 'authenticated') {
           return true;
