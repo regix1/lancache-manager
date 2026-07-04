@@ -9,6 +9,7 @@ import {
   Palette,
   Container,
   Calendar,
+  Radar,
   type LucideIcon
 } from 'lucide-react';
 
@@ -20,7 +21,8 @@ export type ManagementSection =
   | 'schedules'
   | 'preferences'
   | 'clients'
-  | 'prefill-sessions';
+  | 'prefill-sessions'
+  | 'status-check';
 
 interface TabConfig {
   id: ManagementSection;
@@ -99,6 +101,13 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
       shortLabelKey: 'management.nav.prefillSessionsShort',
       icon: Container,
       descriptionKey: 'management.nav.prefillSessionsDesc'
+    },
+    {
+      id: 'status-check',
+      labelKey: 'management.nav.statusCheck',
+      shortLabelKey: 'management.nav.statusCheckShort',
+      icon: Radar,
+      descriptionKey: 'management.nav.statusCheckDesc'
     }
   ];
 

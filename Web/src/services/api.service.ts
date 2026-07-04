@@ -3505,6 +3505,48 @@ class ApiService {
       throw error;
     }
   }
+
+  // Status Check (Management > Status Check DNS diagnostics)
+  static async getStatusCheck(signal?: AbortSignal): Promise<StatusCheckStatusResponse> {
+    const response = await fetch(`${API_BASE}/status-check`, this.getFetchOptions({ signal }));
+    return this.handleResponse<StatusCheckStatusResponse>(response);
+  }
+
+  static async runStatusCheck(): Promise<StatusCheckRunResponse> {
+    const response = await fetch(
+      `${API_BASE}/status-check/run`,
+      this.getFetchOptions({ method: 'POST' })
+    );
+    return this.handleResponse<StatusCheckRunResponse>(response);
+  }
+
+  static async testStatusCheckDomain(domain: string): Promise<StatusCheckTestDomainResponse> {
+    const response = await fetch(
+      `${API_BASE}/status-check/test-domain`,
+      this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domain })
+      })
+    );
+    return this.handleResponse<StatusCheckTestDomainResponse>(response);
+  }
+
+  static async refreshCacheDomains(): Promise<StatusCheckRefreshDomainsResponse> {
+    const response = await fetch(
+      `${API_BASE}/status-check/refresh-domains`,
+      this.getFetchOptions({ method: 'POST' })
+    );
+    return this.handleResponse<StatusCheckRefreshDomainsResponse>(response);
+  }
+
+  static async getCacheDomains(signal?: AbortSignal): Promise<StatusCheckDomainsResponse> {
+    const response = await fetch(
+      `${API_BASE}/status-check/domains`,
+      this.getFetchOptions({ signal })
+    );
+    return this.handleResponse<StatusCheckDomainsResponse>(response);
+  }
 }
 
 // Prefill admin types
@@ -3534,6 +3576,132 @@ export interface DnsTestResult {
   isPrivateIp: boolean;
   success: boolean;
   error?: string;
+}
+
+// Status Check (Management > Status Check) - mirrors the backend StatusCheckResponses contract
+export interface StatusCheckDomainResult {
+  /** Hostname actually queried (wildcard entries probe a literal "status-check" label). */
+  domain: string;
+  /** Raw cache-domains list entry (display this, e.g. "*.cdn.blizzard.com"). */
+  originalEntry: string;
+  service: string;
+  /** v1.4 semantics: resolved = heartbeat-verified live OR matches expectedIps; mismatched =
+   *  public answer with no heartbeat/match; unverified = private answer with no heartbeat/match. */
+  status: 'resolved' | 'mismatched' | 'unresolved' | 'unverified';
+  resolvedIps: string[];
+  expectedIps: string[];
+  /** True when a resolved IP answered /lancache-heartbeat during this sweep (v1.4). */
+  heartbeatVerified: boolean;
+  /** X-LanCache-Processed-By hostname of the verifying IP; null when not heartbeat-verified. */
+  servedBy: string | null;
+  error: string | null;
+  latencyMs: number | null;
+}
+
+export interface StatusCheckServiceResult {
+  service: string;
+  description: string;
+  /** "disabled" = DISABLE_<SERVICE>=true in lancache-dns; skipped by the sweep (domains: []).
+   *  "unverified" = resolving, but no expected cache IP was known to verify against (v1.3). */
+  status: 'resolved' | 'partial' | 'unresolved' | 'disabled' | 'unverified';
+  resolvedCount: number;
+  totalCount: number;
+  domains: StatusCheckDomainResult[];
+}
+
+export interface StatusCheckHeartbeatResult {
+  reachable: boolean;
+  servedBy: string | null;
+  cacheIp: string | null;
+  error: string | null;
+}
+
+export interface StatusCheckSummary {
+  totalServices: number;
+  resolvedServices: number;
+  partialServices: number;
+  unresolvedServices: number;
+  /** Services intentionally not cached (DISABLE_* in lancache-dns) - excluded from verdict math. */
+  disabledServices: number;
+  /** Services resolving with no expected cache IP to verify against (v1.3) - excluded from verdict math. */
+  unverifiedServices: number;
+  totalDomains: number;
+  resolvedDomains: number;
+  /** Domains resolving with no expected cache IP to verify against (v1.3). */
+  unverifiedDomains: number;
+}
+
+/** One cache node behind the resolved fleet, identified by its X-LanCache-Processed-By hostname,
+ *  with every verified IP that answered as it. */
+export interface StatusCheckCacheNodeInfo {
+  servedBy: string;
+  ips: string[];
+}
+
+export interface StatusCheckResult {
+  startedAtUtc: string;
+  completedAtUtc: string;
+  resolverSource: 'configured' | 'detected' | 'system';
+  dnsServer: string | null;
+  expectedCacheIps: string[];
+  /** Where the expected cache IP(s) came from (contract amendment v1.1/v1.2); "none" means no
+   *  source could determine one (expectedCacheIps is empty in that case). */
+  expectedIpSource: 'config' | 'dockerInspect' | 'envFile' | 'detected' | 'none';
+  heartbeat: StatusCheckHeartbeatResult;
+  services: StatusCheckServiceResult[];
+  summary: StatusCheckSummary;
+  /** Mean latencyMs across every domain result with a non-null latency, regardless of status;
+   *  null when nothing in the sweep measured one. */
+  avgLatencyMs: number | null;
+  /** Verified cache IPs grouped by the hostname that answered their heartbeat; empty when nothing
+   *  heartbeat-verified during this sweep. */
+  cacheNodes: StatusCheckCacheNodeInfo[];
+}
+
+export interface StatusCheckDomainsSource {
+  repoUrl: string;
+  branch: string;
+  envFilePath: string | null;
+  /** Where CACHE_DOMAINS_REPO/BRANCH/NOFETCH were read from (contract amendment v1.2). */
+  envSource: 'dockerInspect' | 'envFile' | 'defaults';
+  noFetch: boolean;
+  fetchedAtUtc: string | null;
+  fromCache: boolean;
+  /** Set when the last fetch attempt failed or NOFETCH blocked a fetch with no disk copy. */
+  error: string | null;
+}
+
+export interface StatusCheckStatusResponse {
+  lastResult: StatusCheckResult | null;
+  domainsSource: StatusCheckDomainsSource | null;
+  isRunning: boolean;
+  operationId: string | null;
+}
+
+interface StatusCheckRunResponse {
+  operationId: string;
+}
+
+export interface StatusCheckTestDomainResponse {
+  result: StatusCheckDomainResult;
+  /** Attempted against the domain's resolved IP when it resolves; null otherwise. */
+  heartbeat: StatusCheckHeartbeatResult | null;
+}
+
+interface StatusCheckRefreshDomainsResponse {
+  domainsSource: StatusCheckDomainsSource;
+  serviceCount: number;
+  domainCount: number;
+}
+
+export interface StatusCheckDomainGroup {
+  name: string;
+  description: string;
+  domains: string[];
+}
+
+interface StatusCheckDomainsResponse {
+  services: StatusCheckDomainGroup[];
 }
 
 export interface NetworkDiagnostics {

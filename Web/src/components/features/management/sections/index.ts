@@ -6,3 +6,4 @@ export { default as SchedulesSection } from '../schedules/SchedulesSection';
 export { default as PreferencesSection } from './PreferencesSection';
 export { default as ClientsSection } from './ClientsSection';
 export { default as PrefillSessionsSection } from './PrefillSessionsSection';
+export { default as StatusCheckSection } from '../status-check/StatusCheckSection';

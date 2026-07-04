@@ -1,0 +1,164 @@
+/* Status Check tab (Management > Status Check) - co-located styles.
+   Only what Tailwind utilities + theme tokens can't express lives here:
+   the hero status glyph and the resolution ribbon (the tab's signature element). */
+
+/* Hero status glyph - icon-in-rounded-box, colored by overall verdict. */
+.status-check-glyph {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.status-check-glyph--success {
+  background-color: var(--theme-success-bg);
+  color: var(--theme-success);
+}
+
+.status-check-glyph--warning {
+  background-color: var(--theme-warning-bg);
+  color: var(--theme-warning);
+}
+
+.status-check-glyph--error {
+  background-color: var(--theme-error-bg);
+  color: var(--theme-error);
+}
+
+.status-check-glyph--info {
+  background-color: var(--theme-info-bg);
+  color: var(--theme-info);
+}
+
+.status-check-glyph--neutral {
+  background-color: var(--theme-bg-tertiary);
+  color: var(--theme-text-secondary);
+}
+
+/* Resolution ribbon: one segment per service. During a sweep the segments fill
+   in live from StatusCheckProgress events - the ribbon IS the progress bar. */
+.status-check-ribbon {
+  display: flex;
+  gap: 3px;
+  width: 100%;
+  /* Clearance for the segments' expanded hit area (::before below). */
+  padding: 13px 0;
+}
+
+.status-check-ribbon-segment {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 6px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background-color: var(--theme-bg-tertiary);
+  cursor: pointer;
+  transition:
+    background-color 0.3s ease,
+    opacity 0.15s ease;
+}
+
+/* Expand the vertical hit area to ~44px without growing the visual strip. */
+.status-check-ribbon-segment::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -13px;
+  bottom: -13px;
+}
+
+.status-check-ribbon-segment:disabled {
+  cursor: default;
+}
+
+@media (hover: hover) {
+  .status-check-ribbon-segment:not(:disabled):hover {
+    opacity: 0.8;
+  }
+}
+
+.status-check-ribbon-segment:focus-visible {
+  outline: 2px solid var(--theme-border-focus);
+  outline-offset: 2px;
+}
+
+.status-check-ribbon-segment--resolved {
+  background-color: var(--theme-success);
+}
+
+.status-check-ribbon-segment--partial {
+  background-color: var(--theme-warning);
+}
+
+.status-check-ribbon-segment--unresolved {
+  background-color: var(--theme-error);
+}
+
+.status-check-ribbon-segment--pending {
+  background-color: var(--theme-bg-tertiary);
+}
+
+.status-check-ribbon-segment--disabled {
+  background-color: var(--theme-bg-tertiary);
+}
+
+/* Resolving but nothing to verify against (v1.3) - info tone, never error red. */
+.status-check-ribbon-segment--unverified {
+  background-color: var(--theme-info);
+}
+
+.status-check-ribbon-segment--scanned {
+  background-color: var(--theme-accent);
+}
+
+.status-check-ribbon-segment--scanning {
+  background-color: var(--theme-accent-subtle);
+  animation: status-check-scanning-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes status-check-scanning-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* Mobile: wrap into tappable blocks so every segment keeps a >=44px hit target
+   even with dozens of services. */
+@media (max-width: 640px) {
+  .status-check-ribbon {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 10px 0;
+  }
+
+  .status-check-ribbon-segment {
+    flex: 1 0 44px;
+    min-width: 44px;
+    height: 24px;
+  }
+
+  .status-check-ribbon-segment::before {
+    top: -10px;
+    bottom: -10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-check-ribbon-segment {
+    transition: none;
+  }
+
+  .status-check-ribbon-segment--scanning {
+    animation: none;
+  }
+}

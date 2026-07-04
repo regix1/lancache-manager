@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Models;
+using LancacheManager.Models.Responses;
 
 namespace LancacheManager.Infrastructure.Services;
 
@@ -65,6 +66,7 @@ public class StateService : IStateService
         // OperationStates moved to data/operations/operation_history.json
         public bool SetupCompleted { get; set; } = false;
         public DateTime? LastPicsCrawl { get; set; }
+        public StatusCheckResult? StatusCheckResult { get; set; }
         public DateTime? EpicMappingLastCollection { get; set; }
         public double CrawlIntervalHours { get; set; } = 1.0;
         public object CrawlIncrementalMode { get; set; } = true;
@@ -728,6 +730,17 @@ public class StateService : IStateService
         UpdateState(state => state.LastPicsCrawl = crawlTime);
     }
 
+    // Status Check (DNS diagnostics) Methods
+    public StatusCheckResult? GetStatusCheckResult()
+    {
+        return GetState().StatusCheckResult;
+    }
+
+    public void SetStatusCheckResult(StatusCheckResult result)
+    {
+        UpdateState(state => state.StatusCheckResult = result);
+    }
+
     // Epic Mapping Last-Collection Methods
     public DateTime? GetEpicMappingCollectedAt()
     {
@@ -982,6 +995,7 @@ public class StateService : IStateService
             // OperationStates loaded from separate file via GetOperationStates()
             SetupCompleted = persisted.SetupCompleted,
             LastPicsCrawl = persisted.LastPicsCrawl,
+            StatusCheckResult = persisted.StatusCheckResult,
             EpicMappingLastCollection = persisted.EpicMappingLastCollection,
             CrawlIntervalHours = persisted.CrawlIntervalHours,
             CrawlIncrementalMode = persisted.CrawlIncrementalMode,
@@ -1082,6 +1096,7 @@ public class StateService : IStateService
             // OperationStates saved to separate file via SaveOperationStates()
             SetupCompleted = state.SetupCompleted,
             LastPicsCrawl = state.LastPicsCrawl,
+            StatusCheckResult = state.StatusCheckResult,
             EpicMappingLastCollection = state.EpicMappingLastCollection,
             CrawlIntervalHours = state.CrawlIntervalHours,
             CrawlIncrementalMode = state.CrawlIncrementalMode,

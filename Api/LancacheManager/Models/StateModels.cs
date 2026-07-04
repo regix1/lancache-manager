@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using LancacheManager.Models.Responses;
 
 namespace LancacheManager.Models;
 
@@ -17,6 +18,8 @@ public class AppState
     public List<OperationState> OperationStates { get; set; } = new();
     public bool SetupCompleted { get; set; } = false;
     public DateTime? LastPicsCrawl { get; set; }
+    // Last completed Status Check sweep result, so GET api/status-check survives a restart.
+    public StatusCheckResult? StatusCheckResult { get; set; }
     public DateTime? EpicMappingLastCollection { get; set; } // Last time the Epic catalog/CDN patterns were collected
     public double CrawlIntervalHours { get; set; } = 1.0; // Default to 1 hour
     public object CrawlIncrementalMode { get; set; } = true; // Default to incremental scans (true/false/"github")

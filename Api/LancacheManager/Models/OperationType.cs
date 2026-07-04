@@ -29,7 +29,8 @@ public enum OperationType
     EvictionScan,
     EvictionRemoval,
     CacheSizeScan,
-    ScheduledPrefill
+    ScheduledPrefill,
+    StatusCheck
 }
 
 /// <summary>
@@ -89,6 +90,7 @@ public static class OperationTypeExtensions
         OperationType.EvictionRemoval => "evictionRemoval",
         OperationType.CacheSizeScan => "cacheSizeScan",
         OperationType.ScheduledPrefill => "scheduledPrefill",
+        OperationType.StatusCheck => "statusCheck",
         _ => JsonNamingPolicy.CamelCase.ConvertName(type.ToString())
     };
 

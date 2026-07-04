@@ -1,4 +1,5 @@
 using LancacheManager.Models;
+using LancacheManager.Models.Responses;
 
 namespace LancacheManager.Core.Interfaces;
 
@@ -48,6 +49,10 @@ public interface IStateService
     // Last PICS Crawl Methods
     DateTime? GetLastPicsCrawl();
     void SetLastPicsCrawl(DateTime crawlTime);
+
+    // Status Check (DNS diagnostics) Methods
+    StatusCheckResult? GetStatusCheckResult();
+    void SetStatusCheckResult(StatusCheckResult result);
 
     // Epic Mapping Last-Collection Methods
     DateTime? GetEpicMappingCollectedAt();

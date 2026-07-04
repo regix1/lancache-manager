@@ -16,7 +16,6 @@ namespace LancacheManager.Core.Services;
 
 public partial class CacheManagementService
 {
-    private readonly IConfiguration _configuration;
     private readonly ILogger<CacheManagementService> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly RustProcessHelper _rustProcessHelper;
@@ -26,6 +25,7 @@ public partial class CacheManagementService
     private readonly GameCacheDetectionService _gameCacheDetectionService;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly ISignalRNotificationService _notifications;
+    private readonly ILancacheEnvFileReader _envFileReader;
     private readonly DockerClient? _dockerClient;
 
     // Legacy single-path fields (for backward compatibility)
@@ -85,9 +85,9 @@ public partial class CacheManagementService
         IDbContextFactory<AppDbContext> dbContextFactory,
         GameCacheDetectionService gameCacheDetectionService,
         IUnifiedOperationTracker operationTracker,
-        ISignalRNotificationService notifications)
+        ISignalRNotificationService notifications,
+        ILancacheEnvFileReader envFileReader)
     {
-        _configuration = configuration;
         _logger = logger;
         _pathResolver = pathResolver;
         _rustProcessHelper = rustProcessHelper;
@@ -97,6 +97,7 @@ public partial class CacheManagementService
         _gameCacheDetectionService = gameCacheDetectionService;
         _operationTracker = operationTracker;
         _notifications = notifications;
+        _envFileReader = envFileReader;
 
         // Use DatasourceService for paths (with backward compatibility)
         var defaultDatasource = _datasourceService.GetDefaultDatasource();
@@ -367,65 +368,32 @@ public partial class CacheManagementService
     {
         try
         {
-            // Check for configured .env file path, or use common locations
-            var envFilePath = _configuration["LanCache:EnvFilePath"];
-            
-            if (string.IsNullOrEmpty(envFilePath))
+            // Discovery + parse now live in the shared reader (also used by the Status Check
+            // feature for CACHE_DOMAINS_REPO/BRANCH/NOFETCH) so there is one copy of the path list.
+            var value = _envFileReader.TryGetValue("CACHE_DISK_SIZE");
+            if (string.IsNullOrEmpty(value))
             {
-                // Try common locations relative to cache path
-                var possiblePaths = new[]
-                {
-                    "/srv/lancache/.env",
-                    "/opt/lancache/.env", 
-                    "/lancache/.env",
-                    Path.Combine(Path.GetDirectoryName(_cachePath) ?? "", ".env"),
-                    Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(_cachePath) ?? "") ?? "", ".env")
-                };
-                
-                foreach (var path in possiblePaths)
-                {
-                    if (File.Exists(path))
-                    {
-                        envFilePath = path;
-                        _logger.LogDebug("Found lancache .env file at: {Path}", path);
-                        break;
-                    }
-                }
-            }
-            
-            if (string.IsNullOrEmpty(envFilePath) || !File.Exists(envFilePath))
-            {
-                _logger.LogDebug("No lancache .env file found");
+                _logger.LogDebug("No lancache .env file found, or it has no CACHE_DISK_SIZE entry");
                 return 0;
             }
-            
-            // Read and parse the .env file
-            var lines = File.ReadAllLines(envFilePath);
-            foreach (var line in lines)
+
+            var parsedSize = ParseCacheSize(value);
+            if (parsedSize > 0)
             {
-                var trimmedLine = line.Trim();
-                if (trimmedLine.StartsWith("CACHE_DISK_SIZE=", StringComparison.OrdinalIgnoreCase))
+                if (!_hasLoggedConfiguredCacheSize)
                 {
-                    var value = trimmedLine.Substring("CACHE_DISK_SIZE=".Length).Trim();
-                    var parsedSize = ParseCacheSize(value);
-                    if (parsedSize > 0)
-                    {
-                        if (!_hasLoggedConfiguredCacheSize)
-                        {
-                            _logger.LogInformation("Configured cache size: {Value} ({FormattedSize}) from .env file: {Path}",
-                                value, FormatBytes(parsedSize), envFilePath);
-                            _hasLoggedConfiguredCacheSize = true;
-                        }
-                        return parsedSize;
-                    }
+                    _logger.LogInformation("Configured cache size: {Value} ({FormattedSize}) from .env file: {Path}",
+                        value, FormatBytes(parsedSize), _envFileReader.ResolvedPath);
+                    _hasLoggedConfiguredCacheSize = true;
                 }
+                return parsedSize;
             }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error reading configured cache size from .env file");
         }
-        
+
         return 0;
     }
     

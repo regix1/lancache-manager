@@ -213,4 +213,9 @@ public static class SignalREvents
     public const string ScheduledPrefillStarted = "ScheduledPrefillStarted";
     public const string ScheduledPrefillProgress = "ScheduledPrefillProgress";
     public const string ScheduledPrefillCompleted = "ScheduledPrefillCompleted";
+
+    // Status Check (DNS diagnostics)
+    public const string StatusCheckProgress = "StatusCheckProgress";
+    public const string StatusCheckComplete = "StatusCheckComplete";
+    public const string CacheDomainsRefreshed = "CacheDomainsRefreshed";
 }

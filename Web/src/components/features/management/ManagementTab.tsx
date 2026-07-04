@@ -20,7 +20,8 @@ import {
   SchedulesSection,
   PreferencesSection,
   ClientsSection,
-  PrefillSessionsSection
+  PrefillSessionsSection,
+  StatusCheckSection
 } from './sections';
 
 // Main Management Tab Component
@@ -271,6 +272,9 @@ const ManagementTab: React.FC = () => {
         return (
           <PrefillSessionsSection isAdmin={isAdmin} onError={addError} onSuccess={setSuccess} />
         );
+
+      case 'status-check':
+        return <StatusCheckSection />;
 
       default:
         return null;

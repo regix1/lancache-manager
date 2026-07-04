@@ -242,7 +242,12 @@ export const SIGNALR_EVENTS = [
   'ScheduledPrefillCompleted',
 
   // Metrics Security
-  'MetricsSecurityUpdated'
+  'MetricsSecurityUpdated',
+
+  // Status Check (DNS diagnostics)
+  'StatusCheckProgress',
+  'StatusCheckComplete',
+  'CacheDomainsRefreshed'
 ] as const;
 
 /**
