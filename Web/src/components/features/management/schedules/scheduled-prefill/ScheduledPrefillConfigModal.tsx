@@ -569,8 +569,21 @@ export function ScheduledPrefillConfigModal({
     [persistentContainers, persistentLoginTarget]
   );
 
+  // Broader than shouldWatchPersistentAuth: the container-list refresh this drives is also the
+  // only thing that ever picks up a running download's live totalBytesTransferred/isPrefilling -
+  // the backend broadcasts DaemonSessionUpdated on every progress tick specifically for this
+  // (PrefillDaemonServiceBase.Notifications.cs), but with the auth-only condition this listener
+  // went silent the moment a service finished logging in, freezing the card's progress at whatever
+  // the one-shot post-start refresh had captured (usually 0 bytes) for the rest of the download.
+  const shouldWatchPersistentContainers = useMemo(
+    () =>
+      shouldWatchPersistentAuth ||
+      (persistentContainers ?? []).some((container) => container.isPrefilling),
+    [shouldWatchPersistentAuth, persistentContainers]
+  );
+
   usePersistentPrefillContainerSignalR({
-    enabled: opened && shouldWatchPersistentAuth,
+    enabled: opened && shouldWatchPersistentContainers,
     onRefresh: () => {
       void loadPersistentContainers();
     }
