@@ -916,7 +916,11 @@ public sealed class SocketDaemonClient : IDaemonClient
     /// <inheritdoc cref="IDaemonClient.LogoutWithReasonAsync"/>
     public async Task<LogoutOutcome> LogoutWithReasonAsync(CancellationToken cancellationToken = default)
     {
-        var response = await SendCommandAsync("logout", timeout: TimeSpan.FromSeconds(10), cancellationToken: cancellationToken);
+        // 15s: linked (CreateLinkedTokenSource in SendCoreAsync) with the caller's own CTS
+        // (TryBestEffortLogoutAsync uses 15s too) - the effective wait is whichever fires first, so
+        // both must comfortably exceed the daemon's up-to-8s LogoutLoginTaskTimeout unwind budget
+        // when logout races an in-flight login.
+        var response = await SendCommandAsync("logout", timeout: TimeSpan.FromSeconds(15), cancellationToken: cancellationToken);
         return new LogoutOutcome(response.Success, response.RequiresLogin == true);
     }
 

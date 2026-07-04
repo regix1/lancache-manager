@@ -1617,7 +1617,15 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         try
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            // 15s, not 5s: when logout races an in-flight login, the daemon (Steam/Epic/Xbox) cancels
+            // the login task and AWAITS its unwind before acking - up to an 8s LogoutLoginTaskTimeout
+            // on the daemon side (Xbox's chain through PollForTokenAsync + the XSTS/XASU token mint is
+            // the slowest). A shorter caller-side timeout here fires before that unwind can ever
+            // finish, so every stop-during-login logged a spurious "failed; proceeding anyway" even
+            // though the daemon was about to answer. This is linked (CancellationTokenSource.
+            // CreateLinkedTokenSource in SocketDaemonClient.SendCoreAsync) with LogoutWithReasonAsync's
+            // own 10s->15s command timeout - keep both in sync, comfortably above the 8s budget.
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var outcome = await session.Client.LogoutWithReasonAsync(cts.Token);
             if (!outcome.Success && outcome.RequiresLogin)
             {
