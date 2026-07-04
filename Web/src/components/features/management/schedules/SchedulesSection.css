@@ -467,10 +467,24 @@
   min-height: 0;
 }
 
+/* CustomScrollbar clips content at its own rounded-xl corners, which shaves the rounded border of
+   the first item (.scheduled-prefill-config-modal__overview, flush against the top) - same bug
+   shape already fixed on RecentDownloadsPanel's list. Square the clip for this scroll area. */
+.scheduled-prefill-config-modal__scroll-inner {
+  border-radius: 0;
+}
+
 .scheduled-prefill-config-modal__scroll-content {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  /* 1px inset keeps the overview box's border off the scroll container's clip edge, so its rounded
+     corners can't be shaved by the overflow clip even with the radius squared above. */
+  padding: 1px;
+  /* Extra breathing room beyond CustomScrollbar's own reserved gutter - its track sits at a fixed
+     offset from the right edge regardless of paddingMode, so content still read as flush against
+     the thumb without this. */
+  padding-right: 0.75rem;
 }
 
 /* Overview header — lead copy + status + the subordinate global setting.

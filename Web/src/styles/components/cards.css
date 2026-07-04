@@ -11,6 +11,11 @@
   /* Theme-aware Card */
   .themed-card {
     background-color: var(--theme-card-bg);
+    /* Without this, the background paints UNDER the border (the border-box default), so at the
+       anti-aliased rounded corner the background can bleed over the border pixels and make the
+       corner look like the border is missing there - same bug shape already fixed on
+       RecentDownloadsPanel's list items. */
+    background-clip: padding-box;
     border-color: var(--theme-card-border);
     color: var(--theme-text-primary);
   }

@@ -1233,6 +1233,7 @@ export function ScheduledPrefillConfigModal({
           <div ref={setScrollAreaEl} className="scheduled-prefill-config-modal__scroll-area">
             <CustomScrollbar
               maxHeight={scrollAreaHeight != null ? `${scrollAreaHeight}px` : '100%'}
+              className="scheduled-prefill-config-modal__scroll-inner"
             >
               <div className="scheduled-prefill-config-modal__scroll-content">
                 {isLoading && !hasInitialData ? (
@@ -1367,18 +1368,12 @@ export function ScheduledPrefillConfigModal({
                               disabled={loadingGlobalSettings || savingGlobalSettings}
                               loading={savingGlobalSettings}
                             >
-                              {savingGlobalSettings
-                                ? t(`${baseKey}.settings.saving`)
-                                : t(`${baseKey}.settings.save`)}
+                              {t(`${baseKey}.settings.save`)}
                             </Button>
-                            {(loadingGlobalSettings || savingGlobalSettings) && (
+                            {loadingGlobalSettings && (
                               <span className="scheduled-prefill-config-modal__inline-loading">
                                 <LoadingSpinner inline size="sm" />
-                                {t(
-                                  savingGlobalSettings
-                                    ? `${baseKey}.settings.saving`
-                                    : `${baseKey}.settings.loading`
-                                )}
+                                {t(`${baseKey}.settings.loading`)}
                               </span>
                             )}
                           </div>
