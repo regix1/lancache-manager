@@ -508,19 +508,24 @@
    enable/disable-all, persistent login validity), so their controls line up in a scannable
    column instead of sitting at whatever horizontal position each label's text happens to end. */
 .scheduled-prefill-config-modal__settings-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+  display: grid;
+  /* A real two-column grid, not independent per-row flex rows: with `justify-content:
+     space-between` each row used to right-align its OWN actions cluster to its OWN content width,
+     so "Enable all/Disable all" and "90/Save settings" landed at different horizontal positions
+     instead of lining up. A shared `auto` column (sized to the widest row's actions) puts every
+     row's actions at the same starting x, reading as one aligned column. */
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 1rem;
+  row-gap: 1rem;
   padding-top: 1rem;
   border-top: 1px solid var(--theme-border-secondary);
 }
 
 .scheduled-prefill-config-modal__setting-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem 1rem;
+  /* No box of its own - its two children become direct grid items of settings-list above, so they
+     share that grid's column tracks with every other row instead of being laid out independently. */
+  display: contents;
 }
 
 .scheduled-prefill-config-modal__setting-copy {
@@ -528,15 +533,27 @@
   flex-direction: column;
   gap: 0.3rem;
   min-width: 0;
-  flex: 1 1 16rem;
 }
 
 .scheduled-prefill-config-modal__setting-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  /* Left-align, not right-align: the actions column is auto-sized to the WIDEST row's content
+     (see .settings-list above), so a narrower row's buttons (e.g. Enable all/Disable all) must
+     start at the same x as a wider row's (90/Save settings), not hug the column's right edge -
+     otherwise the two rows' buttons visibly stagger instead of lining up as one column. */
+  justify-content: flex-start;
   gap: 0.6rem;
-  flex-shrink: 0;
+}
+
+/* Gives the FIRST control in each actions row (Enable all button, validity-days number input) a
+   shared minimum width, matching the number input's own 7rem cap below - without it, "Enable all"
+   (content-sized, ~6.5rem) and the number input (7rem) differ by a few pixels, so the SECOND
+   control in each row (Disable all, Save settings) starts at a slightly different x and the two
+   rows read as unaligned even though the row itself starts at a shared column edge. */
+.scheduled-prefill-config-modal__setting-actions > :first-child {
+  min-width: 7rem;
 }
 
 .scheduled-prefill-config-modal__global-label {
@@ -1048,7 +1065,10 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
+  /* Matches .action-group's own gap below so buttons read as one evenly-spaced row regardless of
+     which group wraps them - a lone button in its own group (e.g. Stop container) used to get a
+     visibly wider 0.75rem gap to its neighbor than buttons sharing a group get to each other. */
+  gap: 0.5rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--theme-border-secondary);
 }
@@ -1598,13 +1618,14 @@
     flex-direction: column;
   }
 
-  .scheduled-prefill-config-modal__setting-row {
-    align-items: stretch;
+  .scheduled-prefill-config-modal__settings-list {
+    grid-template-columns: 1fr;
   }
 
   .scheduled-prefill-config-modal__setting-actions,
   .scheduled-prefill-config-modal__danger-zone-action {
     width: 100%;
+    justify-content: flex-start;
   }
 
   .scheduled-prefill-config-modal__setting-actions > button,
