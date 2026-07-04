@@ -187,7 +187,22 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
         _logger.LogInformation("Providing {CredentialType} credential for {Hub} session {SessionId}",
             challenge.CredentialType, HubDisplayName, sessionId);
 
-        await _daemonService.ProvideCredentialAsync(sessionId, challenge, credential);
+        try
+        {
+            await _daemonService.ProvideCredentialAsync(sessionId, challenge, credential);
+        }
+        catch (DaemonCredentialRejectedException ex)
+        {
+            // A guest/mapping-flow session is never adopted or replaced (each login is its own
+            // standalone session), so a rejected credential here can't be the RC3 cross-session leak
+            // that this exception exists to catch on the persistent flow - it is a redundant, already-
+            // resolved credential (e.g. the device-confirmation "confirm" ack, which this event-driven
+            // flow can deliver more than once for the same challenge). Log and swallow rather than
+            // failing the whole login over a harmless duplicate submission.
+            _logger.LogWarning(ex,
+                "Ignoring rejected {CredentialType} credential for {Hub} session {SessionId} - likely a redundant resend",
+                challenge.CredentialType, HubDisplayName, sessionId);
+        }
     }
 
     /// <summary>
