@@ -206,6 +206,15 @@ export function usePersistentPrefillAuth(
         timeoutSeconds,
         stored.sessionId ?? ''
       );
+      // TEMP DIAGNOSTIC (persistent device-confirmation completion): shows what the REST poll returns
+      // while waiting for phone approval (authenticated / a new challenge / pending). Remove once fixed.
+      const pollStatus = isPersistentLoginAuthenticatedResponse(response)
+        ? 'authenticated'
+        : isPersistentLoginCredentialChallenge(response)
+          ? `challenge:${(response as CredentialChallenge).credentialType}`
+          : 'pending';
+      // eslint-disable-next-line no-console
+      console.log('[SteamAuthDebug] persistent', service, 'pollForResult ->', pollStatus);
       if (isPersistentLoginAuthenticatedResponse(response)) {
         return { status: 'authenticated' };
       }
@@ -216,6 +225,10 @@ export function usePersistentPrefillAuth(
       // for the user to confirm a device code). Keep polling instead of erroring.
       return { status: 'pending' };
     } catch (err) {
+      // eslint-disable-next-line no-console
+      console.log('[SteamAuthDebug] persistent', service, 'pollForResult threw', {
+        error: String(err)
+      });
       if (isPersistentSessionConflictError(err)) {
         handleSessionConflict(err);
       }
