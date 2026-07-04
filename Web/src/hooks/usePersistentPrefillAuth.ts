@@ -128,6 +128,22 @@ export function usePersistentPrefillAuth(
   // store resets.
   const challengeFlags = derivePersistentChallengeFlags(stored.pendingChallenge);
 
+  // TEMP DIAGNOSTIC: trace the persistent-container login flow. Filter the browser console by
+  // "[SteamAuthDebug]" during a login to see why the modal is bypassed. Remove once resolved.
+  const dbg = useCallback(
+    (event: string, extra?: Record<string, unknown>) => {
+      // eslint-disable-next-line no-console
+      console.log('[SteamAuthDebug] persistent', service, event, {
+        storedSessionId: stored.sessionId,
+        authenticated: stored.authenticated,
+        hasPendingChallenge: stored.pendingChallenge !== null,
+        pendingType: stored.pendingChallenge?.credentialType ?? null,
+        ...extra
+      });
+    },
+    [service, stored.sessionId, stored.authenticated, stored.pendingChallenge]
+  );
+
   const [useManualCode, setUseManualCode] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -182,13 +198,17 @@ export function usePersistentPrefillAuth(
   );
 
   const finishAuthenticated = useCallback(() => {
+    dbg(
+      'finishAuthenticated() -> marking authenticated + closing modal (login treated as already done)'
+    );
     resetPersistentLoginState(service);
     updatePersistentLoginState(service, (current) => ({ ...current, authenticated: true }));
     onSuccess?.();
-  }, [service, onSuccess]);
+  }, [service, onSuccess, dbg]);
 
   const fail = useCallback(
     (message: string) => {
+      dbg('fail()', { message });
       updatePersistentLoginState(service, (current) => ({
         ...current,
         error: message,
@@ -196,7 +216,7 @@ export function usePersistentPrefillAuth(
       }));
       onError?.(message);
     },
-    [service, onError]
+    [service, onError, dbg]
   );
 
   const pollForResult = useCallback(async (): Promise<PollResult> => {
@@ -345,22 +365,37 @@ export function usePersistentPrefillAuth(
     }
 
     const startPromise = (async (): Promise<CredentialChallenge | null> => {
+      dbg('start() -> POST startPersistentLogin');
       setPersistentLoginCancelled(service, false);
       setLoading(true);
       setError(null);
 
       try {
         const challenge = await ApiService.startPersistentLogin(service);
+        dbg('start() <- startPersistentLogin response', {
+          isAuthenticated: isPersistentLoginAuthenticatedResponse(challenge),
+          isChallenge: isPersistentLoginCredentialChallenge(challenge),
+          responseCredentialType:
+            (challenge as { credentialType?: string })?.credentialType ?? null,
+          rawResponse: challenge
+        });
         if (isPersistentLoginCancelled(service)) {
+          dbg('start(): cancelled during round-trip -> bail');
           setLoading(false);
           return null;
         }
         if (isPersistentLoginAuthenticatedResponse(challenge)) {
           // Container already authenticated (daemon self-authed from its own volume).
+          dbg(
+            'start(): backend says ALREADY AUTHENTICATED -> finishAuthenticated (THIS bypasses the modal)'
+          );
           finishAuthenticated();
           return null;
         }
         if (isPersistentLoginCredentialChallenge(challenge)) {
+          dbg('start(): got a real challenge -> applyChallenge + return it', {
+            credentialType: challenge.credentialType
+          });
           applyChallenge(challenge, extractPersistentSessionId(challenge));
           setLoading(false);
           return challenge;
@@ -388,7 +423,7 @@ export function usePersistentPrefillAuth(
         setPersistentLoginStartPromise(service, null);
       }
     }
-  }, [applyChallenge, fail, finishAuthenticated, service, setError, setLoading]);
+  }, [applyChallenge, fail, finishAuthenticated, service, setError, setLoading, dbg]);
 
   const resetAuthForm = useCallback(() => {
     setUsername('');
@@ -431,6 +466,11 @@ export function usePersistentPrefillAuth(
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
     const flags = derivePersistentChallengeFlags(stored.pendingChallenge);
+    dbg('handleAuthenticate() called', {
+      flags,
+      hasUsername: username.trim().length > 0,
+      hasPassword: password.trim().length > 0
+    });
 
     if (flags.needsTwoFactor) {
       if (!twoFactorCode.trim()) {
@@ -516,7 +556,8 @@ export function usePersistentPrefillAuth(
     submit,
     submitChallenge,
     twoFactorCode,
-    username
+    username,
+    dbg
   ]);
 
   const state: PersistentPrefillAuthState = {

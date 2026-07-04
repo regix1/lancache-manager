@@ -41,12 +41,23 @@ export function SteamPersistentLogin({
   }, [state.authenticated, onAuthenticated]);
 
   const beginLogin = useCallback(async () => {
+    // eslint-disable-next-line no-console
+    console.log('[SteamAuthDebug] persistent Steam beginLogin() clicked', {
+      startInFlight: startInFlightRef.current,
+      hasChallenge: state.hasChallenge,
+      authenticated: state.authenticated,
+      loading: state.loading
+    });
     if (startInFlightRef.current) {
       return;
     }
 
     if (state.hasChallenge) {
       // Resume: a challenge is already pending for this service - just reveal it, no new login.
+      // eslint-disable-next-line no-console
+      console.log(
+        '[SteamAuthDebug] persistent Steam beginLogin: resume existing challenge (no new login)'
+      );
       resumeModal();
       return;
     }
@@ -58,7 +69,7 @@ export function SteamPersistentLogin({
     } finally {
       startInFlightRef.current = false;
     }
-  }, [actions, resumeModal, state.hasChallenge]);
+  }, [actions, resumeModal, state.hasChallenge, state.authenticated, state.loading]);
 
   // Fires once on mount (nonce 0 is never pre-consumed - see consumeLoginAttemptNonce), and again
   // on every later explicit "Log in" click (ScheduledPrefillConfigModal's
@@ -81,6 +92,19 @@ export function SteamPersistentLogin({
   const authModalOpened =
     !state.dismissed && !state.authenticated && (state.loading || state.hasChallenge);
   const showLoginButton = isRunning && !isAuthenticated && !autoStart && !authModalOpened;
+
+  // eslint-disable-next-line no-console
+  console.log('[SteamAuthDebug] persistent Steam render', {
+    isRunning,
+    isAuthenticated,
+    autoStart,
+    authModalOpened,
+    showLoginButton,
+    'state.loading': state.loading,
+    'state.hasChallenge': state.hasChallenge,
+    'state.authenticated': state.authenticated,
+    'state.dismissed': state.dismissed
+  });
 
   return (
     <>
