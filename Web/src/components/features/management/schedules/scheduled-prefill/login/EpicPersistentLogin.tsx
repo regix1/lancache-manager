@@ -80,7 +80,10 @@ export function EpicPersistentLogin({
 
   const authModalOpened =
     !state.dismissed && !state.authenticated && (state.loading || state.hasChallenge);
-  const showLoginButton = isRunning && !isAuthenticated && !autoStart && !authModalOpened;
+  // Gate on the store's authenticated state too (not just the lagging container-list prop) so the
+  // completion window cannot paint this fallback button behind/after the modal. See SteamPersistentLogin.
+  const showLoginButton =
+    isRunning && !isAuthenticated && !state.authenticated && !autoStart && !authModalOpened;
 
   return (
     <>

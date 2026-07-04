@@ -3,17 +3,31 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 // Global modal tracking for nested modal support
-let modalStack: number[] = [];
+type ModalStackPriority = 'normal' | 'elevated';
+interface StackedModal {
+  id: number;
+  priority: ModalStackPriority;
+}
+let modalStack: StackedModal[] = [];
 let modalIdCounter = 0;
 
-// Monotonic z-index for the most recently opened modal. A strictly increasing counter (reset only
-// once every modal has closed) guarantees a later modal always stacks ABOVE an earlier one,
-// regardless of open/close churn. The previous `80 + modalStack.length` scheme could hand a
-// reopened modal a z-index at or below one already on screen - e.g. after a rapid open->close->open
-// (which container-list reconcile churn drives) corrupted the shared stack - leaving the reopened
-// modal stuck BEHIND another modal.
+// Monotonic z-index for the most recently opened modal. A strictly increasing counter (reset once a
+// band has no modals left) guarantees a later modal always stacks ABOVE an earlier one, regardless
+// of open/close churn. The previous `80 + modalStack.length` scheme could hand a reopened modal a
+// z-index at or below one already on screen - e.g. after a rapid open->close->open (which
+// container-list reconcile churn drives) corrupted the shared stack - leaving the reopened modal
+// stuck BEHIND another modal. NOTE: this only actually took effect once the `.modal-backdrop`
+// `z-index: 80 !important` in modals.css was de-`!important`-ed; before that, the inline value here
+// was silently overridden and every backdrop rendered at a flat 80.
 const MODAL_BASE_Z = 80;
+// 'elevated' modals (keep-pending login prompts - SteamAuthModal etc.) open in a band strictly ABOVE
+// every 'normal' modal, so a later-opened normal modal (e.g. the Configure modal reopened while a
+// persistent login prompt is still up) can NEVER leapfrog and cover the login prompt. The 10000 gap
+// is far more headroom than any realistic modal-nesting depth could consume, so the two bands never
+// collide. Each band has its own monotonic counter, reset independently when that band empties.
+const MODAL_ELEVATED_BASE_Z = MODAL_BASE_Z + 10000;
 let modalTopZ = MODAL_BASE_Z;
+let elevatedTopZ = MODAL_ELEVATED_BASE_Z;
 
 // Non-exported module constant (keeps Fast Refresh happy — only the component is exported).
 const FOCUSABLE_SELECTOR =
@@ -28,9 +42,24 @@ interface ModalProps {
   title?: React.ReactNode;
   children: React.ReactNode;
   size?: ModalSize;
+  /**
+   * Stacking band. 'normal' (default) uses the standard monotonic z-index. 'elevated' opens the
+   * modal in a strictly-higher band so it always sits above every 'normal' modal regardless of open
+   * order - used by the persistent-container login prompts (the keep-pending SteamAuthModal and its
+   * Epic/Xbox equivalents), which must stay clickable above the Configure modal even if Configure is
+   * reopened after them.
+   */
+  stackPriority?: ModalStackPriority;
 }
 
-export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, size = 'md' }) => {
+export const Modal: React.FC<ModalProps> = ({
+  opened,
+  onClose,
+  title,
+  children,
+  size = 'md',
+  stackPriority = 'normal'
+}) => {
   const [isVisible, setIsVisible] = React.useState(false);
   const [isAnimating, setIsAnimating] = React.useState(false);
   const [zIndex, setZIndex] = React.useState(80);
@@ -61,11 +90,20 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
     // Drop this modal's id from the shared stack; when it was the last one, release the scroll lock
     // and reset the monotonic z counter so it never grows without bound across a long session.
     const removeFromStack = (id: number) => {
-      modalStack = modalStack.filter((stackedId) => stackedId !== id);
+      modalStack = modalStack.filter((stacked) => stacked.id !== id);
       if (modalStack.length === 0) {
         document.documentElement.classList.remove('modal-open');
         setBackgroundInert(false);
+      }
+      // Reset each band's counter as soon as that band is empty (not only when the whole stack is).
+      // This keeps a 'normal' modal reopened while an 'elevated' login prompt lingers from climbing
+      // toward the portaled dropdown/tooltip layer (z 85-90): the moment the last normal modal
+      // closes its counter drops back to the base, so the reopened one restarts at base+1.
+      if (!modalStack.some((stacked) => stacked.priority === 'normal')) {
         modalTopZ = MODAL_BASE_Z;
+      }
+      if (!modalStack.some((stacked) => stacked.priority === 'elevated')) {
+        elevatedTopZ = MODAL_ELEVATED_BASE_Z;
       }
     };
 
@@ -96,10 +134,16 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
         setBackgroundInert(true);
       }
 
-      // Add this modal to the stack and give it a z-index strictly above every modal already open.
-      modalStack.push(id);
-      modalTopZ += 1;
-      setZIndex(modalTopZ);
+      // Add this modal to the stack and give it a z-index strictly above every modal already open in
+      // its band ('elevated' login prompts always outrank 'normal' modals regardless of open order).
+      modalStack.push({ id, priority: stackPriority });
+      if (stackPriority === 'elevated') {
+        elevatedTopZ += 1;
+        setZIndex(elevatedTopZ);
+      } else {
+        modalTopZ += 1;
+        setZIndex(modalTopZ);
+      }
 
       // Start animation with slight delay for smoother appearance.
       setIsVisible(true);
@@ -143,7 +187,9 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
         closeTimerRef.current = null;
       }
     };
-  }, [opened]);
+    // stackPriority is constant per modal instance; listed so the open branch always reads the value
+    // it renders with (it never actually changes mid-open, so this cannot cause a spurious re-run).
+  }, [opened, stackPriority]);
 
   // Move focus into the modal once it becomes visible. Don't steal focus if the
   // content already focused something itself (e.g. an autoFocus input).

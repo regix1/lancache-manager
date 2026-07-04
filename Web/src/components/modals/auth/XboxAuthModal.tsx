@@ -111,6 +111,9 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
     <Modal
       opened={opened}
       onClose={isKeepPending ? handleSoftClose : handleCloseModal}
+      // Keep-pending persistent-container login must stay clickable above a reopened Configure modal:
+      // open it in the elevated stacking band. The guest/mapping flow ('cancel') stacks normally.
+      stackPriority={isKeepPending ? 'elevated' : 'normal'}
       title={
         <div className="flex items-center gap-3">
           <XboxIcon size={20} className="text-[var(--theme-xbox)]" />

@@ -80,7 +80,12 @@ export function SteamPersistentLogin({
 
   const authModalOpened =
     !state.dismissed && !state.authenticated && (state.loading || state.hasChallenge);
-  const showLoginButton = isRunning && !isAuthenticated && !autoStart && !authModalOpened;
+  // `isAuthenticated` is the container-list prop, which only flips true after a network refresh; the
+  // store's `state.authenticated` flips true the instant the login completes (markPersistentLoginAuthenticated).
+  // Gate on BOTH so the window where the store says authenticated but the prop still lags cannot paint
+  // this fallback button on the card behind/after the modal.
+  const showLoginButton =
+    isRunning && !isAuthenticated && !state.authenticated && !autoStart && !authModalOpened;
 
   return (
     <>

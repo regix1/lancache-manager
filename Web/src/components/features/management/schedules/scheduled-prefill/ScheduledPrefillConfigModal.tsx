@@ -38,10 +38,12 @@ import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPe
 import {
   getPersistentLoginSessionId,
   hasActivePersistentLogin,
+  hasUnconsumedLoginAttempt,
   isPersistentLoginDismissed,
   reconcilePersistentLoginFromServer,
   requestPersistentLoginAttempt,
-  resetPersistentLoginState
+  resetPersistentLoginState,
+  usePersistentLoginStoreState
 } from './persistentLoginStore';
 import { usePersistentPrefillContainerSignalR } from './usePersistentPrefillContainerSignalR';
 import { usePersistentLoginChallengeSignalR } from './usePersistentLoginChallengeSignalR';
@@ -318,6 +320,37 @@ export function ScheduledPrefillConfigModal({
   const persistentContainerByServiceRef = useRef(persistentContainerByService);
   persistentContainerByServiceRef.current = persistentContainerByService;
 
+  // Always-current mirror of `config` so the reconcile effect can read a service's `enabled` flag
+  // without depending on the whole config object (which changes on every keystroke). Mirrors
+  // persistentContainerByServiceRef; the reconcile effect re-runs on persistentEnabledSignature
+  // (below) when an enabled toggle actually flips.
+  const configRef = useRef(config);
+  configRef.current = config;
+
+  // Stable signature of ONLY the account services' enabled flags. Added to the reconcile effect's
+  // deps so it re-checks for a resumable login when a service is enabled/disabled, WITHOUT re-firing
+  // on the unrelated config edits (presets, selected app ids) a raw `config` dependency would catch.
+  const persistentEnabledSignature = useMemo(
+    () =>
+      SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.map((serviceKey) =>
+        config?.[serviceKey].enabled ? '1' : '0'
+      ).join(''),
+    [config]
+  );
+
+  // Subscribe to the CURRENT login target's store state so the always-on retire effect below re-runs
+  // the instant that flow settles - crucially even while the Configure modal is CLOSED, when the
+  // container-list refresh that drives the other cleanup effect is gated off (`opened`) but the
+  // keep-pending challenge / auth SignalR push still writes this module store. With no target we
+  // subscribe to a stable placeholder service; its value is unused (the effect early-returns on a
+  // null target).
+  const persistentLoginTargetServiceId =
+    persistentLoginTarget !== null ? getPersistentServiceId(persistentLoginTarget) : null;
+  const persistentLoginTargetState = usePersistentLoginStoreState(
+    persistentLoginTargetServiceId ??
+      getPersistentServiceId(SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS[0])
+  );
+
   // Stable signature of ONLY the fields the reconcile effect branches on (running / authenticated /
   // session). The container list is refreshed on every container SignalR push - including the rapid
   // prefill-progress pushes that only move byte counters - and each refresh makes a brand-new array,
@@ -381,6 +414,15 @@ export function ScheduledPrefillConfigModal({
         }
 
         const serviceId = getPersistentServiceId(serviceKey);
+        // A disabled (or not-yet-loaded) service must never drive an account login target: don't
+        // even probe the daemon for a cached challenge, and never resurrect a stale one (bug #2 -
+        // reconcile used to set a target for any running-unauthenticated account container
+        // regardless of whether the current schedule enables it). configRef is read (not `config`)
+        // so this effect need not depend on the whole config object; persistentEnabledSignature in
+        // the dep array re-runs it when an enabled toggle actually flips.
+        if (!configRef.current?.[serviceKey].enabled) {
+          continue;
+        }
         // Read through the ref (not the closed-over map) so this effect can depend on the reconcile
         // signature alone - the reconcile-relevant fields it reads here are exactly what that
         // signature tracks, so the ref is guaranteed current for them.
@@ -408,8 +450,10 @@ export function ScheduledPrefillConfigModal({
     };
     // Depends on the reconcile signature, NOT the whole container map, so a prefill-progress refresh
     // (byte counters only) no longer re-fires a daemon GET-challenge probe. persistentContainerByService
-    // is read via persistentContainerByServiceRef inside, so it is intentionally not a dependency.
-  }, [opened, persistentLoginTarget, persistentReconcileSignature]);
+    // and config are read via refs inside, so they are intentionally not dependencies;
+    // persistentEnabledSignature re-runs this only when an account service's enabled flag flips
+    // (e.g. config finishing its initial load), so a just-enabled service's login can still resume.
+  }, [opened, persistentLoginTarget, persistentReconcileSignature, persistentEnabledSignature]);
 
   // Every service (account or anonymous) reuses the same addressable persistent-container session
   // (ScheduledPrefillService.RunServiceAsync dispatches identically for all five platforms), so the
@@ -531,6 +575,38 @@ export function ScheduledPrefillConfigModal({
       }
     }
   }, [opened, persistentContainerByService]);
+
+  // Always-on (NOT gated on `opened`, unlike the container-driven cleanup above): retire a
+  // persistentLoginTarget the moment its login settles or is abandoned, so an emptied store can never
+  // keep the out-of-modal PersistentLoginHost - and its fallback "Log in" button - rendering on the
+  // summary card behind/after the modal (bug #2 secondary: the host is a sibling of the Configure
+  // <Modal>, gated on the target alone, and ScheduledPrefillConfigModal stays mounted after close).
+  // The target is kept ONLY while a login is genuinely live:
+  //   - loading or a pending challenge (hasActivePersistentLogin),
+  //   - an as-yet-unconsumed "Log in" click (the nonce), so a fresh click that has set the target but
+  //     not yet flipped the store to loading is never killed here, and
+  //   - a just-completed login (store `authenticated`), whose own completion path
+  //     (SteamPersistentLogin onAuthenticated -> host handleAuthenticated -> onDismiss) nulls the
+  //     target AND refreshes the container list; clearing it here first would unmount the host before
+  //     that runs and leave the "logged in" badge stale.
+  // Reacts to the persistentLoginTargetState subscription above, so it settles the target even while
+  // Configure is closed.
+  useEffect(() => {
+    if (persistentLoginTarget === null || persistentLoginTargetServiceId === null) {
+      return;
+    }
+
+    if (
+      persistentLoginTargetState.authenticated ||
+      persistentLoginTargetState.loading ||
+      persistentLoginTargetState.pendingChallenge !== null ||
+      hasUnconsumedLoginAttempt(persistentLoginTargetServiceId)
+    ) {
+      return;
+    }
+
+    setPersistentLoginTarget((current) => (current === persistentLoginTarget ? null : current));
+  }, [persistentLoginTarget, persistentLoginTargetServiceId, persistentLoginTargetState]);
 
   const shouldWatchPersistentAuth = useMemo(
     () =>

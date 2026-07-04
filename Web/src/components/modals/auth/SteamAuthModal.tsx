@@ -174,6 +174,10 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     <Modal
       opened={opened}
       onClose={isKeepPending ? handleSoftClose : handleCloseModal}
+      // The persistent-container login (keep-pending) is a prompt that must always stay clickable
+      // above the Configure modal, even if Configure is reopened after it - open it in the elevated
+      // stacking band. The mapping/guest flow (dismissBehavior 'cancel') stacks normally.
+      stackPriority={isKeepPending ? 'elevated' : 'normal'}
       title={
         <div className="flex items-center gap-3">
           <Key className="w-5 h-5 text-steam" />

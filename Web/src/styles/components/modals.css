@@ -4,8 +4,14 @@
    * ============================================== */
 
   /* Modal-specific styles for smooth animations and preventing layout shift */
+  /* Fallback z-index only. Modal.tsx assigns the AUTHORITATIVE value inline: a monotonic per-open
+   * counter (so a later modal always stacks above an earlier one) plus a strictly-higher 'elevated'
+   * band for keep-pending login prompts. This rule must NOT use !important - a non-important author
+   * rule can never beat that inline style, so it only covers a backdrop that somehow renders without
+   * the inline value. (A previous `z-index: 80 !important` here silently defeated the entire inline
+   * scheme, pinning every backdrop to 80 and leaving reopened modals stuck behind others.) */
   .modal-backdrop {
-    z-index: 80 !important;
+    z-index: 80;
   }
 
   /* Prevent body shift when modal opens */
