@@ -467,11 +467,15 @@
   min-height: 0;
 }
 
-/* CustomScrollbar clips content at its own rounded-xl corners, which shaves the rounded border of
-   the first item (.scheduled-prefill-config-modal__overview, flush against the top) - same bug
-   shape already fixed on RecentDownloadsPanel's list. Square the clip for this scroll area. */
-.scheduled-prefill-config-modal__scroll-inner {
-  border-radius: 0;
+/* CustomScrollbar's inner content div clips overflow at the root's radius (its content uses
+   `rounded-[inherit]`), and that 16px rounded clip sits just 1px outside the overview box's own
+   corner - close enough that the clip's arc shaves the overview's border where it curves, so the
+   top-left corner border looks missing (same bug shape fixed on RecentDownloadsPanel's list).
+   Square the root's radius so the inherited clip is a plain rectangle and never touches the
+   corner. Needs !important AND the extra ancestor to outrank Tailwind's important-mode
+   `.rounded-xl` utility, which sits on the very same element. */
+.scheduled-prefill-config-modal .scheduled-prefill-config-modal__scroll-inner {
+  border-radius: 0 !important;
 }
 
 .scheduled-prefill-config-modal__scroll-content {
@@ -595,11 +599,12 @@
   min-width: 7rem;
 }
 
-/* Same idea for the SECOND control (Disable all, Save settings): "Save settings" is the longer
-   label, so without a shared floor "Disable all" renders narrower and its right edge falls short
-   of "Save settings" - the two buttons look unaligned even though they now start at the same x. */
+/* Shared floor for the SECOND control (Disable all, Save settings). Wide enough to also contain
+   Save settings' WIDEST state - while saving it shows a spinner beside its label and grows to
+   ~159px - so the button never changes size on click and Disable all always matches it. A tighter
+   floor let Save settings grow past Disable all mid-save, breaking the column alignment. */
 .scheduled-prefill-config-modal__setting-actions > :nth-child(2) {
-  min-width: 8.5rem;
+  min-width: 10rem;
 }
 
 .scheduled-prefill-config-modal__global-label {
