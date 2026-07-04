@@ -9,8 +9,10 @@ import type { CredentialChallenge } from './usePrefillSteamAuth';
 import type { SteamAuthActions, SteamLoginFlowState } from './useSteamAuthentication';
 import {
   applyPersistentLoginChallenge,
+  armPersistentLoginTimeout,
   derivePersistentChallengeFlags,
   extractPersistentSessionId,
+  getPersistentLoginSessionId,
   getPersistentLoginStartPromise,
   isPersistentLoginAuthenticatedResponse,
   isPersistentLoginCancelled,
@@ -201,10 +203,18 @@ export function usePersistentPrefillAuth(
 
   const pollForResult = useCallback(async (): Promise<PollResult> => {
     try {
+      // Read the session id LIVE (not the `stored` snapshot closed over when this callback was
+      // created) - Xbox's device-code flow calls this from a poll loop that starts synchronously
+      // right after start() resolves, in the same render pass that just wrote the real sessionId
+      // into the store. That write only schedules a re-render; reading `stored.sessionId` here
+      // would still see the pre-login `null` until the next render, sending an empty sessionId and
+      // getting rejected with "sessionId is required" even though nothing is actually wrong - the
+      // daemon is just waiting on the user. getPersistentLoginSessionId reads the module store
+      // directly, so it always sees the value as of THIS call, not as of this closure's creation.
       const response = await ApiService.getPersistentChallenge(
         service,
         timeoutSeconds,
-        stored.sessionId ?? ''
+        getPersistentLoginSessionId(service) ?? ''
       );
       // TEMP DIAGNOSTIC (persistent device-confirmation completion): shows what the REST poll returns
       // while waiting for phone approval (authenticated / a new challenge / pending). Remove once fixed.
@@ -234,7 +244,7 @@ export function usePersistentPrefillAuth(
       }
       throw err;
     }
-  }, [handleSessionConflict, service, stored.sessionId, timeoutSeconds]);
+  }, [handleSessionConflict, service, timeoutSeconds]);
 
   const submitChallenge = useCallback(
     async (challenge: CredentialChallenge, credential: string): Promise<PollResult> => {
@@ -245,7 +255,7 @@ export function usePersistentPrefillAuth(
           service,
           challenge,
           credential,
-          stored.sessionId ?? ''
+          getPersistentLoginSessionId(service) ?? ''
         );
       } catch (err) {
         if (isPersistentSessionConflictError(err)) {
@@ -281,8 +291,7 @@ export function usePersistentPrefillAuth(
       pollForResult,
       service,
       setError,
-      setLoading,
-      stored.sessionId
+      setLoading
     ]
   );
 
@@ -359,6 +368,7 @@ export function usePersistentPrefillAuth(
 
     const startPromise = (async (): Promise<CredentialChallenge | null> => {
       setPersistentLoginCancelled(service, false);
+      armPersistentLoginTimeout(service);
       setLoading(true);
       setError(null);
 
@@ -417,18 +427,22 @@ export function usePersistentPrefillAuth(
     setPersistentLoginCancelled(service, true);
     setLoading(false);
     try {
+      // Read live (see pollForResult's comment) rather than the `stored` snapshot - a cancel fired
+      // from the same synchronous flow that just started a login (e.g. an auto-cancel path) must
+      // still see the sessionId written moments ago, not a pre-login closure value.
       // No sessionId is pinned yet only when cancel is clicked in the brief window before start()'s
       // very first response ever lands (RC3, session 20260703-221336-2070027597) - there is no
       // known daemon session id to send, and the cancel flag set above already makes start() bail
       // out locally the moment it resolves, so skipping the round-trip here is safe rather than a
       // silent no-op: nothing server-side has been told about this login attempt yet either.
-      if (stored.sessionId) {
-        await ApiService.cancelPersistentLogin(service, stored.sessionId);
+      const sessionId = getPersistentLoginSessionId(service);
+      if (sessionId) {
+        await ApiService.cancelPersistentLogin(service, sessionId);
       }
     } finally {
       resetAuthForm();
     }
-  }, [resetAuthForm, service, setLoading, stored.sessionId]);
+  }, [resetAuthForm, service, setLoading]);
 
   const cancelPendingRequest = useCallback(() => {
     void cancel();

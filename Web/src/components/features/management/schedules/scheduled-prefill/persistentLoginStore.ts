@@ -178,7 +178,46 @@ export function updatePersistentLoginState(
   notify(service);
 }
 
+// Overall wall-clock ceiling on a single login ATTEMPT (from the explicit "Log in" click that
+// starts it, not from a resumed/re-shown challenge - see armPersistentLoginTimeout below). None of
+// the three services had one before this: Steam/Epic could poll forever on a stuck 2FA/email/auth-
+// code step, and Xbox's only ceiling was the daemon's own ~15min device-code expiry (Microsoft's
+// `expires_in`), which only fires AFTER the daemon gives up - this manager-side timer is a service-
+// agnostic backstop that fires first for a hung UI step regardless of what the daemon does.
+const OVERALL_LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
+const loginTimeoutHandles = new Map<PersistentPrefillServiceId, ReturnType<typeof setTimeout>>();
+
+function clearPersistentLoginTimeout(service: PersistentPrefillServiceId): void {
+  const handle = loginTimeoutHandles.get(service);
+  if (handle !== undefined) {
+    clearTimeout(handle);
+    loginTimeoutHandles.delete(service);
+  }
+}
+
+/**
+ * Arms the overall login-attempt timeout. Lives at module level (not a component ref) for the same
+ * reason every other piece of this flow's lifecycle does - the attempt must keep timing out even
+ * across a PersistentLoginHost remount (Configure modal closed/reopened, container-list churn).
+ * Call once per fresh attempt (from `start()`); resuming an already-pending challenge via
+ * resumeModal() must NOT re-arm it - the original attempt's clock keeps ticking correctly on its
+ * own, tracked here independent of any component's mount state.
+ */
+export function armPersistentLoginTimeout(service: PersistentPrefillServiceId): void {
+  clearPersistentLoginTimeout(service);
+  const handle = setTimeout(() => {
+    loginTimeoutHandles.delete(service);
+    setPersistentLoginCancelled(service, true);
+    updatePersistentLoginState(service, () => ({
+      ...INITIAL_PERSISTENT_LOGIN_STATE,
+      error: 'Timed out waiting for a response. Please try again.'
+    }));
+  }, OVERALL_LOGIN_TIMEOUT_MS);
+  loginTimeoutHandles.set(service, handle);
+}
+
 export function resetPersistentLoginState(service: PersistentPrefillServiceId): void {
+  clearPersistentLoginTimeout(service);
   const current = states.get(service);
   if (current === undefined || current === INITIAL_PERSISTENT_LOGIN_STATE) {
     // Already at rest - skip the Map write + subscriber notify. Matters because a container-list
@@ -204,6 +243,7 @@ export function terminatePersistentLoginSessionUnavailable(
   service: PersistentPrefillServiceId,
   state: PersistentSessionNotFoundState = 'notStarted'
 ): void {
+  clearPersistentLoginTimeout(service);
   states.set(service, { ...INITIAL_PERSISTENT_LOGIN_STATE, sessionUnavailableState: state });
   notify(service);
 }
@@ -222,6 +262,7 @@ export function resetPersistentLoginSessionReplaced(
   service: PersistentPrefillServiceId,
   message: string
 ): void {
+  clearPersistentLoginTimeout(service);
   states.set(service, { ...INITIAL_PERSISTENT_LOGIN_STATE, error: message });
   notify(service);
 }
