@@ -62,6 +62,14 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   // Track if we're in device confirmation mode to handle success correctly
   const isWaitingForDeviceConfirmationRef = useRef(false);
 
+  // Device-confirmation challenges are delivered to a subscribed connection twice (once via the
+  // session-subscriber broadcast, once via the Clients.All hub mirror the persistent-login modal
+  // relies on), so handleCredentialChallenge fires twice for the same challenge. Auto-sending the
+  // 'confirm' ack on both drives a second, racy ProvideCredential that clears the pending-challenge
+  // the sequential login flow is still waiting on, collapsing the modal. Track which challenge ids
+  // we have already acked so the ack is sent at most once per unique challenge.
+  const confirmedChallengeIdsRef = useRef<Set<string>>(new Set());
+
   // Track if we're waiting for the daemon to process an authorization code (Epic OAuth)
   const isWaitingForAuthCodeProcessingRef = useRef(false);
 
@@ -221,14 +229,20 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           setNeedsAuthorizationCode(false);
           isWaitingForDeviceConfirmationRef.current = true;
 
-          // Send acknowledgement for device confirmation
-          // This unblocks the daemon to continue polling Steam for approval
-          // Note: We delay slightly to help WaitForChallenge see the file first
-          await new Promise((resolve) => setTimeout(resolve, 300));
-          try {
-            await hubConnection.invoke('ProvideCredentialAsync', sessionId, challenge, 'confirm');
-          } catch (err) {
-            console.error('Failed to send device confirmation acknowledgement:', err);
+          // Send acknowledgement for device confirmation exactly ONCE per challenge. The manager
+          // delivers this challenge twice (subscriber broadcast + Clients.All hub mirror), so without
+          // this guard the ack is sent twice; the second, racy ProvideCredential clears the pending
+          // challenge the sequential login flow is awaiting and collapses the "waiting for approval"
+          // modal. This unblocks the daemon to continue polling Steam for approval.
+          // Note: We delay slightly to help WaitForChallenge see the file first.
+          if (!confirmedChallengeIdsRef.current.has(challenge.challengeId)) {
+            confirmedChallengeIdsRef.current.add(challenge.challengeId);
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            try {
+              await hubConnection.invoke('ProvideCredentialAsync', sessionId, challenge, 'confirm');
+            } catch (err) {
+              console.error('Failed to send device confirmation acknowledgement:', err);
+            }
           }
           break;
         case 'device-code':
@@ -399,6 +413,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     setPendingChallenge(null);
     isWaitingForDeviceConfirmationRef.current = false;
     isWaitingForAuthCodeProcessingRef.current = false;
+    confirmedChallengeIdsRef.current.clear();
     if (deviceConfirmationTimeoutRef.current) {
       clearTimeout(deviceConfirmationTimeoutRef.current);
       deviceConfirmationTimeoutRef.current = null;
