@@ -441,8 +441,33 @@
   justify-content: flex-start;
 }
 
-/* Scheduled prefill modal */
+/* Scheduled prefill modal. Modal's own body wrapper is opted into `bodyFlexLayout`, making it a
+   flex column with NO overflow of its own - so this div must fill it via flex-grow (not
+   height:100%, which measured as unreliable here: it resolved to this element's own CONTENT
+   height instead of the wrapper's actual available height, leaving the wrapper's overflow-y-auto
+   to kick in as a second, native scrollbar). flex:1 1 auto sizes correctly because it participates
+   directly in the flex algorithm instead of a percentage lookup. This makes THIS component - not
+   the Modal wrapper - own scrolling: the header/footer below stay fixed and only .scroll-area
+   scrolls, instead of the whole modal (title bar and Cancel/Save included) scrolling as one long
+   page on a shorter monitor. */
 .scheduled-prefill-config-modal {
+  display: flex;
+  flex-direction: column;
+  /* flex-basis: 0 (the `flex: 1` shorthand), not `auto` - `auto` sizes from content first and, in
+     practice, does not reliably give ITS OWN children a definite height to resolve percentages
+     against (measured: children fell back to content height). A 0 basis makes this item's size
+     pure flex-grow, which propagates a definite height down the chain. */
+  flex: 1;
+  min-height: 0;
+  gap: 1.25rem;
+}
+
+.scheduled-prefill-config-modal__scroll-area {
+  flex: 1;
+  min-height: 0;
+}
+
+.scheduled-prefill-config-modal__scroll-content {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;

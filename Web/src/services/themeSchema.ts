@@ -80,7 +80,10 @@ const themeColorDefaults: Record<string, string> = {
 
   // ── Components ───────────────────────────────────────────────────────
   cardBg: '#1e2938',
-  cardBorder: '#374151',
+  // One step up the same gray scale from cardBg (was #374151, gray-700 - only ~25/255 contrast
+  // against the card background, making every card/modal border read as nearly invisible,
+  // especially along a straight edge with nothing else nearby for the eye to anchor on).
+  cardBorder: '#4b5563',
   buttonBg: '#3b82f6',
   buttonHover: '#2563eb',
   buttonText: '#ffffff',

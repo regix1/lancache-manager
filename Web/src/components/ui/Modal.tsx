@@ -50,6 +50,18 @@ interface ModalProps {
    * reopened after them.
    */
   stackPriority?: ModalStackPriority;
+  /**
+   * When true, the body wrapper becomes a flex column itself and never scrolls on its own -
+   * instead of the default (every other modal) where the wrapper's own `overflow-y-auto` scrolls
+   * whatever `children` renders as one block. Use this when `children` manages its own internal
+   * scroll region (e.g. a fixed header/footer around a `CustomScrollbar` middle): a plain block
+   * child's `height: 100%` does not reliably resolve against this wrapper's flex-computed height
+   * (measured: it fell back to its content height instead), so the wrapper's own overflow-y-auto
+   * kicked in and showed a second, native scrollbar alongside the child's own. Making the wrapper
+   * a flex column lets the child fill it via `flex: 1 1 auto` (flex-grow, not a percentage), which
+   * resolves reliably.
+   */
+  bodyFlexLayout?: boolean;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -58,7 +70,8 @@ export const Modal: React.FC<ModalProps> = ({
   title,
   children,
   size = 'md',
-  stackPriority = 'normal'
+  stackPriority = 'normal',
+  bodyFlexLayout = false
 }) => {
   const [isVisible, setIsVisible] = React.useState(false);
   const [isAnimating, setIsAnimating] = React.useState(false);
@@ -279,7 +292,11 @@ export const Modal: React.FC<ModalProps> = ({
               </button>
             </div>
           )}
-          <div className="p-4 sm:p-6 overflow-y-auto overflow-x-hidden flex-1 min-h-0">
+          <div
+            className={`p-4 sm:p-6 flex-1 min-h-0 ${
+              bodyFlexLayout ? 'flex flex-col overflow-hidden' : 'overflow-y-auto overflow-x-hidden'
+            }`}
+          >
             {children}
           </div>
         </div>
