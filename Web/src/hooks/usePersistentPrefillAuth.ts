@@ -177,9 +177,10 @@ export function usePersistentPrefillAuth(
 
   const applyChallenge = useCallback(
     (challenge: CredentialChallenge, sessionId?: string | null) => {
+      dbg('applyChallenge()', { credentialType: challenge.credentialType, sessionId });
       applyPersistentLoginChallenge(service, challenge, sessionId);
     },
-    [service]
+    [service, dbg]
   );
 
   // Single choke point for the RC3 409 conflict (session 20260703-221336-2070027597): both
@@ -221,19 +222,23 @@ export function usePersistentPrefillAuth(
 
   const pollForResult = useCallback(async (): Promise<PollResult> => {
     try {
+      dbg('pollForResult() -> GET challenge', { pinnedSessionId: stored.sessionId ?? '' });
       const response = await ApiService.getPersistentChallenge(
         service,
         timeoutSeconds,
         stored.sessionId ?? ''
       );
       if (isPersistentLoginAuthenticatedResponse(response)) {
+        dbg('pollForResult() <- AUTHENTICATED');
         return { status: 'authenticated' };
       }
       if (isPersistentLoginCredentialChallenge(response)) {
+        dbg('pollForResult() <- challenge', { credentialType: response.credentialType });
         return { status: 'challenge', challenge: response };
       }
       // Empty/204: the long-poll timed out with no new challenge yet (e.g. waiting
       // for the user to confirm a device code). Keep polling instead of erroring.
+      dbg('pollForResult() <- pending (204/empty)');
       return { status: 'pending' };
     } catch (err) {
       if (isPersistentSessionConflictError(err)) {
@@ -241,10 +246,14 @@ export function usePersistentPrefillAuth(
       }
       throw err;
     }
-  }, [handleSessionConflict, service, stored.sessionId, timeoutSeconds]);
+  }, [handleSessionConflict, service, stored.sessionId, timeoutSeconds, dbg]);
 
   const submitChallenge = useCallback(
     async (challenge: CredentialChallenge, credential: string): Promise<PollResult> => {
+      dbg('submitChallenge() -> provide credential', {
+        credentialType: challenge.credentialType,
+        pinnedSessionId: stored.sessionId ?? ''
+      });
       setLoading(true);
       setError(null);
       try {
@@ -275,6 +284,7 @@ export function usePersistentPrefillAuth(
         return result;
       }
 
+      dbg('submitChallenge() <- result', { status: result.status });
       if (result.status === 'challenge') {
         applyChallenge(result.challenge, extractPersistentSessionId(result.challenge));
       }
@@ -289,7 +299,8 @@ export function usePersistentPrefillAuth(
       service,
       setError,
       setLoading,
-      stored.sessionId
+      stored.sessionId,
+      dbg
     ]
   );
 

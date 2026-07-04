@@ -458,17 +458,36 @@ export async function reconcilePersistentLoginFromServer(
   sessionId: string
 ): Promise<PersistentLoginReconcileResult> {
   try {
+    // eslint-disable-next-line no-console
+    console.log(
+      '[SteamAuthDebug] persistent',
+      service,
+      'reconcileFromServer() -> GET challenge (no click)',
+      {
+        sessionId
+      }
+    );
     const response = await ApiService.getPersistentChallenge(
       service,
       RESUME_PROBE_TIMEOUT_SECONDS,
       sessionId
     );
     if (isPersistentLoginAuthenticatedResponse(response)) {
+      // eslint-disable-next-line no-console
+      console.log(
+        '[SteamAuthDebug] persistent',
+        service,
+        'reconcileFromServer() <- AUTHENTICATED -> marking authenticated with NO modal (the "magic login" - daemon self-authed from its volume)'
+      );
       resetPersistentLoginState(service);
       updatePersistentLoginState(service, (current) => ({ ...current, authenticated: true }));
       return 'authenticated';
     }
     if (isPersistentLoginCredentialChallenge(response)) {
+      // eslint-disable-next-line no-console
+      console.log('[SteamAuthDebug] persistent', service, 'reconcileFromServer() <- challenge', {
+        credentialType: response.credentialType
+      });
       applyPersistentLoginChallenge(
         service,
         response,
@@ -476,8 +495,23 @@ export async function reconcilePersistentLoginFromServer(
       );
       return 'challenge';
     }
+    // eslint-disable-next-line no-console
+    console.log(
+      '[SteamAuthDebug] persistent',
+      service,
+      'reconcileFromServer() <- none (204/empty)'
+    );
     return 'none';
-  } catch {
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.log(
+      '[SteamAuthDebug] persistent',
+      service,
+      'reconcileFromServer() <- error (treated as none)',
+      {
+        error: String(err)
+      }
+    );
     return 'none';
   }
 }
