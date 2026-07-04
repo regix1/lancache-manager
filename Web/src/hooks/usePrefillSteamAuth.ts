@@ -861,8 +861,20 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         return false; // Need more input
       }
 
+      // Reached when the post-password WaitForChallenge returned a challenge that is NOT
+      // device-confirmation - most commonly a STALE 'password' challenge re-served from the
+      // manager's pending-challenge cache in the moment right before the real device-confirmation
+      // challenge arrives (confirmed via SteamAuthDebug: "WaitForChallenge returned password" then
+      // the modal closed). This is NOT a successful login: returning true here made the modal's
+      // submit handler call onClose(), so the "Waiting for Confirmation" screen never appeared even
+      // though its state (waitingForMobileConfirmation) was set moments later. Keep the modal open
+      // and let the real challenge event (device-confirmation / 2FA / Steam Guard) or the
+      // authoritative AuthStateChanged: Authenticated event drive what happens next.
+      dbg(
+        'main flow: fell through post-password (non-device-confirmation challenge) -> keep modal open (return false)'
+      );
       setLoading(false);
-      return true;
+      return false;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to authenticate';
       addNotification({
