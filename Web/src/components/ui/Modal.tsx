@@ -6,6 +6,15 @@ import { X } from 'lucide-react';
 let modalStack: number[] = [];
 let modalIdCounter = 0;
 
+// Monotonic z-index for the most recently opened modal. A strictly increasing counter (reset only
+// once every modal has closed) guarantees a later modal always stacks ABOVE an earlier one,
+// regardless of open/close churn. The previous `80 + modalStack.length` scheme could hand a
+// reopened modal a z-index at or below one already on screen - e.g. after a rapid open->close->open
+// (which container-list reconcile churn drives) corrupted the shared stack - leaving the reopened
+// modal stuck BEHIND another modal.
+const MODAL_BASE_Z = 80;
+let modalTopZ = MODAL_BASE_Z;
+
 // Non-exported module constant (keeps Fast Refresh happy — only the component is exported).
 const FOCUSABLE_SELECTOR =
   'a[href],area[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),' +
@@ -26,6 +35,8 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
   const [isAnimating, setIsAnimating] = React.useState(false);
   const [zIndex, setZIndex] = React.useState(80);
   const modalId = React.useRef<number | null>(null);
+  const animationTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const contentRef = React.useRef<HTMLDivElement>(null);
   const previouslyFocusedRef = React.useRef<HTMLElement | null>(null);
   const titleId = React.useId();
@@ -47,68 +58,89 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
   };
 
   React.useEffect(() => {
-    if (opened) {
-      // Assign unique ID to this modal instance
-      modalId.current = ++modalIdCounter;
+    // Drop this modal's id from the shared stack; when it was the last one, release the scroll lock
+    // and reset the monotonic z counter so it never grows without bound across a long session.
+    const removeFromStack = (id: number) => {
+      modalStack = modalStack.filter((stackedId) => stackedId !== id);
+      if (modalStack.length === 0) {
+        document.documentElement.classList.remove('modal-open');
+        setBackgroundInert(false);
+        modalTopZ = MODAL_BASE_Z;
+      }
+    };
 
-      // Remember what had focus so we can restore it on close
+    // Cancel any pending open/close animation timers from a previous toggle. This is what makes a
+    // rapid open -> close -> open (which container-list reconcile churn can drive) safe: without it a
+    // stale close timer fires ~250ms later and forces isVisible=false on a modal that has since
+    // reopened, so it flashes open and then vanishes even though `opened` is still true.
+    if (animationTimerRef.current) {
+      clearTimeout(animationTimerRef.current);
+      animationTimerRef.current = null;
+    }
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+
+    if (opened) {
+      // Assign a unique id to this open instance.
+      const id = ++modalIdCounter;
+      modalId.current = id;
+
+      // Remember what had focus so we can restore it on close.
       previouslyFocusedRef.current = (document.activeElement as HTMLElement) ?? null;
 
-      // Only lock scroll / hide background for the first modal
+      // Only lock scroll / hide background for the first modal.
       if (modalStack.length === 0) {
         document.documentElement.classList.add('modal-open');
         setBackgroundInert(true);
       }
 
-      // Add this modal to the stack
-      modalStack.push(modalId.current);
+      // Add this modal to the stack and give it a z-index strictly above every modal already open.
+      modalStack.push(id);
+      modalTopZ += 1;
+      setZIndex(modalTopZ);
 
-      // Set z-index based on stack position (each modal gets higher z-index)
-      setZIndex(80 + modalStack.length);
-
-      // Start animation with slight delay for smoother appearance
+      // Start animation with slight delay for smoother appearance.
       setIsVisible(true);
-      setTimeout(() => {
+      animationTimerRef.current = setTimeout(() => {
         setIsAnimating(true);
       }, 25);
-    } else {
-      // Start closing animation
-      setIsAnimating(false);
-      setTimeout(() => {
-        setIsVisible(false);
 
-        // Remove this modal from the stack
-        if (modalId.current !== null) {
-          modalStack = modalStack.filter((id) => id !== modalId.current);
+      return () => {
+        // Torn down while still open (unmount, or `opened` flipped to false and this effect re-ran):
+        // clear timers and drop THIS open's id - captured locally, never read back from the ref,
+        // which a later reopen may have already reassigned.
+        if (animationTimerRef.current) {
+          clearTimeout(animationTimerRef.current);
+          animationTimerRef.current = null;
+        }
+        removeFromStack(id);
+        if (modalId.current === id) {
           modalId.current = null;
         }
-
-        // Only restore scroll / background when all modals are closed
-        if (modalStack.length === 0) {
-          document.documentElement.classList.remove('modal-open');
-          setBackgroundInert(false);
-        }
-
-        // Restore focus to whatever was focused before this modal opened
-        const prev = previouslyFocusedRef.current;
-        if (prev && typeof prev.focus === 'function' && document.contains(prev)) {
-          prev.focus();
-        }
-        previouslyFocusedRef.current = null;
-      }, 250); // Match transition duration
+      };
     }
 
-    return () => {
-      // Cleanup: remove from stack if component unmounts while open
-      if (modalId.current !== null) {
-        modalStack = modalStack.filter((id) => id !== modalId.current);
-        modalId.current = null;
+    // opened === false: play the close animation, then hide and restore focus. Stack bookkeeping for
+    // this modal already ran in the open branch's cleanup (React runs it before this effect), so the
+    // close path only has to finish the visual close.
+    setIsAnimating(false);
+    closeTimerRef.current = setTimeout(() => {
+      setIsVisible(false);
 
-        // Restore scroll / background if this was the last modal
-        if (modalStack.length === 0) {
-          document.documentElement.classList.remove('modal-open');
-          setBackgroundInert(false);
-        }
+      // Restore focus to whatever was focused before this modal opened.
+      const prev = previouslyFocusedRef.current;
+      if (prev && typeof prev.focus === 'function' && document.contains(prev)) {
+        prev.focus();
+      }
+      previouslyFocusedRef.current = null;
+    }, 250); // Match transition duration
+
+    return () => {
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
       }
     };
   }, [opened]);

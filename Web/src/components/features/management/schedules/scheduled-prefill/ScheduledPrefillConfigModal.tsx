@@ -313,6 +313,30 @@ export function ScheduledPrefillConfigModal({
     [persistentContainers]
   );
 
+  // Always-current mirror of the container map for effects that must READ it without re-running on
+  // every change to it (see the reconcile effect below).
+  const persistentContainerByServiceRef = useRef(persistentContainerByService);
+  persistentContainerByServiceRef.current = persistentContainerByService;
+
+  // Stable signature of ONLY the fields the reconcile effect branches on (running / authenticated /
+  // session). The container list is refreshed on every container SignalR push - including the rapid
+  // prefill-progress pushes that only move byte counters - and each refresh makes a brand-new array,
+  // so keying the reconcile effect off the whole map made it re-probe the daemon (GET challenge) on
+  // every progress tick. This signature only changes when a reconcile-relevant field actually
+  // changes, so a progress-only refresh no longer re-fires the probe.
+  const persistentReconcileSignature = useMemo(
+    () =>
+      (persistentContainers ?? [])
+        .map(
+          (container) =>
+            `${container.service}:${container.isRunning ? 1 : 0}:${
+              container.isAuthenticated ? 1 : 0
+            }:${container.sessionId ?? ''}`
+        )
+        .join('|'),
+    [persistentContainers]
+  );
+
   // Reconcile instead of wipe: reopening the modal used to clear persistentLoginTarget
   // unconditionally, killing a visible auth modal and abandoning an in-progress login
   // (diagnostic §6 item 1). Once the container list is loaded, ask the backend (which caches the
@@ -357,7 +381,10 @@ export function ScheduledPrefillConfigModal({
         }
 
         const serviceId = getPersistentServiceId(serviceKey);
-        const container = persistentContainerByService.get(serviceId);
+        // Read through the ref (not the closed-over map) so this effect can depend on the reconcile
+        // signature alone - the reconcile-relevant fields it reads here are exactly what that
+        // signature tracks, so the ref is guaranteed current for them.
+        const container = persistentContainerByServiceRef.current.get(serviceId);
         // eslint-disable-next-line no-console
         console.log('[SteamAuthDebug] persistent', serviceId, 'reconcile effect: container state', {
           isRunning: container?.isRunning ?? null,
@@ -386,7 +413,10 @@ export function ScheduledPrefillConfigModal({
     return () => {
       controller.abort();
     };
-  }, [opened, persistentLoginTarget, persistentContainerByService]);
+    // Depends on the reconcile signature, NOT the whole container map, so a prefill-progress refresh
+    // (byte counters only) no longer re-fires a daemon GET-challenge probe. persistentContainerByService
+    // is read via persistentContainerByServiceRef inside, so it is intentionally not a dependency.
+  }, [opened, persistentLoginTarget, persistentReconcileSignature]);
 
   // Every service (account or anonymous) reuses the same addressable persistent-container session
   // (ScheduledPrefillService.RunServiceAsync dispatches identically for all five platforms), so the
