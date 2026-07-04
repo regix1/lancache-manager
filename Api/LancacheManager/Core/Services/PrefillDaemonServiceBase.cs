@@ -2246,7 +2246,9 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// either already true, or requires the admin to remove the attached container first, which this
     /// method cannot force.
     /// </summary>
-    public async Task<PersistentVolumeClearResult> ClearPersistentAuthVolumeAsync(CancellationToken cancellationToken = default)
+    // virtual: the escalation in ForgetRunningPersistentLoginAsync calls this, and unit tests override
+    // it to exercise the hard-remove path without a live Docker daemon.
+    public virtual async Task<PersistentVolumeClearResult> ClearPersistentAuthVolumeAsync(CancellationToken cancellationToken = default)
     {
         if (_dockerClient == null)
         {
@@ -2278,6 +2280,85 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             _logger.LogWarning("Persistent {ServiceName} auth volume {Volume} is still attached to a container; not removed", ServiceName, volumeName);
             return PersistentVolumeClearResult.InUse;
         }
+    }
+
+    /// <summary>
+    /// Clears the login of the RUNNING persistent session for this service during the admin "clear
+    /// stored logins" sweep, with a HARD guarantee that holds even against an un-updated daemon image.
+    ///
+    /// WHY the verify-then-escalate: the daemon's in-place <c>logout</c> command is not trustworthy on
+    /// an old steam/epic image - it reports <c>Success=true</c> WITHOUT deleting the account file that
+    /// lives in the container's named auth volume (documented on <see cref="LogoutPersistentSessionAsync"/>
+    /// and the LogoutAsync endpoint), so the container keeps self-authenticating from that volume and
+    /// the next login click just dismisses again. A soft logout alone therefore cannot make
+    /// "clear stored logins" deterministic. This method:
+    ///   1. tries the least-disruptive in-place logout first (on an UPDATED image this genuinely forgets
+    ///      the account and the container keeps running);
+    ///   2. VERIFIES it against the daemon's LIVE status - trusting the socket, not the logout's own
+    ///      success flag - so the old-image "lied about success" case is caught;
+    ///   3. only when the logout did not verifiably take (reported failure, still "logged-in", or the
+    ///      status could not be read), ESCALATES to <see cref="TerminateSessionAsync"/> (which detaches
+    ///      the named volume by removing the container) followed by <see cref="ClearPersistentAuthVolumeAsync"/>
+    ///      (which deletes that volume outright, after reaping any lingering stopped container) - the
+    ///      only image-version-independent hard remove.
+    ///
+    /// Terminating a persistent container is permitted here because this runs ONLY from an explicit
+    /// admin action (clear-logins); background reapers still never terminate a persistent container.
+    /// The escalated container is left stopped/removed with no stored login - exactly the clean state
+    /// the admin is asking for. The soft-logout-verified path leaves the container running and merely
+    /// logged out, unchanged from before.
+    /// </summary>
+    public async Task<PersistentRunningLoginClearOutcome> ForgetRunningPersistentLoginAsync(
+        string sessionId, CancellationToken cancellationToken = default)
+    {
+        // (1) Least-disruptive first: in-place logout.
+        var logoutResult = await LogoutPersistentSessionAsync(sessionId, cancellationToken);
+
+        // (2) Verify against the LIVE socket. Do NOT trust logoutResult.LoggedOut on its own: an old
+        // image reports success while the volume token survives. Verified-clean == the daemon
+        // acknowledged the logout AND no longer reports "logged-in".
+        bool verifiedLoggedOut;
+        try
+        {
+            var status = await GetSessionStatusAsync(sessionId, cancellationToken);
+            verifiedLoggedOut = logoutResult.LoggedOut && status?.Status != "logged-in";
+        }
+        catch (Exception ex)
+        {
+            // Could not confirm the logout took effect - refuse to stand behind an unverified success;
+            // escalate to the hard remove instead (mirrors the list endpoint's resilient status catch).
+            _logger.LogInformation(ex,
+                "Could not verify in-place logout for persistent session {SessionId}; escalating to hard remove",
+                sessionId);
+            verifiedLoggedOut = false;
+        }
+
+        if (verifiedLoggedOut)
+        {
+            _logger.LogInformation(
+                "Persistent session {SessionId} logged out in place and verified clear; container left running",
+                sessionId);
+            return PersistentRunningLoginClearOutcome.LoggedOut;
+        }
+
+        // (3) Escalate: terminate so the named auth volume detaches, then delete the volume.
+        // ClearPersistentAuthVolumeAsync also reaps a lingering stopped container first, so the delete
+        // succeeds instead of returning InUse.
+        _logger.LogWarning(
+            "In-place logout did not verifiably clear persistent session {SessionId}; terminating the container " +
+            "and deleting its named auth volume so the stored login cannot survive",
+            sessionId);
+
+        await TerminateSessionAsync(
+            sessionId,
+            reason: "Clear stored logins: hard-remove stale persistent login",
+            force: true,
+            terminatedBy: "admin");
+
+        var volumeResult = await ClearPersistentAuthVolumeAsync(cancellationToken);
+        return volumeResult is PersistentVolumeClearResult.Removed or PersistentVolumeClearResult.NotFound
+            ? PersistentRunningLoginClearOutcome.HardRemoved
+            : PersistentRunningLoginClearOutcome.HardRemoveFailed;
     }
 
     /// <summary>
@@ -4011,4 +4092,33 @@ public enum PersistentVolumeClearResult
 
     /// <summary>Docker is not available.</summary>
     DockerUnavailable
+}
+
+/// <summary>
+/// Outcome of <see cref="PrefillDaemonServiceBase.ForgetRunningPersistentLoginAsync"/>: how a RUNNING
+/// persistent container's stored login was cleared during the admin "clear stored logins" sweep.
+/// </summary>
+public enum PersistentRunningLoginClearOutcome
+{
+    /// <summary>
+    /// The daemon's in-place logout was verified against its live status (no longer "logged-in"); the
+    /// container is still running and merely logged out. Least disruptive - only reached on a daemon
+    /// image whose logout genuinely forgets the account.
+    /// </summary>
+    LoggedOut,
+
+    /// <summary>
+    /// The soft logout did not verifiably forget the login (an old image reported success while its
+    /// named-volume token survived, the daemon reported failure, or the live status could not be read),
+    /// so the container was terminated and its named auth volume deleted - a hard, image-version-
+    /// independent remove. The container ends up stopped with no stored login.
+    /// </summary>
+    HardRemoved,
+
+    /// <summary>
+    /// Escalation ran (container terminated) but the named auth volume could not be deleted for a real
+    /// reason (still attached, or Docker unavailable), so the login may survive. The honest failure the
+    /// caller must surface rather than reporting a false success.
+    /// </summary>
+    HardRemoveFailed
 }
