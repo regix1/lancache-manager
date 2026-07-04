@@ -3066,6 +3066,12 @@
             "label": "计划预填充",
             "authWarning": "一个或多个已启用的服务需要登录后才能运行计划预填充。",
             "zeroEnabledWarning": "未启用任何服务。在至少启用一个服务之前，计划预填充不会下载任何内容。",
+            "bulkToggle": {
+              "label": "所有服务",
+              "help": "一次性开启或关闭所有平台，不会更改下方各服务的单独设置。",
+              "enableAll": "全部启用",
+              "disableAll": "全部禁用"
+            },
             "summaryError": "加载计划预填充摘要失败：{{error}}",
             "actions": {
               "configure": "配置",
@@ -3133,6 +3139,7 @@
               "persistentValidityLabel": "持久容器登录有效期（天）",
               "persistentValidityHelp": "持久容器会无限期运行。其登录会持续此天数，到期后需要重新登录。允许范围：{{min}}-{{max}} 天。",
               "clearLogins": {
+                "zoneTitle": "危险区域",
                 "button": "清除已保存的登录",
                 "clearing": "正在清除已保存的登录...",
                 "help": "清除所有计划预填充服务的已保存容器登录，无论其是否正在运行。",

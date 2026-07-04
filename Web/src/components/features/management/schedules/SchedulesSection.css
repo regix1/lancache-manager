@@ -493,21 +493,50 @@
   list-style: disc;
 }
 
-.scheduled-prefill-config-modal__global {
+/* Own line instead of sharing the status row with the enabled-count badge - a full
+   sentence squeezed into a pill next to another badge read as cramped and wrapped oddly. */
+.scheduled-prefill-config-modal__overview-warning {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  font-weight: 600;
+  color: var(--theme-warning-text);
+}
+
+/* Bulk enable/disable-all row, separate from the per-service toggles in each platform tab. */
+/* One consistent label-left / control-right row for every setting in this overview card (bulk
+   enable/disable-all, persistent login validity), so their controls line up in a scannable
+   column instead of sitting at whatever horizontal position each label's text happens to end. */
+.scheduled-prefill-config-modal__settings-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 1rem;
   padding-top: 1rem;
   border-top: 1px solid var(--theme-border-secondary);
 }
 
-/* Compact inline row: label, capped number input, Save, and the saved/loading
-   status sit on one line; the help text drops to a quiet muted line beneath. */
-.scheduled-prefill-config-modal__global-row {
+.scheduled-prefill-config-modal__setting-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+.scheduled-prefill-config-modal__setting-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+  flex: 1 1 16rem;
+}
+
+.scheduled-prefill-config-modal__setting-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem;
+  flex-shrink: 0;
 }
 
 .scheduled-prefill-config-modal__global-label {
@@ -534,18 +563,57 @@
   padding-bottom: calc(0.5rem - 1px);
 }
 
-.scheduled-prefill-config-modal__global-saved {
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--theme-success-text);
-}
-
 .scheduled-prefill-config-modal__global-help {
   grid-column: 1 / -1;
   margin: 0;
   font-size: var(--font-size-sm);
   line-height: 1.45;
   color: var(--theme-text-muted);
+}
+
+/* Clear-stored-logins lives here, visually set apart from the ordinary settings above it
+   (colour-coded border/background) since it wipes every service's saved login at once. */
+.scheduled-prefill-config-modal__danger-zone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--theme-error);
+  border-radius: var(--theme-border-radius);
+  background: var(--theme-error-bg);
+}
+
+.scheduled-prefill-config-modal__danger-zone-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  flex: 1 1 16rem;
+}
+
+.scheduled-prefill-config-modal__danger-zone-title {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--theme-error-text);
+}
+
+.scheduled-prefill-config-modal__danger-zone-help {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  color: var(--theme-text-muted);
+}
+
+.scheduled-prefill-config-modal__danger-zone-action {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-shrink: 0;
 }
 
 .scheduled-prefill-config-modal__inline-loading {
@@ -1524,9 +1592,24 @@
   .scheduled-prefill-config-modal__section-header,
   .scheduled-prefill-service-row__toggle-row,
   .scheduled-prefill-persistent-card__header,
-  .scheduled-prefill-containers__header {
+  .scheduled-prefill-containers__header,
+  .scheduled-prefill-config-modal__danger-zone {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .scheduled-prefill-config-modal__setting-row {
+    align-items: stretch;
+  }
+
+  .scheduled-prefill-config-modal__setting-actions,
+  .scheduled-prefill-config-modal__danger-zone-action {
+    width: 100%;
+  }
+
+  .scheduled-prefill-config-modal__setting-actions > button,
+  .scheduled-prefill-config-modal__danger-zone-action > button {
+    flex: 1 1 auto;
   }
 
   .scheduled-prefill-persistent-card__action-group {

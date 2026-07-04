@@ -3066,6 +3066,12 @@
             "label": "Scheduled prefill",
             "authWarning": "One or more enabled services need login before scheduled prefill can run.",
             "zeroEnabledWarning": "No services are enabled. Scheduled prefill will not download anything until at least one service is enabled.",
+            "bulkToggle": {
+              "label": "All services",
+              "help": "Turn every platform on or off at once, without changing your individual choices below.",
+              "enableAll": "Enable all",
+              "disableAll": "Disable all"
+            },
             "summaryError": "Failed to load scheduled prefill summary: {{error}}",
             "actions": {
               "configure": "Configure",
@@ -3133,6 +3139,7 @@
               "persistentValidityLabel": "Persistent container login validity (days)",
               "persistentValidityHelp": "Persistent containers run indefinitely. Their login lasts this many days, then re-login is required. Allowed range: {{min}}-{{max}} days.",
               "clearLogins": {
+                "zoneTitle": "Danger zone",
                 "button": "Clear stored logins",
                 "clearing": "Clearing stored logins...",
                 "help": "Removes saved container logins for every scheduled prefill service, whether running or stopped.",
