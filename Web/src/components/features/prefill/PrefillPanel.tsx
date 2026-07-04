@@ -251,6 +251,8 @@ function ServicePrefillPanel({
   // Handle auth state changes from backend SignalR events
   const handleAuthStateChanged = useCallback(
     (newState: DaemonAuthState) => {
+      // eslint-disable-next-line no-console
+      console.log('[SteamAuthDebug] PrefillPanel.handleAuthStateChanged', { newState });
       // Backend emits all nine DaemonAuthState values. The three directly-assigned values
       // (Authenticated/LoggingIn/NotAuthenticated) come from PrefillDaemonServiceBase.cs;
       // the sub-states (UsernameRequired/PasswordRequired/TwoFactorRequired/SteamGuardRequired/
@@ -327,11 +329,22 @@ function ServicePrefillPanel({
   } = usePrefillSteamAuth({
     sessionId: signalR.session?.id ?? null,
     hubConnection: signalR.hubConnection.current,
-    onSuccess: () => setShowAuthModal(false),
-    onError: () => {
-      /* Keep modal open on error */
+    onSuccess: () => {
+      // eslint-disable-next-line no-console
+      console.log('[SteamAuthDebug] PrefillPanel onSuccess -> setShowAuthModal(false)');
+      setShowAuthModal(false);
     },
-    onDeviceConfirmationTimeout: () => setShowAuthModal(false),
+    onError: () => {
+      // eslint-disable-next-line no-console
+      console.log('[SteamAuthDebug] PrefillPanel onError -> keep modal open');
+    },
+    onDeviceConfirmationTimeout: () => {
+      // eslint-disable-next-line no-console
+      console.log(
+        '[SteamAuthDebug] PrefillPanel onDeviceConfirmationTimeout -> setShowAuthModal(false)'
+      );
+      setShowAuthModal(false);
+    },
     serviceId
   });
 
@@ -722,6 +735,8 @@ function ServicePrefillPanel({
   }, [signalR]);
 
   const handleOpenAuthModal = useCallback(() => {
+    // eslint-disable-next-line no-console
+    console.log('[SteamAuthDebug] PrefillPanel.handleOpenAuthModal -> setShowAuthModal(true)');
     authActions.resetAuthForm();
     setShowAuthModal(true);
   }, [authActions]);

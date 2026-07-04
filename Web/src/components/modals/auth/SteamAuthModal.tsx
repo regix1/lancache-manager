@@ -170,6 +170,20 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
 
   const currentStep = getCurrentStep();
 
+  // TEMP DIAGNOSTIC: log the modal's visibility + which step it renders on every render. Filter the
+  // browser console by "[SteamAuthDebug]". Remove once the mobile-confirmation visibility is fixed.
+  // eslint-disable-next-line no-console
+  console.log('[SteamAuthDebug] SteamAuthModal render', {
+    opened,
+    currentStep,
+    loading,
+    waitingForMobileConfirmation,
+    needsTwoFactor,
+    needsEmailCode,
+    awaitingChallenge,
+    isPrefillMode
+  });
+
   return (
     <Modal
       opened={opened}

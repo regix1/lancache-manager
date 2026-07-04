@@ -93,6 +93,17 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   const [deviceUserCode, setDeviceUserCode] = useState('');
   const [deviceVerificationUri, setDeviceVerificationUri] = useState('');
 
+  // TEMP DIAGNOSTIC: trace the device-confirmation / modal state machine. Filter the browser
+  // console by "[SteamAuthDebug]" during a login to see the exact event/branch order. Remove once
+  // the mobile-confirmation modal-visibility issue is resolved.
+  const dbg = useCallback(
+    (event: string, extra?: Record<string, unknown>) => {
+      // eslint-disable-next-line no-console
+      console.log('[SteamAuthDebug]', serviceId, event, { sessionId, ...extra });
+    },
+    [serviceId, sessionId]
+  );
+
   // Listen for AuthStateChanged - this is the reliable way to know when login succeeds
   useEffect(() => {
     if (!hubConnection || !sessionId) return;
@@ -104,6 +115,11 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       sessionId: string;
       authState: string;
     }) => {
+      dbg('AuthStateChanged event', {
+        payloadSessionId,
+        authState,
+        matches: payloadSessionId === sessionId
+      });
       if (payloadSessionId !== sessionId) return;
 
       if (authState === 'Authenticated') {
@@ -160,7 +176,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     return () => {
       hubConnection.off(eventName, handleAuthStateChanged);
     };
-  }, [hubConnection, sessionId, onSuccess, addNotification, onError, serviceId]);
+  }, [hubConnection, sessionId, onSuccess, addNotification, onError, serviceId, dbg]);
 
   // Listen for credential challenges from the daemon
   useEffect(() => {
@@ -173,6 +189,12 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       sessionId: string;
       challenge: CredentialChallenge;
     }) => {
+      dbg('CredentialChallenge event', {
+        payloadSessionId,
+        credentialType: challenge?.credentialType,
+        challengeId: challenge?.challengeId,
+        matches: payloadSessionId === sessionId
+      });
       if (payloadSessionId !== sessionId) return;
 
       setPendingChallenge(challenge);
@@ -237,12 +259,23 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           // Note: We delay slightly to help WaitForChallenge see the file first.
           if (!confirmedChallengeIdsRef.current.has(challenge.challengeId)) {
             confirmedChallengeIdsRef.current.add(challenge.challengeId);
+            dbg('device-confirmation: set waiting=true, sending confirm ack', {
+              challengeId: challenge.challengeId
+            });
             await new Promise((resolve) => setTimeout(resolve, 300));
             try {
               await hubConnection.invoke('ProvideCredentialAsync', sessionId, challenge, 'confirm');
+              dbg('device-confirmation: confirm ack sent OK', {
+                challengeId: challenge.challengeId
+              });
             } catch (err) {
+              dbg('device-confirmation: confirm ack FAILED', { error: String(err) });
               console.error('Failed to send device confirmation acknowledgement:', err);
             }
+          } else {
+            dbg('device-confirmation: DUPLICATE delivery, ack already sent (skipping)', {
+              challengeId: challenge.challengeId
+            });
           }
           break;
         case 'device-code':
@@ -268,12 +301,14 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     return () => {
       hubConnection.off(eventName, handleCredentialChallenge);
     };
-  }, [hubConnection, sessionId, serviceId, addNotification]);
+  }, [hubConnection, sessionId, serviceId, addNotification, dbg]);
 
   // Timeout for device confirmation - cancel daemon login and reset state
   useEffect(() => {
     if (waitingForMobileConfirmation && hubConnection && sessionId) {
+      dbg('mobile-confirmation timeout ARMED (60s)');
       deviceConfirmationTimeoutRef.current = setTimeout(async () => {
+        dbg('mobile-confirmation timeout FIRED -> cancelling login + resetting');
         // Cancel the login on the daemon to reset its state
         try {
           await hubConnection.invoke('CancelLoginAsync', sessionId);
@@ -316,7 +351,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     hubConnection,
     sessionId,
     addNotification,
-    onDeviceConfirmationTimeout
+    onDeviceConfirmationTimeout,
+    dbg
   ]);
 
   // Timeout for the Xbox device-code flow. Unlike Steam's device-confirmation, Xbox sets
@@ -774,11 +810,16 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           });
 
           // Wait for next challenge (2FA, steamguard, device-confirmation) or success
+          dbg('main flow: password sent, awaiting next challenge (WaitForChallenge 60s)');
           const nextChallenge = await hubConnection.invoke<CredentialChallenge | null>(
             'WaitForChallengeAsync',
             sessionId,
             60
           );
+          dbg('main flow: WaitForChallenge returned', {
+            credentialType: nextChallenge?.credentialType ?? null,
+            waitingRef: isWaitingForDeviceConfirmationRef.current
+          });
           if (nextChallenge) {
             setPendingChallenge(nextChallenge);
             handleChallengeType(nextChallenge);
@@ -787,10 +828,12 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
             // We wait for AuthStateChanged to trigger onSuccess
             // Return false so modal stays open
             if (nextChallenge.credentialType === 'device-confirmation') {
+              dbg('main flow: device-confirmation challenge -> keep modal open (return false)');
               setLoading(false);
               return false; // Modal should stay open
             }
           } else {
+            dbg('main flow: null challenge -> keep modal open, defer to AuthStateChanged');
             // WaitForChallenge returned nothing. Do NOT assume success here. A device-confirmation
             // (Steam mobile approval) login legitimately has no further challenge while the daemon
             // polls for the phone tap, and the manager caches then CLEARS the pending challenge as
@@ -849,7 +892,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     resetAuthForm,
     onSuccess,
     onError,
-    serviceId
+    serviceId,
+    dbg
   ]);
 
   // Helper to set state based on challenge type
