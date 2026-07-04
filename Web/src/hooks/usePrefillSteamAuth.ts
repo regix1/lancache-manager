@@ -791,19 +791,17 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
               return false; // Modal should stay open
             }
           } else {
-            // No more challenges - check if we were waiting for device confirmation
-            if (isWaitingForDeviceConfirmationRef.current) {
-              // WaitForChallenge timed out but we're in device confirmation mode
-              // Wait for AuthStateChanged instead of assuming success
-              setLoading(false);
-              return false; // Modal should stay open
-            } else {
-              // Normal login success
-              resetAuthForm();
-              onSuccess?.();
-              setLoading(false);
-              return true;
-            }
+            // WaitForChallenge returned nothing. Do NOT assume success here. A device-confirmation
+            // (Steam mobile approval) login legitimately has no further challenge while the daemon
+            // polls for the phone tap, and the manager caches then CLEARS the pending challenge as
+            // the 'confirm' ack is sent, so a null here does not mean "logged in" - it routinely
+            // happens mid device-confirmation and used to fire a false success that closed the modal
+            // before the user could approve. The authoritative signal is the AuthStateChanged event
+            // (Authenticated -> onSuccess, NotAuthenticated -> error surfaced by its handler), so keep
+            // the modal open and let that decide instead of racing a false success. A genuinely
+            // successful password-only login still closes the modal via AuthStateChanged: Authenticated.
+            setLoading(false);
+            return false; // Modal stays open; AuthStateChanged drives the real outcome
           }
         } else {
           // Unexpected challenge type
