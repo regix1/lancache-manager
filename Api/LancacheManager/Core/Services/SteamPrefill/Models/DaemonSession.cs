@@ -42,6 +42,20 @@ public class DaemonSession
     public CredentialChallenge? PendingLoginChallenge { get; set; }
 
     /// <summary>
+    /// The <see cref="CredentialChallenge.ChallengeId"/> of the login challenge most recently answered via
+    /// <see cref="PrefillDaemonServiceBase.ProvideCredentialAsync"/> on this session. The daemon delivers each
+    /// credential challenge over TWO channels - the <c>WaitForChallengeAsync</c> return value AND the
+    /// <c>OnCredentialChallenge</c> event - so once a credential is provided (and <see cref="PendingLoginChallenge"/>
+    /// is cleared), a late duplicate of that SAME challenge arriving over the event channel must NOT re-cache the
+    /// now-consumed challenge, or the next poll would replay it (the "challenge:password twice" race).
+    /// <see cref="PrefillDaemonServiceBase.OnCredentialChallengeAsync(DaemonSession, CredentialChallenge)"/> drops any
+    /// incoming challenge whose id equals this value; only a genuinely new follow-on challenge (different id) is allowed
+    /// to repopulate the cache and broadcast. Reset to null at the start of each fresh login attempt so it can never
+    /// suppress a legitimate future challenge. Transient - not persisted, not part of <see cref="DaemonSessionDto"/>.
+    /// </summary>
+    public string? LastConsumedLoginChallengeId { get; set; }
+
+    /// <summary>
     /// Serializes login attempts on this session (<c>PrefillDaemonServiceBase.StartLoginAsync</c>).
     /// Overlapping calls would race the daemon's single challenge/status stream, clobber each other's
     /// <see cref="LastLoginFailureMessage"/>/<see cref="AuthState"/> writes, and stack duplicate

@@ -1797,6 +1797,12 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         // Reset any stale failure text from a previous attempt before racing this one.
         session.LastLoginFailureMessage = null;
 
+        // A fresh attempt gets brand-new challenge ids from the daemon, so clear the just-consumed
+        // marker left by any earlier attempt/step - it must only ever name the single most-recently
+        // consumed challenge of the CURRENT flow, so it can never suppress a legitimate future
+        // challenge. (The resume path above returns before here, so a mid-flow resume keeps it.)
+        session.LastConsumedLoginChallengeId = null;
+
         // The daemon broadcasts "Login failed: <reason>" (status "awaiting-login") within
         // milliseconds when it can't proceed (e.g. an undecryptable stored token). Racing that
         // broadcast against the blind challenge waits below lets a doomed login fail in seconds
@@ -2063,6 +2069,15 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         // challenge; if not, WaitForChallengeAsync correctly falls through to a live daemon wait
         // instead of replaying stale data.
         ClearPendingLoginChallenge(session);
+
+        // Record the id of the challenge we are answering so a concurrent stale re-delivery of this
+        // SAME challenge over the daemon's OTHER delivery channel (the OnCredentialChallenge event,
+        // handled by OnCredentialChallengeAsync) cannot re-cache the now-consumed challenge after this
+        // clear - that late duplicate would otherwise be replayed to the next WaitForChallengeAsync/GET
+        // poll (the "challenge:password twice" race). Only a genuinely NEW follow-on challenge (a
+        // different ChallengeId) is allowed to repopulate the cache; a matching id is dropped as the
+        // stale second copy of the challenge just answered. Reset on the next fresh login attempt.
+        session.LastConsumedLoginChallengeId = challenge.ChallengeId;
 
         // If this is the username credential, capture it
         if (challenge.CredentialType.Equals("username", StringComparison.OrdinalIgnoreCase))

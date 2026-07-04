@@ -36,6 +36,26 @@ public abstract partial class PrefillDaemonServiceBase
                 return;
             }
 
+            // Stale re-delivery guard (Bug #3): the daemon delivers each credential challenge over TWO
+            // channels - the WaitForChallengeAsync return value AND this OnCredentialChallenge event. Once
+            // the caller has answered a challenge, ProvideCredentialAsync clears the cache and records its
+            // ChallengeId in LastConsumedLoginChallengeId. If the OTHER channel then delivers that SAME
+            // already-consumed challenge here (a late duplicate, NOT a new step), re-caching it would replay
+            // the answered challenge to the next WaitForChallengeAsync/GET poll - the "challenge:password
+            // twice" race that stalls the login before device-confirmation - and would regress AuthState
+            // back to the consumed step. Drop it before any state write. A genuine follow-on challenge (e.g.
+            // device-confirmation after password) always carries a NEW ChallengeId and falls through to be
+            // cached and broadcast below. Mirrors the frontend isRedelivery guard (persistentLoginStore.ts).
+            if (!string.IsNullOrEmpty(session.LastConsumedLoginChallengeId)
+                && string.Equals(challenge.ChallengeId, session.LastConsumedLoginChallengeId, StringComparison.Ordinal))
+            {
+                _logger.LogDebug(
+                    "Ignoring stale re-delivery of already-consumed credential challenge {ChallengeId} " +
+                    "({CredentialType}) for session {SessionId}",
+                    challenge.ChallengeId, challenge.CredentialType, session.Id);
+                return;
+            }
+
             // Update auth state based on credential type
             session.AuthState = challenge.CredentialType switch
             {
