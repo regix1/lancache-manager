@@ -6,6 +6,7 @@ import type {
   PersistentPrefillServiceId
 } from '@components/features/prefill/persistentPrefillTypes';
 import type { CredentialChallenge } from '@hooks/usePrefillSteamAuth';
+import ApiService from '@services/api.service';
 import { SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS } from './constants';
 import { getPersistentServiceId } from './scheduledPrefillPlatformUi';
 import {
@@ -20,6 +21,10 @@ import {
 
 const LOGIN_REQUIRED_SERVICE_IDS: readonly PersistentPrefillServiceId[] =
   SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.map(getPersistentServiceId);
+
+// The device-confirmation ack ('confirm') must be sent exactly once per challenge. Tracked at module
+// scope so a listener re-registration (containersByService change) cannot re-send it.
+const acknowledgedDeviceConfirmationIds = new Set<string>();
 
 interface CredentialChallengePayload {
   sessionId: string;
@@ -92,6 +97,46 @@ export function usePersistentLoginChallengeSignalR({
           return;
         }
         applyPersistentLoginChallenge(serviceId, event.challenge, event.sessionId);
+
+        // Auto-send the device-confirmation acknowledgement here, decoupled from the sequential
+        // handleAuthenticate chain (which breaks when the manager's WaitForChallenge serves a stale
+        // 'password' challenge again after the password was submitted, so it never reaches the
+        // device-confirmation step and never sends this ack - the daemon then sits blocked, never
+        // polls Steam for the phone approval, and the login times out to NotAuthenticated). The
+        // guest/mapping flow has always auto-sent 'confirm' from its own challenge push for exactly
+        // this reason. Sent once per challenge id; the daemon no-ops a duplicate.
+        if (
+          event.challenge.credentialType === 'device-confirmation' &&
+          !acknowledgedDeviceConfirmationIds.has(event.challenge.challengeId)
+        ) {
+          acknowledgedDeviceConfirmationIds.add(event.challenge.challengeId);
+          // eslint-disable-next-line no-console
+          console.log(
+            '[SteamAuthDebug] persistent',
+            serviceId,
+            'auto-sending device-confirmation ack',
+            {
+              challengeId: event.challenge.challengeId,
+              sessionId: event.sessionId
+            }
+          );
+          void ApiService.providePersistentCredential(
+            serviceId,
+            event.challenge,
+            'confirm',
+            event.sessionId
+          ).catch((err: unknown) => {
+            // eslint-disable-next-line no-console
+            console.log(
+              '[SteamAuthDebug] persistent',
+              serviceId,
+              'device-confirmation ack failed',
+              {
+                error: String(err)
+              }
+            );
+          });
+        }
       };
 
       // AuthStateChanged: Authenticated is the reliable, event-driven completion signal (the daemon
