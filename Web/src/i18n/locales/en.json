@@ -3131,7 +3131,17 @@
               "saved": "Global scheduled prefill settings saved.",
               "error": "Failed to save global scheduled prefill settings: {{error}}",
               "persistentValidityLabel": "Persistent container login validity (days)",
-              "persistentValidityHelp": "Persistent containers run indefinitely. Their login lasts this many days, then re-login is required. Allowed range: {{min}}-{{max}} days."
+              "persistentValidityHelp": "Persistent containers run indefinitely. Their login lasts this many days, then re-login is required. Allowed range: {{min}}-{{max}} days.",
+              "clearLogins": {
+                "button": "Clear stored logins",
+                "clearing": "Clearing stored logins...",
+                "help": "Removes saved container logins for every scheduled prefill service, whether running or stopped.",
+                "confirmTitle": "Clear all stored logins?",
+                "confirmBody": "This logs out any currently running persistent containers and wipes the saved logins of stopped ones. Every account service (Steam, Epic, Xbox) will need a fresh login afterwards.",
+                "confirmButton": "Clear logins",
+                "success": "Stored logins cleared.",
+                "partialFailure": "Cleared logins for {{total}} service(s), but {{failedCount}} failed: {{services}}."
+              }
             },
             "platforms": {
               "description": "Pick a platform to configure everything for that service in one view.",

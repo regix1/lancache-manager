@@ -1547,6 +1547,14 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         session.Client = daemonClient;
 
+        // Belt-and-braces: guarantee a brand NEW persistent container (never a re-adopted one) cannot
+        // silently inherit a stale login left in its named auth volume by a previous life (e.g. a
+        // crash/reboot where TerminateSessionAsync's stop-side logout never got a chance to run). Runs
+        // BEFORE the session is registered/persisted/broadcast below, so nothing - a SignalR listener
+        // reacting to EventSessionCreated, a status poll - can ever observe this session (and therefore
+        // attempt a login against it) until any stale login has already been erased.
+        await ApplyFreshPersistentLoginGuardAsync(session, isPersistent, isReconnect);
+
         _sessions[sessionId] = session;
 
         // Persist session to database for admin visibility and orphan tracking. On reconnect the backing
@@ -1582,6 +1590,59 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         await NotifyHubAsync(EventSessionCreated, sessionDtoCreated);
 
         return session;
+    }
+
+    /// <summary>
+    /// Best-effort, bounded logout of a persistent session's live daemon socket. Used both when a
+    /// persistent session is stopped (<see cref="TerminateSessionAsync"/>) and, as a belt-and-braces
+    /// guard, right after a brand new persistent container connects for the first time (see
+    /// <see cref="ApplyFreshPersistentLoginGuardAsync"/>). A dead/hung socket must never block the
+    /// caller's teardown or startup flow, so every failure (timeout, transport error, or the daemon
+    /// reporting failure) is swallowed and logged - callers proceed regardless. No-op for
+    /// non-persistent sessions.
+    /// </summary>
+    private async Task TryBestEffortLogoutAsync(DaemonSession session, string context)
+    {
+        if (!session.IsPersistent)
+        {
+            return;
+        }
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var loggedOut = await session.Client.LogoutAsync(cts.Token);
+            _logger.LogInformation(
+                "Best-effort logout for persistent {ServiceName} session {SessionId} ({Context}): {Result}",
+                ServiceName, session.Id, context, loggedOut ? "acknowledged" : "daemon reported failure");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogInformation(ex,
+                "Best-effort logout for persistent {ServiceName} session {SessionId} ({Context}) failed; proceeding anyway",
+                ServiceName, session.Id, context);
+        }
+    }
+
+    /// <summary>
+    /// Belt-and-braces guard called once, right after a persistent session's daemon socket first
+    /// connects: forces one best-effort logout for a NEWLY CREATED persistent container (never a
+    /// re-adopted one) so it can never silently inherit a stale login left in its named auth volume by
+    /// a previous life (e.g. a crash/reboot where <see cref="TerminateSessionAsync"/>'s stop-side
+    /// logout never got a chance to run). No-op for non-persistent sessions and for re-adopted
+    /// sessions - an adopted, still-running container's login IS its current life and must be
+    /// preserved. Internal (not private) so tests can exercise the decision seam directly without
+    /// standing up a real Docker container and daemon socket - see
+    /// <c>InternalsVisibleTo("LancacheManager.Tests")</c> on the containing project.
+    /// </summary>
+    internal Task ApplyFreshPersistentLoginGuardAsync(DaemonSession session, bool isPersistent, bool isReconnect)
+    {
+        if (!isPersistent || isReconnect)
+        {
+            return Task.CompletedTask;
+        }
+
+        return TryBestEffortLogoutAsync(session, "fresh persistent container create");
     }
 
     /// <summary>
@@ -2148,6 +2209,42 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         return new PersistentLogoutResult(true);
     }
 
+    /// <summary>
+    /// Removes this service's persistent auth volume when no session is currently running for it -
+    /// used by the admin "clear all logins" endpoint (<c>POST .../persistent/clear-logins</c>) to
+    /// forget a STOPPED service's stored login even though there is no live session/socket to send a
+    /// <c>logout</c> command to. Never throws: Docker's "no such volume" (already gone) and "volume in
+    /// use" (a stopped-but-still-attached container still references it) are both reported as typed
+    /// results rather than propagated - the end state the caller cares about (no lingering login) is
+    /// either already true, or requires the admin to remove the attached container first, which this
+    /// method cannot force.
+    /// </summary>
+    public async Task<PersistentVolumeClearResult> ClearPersistentAuthVolumeAsync(CancellationToken cancellationToken = default)
+    {
+        if (_dockerClient == null)
+        {
+            return PersistentVolumeClearResult.DockerUnavailable;
+        }
+
+        var volumeName = GetPersistentConfigVolumeName();
+        try
+        {
+            await _dockerClient.Volumes.RemoveAsync(volumeName, force: false, cancellationToken);
+            _logger.LogInformation("Cleared persistent {ServiceName} auth volume {Volume}", ServiceName, volumeName);
+            return PersistentVolumeClearResult.Removed;
+        }
+        catch (DockerApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            _logger.LogInformation("Persistent {ServiceName} auth volume {Volume} does not exist; nothing to clear", ServiceName, volumeName);
+            return PersistentVolumeClearResult.NotFound;
+        }
+        catch (DockerApiException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
+        {
+            _logger.LogWarning("Persistent {ServiceName} auth volume {Volume} is still attached to a container; not removed", ServiceName, volumeName);
+            return PersistentVolumeClearResult.InUse;
+        }
+    }
+
 
     /// <summary>
     /// Cancels a running prefill operation.
@@ -2553,6 +2650,15 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         session.Status = DaemonSessionStatus.Terminated;
         session.EndedAt = DateTime.UtcNow;
         ClearPendingLoginChallenge(session);
+
+        // User policy: a persistent container's login exists ONLY while that container is alive -
+        // stopping it must forget the daemon's stored account so a later Start never silently inherits
+        // a previous life's login. Best-effort and bounded (see TryBestEffortLogoutAsync): a dead/hung
+        // socket (e.g. the daemon already crashed) must never block this teardown. Covers every caller
+        // of TerminateSessionAsync for a persistent session - explicit admin stop
+        // (StopPersistentSessionAsync), Error-state replacement in the create path, and service
+        // shutdown - since they all funnel through here.
+        await TryBestEffortLogoutAsync(session, "session stop/teardown");
 
         // Broadcast session termination to all clients for real-time updates (both hubs)
         var terminatedEvent = new { sessionId = session.Id, reason = reason };
@@ -3785,3 +3891,21 @@ public readonly record struct PrefillSessionExpiryResult(int FlaggedNeedsRelogin
 /// self-resolves once the image is rebuilt.
 /// </summary>
 public readonly record struct PersistentLogoutResult(bool LoggedOut);
+
+/// <summary>
+/// Result of <see cref="PrefillDaemonServiceBase.ClearPersistentAuthVolumeAsync"/>.
+/// </summary>
+public enum PersistentVolumeClearResult
+{
+    /// <summary>The volume was found and removed.</summary>
+    Removed,
+
+    /// <summary>The volume did not exist - already gone, nothing to clear.</summary>
+    NotFound,
+
+    /// <summary>The volume still exists but is attached to a container and could not be removed.</summary>
+    InUse,
+
+    /// <summary>Docker is not available.</summary>
+    DockerUnavailable
+}

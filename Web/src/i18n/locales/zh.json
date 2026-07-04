@@ -3131,7 +3131,17 @@
               "saved": "全局计划预填充设置已保存。",
               "error": "保存全局计划预填充设置失败：{{error}}",
               "persistentValidityLabel": "持久容器登录有效期（天）",
-              "persistentValidityHelp": "持久容器会无限期运行。其登录会持续此天数，到期后需要重新登录。允许范围：{{min}}-{{max}} 天。"
+              "persistentValidityHelp": "持久容器会无限期运行。其登录会持续此天数，到期后需要重新登录。允许范围：{{min}}-{{max}} 天。",
+              "clearLogins": {
+                "button": "清除已保存的登录",
+                "clearing": "正在清除已保存的登录...",
+                "help": "清除所有计划预填充服务的已保存容器登录，无论其是否正在运行。",
+                "confirmTitle": "清除所有已保存的登录？",
+                "confirmBody": "此操作会注销当前正在运行的持久容器，并清除已停止容器的已保存登录。之后每个账户服务（Steam、Epic、Xbox）都需要重新登录。",
+                "confirmButton": "清除登录",
+                "success": "已保存的登录已清除。",
+                "partialFailure": "已清除 {{total}} 个服务的登录，但有 {{failedCount}} 个失败：{{services}}。"
+              }
             },
             "platforms": {
               "description": "选择一个平台，在同一视图中配置该服务的全部设置。",

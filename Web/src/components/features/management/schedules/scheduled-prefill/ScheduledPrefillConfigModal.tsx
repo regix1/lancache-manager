@@ -6,6 +6,7 @@ import { Alert } from '@components/ui/Alert';
 import Badge from '@components/ui/Badge';
 import { HelpPopover } from '@components/ui/HelpPopover';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import ApiService from '@services/api.service';
 import { GameSelectionModal } from '@components/features/prefill/GameSelectionModal';
 import { NumberInput } from '@components/ui/NumberInput';
@@ -32,6 +33,7 @@ import {
   needsPersistentLogin
 } from './scheduledPrefillPlatformUi';
 import { PersistentLoginHost } from './PersistentLoginHost';
+import { normalizePersistentLoginClearResults } from './persistentLoginClearResult';
 import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPersistentTypes';
 import {
   hasActivePersistentLogin,
@@ -195,6 +197,9 @@ export function ScheduledPrefillConfigModal({
   const [savingGlobalSettings, setSavingGlobalSettings] = useState(false);
   const [globalSettingsError, setGlobalSettingsError] = useState<string | null>(null);
   const [globalSettingsSaved, setGlobalSettingsSaved] = useState(false);
+  const [clearLoginsConfirmOpen, setClearLoginsConfirmOpen] = useState(false);
+  const [clearingLogins, setClearingLogins] = useState(false);
+  const [clearLoginsSuccessNote, setClearLoginsSuccessNote] = useState<string | null>(null);
   const [gameSelection, setGameSelection] = useState<ScheduledPrefillGameSelectionState | null>(
     null
   );
@@ -207,6 +212,9 @@ export function ScheduledPrefillConfigModal({
 
   // Auto-dismiss the "settings saved" notice so it does not linger forever.
   const scheduleGlobalSavedDismiss = useTimeoutCallback(2500);
+  // Same auto-dismiss treatment for the "logins cleared" success note (kept separate from the
+  // settings-saved one above since the two can be triggered independently of each other).
+  const scheduleClearLoginsSuccessDismiss = useTimeoutCallback(2500);
 
   const loadConfig = useCallback(async (signal?: AbortSignal) => {
     setLoadingConfig(true);
@@ -682,6 +690,49 @@ export function ScheduledPrefillConfigModal({
     }
   };
 
+  // Wipes stored logins for every persistent-container service in one shot: logs out any running
+  // container and removes the saved credentials of stopped ones. Runs after an explicit confirm
+  // (the action is destructive and requires fresh logins afterwards for every account service).
+  // Local login-flow state is reset for every service regardless of the per-service outcome, since
+  // none of them can have a login worth resuming once the backend has torn the credentials down.
+  const handleConfirmClearLogins = async () => {
+    setClearingLogins(true);
+    setPersistentError(null);
+    setClearLoginsSuccessNote(null);
+
+    try {
+      const response = await ApiService.clearPersistentLogins();
+      const results = normalizePersistentLoginClearResults(response);
+
+      for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
+        resetPersistentLoginState(getPersistentServiceId(serviceKey));
+      }
+      setPersistentLoginTarget(null);
+
+      const failedResults = results.filter((result) => result.outcome === 'failed');
+      if (failedResults.length > 0) {
+        setPersistentError(
+          t(`${baseKey}.settings.clearLogins.partialFailure`, {
+            failedCount: failedResults.length,
+            total: results.length,
+            services: failedResults.map((result) => result.service).join(', ')
+          })
+        );
+      } else {
+        setClearLoginsSuccessNote(t(`${baseKey}.settings.clearLogins.success`));
+        scheduleClearLoginsSuccessDismiss(() => setClearLoginsSuccessNote(null));
+      }
+
+      setClearLoginsConfirmOpen(false);
+      await loadPersistentContainers();
+    } catch (error: unknown) {
+      setPersistentError(getErrorMessage(error));
+      setClearLoginsConfirmOpen(false);
+    } finally {
+      setClearingLogins(false);
+    }
+  };
+
   // Starts (or restarts, for logout) the container and refreshes the list. Shared by
   // handleStartPersistent and handleLogoutPersistent so both land in the same "running, not
   // logged in" state via a single code path - neither ever initiates a login itself; only the
@@ -1096,6 +1147,33 @@ export function ScheduledPrefillConfigModal({
                       max: PERSISTENT_PREFILL_VALIDITY_BOUNDS.max
                     })}
                   </p>
+
+                  <div className="scheduled-prefill-config-modal__global-row">
+                    <Button
+                      type="button"
+                      variant="filled"
+                      color="red"
+                      size={SCHEDULED_PREFILL_BUTTON_SIZE}
+                      onClick={() => setClearLoginsConfirmOpen(true)}
+                      disabled={clearingLogins}
+                    >
+                      {t(`${baseKey}.settings.clearLogins.button`)}
+                    </Button>
+                    {clearLoginsSuccessNote && (
+                      <span className="scheduled-prefill-config-modal__global-saved" role="status">
+                        {clearLoginsSuccessNote}
+                      </span>
+                    )}
+                    {clearingLogins && (
+                      <span className="scheduled-prefill-config-modal__inline-loading">
+                        <LoadingSpinner inline size="sm" />
+                        {t(`${baseKey}.settings.clearLogins.clearing`)}
+                      </span>
+                    )}
+                  </div>
+                  <p className="scheduled-prefill-config-modal__global-help">
+                    {t(`${baseKey}.settings.clearLogins.help`)}
+                  </p>
                 </div>
               </div>
 
@@ -1185,6 +1263,19 @@ export function ScheduledPrefillConfigModal({
         isLoading={loadingGameSelectionService !== null}
         cachedAppIds={gameSelection?.cachedAppIds ?? []}
       />
+      <ConfirmationModal
+        opened={clearLoginsConfirmOpen}
+        onClose={() => setClearLoginsConfirmOpen(false)}
+        onConfirm={() => void handleConfirmClearLogins()}
+        title={t(`${baseKey}.settings.clearLogins.confirmTitle`)}
+        confirmLabel={t(`${baseKey}.settings.clearLogins.confirmButton`)}
+        confirmColor="red"
+        loading={clearingLogins}
+      >
+        <p className="text-sm text-themed-muted">
+          {t(`${baseKey}.settings.clearLogins.confirmBody`)}
+        </p>
+      </ConfirmationModal>
     </>
   );
 }

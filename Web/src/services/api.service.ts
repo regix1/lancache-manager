@@ -3232,6 +3232,25 @@ class ApiService {
     }
   }
 
+  /**
+   * Wipes stored logins for every persistent-container service in one call (logs out any running
+   * container and removes the saved credentials of stopped ones). The exact per-service result
+   * shape is intentionally left as `unknown` here - callers must normalize it defensively rather
+   * than assume specific fields, since it comes from a separately-shipped backend endpoint.
+   */
+  static async clearPersistentLogins(): Promise<unknown> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/prefill/persistent/clear-logins`,
+        this.getFetchOptions({ method: 'POST' })
+      );
+      return await this.handleResponse<unknown>(res);
+    } catch (error: unknown) {
+      console.error('clearPersistentLogins error:', error);
+      throw error;
+    }
+  }
+
   static async startPersistentPrefillContainer(service: PersistentPrefillServiceId): Promise<void> {
     try {
       const res = await fetch(

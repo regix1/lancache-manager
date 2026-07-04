@@ -445,6 +445,54 @@ public class PersistentPrefillController : ControllerBase
     }
 
     /// <summary>
+    /// Admin "clear all logins" action: for every registered service, either logs out its RUNNING
+    /// persistent session in place, or - when no session is running - removes that service's
+    /// persistent auth volume outright so a STOPPED service's stored login is forgotten too. Distinct
+    /// from <see cref="LogoutAsync(PersistentLoginRequest, CancellationToken)"/>, which only ever
+    /// targets one RUNNING session's platform; this is the only route that can forget a login for a
+    /// service that currently has no running container at all.
+    /// </summary>
+    [HttpPost("clear-logins")]
+    public async Task<ActionResult<ClearPersistentLoginsResponseDto>> ClearLoginsAsync(CancellationToken cancellationToken)
+    {
+        var results = new List<ClearPersistentLoginServiceResultDto>();
+
+        foreach (var service in Enum.GetValues<PrefillPlatform>())
+        {
+            var daemon = PrefillDaemonServiceBase.ResolveDaemon(_serviceProvider, service);
+            if (daemon is null)
+            {
+                continue;
+            }
+
+            var session = daemon.GetActivePersistentSession();
+            if (session is not null)
+            {
+                var logoutResult = await daemon.LogoutPersistentSessionAsync(session.Id, cancellationToken);
+                results.Add(new ClearPersistentLoginServiceResultDto
+                {
+                    Service = service,
+                    WasRunning = true,
+                    Success = logoutResult.LoggedOut,
+                    Detail = logoutResult.LoggedOut ? null : "logout-failed-restart-required"
+                });
+                continue;
+            }
+
+            var volumeResult = await daemon.ClearPersistentAuthVolumeAsync(cancellationToken);
+            results.Add(new ClearPersistentLoginServiceResultDto
+            {
+                Service = service,
+                WasRunning = false,
+                Success = volumeResult is PersistentVolumeClearResult.Removed or PersistentVolumeClearResult.NotFound,
+                Detail = volumeResult.ToString()
+            });
+        }
+
+        return Ok(new ClearPersistentLoginsResponseDto { Services = results });
+    }
+
+    /// <summary>
     /// Returns the admin-configured persistent login validity window in days.
     /// </summary>
     [HttpGet("validity")]
@@ -729,4 +777,37 @@ public sealed class PersistentPrefillGamesDto
 
     /// <summary>App ids whose cached content is up to date for the session.</summary>
     public required List<string> CachedAppIds { get; init; }
+}
+
+/// <summary>Response for the admin "clear all persistent logins" action.</summary>
+public sealed class ClearPersistentLoginsResponseDto
+{
+    /// <summary>Per-service outcome, one entry per registered daemon.</summary>
+    public required List<ClearPersistentLoginServiceResultDto> Services { get; init; }
+}
+
+/// <summary>Per-service outcome of a "clear all logins" action.</summary>
+public sealed class ClearPersistentLoginServiceResultDto
+{
+    /// <summary>Platform this result applies to.</summary>
+    public required PrefillPlatform Service { get; init; }
+
+    /// <summary>
+    /// True when a persistent session was running for this service and was logged out in place;
+    /// false when there was no running session and its auth volume was targeted instead.
+    /// </summary>
+    public required bool WasRunning { get; init; }
+
+    /// <summary>
+    /// True when the login was actually forgotten - the daemon acknowledged the logout (running case),
+    /// or the auth volume was removed / was already absent (stopped case).
+    /// </summary>
+    public required bool Success { get; init; }
+
+    /// <summary>
+    /// Extra detail when not straightforwardly successful: "logout-failed-restart-required" for a
+    /// running session whose daemon logout failed, or the raw <see cref="PersistentVolumeClearResult"/>
+    /// name (e.g. "InUse") for the stopped/volume path.
+    /// </summary>
+    public string? Detail { get; init; }
 }
