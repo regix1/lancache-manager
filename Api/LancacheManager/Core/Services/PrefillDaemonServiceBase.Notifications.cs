@@ -350,7 +350,13 @@ public abstract partial class PrefillDaemonServiceBase
         }
     }
 
-    private async Task NotifyPrefillProgressAsync(DaemonSession session, PrefillProgress progress)
+    /// <summary>
+    /// Handles a daemon progress push for a session. Protected (not private) so tests can invoke it
+    /// directly via a subclass seam, mirroring <see cref="OnCredentialChallengeAsync"/>'s accessibility
+    /// widening - production wires this via the socket read loop (<see cref="OnProgressChangeAsync"/>),
+    /// which a test harness that injects a session directly bypasses.
+    /// </summary>
+    protected async Task NotifyPrefillProgressAsync(DaemonSession session, PrefillProgress progress)
     {
         // Update session's current app info for admin visibility
         var appInfoChanged = session.CurrentAppId != progress.CurrentAppId ||
@@ -607,6 +613,30 @@ public abstract partial class PrefillDaemonServiceBase
                 PrefillProgressState.Cancelled => PrefillState.Cancelled,
                 _ => PrefillState.Failed
             };
+
+            // Guard: a daemon "error"/"failed"/"cancelled" progress push must only fail or cancel a
+            // session that is actually mid-prefill. The daemon reuses this same progress channel to
+            // report LOGIN-phase failures (e.g. a Steam Guard/email code-getter throwing for a
+            // mobile-push account calls _progress.OnError(...), broadcast as Progress{State="error"}).
+            // A guest session still in its login/device-confirmation phase has never started prefilling
+            // (IsPrefilling==false, PrefillStartedAt==null), so failing it here would kill the whole
+            // login attempt with a spurious "Prefill failed ..., duration: 0s" and drop the user out of
+            // the confirmation step. IsPrefilling is the authoritative mid-prefill flag (set true at
+            // prefill start; the terminal funnel is its sole false-setter), so gate the failure/cancel
+            // transition on it. A genuine prefill failure (IsPrefilling==true) still transitions exactly
+            // as before; a "completed" push is left unguarded so a real completion is never suppressed.
+            // Login failures stay independently surfaced via the daemon "awaiting-login" status path
+            // (OnStatusChangeAsync), so nothing is lost by ignoring a non-prefill error-progress here.
+            if ((terminalState == PrefillState.Failed || terminalState == PrefillState.Cancelled)
+                && !session.IsPrefilling)
+            {
+                _logger.LogInformation(
+                    "Ignoring daemon '{ProgressState}' progress for session {SessionId}: no prefill in " +
+                    "progress (likely a login-phase error), not transitioning to a terminal state.",
+                    progressState.ToWireString(), session.Id);
+                return;
+            }
+
             await TransitionToTerminalAsync(session, terminalState);
             return; // Don't process further for terminal states
         }
