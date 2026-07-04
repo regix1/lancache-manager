@@ -106,15 +106,6 @@ export function usePersistentLoginChallengeSignalR({
         if (event.authState !== 'Authenticated' || !sessionMatches(serviceId, event.sessionId)) {
           return;
         }
-        // eslint-disable-next-line no-console
-        console.log(
-          '[SteamAuthDebug] persistent',
-          serviceId,
-          'AuthStateChanged: Authenticated push -> completing login',
-          {
-            sessionId: event.sessionId
-          }
-        );
         markPersistentLoginAuthenticated(serviceId);
       };
 

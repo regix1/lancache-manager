@@ -385,13 +385,6 @@ export function ScheduledPrefillConfigModal({
         // signature alone - the reconcile-relevant fields it reads here are exactly what that
         // signature tracks, so the ref is guaranteed current for them.
         const container = persistentContainerByServiceRef.current.get(serviceId);
-        // eslint-disable-next-line no-console
-        console.log('[SteamAuthDebug] persistent', serviceId, 'reconcile effect: container state', {
-          isRunning: container?.isRunning ?? null,
-          isAuthenticated: container?.isAuthenticated ?? null,
-          sessionId: container?.sessionId ?? null,
-          willReconcile: !!container?.isRunning && !container?.isAuthenticated
-        });
         if (!container?.isRunning || container.isAuthenticated) {
           continue;
         }
@@ -890,17 +883,6 @@ export function ScheduledPrefillConfigModal({
 
   const handlePersistentLogin = (serviceKey: ScheduledPrefillServiceKey) => {
     const container = persistentContainerByService.get(getPersistentServiceId(serviceKey));
-    // eslint-disable-next-line no-console
-    console.log(
-      '[SteamAuthDebug] persistent',
-      getPersistentServiceId(serviceKey),
-      'handlePersistentLogin (LOGIN BUTTON CLICK)',
-      {
-        isRunning: container?.isRunning ?? null,
-        isAuthenticated: container?.isAuthenticated ?? null,
-        sessionId: container?.sessionId ?? null
-      }
-    );
     if (!container?.isRunning) {
       setPersistentError(t(`${baseKey}.selectedGames.requiresPersistentContainer`));
       return;
