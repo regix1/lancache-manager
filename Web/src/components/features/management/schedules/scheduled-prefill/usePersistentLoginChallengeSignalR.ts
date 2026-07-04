@@ -8,8 +8,15 @@ import type {
 import type { CredentialChallenge } from '@hooks/usePrefillSteamAuth';
 import { SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS } from './constants';
 import { getPersistentServiceId } from './scheduledPrefillPlatformUi';
-import { getPersistentPrefillCredentialChallengeEvent } from './persistentPrefillSignalREvents';
-import { applyPersistentLoginChallenge, getPersistentLoginSessionId } from './persistentLoginStore';
+import {
+  getPersistentPrefillAuthStateChangedEvent,
+  getPersistentPrefillCredentialChallengeEvent
+} from './persistentPrefillSignalREvents';
+import {
+  applyPersistentLoginChallenge,
+  getPersistentLoginSessionId,
+  markPersistentLoginAuthenticated
+} from './persistentLoginStore';
 
 const LOGIN_REQUIRED_SERVICE_IDS: readonly PersistentPrefillServiceId[] =
   SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.map(getPersistentServiceId);
@@ -17,6 +24,11 @@ const LOGIN_REQUIRED_SERVICE_IDS: readonly PersistentPrefillServiceId[] =
 interface CredentialChallengePayload {
   sessionId: string;
   challenge: CredentialChallenge;
+}
+
+interface AuthStateChangedPayload {
+  sessionId: string;
+  authState: string;
 }
 
 interface UsePersistentLoginChallengeSignalROptions {
@@ -57,22 +69,61 @@ export function usePersistentLoginChallengeSignalR({
       return;
     }
 
-    const handlers = LOGIN_REQUIRED_SERVICE_IDS.map((serviceId) => {
-      const eventName = getPersistentPrefillCredentialChallengeEvent(serviceId);
-      const handler: EventHandler = (payload) => {
+    // Shared sessionId fence (RC3): only act on an event whose session matches the currently known
+    // container for the service AND the login store's pinned session (when pinned). Drops a stale
+    // event or a concurrent guest login for the same platform.
+    const sessionMatches = (
+      serviceId: PersistentPrefillServiceId,
+      eventSessionId: string
+    ): boolean => {
+      const container = containersByService.get(serviceId);
+      if (!container || container.sessionId !== eventSessionId) {
+        return false;
+      }
+      const pinnedSessionId = getPersistentLoginSessionId(serviceId);
+      return pinnedSessionId === null || pinnedSessionId === eventSessionId;
+    };
+
+    const handlers = LOGIN_REQUIRED_SERVICE_IDS.flatMap((serviceId) => {
+      const challengeEvent = getPersistentPrefillCredentialChallengeEvent(serviceId);
+      const challengeHandler: EventHandler = (payload) => {
         const event = payload as CredentialChallengePayload;
-        const container = containersByService.get(serviceId);
-        if (!container || container.sessionId !== event.sessionId) {
-          return;
-        }
-        const pinnedSessionId = getPersistentLoginSessionId(serviceId);
-        if (pinnedSessionId !== null && pinnedSessionId !== event.sessionId) {
+        if (!sessionMatches(serviceId, event.sessionId)) {
           return;
         }
         applyPersistentLoginChallenge(serviceId, event.challenge, event.sessionId);
       };
-      on(eventName, handler);
-      return { eventName, handler };
+
+      // AuthStateChanged: Authenticated is the reliable, event-driven completion signal (the daemon
+      // logged in - e.g. the user just approved a Steam mobile device-confirmation on their phone).
+      // Without this listener the persistent flow had NO event path to completion and relied solely
+      // on the REST challenge poll, which could miss the transition, so the modal stayed on
+      // "Waiting for Confirmation" even though the daemon was already logged in. This gives the
+      // persistent flow the same completion path the guest/mapping flow has always had.
+      const authEvent = getPersistentPrefillAuthStateChangedEvent(serviceId);
+      const authHandler: EventHandler = (payload) => {
+        const event = payload as AuthStateChangedPayload;
+        if (event.authState !== 'Authenticated' || !sessionMatches(serviceId, event.sessionId)) {
+          return;
+        }
+        // eslint-disable-next-line no-console
+        console.log(
+          '[SteamAuthDebug] persistent',
+          serviceId,
+          'AuthStateChanged: Authenticated push -> completing login',
+          {
+            sessionId: event.sessionId
+          }
+        );
+        markPersistentLoginAuthenticated(serviceId);
+      };
+
+      on(challengeEvent, challengeHandler);
+      on(authEvent, authHandler);
+      return [
+        { eventName: challengeEvent, handler: challengeHandler },
+        { eventName: authEvent, handler: authHandler }
+      ];
     });
 
     return () => {

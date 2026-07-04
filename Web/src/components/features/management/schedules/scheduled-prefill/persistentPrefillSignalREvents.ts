@@ -26,6 +26,12 @@ export const getPersistentPrefillCredentialChallengeEvent = (
   serviceId: PersistentPrefillServiceId
 ): string => getEventName('CredentialChallenge', persistentPrefillServiceToEventKey(serviceId));
 
+/** Resolves the platform-specific AuthStateChanged event name (the daemon-logged-in signal that
+ *  completes a persistent login, e.g. once a Steam mobile device-confirmation is approved). */
+export const getPersistentPrefillAuthStateChangedEvent = (
+  serviceId: PersistentPrefillServiceId
+): string => getEventName('AuthStateChanged', persistentPrefillServiceToEventKey(serviceId));
+
 /** All SignalR events that should trigger a persistent-container list refresh. */
 export const PERSISTENT_PREFILL_CONTAINER_SIGNALR_EVENTS = PERSISTENT_PREFILL_SERVICES.flatMap(
   ({ service }) =>

@@ -239,6 +239,22 @@ export function resetPersistentLoginSessionReplaced(
  * already-pinned session untouched (e.g. a caller that hasn't resolved a session id itself yet).
  * Pass `null` explicitly only to deliberately clear the pin.
  */
+/**
+ * Marks a service's persistent login authenticated (resets the flow to a clean state, then sets
+ * `authenticated: true`) - the same store transition `finishAuthenticated`/the reconcile probe make.
+ * Called from the SignalR `AuthStateChanged: Authenticated` push (see usePersistentLoginChallengeSignalR),
+ * which is the RELIABLE, event-driven signal that the daemon logged in - e.g. the moment the user
+ * approves a Steam mobile device-confirmation on their phone. Without this the persistent flow had no
+ * event path to completion and relied solely on the REST challenge poll, which can miss the login
+ * transition (the mapping/guest flow has always completed via AuthStateChanged; this gives the
+ * persistent flow parity). Setting `authenticated: true` drives the login component's own
+ * `onAuthenticated` effect, closing the modal.
+ */
+export function markPersistentLoginAuthenticated(service: PersistentPrefillServiceId): void {
+  resetPersistentLoginState(service);
+  updatePersistentLoginState(service, (current) => ({ ...current, authenticated: true }));
+}
+
 export function applyPersistentLoginChallenge(
   service: PersistentPrefillServiceId,
   challenge: CredentialChallenge,
