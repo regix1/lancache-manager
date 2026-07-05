@@ -45,15 +45,24 @@ export function PrefillLoadingState({ status, serviceId }: PrefillLoadingStatePr
       ? t('prefill.loading.creatingSession')
       : t('prefill.loading.lookingForSession');
 
+  // 'checking' (looking for an existing session) is the neutral initial step to get onto the page,
+  // so it uses the theme accent; 'creating' is actively spinning up THIS service, so it keeps the
+  // service's own loading color.
+  const isInitialCheck = status === 'checking';
+  const iconBoxClass = isInitialCheck
+    ? 'bg-[var(--theme-accent-subtle)]'
+    : LOADING_ICON_CLASS[accent];
+  const spinnerColorClass = isInitialCheck ? 'text-themed-accent' : LOADING_SPINNER_CLASS[accent];
+
   return (
     <div className="animate-fade-in">
       <Card className="max-w-2xl mx-auto">
         <CardContent className="py-12">
           <div className="flex flex-col items-center justify-center gap-4">
             <div
-              className={`w-16 h-16 rounded-xl flex items-center justify-center ${LOADING_ICON_CLASS[accent]}`}
+              className={`w-16 h-16 rounded-xl flex items-center justify-center ${iconBoxClass}`}
             >
-              <LoadingSpinner inline size="xl" className={LOADING_SPINNER_CLASS[accent]} />
+              <LoadingSpinner inline size="xl" className={spinnerColorClass} />
             </div>
             <div className="text-center">
               <p className="text-lg font-medium text-themed-primary">{title}</p>
