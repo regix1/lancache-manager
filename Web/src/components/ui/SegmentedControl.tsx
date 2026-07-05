@@ -61,6 +61,13 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
           option.activeColor === 'warning'
             ? 'bg-[var(--theme-warning)] text-themed-button shadow-[0_2px_4px_var(--theme-warning-muted)]'
             : 'bg-[var(--theme-primary)] text-themed-button shadow-[0_2px_4px_var(--theme-primary-muted)]';
+        // Disabled + selected: drop the vivid accent for a neutral muted fill so the whole control
+        // reads as disabled (matching a disabled dropdown/toggle) instead of looking clickable.
+        const segmentClass = isActive
+          ? isDisabled
+            ? 'bg-themed-hover text-themed-muted'
+            : activeClass
+          : 'bg-transparent text-themed-muted';
 
         const buttonElement = (
           <button
@@ -69,9 +76,7 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
             disabled={isDisabled}
             className={`segmented-control-button ${sizes.button} transition flex items-center justify-center gap-[0.5rem] font-semibold whitespace-nowrap text-xs ${
               fullWidth ? 'flex-1' : ''
-            } ${isDisabled && !isActive ? 'opacity-50 cursor-default' : ''} ${
-              isActive ? activeClass : 'bg-transparent text-themed-muted'
-            } ${isDisabled ? 'cursor-default' : 'cursor-pointer'}`}
+            } ${segmentClass} ${isDisabled ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
           >
             {option.icon && React.isValidElement(option.icon)
               ? React.cloneElement(option.icon as React.ReactElement<{ size?: number }>, {
