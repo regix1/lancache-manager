@@ -1233,7 +1233,7 @@ export function ScheduledPrefillConfigModal({
           <div ref={setScrollAreaEl} className="scheduled-prefill-config-modal__scroll-area">
             <CustomScrollbar
               maxHeight={scrollAreaHeight != null ? `${scrollAreaHeight}px` : '100%'}
-              className="scheduled-prefill-config-modal__scroll-inner"
+              radius="none"
             >
               <div className="scheduled-prefill-config-modal__scroll-content">
                 {isLoading && !hasInitialData ? (
@@ -1367,6 +1367,7 @@ export function ScheduledPrefillConfigModal({
                               onClick={() => void handleSaveGlobalSettings()}
                               disabled={loadingGlobalSettings || savingGlobalSettings}
                               loading={savingGlobalSettings}
+                              stableWidth
                             >
                               {t(`${baseKey}.settings.save`)}
                             </Button>
@@ -1405,13 +1406,15 @@ export function ScheduledPrefillConfigModal({
                           </Button>
                         </div>
                       </div>
+                      {banner && (
+                        <Alert
+                          color={banner.color}
+                          className="scheduled-prefill-config-modal__alert"
+                        >
+                          {banner.message}
+                        </Alert>
+                      )}
                     </div>
-
-                    {banner && (
-                      <Alert color={banner.color} className="scheduled-prefill-config-modal__alert">
-                        {banner.message}
-                      </Alert>
-                    )}
 
                     {config ? (
                       <ScheduledPrefillPlatformsPanel

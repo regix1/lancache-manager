@@ -3253,7 +3253,7 @@
               "loading": "Loading settings...",
               "saving": "Saving settings...",
               "save": "Save settings",
-              "saved": "Global scheduled prefill settings saved.",
+              "saved": "Login validity saved. Use Save configuration to save the platform settings.",
               "error": "Failed to save global scheduled prefill settings: {{error}}",
               "persistentValidityLabel": "Persistent container login validity (days)",
               "persistentValidityHelp": "Persistent containers run indefinitely. Their login lasts this many days, then re-login is required. Allowed range: {{min}}-{{max}} days.",

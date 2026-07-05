@@ -3253,7 +3253,7 @@
               "loading": "正在加载设置...",
               "saving": "正在保存设置...",
               "save": "保存设置",
-              "saved": "全局计划预填充设置已保存。",
+              "saved": "已保存登录有效期。使用保存配置来保存平台设置。",
               "error": "保存全局计划预填充设置失败：{{error}}",
               "persistentValidityLabel": "持久容器登录有效期（天）",
               "persistentValidityHelp": "持久容器会无限期运行。其登录会持续此天数，到期后需要重新登录。允许范围：{{min}}-{{max}} 天。",

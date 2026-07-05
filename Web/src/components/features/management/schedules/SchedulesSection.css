@@ -467,23 +467,14 @@
   min-height: 0;
 }
 
-/* CustomScrollbar's inner content div clips overflow at the root's radius (its content uses
-   `rounded-[inherit]`), and that 16px rounded clip sits just 1px outside the overview box's own
-   corner - close enough that the clip's arc shaves the overview's border where it curves, so the
-   top-left corner border looks missing (same bug shape fixed on RecentDownloadsPanel's list).
-   Square the root's radius so the inherited clip is a plain rectangle and never touches the
-   corner. Needs !important AND the extra ancestor to outrank Tailwind's important-mode
-   `.rounded-xl` utility, which sits on the very same element. */
-.scheduled-prefill-config-modal .scheduled-prefill-config-modal__scroll-inner {
-  border-radius: 0 !important;
-}
-
+/* The rounded scrollbar clip used to shave the overview box's top-left border corner; that fix now
+   lives in CustomScrollbar itself via `radius="none"` (see its `radius` prop), so no clip override
+   is needed here anymore. */
 .scheduled-prefill-config-modal__scroll-content {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  /* 1px inset keeps the overview box's border off the scroll container's clip edge, so its rounded
-     corners can't be shaved by the overflow clip even with the radius squared above. */
+  /* 1px inset keeps the first/last box's border a hair off the scroll viewport's clip edge. */
   padding: 1px;
   /* Extra breathing room beyond CustomScrollbar's own reserved gutter - its track sits at a fixed
      offset from the right edge regardless of paddingMode, so content still read as flush against
@@ -599,12 +590,12 @@
   min-width: 7rem;
 }
 
-/* Shared floor for the SECOND control (Disable all, Save settings). Wide enough to also contain
-   Save settings' WIDEST state - while saving it shows a spinner beside its label and grows to
-   ~159px - so the button never changes size on click and Disable all always matches it. A tighter
-   floor let Save settings grow past Disable all mid-save, breaking the column alignment. */
+/* Same idea for the SECOND control (Disable all, Save settings): "Save settings" is the longer
+   label, so a shared floor keeps "Disable all" from rendering narrower and its right edge falling
+   short. Save settings no longer grows while saving (it uses Button's `stableWidth`, which overlays
+   the spinner instead of inserting it), so this floor only needs to cover the resting labels. */
 .scheduled-prefill-config-modal__setting-actions > :nth-child(2) {
-  min-width: 10rem;
+  min-width: 8.5rem;
 }
 
 .scheduled-prefill-config-modal__global-label {

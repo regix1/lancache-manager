@@ -6,13 +6,23 @@ interface CustomScrollbarProps {
   className?: string;
   /** Right padding for scrollbar space. Use 'compact' for smaller dropdowns. Default is 12px. */
   paddingMode?: 'default' | 'compact' | 'none';
+  /**
+   * Corner radius of the scroll viewport. Defaults to 'xl' (rounded). Set 'none' when the scrolled
+   * content has bordered boxes sitting flush against the edges: the viewport clips overflow at this
+   * radius, and a rounded clip shaves the corner border of a box flush against it (the scrollbar's
+   * own corners are invisible against a matching background anyway). Setting it here — where the
+   * component owns its className — is the reusable fix; a consumer-side CSS override can't win
+   * against Tailwind's important-mode `rounded-xl` on this same element.
+   */
+  radius?: 'xl' | 'none';
 }
 
 export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
   children,
   maxHeight = '32rem',
   className = '',
-  paddingMode = 'default'
+  paddingMode = 'default',
+  radius = 'xl'
 }) => {
   const basePaddingRight =
     paddingMode === 'none' ? '0px' : paddingMode === 'compact' ? '6px' : '12px';
@@ -165,7 +175,10 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
   }, []);
 
   return (
-    <div className={`relative isolate rounded-xl ${className}`} style={{ maxHeight }}>
+    <div
+      className={`relative isolate ${radius === 'none' ? 'rounded-none' : 'rounded-xl'} ${className}`}
+      style={{ maxHeight }}
+    >
       {/* Content area */}
       <div
         ref={contentRef}
