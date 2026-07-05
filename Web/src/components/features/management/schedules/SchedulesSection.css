@@ -1268,7 +1268,10 @@
 
 .scheduled-prefill-platforms {
   display: grid;
-  grid-template-columns: minmax(9rem, 10.5rem) minmax(0, 1fr);
+  /* Nav column is wide enough to hold a platform's worst-case content on one line: the name, the
+     "Login required" hint, and the stacked On/Container badges. A narrower column wrapped the hint
+     and cramped the badges. */
+  grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr);
   gap: 1.25rem;
   min-width: 0;
 }
@@ -1368,7 +1371,8 @@
 
 .scheduled-prefill-platform-section__header {
   display: flex;
-  align-items: flex-start;
+  /* Vertically center the identity block (icon + name) against the Off/On toggle on the right. */
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
   padding-bottom: 0.85rem;
@@ -1377,7 +1381,8 @@
 
 .scheduled-prefill-platform-section__identity {
   display: flex;
-  align-items: flex-start;
+  /* Center the name with the icon so both sit on the header's shared centerline. */
+  align-items: center;
   gap: 0.75rem;
   min-width: 0;
 }
@@ -1575,17 +1580,17 @@
   }
 
   .scheduled-prefill-config-modal__skeleton-body {
-    grid-template-columns: minmax(9rem, 10.5rem) minmax(0, 1fr);
+    grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr);
   }
 }
 
 @media (min-width: 900px) {
   .scheduled-prefill-platforms {
-    grid-template-columns: minmax(10rem, 12rem) minmax(0, 1fr);
+    grid-template-columns: minmax(11rem, 13rem) minmax(0, 1fr);
   }
 
   .scheduled-prefill-config-modal__skeleton-body {
-    grid-template-columns: minmax(10rem, 12rem) minmax(0, 1fr);
+    grid-template-columns: minmax(11rem, 13rem) minmax(0, 1fr);
   }
 }
 
