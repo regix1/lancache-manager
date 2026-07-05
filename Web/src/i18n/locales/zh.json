@@ -3283,6 +3283,7 @@
                 "enabled": "已启用",
                 "disabled": "已禁用",
                 "on": "开",
+                "off": "关",
                 "containerReady": "容器已登录",
                 "containerRunning": "容器需要登录",
                 "containerShort": "容器"

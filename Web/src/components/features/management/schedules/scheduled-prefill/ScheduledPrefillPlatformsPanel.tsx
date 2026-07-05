@@ -117,16 +117,24 @@ export function ScheduledPrefillPlatformsPanel({
                   )}
                 </span>
                 <span className="scheduled-prefill-platforms__nav-badges">
-                  {serviceConfig.enabled && (
-                    <Badge variant="success" className="scheduled-prefill-platforms__nav-badge">
-                      {t(`${baseKey}.platforms.status.on`)}
-                    </Badge>
-                  )}
-                  {container?.isRunning && (
-                    <Badge variant="info" className="scheduled-prefill-platforms__nav-badge">
-                      {t(`${baseKey}.platforms.status.containerShort`)}
-                    </Badge>
-                  )}
+                  {/* Both badges always render as color-coded status pills (green = active,
+                      red = inactive) so every platform reads the same at a glance. */}
+                  <Badge
+                    variant={serviceConfig.enabled ? 'success' : 'error'}
+                    className="scheduled-prefill-platforms__nav-badge"
+                  >
+                    {serviceConfig.enabled
+                      ? t(`${baseKey}.platforms.status.on`)
+                      : t(`${baseKey}.platforms.status.off`)}
+                  </Badge>
+                  {/* Neutral while the container list is still loading so it does not flash red
+                      before its real running state is known. */}
+                  <Badge
+                    variant={statusLoading ? 'neutral' : container?.isRunning ? 'success' : 'error'}
+                    className="scheduled-prefill-platforms__nav-badge"
+                  >
+                    {t(`${baseKey}.platforms.status.containerShort`)}
+                  </Badge>
                 </span>
               </button>
             );

@@ -3283,6 +3283,7 @@
                 "enabled": "Enabled",
                 "disabled": "Disabled",
                 "on": "On",
+                "off": "Off",
                 "containerReady": "Container logged in",
                 "containerRunning": "Container needs login",
                 "containerShort": "Container"
