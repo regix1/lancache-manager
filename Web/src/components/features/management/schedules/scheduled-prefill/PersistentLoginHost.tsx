@@ -39,16 +39,15 @@ export function PersistentLoginHost({
   // re-render, so autoStart would stay on its stale value and the login component's own nonce
   // effect would see a stale `false` and silently skip beginLogin().
   const loginAttemptNonce = usePersistentLoginRequestNonce(serviceId);
-  // Structural (not incidental) explicit-click-only gate: this host only exists to bridge two
-  // legitimate triggers into the login components' own autoStart effect - an explicit "Log in"
-  // click (bumps the nonce these components consume exactly once - see
+  // Explicit-click-only gate for auto-firing the login: this host bridges the two legitimate
+  // triggers into the login components' own autoStart effect - an explicit "Log in" click (bumps
+  // the nonce these components consume exactly once - see
   // `requestPersistentLoginAttempt`/`consumeLoginAttemptNonce`) or a reconcile-confirmed cached
   // challenge already applied to the store (`pendingChallenge !== null` - see
   // `reconcilePersistentLoginFromServer`). `persistentLoginTarget` is in fact only ever set to this
-  // service by those same two callers, so this mirrors the current invariant exactly; deriving it
-  // here instead of hardcoding `true` means a future caller that sets the target without either
-  // signal gets a visible "Log in" button (the login components' own showLoginButton fallback)
-  // instead of silently auto-firing a real daemon login.
+  // service by those same two callers, so deriving it here (rather than hardcoding `true`) keeps a
+  // hypothetical future caller that sets the target without either signal from silently auto-firing
+  // a real daemon login - it would simply do nothing until a real trigger arrives.
   const autoStart =
     loginState.pendingChallenge !== null || hasUnconsumedLoginAttempt(serviceId, loginAttemptNonce);
   const dismissedRef = useRef(false);

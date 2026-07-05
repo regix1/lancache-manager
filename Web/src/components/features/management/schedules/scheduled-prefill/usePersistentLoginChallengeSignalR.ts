@@ -110,32 +110,12 @@ export function usePersistentLoginChallengeSignalR({
           !acknowledgedDeviceConfirmationIds.has(event.challenge.challengeId)
         ) {
           acknowledgedDeviceConfirmationIds.add(event.challenge.challengeId);
-          // eslint-disable-next-line no-console
-          console.log(
-            '[SteamAuthDebug] persistent',
-            serviceId,
-            'auto-sending device-confirmation ack',
-            {
-              challengeId: event.challenge.challengeId,
-              sessionId: event.sessionId
-            }
-          );
           void ApiService.providePersistentCredential(
             serviceId,
             event.challenge,
             'confirm',
             event.sessionId
-          ).catch((err: unknown) => {
-            // eslint-disable-next-line no-console
-            console.log(
-              '[SteamAuthDebug] persistent',
-              serviceId,
-              'device-confirmation ack failed',
-              {
-                error: String(err)
-              }
-            );
-          });
+          ).catch(() => undefined);
         }
       };
 
@@ -148,28 +128,9 @@ export function usePersistentLoginChallengeSignalR({
       const authEvent = getPersistentPrefillAuthStateChangedEvent(serviceId);
       const authHandler: EventHandler = (payload) => {
         const event = payload as AuthStateChangedPayload;
-        // TEMP DIAGNOSTIC (persistent device-confirmation completion): log every AuthStateChanged so
-        // we can see whether the Authenticated push arrives after phone approval and whether the
-        // session fence lets it through. Remove once the persistent completion is confirmed.
-        const container = containersByService.get(serviceId);
-        // eslint-disable-next-line no-console
-        console.log('[SteamAuthDebug] persistent', serviceId, 'AuthStateChanged received', {
-          authState: event.authState,
-          eventSessionId: event.sessionId,
-          containerSessionId: container?.sessionId ?? null,
-          pinnedSessionId: getPersistentLoginSessionId(serviceId),
-          willComplete:
-            event.authState === 'Authenticated' && sessionMatches(serviceId, event.sessionId)
-        });
         if (event.authState !== 'Authenticated' || !sessionMatches(serviceId, event.sessionId)) {
           return;
         }
-        // eslint-disable-next-line no-console
-        console.log(
-          '[SteamAuthDebug] persistent',
-          serviceId,
-          'completing login via AuthStateChanged'
-        );
         markPersistentLoginAuthenticated(serviceId);
       };
 

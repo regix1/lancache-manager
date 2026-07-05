@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useTranslation } from 'react-i18next';
-import { Button } from '@components/ui/Button';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { usePersistentSteamAuth } from '@hooks/usePersistentSteamAuth';
 import { consumeLoginAttemptNonce, usePersistentLoginRequestNonce } from '../persistentLoginStore';
@@ -20,7 +18,6 @@ export function SteamPersistentLogin({
   autoStart = false,
   onDismiss
 }: SteamPersistentLoginProps) {
-  const { t } = useTranslation();
   const { state, actions, dismissModal, resumeModal } = usePersistentSteamAuth();
   const loginRequestNonce = usePersistentLoginRequestNonce('Steam');
   const handledAuthenticatedRef = useRef(false);
@@ -80,27 +77,12 @@ export function SteamPersistentLogin({
 
   const authModalOpened =
     !state.dismissed && !state.authenticated && (state.loading || state.hasChallenge);
-  // `isAuthenticated` is the container-list prop, which only flips true after a network refresh; the
-  // store's `state.authenticated` flips true the instant the login completes (markPersistentLoginAuthenticated).
-  // Gate on BOTH so the window where the store says authenticated but the prop still lags cannot paint
-  // this fallback button on the card behind/after the modal.
-  const showLoginButton =
-    isRunning && !isAuthenticated && !state.authenticated && !autoStart && !authModalOpened;
 
+  // This host is invisible by design - the card's own "Log in" button is the only entry point, and
+  // it always drives an autoStart. So only the modal renders here; there is no on-card fallback
+  // button (an earlier one leaked onto the collapsed schedule card behind this modal on dismiss).
   return (
     <>
-      {showLoginButton && (
-        <Button
-          type="button"
-          variant="filled"
-          color="blue"
-          size="sm"
-          onClick={() => void beginLogin()}
-          loading={state.loading}
-        >
-          {state.loading ? t('prefill.persistent.authenticating') : t('prefill.persistent.logIn')}
-        </Button>
-      )}
       <SteamAuthModal
         opened={authModalOpened}
         onClose={dismissModal}

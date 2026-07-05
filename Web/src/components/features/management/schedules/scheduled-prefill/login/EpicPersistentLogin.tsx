@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useTranslation } from 'react-i18next';
-import { Button } from '@components/ui/Button';
 import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
 import { usePersistentEpicAuth } from '@hooks/usePersistentEpicAuth';
 import { consumeLoginAttemptNonce, usePersistentLoginRequestNonce } from '../persistentLoginStore';
@@ -20,7 +18,6 @@ export function EpicPersistentLogin({
   autoStart = false,
   onDismiss
 }: EpicPersistentLoginProps) {
-  const { t } = useTranslation();
   const { state, actions, startLogin, dismissModal, resumeModal } = usePersistentEpicAuth();
   const loginRequestNonce = usePersistentLoginRequestNonce('Epic');
   const handledAuthenticatedRef = useRef(false);
@@ -80,25 +77,12 @@ export function EpicPersistentLogin({
 
   const authModalOpened =
     !state.dismissed && !state.authenticated && (state.loading || state.hasChallenge);
-  // Gate on the store's authenticated state too (not just the lagging container-list prop) so the
-  // completion window cannot paint this fallback button behind/after the modal. See SteamPersistentLogin.
-  const showLoginButton =
-    isRunning && !isAuthenticated && !state.authenticated && !autoStart && !authModalOpened;
 
+  // This host is invisible by design - the card's own "Log in" button is the only entry point, and
+  // it always drives an autoStart. So only the modal renders here; there is no on-card fallback
+  // button (an earlier one leaked onto the collapsed schedule card behind this modal on dismiss).
   return (
     <>
-      {showLoginButton && (
-        <Button
-          type="button"
-          variant="filled"
-          color="blue"
-          size="sm"
-          onClick={() => void beginLogin()}
-          loading={state.loading}
-        >
-          {state.loading ? t('prefill.persistent.authenticating') : t('prefill.persistent.logIn')}
-        </Button>
-      )}
       <EpicAuthModal
         opened={authModalOpened}
         onClose={dismissModal}
