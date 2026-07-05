@@ -1545,7 +1545,7 @@
         "cacheNodesMulti": "{{count}} 个缓存节点",
         "cacheNodesLine_one": "{{nodes}} 正在通过 {{ips}} 个 IP 响应",
         "cacheNodesLine_other": "{{nodes}} 正在通过 {{ips}} 个 IP 响应",
-        "avgLatency": "平均响应 {{ms}} 毫秒",
+        "avgLatency": "DNS 平均响应 {{ms}} 毫秒",
         "resolverConfigured": "已使用配置的 DNS 服务器 {{server}} 进行检查。",
         "resolverDetected": "已使用检测到的 lancache-dns 容器 {{server}} 进行检查。",
         "resolverSystem": "已使用系统解析器进行检查。设置 Prefill LancacheDnsIp 可获得权威结果。",

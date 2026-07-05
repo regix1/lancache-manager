@@ -189,7 +189,7 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
             cacheNodes.length === 1
               ? t(`${keys}.cacheNodesSingle`, { host: cacheNodes[0].servedBy })
               : t(`${keys}.cacheNodesMulti`, { count: cacheNodes.length })
-        }) + (avgLatencyMs !== null ? ` · ${t(`${keys}.avgLatency`, { ms: avgLatencyMs })}` : '')
+        })
       : null;
 
   // Primary at-a-glance signal: the verdict tally as prominent count pills. Zero buckets stay
@@ -374,6 +374,11 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
                   : t(`${keys}.heartbeatFailed`, {
                       error: heartbeat.error ?? t(`${keys}.unknownError`)
                     })}
+            </p>
+          )}
+          {avgLatencyMs !== null && (
+            <p className="text-xs text-themed-muted tabular-nums">
+              {t(`${keys}.avgLatency`, { ms: avgLatencyMs })}
             </p>
           )}
           <p className="text-xs text-themed-muted">

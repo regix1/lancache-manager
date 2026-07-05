@@ -1545,7 +1545,7 @@
         "cacheNodesMulti": "{{count}} cache nodes",
         "cacheNodesLine_one": "{{nodes}} answering on {{ips}} IP",
         "cacheNodesLine_other": "{{nodes}} answering on {{ips}} IPs",
-        "avgLatency": "avg response {{ms}} ms",
+        "avgLatency": "Average DNS response {{ms}} ms",
         "resolverConfigured": "Checked with the configured DNS server {{server}}.",
         "resolverDetected": "Checked with the detected lancache-dns container at {{server}}.",
         "resolverSystem": "Checked with the system resolver. Set Prefill LancacheDnsIp for an authoritative answer.",
