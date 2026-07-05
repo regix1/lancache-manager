@@ -3150,7 +3150,7 @@
             },
             "configure": "Configure",
             "modalTitle": "Configure Scheduled Prefill",
-            "modalDescription": "Configure each platform in one place: scheduled login, persistent container, and schedule settings.",
+            "modalDescription": "Configure each platform in one place: login, persistent container, and schedule settings.",
             "servicesTitle": "Services",
             "enabled": "Enabled",
             "service": "Service",

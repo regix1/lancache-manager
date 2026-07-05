@@ -3150,7 +3150,7 @@
             },
             "configure": "配置",
             "modalTitle": "配置计划预填充",
-            "modalDescription": "在同一视图中配置每个平台：计划登录、持久容器和计划设置。",
+            "modalDescription": "在同一视图中配置每个平台：登录、持久容器和计划设置。",
             "servicesTitle": "服务",
             "enabled": "启用",
             "service": "服务",
