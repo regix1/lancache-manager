@@ -458,7 +458,16 @@
      against (measured: children fell back to content height). A 0 basis makes this item's size
      pure flex-grow, which propagates a definite height down the chain. */
   flex: 1;
-  min-height: 0;
+  /* Dynamically size to the monitor. The Modal dialog is `max-h:calc(100vh-2rem)` with NO definite
+     height, so its flex column shrink-wraps to content - which left this body collapsing to its
+     content height and the modal reading as short on tall screens. A viewport-based min-height gives
+     the chain a definite floor so the modal fills most of the screen regardless of how little a
+     given service's content is, while the dialog's own max-height still caps it and CustomScrollbar
+     scrolls any overflow. The 14rem reserve covers the dialog title bar + body padding so the
+     footer actions never clip against the cap; when content is longer this still flex-grows to the
+     cap. Replaces the old `min-height: 0` (the child __scroll-area keeps its own min-height:0 for
+     scrolling). */
+  min-height: calc(100vh - 14rem);
   gap: 1.25rem;
 }
 
