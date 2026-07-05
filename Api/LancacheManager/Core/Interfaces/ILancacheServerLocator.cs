@@ -27,10 +27,17 @@ public interface ILancacheServerLocator
     /// or DNS-resolved hostname) or, when unset, heartbeat-verified Docker container auto-detection.</summary>
     Task<LancacheServerLocation> LocateAsync(CancellationToken cancellationToken);
 
-    /// <summary>Detects the lancache-dns container's IP the same way prefill container creation
-    /// does. Returns <c>null</c> when undetectable or when the container uses host networking
-    /// (callers should fall back to the system resolver in that case).</summary>
-    Task<string?> DetectDnsServerIpAsync(CancellationToken cancellationToken);
+    /// <summary>Detects the on-host lancache DNS server's IP without requiring the user to set
+    /// <c>Prefill__LancacheDnsIp</c>. <paramref name="mode"/> ("auto" | "bridge" | "host") scopes the
+    /// candidate set: "auto" tries the bridge-mode lancache-dns container IP first, then falls through
+    /// to an ordered, heartbeat-verified host-DNS candidate probe (Docker bridge gateway, known cache
+    /// IP(s), <c>host.docker.internal</c>, loopback) that also covers the host-networked
+    /// lancache-dns/monolithic case (which has no bridge IP); "bridge" tries ONLY the container's
+    /// bridge IP; "host" tries ONLY the host-side candidates and skips the Docker bridge-container path.
+    /// <paramref name="knownCacheIps"/> are the located cache server IP(s) - a monolithic image
+    /// co-locates DNS+cache on the same host, so a known cache IP is a strong DNS candidate. Returns
+    /// <c>null</c> when nothing verifies as a real lancache DNS (callers fall back to the system resolver).</summary>
+    Task<string?> DetectDnsServerIpAsync(string mode, IReadOnlyList<string>? knownCacheIps, CancellationToken cancellationToken);
 
     /// <summary>Probes <c>GET http://{ip}/lancache-heartbeat</c> and reports whether the
     /// <c>X-LanCache-Processed-By</c> header was present (and its value).</summary>

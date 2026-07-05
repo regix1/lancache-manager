@@ -87,6 +87,24 @@ public sealed class StatusCheckService : IStatusCheckService
         }
     }
 
+    public string GetResolverMode()
+    {
+        // Normalize on read so a corrupt/absent persisted value can never break the sweep.
+        return StatusCheckResolverModes.Normalize(_stateService.GetStatusCheckResolverMode());
+    }
+
+    public void SetResolverMode(string mode)
+    {
+        if (!StatusCheckResolverModes.IsValid(mode))
+        {
+            throw new ArgumentException(
+                $"Invalid resolver mode '{mode}'. Expected one of: {string.Join(", ", StatusCheckResolverModes.All)}.",
+                nameof(mode));
+        }
+
+        _stateService.SetStatusCheckResolverMode(mode);
+    }
+
     public Guid? StartSweep()
     {
         if (Interlocked.CompareExchange(ref _running, 1, 0) != 0)
@@ -109,7 +127,7 @@ public sealed class StatusCheckService : IStatusCheckService
     public async Task<(DomainCheckResult Result, HeartbeatResult? Heartbeat)> TestDomainAsync(string domain, CancellationToken cancellationToken)
     {
         var location = await _serverLocator.LocateAsync(cancellationToken);
-        var (resolverSource, dnsServer, dnsClient) = await ResolveDnsTargetAsync(cancellationToken);
+        var (resolverSource, dnsServer, dnsClient) = await ResolveDnsTargetAsync(location, cancellationToken);
 
         // Ad hoc tests aren't tied to a known service; the frontend already knows which service the
         // user picked from the dropdown (if any) and can render that context itself.
@@ -149,7 +167,7 @@ public sealed class StatusCheckService : IStatusCheckService
 
             var domains = await _domainsService.GetDomainsAsync(forceRefresh: false, token);
             var location = await _serverLocator.LocateAsync(token);
-            var (resolverSource, dnsServer, dnsClient) = await ResolveDnsTargetAsync(token);
+            var (resolverSource, dnsServer, dnsClient) = await ResolveDnsTargetAsync(location, token);
 
             // Contract amendment v1.1: DISABLE_<SERVICE>=true (uppercased cache_domains name) in
             // lancache-dns means the service is intentionally not cached - never query its domains,
@@ -322,7 +340,8 @@ public sealed class StatusCheckService : IStatusCheckService
         return disabled;
     }
 
-    private async Task<(string ResolverSource, string? DnsServer, LookupClient? Client)> ResolveDnsTargetAsync(CancellationToken ct)
+    private async Task<(string ResolverSource, string? DnsServer, LookupClient? Client)> ResolveDnsTargetAsync(
+        LancacheServerLocation location, CancellationToken ct)
     {
         var configuredDnsIp = _networkOptions.CurrentValue.LancacheDnsIp;
         if (!string.IsNullOrWhiteSpace(configuredDnsIp) &&
@@ -332,7 +351,10 @@ public sealed class StatusCheckService : IStatusCheckService
             return ("configured", configuredDnsIp, new LookupClient(configuredAddress, 53));
         }
 
-        var detectedIp = await _serverLocator.DetectDnsServerIpAsync(ct);
+        // Auto-detect the on-host lancache DNS. The user-selected resolver mode ("auto" | "bridge" |
+        // "host") scopes which candidate groups are probed. Pass the located cache IP(s) as candidates
+        // - a monolithic image co-locates DNS + cache on the same host, so cacheIp:53 is often the DNS.
+        var detectedIp = await _serverLocator.DetectDnsServerIpAsync(GetResolverMode(), location.CacheIps, ct);
         if (!string.IsNullOrWhiteSpace(detectedIp) && IPAddress.TryParse(detectedIp, out var detectedAddress))
         {
             return ("detected", detectedIp, new LookupClient(detectedAddress, 53));

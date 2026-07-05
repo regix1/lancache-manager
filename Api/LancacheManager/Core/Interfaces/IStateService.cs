@@ -54,6 +54,10 @@ public interface IStateService
     StatusCheckResult? GetStatusCheckResult();
     void SetStatusCheckResult(StatusCheckResult result);
 
+    // Status Check DNS resolver mode ("auto" | "bridge" | "host"); persisted verbatim.
+    string GetStatusCheckResolverMode();
+    void SetStatusCheckResolverMode(string mode);
+
     // Epic Mapping Last-Collection Methods
     DateTime? GetEpicMappingCollectedAt();
     void SetEpicMappingLastCollection(DateTime collectionTime);

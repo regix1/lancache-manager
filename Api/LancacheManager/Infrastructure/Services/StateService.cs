@@ -67,6 +67,8 @@ public class StateService : IStateService
         public bool SetupCompleted { get; set; } = false;
         public DateTime? LastPicsCrawl { get; set; }
         public StatusCheckResult? StatusCheckResult { get; set; }
+        // User-selected DNS resolver mode for Status Check ("auto" | "bridge" | "host"). Default "auto".
+        public string StatusCheckResolverMode { get; set; } = "auto";
         public DateTime? EpicMappingLastCollection { get; set; }
         public double CrawlIntervalHours { get; set; } = 1.0;
         public object CrawlIncrementalMode { get; set; } = true;
@@ -741,6 +743,16 @@ public class StateService : IStateService
         UpdateState(state => state.StatusCheckResult = result);
     }
 
+    public string GetStatusCheckResolverMode()
+    {
+        return GetState().StatusCheckResolverMode;
+    }
+
+    public void SetStatusCheckResolverMode(string mode)
+    {
+        UpdateState(state => state.StatusCheckResolverMode = mode);
+    }
+
     // Epic Mapping Last-Collection Methods
     public DateTime? GetEpicMappingCollectedAt()
     {
@@ -996,6 +1008,7 @@ public class StateService : IStateService
             SetupCompleted = persisted.SetupCompleted,
             LastPicsCrawl = persisted.LastPicsCrawl,
             StatusCheckResult = persisted.StatusCheckResult,
+            StatusCheckResolverMode = persisted.StatusCheckResolverMode,
             EpicMappingLastCollection = persisted.EpicMappingLastCollection,
             CrawlIntervalHours = persisted.CrawlIntervalHours,
             CrawlIncrementalMode = persisted.CrawlIncrementalMode,
@@ -1097,6 +1110,7 @@ public class StateService : IStateService
             SetupCompleted = state.SetupCompleted,
             LastPicsCrawl = state.LastPicsCrawl,
             StatusCheckResult = state.StatusCheckResult,
+            StatusCheckResolverMode = state.StatusCheckResolverMode,
             EpicMappingLastCollection = state.EpicMappingLastCollection,
             CrawlIntervalHours = state.CrawlIntervalHours,
             CrawlIncrementalMode = state.CrawlIncrementalMode,

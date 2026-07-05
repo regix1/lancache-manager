@@ -4,10 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { TogglePill } from '@components/ui/TogglePill';
+import { SegmentedControl } from '@components/ui/SegmentedControl';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService, {
   type StatusCheckDomainGroup,
   type StatusCheckDomainsSource,
+  type StatusCheckResolverMode,
   type StatusCheckServiceResult,
   type StatusCheckStatusResponse
 } from '@services/api.service';
@@ -20,6 +22,7 @@ import TestDomainCard from './TestDomainCard';
 import DomainSourceFooter from './DomainSourceFooter';
 import { useClientProbe } from './useClientProbe';
 import { prefersReducedMotion } from './helpers';
+import { RESOLVER_MODE_OPTIONS } from './constants';
 import type {
   CacheDomainsRefreshedEvent,
   RibbonSegment,
@@ -118,7 +121,8 @@ const StatusCheckSection: React.FC = () => {
           lastResult: event.result,
           domainsSource: previous?.domainsSource ?? null,
           isRunning: false,
-          operationId: null
+          operationId: null,
+          resolverMode: previous?.resolverMode ?? 'auto'
         }));
       } else {
         setRunError(event.error ?? t(`${keys}.sweepDidNotFinish`));
@@ -171,6 +175,46 @@ const StatusCheckSection: React.FC = () => {
       }
     }
   }, []);
+
+  const resolverMode: StatusCheckResolverMode = status?.resolverMode ?? 'auto';
+
+  const resolverModeOptions = useMemo(
+    () =>
+      RESOLVER_MODE_OPTIONS.map((option) => ({
+        value: option.value,
+        label: t(`${keys}.resolverMode.${option.labelKey}`),
+        tooltip: t(`${keys}.resolverMode.${option.tooltipKey}`)
+      })),
+    [t]
+  );
+
+  // The mode only steers the NEXT sweep, so persist it and immediately kick off a
+  // fresh check (unless one is already running) so the user sees the effect.
+  const handleResolverModeChange = useCallback(
+    async (mode: StatusCheckResolverMode) => {
+      if (mode === resolverMode) return;
+      setRunError(null);
+      setStatus((previous) => (previous ? { ...previous, resolverMode: mode } : previous));
+      try {
+        const result = await ApiService.setStatusCheckResolverMode(mode);
+        setStatus((previous) =>
+          previous ? { ...previous, resolverMode: result.resolverMode } : previous
+        );
+      } catch (error) {
+        setRunError(getErrorMessage(error));
+        // Persist failed - resync the authoritative mode instead of leaving the optimistic one.
+        try {
+          const current = await ApiService.getStatusCheck();
+          setStatus(current);
+        } catch {
+          /* keep the existing error visible */
+        }
+        return;
+      }
+      if (!isRunning) await handleRun();
+    },
+    [resolverMode, isRunning, handleRun]
+  );
 
   const sortedServices = useMemo(() => {
     const services = status?.lastResult?.services ?? [];
@@ -310,6 +354,25 @@ const StatusCheckSection: React.FC = () => {
       )}
       <div className="space-y-8">
         <section>
+          {status && (
+            <div className="status-check-resolver">
+              <div className="status-check-resolver-head">
+                <span className="status-check-resolver-label">
+                  {t(`${keys}.resolverMode.label`)}
+                </span>
+                <SegmentedControl
+                  size="sm"
+                  showLabels
+                  options={resolverModeOptions}
+                  value={resolverMode}
+                  onChange={(value) =>
+                    void handleResolverModeChange(value as StatusCheckResolverMode)
+                  }
+                />
+              </div>
+              <p className="status-check-resolver-hint">{t(`${keys}.resolverMode.hint`)}</p>
+            </div>
+          )}
           <VerdictCard
             lastResult={lastResult}
             isRunning={isRunning}

@@ -3547,6 +3547,20 @@ class ApiService {
     );
     return this.handleResponse<StatusCheckDomainsResponse>(response);
   }
+
+  static async setStatusCheckResolverMode(
+    mode: StatusCheckResolverMode
+  ): Promise<StatusCheckResolverModeResponse> {
+    const response = await fetch(
+      `${API_BASE}/status-check/resolver-mode`,
+      this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode })
+      })
+    );
+    return this.handleResponse<StatusCheckResolverModeResponse>(response);
+  }
 }
 
 // Prefill admin types
@@ -3671,15 +3685,25 @@ export interface StatusCheckDomainsSource {
   error: string | null;
 }
 
+/** Forces which DNS-resolution strategy the next sweep uses. "auto" probes every
+ *  strategy and heartbeat-verifies; "bridge" queries the lancache-dns container's
+ *  bridge IP; "host" queries the host DNS via the docker bridge gateway / localhost. */
+export type StatusCheckResolverMode = 'auto' | 'bridge' | 'host';
+
 export interface StatusCheckStatusResponse {
   lastResult: StatusCheckResult | null;
   domainsSource: StatusCheckDomainsSource | null;
   isRunning: boolean;
   operationId: string | null;
+  resolverMode: StatusCheckResolverMode;
 }
 
 interface StatusCheckRunResponse {
   operationId: string;
+}
+
+interface StatusCheckResolverModeResponse {
+  resolverMode: StatusCheckResolverMode;
 }
 
 export interface StatusCheckTestDomainResponse {

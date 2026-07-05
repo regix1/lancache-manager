@@ -5,9 +5,13 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { formatDateTime } from '@utils/formatters';
-import type { StatusCheckResult, StatusCheckSummary } from '@services/api.service';
+import type {
+  StatusCheckResult,
+  StatusCheckServiceResult,
+  StatusCheckSummary
+} from '@services/api.service';
 import ResolutionRibbon from './ResolutionRibbon';
-import { formatServiceLabel, formatServiceList } from './helpers';
+import { formatServiceLabel, splitExamples } from './helpers';
 import type { RibbonSegment, StatusCheckProgressEvent } from './types';
 
 interface VerdictCardProps {
@@ -38,6 +42,9 @@ const resolveVerdictKind = (
   return 'partial';
 };
 
+// How many example service chips to show before collapsing the rest into "+N more".
+const CHIP_LIMIT = 3;
+
 const VerdictCard: React.FC<VerdictCardProps> = ({
   lastResult,
   isRunning,
@@ -48,7 +55,7 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
   onRibbonSegmentClick,
   onRun
 }) => {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const keys = 'management.sections.statusCheck';
 
   const summary = lastResult?.summary ?? null;
@@ -87,10 +94,6 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
   );
   const partialOnlyServices = nonMismatchedFailingServices.filter(
     (service) => service.status === 'partial'
-  );
-  const totalPartialFailing = partialOnlyServices.reduce(
-    (sum, service) => sum + (service.totalCount - service.resolvedCount),
-    0
   );
 
   // Empty state: never run and not running now - render the invitation, not a blank card.
@@ -189,6 +192,75 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
         }) + (avgLatencyMs !== null ? ` · ${t(`${keys}.avgLatency`, { ms: avgLatencyMs })}` : '')
       : null;
 
+  // Primary at-a-glance signal: the verdict tally as prominent count pills. Zero buckets stay
+  // muted so the ones that actually hold services carry the eye.
+  const statPills: { id: string; value: number; label: string }[] = summary
+    ? [
+        { id: 'resolved', value: summary.resolvedServices, label: t(`${keys}.statLabel.resolved`) },
+        { id: 'partial', value: summary.partialServices, label: t(`${keys}.statLabel.partial`) },
+        {
+          id: 'unresolved',
+          value: summary.unresolvedServices,
+          label: t(`${keys}.statLabel.unresolved`)
+        },
+        ...(summary.unverifiedServices > 0
+          ? [
+              {
+                id: 'unverified',
+                value: summary.unverifiedServices,
+                label: t(`${keys}.statLabel.unverified`)
+              }
+            ]
+          : []),
+        ...(summary.disabledServices > 0
+          ? [
+              {
+                id: 'disabled',
+                value: summary.disabledServices,
+                label: t(`${keys}.statLabel.disabled`)
+              }
+            ]
+          : [])
+      ]
+    : [];
+
+  // Failure breakdown: one row per failure type with a count and a few example chips, replacing
+  // the old comma-run sentences that spelled out every failing service name.
+  const failureBuckets: {
+    id: string;
+    dot: string;
+    services: StatusCheckServiceResult[];
+    label: string;
+  }[] = [
+    {
+      id: 'mismatched',
+      dot: 'mismatched',
+      services: mismatchedServices,
+      label: t(`${keys}.breakdownMismatched`, { count: mismatchedServices.length })
+    },
+    {
+      id: 'unresolved',
+      dot: 'unresolved',
+      services: unresolvedOnlyServices,
+      label: t(`${keys}.breakdownUnresolved`, { count: unresolvedOnlyServices.length })
+    },
+    {
+      id: 'partial',
+      dot: 'partial',
+      services: partialOnlyServices,
+      label: t(`${keys}.breakdownPartial`, { count: partialOnlyServices.length })
+    }
+  ].filter((bucket) => bucket.services.length > 0);
+
+  // Collapse the expected-cache-IP list to one IP + "+N more" (full list in the title tooltip).
+  const expectedCacheIps = lastResult?.expectedCacheIps ?? [];
+  const { shown: expectedIpShown, moreCount: expectedIpMore } = splitExamples(expectedCacheIps, 1);
+  const expectedIpLabel =
+    expectedIpShown[0] +
+    (expectedIpMore > 0 ? ` ${t(`${keys}.ipMore`, { count: expectedIpMore })}` : '');
+
+  const showMeta = !isRunning && !!lastResult;
+
   return (
     <Card>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -211,46 +283,6 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
                 })}
               </p>
             )}
-            {!isRunning && mismatchedServices.length > 0 && (
-              <p className="text-sm text-themed-secondary">
-                {t(`${keys}.problemsMismatched`, {
-                  services: formatServiceList(
-                    mismatchedServices.map((service) => service.service),
-                    i18n.language
-                  )
-                })}
-              </p>
-            )}
-            {!isRunning && unresolvedOnlyServices.length > 0 && (
-              <p className="text-sm text-themed-secondary">
-                {t(`${keys}.problemsUnresolved`, {
-                  services: formatServiceList(
-                    unresolvedOnlyServices.map((service) => service.service),
-                    i18n.language
-                  )
-                })}
-              </p>
-            )}
-            {!isRunning && partialOnlyServices.length === 1 && (
-              <p className="text-sm text-themed-secondary tabular-nums">
-                {t(`${keys}.problemsPartialSingle`, {
-                  service: formatServiceLabel(partialOnlyServices[0].service),
-                  failing: partialOnlyServices[0].totalCount - partialOnlyServices[0].resolvedCount,
-                  count: partialOnlyServices[0].totalCount
-                })}
-              </p>
-            )}
-            {!isRunning && partialOnlyServices.length > 1 && (
-              <p className="text-sm text-themed-secondary tabular-nums">
-                {t(`${keys}.problemsPartialMulti`, {
-                  services: formatServiceList(
-                    partialOnlyServices.map((service) => service.service),
-                    i18n.language
-                  ),
-                  count: totalPartialFailing
-                })}
-              </p>
-            )}
           </div>
         </div>
         <div className="flex flex-col items-start sm:items-end gap-1 flex-shrink-0">
@@ -265,6 +297,51 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
         </div>
       </div>
 
+      {!isRunning && summary && (
+        <div className="status-check-stats mt-3">
+          {statPills.map((pill) => (
+            <div
+              key={pill.id}
+              className={`status-check-stat status-check-stat--${pill.id}${
+                pill.value === 0 ? ' status-check-stat--zero' : ''
+              }`}
+            >
+              <span className="status-check-stat-value tabular-nums">{pill.value}</span>
+              <span className="status-check-stat-label">{pill.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!isRunning && failureBuckets.length > 0 && (
+        <div className="status-check-breakdown mt-3">
+          {failureBuckets.map((bucket) => {
+            const labels = bucket.services.map((service) => formatServiceLabel(service.service));
+            const { shown, moreCount } = splitExamples(labels, CHIP_LIMIT);
+            return (
+              <div key={bucket.id} className="status-check-breakdown-row">
+                <span
+                  className={`status-check-breakdown-dot status-check-breakdown-dot--${bucket.dot}`}
+                />
+                <span className="status-check-breakdown-count tabular-nums">{bucket.label}</span>
+                <span className="status-check-chips">
+                  {shown.map((label) => (
+                    <span key={label} className="status-check-chip">
+                      {label}
+                    </span>
+                  ))}
+                  {moreCount > 0 && (
+                    <span className="status-check-chip status-check-chip--more">
+                      {t(`${keys}.breakdownMore`, { count: moreCount })}
+                    </span>
+                  )}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {ribbonSegments.length > 0 && (
         <ResolutionRibbon
           segments={ribbonSegments}
@@ -273,53 +350,40 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
         />
       )}
 
-      {!isRunning && summary && (
-        <p className="text-xs text-themed-muted tabular-nums">
-          {t(`${keys}.ribbonSummary`, {
-            resolved: summary.resolvedServices,
-            partial: summary.partialServices,
-            unresolved: summary.unresolvedServices
-          })}
-          {summary.unverifiedServices > 0
-            ? ` · ${t(`${keys}.ribbonSummaryUnverified`, { unverified: summary.unverifiedServices })}`
-            : ''}
-          {summary.disabledServices > 0
-            ? ` · ${t(`${keys}.ribbonSummaryDisabled`, { disabled: summary.disabledServices })}`
-            : ''}
-        </p>
-      )}
-
-      {!isRunning && lastResult && lastResult.expectedCacheIps.length > 0 && (
-        <p className="text-xs text-themed-muted mt-2 tabular-nums">
-          {t(`${keys}.expectedIp`, {
-            ips: lastResult.expectedCacheIps.join(', '),
-            source: t(`${keys}.expectedIpSource.${lastResult.expectedIpSource}`)
-          })}
-        </p>
-      )}
-
-      {!isRunning && heartbeat && (
-        <p className="text-xs text-themed-muted mt-2 tabular-nums">
-          {heartbeat.reachable
-            ? heartbeat.servedBy
-              ? t(`${keys}.heartbeatOk`, { ip: heartbeat.cacheIp, host: heartbeat.servedBy })
-              : t(`${keys}.heartbeatOkNoHost`, { ip: heartbeat.cacheIp })
-            : cacheNodesLine
-              ? cacheNodesLine
-              : t(`${keys}.heartbeatFailed`, {
-                  error: heartbeat.error ?? t(`${keys}.unknownError`)
-                })}
-        </p>
-      )}
-
-      {!isRunning && lastResult && (
-        <p className="text-xs text-themed-muted">
-          {lastResult.resolverSource === 'configured'
-            ? t(`${keys}.resolverConfigured`, { server: lastResult.dnsServer })
-            : lastResult.resolverSource === 'detected'
-              ? t(`${keys}.resolverDetected`, { server: lastResult.dnsServer })
-              : t(`${keys}.resolverSystem`)}
-        </p>
+      {showMeta && (
+        <div className="status-check-meta">
+          {expectedCacheIps.length > 0 && (
+            <p
+              className="text-xs text-themed-muted tabular-nums"
+              title={expectedCacheIps.join(', ')}
+            >
+              {t(`${keys}.expectedIp`, {
+                ips: expectedIpLabel,
+                source: t(`${keys}.expectedIpSource.${lastResult.expectedIpSource}`)
+              })}
+            </p>
+          )}
+          {heartbeat && (
+            <p className="text-xs text-themed-muted tabular-nums">
+              {heartbeat.reachable
+                ? heartbeat.servedBy
+                  ? t(`${keys}.heartbeatOk`, { ip: heartbeat.cacheIp, host: heartbeat.servedBy })
+                  : t(`${keys}.heartbeatOkNoHost`, { ip: heartbeat.cacheIp })
+                : cacheNodesLine
+                  ? cacheNodesLine
+                  : t(`${keys}.heartbeatFailed`, {
+                      error: heartbeat.error ?? t(`${keys}.unknownError`)
+                    })}
+            </p>
+          )}
+          <p className="text-xs text-themed-muted">
+            {lastResult.resolverSource === 'configured'
+              ? t(`${keys}.resolverConfigured`, { server: lastResult.dnsServer })
+              : lastResult.resolverSource === 'detected'
+                ? t(`${keys}.resolverDetected`, { server: lastResult.dnsServer })
+                : t(`${keys}.resolverSystem`)}
+          </p>
+        </div>
       )}
 
       {runError && (

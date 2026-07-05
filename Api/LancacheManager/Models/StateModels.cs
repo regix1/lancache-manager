@@ -20,6 +20,8 @@ public class AppState
     public DateTime? LastPicsCrawl { get; set; }
     // Last completed Status Check sweep result, so GET api/status-check survives a restart.
     public StatusCheckResult? StatusCheckResult { get; set; }
+    // User-selected DNS resolver mode for Status Check ("auto" | "bridge" | "host"). Default "auto".
+    public string StatusCheckResolverMode { get; set; } = "auto";
     public DateTime? EpicMappingLastCollection { get; set; } // Last time the Epic catalog/CDN patterns were collected
     public double CrawlIntervalHours { get; set; } = 1.0; // Default to 1 hour
     public object CrawlIncrementalMode { get; set; } = true; // Default to incremental scans (true/false/"github")

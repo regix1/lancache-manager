@@ -2,6 +2,31 @@
    Only what Tailwind utilities + theme tokens can't express lives here:
    the hero status glyph and the resolution ribbon (the tab's signature element). */
 
+/* DNS resolver mode selector - forces the sweep's resolution strategy. Sits above
+   the verdict card; the sm segmented control matches the 32px control-cluster height. */
+.status-check-resolver {
+  margin-bottom: 1rem;
+}
+
+.status-check-resolver-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.status-check-resolver-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--theme-text-secondary);
+}
+
+.status-check-resolver-hint {
+  margin-top: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--theme-text-muted);
+}
+
 /* Hero status glyph - icon-in-rounded-box, colored by overall verdict. */
 .status-check-glyph {
   width: 2.5rem;
@@ -36,6 +61,162 @@
 .status-check-glyph--neutral {
   background-color: var(--theme-bg-tertiary);
   color: var(--theme-text-secondary);
+}
+
+/* Verdict count strip - the primary at-a-glance signal. One pill per verdict
+   bucket; the accent bar and value color carry the meaning, the label stays quiet.
+   A zero count is muted so the buckets that actually have services stand out. */
+.status-check-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.status-check-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 0.5rem;
+  background-color: var(--theme-bg-tertiary);
+  border-left: 3px solid var(--theme-border-primary);
+}
+
+.status-check-stat-value {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--theme-text-primary);
+}
+
+.status-check-stat-label {
+  font-size: 0.75rem;
+  color: var(--theme-text-secondary);
+}
+
+.status-check-stat--zero .status-check-stat-value {
+  color: var(--theme-text-muted);
+}
+
+.status-check-stat--resolved {
+  border-left-color: var(--theme-success);
+}
+
+.status-check-stat--partial {
+  border-left-color: var(--theme-warning);
+}
+
+.status-check-stat--unresolved {
+  border-left-color: var(--theme-error);
+}
+
+.status-check-stat--unverified {
+  border-left-color: var(--theme-info);
+}
+
+.status-check-stat--disabled {
+  border-left-color: var(--theme-border-primary);
+}
+
+/* Failure breakdown - replaces the prose service enumerations. One row per
+   failure type: a colored dot, a count, and a few example chips (+N more). */
+.status-check-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.status-check-breakdown-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.status-check-breakdown-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.status-check-breakdown-dot--mismatched,
+.status-check-breakdown-dot--partial {
+  background-color: var(--theme-warning);
+}
+
+.status-check-breakdown-dot--unresolved {
+  background-color: var(--theme-error);
+}
+
+.status-check-breakdown-count {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--theme-text-primary);
+}
+
+.status-check-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.status-check-chip {
+  font-size: 0.6875rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.35rem;
+  background-color: var(--theme-bg-tertiary);
+  color: var(--theme-text-secondary);
+  white-space: nowrap;
+}
+
+.status-check-chip--more {
+  background-color: transparent;
+  color: var(--theme-text-muted);
+}
+
+/* Compact meta footer inside the hero: expected IP, heartbeat, resolver source. */
+.status-check-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--theme-border-primary);
+}
+
+/* Per-domain status tag - a compact verdict on each row so the IP list never
+   has to be reprinted per row. */
+.status-check-tag {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  padding: 0.05rem 0.4rem;
+  border-radius: 0.35rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.status-check-tag--wrong {
+  background-color: var(--theme-warning-bg);
+  color: var(--theme-warning-text);
+}
+
+.status-check-tag--none {
+  background-color: var(--theme-error-bg);
+  color: var(--theme-error-text);
+}
+
+.status-check-tag--unverified {
+  background-color: var(--theme-info-bg);
+  color: var(--theme-info-text);
+}
+
+/* Expected cache IPs, shown ONCE at the top of an expanded service. */
+.status-check-service-expected {
+  font-size: 0.75rem;
+  color: var(--theme-text-muted);
+  margin-bottom: 0.5rem;
 }
 
 /* Resolution ribbon: one segment per service. During a sweep the segments fill

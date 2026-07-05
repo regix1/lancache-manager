@@ -6,7 +6,7 @@ import Badge from '@components/ui/Badge';
 import { getServiceColorClass } from '@utils/serviceColors';
 import type { StatusCheckServiceResult } from '@services/api.service';
 import DomainLeafRow from './DomainLeafRow';
-import { formatServiceLabel, getServiceAccentColor } from './helpers';
+import { formatServiceLabel, getServiceAccentColor, splitExamples } from './helpers';
 
 interface ServiceResultsListProps {
   /** Already sorted problems-first by the parent. */
@@ -87,6 +87,15 @@ const ServiceResultsList: React.FC<ServiceResultsListProps> = ({
             a.originalEntry.localeCompare(b.originalEntry)
         );
 
+        // Expected cache IPs are the same across a service's domains - show them ONCE here
+        // (only where a "wrong IP" tag needs a reference) instead of on every failing row.
+        const expectedIps = [...new Set(service.domains.flatMap((domain) => domain.expectedIps))];
+        const hasMismatch = service.domains.some((domain) => domain.status === 'mismatched');
+        const { shown: expectedShown, moreCount: expectedMore } = splitExamples(expectedIps, 1);
+        const expectedLabel =
+          expectedShown[0] +
+          (expectedMore > 0 ? ` ${t(`${keys}.ipMore`, { count: expectedMore })}` : '');
+
         return (
           <div key={service.service} ref={(element) => registerRef(service.service, element)}>
             <AccordionSection
@@ -112,6 +121,14 @@ const ServiceResultsList: React.FC<ServiceResultsListProps> = ({
                 </p>
               ) : (
                 <div className="space-y-2">
+                  {hasMismatch && expectedIps.length > 0 && (
+                    <p
+                      className="status-check-service-expected tabular-nums"
+                      title={expectedIps.join(', ')}
+                    >
+                      {t(`${keys}.expectedForService`, { ips: expectedLabel })}
+                    </p>
+                  )}
                   {sortedDomains.map((domain) => (
                     <DomainLeafRow key={domain.originalEntry} result={domain} />
                   ))}

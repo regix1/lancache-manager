@@ -1,4 +1,5 @@
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services.StatusCheck;
 using LancacheManager.Models.Responses;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -32,8 +33,21 @@ public class StatusCheckController : ControllerBase
             LastResult = _statusCheckService.GetLastResult(),
             DomainsSource = _domainsService.GetCurrentSource(),
             IsRunning = _statusCheckService.IsRunning,
-            OperationId = _statusCheckService.CurrentOperationId
+            OperationId = _statusCheckService.CurrentOperationId,
+            ResolverMode = _statusCheckService.GetResolverMode()
         });
+    }
+
+    [HttpPost("resolver-mode")]
+    public ActionResult<SetResolverModeResponse> SetResolverMode([FromBody] SetResolverModeRequest request)
+    {
+        if (!StatusCheckResolverModes.IsValid(request.Mode))
+        {
+            return BadRequest(new { message = "mode must be one of: auto, bridge, host." });
+        }
+
+        _statusCheckService.SetResolverMode(request.Mode);
+        return Ok(new SetResolverModeResponse { ResolverMode = request.Mode });
     }
 
     [HttpPost("run")]

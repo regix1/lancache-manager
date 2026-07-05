@@ -1,5 +1,7 @@
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using DnsClient;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Core.Interfaces;
@@ -38,6 +40,14 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
     {
         Timeout = TimeSpan.FromSeconds(2),
     };
+
+    // The canonical universal lancache test domain: lancache-dns poisons it to the LAN cache IP,
+    // upstream/public DNS returns the real Steam CDN. Same probe host the reference resolver uses.
+    private const string LancacheTestDomain = "lancache.steamcontent.com";
+
+    // Once-per-sweep detection tries candidates sequentially; cap the count so a run of dead
+    // candidates (each ~2s) can't stall the sweep.
+    private const int MaxDnsCandidateProbes = 6;
 
     private readonly ILogger<LancacheServerLocator> _logger;
     private readonly IOptionsMonitor<PrefillNetworkOptions> _networkOptions;
@@ -141,20 +151,35 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
         }
     }
 
-    public async Task<string?> DetectDnsServerIpAsync(CancellationToken cancellationToken)
+    public async Task<string?> DetectDnsServerIpAsync(string mode, IReadOnlyList<string>? knownCacheIps, CancellationToken cancellationToken)
     {
-        if (_dockerClient == null)
+        // (a) Bridge-mode: a non-host-networked lancache-dns container has a reachable bridge IP.
+        //     Needs Docker; skipped (null) when the socket is absent or the dns container is host-networked.
+        //     "host" mode skips this path entirely (host-only candidates by request).
+        string? dnsBridgeIp = null;
+        if (mode != StatusCheckResolverModes.Host && _dockerClient != null)
         {
-            return null;
+            dnsBridgeIp = await TryDetectDnsBridgeIpAsync(cancellationToken);
         }
 
+        // (b) Fall through to host-DNS candidate probing (scoped by mode). The bridge gateway / known
+        //     cache IP / host.docker.internal / loopback candidates need no Docker, so they run even when
+        //     the socket is absent, and they cover the host-networked lancache-dns/monolithic case where
+        //     (a) is null. In "bridge" mode BuildDnsServerCandidates keeps only the bridge IP.
+        return await ProbeHostDnsCandidatesAsync(mode, dnsBridgeIp, knownCacheIps, cancellationToken);
+    }
+
+    /// <summary>Docker-inspect path for a bridge-mode lancache-dns container: returns its bridge IP,
+    /// or <c>null</c> when there is no dns container, it uses host networking (no bridge IP), or the
+    /// inspect fails. Host-networked dns is intentionally handled by the candidate probe instead.</summary>
+    private async Task<string?> TryDetectDnsBridgeIpAsync(CancellationToken cancellationToken)
+    {
         try
         {
-            var containers = await _dockerClient.Containers.ListContainersAsync(
+            var containers = await _dockerClient!.Containers.ListContainersAsync(
                 new ContainersListParameters { All = false }, cancellationToken);
 
             var dnsContainer = containers.FirstOrDefault(c => DockerContainerMatching.IsDnsContainer(c.Names ?? new List<string>()));
-
             if (dnsContainer == null)
             {
                 return null;
@@ -163,7 +188,7 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
             var inspect = await _dockerClient.Containers.InspectContainerAsync(dnsContainer.ID, cancellationToken);
             if (inspect.HostConfig?.NetworkMode == "host")
             {
-                _logger.LogInformation("Status Check: lancache-dns container uses host networking; treating as system resolver");
+                _logger.LogDebug("Status Check: lancache-dns uses host networking; probing host DNS candidates instead of a bridge IP");
                 return null;
             }
 
@@ -172,15 +197,209 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
 
             if (networkWithIp != null)
             {
-                _logger.LogInformation("Status Check: auto-detected lancache-dns IP {DnsIp} from container {ContainerName}",
-                    networkWithIp.IPAddress, dnsContainer.Names.FirstOrDefault());
+                _logger.LogDebug("Status Check: found lancache-dns bridge IP {DnsIp} from container {ContainerName}",
+                    networkWithIp.IPAddress, dnsContainer.Names?.FirstOrDefault());
             }
 
             return networkWithIp?.IPAddress;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Status Check: failed to auto-detect lancache-dns container IP");
+            _logger.LogDebug(ex, "Status Check: failed to inspect lancache-dns container for its bridge IP");
+            return null;
+        }
+    }
+
+    /// <summary>Builds an ordered DNS-server candidate list and returns the first that verifies as a
+    /// real lancache DNS (see <see cref="VerifyDnsCandidateAsync"/>). resolverSource stays "detected".</summary>
+    private async Task<string?> ProbeHostDnsCandidatesAsync(
+        string mode, string? dnsBridgeIp, IReadOnlyList<string>? knownCacheIps, CancellationToken cancellationToken)
+    {
+        var gatewayIp = GetDefaultGatewayIp();
+        var hostDockerInternalIps = await ResolveHostDockerInternalIpsAsync(cancellationToken);
+
+        var candidates = BuildDnsServerCandidates(mode, dnsBridgeIp, gatewayIp, knownCacheIps, hostDockerInternalIps);
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        foreach (var candidate in candidates.Take(MaxDnsCandidateProbes))
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+
+            if (await VerifyDnsCandidateAsync(candidate, cancellationToken))
+            {
+                _logger.LogInformation(
+                    "Status Check: auto-detected lancache DNS server {DnsIp} (verified via {TestDomain})",
+                    candidate, LancacheTestDomain);
+                return candidate;
+            }
+        }
+
+        _logger.LogInformation(
+            "Status Check: none of the {Count} candidate DNS server IP(s) verified as a lancache DNS; using system resolver",
+            candidates.Count);
+        return null;
+    }
+
+    /// <summary>Ordered, deduped, SSRF-gated DNS-server candidate list (first that verifies wins), scoped
+    /// by <paramref name="mode"/> ("auto" | "bridge" | "host"):
+    /// (1) bridge-mode lancache-dns IP - included by "auto"/"bridge", excluded by "host";
+    /// (2) Docker bridge default gateway - the host-networked case;
+    /// (3) known cache IP(s) - a monolithic image co-locates DNS+cache;
+    /// (4) <c>host.docker.internal</c>;
+    /// (5) loopback LAST - only meaningful if the manager itself is host-networked.
+    /// Groups (2)-(5) are the host-side set, included by "auto"/"host" and excluded by "bridge".
+    /// Every entry is gated through <see cref="IsProbeableCandidateIp"/> so a public IP is never even
+    /// probed. Pure/static for unit-testing the ordering, mode scoping, and gating without the network.</summary>
+    internal static List<string> BuildDnsServerCandidates(
+        string mode,
+        string? dnsBridgeIp,
+        string? gatewayIp,
+        IReadOnlyList<string>? knownCacheIps,
+        IReadOnlyList<string>? hostDockerInternalIps)
+    {
+        var ordered = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Add(string? ip)
+        {
+            if (!string.IsNullOrWhiteSpace(ip) && IsProbeableCandidateIp(ip!) && seen.Add(ip!))
+            {
+                ordered.Add(ip!);
+            }
+        }
+
+        // Bridge-mode lancache-dns candidate: part of "auto" and "bridge", omitted in "host".
+        if (mode != StatusCheckResolverModes.Host)
+        {
+            Add(dnsBridgeIp); // 1) bridge-mode lancache-dns
+        }
+
+        // Host-side candidate group: part of "auto" and "host", omitted in "bridge".
+        if (mode != StatusCheckResolverModes.Bridge)
+        {
+            Add(gatewayIp); // 2) Docker bridge default gateway (host-networked lancache-dns/monolithic)
+
+            if (knownCacheIps != null)
+            {
+                foreach (var ip in knownCacheIps)
+                {
+                    Add(ip); // 3) monolithic co-locates DNS + cache on one host IP
+                }
+            }
+
+            if (hostDockerInternalIps != null)
+            {
+                foreach (var ip in hostDockerInternalIps)
+                {
+                    Add(ip); // 4) host.docker.internal (Docker Desktop; harmless elsewhere)
+                }
+            }
+
+            Add("127.0.0.1"); // 5) LAST - only reaches a DNS server if the manager itself is host-networked
+        }
+
+        return ordered;
+    }
+
+    /// <summary>Verifies a candidate really is a lancache DNS: point a 2s no-retry <see cref="LookupClient"/>
+    /// at it, query the test domain, accept iff an A-record answer is a private IP that also passes a
+    /// <c>/lancache-heartbeat</c> probe (proves a real lancache sits at the poisoned answer, not merely a
+    /// private-answering resolver). Never constructs a resolver against a non-private/non-loopback IP (SSRF).</summary>
+    private async Task<bool> VerifyDnsCandidateAsync(string candidateIp, CancellationToken cancellationToken)
+    {
+        // SSRF bound: only ever build a resolver against a private/loopback candidate.
+        if (!IsProbeableCandidateIp(candidateIp) || !IPAddress.TryParse(candidateIp, out var candidateAddress))
+        {
+            return false;
+        }
+
+        try
+        {
+            var options = new LookupClientOptions(candidateAddress)
+            {
+                Timeout = TimeSpan.FromSeconds(2),
+                Retries = 0,
+                UseCache = false,
+            };
+            var client = new LookupClient(options);
+            var response = await client.QueryAsync(LancacheTestDomain, QueryType.A, cancellationToken: cancellationToken);
+
+            // Accept only a PRIVATE answer - a public answer is exactly the cache-bypass this tool detects.
+            var privateAnswer = response.Answers.ARecords()
+                .Select(r => r.Address.ToString())
+                .FirstOrDefault(IsPrivateIp);
+
+            if (privateAnswer == null)
+            {
+                return false;
+            }
+
+            // Confidence booster: prove an actual lancache is serving that IP.
+            var heartbeat = await ProbeHeartbeatAsync(privateAnswer, cancellationToken);
+            if (heartbeat.Reachable)
+            {
+                _logger.LogDebug(
+                    "Status Check: DNS candidate {Candidate} poisons {TestDomain} -> {Answer} (heartbeat verified)",
+                    candidateIp, LancacheTestDomain, privateAnswer);
+                return true;
+            }
+
+            return false;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Status Check: DNS candidate {Candidate} did not verify", candidateIp);
+            return false;
+        }
+    }
+
+    /// <summary>Resolves <c>host.docker.internal</c> to its private IPv4 address(es), or an empty list
+    /// when it doesn't resolve (stock compose) or resolves to a public IP.</summary>
+    private static async Task<List<string>> ResolveHostDockerInternalIpsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var addresses = await Dns.GetHostAddressesAsync("host.docker.internal", cancellationToken);
+            return addresses
+                .Where(a => a.AddressFamily == AddressFamily.InterNetwork)
+                .Select(a => a.ToString())
+                .Where(IsPrivateIp)
+                .ToList();
+        }
+        catch
+        {
+            return new List<string>();
+        }
+    }
+
+    /// <summary>The Docker bridge default gateway IP (e.g. <c>172.17.0.1</c>) - the address a
+    /// bridge-networked container uses to reach a service listening on the host, such as a
+    /// host-networked lancache-dns on <c>:53</c>. Mirrors the reference resolver's
+    /// <c>GetDefaultGateway()</c> (first IPv4 gateway of an Up, non-loopback interface).</summary>
+    private static string? GetDefaultGatewayIp()
+    {
+        try
+        {
+            return NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == OperationalStatus.Up)
+                .Where(n => n.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+                .SelectMany(n => n.GetIPProperties()?.GatewayAddresses ?? Enumerable.Empty<GatewayIPAddressInformation>())
+                .Select(g => g?.Address)
+                .FirstOrDefault(a => a != null && a.AddressFamily == AddressFamily.InterNetwork)
+                ?.ToString();
+        }
+        catch
+        {
             return null;
         }
     }
@@ -344,6 +563,20 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
             _logger.LogDebug(ex, "Status Check: failed to auto-detect lancache HTTP server IP");
             return null;
         }
+    }
+
+    /// <summary>An IP the DNS-candidate probe may safely point a resolver at: RFC1918 private, OR
+    /// loopback (<c>127.0.0.0/8</c> - reaches only the manager itself, so SSRF-safe and meaningful when
+    /// the manager is host-networked). This is the SSRF gate for CANDIDATES; DNS ANSWERS are still
+    /// accepted only when <see cref="IsPrivateIp"/> (a loopback answer would be nonsense).</summary>
+    internal static bool IsProbeableCandidateIp(string ip)
+    {
+        if (string.IsNullOrEmpty(ip) || !IPAddress.TryParse(ip, out var address))
+        {
+            return false;
+        }
+
+        return IsPrivateIp(ip) || IPAddress.IsLoopback(address);
     }
 
     /// <summary>Same private-range classification as <c>PrefillDaemonServiceBase.IsPrivateIp</c>

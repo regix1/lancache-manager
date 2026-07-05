@@ -715,4 +715,147 @@ public class StatusCheckTests
     {
         Assert.Equal(expected, DockerContainerMatching.IsManagerContainer(new[] { name }, image));
     }
+
+    // ===== DNS auto-detection: candidate ordering + SSRF gating =====
+
+    [Theory]
+    // RFC1918 private ranges are probeable.
+    [InlineData("10.0.0.5", true)]
+    [InlineData("172.17.0.1", true)]
+    [InlineData("192.168.1.1", true)]
+    // Loopback is SSRF-safe (reaches only the manager itself) so it is probeable even though it is
+    // not RFC1918 - it is the host-networked-manager fallback candidate.
+    [InlineData("127.0.0.1", true)]
+    // Public / invalid candidates must never be probed.
+    [InlineData("1.2.3.4", false)]
+    [InlineData("8.8.8.8", false)]
+    [InlineData("not-an-ip", false)]
+    [InlineData("", false)]
+    public void IsProbeableCandidateIp_AllowsPrivateAndLoopback_RejectsPublicAndInvalid(string ip, bool expected)
+    {
+        Assert.Equal(expected, LancacheServerLocator.IsProbeableCandidateIp(ip));
+    }
+
+    [Fact]
+    public void BuildDnsServerCandidates_OrdersBridgeGatewayCacheHostInternalThenLoopback()
+    {
+        var result = LancacheServerLocator.BuildDnsServerCandidates(
+            mode: StatusCheckResolverModes.Auto,
+            dnsBridgeIp: "172.20.0.2",
+            gatewayIp: "172.17.0.1",
+            knownCacheIps: new[] { "10.0.0.5" },
+            hostDockerInternalIps: new[] { "192.168.65.2" });
+
+        // 5-tier order, loopback appended last.
+        Assert.Equal(new[] { "172.20.0.2", "172.17.0.1", "10.0.0.5", "192.168.65.2", "127.0.0.1" }, result);
+    }
+
+    [Fact]
+    public void BuildDnsServerCandidates_GatewayLeadsWhenNoBridgeIp_HostNetworkedCase()
+    {
+        // The reported all-host-networked box: no dns bridge IP, gateway is the winning candidate.
+        var result = LancacheServerLocator.BuildDnsServerCandidates(
+            mode: StatusCheckResolverModes.Auto,
+            dnsBridgeIp: null,
+            gatewayIp: "172.17.0.1",
+            knownCacheIps: null,
+            hostDockerInternalIps: null);
+
+        Assert.Equal(new[] { "172.17.0.1", "127.0.0.1" }, result);
+    }
+
+    [Fact]
+    public void BuildDnsServerCandidates_DropsPublicIpsAndDedupesCaseInsensitively()
+    {
+        var result = LancacheServerLocator.BuildDnsServerCandidates(
+            mode: StatusCheckResolverModes.Auto,
+            dnsBridgeIp: "1.2.3.4",                                   // public -> dropped
+            gatewayIp: "172.17.0.1",
+            knownCacheIps: new[] { "172.17.0.1", "10.0.0.5", "8.8.8.8" }, // dup gateway + public dropped
+            hostDockerInternalIps: new[] { "10.0.0.5" });            // dup -> collapsed
+
+        // 172.17.0.1 (gateway) then 10.0.0.5 (cache), publics gone, dupes collapsed, loopback last.
+        Assert.Equal(new[] { "172.17.0.1", "10.0.0.5", "127.0.0.1" }, result);
+    }
+
+    [Fact]
+    public void BuildDnsServerCandidates_AllNull_YieldsOnlyLoopback()
+    {
+        var result = LancacheServerLocator.BuildDnsServerCandidates(
+            StatusCheckResolverModes.Auto, null, null, null, null);
+
+        Assert.Equal(new[] { "127.0.0.1" }, result);
+    }
+
+    // ===== Resolver mode scoping of the candidate set (auto / bridge / host) =====
+
+    [Fact]
+    public void BuildDnsServerCandidates_BridgeMode_KeepsOnlyTheBridgeIp()
+    {
+        // "bridge" queries ONLY the lancache-dns container's bridge IP - no gateway/known/loopback.
+        var result = LancacheServerLocator.BuildDnsServerCandidates(
+            mode: StatusCheckResolverModes.Bridge,
+            dnsBridgeIp: "172.20.0.2",
+            gatewayIp: "172.17.0.1",
+            knownCacheIps: new[] { "10.0.0.5" },
+            hostDockerInternalIps: new[] { "192.168.65.2" });
+
+        Assert.Equal(new[] { "172.20.0.2" }, result);
+    }
+
+    [Fact]
+    public void BuildDnsServerCandidates_BridgeMode_NoBridgeIp_YieldsEmpty()
+    {
+        // Host-networked (no bridge IP) under "bridge" mode has no candidate at all -> falls back to system.
+        var result = LancacheServerLocator.BuildDnsServerCandidates(
+            mode: StatusCheckResolverModes.Bridge,
+            dnsBridgeIp: null,
+            gatewayIp: "172.17.0.1",
+            knownCacheIps: new[] { "10.0.0.5" },
+            hostDockerInternalIps: new[] { "192.168.65.2" });
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void BuildDnsServerCandidates_HostMode_ExcludesBridgeIp_IncludesGatewayKnownLoopback()
+    {
+        // "host" skips the Docker bridge-container IP and probes only host-side candidates.
+        var result = LancacheServerLocator.BuildDnsServerCandidates(
+            mode: StatusCheckResolverModes.Host,
+            dnsBridgeIp: "172.20.0.2",
+            gatewayIp: "172.17.0.1",
+            knownCacheIps: new[] { "10.0.0.5" },
+            hostDockerInternalIps: new[] { "192.168.65.2" });
+
+        Assert.DoesNotContain("172.20.0.2", result);
+        Assert.Equal(new[] { "172.17.0.1", "10.0.0.5", "192.168.65.2", "127.0.0.1" }, result);
+    }
+
+    // ===== StatusCheckResolverModes validation / normalization =====
+
+    [Theory]
+    [InlineData("auto", true)]
+    [InlineData("bridge", true)]
+    [InlineData("host", true)]
+    [InlineData("Auto", false)] // case-sensitive wire values
+    [InlineData("system", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void StatusCheckResolverModes_IsValid_AcceptsOnlyTheThreeWireValues(string? mode, bool expected)
+    {
+        Assert.Equal(expected, StatusCheckResolverModes.IsValid(mode));
+    }
+
+    [Theory]
+    [InlineData("auto", "auto")]
+    [InlineData("bridge", "bridge")]
+    [InlineData("host", "host")]
+    [InlineData("nonsense", "auto")]
+    [InlineData("", "auto")]
+    [InlineData(null, "auto")]
+    public void StatusCheckResolverModes_Normalize_DefaultsUnknownToAuto(string? mode, string expected)
+    {
+        Assert.Equal(expected, StatusCheckResolverModes.Normalize(mode));
+    }
 }

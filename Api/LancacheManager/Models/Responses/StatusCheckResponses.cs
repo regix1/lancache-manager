@@ -190,6 +190,9 @@ public class StatusCheckStateResponse
     public DomainsSource? DomainsSource { get; set; }
     public bool IsRunning { get; set; }
     public Guid? OperationId { get; set; }
+
+    /// <summary>The persisted DNS resolver mode ("auto" | "bridge" | "host"). Default "auto".</summary>
+    public string ResolverMode { get; set; } = "auto";
 }
 
 public class RunStatusCheckResponse
@@ -213,6 +216,19 @@ public class RefreshDomainsResponse
     public DomainsSource DomainsSource { get; set; } = new();
     public int ServiceCount { get; set; }
     public int DomainCount { get; set; }
+}
+
+/// <summary>Body of POST api/status-check/resolver-mode: the DNS resolver mode to persist
+/// ("auto" | "bridge" | "host").</summary>
+public class SetResolverModeRequest
+{
+    public string Mode { get; set; } = string.Empty;
+}
+
+/// <summary>Response for POST api/status-check/resolver-mode: the mode that was persisted.</summary>
+public class SetResolverModeResponse
+{
+    public string ResolverMode { get; set; } = string.Empty;
 }
 
 public class GetDomainsResponse

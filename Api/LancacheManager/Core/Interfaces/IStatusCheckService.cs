@@ -27,4 +27,12 @@ public interface IStatusCheckService
     /// <summary>Resolves and verdicts a single ad hoc domain (dropdown selection or free text),
     /// heartbeat-probing its resolved IP when it resolves.</summary>
     Task<(DomainCheckResult Result, HeartbeatResult? Heartbeat)> TestDomainAsync(string domain, CancellationToken cancellationToken);
+
+    /// <summary>The persisted DNS resolver mode ("auto" | "bridge" | "host"); an unknown or absent
+    /// stored value is normalized to "auto" on read so a corrupt value never breaks the sweep.</summary>
+    string GetResolverMode();
+
+    /// <summary>Persists the DNS resolver mode. Throws <see cref="ArgumentException"/> for a value
+    /// outside the allowed set (callers validate up-front to return 400 before reaching this).</summary>
+    void SetResolverMode(string mode);
 }

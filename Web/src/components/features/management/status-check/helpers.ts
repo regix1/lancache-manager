@@ -22,25 +22,13 @@ export function formatServiceLabel(service: string): string {
   return display.charAt(0).toUpperCase() + display.slice(1);
 }
 
-// Intl.ListFormat is in every supported browser but not in this project's TS lib target.
-type ListFormatConstructor = new (
-  locale: string,
-  options: { style: 'long'; type: 'conjunction' }
-) => { format: (items: string[]) => string };
-
-const IntlListFormat = (Intl as unknown as { ListFormat?: ListFormatConstructor }).ListFormat;
-
-/** Locale-aware "A, B and C" list for the verdict's supporting sentence. */
-export function formatServiceList(services: string[], locale: string): string {
-  const labels = services.map(formatServiceLabel);
-  if (IntlListFormat) {
-    try {
-      return new IntlListFormat(locale, { style: 'long', type: 'conjunction' }).format(labels);
-    } catch {
-      // fall through to the plain join
-    }
-  }
-  return labels.join(', ');
+/**
+ * Split a list into a few shown examples plus a "+N more" remainder count.
+ * Used for the hero's example chips and for collapsing long IP lists so the
+ * verdict never enumerates every service name or every cache IP inline.
+ */
+export function splitExamples<T>(items: T[], max: number): { shown: T[]; moreCount: number } {
+  return { shown: items.slice(0, max), moreCount: Math.max(0, items.length - max) };
 }
 
 /** "https://github.com/uklans/cache-domains.git" -> "uklans/cache-domains". */
