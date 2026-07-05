@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -21,6 +22,50 @@ interface StatusDisplay {
   label: string;
   busy: boolean;
 }
+
+// Overshoot past the footer's bottom so the last row of buttons clears the scroll fold comfortably
+// instead of resting flush against (and half-clipped by) the container edge.
+const SCROLL_ACTIONS_OVERSHOOT_PX = 32;
+
+// Scroll the modal's scroll area so the card's action footer is fully visible. scrollIntoView with
+// block:'nearest' only nudges the nearest edge into view and, if the card is still growing when it
+// fires, lands a few pixels short — so instead we find the scrollable ancestor (the modal's
+// CustomScrollbar content) and compute the exact distance from live layout, plus an overshoot, then
+// clamp to the max scroll. Reading the rects at scroll time (not effect time) keeps it correct even
+// if the freshly-grown card hasn't fully settled its height yet.
+const scrollActionsIntoView = (footer: HTMLElement | null): void => {
+  if (!footer) {
+    return;
+  }
+
+  let scrollParent: HTMLElement | null = footer.parentElement;
+  while (scrollParent) {
+    const { overflowY } = getComputedStyle(scrollParent);
+    if (
+      (overflowY === 'auto' || overflowY === 'scroll') &&
+      scrollParent.scrollHeight > scrollParent.clientHeight
+    ) {
+      break;
+    }
+    scrollParent = scrollParent.parentElement;
+  }
+
+  if (!scrollParent) {
+    footer.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    return;
+  }
+
+  const parentRect = scrollParent.getBoundingClientRect();
+  const footerRect = footer.getBoundingClientRect();
+  const delta = footerRect.bottom - parentRect.bottom + SCROLL_ACTIONS_OVERSHOOT_PX;
+  if (delta <= 0) {
+    return;
+  }
+
+  const maxScrollTop = scrollParent.scrollHeight - scrollParent.clientHeight;
+  const target = Math.min(scrollParent.scrollTop + delta, maxScrollTop);
+  scrollParent.scrollTo({ top: target, behavior: 'smooth' });
+};
 
 export function ScheduledPrefillPersistentCard({
   serviceKey,
@@ -70,6 +115,44 @@ export function ScheduledPrefillPersistentCard({
   const isGameSelectionBlocked = isRunning && !isReady;
   // Initial container probe with nothing resolved yet — show the loading view.
   const isContainerLoading = statusLoading && container === undefined;
+
+  // The footer holds every action button. When the container transitions to running the card
+  // grows (status line, meta, games, workflow hint), which can push the buttons below the modal's
+  // scroll fold. Bring the actions back into view on that transition — same scrollIntoView pattern
+  // SchedulesSection uses for its View Schedule buttons. The ref lives on the footer so the buttons
+  // themselves land in view, not just the (now off-screen) card header.
+  //
+  // Gated on a user-initiated Start of THIS card only: `action === 'start'` is set while this card's
+  // Start click is in flight, so we remember that intent and consume it when the container actually
+  // comes up. A background refresh that flips the container to running (a scheduled run, another
+  // tab, a resumed session) never carries that intent, so it never yanks the view.
+  const actionsRef = useRef<HTMLElement>(null);
+  const wasRunningRef = useRef(isRunning);
+  const startRequestedRef = useRef(false);
+
+  useEffect(() => {
+    const wasRunning = wasRunningRef.current;
+    wasRunningRef.current = isRunning;
+
+    // Record the in-flight Start click; it stays remembered until the container comes up (consumed
+    // below) or the action settles without the container running (cleared below).
+    if (action === 'start') {
+      startRequestedRef.current = true;
+    }
+
+    if (!wasRunning && isRunning && startRequestedRef.current) {
+      startRequestedRef.current = false;
+      // rAF so the freshly-grown card has settled its layout before we measure/scroll.
+      const frame = requestAnimationFrame(() => scrollActionsIntoView(actionsRef.current));
+      return () => cancelAnimationFrame(frame);
+    }
+
+    // Start settled (button no longer loading) but the container never came up — drop the intent so
+    // a later unrelated running transition can't inherit this click's scroll.
+    if (action !== 'start' && !isRunning) {
+      startRequestedRef.current = false;
+    }
+  }, [action, isRunning]);
 
   // One compact status line replaces the three tinted pipeline boxes: a coloured
   // dot carries meaning (green = logged in, info = downloading, amber = needs
@@ -235,7 +318,7 @@ export function ScheduledPrefillPersistentCard({
             </p>
           )}
 
-          <footer className="scheduled-prefill-persistent-card__actions">
+          <footer ref={actionsRef} className="scheduled-prefill-persistent-card__actions">
             <div className="scheduled-prefill-persistent-card__action-group">
               {isRunning ? (
                 <Button
