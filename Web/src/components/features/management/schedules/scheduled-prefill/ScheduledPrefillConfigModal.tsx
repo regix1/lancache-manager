@@ -5,7 +5,6 @@ import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import Badge from '@components/ui/Badge';
 import { HelpPopover } from '@components/ui/HelpPopover';
-import LoadingSpinner from '@components/common/LoadingSpinner';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import ApiService from '@services/api.service';
@@ -1371,12 +1370,6 @@ export function ScheduledPrefillConfigModal({
                             >
                               {t(`${baseKey}.settings.save`)}
                             </Button>
-                            {loadingGlobalSettings && (
-                              <span className="scheduled-prefill-config-modal__inline-loading">
-                                <LoadingSpinner inline size="sm" />
-                                {t(`${baseKey}.settings.loading`)}
-                              </span>
-                            )}
                           </div>
                         </div>
                       </div>
