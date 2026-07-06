@@ -25,6 +25,9 @@ public sealed class StatusCheckService : IStatusCheckService
     private static readonly TimeSpan _perDomainTimeout = TimeSpan.FromSeconds(3);
     private const string WildcardProbeLabel = "status-check";
     private const int ProgressEveryNDomains = 10;
+    // Full-detail failure lines are capped so a total outage (every domain failing) explains
+    // itself in the log without printing hundreds of near-identical warnings.
+    private const int MaxLoggedFailureSamples = 10;
 
     private readonly ILogger<StatusCheckService> _logger;
     private readonly ICacheDomainsService _domainsService;
@@ -180,10 +183,20 @@ public sealed class StatusCheckService : IStatusCheckService
             var completedDomains = 0;
             var serviceResults = new List<ServiceCheckResult>();
 
+            _logger.LogInformation(
+                "Status Check: sweep {OperationId} starting - {TotalDomains} domains across {ServiceCount} services via {ResolverSource} resolver {DnsServer}",
+                operationId, totalDomains, domains.Services.Count, resolverSource, dnsServer ?? "system");
+
             // Cache-node aggregation: exact IP -> servedBy pairs captured while resolving this
             // sweep's domains (ResolveDomainAsync populates it below), not re-derived from the
             // heartbeat cache, so a leftover test-domain probe can never bleed into it.
             var verifiedIps = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            // Sweep-failure diagnostics: per-reason counts plus a capped number of full-detail
+            // samples, so a mass failure (rate-limited resolver, resolver dying mid-sweep) is
+            // explained in the server log instead of surfacing only as "unresolved" rows in the UI.
+            var failureReasons = new ConcurrentDictionary<string, int>(StringComparer.Ordinal);
+            var failureSamplesLogged = 0;
 
             foreach (var service in domains.Services)
             {
@@ -209,7 +222,19 @@ public sealed class StatusCheckService : IStatusCheckService
                     await semaphore.WaitAsync(token);
                     try
                     {
-                        return await ResolveDomainAsync(originalEntry, service.Name, location.CacheIps, dnsClient, token, verifiedIps);
+                        var result = await ResolveDomainAsync(originalEntry, service.Name, location.CacheIps, dnsClient, token, verifiedIps);
+                        if (result.ResolvedIps.Count == 0)
+                        {
+                            var reason = result.Error ?? "No A records returned";
+                            failureReasons.AddOrUpdate(reason, 1, static (_, count) => count + 1);
+                            if (Interlocked.Increment(ref failureSamplesLogged) <= MaxLoggedFailureSamples)
+                            {
+                                _logger.LogWarning(
+                                    "Status Check: {Domain} ({Service}) did not resolve via {DnsServer}: {Reason} ({LatencyMs} ms)",
+                                    result.Domain, service.Name, dnsServer ?? "system resolver", reason, result.LatencyMs);
+                            }
+                        }
+                        return result;
                     }
                     finally
                     {
@@ -241,6 +266,34 @@ public sealed class StatusCheckService : IStatusCheckService
                 });
 
                 serviceResults.Add(BuildServiceResultCore(service.Name, service.Description, domainResults));
+            }
+
+            var failedDomains = failureReasons.Values.Sum();
+            if (failedDomains > 0)
+            {
+                var breakdown = string.Join("; ", failureReasons
+                    .OrderByDescending(kvp => kvp.Value)
+                    .Take(5)
+                    .Select(kvp => $"{kvp.Key} x{kvp.Value}"));
+                _logger.LogWarning(
+                    "Status Check: sweep {OperationId} finished with {FailedDomains}/{TotalDomains} domains unresolved. Reasons: {Breakdown}",
+                    operationId, failedDomains, totalDomains, breakdown);
+
+                // A resolver that passed the detection probe moments ago but failed most of the
+                // sweep is rate limiting the burst or died mid-sweep - name that outright, it is
+                // the actionable signal (the UI otherwise shows only a wall of "unresolved").
+                if (resolverSource != "system" && failedDomains * 2 > totalDomains)
+                {
+                    _logger.LogWarning(
+                        "Status Check: resolver {DnsServer} answered the detection probe but {FailedDomains} sweep queries failed - it is likely rate limiting the sweep or stopped answering mid-sweep",
+                        dnsServer, failedDomains);
+                }
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Status Check: sweep {OperationId} finished - all {TotalDomains} domains resolved",
+                    operationId, totalDomains);
             }
 
             var heartbeat = await BuildHeartbeatResultAsync(location, token);
@@ -408,15 +461,17 @@ public sealed class StatusCheckService : IStatusCheckService
         }
         catch (SocketException ex)
         {
-            error = ex.SocketErrorCode == SocketError.HostNotFound ? "NXDOMAIN" : ex.Message;
+            error = ex.SocketErrorCode == SocketError.HostNotFound ? "NXDOMAIN" : $"{ex.SocketErrorCode}: {ex.Message}";
         }
         catch (DnsResponseException ex)
         {
-            error = ex.Code == DnsResponseCode.NotExistentDomain ? "NXDOMAIN" : ex.DnsError;
+            error = ex.Code == DnsResponseCode.NotExistentDomain
+                ? "NXDOMAIN"
+                : string.IsNullOrWhiteSpace(ex.DnsError) ? ex.Code.ToString() : $"{ex.DnsError} ({ex.Code})";
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            error = ex.Message;
+            error = $"{ex.GetType().Name}: {ex.Message}";
         }
 
         stopwatch.Stop();
