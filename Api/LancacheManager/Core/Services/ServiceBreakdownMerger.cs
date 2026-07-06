@@ -15,6 +15,15 @@ internal static class ServiceBreakdownMerger
     private const string XboxCanonical = "xbox";
 
     /// <summary>
+    /// Folds xboxlive/microsoft to the canonical "xbox" display name; any other service name
+    /// passes through unchanged. Display-only - never write the result back to LogEntries.Service.
+    /// </summary>
+    public static string NormalizeXboxService(string service)
+    {
+        return _xboxAliases.Contains(service) ? XboxCanonical : service;
+    }
+
+    /// <summary>
     /// Merges xboxlive/microsoft rows into xbox for <see cref="ServiceBreakdownItem"/> lists.
     /// Percentages are summed (valid because all rows share the same period total as denominator).
     /// </summary>

@@ -1,4 +1,5 @@
 using LancacheManager.Models;
+using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
@@ -459,28 +460,33 @@ public class DownloadsController : ControllerBase
 
                 foreach (var row in grouped)
                 {
+                    // Fold xboxlive/microsoft into xbox for the merge key so a service (or
+                    // per-game-within-service) bucket never splits into separate rows just
+                    // because the raw LogEntries.Service alias differs. Display-only.
+                    var normalizedService = ServiceBreakdownMerger.NormalizeXboxService(row.Service);
+
                     string mergeKey;
                     if (query.GroupByService)
                     {
-                        mergeKey = row.Service;
+                        mergeKey = normalizedService;
                     }
                     else if (row.SteamAppId.HasValue && row.SteamAppId.Value != 0)
                     {
-                        mergeKey = $"{row.Service}-app-{row.SteamAppId.Value}";
+                        mergeKey = $"{normalizedService}-app-{row.SteamAppId.Value}";
                     }
                     else if (!string.IsNullOrEmpty(row.EpicAppId))
                     {
-                        mergeKey = $"{row.Service}-epic-{row.EpicAppId}";
+                        mergeKey = $"{normalizedService}-epic-{row.EpicAppId}";
                     }
                     else if (!string.IsNullOrEmpty(row.AppName) && row.AppName != row.Service)
                     {
-                        mergeKey = $"{row.Service}-name-{row.AppName.ToLowerInvariant()}";
+                        mergeKey = $"{normalizedService}-name-{row.AppName.ToLowerInvariant()}";
                     }
                     else
                     {
                         // Stable per-row key - never merges with other rows
                         var depotPart = row.DepotId.HasValue ? row.DepotId.Value.ToString() : "0";
-                        mergeKey = $"{row.Service}-unknown-{depotPart}-{row.ClientIp}";
+                        mergeKey = $"{normalizedService}-unknown-{depotPart}-{row.ClientIp}";
                     }
 
                     if (!mergedBuckets.TryGetValue(mergeKey, out var bucket))
@@ -520,6 +526,8 @@ public class DownloadsController : ControllerBase
                         pairsByRowId[key] = mergedPairs;
                     }
 
+                    var displayService = ServiceBreakdownMerger.NormalizeXboxService(first.Service);
+
                     return new RetroDownloadDto
                     {
                         Id = key,
@@ -529,9 +537,9 @@ public class DownloadsController : ControllerBase
                         DepotId = query.GroupByService ? null : first.DepotId,
                         EpicAppId = query.GroupByService ? null : first.EpicAppId,
                         ClientIp = first.ClientIp,
-                        Service = first.Service,
+                        Service = displayService,
                         Datasource = first.Datasource,
-                        AppName = query.GroupByService ? first.Service : first.AppName,
+                        AppName = query.GroupByService ? displayService : first.AppName,
                         SteamAppId = query.GroupByService ? null : first.SteamAppId,
                         StartTimeUtc = bucket.Min(r => r.StartTimeUtc),
                         EndTimeUtc = bucket.Max(r => r.EndTimeUtc),
