@@ -1164,7 +1164,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
             ) : hasActiveDownloads && activeGames.length > 0 ? (
               activeGames.map((game, idx) => (
                 <ActiveDownloadItem
-                  key={`${game.service}-${game.depotId}-${game.clientIp ?? 'unknown'}`}
+                  key={`${game.service}-${game.gameAppId || game.gameName || game.depotId}-${game.clientIp ?? 'unknown'}`}
                   game={game}
                   index={idx}
                   t={t}

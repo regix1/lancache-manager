@@ -76,7 +76,7 @@ const ActiveDownloadsView: React.FC = () => {
         {viewMode === 'games'
           ? games.map((game: GameSpeedInfo, index: number) => (
               <div
-                key={`${game.service}-${game.depotId}-${game.clientIp ?? 'unknown'}`}
+                key={`${game.service}-${game.gameAppId || game.gameName || game.depotId}-${game.clientIp ?? 'unknown'}`}
                 className={`download-item ${index === 0 ? 'top' : ''}`}
               >
                 <div className="download-avatar">

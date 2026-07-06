@@ -405,22 +405,26 @@ impl SpeedTracker {
             }
         }
 
-        // Pre-populate depot cache for game name lookups
+        // Resolve every depot up front. The collapse below must see lookup_depot's
+        // actual results, not just depot_cache: a mapping row with an AppId but no
+        // AppName is deliberately never cached (lookup_depot retries missing names),
+        // so a cache-only read would treat that depot as unresolved and split one
+        // game across rows.
         let depot_ids: Vec<u32> = depot_groups.keys().map(|(id, _)| *id).collect();
+        let mut depot_resolutions: HashMap<u32, (Option<String>, Option<u32>)> = HashMap::new();
         for depot_id in depot_ids {
-            self.lookup_depot(depot_id).await;
+            let resolved = self.lookup_depot(depot_id).await;
+            depot_resolutions.insert(depot_id, resolved);
         }
 
-        // Build game speeds from depot groups (Steam and services with depot IDs)
-        let mut game_speeds: Vec<GameSpeedInfo> = depot_groups.into_iter()
-            .map(|((depot_id, client_ip), entries)| {
-                let (game_name, game_app_id) = self.depot_cache.get(&depot_id)
-                    .cloned()
-                    .unwrap_or((None, None));
-                let service = entries.first().map(|e| e.service.clone()).unwrap_or_default();
-                build_game_speed_info(entries, depot_id, client_ip, service, game_name, game_app_id)
-            })
-            .collect();
+        // Build game speeds from depot groups (Steam and services with depot IDs).
+        // Collapse buckets that resolve to the same Steam app so a game spanning many
+        // depots (or a chunk/depot rollover inside the 2s window) shows as ONE row with
+        // combined throughput, mirroring the resolved_groups collapse used for the
+        // non-depot services below. Unresolved depots keep their per-depot identity.
+        let mut game_speeds: Vec<GameSpeedInfo> = collapse_depot_groups(depot_groups, |depot_id| {
+            depot_resolutions.get(&depot_id).cloned().unwrap_or((None, None))
+        });
 
         // Add non-depot service entries (Epic, Origin, etc.)
         let mut resolved_groups: HashMap<(String, String), Vec<SpeedLogEntry>> = HashMap::new();
@@ -530,17 +534,10 @@ impl SpeedTracker {
                 let total_bytes: i64 = entries.iter().map(|e| e.bytes_sent).sum();
                 let cache_hit_bytes: i64 = entries.iter().filter(|e| e.is_cache_hit).map(|e| e.bytes_sent).sum();
                 let cache_miss_bytes = total_bytes - cache_hit_bytes;
-                // Count active games: unique depot IDs + unique non-depot services
-                let depot_count = entries.iter()
-                    .filter_map(|e| e.depot_id)
-                    .collect::<std::collections::HashSet<_>>()
-                    .len();
-                let service_count = entries.iter()
-                    .filter(|e| e.depot_id.is_none())
-                    .map(|e| e.service.as_str())
-                    .collect::<std::collections::HashSet<_>>()
-                    .len();
-                let active_games = depot_count + service_count;
+                // Count active games as this client's rows in the collapsed game_speeds
+                // list, so the client card agrees with the games list (counting raw
+                // depot IDs would show one multi-depot game as several games).
+                let active_games = game_speeds.iter().filter(|g| g.client_ip == client_ip).count();
 
                 ClientSpeedInfo {
                     client_ip,
@@ -774,6 +771,82 @@ fn build_game_speed_info(
     }
 }
 
+/// Collapse Steam depot buckets that resolve to the same app into ONE `GameSpeedInfo`
+/// per (app, client), summing throughput and request counts. One Steam game spans many
+/// depots, so without this a chunk/depot rollover inside the rolling window briefly
+/// yields two rows for the same game. Buckets whose depot did NOT resolve to an app keep
+/// their own per-depot identity, so two unknown depots never merge. This mirrors the
+/// `resolved_groups` collapse the non-depot services use. `resolve` maps a depot_id to
+/// its looked-up `(game_name, game_app_id)` (see `lookup_depot`); a partially resolved
+/// depot (AppId known, AppName not yet mapped) still merges by app_id.
+fn collapse_depot_groups<F>(
+    depot_groups: HashMap<(u32, String), Vec<SpeedLogEntry>>,
+    resolve: F,
+) -> Vec<GameSpeedInfo>
+where
+    F: Fn(u32) -> (Option<String>, Option<u32>),
+{
+    // Key: (is_resolved, app_id-or-depot_id, client_ip). The is_resolved flag keeps a
+    // resolved app from colliding with an unresolved depot that shares its numeric id.
+    let mut collapsed: HashMap<(bool, u32, String), Vec<SpeedLogEntry>> = HashMap::new();
+    for ((depot_id, client_ip), entries) in depot_groups {
+        let (_, game_app_id) = resolve(depot_id);
+        let key = match game_app_id {
+            Some(app_id) => (true, app_id, client_ip),
+            None => (false, depot_id, client_ip),
+        };
+        collapsed.entry(key).or_default().extend(entries);
+    }
+
+    collapsed
+        .into_iter()
+        .map(|((_, _, client_ip), entries)| {
+            let rep_depot_id = pick_representative_depot(&entries);
+            let (mut game_name, mut game_app_id) = resolve(rep_depot_id);
+            // A merged group can mix fully- and partially-resolved depots (a mapping
+            // row may carry an AppId with no AppName yet); borrow the missing name/app
+            // from a sibling depot so the merged row never loses what a split row had.
+            if game_name.is_none() || game_app_id.is_none() {
+                let mut sibling_depots: Vec<u32> = entries.iter().filter_map(|e| e.depot_id).collect();
+                sibling_depots.sort_unstable();
+                sibling_depots.dedup();
+                for depot_id in sibling_depots {
+                    if game_name.is_some() && game_app_id.is_some() {
+                        break;
+                    }
+                    let (name, app_id) = resolve(depot_id);
+                    if game_name.is_none() {
+                        game_name = name;
+                    }
+                    if game_app_id.is_none() {
+                        game_app_id = app_id;
+                    }
+                }
+            }
+            let service = entries.first().map(|e| e.service.clone()).unwrap_or_default();
+            build_game_speed_info(entries, rep_depot_id, client_ip, service, game_name, game_app_id)
+        })
+        .collect()
+}
+
+/// Pick the representative depot for a collapsed group: the depot that contributed the
+/// most bytes in the window (deterministic tie-break on the smaller depot_id), kept for
+/// the DTO/UI which still carries a single `depot_id`. Returns 0 if no entry carries a
+/// depot (matches the placeholder used for the non-depot path).
+fn pick_representative_depot(entries: &[SpeedLogEntry]) -> u32 {
+    let mut bytes_by_depot: HashMap<u32, i64> = HashMap::new();
+    for entry in entries {
+        if let Some(depot_id) = entry.depot_id {
+            *bytes_by_depot.entry(depot_id).or_insert(0) += entry.bytes_sent;
+        }
+    }
+    bytes_by_depot
+        .into_iter()
+        .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+        .map(|(depot_id, _)| depot_id)
+        .unwrap_or(0)
+}
+
 /// Map normalized service names to human-readable display names
 fn get_service_display_name(service: &str) -> String {
     match service {
@@ -819,4 +892,149 @@ async fn main() -> Result<()> {
     let pool = db::create_pool().await?;
     let mut tracker = SpeedTracker::new(pool, log_paths);
     tracker.run().await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_game_speed_info, collapse_depot_groups, SpeedLogEntry, WINDOW_SECONDS};
+    use chrono::Utc;
+    use std::collections::HashMap;
+
+    // A minimal in-window Steam entry; the collapse logic only reads client_ip, depot_id,
+    // bytes_sent and service, so the rest use inert defaults.
+    fn steam_entry(client_ip: &str, depot_id: u32, bytes: i64) -> SpeedLogEntry {
+        SpeedLogEntry {
+            timestamp: Utc::now().naive_utc(),
+            client_ip: client_ip.to_string(),
+            service: "steam".to_string(),
+            depot_id: Some(depot_id),
+            bytes_sent: bytes,
+            is_cache_hit: false,
+            request_url: String::new(),
+            cdn_host: None,
+        }
+    }
+
+    // Depots 1001 and 1002 both belong to the same Steam app (730) — the many-depots-per-game
+    // reality that makes the pre-fix per-depot grouping duplicate a game across rows.
+    fn cs2_resolver(depot_id: u32) -> (Option<String>, Option<u32>) {
+        match depot_id {
+            1001 | 1002 => (Some("Counter-Strike 2".to_string()), Some(730)),
+            _ => (None, None),
+        }
+    }
+
+    fn none_resolver(_depot_id: u32) -> (Option<String>, Option<u32>) {
+        (None, None)
+    }
+
+    // Reproduces the pre-fix bug AND proves the fix in one place: mapping each (depot, client)
+    // bucket straight to a row (the original :415-423) yields TWO rows for one game spanning two
+    // depots; collapse_depot_groups yields ONE with summed bytes. (A whole-fix git-stash reverts
+    // collapse_depot_groups out of existence and fails to compile, so the pre/post comparison here
+    // is the cleaner red/green evidence.)
+    #[test]
+    fn collapses_same_app_depots_into_one_row_with_summed_bytes() {
+        let mut groups: HashMap<(u32, String), Vec<SpeedLogEntry>> = HashMap::new();
+        groups.insert((1001, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1001, 1000)]);
+        groups.insert((1002, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1002, 2000)]);
+
+        // PRE-FIX behavior (original :415-423): one row per bucket => the duplicate bug.
+        let pre_fix: Vec<_> = groups
+            .clone()
+            .into_iter()
+            .map(|((depot_id, client_ip), entries)| {
+                let (name, app) = cs2_resolver(depot_id);
+                build_game_speed_info(entries, depot_id, client_ip, "steam".to_string(), name, app)
+            })
+            .collect();
+        assert_eq!(pre_fix.len(), 2, "pre-fix: two depots of one game render as two rows");
+
+        // POST-FIX behavior: collapsed to a single row with combined throughput.
+        let rows = collapse_depot_groups(groups, cs2_resolver);
+        assert_eq!(rows.len(), 1, "post-fix: one game => one row");
+        let row = &rows[0];
+        assert_eq!(row.total_bytes, 3000, "bytes are summed across both depots");
+        assert_eq!(row.bytes_per_second, 3000.0 / WINDOW_SECONDS as f64);
+        assert_eq!(row.request_count, 2);
+        assert_eq!(row.game_app_id, Some(730));
+        assert_eq!(row.client_ip, "10.0.0.1");
+        // Representative depot = the one contributing the most bytes (1002 here).
+        assert_eq!(row.depot_id, 1002);
+    }
+
+    #[test]
+    fn unresolved_depots_stay_separate() {
+        let mut groups: HashMap<(u32, String), Vec<SpeedLogEntry>> = HashMap::new();
+        groups.insert((5001, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 5001, 500)]);
+        groups.insert((5002, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 5002, 500)]);
+
+        let rows = collapse_depot_groups(groups, none_resolver);
+        assert_eq!(rows.len(), 2, "two unknown depots must not merge");
+        assert!(rows.iter().all(|r| r.game_app_id.is_none()));
+    }
+
+    #[test]
+    fn same_app_different_clients_stay_separate() {
+        let mut groups: HashMap<(u32, String), Vec<SpeedLogEntry>> = HashMap::new();
+        groups.insert((1001, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1001, 1000)]);
+        groups.insert((1001, "10.0.0.2".to_string()), vec![steam_entry("10.0.0.2", 1001, 1000)]);
+
+        let rows = collapse_depot_groups(groups, cs2_resolver);
+        assert_eq!(rows.len(), 2, "per-client separation is intentional");
+        assert!(rows.iter().all(|r| r.total_bytes == 1000));
+    }
+
+    // A depot whose mapping row has an AppId but no AppName resolves to (None, Some(app));
+    // it must still merge with a named sibling depot of the same app, and the merged row
+    // must keep the sibling's name even when the unnamed depot is the byte-heavy
+    // representative.
+    #[test]
+    fn partially_resolved_depot_merges_with_named_sibling() {
+        fn partial_resolver(depot_id: u32) -> (Option<String>, Option<u32>) {
+            match depot_id {
+                1001 => (Some("Counter-Strike 2".to_string()), Some(730)),
+                1002 => (None, Some(730)),
+                _ => (None, None),
+            }
+        }
+        let mut groups: HashMap<(u32, String), Vec<SpeedLogEntry>> = HashMap::new();
+        groups.insert((1001, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1001, 1000)]);
+        groups.insert((1002, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1002, 2000)]);
+
+        let rows = collapse_depot_groups(groups, partial_resolver);
+        assert_eq!(rows.len(), 1, "partial resolution must not split one game across rows");
+        let row = &rows[0];
+        assert_eq!(row.total_bytes, 3000);
+        assert_eq!(row.game_app_id, Some(730));
+        assert_eq!(row.depot_id, 1002, "the unnamed depot has the most bytes");
+        assert_eq!(
+            row.game_name.as_deref(),
+            Some("Counter-Strike 2"),
+            "name is borrowed from the named sibling depot"
+        );
+    }
+
+    #[test]
+    fn representative_depot_tie_breaks_to_smaller_depot() {
+        let mut groups: HashMap<(u32, String), Vec<SpeedLogEntry>> = HashMap::new();
+        groups.insert((1001, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1001, 500)]);
+        groups.insert((1002, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1002, 500)]);
+
+        let rows = collapse_depot_groups(groups, cs2_resolver);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].depot_id, 1001, "equal bytes tie-breaks to the smaller depot id");
+    }
+
+    #[test]
+    fn representative_depot_is_the_highest_byte_depot() {
+        let mut groups: HashMap<(u32, String), Vec<SpeedLogEntry>> = HashMap::new();
+        // 1001 contributes far more bytes than 1002, so it must be the representative.
+        groups.insert((1001, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1001, 9000)]);
+        groups.insert((1002, "10.0.0.1".to_string()), vec![steam_entry("10.0.0.1", 1002, 100)]);
+
+        let rows = collapse_depot_groups(groups, cs2_resolver);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].depot_id, 1001);
+    }
 }
