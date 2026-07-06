@@ -3963,6 +3963,10 @@
       "optionalDomainNotConfigured": "此域名是可选的。只要主域名已配置，预填充将正常工作。",
       "hostNetworkingHint": "如果 Steam 登录挂起或超时，将 Prefill__LancacheIp 设置为您的 lancache 服务器 IP - 这可以在不更改网络模式的情况下修复大多数 DNS 相关问题。作为备选方案，请在 docker-compose.yml 中尝试 Prefill__NetworkMode=bridge。",
       "lancacheIpInjected": "Lancache 服务器：{{ip}}（直接，与 DNS 无关）",
+      "lancacheIpDetected": "Lancache 服务器：{{ip}}（通过{{source}}自动检测，心跳已验证）",
+      "lancacheSourceDetected": "网络扫描",
+      "lancacheSourceDockerInspect": "Docker inspect",
+      "lancacheSourceEnvFile": "lancache .env 文件",
       "lancacheIpResolutionFailed": "Prefill__LancacheIp 未设置，且无法自动检测到 lancache 服务器。守护进程将回退到容器 DNS，这可能无法解析所有 CDN 域名（战网/暴雪的 CDN 通常不在 lancache DNS 中），并可能导致预填充挂起。在 docker-compose 中设置 Prefill__LancacheIp=<您的-lancache-服务器-ip> 以确保预填充可靠运行。",
       "ipv6UnsupportedHint": "IPv6 失败是正常的：lancache-dns 仅支持 IPv4。如果客户端更倾向 IPv6，请禁用 IPv6 或强制 IPv4 以避免绕过缓存。",
       "ipv6BypassDetected": "检测到此域名的 IPv6 解析。如果您的路由器或客户端通过 IPv6 绕过 lancache-dns，Steam 登录和预填充可能会失败。考虑禁用 IPv6 或确保 AAAA 记录指向您的缓存。"

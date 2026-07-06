@@ -338,7 +338,7 @@ To hand out a guest link without sharing your API key, open the **Users** tab an
 <a id="prefill-config"></a>
 ### Prefill
 
-Prefill auto-detects the right values for almost everything in this table. **For reliable prefill you should set `Prefill__LancacheIp` to your cache server's IP** - this makes prefill talk to your cache by IP and stop depending on DNS entirely. It is strongly recommended for Battle.net (Blizzard's CDN domains are often missing from lancache DNS, which can make prefill hang) and for any non-standard DNS setup. When it is unset the manager makes a best-effort attempt to auto-detect a running lancache server, but auto-detection can fail; setting it explicitly is the only fully reliable path. Reach for the other variables only when auto-detection gets them wrong.
+Prefill auto-detects the right values for almost everything in this table. **For reliable prefill you should set `Prefill__LancacheIp` to your cache server's IP** - this makes prefill talk to your cache by IP and stop depending on DNS entirely. It is strongly recommended for Battle.net (Blizzard's CDN domains are often missing from lancache DNS, which can make prefill hang) and for any non-standard DNS setup. When it is unset the manager auto-detects a running lancache server and injects it for you: it reads `LANCACHE_IP` from the lancache container itself, then heartbeat-probes candidates (lancache containers, the Docker bridge gateway for host-networked caches, `host.docker.internal`) and only ever injects an IP that answered as a real lancache. Setting it explicitly is still the guaranteed path and skips detection entirely. Reach for the other variables only when auto-detection gets them wrong.
 
 For setup decisions (when do I need which override?), see [Prefill → Network setup](#prefill-network).
 
@@ -527,7 +527,7 @@ If your DNS isn't a stock `lancache-dns` (you use AdGuard Home, Pi-hole, public 
 | Stock `lancache` + `lancache-dns` containers | nothing |
 | Single-box install (lancache on the same host as lancache-manager) | nothing |
 | AdGuard Home, Pi-hole, or any DNS replacement | `Prefill__LancacheIp=<your-cache-ip>` |
-| Host networking, host's DNS doesn't route CDN to your cache | `Prefill__LancacheIp=<your-cache-ip>` |
+| Host networking, host's DNS doesn't route CDN to your cache | usually nothing - the cache is auto-detected via the bridge gateway and heartbeat-verified; set `Prefill__LancacheIp=<your-cache-ip>` if the network panel still warns |
 | Caddy/Squid/non-nginx cache that routes by `Host:` header | `Prefill__LancacheIp=<your-cache-ip>` |
 | You want predictable behavior regardless of environment | always set `Prefill__LancacheIp` |
 
@@ -602,7 +602,7 @@ If the resolved IP is a public address (Steam's real CDN IPs look like `162.254.
 ```mermaid
 flowchart TD
     Start([Prefill needs a game chunk from<br/>lancache.steamcontent.com])
-    LIP{Did you set<br/>Prefill__LancacheIp?}
+    LIP{Is LANCACHE_IP available?<br/>Set via Prefill__LancacheIp,<br/>or auto-detected + heartbeat-verified}
 
     Start --> LIP
 
@@ -635,11 +635,11 @@ Every combination, in one table:
 | `NetworkMode` | `LancacheIp` | `LancacheDnsIp` | Outcome |
 |:---:|:---:|:---:|---|
 | `host` | set | (any) | Reliable. `LANCACHE_IP` injected; DNS irrelevant. |
-| `host` | unset | (any) | Risky. DnsIp is silently dropped (Docker limitation). Works only if the host's DNS already resolves CDN to your cache. |
+| `host` | unset | (any) | Usually fine. The manager auto-detects the cache (heartbeat-verified, including via the bridge gateway) and injects `LANCACHE_IP`; only when nothing verifies does it depend on the host's DNS. DnsIp is silently dropped either way (Docker limitation). |
 | `bridge` | set | unset | Reliable. `LANCACHE_IP` injected; DNS irrelevant. |
 | `bridge` | set | set | Reliable. `LANCACHE_IP` for CDN, DnsIp for auth/manifest. |
 | `bridge` | unset | set | Works if DnsIp resolves CDN to your cache. Container DNS forced to DnsIp. |
-| `bridge` | unset | unset | Inconsistent. Auto-detect probes localhost/gateway. Works for some setups. |
+| `bridge` | unset | unset | Usually fine. The manager auto-detects the cache and injects `LANCACHE_IP` (heartbeat-verified); otherwise the daemon probes localhost/gateway itself. |
 
 **Why `LancacheIp` always works**: with the env var set, the daemon builds requests like `GET http://192.168.1.10/depot/123/chunk/abc` with `Host: lancache.steamcontent.com`. Your cache (nginx, Caddy, or any HTTP server that routes by `Host:`) sees the right hostname and serves from cache. DNS is never consulted for the CDN domain.
 

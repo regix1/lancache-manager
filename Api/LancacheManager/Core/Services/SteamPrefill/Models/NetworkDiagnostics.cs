@@ -35,8 +35,15 @@ public class NetworkDiagnostics
 
     /// <summary>
     /// The lancache server IP that was injected into the daemon container via the
-    /// <c>LANCACHE_IP</c> environment variable (sourced from <c>Prefill__LancacheIp</c>).
-    /// Null when <c>Prefill__LancacheIp</c> is unset or could not be resolved.
+    /// <c>LANCACHE_IP</c> environment variable. Null when no cache IP could be determined.
     /// </summary>
     public string? LancacheIpInjected { get; set; }
+
+    /// <summary>
+    /// How the injected lancache IP was located: <c>config</c> | <c>dockerInspect</c> |
+    /// <c>envFile</c> | <c>detected</c> | <c>none</c>. Lets the frontend report a positive
+    /// detected-source ("auto-detected at X, heartbeat verified") instead of a generic
+    /// resolution-failed warning. <c>null</c>/<c>none</c> when no cache IP was determined.
+    /// </summary>
+    public string? LancacheIpSource { get; set; }
 }

@@ -70,6 +70,18 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
       ? 'var(--theme-info-subtle)'
       : 'var(--theme-success-subtle)';
 
+  // When the shared locator auto-detected (and heartbeat-verified) a cache the user did not configure
+  // by hand, report the source positively instead of the generic "resolution failed" warning.
+  const lancacheIpSource = diagnostics.lancacheIpSource;
+  const isAutoDetectedLancache =
+    !!diagnostics.lancacheIpInjected && !!lancacheIpSource && lancacheIpSource !== 'config';
+  const lancacheSourceLabel =
+    lancacheIpSource === 'dockerInspect'
+      ? t('prefill.network.lancacheSourceDockerInspect')
+      : lancacheIpSource === 'envFile'
+        ? t('prefill.network.lancacheSourceEnvFile')
+        : t('prefill.network.lancacheSourceDetected');
+
   return (
     <Card padding="md">
       <div className="space-y-3">
@@ -119,9 +131,14 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />
                   <span className="text-sm text-themed-primary">
-                    {t('prefill.network.lancacheIpInjected', {
-                      ip: diagnostics.lancacheIpInjected
-                    })}
+                    {isAutoDetectedLancache
+                      ? t('prefill.network.lancacheIpDetected', {
+                          ip: diagnostics.lancacheIpInjected,
+                          source: lancacheSourceLabel
+                        })
+                      : t('prefill.network.lancacheIpInjected', {
+                          ip: diagnostics.lancacheIpInjected
+                        })}
                   </span>
                 </div>
               </div>

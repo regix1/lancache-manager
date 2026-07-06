@@ -34,8 +34,9 @@ public class XboxPrefillDaemonService : PrefillDaemonServiceBase
         PrefillSessionService sessionService,
         PrefillCacheService cacheService,
         XboxMappingService mappingService,
-        IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions)
+        IOptionsMonitor<PrefillNetworkOptions> networkOptions,
+        ILancacheServerLocator locator)
+        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, locator)
     {
         _mappingService = mappingService;
     }

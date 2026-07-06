@@ -1,6 +1,9 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services.StatusCheck;
+using LancacheManager.Models;
 using LancacheManager.Models.Responses;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace LancacheManager.Tests;
 
@@ -857,5 +860,182 @@ public class StatusCheckTests
     public void StatusCheckResolverModes_Normalize_DefaultsUnknownToAuto(string? mode, string expected)
     {
         Assert.Equal(expected, StatusCheckResolverModes.Normalize(mode));
+    }
+
+    // ===== Cache-server candidate builder: profile scoping, ordering, loopback exclusion, dedupe =====
+
+    [Fact]
+    public void CacheCandidateProfiles_HaveExpectedFlags()
+    {
+        // H5: Status Check keeps its frozen contract (no host-side cache candidates); prefill opts in.
+        var status = LancacheServerLocator.CacheCandidateProfile.StatusCheck;
+        Assert.True(status.InspectContainers);
+        Assert.True(status.IncludeDnsContainerIp);
+        Assert.False(status.IncludeGateway);
+        Assert.False(status.IncludeHostDockerInternal);
+
+        var prefill = LancacheServerLocator.CacheCandidateProfile.Prefill;
+        Assert.True(prefill.InspectContainers);
+        Assert.True(prefill.IncludeDnsContainerIp);
+        Assert.True(prefill.IncludeGateway);
+        Assert.True(prefill.IncludeHostDockerInternal);
+    }
+
+    [Fact]
+    public void BuildCacheCandidates_PrefillProfile_OrdersDnsContainerGatewayHostInternalThenFallback()
+    {
+        var result = LancacheServerLocator.BuildCacheCandidates(
+            LancacheServerLocator.CacheCandidateProfile.Prefill,
+            configuredDnsIp: "10.0.0.1",
+            dnsBridgeIp: "172.20.0.2",
+            containerCacheCandidates: new[] { ("10.0.0.9", "container cache") },
+            fallbackPeerCandidates: new[] { ("10.0.0.50", "peer") },
+            gatewayIp: "172.17.0.1",
+            hostDockerInternalIps: new[] { "192.168.65.2" });
+
+        // 1) configured dns, 2) detected dns bridge, 3) named cache container, 4) gateway,
+        // 5) host.docker.internal, 6) unnamed peer last.
+        Assert.Equal(
+            new[] { "10.0.0.1", "172.20.0.2", "10.0.0.9", "172.17.0.1", "192.168.65.2", "10.0.0.50" },
+            result.Select(c => c.Ip).ToArray());
+    }
+
+    [Fact]
+    public void BuildCacheCandidates_StatusCheckProfile_ExcludesGatewayAndHostDockerInternal()
+    {
+        // H5: even when the caller supplies gateway/host.docker.internal, the Status Check profile
+        // drops them - only the dns-container IPs and named/peer cache containers survive.
+        var result = LancacheServerLocator.BuildCacheCandidates(
+            LancacheServerLocator.CacheCandidateProfile.StatusCheck,
+            configuredDnsIp: "10.0.0.1",
+            dnsBridgeIp: "172.20.0.2",
+            containerCacheCandidates: new[] { ("10.0.0.9", "container cache") },
+            fallbackPeerCandidates: new[] { ("10.0.0.50", "peer") },
+            gatewayIp: "172.17.0.1",
+            hostDockerInternalIps: new[] { "192.168.65.2" });
+
+        Assert.Equal(
+            new[] { "10.0.0.1", "172.20.0.2", "10.0.0.9", "10.0.0.50" },
+            result.Select(c => c.Ip).ToArray());
+        Assert.DoesNotContain("172.17.0.1", result.Select(c => c.Ip));
+        Assert.DoesNotContain("192.168.65.2", result.Select(c => c.Ip));
+    }
+
+    [Fact]
+    public void BuildCacheCandidates_H1_DnsContainerIpGatedByProfileFlag()
+    {
+        // H1: the monolithic co-location dns IPs are candidates only when IncludeDnsContainerIp is set.
+        var profile = new LancacheServerLocator.CacheCandidateProfile(
+            InspectContainers: true, IncludeDnsContainerIp: false, IncludeGateway: false, IncludeHostDockerInternal: false);
+
+        var result = LancacheServerLocator.BuildCacheCandidates(
+            profile,
+            configuredDnsIp: "10.0.0.1",
+            dnsBridgeIp: "172.20.0.2",
+            containerCacheCandidates: new[] { ("10.0.0.9", "container cache") },
+            fallbackPeerCandidates: Array.Empty<(string, string)>(),
+            gatewayIp: null,
+            hostDockerInternalIps: null);
+
+        Assert.Equal(new[] { "10.0.0.9" }, result.Select(c => c.Ip).ToArray());
+    }
+
+    [Fact]
+    public void BuildCacheCandidates_NeverIncludesLoopback_InAnySlot()
+    {
+        // H3: loopback is meaningless as an injected LANCACHE_IP - the private-IP gate must drop it
+        // from every candidate source, including the prefill-only gateway/host.docker.internal.
+        var result = LancacheServerLocator.BuildCacheCandidates(
+            LancacheServerLocator.CacheCandidateProfile.Prefill,
+            configuredDnsIp: "127.0.0.1",
+            dnsBridgeIp: "127.0.0.2",
+            containerCacheCandidates: new[] { ("127.0.0.3", "container") },
+            fallbackPeerCandidates: new[] { ("127.0.0.4", "peer") },
+            gatewayIp: "127.0.0.1",
+            hostDockerInternalIps: new[] { "127.0.0.5" });
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void BuildCacheCandidates_DropsPublicIpsAndDedupesCaseInsensitively()
+    {
+        var result = LancacheServerLocator.BuildCacheCandidates(
+            LancacheServerLocator.CacheCandidateProfile.Prefill,
+            configuredDnsIp: "8.8.8.8",                                        // public -> dropped
+            dnsBridgeIp: "10.0.0.9",                                          // first winner
+            containerCacheCandidates: new[] { ("10.0.0.9", "dup container") }, // dup -> collapsed
+            fallbackPeerCandidates: new[] { ("1.2.3.4", "public peer") },      // public -> dropped
+            gatewayIp: "172.17.0.1",
+            hostDockerInternalIps: new[] { "172.17.0.1" });                    // dup gateway -> collapsed
+
+        Assert.Equal(new[] { "10.0.0.9", "172.17.0.1" }, result.Select(c => c.Ip).ToArray());
+    }
+
+    // ===== lancache-dns container bridge-IP selection (HostConfig.DNS source) =====
+
+    [Fact]
+    public void SelectDnsBridgeIp_HostNetworked_ReturnsNull()
+    {
+        // H2: host-networked dns has no bridge IP; null is the caller's "switch to host mode" signal.
+        Assert.Null(LancacheServerLocator.SelectDnsBridgeIp(isHostNetworked: true, new[] { "172.20.0.2" }));
+    }
+
+    [Fact]
+    public void SelectDnsBridgeIp_BridgeNetworked_ReturnsFirstNonEmptyIp()
+    {
+        Assert.Equal(
+            "172.20.0.2",
+            LancacheServerLocator.SelectDnsBridgeIp(isHostNetworked: false, new[] { "", "172.20.0.2", "172.20.0.3" }));
+    }
+
+    [Fact]
+    public void SelectDnsBridgeIp_NoUsableIps_ReturnsNull()
+    {
+        Assert.Null(LancacheServerLocator.SelectDnsBridgeIp(isHostNetworked: false, new[] { "", (string?)null }));
+        Assert.Null(LancacheServerLocator.SelectDnsBridgeIp(isHostNetworked: false, Array.Empty<string?>()));
+    }
+
+    // ===== LocateAsync / DetectDnsContainerBridgeIpAsync delegation (config tier, no Docker, no network) =====
+
+    [Fact]
+    public async Task LocateAsync_ConfigIpLiteral_ReturnsConfigSourceWithThatIp()
+    {
+        // The overload signature exists and the config tier is flag-agnostic (short-circuits before
+        // env/Docker), so this stays a pure test even with includeHostSideCandidates:true.
+        var locator = CreateLocator(new PrefillNetworkOptions { LancacheIp = "10.0.0.5" });
+
+        var location = await locator.LocateAsync(includeHostSideCandidates: true, CancellationToken.None);
+
+        Assert.Equal("config", location.Source);
+        Assert.Equal(new[] { "10.0.0.5" }, location.CacheIps.ToArray());
+    }
+
+    [Fact]
+    public async Task DetectDnsContainerBridgeIpAsync_ExplicitConfig_ShortCircuitsToConfiguredIp()
+    {
+        // Reproduces the old GetLancacheDnsIpAsync explicit-config short-circuit that TryDetect omits.
+        var locator = CreateLocator(new PrefillNetworkOptions { LancacheDnsIp = "172.20.0.2" });
+
+        Assert.Equal("172.20.0.2", await locator.DetectDnsContainerBridgeIpAsync(CancellationToken.None));
+    }
+
+    private static LancacheServerLocator CreateLocator(PrefillNetworkOptions options) =>
+        new(NullLogger<LancacheServerLocator>.Instance,
+            new FixedOptionsMonitor(options),
+            new NullEnvironmentSource());
+
+    private sealed class FixedOptionsMonitor : IOptionsMonitor<PrefillNetworkOptions>
+    {
+        public FixedOptionsMonitor(PrefillNetworkOptions value) => CurrentValue = value;
+        public PrefillNetworkOptions CurrentValue { get; }
+        public PrefillNetworkOptions Get(string? name) => CurrentValue;
+        public IDisposable? OnChange(Action<PrefillNetworkOptions, string?> listener) => null;
+    }
+
+    private sealed class NullEnvironmentSource : ILancacheEnvironmentSource
+    {
+        public Task<EnvValueResult> GetValueAsync(string key, CancellationToken cancellationToken) =>
+            Task.FromResult(new EnvValueResult { Value = null, Source = EnvValueSource.EnvFile });
     }
 }

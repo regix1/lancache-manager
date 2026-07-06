@@ -31,8 +31,9 @@ public class BattleNetDaemonService : PrefillDaemonServiceBase
         IStateService stateService,
         PrefillSessionService sessionService,
         PrefillCacheService cacheService,
-        IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions)
+        IOptionsMonitor<PrefillNetworkOptions> networkOptions,
+        ILancacheServerLocator locator)
+        : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, locator)
     {
     }
 
