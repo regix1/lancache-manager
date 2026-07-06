@@ -1549,6 +1549,7 @@
         "resolverConfigured": "Checked with the configured DNS server {{server}}.",
         "resolverDetected": "Checked with the detected lancache-dns container at {{server}}.",
         "resolverSystem": "Checked with the system resolver. Set Prefill LancacheDnsIp for an authoritative answer.",
+        "systemResolverCaveat": "The lancache DNS server could not be reached for this check, so it used the system resolver. The failures below may not reflect your cache DNS. Run the check again.",
         "ribbonLabel": "Per-service resolution",
         "expectedIp": "Cache expected at {{ips}} ({{source}}).",
         "expectedIpSource": {

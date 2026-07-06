@@ -4,6 +4,7 @@ import { Activity, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
+import { Tooltip } from '@components/ui/Tooltip';
 import { formatDateTime } from '@utils/formatters';
 import type {
   StatusCheckResult,
@@ -271,6 +272,13 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
             {!isRunning && cantVerify && (
               <p className="text-sm text-themed-secondary">{t(`${keys}.verdictUnverifiedHint`)}</p>
             )}
+            {!isRunning &&
+              lastResult?.resolverSource === 'system' &&
+              failingServices.length > 0 && (
+                <p className="text-sm text-[var(--theme-warning)]">
+                  {t(`${keys}.systemResolverCaveat`)}
+                </p>
+              )}
             {!isRunning && verifiedDomains > 0 && (
               <p className="text-sm text-themed-secondary">
                 {t(`${keys}.verifiedLive`, { count: verifiedDomains })}
@@ -353,15 +361,15 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
       {showMeta && (
         <div className="status-check-meta">
           {expectedCacheIps.length > 0 && (
-            <p
+            <Tooltip
+              content={expectedCacheIps.join(', ')}
               className="text-xs text-themed-muted tabular-nums"
-              title={expectedCacheIps.join(', ')}
             >
               {t(`${keys}.expectedIp`, {
                 ips: expectedIpLabel,
                 source: t(`${keys}.expectedIpSource.${lastResult.expectedIpSource}`)
               })}
-            </p>
+            </Tooltip>
           )}
           {heartbeat && (
             <p className="text-xs text-themed-muted tabular-nums">

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { CheckCircle2, Globe } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import Badge from '@components/ui/Badge';
+import { Tooltip } from '@components/ui/Tooltip';
 import { getServiceColorClass } from '@utils/serviceColors';
 import type { StatusCheckServiceResult } from '@services/api.service';
 import DomainLeafRow from './DomainLeafRow';
@@ -122,12 +123,12 @@ const ServiceResultsList: React.FC<ServiceResultsListProps> = ({
               ) : (
                 <div className="space-y-2">
                   {hasMismatch && expectedIps.length > 0 && (
-                    <p
+                    <Tooltip
+                      content={expectedIps.join(', ')}
                       className="status-check-service-expected tabular-nums"
-                      title={expectedIps.join(', ')}
                     >
                       {t(`${keys}.expectedForService`, { ips: expectedLabel })}
-                    </p>
+                    </Tooltip>
                   )}
                   {sortedDomains.map((domain) => (
                     <DomainLeafRow key={domain.originalEntry} result={domain} />

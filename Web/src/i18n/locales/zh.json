@@ -1549,6 +1549,7 @@
         "resolverConfigured": "已使用配置的 DNS 服务器 {{server}} 进行检查。",
         "resolverDetected": "已使用检测到的 lancache-dns 容器 {{server}} 进行检查。",
         "resolverSystem": "已使用系统解析器进行检查。设置 Prefill LancacheDnsIp 可获得权威结果。",
+        "systemResolverCaveat": "本次检查无法连接 lancache DNS 服务器，因此使用了系统解析器。下方的失败结果可能无法反映你的缓存 DNS。请重新运行检查。",
         "ribbonLabel": "各服务解析情况",
         "expectedIp": "预期缓存位于 {{ips}}({{source}})。",
         "expectedIpSource": {

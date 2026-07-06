@@ -408,6 +408,15 @@ public sealed class StatusCheckService : IStatusCheckService
         // "host") scopes which candidate groups are probed. Pass the located cache IP(s) as candidates
         // - a monolithic image co-locates DNS + cache on the same host, so cacheIp:53 is often the DNS.
         var detectedIp = await _serverLocator.DetectDnsServerIpAsync(GetResolverMode(), location.CacheIps, ct);
+        if (string.IsNullOrWhiteSpace(detectedIp))
+        {
+            // Detection is a handful of 2s UDP probes - one dropped packet must not silently demote
+            // the whole sweep to the system resolver, which answers public IPs for every cache-only
+            // name and reads as "nothing is cached". Retry once before conceding.
+            _logger.LogInformation(
+                "Status Check: DNS auto-detection found no resolver on the first pass; retrying once before falling back to the system resolver");
+            detectedIp = await _serverLocator.DetectDnsServerIpAsync(GetResolverMode(), location.CacheIps, ct);
+        }
         if (!string.IsNullOrWhiteSpace(detectedIp) && IPAddress.TryParse(detectedIp, out var detectedAddress))
         {
             return ("detected", detectedIp, new LookupClient(detectedAddress, 53));

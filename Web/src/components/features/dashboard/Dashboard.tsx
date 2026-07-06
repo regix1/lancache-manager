@@ -737,15 +737,14 @@ const Dashboard: React.FC = () => {
                   color="gray"
                   size="md"
                   onClick={() => setDropdownOpen(!dropdownOpen)}
+                  aria-label={t('dashboard.hidden')}
                   leftSection={<EyeOff className="w-4 h-4" />}
                   rightSection={
                     <ChevronDown
                       className={`w-3 h-3 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`}
                     />
                   }
-                >
-                  {t('dashboard.hidden')}
-                </Button>
+                />
               </Tooltip>
 
               {/* Hidden Cards Dropdown */}

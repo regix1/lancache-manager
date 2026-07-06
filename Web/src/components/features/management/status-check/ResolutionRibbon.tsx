@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import { Tooltip } from '@components/ui/Tooltip';
 import { formatServiceLabel } from './helpers';
 import type { RibbonSegment } from './types';
 
@@ -28,15 +29,19 @@ const ResolutionRibbon: React.FC<ResolutionRibbonProps> = ({
           `management.sections.statusCheck.segmentStatus.${segment.status}`
         )}`;
         return (
-          <button
+          <Tooltip
             key={segment.service}
-            type="button"
-            className={`status-check-ribbon-segment status-check-ribbon-segment--${segment.status}`}
-            aria-label={label}
-            title={label}
-            disabled={!interactive}
-            onClick={() => onSegmentClick(segment.service)}
-          />
+            content={label}
+            className="status-check-ribbon-segment-wrap"
+          >
+            <button
+              type="button"
+              className={`status-check-ribbon-segment status-check-ribbon-segment--${segment.status}`}
+              aria-label={label}
+              disabled={!interactive}
+              onClick={() => onSegmentClick(segment.service)}
+            />
+          </Tooltip>
         );
       })}
     </div>

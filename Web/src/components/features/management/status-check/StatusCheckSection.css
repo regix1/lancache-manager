@@ -229,10 +229,14 @@
   padding: 13px 0;
 }
 
-.status-check-ribbon-segment {
-  position: relative;
+.status-check-ribbon-segment-wrap {
   flex: 1 1 0;
   min-width: 6px;
+}
+
+.status-check-ribbon-segment {
+  position: relative;
+  width: 100%;
   height: 18px;
   padding: 0;
   border: none;
@@ -322,9 +326,12 @@
     padding: 10px 0;
   }
 
-  .status-check-ribbon-segment {
+  .status-check-ribbon-segment-wrap {
     flex: 1 0 44px;
     min-width: 44px;
+  }
+
+  .status-check-ribbon-segment {
     height: 24px;
   }
 

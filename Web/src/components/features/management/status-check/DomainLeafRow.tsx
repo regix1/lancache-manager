@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, CheckCircle2, HelpCircle, XCircle } from 'lucide-react';
+import { Tooltip } from '@components/ui/Tooltip';
 import type { StatusCheckDomainResult } from '@services/api.service';
 
 interface DomainLeafRowProps {
@@ -46,8 +47,8 @@ const DomainLeafRow: React.FC<DomainLeafRowProps> = ({ result }) => {
         ? testedAsNote
         : undefined;
 
-  return (
-    <div className="flex items-center justify-between gap-2 flex-wrap" title={rowTitle}>
+  const rowContent = (
+    <>
       <div className="flex items-center gap-2 min-w-0">
         {result.status === 'resolved' ? (
           <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />
@@ -64,8 +65,18 @@ const DomainLeafRow: React.FC<DomainLeafRowProps> = ({ result }) => {
         {resolvedInfo}
         {tag}
       </div>
-    </div>
+    </>
   );
+
+  if (rowTitle) {
+    return (
+      <Tooltip content={rowTitle} className="flex items-center justify-between gap-2 flex-wrap">
+        {rowContent}
+      </Tooltip>
+    );
+  }
+
+  return <div className="flex items-center justify-between gap-2 flex-wrap">{rowContent}</div>;
 };
 
 export default DomainLeafRow;

@@ -9,7 +9,7 @@ import {
   Palette,
   Container,
   Calendar,
-  Radar,
+  MonitorCheck,
   type LucideIcon
 } from 'lucide-react';
 
@@ -106,7 +106,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
       id: 'status-check',
       labelKey: 'management.nav.statusCheck',
       shortLabelKey: 'management.nav.statusCheckShort',
-      icon: Radar,
+      icon: MonitorCheck,
       descriptionKey: 'management.nav.statusCheckDesc'
     }
   ];
