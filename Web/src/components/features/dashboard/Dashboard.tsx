@@ -732,6 +732,10 @@ const Dashboard: React.FC = () => {
                 content={t('dashboard.hiddenCardsTooltip', { count: hiddenCardsCount })}
                 strategy="overlay"
               >
+                {/* min-h-10 (2.5rem) so this icon-only button stays 40px to match the
+                    md Card Layout toggle on its left and the Reset Layout button on its
+                    right - with no text child, px-4 py-2 + a 16px icon alone only reaches
+                    ~32px. */}
                 <Button
                   variant="filled"
                   color="gray"
@@ -744,6 +748,7 @@ const Dashboard: React.FC = () => {
                       className={`w-3 h-3 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`}
                     />
                   }
+                  className="min-h-10"
                 />
               </Tooltip>
 
