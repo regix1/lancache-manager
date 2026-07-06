@@ -3628,57 +3628,6 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     }
 
     /// <summary>
-    /// Best-effort discovery of this process's own container id (used to exclude the manager
-    /// from lancache auto-detection). Reads it from cgroup, falling back to the hostname.
-    /// Returns null when not running in a container or the id cannot be determined.
-    /// </summary>
-    private string? TryGetOwnContainerId()
-    {
-        if (!_isRunningInContainer)
-        {
-            return null;
-        }
-
-        try
-        {
-            // Docker sets the container's short hostname to the (truncated) container id by default.
-            var hostname = Environment.GetEnvironmentVariable("HOSTNAME");
-            if (!string.IsNullOrWhiteSpace(hostname) && hostname.Length >= 12)
-            {
-                return hostname;
-            }
-
-            const string cgroupPath = "/proc/self/cgroup";
-            if (File.Exists(cgroupPath))
-            {
-                foreach (var line in File.ReadLines(cgroupPath))
-                {
-                    var idx = line.IndexOf("docker", StringComparison.OrdinalIgnoreCase);
-                    if (idx < 0)
-                    {
-                        continue;
-                    }
-
-                    var segment = line[idx..];
-                    // Look for a 64-hex container id within the cgroup path.
-                    var match = System.Text.RegularExpressions.Regex.Match(segment, "[0-9a-f]{64}");
-                    if (match.Success)
-                    {
-                        return match.Value;
-                    }
-                }
-            }
-
-            return string.IsNullOrWhiteSpace(hostname) ? null : hostname;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Auto-detect: could not determine own container id");
-            return null;
-        }
-    }
-
-    /// <summary>
     /// Determines if host network mode should be used based on lancache-dns configuration.
     /// Returns true if lancache-dns uses host networking or if explicitly configured.
     /// </summary>
