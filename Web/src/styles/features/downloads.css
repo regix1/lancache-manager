@@ -1436,4 +1436,76 @@
   .evicted-row {
     opacity: 0.6;
   }
+
+  /* ===== DOWNLOADS SETTINGS PANEL (gear toggle) ===== */
+
+  /* Height animates via the grid-rows idiom (same as .card-grid-item-details-wrapper)
+     so opening AND closing both slide instead of the card snapping to size. */
+  .downloads-settings-panel {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .downloads-settings-panel.is-open {
+    grid-template-rows: 1fr;
+  }
+
+  .downloads-settings-panel-inner {
+    min-height: 0;
+    overflow: hidden;
+    /* Collapsed content stays mounted; keep it out of the tab order and
+       accessibility tree, but only after the collapse transition finishes. */
+    visibility: hidden;
+    transition: visibility 0s linear 0.25s;
+  }
+
+  .downloads-settings-panel.is-open .downloads-settings-panel-inner {
+    visibility: visible;
+    transition-delay: 0s;
+  }
+
+  .downloads-settings-panel-content {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--theme-border-secondary);
+    opacity: 0;
+    transform: translateY(-8px);
+    transition:
+      opacity 0.2s ease,
+      transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .downloads-settings-panel.is-open .downloads-settings-panel-content {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* Gear trigger reflects the open state: primary fill + rotated icon */
+  .downloads-settings-trigger svg {
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .downloads-settings-trigger.is-active svg {
+    transform: rotate(90deg);
+  }
+
+  .downloads-settings-trigger.is-active,
+  .downloads-settings-trigger.is-active:hover {
+    background-color: var(--theme-primary);
+    color: var(--theme-button-text);
+  }
+
+  .downloads-settings-trigger.is-active:hover {
+    background-color: var(--theme-primary-hover);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .downloads-settings-panel,
+    .downloads-settings-panel-inner,
+    .downloads-settings-panel-content,
+    .downloads-settings-trigger svg {
+      transition: none;
+    }
+  }
 }

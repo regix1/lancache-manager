@@ -1238,7 +1238,7 @@ const DownloadsTab: React.FC = () => {
     selectedEventIds
   ]);
 
-  // Click outside handler to close settings dropdown
+  // Click outside / Escape handler to close settings dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
@@ -1255,10 +1255,18 @@ const DownloadsTab: React.FC = () => {
       }
     };
 
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSettingsOpened(false);
+      }
+    };
+
     if (settingsOpened) {
       document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleEscape);
       return () => {
         document.removeEventListener('mousedown', handleClickOutside);
+        document.removeEventListener('keydown', handleEscape);
       };
     }
   }, [settingsOpened]);
@@ -1533,7 +1541,9 @@ const DownloadsTab: React.FC = () => {
                     size="sm"
                     onClick={() => setSettingsOpened(!settingsOpened)}
                     data-settings-button="true"
-                    className="sm:hidden flex-shrink-0 !p-0 w-[38px] h-[38px] justify-center"
+                    aria-expanded={settingsOpened}
+                    aria-controls="downloads-settings-panel"
+                    className={`downloads-settings-trigger sm:hidden flex-shrink-0 !p-0 w-[38px] h-[38px] justify-center${settingsOpened ? ' is-active' : ''}`}
                   >
                     <Settings size={18} />
                   </Button>
@@ -1814,9 +1824,11 @@ const DownloadsTab: React.FC = () => {
                       variant="filled"
                       color="gray"
                       size="md"
-                      className="!p-0 w-10 h-10 justify-center"
+                      className={`downloads-settings-trigger !p-0 w-10 h-10 justify-center${settingsOpened ? ' is-active' : ''}`}
                       onClick={() => setSettingsOpened(!settingsOpened)}
                       data-settings-button="true"
+                      aria-expanded={settingsOpened}
+                      aria-controls="downloads-settings-panel"
                     >
                       <Settings className="w-4 h-4" />
                     </Button>
@@ -1825,194 +1837,197 @@ const DownloadsTab: React.FC = () => {
               </div>
             </div>
 
-            <div ref={settingsRef}>
-              {settingsOpened && (
-                <>
-                  <div className="border-t border-[var(--theme-border-secondary)] my-3 animate-fade-in" />
-                  <div className="space-y-4 animate-slide-in-top">
-                    {/* Quick Presets - Mobile-friendly segmented control */}
-                    <div>
+            <div
+              ref={settingsRef}
+              id="downloads-settings-panel"
+              className={`downloads-settings-panel${settingsOpened ? ' is-open' : ''}`}
+            >
+              <div className="downloads-settings-panel-inner">
+                <div className="downloads-settings-panel-content space-y-4">
+                  {/* Quick Presets - Mobile-friendly segmented control */}
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
+                      {t('downloads.tab.presets.title')}
+                    </div>
+                    {(() => {
+                      const activePreset = detectActivePreset(settings);
+                      return (
+                        <SegmentedControl
+                          options={[
+                            { value: 'pretty', label: t('downloads.tab.presets.pretty') },
+                            { value: 'minimal', label: t('downloads.tab.presets.minimal') },
+                            { value: 'showAll', label: t('downloads.tab.presets.showAll') },
+                            { value: 'default', label: t('downloads.tab.presets.default') },
+                            {
+                              value: 'custom',
+                              label: t('downloads.tab.presets.custom'),
+                              disabled: true
+                            }
+                          ]}
+                          value={activePreset}
+                          onChange={(value) => {
+                            if (value !== 'custom') {
+                              setSettings({
+                                ...settings,
+                                ...PRESETS[value as keyof typeof PRESETS]
+                              });
+                            }
+                          }}
+                          size="sm"
+                          showLabels={true}
+                          fullWidth
+                          className="sm:w-auto"
+                        />
+                      );
+                    })()}
+                  </div>
+
+                  {/* Settings Grid - Responsive with collapsible sections on mobile */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-x-6 sm:gap-y-1">
+                    {/* Filters Column */}
+                    <div className="space-y-1">
                       <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
-                        {t('downloads.tab.presets.title')}
+                        {t('downloads.tab.sections.filters')}
                       </div>
-                      {(() => {
-                        const activePreset = detectActivePreset(settings);
-                        return (
-                          <SegmentedControl
-                            options={[
-                              { value: 'pretty', label: t('downloads.tab.presets.pretty') },
-                              { value: 'minimal', label: t('downloads.tab.presets.minimal') },
-                              { value: 'showAll', label: t('downloads.tab.presets.showAll') },
-                              { value: 'default', label: t('downloads.tab.presets.default') },
-                              {
-                                value: 'custom',
-                                label: t('downloads.tab.presets.custom'),
-                                disabled: true
-                              }
-                            ]}
-                            value={activePreset}
-                            onChange={(value) => {
-                              if (value !== 'custom') {
-                                setSettings({
-                                  ...settings,
-                                  ...PRESETS[value as keyof typeof PRESETS]
-                                });
-                              }
-                            }}
-                            size="sm"
-                            showLabels={true}
-                            fullWidth
-                            className="sm:w-auto"
-                          />
-                        );
-                      })()}
+                      <Checkbox
+                        checked={settings.hideMetadata}
+                        onChange={(e) =>
+                          setSettings({ ...settings, hideMetadata: e.target.checked })
+                        }
+                        label={t('downloads.tab.filters.hideMetadata')}
+                      />
+                      <Checkbox
+                        checked={settings.hideSmallFiles}
+                        onChange={(e) =>
+                          setSettings({ ...settings, hideSmallFiles: e.target.checked })
+                        }
+                        label={t('downloads.tab.filters.hideSmallFiles')}
+                      />
+                      <Checkbox
+                        checked={settings.hideLocalhost}
+                        onChange={(e) =>
+                          setSettings({ ...settings, hideLocalhost: e.target.checked })
+                        }
+                        label={t('downloads.tab.filters.hideLocalhost')}
+                      />
+                      <Checkbox
+                        checked={settings.hideUnknownGames}
+                        onChange={(e) =>
+                          setSettings({ ...settings, hideUnknownGames: e.target.checked })
+                        }
+                        label={t('downloads.tab.filters.hideUnknownGames')}
+                      />
+                      <Checkbox
+                        checked={settings.hideEvicted}
+                        onChange={(e) =>
+                          setSettings({ ...settings, hideEvicted: e.target.checked })
+                        }
+                        label={t('downloads.tab.filters.hideEvicted')}
+                      />
                     </div>
 
-                    {/* Settings Grid - Responsive with collapsible sections on mobile */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-x-6 sm:gap-y-1">
-                      {/* Filters Column */}
-                      <div className="space-y-1">
-                        <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
-                          {t('downloads.tab.sections.filters')}
-                        </div>
-                        <Checkbox
-                          checked={settings.hideMetadata}
-                          onChange={(e) =>
-                            setSettings({ ...settings, hideMetadata: e.target.checked })
-                          }
-                          label={t('downloads.tab.filters.hideMetadata')}
-                        />
-                        <Checkbox
-                          checked={settings.hideSmallFiles}
-                          onChange={(e) =>
-                            setSettings({ ...settings, hideSmallFiles: e.target.checked })
-                          }
-                          label={t('downloads.tab.filters.hideSmallFiles')}
-                        />
-                        <Checkbox
-                          checked={settings.hideLocalhost}
-                          onChange={(e) =>
-                            setSettings({ ...settings, hideLocalhost: e.target.checked })
-                          }
-                          label={t('downloads.tab.filters.hideLocalhost')}
-                        />
-                        <Checkbox
-                          checked={settings.hideUnknownGames}
-                          onChange={(e) =>
-                            setSettings({ ...settings, hideUnknownGames: e.target.checked })
-                          }
-                          label={t('downloads.tab.filters.hideUnknownGames')}
-                        />
-                        <Checkbox
-                          checked={settings.hideEvicted}
-                          onChange={(e) =>
-                            setSettings({ ...settings, hideEvicted: e.target.checked })
-                          }
-                          label={t('downloads.tab.filters.hideEvicted')}
-                        />
+                    {/* Display Column */}
+                    <div className="space-y-1">
+                      <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
+                        {t('downloads.tab.sections.display')}
                       </div>
-
-                      {/* Display Column */}
-                      <div className="space-y-1">
-                        <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
-                          {t('downloads.tab.sections.display')}
-                        </div>
-                        {['compact', 'normal'].includes(settings.viewMode) && (
-                          <Checkbox
-                            checked={settings.aestheticMode}
-                            onChange={(e) =>
+                      {['compact', 'normal'].includes(settings.viewMode) && (
+                        <Checkbox
+                          checked={settings.aestheticMode}
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              aestheticMode: e.target.checked,
+                              ...(e.target.checked ? { fullHeightBanners: false } : {})
+                            })
+                          }
+                          label={t('downloads.tab.display.minimalMode')}
+                        />
+                      )}
+                      {settings.viewMode === 'normal' && (
+                        <Checkbox
+                          checked={settings.fullHeightBanners}
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              fullHeightBanners: e.target.checked,
+                              ...(e.target.checked ? { aestheticMode: false } : {})
+                            })
+                          }
+                          label={t('downloads.tab.display.fullHeightBanners')}
+                        />
+                      )}
+                      {settings.viewMode === 'retro' && (
+                        <Checkbox
+                          checked={settings.groupByGameRetro}
+                          onChange={(e) =>
+                            setSettings({ ...settings, groupByGameRetro: e.target.checked })
+                          }
+                          label={t('downloads.tab.display.groupByGameRetro')}
+                        />
+                      )}
+                      {settings.viewMode === 'retro' && (
+                        <Checkbox
+                          checked={settings.groupByServiceRetro}
+                          onChange={(e) =>
+                            setSettings({ ...settings, groupByServiceRetro: e.target.checked })
+                          }
+                          label={t('downloads.tab.display.groupByServiceRetro')}
+                        />
+                      )}
+                      {['compact', 'card', 'normal'].includes(settings.viewMode) && (
+                        <Checkbox
+                          checked={settings.groupUnknownGames}
+                          onChange={(e) =>
+                            setSettings({ ...settings, groupUnknownGames: e.target.checked })
+                          }
+                          label={t('downloads.tab.behavior.groupUnknown')}
+                        />
+                      )}
+                      {['compact', 'normal'].includes(settings.viewMode) && (
+                        <Checkbox
+                          checked={settings.groupByFrequency}
+                          onChange={(e) =>
+                            setSettings({ ...settings, groupByFrequency: e.target.checked })
+                          }
+                          label={t('downloads.tab.behavior.groupByFrequency')}
+                        />
+                      )}
+                      {settings.viewMode === 'card' && (
+                        <div className="flex items-center gap-2 py-1">
+                          <span className="text-sm text-[var(--theme-text-secondary)]">
+                            Card size
+                          </span>
+                          <SegmentedControl
+                            options={[
+                              { value: 'small', label: 'S' },
+                              { value: 'medium', label: 'M' },
+                              { value: 'large', label: 'L' }
+                            ]}
+                            value={settings.cardSize}
+                            onChange={(value) =>
                               setSettings({
                                 ...settings,
-                                aestheticMode: e.target.checked,
-                                ...(e.target.checked ? { fullHeightBanners: false } : {})
+                                cardSize: value as 'small' | 'medium' | 'large'
                               })
                             }
-                            label={t('downloads.tab.display.minimalMode')}
+                            size="sm"
                           />
-                        )}
-                        {settings.viewMode === 'normal' && (
-                          <Checkbox
-                            checked={settings.fullHeightBanners}
-                            onChange={(e) =>
-                              setSettings({
-                                ...settings,
-                                fullHeightBanners: e.target.checked,
-                                ...(e.target.checked ? { aestheticMode: false } : {})
-                              })
-                            }
-                            label={t('downloads.tab.display.fullHeightBanners')}
-                          />
-                        )}
-                        {settings.viewMode === 'retro' && (
-                          <Checkbox
-                            checked={settings.groupByGameRetro}
-                            onChange={(e) =>
-                              setSettings({ ...settings, groupByGameRetro: e.target.checked })
-                            }
-                            label={t('downloads.tab.display.groupByGameRetro')}
-                          />
-                        )}
-                        {settings.viewMode === 'retro' && (
-                          <Checkbox
-                            checked={settings.groupByServiceRetro}
-                            onChange={(e) =>
-                              setSettings({ ...settings, groupByServiceRetro: e.target.checked })
-                            }
-                            label={t('downloads.tab.display.groupByServiceRetro')}
-                          />
-                        )}
-                        {['compact', 'card', 'normal'].includes(settings.viewMode) && (
-                          <Checkbox
-                            checked={settings.groupUnknownGames}
-                            onChange={(e) =>
-                              setSettings({ ...settings, groupUnknownGames: e.target.checked })
-                            }
-                            label={t('downloads.tab.behavior.groupUnknown')}
-                          />
-                        )}
-                        {['compact', 'normal'].includes(settings.viewMode) && (
-                          <Checkbox
-                            checked={settings.groupByFrequency}
-                            onChange={(e) =>
-                              setSettings({ ...settings, groupByFrequency: e.target.checked })
-                            }
-                            label={t('downloads.tab.behavior.groupByFrequency')}
-                          />
-                        )}
-                        {settings.viewMode === 'card' && (
-                          <div className="flex items-center gap-2 py-1">
-                            <span className="text-sm text-[var(--theme-text-secondary)]">
-                              Card size
-                            </span>
-                            <SegmentedControl
-                              options={[
-                                { value: 'small', label: 'S' },
-                                { value: 'medium', label: 'M' },
-                                { value: 'large', label: 'L' }
-                              ]}
-                              value={settings.cardSize}
-                              onChange={(value) =>
-                                setSettings({
-                                  ...settings,
-                                  cardSize: value as 'small' | 'medium' | 'large'
-                                })
-                              }
-                              size="sm"
-                            />
-                          </div>
-                        )}
-                        {settings.viewMode === 'card' && (
-                          <Checkbox
-                            checked={settings.bannerOnly}
-                            onChange={(e) =>
-                              setSettings({ ...settings, bannerOnly: e.target.checked })
-                            }
-                            label="Banner only"
-                          />
-                        )}
-                      </div>
+                        </div>
+                      )}
+                      {settings.viewMode === 'card' && (
+                        <Checkbox
+                          checked={settings.bannerOnly}
+                          onChange={(e) =>
+                            setSettings({ ...settings, bannerOnly: e.target.checked })
+                          }
+                          label="Banner only"
+                        />
+                      )}
+                    </div>
 
-                      {/* Behavior Column */}
+                    {/* Behavior Column - card view with banner-only exposes no behavior options, so drop the empty column */}
+                    {(settings.viewMode !== 'card' || !settings.bannerOnly) && (
                       <div className="space-y-1">
                         <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
                           {t('downloads.tab.sections.behavior')}
@@ -2065,10 +2080,10 @@ const DownloadsTab: React.FC = () => {
                           />
                         )}
                       </div>
-                    </div>
+                    )}
                   </div>
-                </>
-              )}
+                </div>
+              </div>
             </div>
           </Card>
 
