@@ -207,9 +207,10 @@ const StatusCheckSection: React.FC = () => {
       RESOLVER_MODE_OPTIONS.map((option) => ({
         value: option.value,
         label: t(`${keys}.resolverMode.${option.labelKey}`),
-        tooltip: t(`${keys}.resolverMode.${option.tooltipKey}`)
+        tooltip: t(`${keys}.resolverMode.${option.tooltipKey}`),
+        disabled: isRunning
       })),
-    [t]
+    [t, isRunning]
   );
 
   // The mode only steers the NEXT sweep, so persist it and immediately kick off a
