@@ -1,6 +1,7 @@
 import React from 'react';
 import { ChevronDown, type LucideIcon } from 'lucide-react';
 import { formatCount } from '@utils/formatters';
+import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 
 interface AccordionSectionProps {
   title: string;
@@ -159,16 +160,13 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         </div>
       </div>
 
-      {/* Content with smooth animation */}
-      <div
-        className={`overflow-hidden transition-[max-height,opacity,transform] duration-300 ease-out ${
-          isExpanded
-            ? 'max-h-[5000px] opacity-100 translate-y-0'
-            : 'max-h-0 opacity-0 -translate-y-2'
-        }`}
+      {/* Content with real height animation; children unmount once collapsed */}
+      <CollapsibleRegion
+        open={isExpanded}
+        contentClassName="px-4 pb-4 pt-3 border-t border-themed-secondary"
       >
-        <div className="px-4 pb-4 pt-3 border-t border-themed-secondary">{children}</div>
-      </div>
+        {children}
+      </CollapsibleRegion>
     </div>
   );
 };

@@ -11,6 +11,7 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { Card } from '../../ui/Card';
+import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
 import type { NetworkDiagnostics } from '@services/api.service';
 
 interface NetworkStatusSectionProps {
@@ -117,231 +118,232 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
         </button>
 
         {/* Collapsible Status Items */}
-        {isExpanded && (
-          <div className="space-y-2 pl-1 pt-2 border-t border-themed-secondary">
-            {/* Host networking hint */}
-            {diagnostics.useHostNetworking && (
-              <div className="text-xs p-2.5 rounded bg-[var(--theme-info-bg)] text-[var(--theme-info-text)] leading-relaxed">
-                {t('prefill.network.hostNetworkingHint')}
-              </div>
-            )}
-            {/* Lancache IP injected (Prefill__LancacheIp) */}
-            {diagnostics.lancacheIpInjected ? (
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />
-                  <span className="text-sm text-themed-primary">
-                    {isAutoDetectedLancache
-                      ? t('prefill.network.lancacheIpDetected', {
-                          ip: diagnostics.lancacheIpInjected,
-                          source: lancacheSourceLabel
-                        })
-                      : t('prefill.network.lancacheIpInjected', {
-                          ip: diagnostics.lancacheIpInjected
-                        })}
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <div className="text-xs p-2.5 rounded bg-[var(--theme-warning-bg)] text-[var(--theme-warning-text)] leading-relaxed">
-                {t('prefill.network.lancacheIpResolutionFailed')}
-              </div>
-            )}
-            {/* Internet Connectivity */}
+        <CollapsibleRegion
+          open={isExpanded}
+          contentClassName="space-y-2 pl-1 pt-2 border-t border-themed-secondary"
+        >
+          {/* Host networking hint */}
+          {diagnostics.useHostNetworking && (
+            <div className="text-xs p-2.5 rounded bg-[var(--theme-info-bg)] text-[var(--theme-info-text)] leading-relaxed">
+              {t('prefill.network.hostNetworkingHint')}
+            </div>
+          )}
+          {/* Lancache IP injected (Prefill__LancacheIp) */}
+          {diagnostics.lancacheIpInjected ? (
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
-                {diagnostics.internetConnectivity ? (
+                <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />
+                <span className="text-sm text-themed-primary">
+                  {isAutoDetectedLancache
+                    ? t('prefill.network.lancacheIpDetected', {
+                        ip: diagnostics.lancacheIpInjected,
+                        source: lancacheSourceLabel
+                      })
+                    : t('prefill.network.lancacheIpInjected', {
+                        ip: diagnostics.lancacheIpInjected
+                      })}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="text-xs p-2.5 rounded bg-[var(--theme-warning-bg)] text-[var(--theme-warning-text)] leading-relaxed">
+              {t('prefill.network.lancacheIpResolutionFailed')}
+            </div>
+          )}
+          {/* Internet Connectivity */}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              {diagnostics.internetConnectivity ? (
+                <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />
+              ) : (
+                <XCircle className="h-4 w-4 flex-shrink-0 text-[var(--theme-error)]" />
+              )}
+              <Globe className="h-4 w-4 text-themed-muted flex-shrink-0" />
+              <span className="text-sm text-themed-primary">
+                {t('prefill.network.internetConnectivity')}
+              </span>
+            </div>
+            {diagnostics.internetConnectivity ? (
+              <span className="text-xs text-themed-muted">{t('prefill.network.ok')}</span>
+            ) : (
+              <span className="text-xs text-[var(--theme-error)]">
+                {t('prefill.network.failed')}
+              </span>
+            )}
+          </div>
+
+          {/* IPv4 Connectivity */}
+          {diagnostics.internetConnectivityIpv4 !== undefined && (
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                {diagnostics.internetConnectivityIpv4 === true ? (
                   <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />
-                ) : (
+                ) : diagnostics.internetConnectivityIpv4 === false ? (
                   <XCircle className="h-4 w-4 flex-shrink-0 text-[var(--theme-error)]" />
+                ) : (
+                  <Info className="h-4 w-4 flex-shrink-0 text-[var(--theme-info)]" />
                 )}
                 <Globe className="h-4 w-4 text-themed-muted flex-shrink-0" />
                 <span className="text-sm text-themed-primary">
-                  {t('prefill.network.internetConnectivity')}
+                  {t('prefill.network.ipv4Connectivity')}
                 </span>
               </div>
-              {diagnostics.internetConnectivity ? (
+              {diagnostics.internetConnectivityIpv4 === true ? (
                 <span className="text-xs text-themed-muted">{t('prefill.network.ok')}</span>
-              ) : (
+              ) : diagnostics.internetConnectivityIpv4 === false ? (
                 <span className="text-xs text-[var(--theme-error)]">
                   {t('prefill.network.failed')}
                 </span>
+              ) : (
+                <span className="text-xs text-[var(--theme-info)]">
+                  {t('prefill.network.notTested')}
+                </span>
               )}
             </div>
+          )}
 
-            {/* IPv4 Connectivity */}
-            {diagnostics.internetConnectivityIpv4 !== undefined && (
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-2">
-                  {diagnostics.internetConnectivityIpv4 === true ? (
-                    <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />
-                  ) : diagnostics.internetConnectivityIpv4 === false ? (
-                    <XCircle className="h-4 w-4 flex-shrink-0 text-[var(--theme-error)]" />
-                  ) : (
-                    <Info className="h-4 w-4 flex-shrink-0 text-[var(--theme-info)]" />
-                  )}
-                  <Globe className="h-4 w-4 text-themed-muted flex-shrink-0" />
-                  <span className="text-sm text-themed-primary">
-                    {t('prefill.network.ipv4Connectivity')}
-                  </span>
-                </div>
-                {diagnostics.internetConnectivityIpv4 === true ? (
-                  <span className="text-xs text-themed-muted">{t('prefill.network.ok')}</span>
-                ) : diagnostics.internetConnectivityIpv4 === false ? (
-                  <span className="text-xs text-[var(--theme-error)]">
-                    {t('prefill.network.failed')}
-                  </span>
-                ) : (
-                  <span className="text-xs text-[var(--theme-info)]">
-                    {t('prefill.network.notTested')}
-                  </span>
-                )}
-              </div>
-            )}
-
-            {/* IPv6 Connectivity */}
-            {diagnostics.internetConnectivityIpv6 !== undefined && (
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-2">
-                  {diagnostics.internetConnectivityIpv6 === false ? (
-                    <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />
-                  ) : diagnostics.internetConnectivityIpv6 === true ? (
-                    <XCircle className="h-4 w-4 flex-shrink-0 text-[var(--theme-error)]" />
-                  ) : (
-                    <Info className="h-4 w-4 flex-shrink-0 text-[var(--theme-info)]" />
-                  )}
-                  <Globe className="h-4 w-4 text-themed-muted flex-shrink-0" />
-                  <span className="text-sm text-themed-primary">
-                    {t('prefill.network.ipv6Connectivity')}
-                  </span>
-                </div>
+          {/* IPv6 Connectivity */}
+          {diagnostics.internetConnectivityIpv6 !== undefined && (
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
                 {diagnostics.internetConnectivityIpv6 === false ? (
-                  <span className="text-xs text-[var(--theme-success)]">
-                    {t('prefill.network.ipv6NotDetected')}
-                  </span>
+                  <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />
                 ) : diagnostics.internetConnectivityIpv6 === true ? (
-                  <span className="text-xs text-[var(--theme-error)]">
-                    {t('prefill.network.ipv6Detected')}
-                  </span>
+                  <XCircle className="h-4 w-4 flex-shrink-0 text-[var(--theme-error)]" />
                 ) : (
-                  <span className="text-xs text-[var(--theme-info)]">
-                    {t('prefill.network.notTested')}
-                  </span>
+                  <Info className="h-4 w-4 flex-shrink-0 text-[var(--theme-info)]" />
+                )}
+                <Globe className="h-4 w-4 text-themed-muted flex-shrink-0" />
+                <span className="text-sm text-themed-primary">
+                  {t('prefill.network.ipv6Connectivity')}
+                </span>
+              </div>
+              {diagnostics.internetConnectivityIpv6 === false ? (
+                <span className="text-xs text-[var(--theme-success)]">
+                  {t('prefill.network.ipv6NotDetected')}
+                </span>
+              ) : diagnostics.internetConnectivityIpv6 === true ? (
+                <span className="text-xs text-[var(--theme-error)]">
+                  {t('prefill.network.ipv6Detected')}
+                </span>
+              ) : (
+                <span className="text-xs text-[var(--theme-info)]">
+                  {t('prefill.network.notTested')}
+                </span>
+              )}
+            </div>
+          )}
+
+          {diagnostics.internetConnectivityIpv6 === true && (
+            <div className="ml-6 text-xs p-2.5 rounded leading-relaxed bg-[var(--theme-info-bg)] text-[var(--theme-info-text)]">
+              {t('prefill.network.ipv6UnsupportedHint')}
+            </div>
+          )}
+
+          {/* Internet Error Details */}
+          {!diagnostics.internetConnectivity && diagnostics.internetConnectivityError && (
+            <div className="ml-6 text-xs p-2.5 rounded leading-relaxed bg-[var(--theme-error-bg)] text-[var(--theme-error-text)]">
+              {diagnostics.internetConnectivityError}
+              <div className="mt-1.5 text-themed-muted">
+                {t('prefill.network.trySetting')}{' '}
+                <code className="px-1 py-0.5 rounded bg-themed-tertiary break-all">
+                  Prefill__NetworkMode=bridge
+                </code>{' '}
+                {t('prefill.network.inDockerCompose')}
+              </div>
+            </div>
+          )}
+
+          {/* DNS Results */}
+          {diagnostics.dnsResults.map((result, index) => {
+            const isPrimaryDomain = result.domain === primaryDomain;
+            // For secondary domains, show info style if primary domain is configured
+            // For the primary domain, only show info with host networking
+            const showAsInfo =
+              diagnostics.useHostNetworking || (!isPrimaryDomain && hasPrimaryConfigured);
+
+            return (
+              <div key={index} className="space-y-1">
+                {/* Domain row */}
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {result.success ? (
+                      result.isPrivateIp ? (
+                        <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />
+                      ) : showAsInfo ? (
+                        <Info className="h-4 w-4 flex-shrink-0 text-[var(--theme-info)]" />
+                      ) : (
+                        <AlertTriangle className="h-4 w-4 flex-shrink-0 text-[var(--theme-warning)]" />
+                      )
+                    ) : (
+                      <XCircle className="h-4 w-4 flex-shrink-0 text-[var(--theme-error)]" />
+                    )}
+                    <Server className="h-4 w-4 text-themed-muted flex-shrink-0" />
+                    <span className="text-sm text-themed-primary break-all" title={result.domain}>
+                      {result.domain}
+                    </span>
+                  </div>
+                  {!result.success && (
+                    <span className="text-xs text-[var(--theme-error)]">
+                      {t('prefill.network.notResolved')}
+                    </span>
+                  )}
+                </div>
+                {/* IP addresses on separate line for better mobile display */}
+                {result.success && result.resolvedIps && result.resolvedIps.length > 0 && (
+                  <div
+                    className={`ml-6 text-xs font-mono break-all ${
+                      result.isPrivateIp
+                        ? 'text-[var(--theme-success)]'
+                        : showAsInfo
+                          ? 'text-[var(--theme-info)]'
+                          : 'text-[var(--theme-warning)]'
+                    }`}
+                  >
+                    {result.resolvedIps.join(', ')}
+                  </div>
+                )}
+
+                {/* DNS Info/Warning for public IP - different message based on domain and context */}
+                {result.success && !result.isPrivateIp && (
+                  <div
+                    className={`ml-6 text-xs p-2.5 rounded leading-relaxed ${
+                      showAsInfo
+                        ? 'bg-[var(--theme-info-bg)] text-[var(--theme-info-text)]'
+                        : 'bg-[var(--theme-warning-bg)] text-[var(--theme-warning-text)]'
+                    }`}
+                  >
+                    {diagnostics.useHostNetworking
+                      ? t('prefill.network.publicDnsExpected')
+                      : isPrimaryDomain
+                        ? t('prefill.network.primaryDomainNotConfigured')
+                        : hasPrimaryConfigured
+                          ? t('prefill.network.optionalDomainNotConfigured')
+                          : t('prefill.network.publicIpDetected')}
+                  </div>
+                )}
+
+                {/* IPv6 bypass warning - only show if primary domain not configured */}
+                {result.success &&
+                  hasIpv6Resolution(result) &&
+                  !result.isPrivateIp &&
+                  !diagnostics.useHostNetworking &&
+                  !hasPrimaryConfigured && (
+                    <div className="ml-6 text-xs p-2.5 rounded leading-relaxed bg-[var(--theme-warning-bg)] text-[var(--theme-warning-text)]">
+                      {t('prefill.network.ipv6BypassDetected')}
+                    </div>
+                  )}
+
+                {/* DNS Error Details */}
+                {!result.success && result.error && (
+                  <div className="ml-6 text-xs p-2.5 rounded leading-relaxed bg-[var(--theme-error-bg)] text-[var(--theme-error-text)]">
+                    {result.error}
+                  </div>
                 )}
               </div>
-            )}
-
-            {diagnostics.internetConnectivityIpv6 === true && (
-              <div className="ml-6 text-xs p-2.5 rounded leading-relaxed bg-[var(--theme-info-bg)] text-[var(--theme-info-text)]">
-                {t('prefill.network.ipv6UnsupportedHint')}
-              </div>
-            )}
-
-            {/* Internet Error Details */}
-            {!diagnostics.internetConnectivity && diagnostics.internetConnectivityError && (
-              <div className="ml-6 text-xs p-2.5 rounded leading-relaxed bg-[var(--theme-error-bg)] text-[var(--theme-error-text)]">
-                {diagnostics.internetConnectivityError}
-                <div className="mt-1.5 text-themed-muted">
-                  {t('prefill.network.trySetting')}{' '}
-                  <code className="px-1 py-0.5 rounded bg-themed-tertiary break-all">
-                    Prefill__NetworkMode=bridge
-                  </code>{' '}
-                  {t('prefill.network.inDockerCompose')}
-                </div>
-              </div>
-            )}
-
-            {/* DNS Results */}
-            {diagnostics.dnsResults.map((result, index) => {
-              const isPrimaryDomain = result.domain === primaryDomain;
-              // For secondary domains, show info style if primary domain is configured
-              // For the primary domain, only show info with host networking
-              const showAsInfo =
-                diagnostics.useHostNetworking || (!isPrimaryDomain && hasPrimaryConfigured);
-
-              return (
-                <div key={index} className="space-y-1">
-                  {/* Domain row */}
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-2 min-w-0">
-                      {result.success ? (
-                        result.isPrivateIp ? (
-                          <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />
-                        ) : showAsInfo ? (
-                          <Info className="h-4 w-4 flex-shrink-0 text-[var(--theme-info)]" />
-                        ) : (
-                          <AlertTriangle className="h-4 w-4 flex-shrink-0 text-[var(--theme-warning)]" />
-                        )
-                      ) : (
-                        <XCircle className="h-4 w-4 flex-shrink-0 text-[var(--theme-error)]" />
-                      )}
-                      <Server className="h-4 w-4 text-themed-muted flex-shrink-0" />
-                      <span className="text-sm text-themed-primary break-all" title={result.domain}>
-                        {result.domain}
-                      </span>
-                    </div>
-                    {!result.success && (
-                      <span className="text-xs text-[var(--theme-error)]">
-                        {t('prefill.network.notResolved')}
-                      </span>
-                    )}
-                  </div>
-                  {/* IP addresses on separate line for better mobile display */}
-                  {result.success && result.resolvedIps && result.resolvedIps.length > 0 && (
-                    <div
-                      className={`ml-6 text-xs font-mono break-all ${
-                        result.isPrivateIp
-                          ? 'text-[var(--theme-success)]'
-                          : showAsInfo
-                            ? 'text-[var(--theme-info)]'
-                            : 'text-[var(--theme-warning)]'
-                      }`}
-                    >
-                      {result.resolvedIps.join(', ')}
-                    </div>
-                  )}
-
-                  {/* DNS Info/Warning for public IP - different message based on domain and context */}
-                  {result.success && !result.isPrivateIp && (
-                    <div
-                      className={`ml-6 text-xs p-2.5 rounded leading-relaxed ${
-                        showAsInfo
-                          ? 'bg-[var(--theme-info-bg)] text-[var(--theme-info-text)]'
-                          : 'bg-[var(--theme-warning-bg)] text-[var(--theme-warning-text)]'
-                      }`}
-                    >
-                      {diagnostics.useHostNetworking
-                        ? t('prefill.network.publicDnsExpected')
-                        : isPrimaryDomain
-                          ? t('prefill.network.primaryDomainNotConfigured')
-                          : hasPrimaryConfigured
-                            ? t('prefill.network.optionalDomainNotConfigured')
-                            : t('prefill.network.publicIpDetected')}
-                    </div>
-                  )}
-
-                  {/* IPv6 bypass warning - only show if primary domain not configured */}
-                  {result.success &&
-                    hasIpv6Resolution(result) &&
-                    !result.isPrivateIp &&
-                    !diagnostics.useHostNetworking &&
-                    !hasPrimaryConfigured && (
-                      <div className="ml-6 text-xs p-2.5 rounded leading-relaxed bg-[var(--theme-warning-bg)] text-[var(--theme-warning-text)]">
-                        {t('prefill.network.ipv6BypassDetected')}
-                      </div>
-                    )}
-
-                  {/* DNS Error Details */}
-                  {!result.success && result.error && (
-                    <div className="ml-6 text-xs p-2.5 rounded leading-relaxed bg-[var(--theme-error-bg)] text-[var(--theme-error-text)]">
-                      {result.error}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+            );
+          })}
+        </CollapsibleRegion>
       </div>
     </Card>
   );

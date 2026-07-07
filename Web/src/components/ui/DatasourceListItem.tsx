@@ -1,6 +1,7 @@
 import React from 'react';
 import { FolderOpen, ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 
 interface DatasourceListItemProps {
   name: string;
@@ -130,17 +131,12 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
 
       {/* Expanded content with smooth animation */}
       {children && (
-        <div
-          className={`overflow-hidden transition-[max-height,opacity,transform] duration-300 ease-out ${
-            isExpanded
-              ? 'max-h-[2000px] opacity-100 translate-y-0'
-              : 'max-h-0 opacity-0 -translate-y-2'
-          }`}
+        <CollapsibleRegion
+          open={isExpanded}
+          contentClassName="px-3 pb-3 border-t border-themed-secondary bg-[linear-gradient(180deg,var(--theme-bg-tertiary-muted)_0%,transparent_100%)]"
         >
-          <div className="px-3 pb-3 border-t border-themed-secondary bg-[linear-gradient(180deg,var(--theme-bg-tertiary-muted)_0%,transparent_100%)]">
-            {children}
-          </div>
-        </div>
+          {children}
+        </CollapsibleRegion>
       )}
     </div>
   );

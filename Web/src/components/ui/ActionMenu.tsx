@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useLayoutEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
 
 interface ActionMenuProps {
   isOpen: boolean;
@@ -34,6 +35,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
   const triggerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ top: 0, left: 0 });
+  const { present, closing } = useExitPresence(isOpen, DROPDOWN_EXIT_MS);
 
   // Calculate position and track trigger movement
   useLayoutEffect(() => {
@@ -161,15 +163,21 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
         {trigger}
       </div>
 
-      {/* Dropdown Menu - rendered via portal to escape stacking context */}
-      {isOpen &&
+      {/* Dropdown Menu - rendered via portal to escape stacking context.
+          Rendered while `present` (not just `isOpen`) so the exit animation plays. */}
+      {present &&
         createPortal(
           <div
             ref={dropdownRef}
-            className={`fixed ${width} bg-themed-secondary themed-border-radius shadow-xl overflow-hidden border border-themed-primary z-[85] animate-[dropdownSlide_0.15s_ease-out]`}
+            className={`am-dropdown fixed ${width} bg-themed-secondary themed-border-radius shadow-xl overflow-hidden border border-themed-primary z-[85] ${
+              closing
+                ? 'animate-[dropdownSlideOut_0.14s_ease-in_forwards]'
+                : 'animate-[dropdownSlide_0.15s_ease-out]'
+            }`}
             style={{
               top: position.top,
-              left: position.left
+              left: position.left,
+              pointerEvents: closing ? 'none' : undefined
             }}
           >
             {children}

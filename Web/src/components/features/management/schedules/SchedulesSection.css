@@ -1781,16 +1781,6 @@
   transform: rotate(180deg);
 }
 
-.schedule-expandable {
-  overflow: hidden;
-  max-height: 0;
-  transition: max-height 0.25s ease;
-}
-
-.schedule-expandable.open {
-  max-height: 400px;
-}
-
 .schedule-expandable-inner {
   padding-top: 0.75rem;
   border-top: 1px solid var(--theme-border-secondary);

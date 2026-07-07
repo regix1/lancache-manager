@@ -23,19 +23,6 @@
   }
 }
 
-@keyframes expandDown {
-  from {
-    max-height: 0;
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    max-height: 2000px;
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 @keyframes gentleFadeIn {
   from {
     opacity: 0;

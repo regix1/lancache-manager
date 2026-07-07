@@ -36,6 +36,7 @@ import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { Pagination } from '@components/ui/Pagination';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
+import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import {
   ActionMenu,
@@ -968,196 +969,192 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         {/* Expansion panel */}
         <tr>
           <td colSpan={5} className="p-0">
-            <div
-              className={`session-expansion ${isExpanded ? 'session-expansion--expanded' : 'session-expansion--collapsed'}`}
-            >
-              {isExpanded && (
-                <div className="session-expansion-content">
-                  <div className="session-expansion-dates">
-                    <div>
-                      <div className="session-expansion-date-label">
-                        {t('activeSessions.labels.createdShort', 'Created')}
-                      </div>
-                      <div className="session-expansion-date-value">
-                        <FormattedTimestamp timestamp={session.createdAt} />
-                      </div>
+            <CollapsibleRegion open={isExpanded}>
+              <div className="session-expansion-content">
+                <div className="session-expansion-dates">
+                  <div>
+                    <div className="session-expansion-date-label">
+                      {t('activeSessions.labels.createdShort', 'Created')}
                     </div>
-                    <div>
-                      <div className="session-expansion-date-label">
-                        {t('activeSessions.labels.lastSeenShort', 'Last Seen')}
-                      </div>
-                      <div className="session-expansion-date-value">
-                        {session.lastSeenAt ? (
-                          <FormattedTimestamp timestamp={session.lastSeenAt} />
-                        ) : (
-                          t('activeSessions.labels.never', 'Never')
-                        )}
-                      </div>
+                    <div className="session-expansion-date-value">
+                      <FormattedTimestamp timestamp={session.createdAt} />
                     </div>
-                    <div>
-                      <div className="session-expansion-date-label">
-                        {t('activeSessions.labels.expires', 'Expires')}
-                      </div>
-                      <div className="session-expansion-date-value">
-                        {isAdminSession(session) ? (
-                          t('activeSessions.labels.never', 'Never')
-                        ) : (
-                          <FormattedTimestamp timestamp={session.expiresAt} />
-                        )}
-                      </div>
+                  </div>
+                  <div>
+                    <div className="session-expansion-date-label">
+                      {t('activeSessions.labels.lastSeenShort', 'Last Seen')}
                     </div>
-                    {session.revokedAt && (
-                      <div>
-                        <div className="session-expansion-date-label session-expansion-date-label--error">
-                          {t('activeSessions.labels.revokedShort', 'Revoked')}
-                        </div>
-                        <div className="session-expansion-date-value session-expansion-date-value--error">
-                          <FormattedTimestamp timestamp={session.revokedAt} />
-                        </div>
+                    <div className="session-expansion-date-value">
+                      {session.lastSeenAt ? (
+                        <FormattedTimestamp timestamp={session.lastSeenAt} />
+                      ) : (
+                        t('activeSessions.labels.never', 'Never')
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="session-expansion-date-label">
+                      {t('activeSessions.labels.expires', 'Expires')}
+                    </div>
+                    <div className="session-expansion-date-value">
+                      {isAdminSession(session) ? (
+                        t('activeSessions.labels.never', 'Never')
+                      ) : (
+                        <FormattedTimestamp timestamp={session.expiresAt} />
+                      )}
+                    </div>
+                  </div>
+                  {session.revokedAt && (
+                    <div>
+                      <div className="session-expansion-date-label session-expansion-date-label--error">
+                        {t('activeSessions.labels.revokedShort', 'Revoked')}
                       </div>
-                    )}
-                  </div>
-
-                  {(() => {
-                    const flag = countryCodeToFlag(session.countryCode);
-                    const location = formatLocation(
-                      session.city,
-                      session.regionName,
-                      session.countryName
-                    );
-                    const hasAny =
-                      session.publicIpAddress ||
-                      location ||
-                      session.ispName ||
-                      session.timezone ||
-                      session.browserLanguage ||
-                      session.screenResolution;
-                    if (!hasAny) return null;
-                    return (
-                      <div className="session-expansion-client-info">
-                        {session.publicIpAddress && (
-                          <div>
-                            <div className="session-expansion-date-label">
-                              {t('activeSessions.labels.publicIp', 'Public IP')}
-                            </div>
-                            <div className="session-expansion-client-info-value">
-                              {session.publicIpAddress}
-                            </div>
-                          </div>
-                        )}
-                        {location && (
-                          <div>
-                            <div className="session-expansion-date-label">
-                              {t('activeSessions.labels.location', 'Location')}
-                            </div>
-                            <div className="session-expansion-client-info-value">
-                              {flag && (
-                                <span
-                                  className="session-expansion-client-info-flag"
-                                  aria-hidden="true"
-                                >
-                                  {flag}
-                                </span>
-                              )}
-                              <span>{location}</span>
-                            </div>
-                          </div>
-                        )}
-                        {session.ispName && (
-                          <div>
-                            <div className="session-expansion-date-label">
-                              {t('activeSessions.labels.isp', 'ISP')}
-                            </div>
-                            <div className="session-expansion-client-info-value">
-                              {session.ispName}
-                            </div>
-                          </div>
-                        )}
-                        {session.timezone && (
-                          <div>
-                            <div className="session-expansion-date-label">
-                              {t('activeSessions.labels.timezoneHeading', 'Timezone')}
-                            </div>
-                            <div className="session-expansion-client-info-value">
-                              {session.timezone}
-                            </div>
-                          </div>
-                        )}
-                        {session.browserLanguage && (
-                          <div>
-                            <div className="session-expansion-date-label">
-                              {t('activeSessions.labels.language', 'Language')}
-                            </div>
-                            <div className="session-expansion-client-info-value">
-                              {session.browserLanguage}
-                            </div>
-                          </div>
-                        )}
-                        {session.screenResolution && (
-                          <div>
-                            <div className="session-expansion-date-label">
-                              {t('activeSessions.labels.screen', 'Screen')}
-                            </div>
-                            <div className="session-expansion-client-info-value">
-                              {session.screenResolution}
-                            </div>
-                          </div>
-                        )}
+                      <div className="session-expansion-date-value session-expansion-date-value--error">
+                        <FormattedTimestamp timestamp={session.revokedAt} />
                       </div>
-                    );
-                  })()}
-
-                  {/* Session ID */}
-                  <div className="session-expansion-session-id">
-                    {t('activeSessions.labels.sessionIdWithValue', { id: session.id })}
-                  </div>
-
-                  {/* Preferences summary badges */}
-                  <div className="session-expansion-badges">
-                    {renderExpansionPreferences(session)}
-                  </div>
-
-                  {/* Prefill permissions per service */}
-                  {isGuestSession(session) && !session.isRevoked && !session.isExpired && (
-                    <div className="session-expansion-prefill">
-                      <span className="session-expansion-prefill-label">
-                        {t('activeSessions.prefill.title', 'Prefill Access')}:
-                      </span>
-                      <span
-                        className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.steamPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
-                      >
-                        <SteamIcon size={10} />
-                        Steam
-                      </span>
-                      <span
-                        className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.epicPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
-                      >
-                        <EpicIcon size={10} />
-                        Epic
-                      </span>
-                      <span
-                        className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.battlenetPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
-                      >
-                        <BlizzardIcon size={10} />
-                        Battle.net
-                      </span>
-                      <span
-                        className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.riotPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
-                      >
-                        <RiotIcon size={10} />
-                        Riot
-                      </span>
-                      <span
-                        className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.xboxPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
-                      >
-                        <XboxIcon size={10} />
-                        Xbox
-                      </span>
                     </div>
                   )}
                 </div>
-              )}
-            </div>
+
+                {(() => {
+                  const flag = countryCodeToFlag(session.countryCode);
+                  const location = formatLocation(
+                    session.city,
+                    session.regionName,
+                    session.countryName
+                  );
+                  const hasAny =
+                    session.publicIpAddress ||
+                    location ||
+                    session.ispName ||
+                    session.timezone ||
+                    session.browserLanguage ||
+                    session.screenResolution;
+                  if (!hasAny) return null;
+                  return (
+                    <div className="session-expansion-client-info">
+                      {session.publicIpAddress && (
+                        <div>
+                          <div className="session-expansion-date-label">
+                            {t('activeSessions.labels.publicIp', 'Public IP')}
+                          </div>
+                          <div className="session-expansion-client-info-value">
+                            {session.publicIpAddress}
+                          </div>
+                        </div>
+                      )}
+                      {location && (
+                        <div>
+                          <div className="session-expansion-date-label">
+                            {t('activeSessions.labels.location', 'Location')}
+                          </div>
+                          <div className="session-expansion-client-info-value">
+                            {flag && (
+                              <span
+                                className="session-expansion-client-info-flag"
+                                aria-hidden="true"
+                              >
+                                {flag}
+                              </span>
+                            )}
+                            <span>{location}</span>
+                          </div>
+                        </div>
+                      )}
+                      {session.ispName && (
+                        <div>
+                          <div className="session-expansion-date-label">
+                            {t('activeSessions.labels.isp', 'ISP')}
+                          </div>
+                          <div className="session-expansion-client-info-value">
+                            {session.ispName}
+                          </div>
+                        </div>
+                      )}
+                      {session.timezone && (
+                        <div>
+                          <div className="session-expansion-date-label">
+                            {t('activeSessions.labels.timezoneHeading', 'Timezone')}
+                          </div>
+                          <div className="session-expansion-client-info-value">
+                            {session.timezone}
+                          </div>
+                        </div>
+                      )}
+                      {session.browserLanguage && (
+                        <div>
+                          <div className="session-expansion-date-label">
+                            {t('activeSessions.labels.language', 'Language')}
+                          </div>
+                          <div className="session-expansion-client-info-value">
+                            {session.browserLanguage}
+                          </div>
+                        </div>
+                      )}
+                      {session.screenResolution && (
+                        <div>
+                          <div className="session-expansion-date-label">
+                            {t('activeSessions.labels.screen', 'Screen')}
+                          </div>
+                          <div className="session-expansion-client-info-value">
+                            {session.screenResolution}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Session ID */}
+                <div className="session-expansion-session-id">
+                  {t('activeSessions.labels.sessionIdWithValue', { id: session.id })}
+                </div>
+
+                {/* Preferences summary badges */}
+                <div className="session-expansion-badges">
+                  {renderExpansionPreferences(session)}
+                </div>
+
+                {/* Prefill permissions per service */}
+                {isGuestSession(session) && !session.isRevoked && !session.isExpired && (
+                  <div className="session-expansion-prefill">
+                    <span className="session-expansion-prefill-label">
+                      {t('activeSessions.prefill.title', 'Prefill Access')}:
+                    </span>
+                    <span
+                      className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.steamPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                    >
+                      <SteamIcon size={10} />
+                      Steam
+                    </span>
+                    <span
+                      className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.epicPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                    >
+                      <EpicIcon size={10} />
+                      Epic
+                    </span>
+                    <span
+                      className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.battlenetPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                    >
+                      <BlizzardIcon size={10} />
+                      Battle.net
+                    </span>
+                    <span
+                      className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.riotPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                    >
+                      <RiotIcon size={10} />
+                      Riot
+                    </span>
+                    <span
+                      className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.xboxPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                    >
+                      <XboxIcon size={10} />
+                      Xbox
+                    </span>
+                  </div>
+                )}
+              </div>
+            </CollapsibleRegion>
           </td>
         </tr>
       </React.Fragment>
@@ -1333,9 +1330,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         </div>
 
         {/* Mobile expanded content */}
-        <div
-          className={`overflow-hidden transition-[max-height,opacity] duration-200 ${isExpanded ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}
-        >
+        <CollapsibleRegion open={isExpanded}>
           <div
             className={`px-3 pb-3 space-y-3 border-t border-themed-secondary ${isDimmed ? 'opacity-60' : ''}`}
           >
@@ -1515,7 +1510,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               )}
             </div>
           </div>
-        </div>
+        </CollapsibleRegion>
       </div>
     );
   };

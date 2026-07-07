@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Alert } from '@components/ui/Alert';
+import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import ApiService from '@services/api.service';
 import { formatCount } from '@utils/formatters';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -237,31 +238,32 @@ export function DatabaseImportForm({
           <span>{t('initialization.importHistorical.advancedOptions')}</span>
           {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
-        {showAdvanced && (
-          <div className="database-import-form__advanced-content bg-themed-secondary">
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-themed-secondary whitespace-nowrap">
-                {t('initialization.importHistorical.batchSize')}:
-              </label>
-              <input
-                type="number"
-                value={batchSize}
-                onChange={(e) => setBatchSize(parseInt(e.target.value) || 1000)}
-                min="100"
-                max="10000"
-                step="100"
-                className="w-24 px-2 py-1 themed-input text-sm"
-                disabled={isDisabled}
-              />
-            </div>
-            <Checkbox
-              checked={overwriteExisting}
-              onChange={(e) => setOverwriteExisting(e.target.checked)}
-              label={t('initialization.importHistorical.updateExisting')}
+        <CollapsibleRegion
+          open={showAdvanced}
+          contentClassName="database-import-form__advanced-content bg-themed-secondary"
+        >
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-themed-secondary whitespace-nowrap">
+              {t('initialization.importHistorical.batchSize')}:
+            </label>
+            <input
+              type="number"
+              value={batchSize}
+              onChange={(e) => setBatchSize(parseInt(e.target.value) || 1000)}
+              min="100"
+              max="10000"
+              step="100"
+              className="w-24 px-2 py-1 themed-input text-sm"
               disabled={isDisabled}
             />
           </div>
-        )}
+          <Checkbox
+            checked={overwriteExisting}
+            onChange={(e) => setOverwriteExisting(e.target.checked)}
+            label={t('initialization.importHistorical.updateExisting')}
+            disabled={isDisabled}
+          />
+        </CollapsibleRegion>
       </div>
 
       {/* Validation Result */}

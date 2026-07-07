@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { Layers, Layout, Search, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { ImprovedColorPicker } from './ImprovedColorPicker';
 import { colorGroups, pageDefinitions } from './constants';
 import { type ColorGroup } from './types';
@@ -154,11 +155,7 @@ const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
       </div>
 
       {/* Page Selector (when in page mode) */}
-      <div
-        className={`transition-[max-height,opacity] duration-300 overflow-hidden ${
-          organizationMode === 'page' ? 'max-h-40 opacity-100 mt-4' : 'max-h-0 opacity-0'
-        }`}
-      >
+      <CollapsibleRegion open={organizationMode === 'page'} contentClassName="mt-4">
         <label className="block text-sm font-medium text-themed-primary mb-2">
           {t('modals.theme.organization.selectPage')}
         </label>
@@ -182,7 +179,7 @@ const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
             );
           })}
         </div>
-      </div>
+      </CollapsibleRegion>
 
       {/* Search Bar */}
       <div className="relative mt-4">
@@ -237,32 +234,33 @@ const ThemeEditorForm: React.FC<ThemeEditorFormProps> = ({
                 )}
               </button>
 
-              {isExpanded && (
-                <div className="p-4 space-y-4 animate-expandDown rounded-b-lg bg-themed-card border-t border-themed">
-                  {group.colors.map((color) => (
-                    <ImprovedColorPicker
-                      key={color.key}
-                      label={getColorLabel(color)}
-                      description={getColorDescription(color)}
-                      affects={getColorAffects(color)}
-                      value={(themeData[color.key] as string) || ''}
-                      onChange={(value) => onColorChange(color.key, value)}
-                      onColorCommit={(previousColor) =>
-                        colorHistory.commitColor(color.key, previousColor)
-                      }
-                      supportsAlpha={color.supportsAlpha}
-                      copiedColor={copiedColor}
-                      onCopy={copyColor}
-                      onRestore={() =>
-                        colorHistory.restoreColor(color.key, (restoredColor) =>
-                          onColorChange(color.key, restoredColor)
-                        )
-                      }
-                      hasHistory={colorHistory.hasHistory(color.key)}
-                    />
-                  ))}
-                </div>
-              )}
+              <CollapsibleRegion
+                open={isExpanded}
+                contentClassName="p-4 space-y-4 rounded-b-lg bg-themed-card border-t border-themed"
+              >
+                {group.colors.map((color) => (
+                  <ImprovedColorPicker
+                    key={color.key}
+                    label={getColorLabel(color)}
+                    description={getColorDescription(color)}
+                    affects={getColorAffects(color)}
+                    value={(themeData[color.key] as string) || ''}
+                    onChange={(value) => onColorChange(color.key, value)}
+                    onColorCommit={(previousColor) =>
+                      colorHistory.commitColor(color.key, previousColor)
+                    }
+                    supportsAlpha={color.supportsAlpha}
+                    copiedColor={copiedColor}
+                    onCopy={copyColor}
+                    onRestore={() =>
+                      colorHistory.restoreColor(color.key, (restoredColor) =>
+                        onColorChange(color.key, restoredColor)
+                      )
+                    }
+                    hasHistory={colorHistory.hasHistory(color.key)}
+                  />
+                ))}
+              </CollapsibleRegion>
             </div>
           );
         })}

@@ -294,23 +294,6 @@
  * ROW EXPANSION PANEL
  * ============================================== */
 
-.session-expansion {
-  overflow: hidden;
-  transition:
-    max-height 300ms ease,
-    opacity 200ms ease;
-}
-
-.session-expansion--collapsed {
-  max-height: 0;
-  opacity: 0;
-}
-
-.session-expansion--expanded {
-  max-height: 520px;
-  opacity: 1;
-}
-
 .session-expansion-content {
   @apply px-6 py-5;
   margin: 0.5rem 1rem 1rem;

@@ -427,26 +427,6 @@
   border-top: 1px solid var(--theme-border-primary);
   background-color: var(--theme-bg-tertiary-muted);
   border-radius: 0 0 var(--theme-border-radius, 0.5rem) var(--theme-border-radius, 0.5rem);
-  /* Smooth reveal when the history panel opens */
-  transform-origin: top;
-  animation: prefillHistoryReveal 0.24s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@keyframes prefillHistoryReveal {
-  from {
-    opacity: 0;
-    transform: translateY(-6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .prefill-history-section {
-    animation: none;
-  }
 }
 
 .prefill-history-header {

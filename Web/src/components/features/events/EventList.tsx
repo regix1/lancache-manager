@@ -13,6 +13,7 @@ import {
 import { useTimezone } from '@contexts/useTimezone';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { Tooltip } from '@components/ui/Tooltip';
+import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes } from '@utils/formatters';
 import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';
@@ -204,59 +205,60 @@ const EventCard = React.memo(
         </div>
 
         {/* Expanded downloads section */}
-        {isExpanded && (
-          <div className="border-t border-[var(--theme-border-secondary)] px-4 py-3 bg-[var(--theme-bg-tertiary)]">
-            {isLoading ? (
-              <div className="flex items-center justify-center py-4 gap-2">
-                <LoadingSpinner inline size="sm" className="text-[var(--theme-primary)]" />
-                <span className="text-sm text-[var(--theme-text-secondary)]">
-                  {t('events.list.loadingDownloads')}
+        <CollapsibleRegion
+          open={isExpanded}
+          contentClassName="border-t border-[var(--theme-border-secondary)] px-4 py-3 bg-[var(--theme-bg-tertiary)]"
+        >
+          {isLoading ? (
+            <div className="flex items-center justify-center py-4 gap-2">
+              <LoadingSpinner inline size="sm" className="text-[var(--theme-primary)]" />
+              <span className="text-sm text-[var(--theme-text-secondary)]">
+                {t('events.list.loadingDownloads')}
+              </span>
+            </div>
+          ) : groupedDownloads.length === 0 ? (
+            <p className="text-sm text-center py-4 text-[var(--theme-text-muted)]">
+              {t('events.list.emptyDownloads')}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-[var(--theme-text-secondary)]">
+                  {t('events.list.gamesDuringEvent')}
+                </span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--theme-bg-secondary)] text-[var(--theme-text-muted)]">
+                  {t('events.list.gameCount', { count: groupedDownloads.length })}
                 </span>
               </div>
-            ) : groupedDownloads.length === 0 ? (
-              <p className="text-sm text-center py-4 text-[var(--theme-text-muted)]">
-                {t('events.list.emptyDownloads')}
-              </p>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-[var(--theme-text-secondary)]">
-                    {t('events.list.gamesDuringEvent')}
-                  </span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--theme-bg-secondary)] text-[var(--theme-text-muted)]">
-                    {t('events.list.gameCount', { count: groupedDownloads.length })}
-                  </span>
-                </div>
-                {groupedDownloads.slice(0, 10).map((game, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between py-2 px-3 rounded-lg bg-[var(--theme-bg-secondary)]"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="themed-badge status-badge-neutral">
-                        {game.service.toUpperCase()}
-                      </span>
-                      <span className="text-sm font-medium truncate text-[var(--theme-text-primary)]">
-                        {game.name}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      <span className="text-xs text-[var(--theme-text-muted)]">{game.count}x</span>
-                      <span className="text-sm font-semibold text-[var(--theme-text-primary)]">
-                        {formatBytes(game.totalBytes)}
-                      </span>
-                    </div>
+              {groupedDownloads.slice(0, 10).map((game, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center justify-between py-2 px-3 rounded-lg bg-[var(--theme-bg-secondary)]"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="themed-badge status-badge-neutral">
+                      {game.service.toUpperCase()}
+                    </span>
+                    <span className="text-sm font-medium truncate text-[var(--theme-text-primary)]">
+                      {game.name}
+                    </span>
                   </div>
-                ))}
-                {groupedDownloads.length > 10 && (
-                  <p className="text-xs text-center pt-2 text-[var(--theme-text-muted)]">
-                    {t('events.list.moreGames', { count: groupedDownloads.length - 10 })}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <span className="text-xs text-[var(--theme-text-muted)]">{game.count}x</span>
+                    <span className="text-sm font-semibold text-[var(--theme-text-primary)]">
+                      {formatBytes(game.totalBytes)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {groupedDownloads.length > 10 && (
+                <p className="text-xs text-center pt-2 text-[var(--theme-text-muted)]">
+                  {t('events.list.moreGames', { count: groupedDownloads.length - 10 })}
+                </p>
+              )}
+            </div>
+          )}
+        </CollapsibleRegion>
       </div>
     );
   }

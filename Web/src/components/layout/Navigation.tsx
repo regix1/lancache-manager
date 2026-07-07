@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   LayoutDashboard,
@@ -13,6 +13,7 @@ import {
   Terminal
 } from 'lucide-react';
 import type { AuthMode } from '@services/auth.service';
+import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 
 interface NavigationProps {
   activeTab: string;
@@ -36,15 +37,6 @@ const Navigation: React.FC<NavigationProps> = React.memo(
   }) => {
     const { t } = useTranslation();
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-    const [menuHeight, setMenuHeight] = useState(0);
-    const menuContentRef = useRef<HTMLDivElement>(null);
-
-    // Measure menu content height for smooth animation
-    useEffect(() => {
-      if (menuContentRef.current) {
-        setMenuHeight(menuContentRef.current.scrollHeight);
-      }
-    }, [authMode, mobileMenuOpen]); // Recalculate when tabs change or menu opens
 
     const allTabs = [
       {
@@ -236,17 +228,8 @@ const Navigation: React.FC<NavigationProps> = React.memo(
             </div>
 
             {/* Mobile Menu - Animated */}
-            <div
-              className="overflow-hidden transition-[max-height,opacity] duration-300 ease-out"
-              style={{
-                maxHeight: mobileMenuOpen ? `${menuHeight}px` : '0px',
-                opacity: mobileMenuOpen ? 1 : 0
-              }}
-            >
-              <div
-                ref={menuContentRef}
-                className="border-t py-2 space-y-1 bg-themed-nav-mobile border-themed-nav"
-              >
+            <CollapsibleRegion open={mobileMenuOpen}>
+              <div className="border-t py-2 space-y-1 bg-themed-nav-mobile border-themed-nav">
                 {tabs.map((tab, index) => (
                   <div
                     key={tab.id}
@@ -270,7 +253,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
                   </div>
                 ))}
               </div>
-            </div>
+            </CollapsibleRegion>
           </div>
         </div>
       </nav>

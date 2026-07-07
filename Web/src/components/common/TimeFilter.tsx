@@ -20,6 +20,7 @@ import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { getEventColorVar } from '@utils/eventColors';
 import { formatEventDateRange } from '@utils/formatters';
 import { sortEventsByStatus, getEventStatus } from '@utils/eventUtils';
+import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
 
 interface TimeFilterProps {
   disabled?: boolean;
@@ -43,6 +44,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
   const { events } = useEvents();
 
   const [isOpen, setIsOpen] = useState(false);
+  const { present, closing } = useExitPresence(isOpen, DROPDOWN_EXIT_MS);
   const [showDatePicker, setShowDatePicker] = useState(false);
   // Local state for date picker - only committed to context on close/apply
   const [pendingStartDate, setPendingStartDate] = useState<Date | null>(customStartDate);
@@ -297,6 +299,14 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
 
   const selectedTimeOption = timeOptions.find((o) => o.value === timeRange);
 
+  // While closing, swap the entrance keyframe for its exit mirror. The open
+  // direction is encoded in the entrance animation string set on open (it is
+  // not overwritten during the close, since that effect is gated on isOpen).
+  const isUpwardMenu = dropdownStyle.animation.includes('dropdownSlideUp');
+  const menuAnimation = closing
+    ? `${isUpwardMenu ? 'dropdownSlideOutUp' : 'dropdownSlideOutDown'} 0.14s ease-in forwards`
+    : dropdownStyle.animation;
+
   return (
     <>
       <div className="flex items-center gap-2">
@@ -342,8 +352,9 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
             )}
           </button>
 
-          {/* Dropdown - rendered via portal to escape stacking context */}
-          {isOpen &&
+          {/* Dropdown - rendered via portal to escape stacking context.
+              Rendered while `present` (not just `isOpen`) so the exit animation plays. */}
+          {present &&
             createPortal(
               <div
                 ref={dropdownRef}
@@ -351,7 +362,8 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                 style={{
                   top: dropdownPosition.top,
                   left: dropdownPosition.left,
-                  animation: dropdownStyle.animation
+                  animation: menuAnimation,
+                  pointerEvents: closing ? 'none' : undefined
                 }}
               >
                 {/* Title */}

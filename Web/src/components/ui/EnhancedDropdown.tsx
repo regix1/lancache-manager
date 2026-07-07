@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { CustomScrollbar } from './CustomScrollbar';
 import { Tooltip } from './Tooltip';
 import { getEventColorVar } from '@utils/eventColors';
+import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
 
 interface DropdownPosition {
   top?: number;
@@ -169,6 +170,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
 }) => {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
+  const { present, closing } = useExitPresence(isOpen, DROPDOWN_EXIT_MS);
   const [dropdownStyle, setDropdownStyle] = useState<{ animation: string }>({ animation: '' });
   const [dropdownPosition, setDropdownPosition] = useState<DropdownPosition | null>(null);
   const [expandedSubmenu, setExpandedSubmenu] = useState<string | null>(null);
@@ -189,10 +191,19 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
 
   useEffect(() => {
     if (!isOpen) {
+      // Submenu closes immediately; the main menu keeps its position through the
+      // exit animation and is cleared once fully unmounted (see the effect below).
       setExpandedSubmenu(null);
-      setDropdownPosition(null);
     }
   }, [isOpen]);
+
+  // Clear the cached position only after the exit animation has unmounted the
+  // menu, so `closing` renders keep their coordinates and the exit is stable.
+  useEffect(() => {
+    if (!present) {
+      setDropdownPosition(null);
+    }
+  }, [present]);
 
   const computeInitialDropdownPosition = useCallback(() => {
     if (!buttonRef.current) return null;
@@ -381,6 +392,13 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   // control-height unification - every existing call site without an explicit size shifts ~2px).
   const triggerSizeClass = size === 'sm' ? 'py-1.5' : size === 'lg' ? 'py-2.5' : 'py-[9px]';
 
+  // While closing, swap the entrance keyframe for its exit mirror in the same
+  // direction (upward menus store a `bottom`, downward menus store a `top`).
+  const isUpwardMenu = dropdownPosition?.bottom !== undefined;
+  const menuAnimation = closing
+    ? `${isUpwardMenu ? 'dropdownSlideOutUp' : 'dropdownSlideOutDown'} 0.14s ease-in forwards`
+    : dropdownStyle.animation;
+
   return (
     <div className={`relative ${className}`}>
       <button
@@ -440,8 +458,9 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         )}
       </button>
 
-      {/* Dropdown - rendered via portal to escape stacking context */}
-      {isOpen &&
+      {/* Dropdown - rendered via portal to escape stacking context.
+          Rendered while `present` (not just `isOpen`) so the exit animation plays. */}
+      {present &&
         dropdownPosition &&
         createPortal(
           <div
@@ -457,7 +476,8 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                   ? { width: dropdownPosition.width }
                   : {}),
               ...(!dropdownWidth ? { minWidth: dropdownPosition.width } : {}),
-              animation: dropdownStyle.animation
+              animation: menuAnimation,
+              pointerEvents: closing ? 'none' : undefined
             }}
           >
             {dropdownTitle && (

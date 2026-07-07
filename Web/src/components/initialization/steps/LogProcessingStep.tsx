@@ -11,6 +11,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
+import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type {
@@ -576,49 +577,50 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
                   </div>
 
                   {/* Expanded details */}
-                  {isExpanded && (
-                    <div className="px-3 pb-3 border-t border-themed-secondary">
-                      <div className="py-2 space-y-1">
-                        <div className="flex items-center gap-2 text-xs">
-                          <FolderOpen className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
-                          <span className="text-themed-muted">
-                            {t('initialization.logProcessing.cache')}
-                          </span>
-                          <code className="bg-themed-tertiary px-1.5 py-0.5 rounded text-themed-secondary truncate">
-                            {ds.cachePath}
-                          </code>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs">
-                          <FileText className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
-                          <span className="text-themed-muted">
-                            {t('initialization.logProcessing.logs')}
-                          </span>
-                          <code className="bg-themed-tertiary px-1.5 py-0.5 rounded text-themed-secondary truncate">
-                            {ds.logsPath}
-                          </code>
-                        </div>
+                  <CollapsibleRegion
+                    open={isExpanded}
+                    contentClassName="px-3 pb-3 border-t border-themed-secondary"
+                  >
+                    <div className="py-2 space-y-1">
+                      <div className="flex items-center gap-2 text-xs">
+                        <FolderOpen className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
+                        <span className="text-themed-muted">
+                          {t('initialization.logProcessing.cache')}
+                        </span>
+                        <code className="bg-themed-tertiary px-1.5 py-0.5 rounded text-themed-secondary truncate">
+                          {ds.cachePath}
+                        </code>
                       </div>
-
-                      {/* Process single datasource */}
-                      <div className="pt-2">
-                        <Button
-                          variant="filled"
-                          color="green"
-                          size="sm"
-                          leftSection={<PlayCircle className="w-3.5 h-3.5" />}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleProcessDatasource(ds.name);
-                          }}
-                          disabled={actionLoading !== null || processing || !ds.enabled}
-                          loading={actionLoading === ds.name}
-                          fullWidth
-                        >
-                          {t('initialization.logProcessing.processThisDatasource')}
-                        </Button>
+                      <div className="flex items-center gap-2 text-xs">
+                        <FileText className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
+                        <span className="text-themed-muted">
+                          {t('initialization.logProcessing.logs')}
+                        </span>
+                        <code className="bg-themed-tertiary px-1.5 py-0.5 rounded text-themed-secondary truncate">
+                          {ds.logsPath}
+                        </code>
                       </div>
                     </div>
-                  )}
+
+                    {/* Process single datasource */}
+                    <div className="pt-2">
+                      <Button
+                        variant="filled"
+                        color="green"
+                        size="sm"
+                        leftSection={<PlayCircle className="w-3.5 h-3.5" />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleProcessDatasource(ds.name);
+                        }}
+                        disabled={actionLoading !== null || processing || !ds.enabled}
+                        loading={actionLoading === ds.name}
+                        fullWidth
+                      >
+                        {t('initialization.logProcessing.processThisDatasource')}
+                      </Button>
+                    </div>
+                  </CollapsibleRegion>
                 </div>
               );
             })}

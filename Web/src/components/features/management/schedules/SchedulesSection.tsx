@@ -6,6 +6,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import HighlightGlow from '@components/ui/HighlightGlow';
+import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { Checkbox } from '@components/ui/Checkbox';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
@@ -389,7 +390,7 @@ const ScheduleCard = memo(function ScheduleCard({
                   ? t('management.schedules.hideDetails')
                   : t('management.schedules.showDetails')}
               </button>
-              <div className={`schedule-expandable${expanded ? ' open' : ''}`}>
+              <CollapsibleRegion open={expanded}>
                 <div className="schedule-expandable-inner">
                   <div className="schedule-gain-loss-item">
                     <span className="schedule-gain-loss-label gain">
@@ -408,7 +409,7 @@ const ScheduleCard = memo(function ScheduleCard({
                     </p>
                   </div>
                 </div>
-              </div>
+              </CollapsibleRegion>
             </div>
           )}
         </div>

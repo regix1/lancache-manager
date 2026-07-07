@@ -23,6 +23,7 @@ import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
 import { Pagination } from '@components/ui/Pagination';
+import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { Checkbox } from '@components/ui/Checkbox';
 import { AccordionSection } from '@components/ui/AccordionSection';
@@ -521,107 +522,105 @@ const SessionCard: React.FC<{
         </div>
 
         {/* Expandable history section */}
-        {isHistoryExpanded && (
-          <div className="prefill-history-section">
-            <div className="prefill-history-header">
-              <Gamepad2 className="w-4 h-4 text-themed-muted" />
-              <span>{t('management.prefillSessions.labels.prefillHistory')}</span>
-            </div>
+        <CollapsibleRegion open={isHistoryExpanded} contentClassName="prefill-history-section">
+          <div className="prefill-history-header">
+            <Gamepad2 className="w-4 h-4 text-themed-muted" />
+            <span>{t('management.prefillSessions.labels.prefillHistory')}</span>
+          </div>
 
-            {isLoadingHistory ? (
-              <div className="prefill-history-loading">
-                <LoadingSpinner inline size="sm" className="text-themed-muted" />
-                <span>{t('management.prefillSessions.labels.loadingHistory')}</span>
-              </div>
-            ) : !historyData || historyData.length === 0 ? (
-              <div className="prefill-history-empty">
-                {isLive
-                  ? t('management.prefillSessions.labels.noPrefillHistoryYet')
-                  : t('management.prefillSessions.labels.noPrefillHistoryRecorded')}
-              </div>
-            ) : (
-              <>
-                {/* Summary stats */}
-                <div className="prefill-history-summary">
+          {isLoadingHistory ? (
+            <div className="prefill-history-loading">
+              <LoadingSpinner inline size="sm" className="text-themed-muted" />
+              <span>{t('management.prefillSessions.labels.loadingHistory')}</span>
+            </div>
+          ) : !historyData || historyData.length === 0 ? (
+            <div className="prefill-history-empty">
+              {isLive
+                ? t('management.prefillSessions.labels.noPrefillHistoryYet')
+                : t('management.prefillSessions.labels.noPrefillHistoryRecorded')}
+            </div>
+          ) : (
+            <>
+              {/* Summary stats */}
+              <div className="prefill-history-summary">
+                <span>
+                  {t('management.prefillSessions.labels.gamesPrefilled', {
+                    count: historyData.length
+                  })}
+                </span>
+                {totalBytesFromHistory > 0 && (
                   <span>
-                    {t('management.prefillSessions.labels.gamesPrefilled', {
-                      count: historyData.length
+                    {t('management.prefillSessions.labels.total', {
+                      bytes: formatBytes(totalBytesFromHistory)
                     })}
                   </span>
-                  {totalBytesFromHistory > 0 && (
-                    <span>
-                      {t('management.prefillSessions.labels.total', {
-                        bytes: formatBytes(totalBytesFromHistory)
-                      })}
-                    </span>
-                  )}
-                </div>
+                )}
+              </div>
 
-                {/* History entries */}
-                <div className="prefill-history-list">
-                  {paginatedEntries.map((entry) => (
-                    <div key={entry.id} className="prefill-history-entry rounded">
-                      <div className="prefill-history-entry-main">
-                        <Gamepad2 className="w-4 h-4 text-themed-muted flex-shrink-0" />
-                        <div className="prefill-history-entry-content">
-                          <div className="prefill-history-entry-header">
-                            <span className="prefill-history-entry-name">
-                              {entry.appName || `App ${entry.appId}`}
-                            </span>
-                            <HistoryStatusBadge
-                              status={entry.status}
-                              completedAtUtc={entry.completedAtUtc}
-                            />
-                          </div>
-                          <div className="prefill-history-entry-meta">
+              {/* History entries */}
+              <div className="prefill-history-list">
+                {paginatedEntries.map((entry) => (
+                  <div key={entry.id} className="prefill-history-entry rounded">
+                    <div className="prefill-history-entry-main">
+                      <Gamepad2 className="w-4 h-4 text-themed-muted flex-shrink-0" />
+                      <div className="prefill-history-entry-content">
+                        <div className="prefill-history-entry-header">
+                          <span className="prefill-history-entry-name">
+                            {entry.appName || `App ${entry.appId}`}
+                          </span>
+                          <HistoryStatusBadge
+                            status={entry.status}
+                            completedAtUtc={entry.completedAtUtc}
+                          />
+                        </div>
+                        <div className="prefill-history-entry-meta">
+                          <span>
+                            Started: <FormattedTimestamp timestamp={entry.startedAtUtc} />
+                          </span>
+                          {entry.completedAtUtc && (
                             <span>
-                              Started: <FormattedTimestamp timestamp={entry.startedAtUtc} />
+                              Completed: <FormattedTimestamp timestamp={entry.completedAtUtc} />
                             </span>
-                            {entry.completedAtUtc && (
-                              <span>
-                                Completed: <FormattedTimestamp timestamp={entry.completedAtUtc} />
-                              </span>
-                            )}
-                            {(entry.bytesDownloaded > 0 || entry.totalBytes > 0) && (
-                              <span>
-                                {entry.totalBytes > 0 &&
-                                entry.bytesDownloaded !== entry.totalBytes &&
-                                entry.status.toLowerCase() !== 'cached'
-                                  ? `${formatBytes(entry.bytesDownloaded)} / ${formatBytes(entry.totalBytes)}`
-                                  : formatBytes(entry.bytesDownloaded || entry.totalBytes)}
-                              </span>
-                            )}
-                          </div>
-                          {entry.errorMessage && (
-                            <div className="prefill-history-entry-error">
-                              <XCircle className="w-3 h-3" />
-                              <span>{entry.errorMessage}</span>
-                            </div>
+                          )}
+                          {(entry.bytesDownloaded > 0 || entry.totalBytes > 0) && (
+                            <span>
+                              {entry.totalBytes > 0 &&
+                              entry.bytesDownloaded !== entry.totalBytes &&
+                              entry.status.toLowerCase() !== 'cached'
+                                ? `${formatBytes(entry.bytesDownloaded)} / ${formatBytes(entry.totalBytes)}`
+                                : formatBytes(entry.bytesDownloaded || entry.totalBytes)}
+                            </span>
                           )}
                         </div>
+                        {entry.errorMessage && (
+                          <div className="prefill-history-entry-error">
+                            <XCircle className="w-3 h-3" />
+                            <span>{entry.errorMessage}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  ))}
-                </div>
-
-                {/* Pagination */}
-                {totalPages > 1 && (
-                  <div className="prefill-history-pagination">
-                    <Pagination
-                      currentPage={historyPage}
-                      totalPages={totalPages}
-                      totalItems={historyData.length}
-                      itemsPerPage={historyPageSize}
-                      onPageChange={onHistoryPageChange}
-                      itemLabel={t('management.prefillSessions.labels.games')}
-                      compact
-                    />
                   </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
+                ))}
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="prefill-history-pagination">
+                  <Pagination
+                    currentPage={historyPage}
+                    totalPages={totalPages}
+                    totalItems={historyData.length}
+                    itemsPerPage={historyPageSize}
+                    onPageChange={onHistoryPageChange}
+                    itemLabel={t('management.prefillSessions.labels.games')}
+                    compact
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </CollapsibleRegion>
       </CardContent>
     </Card>
   );

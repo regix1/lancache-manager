@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
+import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { GameImage } from '../../../common/GameImage';
@@ -186,9 +187,12 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
       )}
 
       {/* Expandable Details Section */}
-      {hasExpandableContent && isExpanded && !isExpanding && (
-        <div className="border-t px-3 py-3 space-y-3 border-themed-secondary">{children}</div>
-      )}
+      <CollapsibleRegion
+        open={hasExpandableContent && isExpanded && !isExpanding}
+        contentClassName="border-t px-3 py-3 space-y-3 border-themed-secondary"
+      >
+        {children}
+      </CollapsibleRegion>
     </div>
   );
 };

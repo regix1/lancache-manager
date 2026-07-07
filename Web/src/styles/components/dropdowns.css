@@ -26,6 +26,56 @@
     }
   }
 
+  /* Dropdown exit animations - reverse of the entrances above. Paired with
+     useExitPresence, which keeps the menu mounted for the exit duration. Use
+     `forwards` fill at the call site so the final (hidden) frame persists until
+     unmount instead of snapping back to the resting frame. */
+  @keyframes dropdownSlideOutDown {
+    from {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(-8px) scale(0.98);
+    }
+  }
+
+  @keyframes dropdownSlideOutUp {
+    from {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+    }
+  }
+
+  /* Reverse of `dropdownSlide` (defined in utilities/animations.css) for the
+     ActionMenu exit. */
+  @keyframes dropdownSlideOut {
+    from {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(-8px) scale(0.95);
+    }
+  }
+
+  /* Respect reduced-motion: skip both the entrance and exit keyframes. The
+     `!important` beats the inline `animation` set by EnhancedDropdown/TimeFilter
+     and the Tailwind `animate-[...]` utility on ActionMenu. useExitPresence
+     still unmounts after its timer, so closing stays motion-free (no flash). */
+  @media (prefers-reduced-motion: reduce) {
+    .ed-dropdown,
+    .am-dropdown {
+      animation: none !important;
+    }
+  }
+
   /* EnhancedDropdown */
   .ed-trigger {
     transition:
