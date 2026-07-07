@@ -6046,6 +6046,7 @@
     "depotMapping": {
       "batchProgress": "{{processedBatches}} / {{totalBatches}} 批次",
       "batchProgressWithMappings": "{{processedBatches}} / {{totalBatches}} 批次 • 找到 {{depotMappingsFound}} 个映射",
+      "mappingsFoundOnly": "找到 {{depotMappingsFound}} 个映射",
       "github": {
         "downloading": "正在从 GitHub 下载仓库映射...",
         "complete": "GitHub 仓库数据已导入 - {{totalMappings}} 个映射",

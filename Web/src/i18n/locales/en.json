@@ -6161,6 +6161,7 @@
     "depotMapping": {
       "batchProgress": "{{processedBatches}} / {{totalBatches}} batches",
       "batchProgressWithMappings": "{{processedBatches}} / {{totalBatches}} batches • {{depotMappingsFound}} mappings found",
+      "mappingsFoundOnly": "{{depotMappingsFound}} mappings found",
       "github": {
         "downloading": "Downloading depot mappings from GitHub...",
         "complete": "GitHub depot data imported - {{totalMappings}} mappings",

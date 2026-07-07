@@ -109,19 +109,31 @@ export const formatDepotMappingRecoveryDetailMessage = (data: {
   totalBatches?: number;
   depotMappingsFound?: number;
 }): string | undefined => {
-  if (data.processedBatches !== undefined && data.totalBatches !== undefined) {
+  // Batch counts only apply to PICS crawls; GitHub/JSON imports never set them,
+  // so a 0-batch total means "no batch phase" rather than "0 of 0 done".
+  const hasBatchProgress =
+    data.processedBatches !== undefined && data.totalBatches !== undefined && data.totalBatches > 0;
+
+  if (hasBatchProgress) {
     if (data.depotMappingsFound !== undefined) {
       return i18n.t('signalr.depotMapping.batchProgressWithMappings', {
-        processedBatches: data.processedBatches.toLocaleString(),
-        totalBatches: data.totalBatches.toLocaleString(),
+        processedBatches: data.processedBatches!.toLocaleString(),
+        totalBatches: data.totalBatches!.toLocaleString(),
         depotMappingsFound: data.depotMappingsFound.toLocaleString()
       });
     }
     return i18n.t('signalr.depotMapping.batchProgress', {
-      processedBatches: data.processedBatches.toLocaleString(),
-      totalBatches: data.totalBatches.toLocaleString()
+      processedBatches: data.processedBatches!.toLocaleString(),
+      totalBatches: data.totalBatches!.toLocaleString()
     });
   }
+
+  if (data.depotMappingsFound !== undefined && data.depotMappingsFound > 0) {
+    return i18n.t('signalr.depotMapping.mappingsFoundOnly', {
+      depotMappingsFound: data.depotMappingsFound.toLocaleString()
+    });
+  }
+
   return undefined;
 };
 
