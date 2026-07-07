@@ -310,7 +310,7 @@ const ScheduleCard = memo(function ScheduleCard({
               color="green"
               size="sm"
               onClick={handleRunNow}
-              disabled={isDisabled}
+              disabled={isDisabled || isDimmed}
               loading={isRunningThis}
               className="schedule-run-button schedule-control-button"
             >
