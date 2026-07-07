@@ -6096,7 +6096,7 @@
     "xboxMapping": {
       "starting": "正在解析 Xbox 游戏目录...",
       "gamesDiscovered": "发现 {{gamesDiscovered}} 个游戏",
-      "cancelled": "Xbox 目录解析已取消",
+      "cancelled": "Xbox 登录已取消",
       "failed": "Xbox 目录解析失败: {{errorDetail}}"
     },
     "xbox": {

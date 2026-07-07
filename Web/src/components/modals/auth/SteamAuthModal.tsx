@@ -250,14 +250,14 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                 {isPrefillMode ? (
                   <button
                     onClick={handleCancelDeviceConfirmation}
-                    className="w-full text-center text-sm text-themed-accent hover:underline"
+                    className="w-full rounded-lg px-4 py-2 text-center text-sm text-themed-accent hover:underline"
                   >
                     {t('modals.steamAuth.actions.cancelAndTryLater')}
                   </button>
                 ) : (
                   <button
                     onClick={handleSwitchToManualCode}
-                    className="w-full text-center text-sm text-themed-accent hover:underline"
+                    className="w-full rounded-lg px-4 py-2 text-center text-sm text-themed-accent hover:underline"
                   >
                     {t('modals.steamAuth.actions.enterCodeManually')}
                   </button>

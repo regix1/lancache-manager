@@ -6211,7 +6211,7 @@
     "xboxMapping": {
       "starting": "Starting Xbox catalog resolve...",
       "gamesDiscovered": "Discovered {{gamesDiscovered}} games",
-      "cancelled": "Xbox catalog resolve cancelled",
+      "cancelled": "Xbox sign-in cancelled",
       "failed": "Xbox catalog resolve failed: {{errorDetail}}"
     },
     "xbox": {
