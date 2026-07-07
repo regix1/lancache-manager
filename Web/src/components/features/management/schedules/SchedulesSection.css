@@ -1759,7 +1759,11 @@
   background: none;
   border: none;
   border-radius: var(--theme-border-radius);
-  padding: 0.25rem 0;
+  /* Horizontal padding widens the button beyond its label (visible when themes
+     paint button backgrounds/shadows); the negative margin keeps the label
+     flush-left with the expanded details below. */
+  padding: 0.25rem 0.625rem;
+  margin-left: -0.625rem;
   font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--theme-text-muted);
