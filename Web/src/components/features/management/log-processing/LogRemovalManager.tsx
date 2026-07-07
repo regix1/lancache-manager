@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { FileText, AlertTriangle, Trash2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
+import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { useNotifications } from '@contexts/notifications';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { useDockerSocket } from '@contexts/useDockerSocket';
@@ -61,7 +62,12 @@ const ServiceButton: React.FC<{
   return (
     <div className="flex items-center justify-between gap-3 p-3 bg-themed-tertiary rounded-lg">
       <div className="min-w-0">
-        <div className="capitalize font-medium text-sm text-themed-primary truncate">{service}</div>
+        {/* Display-only fold (xboxlive -> Xbox): the raw LogEntries.Service tag stays on keys
+            and API calls - on-disk cache filenames are md5(tag+url), so the tag itself must
+            never be relabeled. */}
+        <div className="capitalize font-medium text-sm text-themed-primary truncate">
+          {getServiceDisplayName(service)}
+        </div>
         <div className="text-xs text-themed-muted">
           {formatCount(count)} {entriesLabel}
         </div>
@@ -202,8 +208,11 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
           buildSeededRunningNotification(
             'log_removal',
             result.operationId,
-            t('signalr.logRemoval.starting.default', { service: serviceName }),
+            t('signalr.logRemoval.starting.default', {
+              service: getServiceDisplayName(serviceName)
+            }),
             {
+              // Raw tag: notification matching and the backend operate on LogEntries.Service.
               service: serviceName
             }
           )
@@ -211,7 +220,11 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       } else if (result && result.status === 'running') {
         // SignalR will attach operationId; seeded notification may already exist from Started event
       } else {
-        onError?.(t('management.logRemoval.errors.unexpectedResponse', { service: serviceName }));
+        onError?.(
+          t('management.logRemoval.errors.unexpectedResponse', {
+            service: getServiceDisplayName(serviceName)
+          })
+        );
         clearServiceRemovalPending(key);
       }
     } catch (err: unknown) {
@@ -546,7 +559,9 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         <div className="space-y-4">
           <p className="text-themed-secondary">
             {t('management.logRemoval.modal.removeQuestion', {
-              service: pendingServiceRemoval?.service,
+              service: pendingServiceRemoval
+                ? getServiceDisplayName(pendingServiceRemoval.service)
+                : undefined,
               datasource: pendingServiceRemoval?.datasource
             })}
           </p>
@@ -561,7 +576,9 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                 <li>{t('management.logRemoval.modal.mayTakeMinutes')}</li>
                 <li>
                   {t('management.logRemoval.modal.cachedFilesRemain', {
-                    service: pendingServiceRemoval?.service
+                    service: pendingServiceRemoval
+                      ? getServiceDisplayName(pendingServiceRemoval.service)
+                      : undefined
                   })}
                 </li>
               </ul>
