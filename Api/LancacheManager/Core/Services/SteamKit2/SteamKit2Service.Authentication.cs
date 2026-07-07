@@ -24,7 +24,8 @@ public partial class SteamKit2Service
                 twoFactorCode,
                 emailCode,
                 allowMobileConfirmation,
-                "Steam refresh token acquisition");
+                "Steam refresh token acquisition",
+                CancellationToken.None);
 
             if (!pollResult.Success)
             {
@@ -60,9 +61,12 @@ public partial class SteamKit2Service
     }
 
     /// <summary>
-    /// Authenticate with Steam using username and password
+    /// Authenticate with Steam using username and password. The cancellation token should be the
+    /// login request's abort signal (HttpContext.RequestAborted): the frontend cancels a login by
+    /// aborting the request, and honoring it here stops the credentials poll immediately instead
+    /// of letting it die minutes later with a spurious error.
     /// </summary>
-    public async Task<AuthenticationResult> AuthenticateAsync(string username, string password, string? twoFactorCode = null, string? emailCode = null, bool allowMobileConfirmation = false)
+    public async Task<AuthenticationResult> AuthenticateAsync(string username, string password, string? twoFactorCode = null, string? emailCode = null, bool allowMobileConfirmation = false, CancellationToken ct = default)
     {
         try
         {
@@ -72,7 +76,8 @@ public partial class SteamKit2Service
                 twoFactorCode,
                 emailCode,
                 allowMobileConfirmation,
-                "Steam authentication");
+                "Steam authentication",
+                ct);
 
             if (!pollResult.Success)
             {
@@ -84,7 +89,7 @@ public partial class SteamKit2Service
             _logger.LogInformation("Successfully authenticated and saved refresh token");
 
             // Now log on with the fresh refresh token through the shared session engine
-            await _sessionGate.WaitAsync();
+            await _sessionGate.WaitAsync(ct);
             try
             {
                 // Longer logon timeout for the interactive auth flow (Steam servers can be slow)
@@ -94,7 +99,7 @@ public partial class SteamKit2Service
                     AccessToken = pollResult.RefreshToken!,
                     ShouldRememberPassword = true,
                     LoginID = _steamLoginId
-                }, CancellationToken.None, logonTimeout: TimeSpan.FromMinutes(2));
+                }, ct, logonTimeout: TimeSpan.FromMinutes(2));
             }
             finally
             {
@@ -105,6 +110,17 @@ public partial class SteamKit2Service
             {
                 Success = true,
                 Message = "Authentication successful"
+            };
+        }
+        catch (OperationCanceledException)
+        {
+            // The login request was aborted (user closed the modal or left the page). Not an
+            // error - nobody is reading this response.
+            _logger.LogInformation("Steam sign-in cancelled - login request aborted by the client");
+            return new AuthenticationResult
+            {
+                Success = false,
+                Message = "Sign-in was cancelled."
             };
         }
         catch (Exception ex) when (ex is AsyncJobFailedException or SteamConnectionLostException)
@@ -153,9 +169,10 @@ public partial class SteamKit2Service
         string? twoFactorCode,
         string? emailCode,
         bool allowMobileConfirmation,
-        string stepName)
+        string stepName,
+        CancellationToken ct)
     {
-        await _sessionGate.WaitAsync();
+        await _sessionGate.WaitAsync(ct);
         try
         {
             return await RetryOnBusyCmLockedAsync(
@@ -164,9 +181,10 @@ public partial class SteamKit2Service
                     password,
                     twoFactorCode,
                     emailCode,
-                    allowMobileConfirmation),
+                    allowMobileConfirmation,
+                    ct),
                 stepName,
-                CancellationToken.None);
+                ct);
         }
         finally
         {
@@ -246,14 +264,15 @@ public partial class SteamKit2Service
         string password,
         string? twoFactorCode,
         string? emailCode,
-        bool allowMobileConfirmation)
+        bool allowMobileConfirmation,
+        CancellationToken ct)
     {
         // Connect if not already connected
         if (_steamClient?.IsConnected != true)
         {
             _connectedTcs = new TaskCompletionSource();
             _steamClient!.Connect();
-            await WaitWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(30), CancellationToken.None);
+            await WaitWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(30), ct);
         }
 
         var authenticator = new WebAuthenticator(twoFactorCode, emailCode, allowMobileConfirmation);
@@ -269,7 +288,15 @@ public partial class SteamKit2Service
         var pollResponse = default(global::SteamKit2.Authentication.AuthPollResult);
         try
         {
-            pollResponse = await authSession.PollingWaitForResultAsync();
+            pollResponse = await authSession.PollingWaitForResultAsync(ct);
+        }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // SteamKit2 fails in-flight jobs with TaskCanceledException on a LOCAL failure (the
+            // connection dropped mid-poll) - distinct from AsyncJobFailedException (the remote CM
+            // dropped the job) and from a genuine caller cancellation (ct). Map it so the
+            // CM-rotation retry treats it like any other transient connection loss.
+            throw new SteamConnectionLostException("Steam connection dropped during sign-in");
         }
         catch (AuthenticationException authEx) when (authEx.Message.Contains("Expired"))
         {

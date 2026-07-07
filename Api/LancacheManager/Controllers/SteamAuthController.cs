@@ -66,18 +66,21 @@ public class SteamAuthController : ControllerBase
     /// </summary>
     [HttpPost("login")]
     [EnableRateLimiting("steam-auth")]
-    public async Task<IActionResult> LoginAsync([FromBody] SteamLoginRequest? request)
+    public async Task<IActionResult> LoginAsync([FromBody] SteamLoginRequest? request, CancellationToken cancellationToken)
     {
         // If user provides credentials, they want to authenticate (regardless of current mode)
         if (request != null && !string.IsNullOrEmpty(request.Username) && !string.IsNullOrEmpty(request.Password))
         {
-            // User wants to switch to authenticated mode
+            // User wants to switch to authenticated mode. The request-abort token flows into the
+            // Steam credentials poll: the frontend cancels a login by aborting this request, and
+            // honoring it stops the poll immediately instead of leaving it to die noisily.
             var result = await _steamKit2Service.AuthenticateAsync(
                 request.Username,
                 request.Password,
                 request.TwoFactorCode,
                 request.EmailCode,
-                request.AllowMobileConfirmation
+                request.AllowMobileConfirmation,
+                cancellationToken
             );
 
             if (result.Success)

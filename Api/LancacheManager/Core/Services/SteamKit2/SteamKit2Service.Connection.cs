@@ -240,6 +240,9 @@ public partial class SteamKit2Service
 
         if (completedTask != task)
         {
+            // The caller cancelled (request aborted / rebuild cancelled) - report that, not a timeout
+            ct.ThrowIfCancellationRequested();
+
             var errorMessage = $"{operationName} timed out after {timeout.TotalSeconds} seconds. This may indicate Steam servers are busy or your network connection is unstable.";
             _logger.LogWarning("{Operation} timed out after {Seconds}s", operationName, timeout.TotalSeconds);
             throw new TimeoutException(errorMessage);
