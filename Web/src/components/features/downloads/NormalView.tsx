@@ -136,6 +136,21 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const isExpanded = expandedItem === group.id;
   const cardRef = React.useRef<HTMLDivElement>(null);
   const prevExpandedRef = React.useRef<boolean>(false);
+  // The collapsed max-height clamp must stay OFF while the details region is
+  // still animating closed, or the card clips to 160px in one frame and the
+  // collapse looks like a snap. Adjusted during render so the clamp class is
+  // correct in the same pass where isExpanded flips false.
+  const [isCollapsing, setIsCollapsing] = React.useState(false);
+  const [wasExpanded, setWasExpanded] = React.useState(isExpanded);
+  if (wasExpanded !== isExpanded) {
+    setWasExpanded(isExpanded);
+    if (!isExpanded) {
+      setIsCollapsing(true);
+    }
+  }
+  const handleDetailsExitComplete = React.useCallback((): void => {
+    setIsCollapsing(false);
+  }, []);
   const {
     filters,
     updateFilter,
@@ -550,7 +565,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
       ref={cardRef}
       className={`rounded-lg border overflow-hidden shadow-sm bg-[var(--theme-bg-secondary)] ${
         isExpanded ? 'ring-2 border-[var(--theme-primary)]' : 'border-[var(--theme-border-primary)]'
-      } ${!fullHeightBanners && !isExpanded ? 'sm:max-h-[160px]' : ''}${isEvicted ? ' opacity-60' : ''}`}
+      } ${!fullHeightBanners && !isExpanded && !isCollapsing ? 'sm:max-h-[160px]' : ''}${isEvicted ? ' opacity-60' : ''}`}
     >
       {fullHeightBanners ? (
         <div
@@ -570,6 +585,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
       <CollapsibleRegion
         open={isExpanded}
+        onExitComplete={handleDetailsExitComplete}
         contentClassName="border-t border-[var(--theme-primary)] bg-[var(--theme-bg-secondary)] px-4 pb-4 pt-4 sm:px-6 sm:pb-6 sm:pt-5"
       >
         <div onClick={(event: React.MouseEvent<HTMLDivElement>) => event.stopPropagation()}>

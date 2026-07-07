@@ -4,13 +4,15 @@ interface CollapsibleRegionProps {
   open: boolean;
   className?: string;
   contentClassName?: string;
+  /** Fires when a close transition fully completes (not when a reopen cancels it). */
+  onExitComplete?: () => void;
   children: React.ReactNode;
 }
 
 // Fallback unmount delay for environments where `transitionend` never fires
 // (e.g. prefers-reduced-motion sets `transition: none`). Must cover the CSS
-// grid-template-rows transition duration (0.25s) with headroom.
-const UNMOUNT_FALLBACK_MS = 320;
+// grid-template-rows transition duration (0.35s in collapsible.css) with headroom.
+const UNMOUNT_FALLBACK_MS = 430;
 
 /**
  * Animated expand/collapse wrapper using the house grid-template-rows 0fr->1fr
@@ -22,6 +24,7 @@ export const CollapsibleRegion: React.FC<CollapsibleRegionProps> = ({
   open,
   className,
   contentClassName,
+  onExitComplete,
   children
 }) => {
   const [present, setPresent] = useState<boolean>(open);
@@ -29,6 +32,8 @@ export const CollapsibleRegion: React.FC<CollapsibleRegionProps> = ({
   const presentRef = useRef<boolean>(open);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onExitCompleteRef = useRef<(() => void) | undefined>(onExitComplete);
+  onExitCompleteRef.current = onExitComplete;
 
   const setPresence = useCallback((next: boolean): void => {
     presentRef.current = next;
@@ -76,6 +81,7 @@ export const CollapsibleRegion: React.FC<CollapsibleRegionProps> = ({
       clearFallback();
       wrapper?.removeEventListener('transitionend', handleTransitionEnd);
       setPresence(false);
+      onExitCompleteRef.current?.();
     }
 
     function handleTransitionEnd(event: TransitionEvent): void {
