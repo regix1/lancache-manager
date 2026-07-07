@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Key, Lock, ExternalLink, CheckCircle, XCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
@@ -9,12 +9,18 @@ interface SteamWebApiKeyModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  /**
+   * Surfaces Test/Save as a universal-notification card (Integrations management surface
+   * only). Omitted by the setup wizard so it stays notification-free.
+   */
+  statusNotifications?: boolean;
 }
 
 const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
   isOpen,
   onClose,
-  onSuccess
+  onSuccess,
+  statusNotifications
 }) => {
   const { t } = useTranslation();
 
@@ -26,15 +32,27 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
     testResult,
     handleTest,
     handleSave,
-    resetTestResult
+    resetTestResult,
+    cancelWebApiCard
   } = useSteamApiKey({
+    statusNotifications,
     onSaveSuccess: () => {
       onSuccess?.();
       onClose();
     }
   });
 
+  // Unmount with a Test/Save still live (e.g. tab switched away mid-request): settle the card
+  // as cancelled so it doesn't spin forever.
+  useEffect(() => {
+    return () => {
+      cancelWebApiCard();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleClose = () => {
+    cancelWebApiCard();
     setApiKey('');
     resetTestResult();
     onClose();

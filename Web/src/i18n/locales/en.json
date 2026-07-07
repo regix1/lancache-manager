@@ -6196,6 +6196,18 @@
       "signInCancelled": "Steam sign-in cancelled",
       "signInFailed": "Steam sign-in failed: {{errorDetail}}"
     },
+    "steamWebApi": {
+      "validating": "Validating Steam Web API key...",
+      "saving": "Saving Steam Web API key...",
+      "removing": "Removing Steam Web API key...",
+      "keyValid": "Steam Web API key is valid",
+      "keyInvalid": "Steam Web API key is invalid: {{errorDetail}}",
+      "keySaved": "Steam Web API key saved, V1 operational",
+      "keySaveFailed": "Failed to save Steam Web API key: {{errorDetail}}",
+      "keyRemoved": "Steam Web API key removed",
+      "keyRemoveFailed": "Failed to remove Steam Web API key: {{errorDetail}}",
+      "cancelled": "Steam Web API key check cancelled"
+    },
     "xboxMapping": {
       "starting": "Starting Xbox catalog resolve...",
       "gamesDiscovered": "Discovered {{gamesDiscovered}} games",

@@ -11,6 +11,7 @@ import SteamWebApiKeyModal from '@components/modals/setup/SteamWebApiKeyModal';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 import { usePicsProgress } from '@contexts/usePicsProgress';
+import { useNotifications } from '@contexts/notifications';
 import ApiService from '@services/api.service';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 
@@ -22,6 +23,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
   const { t } = useTranslation();
   const { status, loading, refresh, updateStatus } = useSteamWebApiStatus();
   const { updateProgress } = usePicsProgress();
+  const { addNotification, updateNotification, scheduleAutoDismiss } = useNotifications();
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showRemoveModal, setShowRemoveModal] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -37,6 +39,13 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
   const confirmRemoveApiKey = async () => {
     setRemoving(true);
     setShowRemoveModal(false);
+
+    const cardId = addNotification({
+      type: 'generic',
+      status: 'running',
+      message: t('signalr.steamWebApi.removing'),
+      details: { notificationType: 'info' }
+    });
 
     try {
       const response = await fetch(
@@ -69,14 +78,31 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
         });
 
         // Update PICS progress in useEffect, not during render
+        updateNotification(cardId, {
+          status: 'completed',
+          message: t('signalr.steamWebApi.keyRemoved'),
+          details: { notificationType: 'success' }
+        });
+        scheduleAutoDismiss(cardId);
       } else {
-        alert(data.error || t('modals.steamAuth.errors.failedToRemoveApiKey'));
+        const errorDetail = data.error || t('modals.steamAuth.errors.failedToRemoveApiKey');
+        updateNotification(cardId, {
+          status: 'failed',
+          message: t('signalr.steamWebApi.keyRemoveFailed', { errorDetail }),
+          details: { notificationType: 'error' }
+        });
+        scheduleAutoDismiss(cardId);
       }
     } catch (error: unknown) {
-      alert(
+      const errorDetail =
         (error instanceof Error ? error.message : String(error)) ||
-          t('modals.steamAuth.errors.networkError')
-      );
+        t('modals.steamAuth.errors.networkError');
+      updateNotification(cardId, {
+        status: 'failed',
+        message: t('signalr.steamWebApi.keyRemoveFailed', { errorDetail }),
+        details: { notificationType: 'error' }
+      });
+      scheduleAutoDismiss(cardId);
     } finally {
       setRemoving(false);
     }
@@ -328,6 +354,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
         isOpen={showConfigModal}
         onClose={() => setShowConfigModal(false)}
         onSuccess={handleApiKeySuccess}
+        statusNotifications
       />
 
       {/* Remove Confirmation Modal */}

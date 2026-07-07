@@ -49,7 +49,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
   const loginNotificationActiveRef = useRef(false);
 
   const pushLoginCard = useCallback(
-    (status: NotificationStatus, message: string, error?: string) => {
+    (status: NotificationStatus, message: string, error?: string, cancelled = false) => {
       if (!loginStatusNotifications) {
         return;
       }
@@ -57,6 +57,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
         type: 'epic_game_mapping',
         status,
         message,
+        details: { cancelled },
         ...(error !== undefined ? { error } : {})
       });
     },
@@ -69,10 +70,11 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     }
     if (loginNotificationActiveRef.current) {
       // The user backed out of a login still waiting on them (closed the modal, or restarted the
-      // flow). 'completed' rather than a 'cancelled' status so the card auto-dismisses - the same
-      // convention the Xbox mapping terminal events use.
+      // flow). Status stays 'completed' (there is no 'cancelled' status) so the card still
+      // auto-dismisses; details.cancelled:true is what renders it red + XCircle, matching Xbox's
+      // terminal cancel (specialCaseHandlers.ts:271), which sets the very same flag.
       loginNotificationActiveRef.current = false;
-      pushLoginCard('completed', t('signalr.epicMapping.signInCancelled'));
+      pushLoginCard('completed', t('signalr.epicMapping.signInCancelled'), undefined, true);
     }
     setLoading(false);
     setNeedsAuthorizationCode(false);
@@ -93,7 +95,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     return () => {
       if (loginNotificationActiveRef.current) {
         loginNotificationActiveRef.current = false;
-        pushLoginCard('completed', t('signalr.epicMapping.signInCancelled'));
+        pushLoginCard('completed', t('signalr.epicMapping.signInCancelled'), undefined, true);
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

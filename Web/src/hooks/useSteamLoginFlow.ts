@@ -96,14 +96,15 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
   const settleLoginCard = (
     status: 'completed' | 'failed',
     message: string,
-    variant: NotificationVariant
+    variant: NotificationVariant,
+    cancelled = false
   ): void => {
     const id = loginCardIdRef.current;
     if (!id) {
       return;
     }
     loginCardIdRef.current = null;
-    updateNotification(id, { status, message, details: { notificationType: variant } });
+    updateNotification(id, { status, message, details: { notificationType: variant, cancelled } });
     scheduleAutoDismiss(id);
   };
 
@@ -147,9 +148,11 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
 
   // Unmount with a login still live (tab switched away mid-flow): the abort effect above kills the
   // request silently, which would leave the status card spinning forever - settle it as cancelled.
+  // cancelled:true renders the card red + XCircle (same contract as Xbox's terminal cancel) while
+  // status stays 'completed' so scheduleAutoDismiss still fires.
   useEffect(() => {
     return () => {
-      settleLoginCard('completed', t('signalr.steamLogin.signInCancelled'), 'warning');
+      settleLoginCard('completed', t('signalr.steamLogin.signInCancelled'), 'warning', true);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -165,7 +168,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     // A card still live here means the user backed out mid-flow (closed the modal during the
     // Steam Guard step or the mobile-confirmation wait) - success/failure settle the card
     // themselves BEFORE calling this, so this can only be a cancel.
-    settleLoginCard('completed', t('signalr.steamLogin.signInCancelled'), 'warning');
+    settleLoginCard('completed', t('signalr.steamLogin.signInCancelled'), 'warning', true);
     cancelPendingRequest();
     setUsername('');
     setPassword('');

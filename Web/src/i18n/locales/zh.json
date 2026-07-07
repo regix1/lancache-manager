@@ -6081,6 +6081,18 @@
       "signInCancelled": "Steam 登录已取消",
       "signInFailed": "Steam 登录失败: {{errorDetail}}"
     },
+    "steamWebApi": {
+      "validating": "正在验证 Steam Web API 密钥...",
+      "saving": "正在保存 Steam Web API 密钥...",
+      "removing": "正在移除 Steam Web API 密钥...",
+      "keyValid": "Steam Web API 密钥有效",
+      "keyInvalid": "Steam Web API 密钥无效: {{errorDetail}}",
+      "keySaved": "Steam Web API 密钥已保存，V1 已启用",
+      "keySaveFailed": "保存 Steam Web API 密钥失败: {{errorDetail}}",
+      "keyRemoved": "Steam Web API 密钥已移除",
+      "keyRemoveFailed": "移除 Steam Web API 密钥失败: {{errorDetail}}",
+      "cancelled": "Steam Web API 密钥检查已取消"
+    },
     "xboxMapping": {
       "starting": "正在解析 Xbox 游戏目录...",
       "gamesDiscovered": "发现 {{gamesDiscovered}} 个游戏",
