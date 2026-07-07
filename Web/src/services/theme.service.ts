@@ -1374,6 +1374,17 @@ class ThemeService {
     const prefs = await preferencesService.loadPreferences();
     this.initializePreferences(prefs);
 
+    // A theme preview survives the page reload the Preview button triggers -
+    // it must win over the real saved preference until the preview is toggled off.
+    const previewThemeId = this.getPreviewTheme();
+    if (previewThemeId) {
+      const previewTheme = await this.getTheme(previewThemeId);
+      if (previewTheme) {
+        this.applyTheme(previewTheme);
+        return;
+      }
+    }
+
     // Load theme from preferences
     if (prefs.selectedTheme) {
       const theme = await this.getTheme(prefs.selectedTheme);
