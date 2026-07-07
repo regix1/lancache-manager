@@ -231,7 +231,7 @@ public partial class SteamKit2Service
                 ),
                 EResult.TryAnotherCM => (
                     "ServerUnavailable",
-                    "Steam server is temporarily unavailable. This often happens after a session was replaced. Please wait a moment and try again, or re-authenticate."
+                    "Steam's servers are busy right now. This is temporary, please wait a moment and try again."
                 ),
                 EResult.ServiceUnavailable => (
                     "ServiceUnavailable",
@@ -252,14 +252,22 @@ public partial class SteamKit2Service
             };
 
             _lastErrorMessage = errorMessage;
-            _loggedOnTcs?.TrySetException(new Exception($"Logon failed: {callback.Result} / {callback.ExtendedResult}"));
+            // Surface the friendly per-result message (not the raw enum) to the interactive login
+            // modal, which returns this text via AuthenticateAsync. Raw result is logged just below.
+            _loggedOnTcs?.TrySetException(new Exception(errorMessage));
             _logger.LogError("Unable to logon to Steam: {Result} / {ExtendedResult}", callback.Result, callback.ExtendedResult);
+
+            // TryAnotherCM is a transient "reconnect to a different CM" signal, not a login problem,
+            // so give it a friendly stageKey instead of the generic one that echoes the raw enum.
+            var stageKey = callback.Result == EResult.TryAnotherCM
+                ? "signalr.steamSession.serverBusy"
+                : "signalr.steamSession.loginFailed";
 
             // Send error notification to frontend
             _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
             {
                 errorType,
-                stageKey = "signalr.steamSession.loginFailed",
+                stageKey,
                 context = new Dictionary<string, object?> { ["result"] = callback.Result.ToString() },
                 result = callback.Result.ToString(),
                 extendedResult = callback.ExtendedResult.ToString(),

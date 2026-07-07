@@ -6458,6 +6458,7 @@
       },
       "reconnectFailed": "Failed to maintain Steam connection after {{maxAttempts}} reconnection attempts. Steam servers may be experiencing issues.",
       "loginFailed": "Unable to log into Steam: {{result}}. Please try again or re-authenticate.",
+      "serverBusy": "Steam's servers are busy right now. This is temporary, please wait a moment and try again.",
       "disconnected": "Disconnected from Steam: {{result}}"
     }
   },

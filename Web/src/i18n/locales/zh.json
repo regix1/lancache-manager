@@ -6343,6 +6343,7 @@
       },
       "reconnectFailed": "经过 {{maxAttempts}} 次重连尝试后仍无法维持 Steam 连接。Steam 服务器可能存在问题。",
       "loginFailed": "无法登录 Steam: {{result}}。请重试或重新认证。",
+      "serverBusy": "Steam 服务器当前繁忙。这是暂时的，请稍候片刻再试。",
       "disconnected": "已断开 Steam 连接: {{result}}"
     }
   },

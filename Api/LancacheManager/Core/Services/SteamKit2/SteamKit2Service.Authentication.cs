@@ -96,6 +96,17 @@ public partial class SteamKit2Service
                 Message = "Authentication successful"
             };
         }
+        catch (AsyncJobFailedException ex)
+        {
+            // A Steam connection-manager dropped the auth job mid-flight (usually TryAnotherCM
+            // server churn). Transient - surface a friendly message, not the raw exception text.
+            _logger.LogError(ex, "Authentication failed (Steam job failed - servers likely busy)");
+            return new AuthenticationResult
+            {
+                Success = false,
+                Message = "Steam's servers are busy right now. This is temporary, please wait a moment and try again."
+            };
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Authentication failed");
