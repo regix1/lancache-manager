@@ -54,6 +54,9 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     // True while a retry-capable attempt is in flight: suppresses the transient error toast and
     // rebuild teardown in OnLoggedOn, and tells OnDisconnected the retry owns reconnection.
     private volatile bool _transientCmRetryActive;
+    // Serializes CM-retry loops. Concurrent auth flows share ONE SteamClient - without this gate
+    // two loops interleave and one loop's reconnect tears down the connection the other just made.
+    private readonly SemaphoreSlim _cmRetryGate = new(1, 1);
 
     // Scheduling for periodic PICS crawls
     private DateTime _lastCrawlTime = DateTime.MinValue;

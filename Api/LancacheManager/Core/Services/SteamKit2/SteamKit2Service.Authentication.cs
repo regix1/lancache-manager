@@ -154,25 +154,43 @@ public partial class SteamKit2Service
     /// </summary>
     private async Task<T> RunWithCmRetryAsync<T>(Func<Task<T>> step, string stepName, CancellationToken ct = default)
     {
-        for (var attempt = 1; ; attempt++)
+        await _cmRetryGate.WaitAsync(ct);
+        try
         {
-            _transientCmRetryActive = attempt <= TransientCmRetries;
-            try
+            for (var attempt = 1; ; attempt++)
             {
-                return await step();
+                _transientCmRetryActive = attempt <= TransientCmRetries;
+                try
+                {
+                    return await step();
+                }
+                catch (Exception ex) when (attempt <= TransientCmRetries &&
+                                           ex is AsyncJobFailedException or SteamTransientLoginException)
+                {
+                    _logger.LogWarning(
+                        "{Step} hit a busy Steam server (attempt {Attempt}/{MaxAttempts}) - reconnecting to a different server and retrying: {Message}",
+                        stepName, attempt, TransientCmRetries + 1, ex.Message);
+                    try
+                    {
+                        await ReconnectForCmRetryAsync(ct);
+                    }
+                    catch (Exception reconnectEx)
+                    {
+                        // Reconnection itself failed (e.g. Steam dropped us mid-handshake). Surface
+                        // the original transient failure - its message is the friendly one.
+                        _logger.LogWarning(reconnectEx, "Reconnect during {Step} retry failed - surfacing the original transient failure", stepName);
+                        throw ex;
+                    }
+                }
+                finally
+                {
+                    _transientCmRetryActive = false;
+                }
             }
-            catch (Exception ex) when (attempt <= TransientCmRetries &&
-                                       ex is AsyncJobFailedException or SteamTransientLoginException)
-            {
-                _logger.LogWarning(
-                    "{Step} hit a busy Steam server (attempt {Attempt}/{MaxAttempts}) - reconnecting to a different server and retrying: {Message}",
-                    stepName, attempt, TransientCmRetries + 1, ex.Message);
-                await ReconnectForCmRetryAsync(ct);
-            }
-            finally
-            {
-                _transientCmRetryActive = false;
-            }
+        }
+        finally
+        {
+            _cmRetryGate.Release();
         }
     }
 
@@ -192,9 +210,24 @@ public partial class SteamKit2Service
         // Give the disconnect a moment to settle before reconnecting
         await Task.Delay(TimeSpan.FromSeconds(2), ct);
 
-        _connectedTcs = new TaskCompletionSource();
-        _steamClient!.Connect();
-        await WaitWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(30), ct, "Reconnecting to Steam");
+        // The disconnect callback can land after the settle delay and fault the fresh
+        // _connectedTcs below (seen live as "Disconnected from Steam" killing the retry),
+        // so allow one extra connect pass before giving up.
+        for (var connectAttempt = 1; ; connectAttempt++)
+        {
+            _connectedTcs = new TaskCompletionSource();
+            _steamClient!.Connect();
+            try
+            {
+                await WaitWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(30), ct, "Reconnecting to Steam");
+                return;
+            }
+            catch (Exception ex) when (connectAttempt == 1 && !ct.IsCancellationRequested)
+            {
+                _logger.LogWarning("Reconnect pass {Attempt} failed ({Message}) - trying once more", connectAttempt, ex.Message);
+                await Task.Delay(TimeSpan.FromSeconds(2), ct);
+            }
+        }
     }
 
     /// <summary>
