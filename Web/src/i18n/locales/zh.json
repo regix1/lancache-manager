@@ -6062,7 +6062,19 @@
       "gamesDiscovered": "发现 {{gamesDiscovered}} 个游戏",
       "completed": "Epic 目录刷新完成 - {{gamesDiscovered}} 个游戏",
       "cancelled": "Epic 游戏目录刷新已取消",
-      "failed": "Epic 游戏目录刷新失败: {{errorDetail}}"
+      "failed": "Epic 游戏目录刷新失败: {{errorDetail}}",
+      "waitingSignIn": "正在等待 Epic 登录...",
+      "signingIn": "正在登录 Epic Games...",
+      "signInCancelled": "Epic 登录已取消",
+      "signInFailed": "Epic 登录失败: {{errorDetail}}"
+    },
+    "steamLogin": {
+      "waitingSignIn": "正在等待 Steam 登录...",
+      "waitingGuardCode": "正在等待 Steam 令牌验证码...",
+      "signingIn": "正在登录 Steam...",
+      "signedIn": "已以 {{username}} 登录 Steam",
+      "signInCancelled": "Steam 登录已取消",
+      "signInFailed": "Steam 登录失败: {{errorDetail}}"
     },
     "xboxMapping": {
       "starting": "正在解析 Xbox 游戏目录...",

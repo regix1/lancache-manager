@@ -6092,7 +6092,19 @@
       "gamesDiscovered": "Discovered {{gamesDiscovered}} games",
       "completed": "Epic catalog refresh completed - {{gamesDiscovered}} games",
       "cancelled": "Epic catalog refresh cancelled",
-      "failed": "Epic catalog refresh failed: {{errorDetail}}"
+      "failed": "Epic catalog refresh failed: {{errorDetail}}",
+      "waitingSignIn": "Waiting for Epic sign-in...",
+      "signingIn": "Signing in to Epic Games...",
+      "signInCancelled": "Epic sign-in cancelled",
+      "signInFailed": "Epic sign-in failed: {{errorDetail}}"
+    },
+    "steamLogin": {
+      "waitingSignIn": "Waiting for Steam sign-in...",
+      "waitingGuardCode": "Waiting for Steam Guard code...",
+      "signingIn": "Signing in to Steam...",
+      "signedIn": "Signed in to Steam as {{username}}",
+      "signInCancelled": "Steam sign-in cancelled",
+      "signInFailed": "Steam sign-in failed: {{errorDetail}}"
     },
     "xboxMapping": {
       "starting": "Starting Xbox catalog resolve...",

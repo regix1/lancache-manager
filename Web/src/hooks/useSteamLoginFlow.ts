@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
+import type { NotificationVariant } from '../types/operations';
 import type { SteamAuthActions, SteamLoginFlowState } from './steamAuthTypes';
 
 const REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
@@ -10,6 +12,14 @@ interface SteamLoginFlowOptions {
   onSuccess?: (message: string) => void;
   onError?: (message: string) => void;
   getExtraRequestBody?: () => Record<string, unknown>;
+  /**
+   * Surfaces the login lifecycle (waiting for sign-in / Steam Guard step / signed in / cancelled /
+   * failed) as one universal-notification card, mirroring the Xbox and Epic mapping logins on the
+   * Integrations page. Opt-in because this hook is also used by the setup wizard, where the
+   * notification bar is not part of the flow. When enabled, submit failures settle this card
+   * instead of raising the separate generic error toast.
+   */
+  loginStatusNotifications?: boolean;
 }
 
 interface SteamLoginApiResult {
@@ -52,8 +62,68 @@ function buildSteamOnlyState(
 }
 
 export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
-  const { loginUrl, onSuccess, onError, getExtraRequestBody } = options;
-  const { addNotification } = useNotifications();
+  const {
+    loginUrl,
+    onSuccess,
+    onError,
+    getExtraRequestBody,
+    loginStatusNotifications = false
+  } = options;
+  const { t } = useTranslation();
+  const { addNotification, updateNotification, scheduleAutoDismiss } = useNotifications();
+
+  // Id of the login-status card while a login this hook started is still live. Steam has no
+  // backend-driven mapping card to share (unlike Epic/Xbox), so the lifecycle lives in one
+  // 'generic' card updated in place; null once the card settled (signed in/cancelled/failed).
+  const loginCardIdRef = useRef<string | null>(null);
+
+  const upsertLoginCard = (message: string): void => {
+    if (!loginStatusNotifications) {
+      return;
+    }
+    if (loginCardIdRef.current) {
+      updateNotification(loginCardIdRef.current, { status: 'running', message });
+    } else {
+      loginCardIdRef.current = addNotification({
+        type: 'generic',
+        status: 'running',
+        message,
+        details: { notificationType: 'info' }
+      });
+    }
+  };
+
+  const settleLoginCard = (
+    status: 'completed' | 'failed',
+    message: string,
+    variant: NotificationVariant
+  ): void => {
+    const id = loginCardIdRef.current;
+    if (!id) {
+      return;
+    }
+    loginCardIdRef.current = null;
+    updateNotification(id, { status, message, details: { notificationType: variant } });
+    scheduleAutoDismiss(id);
+  };
+
+  /** Failure surface: settles the login card when one is live, else the plain error toast. */
+  const notifyLoginFailure = (message: string): void => {
+    if (loginCardIdRef.current) {
+      settleLoginCard(
+        'failed',
+        t('signalr.steamLogin.signInFailed', { errorDetail: message }),
+        'error'
+      );
+      return;
+    }
+    addNotification({
+      type: 'generic',
+      status: 'failed',
+      message,
+      details: { notificationType: 'error' }
+    });
+  };
 
   const [loading, setLoading] = useState(false);
   const [needsTwoFactor, setNeedsTwoFactor] = useState(false);
@@ -75,6 +145,15 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     };
   }, [abortController]);
 
+  // Unmount with a login still live (tab switched away mid-flow): the abort effect above kills the
+  // request silently, which would leave the status card spinning forever - settle it as cancelled.
+  useEffect(() => {
+    return () => {
+      settleLoginCard('completed', t('signalr.steamLogin.signInCancelled'), 'warning');
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const cancelPendingRequest = () => {
     if (abortController) {
       abortController.abort();
@@ -83,6 +162,10 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
   };
 
   const resetAuthForm = () => {
+    // A card still live here means the user backed out mid-flow (closed the modal during the
+    // Steam Guard step or the mobile-confirmation wait) - success/failure settle the card
+    // themselves BEFORE calling this, so this can only be a cancel.
+    settleLoginCard('completed', t('signalr.steamLogin.signInCancelled'), 'warning');
     cancelPendingRequest();
     setUsername('');
     setPassword('');
@@ -131,9 +214,17 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     const controller = new AbortController();
     setAbortController(controller);
 
-    if (!needsTwoFactor && !needsEmailCode && !useManualCode) {
+    const willWaitForMobileConfirmation = !needsTwoFactor && !needsEmailCode && !useManualCode;
+    if (willWaitForMobileConfirmation) {
       setWaitingForMobileConfirmation(true);
     }
+    upsertLoginCard(
+      t(
+        willWaitForMobileConfirmation
+          ? 'signalr.steamLogin.waitingSignIn'
+          : 'signalr.steamLogin.signingIn'
+      )
+    );
 
     let requestTimeout: ReturnType<typeof setTimeout> | null = null;
     try {
@@ -162,12 +253,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       try {
         result = await response.json();
       } catch (_jsonError) {
-        addNotification({
-          type: 'generic',
-          status: 'failed',
-          message: 'Invalid response from server',
-          details: { notificationType: 'error' }
-        });
+        notifyLoginFailure('Invalid response from server');
         setLoading(false);
         setWaitingForMobileConfirmation(false);
         return false;
@@ -178,6 +264,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
           setWaitingForMobileConfirmation(false);
           setNeedsTwoFactor(true);
           setUseManualCode(true);
+          upsertLoginCard(t('signalr.steamLogin.waitingGuardCode'));
           addNotification({
             type: 'generic',
             status: 'failed',
@@ -190,40 +277,34 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
         if (result.requiresTwoFactor) {
           setWaitingForMobileConfirmation(false);
           setNeedsTwoFactor(true);
+          upsertLoginCard(t('signalr.steamLogin.waitingGuardCode'));
           return false;
         }
 
         if (result.requiresEmailCode) {
           setWaitingForMobileConfirmation(false);
           setNeedsEmailCode(true);
+          upsertLoginCard(t('signalr.steamLogin.waitingGuardCode'));
           return false;
         }
 
         if (result.success) {
+          // Settled BEFORE resetAuthForm below, which treats a still-live card as a cancel.
+          settleLoginCard('completed', t('signalr.steamLogin.signedIn', { username }), 'success');
           onSuccess?.(result.message || `Successfully authenticated as ${username}`);
           resetAuthForm();
           return true;
         }
 
         setWaitingForMobileConfirmation(false);
-        addNotification({
-          type: 'generic',
-          status: 'failed',
-          message: result.message || 'Authentication failed',
-          details: { notificationType: 'error' }
-        });
+        notifyLoginFailure(result.message || 'Authentication failed');
         return false;
       }
 
       setWaitingForMobileConfirmation(false);
       setLoading(false);
       const errorMsg = result.message || result.error || 'Authentication failed';
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: errorMsg,
-        details: { notificationType: 'error' }
-      });
+      notifyLoginFailure(errorMsg);
       resetAuthForm();
       onError?.(errorMsg);
       return false;
@@ -232,12 +313,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
         setWaitingForMobileConfirmation(false);
         setLoading(false);
         const errorMessage = err instanceof Error ? err.message : 'Authentication failed';
-        addNotification({
-          type: 'generic',
-          status: 'failed',
-          message: errorMessage,
-          details: { notificationType: 'error' }
-        });
+        notifyLoginFailure(errorMessage);
         resetAuthForm();
         onError?.(errorMessage);
       }

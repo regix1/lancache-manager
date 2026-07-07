@@ -78,6 +78,7 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
     actions: loginActions,
     startLogin
   } = useEpicMappingAuth({
+    loginStatusNotifications: true,
     onSuccess: () => {
       setShowAuthModal(false);
       loadStatus();

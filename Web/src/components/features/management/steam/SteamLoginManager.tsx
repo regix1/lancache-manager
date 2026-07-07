@@ -43,6 +43,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
 
   const { state, actions } = useSteamAuthentication({
     autoStartPics,
+    loginStatusNotifications: true,
     onSuccess: (message) => {
       setContextSteamAuthMode('authenticated');
       setShowAuthModal(false);
