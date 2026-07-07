@@ -32,19 +32,31 @@ public partial class SteamKit2Service
             return;
         }
 
-        _connectedTcs = new TaskCompletionSource();
-        _loggedOnTcs = new TaskCompletionSource();
+        await RunWithCmRetryAsync(async () =>
+        {
+            if (_steamClient?.IsConnected != true)
+            {
+                _connectedTcs = new TaskCompletionSource();
+                _loggedOnTcs = new TaskCompletionSource();
 
-        _logger.LogInformation("Connecting to Steam...");
-        _steamClient!.Connect();
+                _logger.LogInformation("Connecting to Steam...");
+                _steamClient!.Connect();
 
-        // Wait for connected (increased timeout to handle Steam server delays)
-        await WaitWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(60), ct, "Connecting to Steam");
+                // Wait for connected (increased timeout to handle Steam server delays)
+                await WaitWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(60), ct, "Connecting to Steam");
+            }
+            else
+            {
+                // Retry pass: ReconnectForCmRetryAsync already reconnected us to a different CM
+                _loggedOnTcs = new TaskCompletionSource();
+            }
 
-        Login();
+            Login();
 
-        // Wait for logged on (increased timeout to handle Steam server delays)
-        await WaitWithTimeoutAsync(_loggedOnTcs.Task, TimeSpan.FromSeconds(60), ct, "Logging into Steam");
+            // Wait for logged on (increased timeout to handle Steam server delays)
+            await WaitWithTimeoutAsync(_loggedOnTcs.Task, TimeSpan.FromSeconds(60), ct, "Logging into Steam");
+            return true;
+        }, "Steam login", ct);
     }
 
     /// <summary>
@@ -136,8 +148,10 @@ public partial class SteamKit2Service
         _isLoggedOn = false;
 
         // Only reconnect if we're running AND there's an active rebuild
-        // This prevents endless reconnection loops after PICS crawls complete
-        if (_isRunning && IsRebuildRunning)
+        // This prevents endless reconnection loops after PICS crawls complete.
+        // When a CM-rotation retry is in flight it owns reconnection - scheduling a second
+        // Connect() here would race it and orphan its TaskCompletionSources.
+        if (_isRunning && IsRebuildRunning && !_transientCmRetryActive)
         {
             _reconnectAttempt++;
 
@@ -251,11 +265,24 @@ public partial class SteamKit2Service
                 )
             };
 
+            // TryAnotherCM/ServiceUnavailable mean this particular CM server can't serve us right
+            // now - a reconnect (which rotates to a different server) is the documented remedy.
+            var isTransientServerFailure = callback.Result is EResult.TryAnotherCM or EResult.ServiceUnavailable;
+
             _lastErrorMessage = errorMessage;
             // Surface the friendly per-result message (not the raw enum) to the interactive login
             // modal, which returns this text via AuthenticateAsync. Raw result is logged just below.
-            _loggedOnTcs?.TrySetException(new Exception(errorMessage));
+            _loggedOnTcs?.TrySetException(isTransientServerFailure
+                ? new SteamTransientLoginException(errorMessage)
+                : new Exception(errorMessage));
             _logger.LogError("Unable to logon to Steam: {Result} / {ExtendedResult}", callback.Result, callback.ExtendedResult);
+
+            if (isTransientServerFailure && _transientCmRetryActive)
+            {
+                // A CM-rotation retry is about to re-attempt this logon on a different server.
+                // Hold off on the error toast and rebuild teardown until the final attempt fails.
+                return;
+            }
 
             // TryAnotherCM is a transient "reconnect to a different CM" signal, not a login problem,
             // so give it a friendly stageKey instead of the generic one that echoes the raw enum.

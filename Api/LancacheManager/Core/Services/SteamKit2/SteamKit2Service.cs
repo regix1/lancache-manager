@@ -48,6 +48,13 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     private const int MaxReconnectAttempts = 2; // Give up after 2 attempts
     private const int MaxReconnectDelaySeconds = 60; // Cap at 60 seconds
 
+    // Bounded retry for transient CM failures (TryAnotherCM / dropped auth jobs). SteamKit2 marks
+    // the failing endpoint bad, so a reconnect rotates to a different CM server.
+    private const int TransientCmRetries = 2; // retries after the first attempt (3 attempts total)
+    // True while a retry-capable attempt is in flight: suppresses the transient error toast and
+    // rebuild teardown in OnLoggedOn, and tells OnDisconnected the retry owns reconnection.
+    private volatile bool _transientCmRetryActive;
+
     // Scheduling for periodic PICS crawls
     private DateTime _lastCrawlTime = DateTime.MinValue;
     private object _crawlIncrementalMode = true; // Default: Run incremental scans (true/false/"github")

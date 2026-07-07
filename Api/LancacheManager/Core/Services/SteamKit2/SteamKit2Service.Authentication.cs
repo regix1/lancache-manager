@@ -18,12 +18,14 @@ public partial class SteamKit2Service
     {
         try
         {
-            var pollResult = await PollCredentialsAuthAsync(
-                username,
-                password,
-                twoFactorCode,
-                emailCode,
-                allowMobileConfirmation);
+            var pollResult = await RunWithCmRetryAsync(
+                () => PollCredentialsAuthAsync(
+                    username,
+                    password,
+                    twoFactorCode,
+                    emailCode,
+                    allowMobileConfirmation),
+                "Steam refresh token acquisition");
 
             if (!pollResult.Success)
             {
@@ -36,6 +38,15 @@ public partial class SteamKit2Service
                 Message = "Authentication successful",
                 AccountName = pollResult.AccountName,
                 RefreshToken = pollResult.RefreshToken
+            };
+        }
+        catch (AsyncJobFailedException ex)
+        {
+            _logger.LogError(ex, "Scheduled prefill Steam refresh token acquisition failed (Steam job failed - servers likely busy)");
+            return new AuthenticationResult
+            {
+                Success = false,
+                Message = "Steam's servers are busy right now. This is temporary, please wait a moment and try again."
             };
         }
         catch (Exception ex)
@@ -56,12 +67,14 @@ public partial class SteamKit2Service
     {
         try
         {
-            var pollResult = await PollCredentialsAuthAsync(
-                username,
-                password,
-                twoFactorCode,
-                emailCode,
-                allowMobileConfirmation);
+            var pollResult = await RunWithCmRetryAsync(
+                () => PollCredentialsAuthAsync(
+                    username,
+                    password,
+                    twoFactorCode,
+                    emailCode,
+                    allowMobileConfirmation),
+                "Steam authentication");
 
             if (!pollResult.Success)
             {
@@ -73,22 +86,26 @@ public partial class SteamKit2Service
             _logger.LogInformation("Successfully authenticated and saved refresh token");
 
             // Now login with the refresh token
-            _loggedOnTcs = new TaskCompletionSource();
-            _steamUser!.LogOn(new SteamUser.LogOnDetails
+            await RunWithCmRetryAsync(async () =>
             {
-                Username = pollResult.AccountName!,
-                AccessToken = pollResult.RefreshToken!,
-                ShouldRememberPassword = true,
-                LoginID = _steamLoginId
-            });
-            _logger.LogInformation(
-                "SteamKit2 auth-flow login with LoginID: {LoginID} (0x{LoginIDHex:X8}) for user: {Username}",
-                _steamLoginId,
-                _steamLoginId,
-                pollResult.AccountName);
+                _loggedOnTcs = new TaskCompletionSource();
+                _steamUser!.LogOn(new SteamUser.LogOnDetails
+                {
+                    Username = pollResult.AccountName!,
+                    AccessToken = pollResult.RefreshToken!,
+                    ShouldRememberPassword = true,
+                    LoginID = _steamLoginId
+                });
+                _logger.LogInformation(
+                    "SteamKit2 auth-flow login with LoginID: {LoginID} (0x{LoginIDHex:X8}) for user: {Username}",
+                    _steamLoginId,
+                    _steamLoginId,
+                    pollResult.AccountName);
 
-            // Use longer timeout for authentication (Steam servers can be slow)
-            await WaitWithTimeoutAsync(_loggedOnTcs.Task, TimeSpan.FromMinutes(2), CancellationToken.None);
+                // Use longer timeout for authentication (Steam servers can be slow)
+                await WaitWithTimeoutAsync(_loggedOnTcs.Task, TimeSpan.FromMinutes(2), CancellationToken.None);
+                return true;
+            }, "Steam sign-in");
 
             return new AuthenticationResult
             {
@@ -99,12 +116,23 @@ public partial class SteamKit2Service
         catch (AsyncJobFailedException ex)
         {
             // A Steam connection-manager dropped the auth job mid-flight (usually TryAnotherCM
-            // server churn). Transient - surface a friendly message, not the raw exception text.
+            // server churn) and the CM-rotation retries were exhausted. Surface a friendly
+            // message, not the raw exception text.
             _logger.LogError(ex, "Authentication failed (Steam job failed - servers likely busy)");
             return new AuthenticationResult
             {
                 Success = false,
                 Message = "Steam's servers are busy right now. This is temporary, please wait a moment and try again."
+            };
+        }
+        catch (SteamTransientLoginException ex)
+        {
+            // Logon kept landing on busy CM servers even after rotating; Message is already friendly.
+            _logger.LogError(ex, "Authentication failed after CM-rotation retries (Steam servers busy)");
+            return new AuthenticationResult
+            {
+                Success = false,
+                Message = ex.Message
             };
         }
         catch (Exception ex)
@@ -116,6 +144,67 @@ public partial class SteamKit2Service
                 Message = ex.Message
             };
         }
+    }
+
+    /// <summary>
+    /// Runs a Steam auth step, reconnecting and retrying (bounded) when the current CM server
+    /// turns us away with a transient failure: a TryAnotherCM/ServiceUnavailable logon result or a
+    /// dropped auth job (AsyncJobFailedException). SteamKit2 marks the failing endpoint bad, so the
+    /// reconnect rotates to a different CM server - staying on the same connection just fails again.
+    /// </summary>
+    private async Task<T> RunWithCmRetryAsync<T>(Func<Task<T>> step, string stepName, CancellationToken ct = default)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            _transientCmRetryActive = attempt <= TransientCmRetries;
+            try
+            {
+                return await step();
+            }
+            catch (Exception ex) when (attempt <= TransientCmRetries &&
+                                       ex is AsyncJobFailedException or SteamTransientLoginException)
+            {
+                _logger.LogWarning(
+                    "{Step} hit a busy Steam server (attempt {Attempt}/{MaxAttempts}) - reconnecting to a different server and retrying: {Message}",
+                    stepName, attempt, TransientCmRetries + 1, ex.Message);
+                await ReconnectForCmRetryAsync(ct);
+            }
+            finally
+            {
+                _transientCmRetryActive = false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Forces a fresh connection so SteamKit2 picks a different CM server. After TryAnotherCM the
+    /// CM usually disconnects us itself; after a dropped auth job we are still connected to the
+    /// same bad server and must disconnect explicitly.
+    /// </summary>
+    private async Task ReconnectForCmRetryAsync(CancellationToken ct)
+    {
+        if (_steamClient?.IsConnected == true)
+        {
+            _intentionalDisconnect = true;
+            _steamClient.Disconnect();
+        }
+
+        // Give the disconnect a moment to settle before reconnecting
+        await Task.Delay(TimeSpan.FromSeconds(2), ct);
+
+        _connectedTcs = new TaskCompletionSource();
+        _steamClient!.Connect();
+        await WaitWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(30), ct, "Reconnecting to Steam");
+    }
+
+    /// <summary>
+    /// Thrown when Steam logon fails with a transient server-side result (TryAnotherCM /
+    /// ServiceUnavailable): the CM turned us away and a different server should be tried.
+    /// The message is already user-friendly.
+    /// </summary>
+    public sealed class SteamTransientLoginException : Exception
+    {
+        public SteamTransientLoginException(string message) : base(message) { }
     }
 
     /// <summary>
