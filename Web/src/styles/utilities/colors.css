@@ -46,6 +46,74 @@
     color: var(--theme-xbox);
   }
 
+  .service-arenanet {
+    color: var(--theme-arenanet);
+  }
+
+  .service-bsg {
+    color: var(--theme-bsg);
+  }
+
+  .service-cityofheroes {
+    color: var(--theme-cityofheroes);
+  }
+
+  .service-cod {
+    color: var(--theme-cod);
+  }
+
+  .service-daybreak {
+    color: var(--theme-daybreak);
+  }
+
+  .service-frontier {
+    color: var(--theme-frontier);
+  }
+
+  .service-neverwinter {
+    color: var(--theme-neverwinter);
+  }
+
+  .service-nexusmods {
+    color: var(--theme-nexusmods);
+  }
+
+  .service-nintendo {
+    color: var(--theme-nintendo);
+  }
+
+  .service-pathofexile {
+    color: var(--theme-pathofexile);
+  }
+
+  .service-renegadex {
+    color: var(--theme-renegadex);
+  }
+
+  .service-sony {
+    color: var(--theme-sony);
+  }
+
+  .service-square {
+    color: var(--theme-square);
+  }
+
+  .service-teso {
+    color: var(--theme-teso);
+  }
+
+  .service-test {
+    color: var(--theme-test);
+  }
+
+  .service-warframe {
+    color: var(--theme-warframe);
+  }
+
+  .service-wargaming {
+    color: var(--theme-wargaming);
+  }
+
   /* Icon Colors - for component icons */
   .icon-blue {
     color: var(--theme-icon-blue);

@@ -377,6 +377,23 @@ class ThemeService {
           riotColor: '#d13639',
           xboxColor: '#107C10', // Xbox Green
           ubisoftColor: '#db2777', // Pink
+          arenanetColor: '#5C7A4A',
+          bsgColor: '#6E7B3A',
+          cityofheroesColor: '#2A9CC9', // Darkened for white-card legibility
+          codColor: '#C2410C',
+          daybreakColor: '#DC5457', // Darkened for white-card legibility
+          frontierColor: '#A9761F', // Darkened for white-card legibility
+          neverwinterColor: '#5B3A75',
+          nexusmodsColor: '#B45309', // Darkened for white-card legibility
+          nintendoColor: '#E4000F',
+          pathofexileColor: '#B8860B',
+          renegadexColor: '#6B7A8C',
+          sonyColor: '#003791',
+          squareColor: '#6B1210',
+          tesoColor: '#5C1F35',
+          testColor: '#71717A',
+          warframeColor: '#0E9AA0', // Darkened for white-card legibility
+          wargamingColor: '#5C5347',
 
           // Components - White cards with soft borders; shadows give the depth
           cardBg: '#ffffff',
@@ -642,6 +659,48 @@ class ThemeService {
       })
       .join('\n');
 
+    // Every service with a dedicated base color gets a -subtle and -muted alpha tier
+    // (steam/epic/blizzard/riot/xbox additionally keep their hand-tuned faint/on-border/strong below).
+    // rockstar and gog are intentionally excluded - they have no dedicated --theme-<svc> color
+    // and fall back to the generic accent color instead.
+    const platformColors: Record<string, string> = {
+      steam,
+      epic,
+      origin: colors.originColor!,
+      blizzard,
+      wsus: colors.wsusColor!,
+      riot,
+      xbox,
+      ubisoft: colors.ubisoftColor!,
+      arenanet: colors.arenanetColor!,
+      bsg: colors.bsgColor!,
+      cityofheroes: colors.cityofheroesColor!,
+      cod: colors.codColor!,
+      daybreak: colors.daybreakColor!,
+      frontier: colors.frontierColor!,
+      neverwinter: colors.neverwinterColor!,
+      nexusmods: colors.nexusmodsColor!,
+      nintendo: colors.nintendoColor!,
+      pathofexile: colors.pathofexileColor!,
+      renegadex: colors.renegadexColor!,
+      sony: colors.sonyColor!,
+      square: colors.squareColor!,
+      teso: colors.tesoColor!,
+      test: colors.testColor!,
+      warframe: colors.warframeColor!,
+      wargaming: colors.wargamingColor!
+    };
+    // epic is the only service that previously had a hand-tuned -muted opacity; preserve it
+    const platformMutedOpacity: Record<string, number> = { epic: 0.25 };
+    const platformVars = Object.entries(platformColors)
+      .map(([key, hex]) => {
+        const mutedOpacity = platformMutedOpacity[key] ?? 0.2;
+        return `
+      --theme-${key}-subtle: ${v(`${key}Subtle`, rgba(hex, 0.15))};
+      --theme-${key}-muted: ${v(`${key}Muted`, rgba(hex, mutedOpacity))};`;
+      })
+      .join('\n');
+
     return `
       /* ===== Opacity Tiers (base color + transparency) ===== */
 
@@ -680,27 +739,22 @@ class ThemeService {
       --theme-accent-muted: ${v('accentMuted', rgba(accent, 0.2))};
 
       /* Platform */
-      --theme-steam-subtle: ${v('steamSubtle', rgba(steam, 0.15))};
       --theme-steam-faint: ${colors.steamFaint};
       --theme-steam-on-border: ${colors.steamOnBorder};
       --theme-steam-strong: ${colors.steamStrong};
-      --theme-epic-subtle: ${v('epicSubtle', rgba(epic, 0.15))};
       --theme-epic-faint: ${colors.epicFaint};
       --theme-epic-on-border: ${colors.epicOnBorder};
       --theme-epic-strong: ${colors.epicStrong};
-      --theme-epic-muted: ${v('epicMuted', rgba(epic, 0.25))};
-      --theme-blizzard-subtle: ${v('blizzardSubtle', rgba(blizzard, 0.15))};
       --theme-blizzard-faint: ${colors.blizzardFaint};
       --theme-blizzard-on-border: ${colors.blizzardOnBorder};
       --theme-blizzard-strong: ${colors.blizzardStrong};
-      --theme-riot-subtle: ${v('riotSubtle', rgba(riot, 0.15))};
       --theme-riot-faint: ${v('riotFaint', rgba(riot, 0.1))};
       --theme-riot-on-border: ${v('riotOnBorder', rgba(riot, 0.5))};
       --theme-riot-strong: ${v('riotStrong', rgba(riot, 0.3))};
-      --theme-xbox-subtle: ${v('xboxSubtle', rgba(xbox, 0.15))};
       --theme-xbox-faint: ${v('xboxFaint', rgba(xbox, 0.1))};
       --theme-xbox-on-border: ${v('xboxOnBorder', rgba(xbox, 0.5))};
       --theme-xbox-strong: ${v('xboxStrong', rgba(xbox, 0.3))};
+      ${platformVars}
 
       /* Icon Backgrounds */
       --theme-icon-blue-subtle: ${v('iconBlueSubtle', rgba(iconBlue, 0.15))};
@@ -926,6 +980,23 @@ class ThemeService {
       --theme-riot: ${colors.riotColor};
       --theme-xbox: ${colors.xboxColor};
       --theme-ubisoft: ${colors.ubisoftColor};
+      --theme-arenanet: ${colors.arenanetColor};
+      --theme-bsg: ${colors.bsgColor};
+      --theme-cityofheroes: ${colors.cityofheroesColor};
+      --theme-cod: ${colors.codColor};
+      --theme-daybreak: ${colors.daybreakColor};
+      --theme-frontier: ${colors.frontierColor};
+      --theme-neverwinter: ${colors.neverwinterColor};
+      --theme-nexusmods: ${colors.nexusmodsColor};
+      --theme-nintendo: ${colors.nintendoColor};
+      --theme-pathofexile: ${colors.pathofexileColor};
+      --theme-renegadex: ${colors.renegadexColor};
+      --theme-sony: ${colors.sonyColor};
+      --theme-square: ${colors.squareColor};
+      --theme-teso: ${colors.tesoColor};
+      --theme-test: ${colors.testColor};
+      --theme-warframe: ${colors.warframeColor};
+      --theme-wargaming: ${colors.wargamingColor};
 
       /* Card & Component Colors */
       --theme-card-bg: ${colors.cardBg};

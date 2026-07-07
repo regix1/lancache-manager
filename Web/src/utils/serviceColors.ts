@@ -29,6 +29,40 @@ export function getServiceColorClass(service: string): string {
     case 'xbox':
     case 'xboxlive':
       return 'service-xbox';
+    case 'arenanet':
+      return 'service-arenanet';
+    case 'bsg':
+      return 'service-bsg';
+    case 'cityofheroes':
+      return 'service-cityofheroes';
+    case 'cod':
+      return 'service-cod';
+    case 'daybreak':
+      return 'service-daybreak';
+    case 'frontier':
+      return 'service-frontier';
+    case 'neverwinter':
+      return 'service-neverwinter';
+    case 'nexusmods':
+      return 'service-nexusmods';
+    case 'nintendo':
+      return 'service-nintendo';
+    case 'pathofexile':
+      return 'service-pathofexile';
+    case 'renegadex':
+      return 'service-renegadex';
+    case 'sony':
+      return 'service-sony';
+    case 'square':
+      return 'service-square';
+    case 'teso':
+      return 'service-teso';
+    case 'test':
+      return 'service-test';
+    case 'warframe':
+      return 'service-warframe';
+    case 'wargaming':
+      return 'service-wargaming';
     default:
       return 'text-[var(--theme-text-secondary)]';
   }
@@ -81,6 +115,91 @@ export function getServiceBadgeStyles(service: string): { backgroundColor: strin
       return {
         backgroundColor: 'var(--theme-bg-tertiary)',
         color: 'var(--theme-xbox)'
+      };
+    case 'arenanet':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-arenanet)'
+      };
+    case 'bsg':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-bsg)'
+      };
+    case 'cityofheroes':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-cityofheroes)'
+      };
+    case 'cod':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-cod)'
+      };
+    case 'daybreak':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-daybreak)'
+      };
+    case 'frontier':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-frontier)'
+      };
+    case 'neverwinter':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-neverwinter)'
+      };
+    case 'nexusmods':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-nexusmods)'
+      };
+    case 'nintendo':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-nintendo)'
+      };
+    case 'pathofexile':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-pathofexile)'
+      };
+    case 'renegadex':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-renegadex)'
+      };
+    case 'sony':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-sony)'
+      };
+    case 'square':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-square)'
+      };
+    case 'teso':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-teso)'
+      };
+    case 'test':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-test)'
+      };
+    case 'warframe':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-warframe)'
+      };
+    case 'wargaming':
+      return {
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        color: 'var(--theme-wargaming)'
       };
     default:
       return {

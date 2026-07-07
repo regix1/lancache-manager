@@ -72,15 +72,34 @@ waiting = "#94a3b8"            # Neutral slate - tritanopia-safe "queued" tone (
 waitingBg = "#262b33"            # Dark slate background
 waitingText = "#cbd5e1"          # Light slate text
 
-# Service colors - 7 distinct colors, NO blue/yellow
-steamColor = "#16a34a"         # Forest green
-epicColor = "#db2777"          # Deep pink
-originColor = "#ea580c"        # Coral-orange
-blizzardColor = "#dc2626"      # Crimson
-wsusColor = "#15803d"          # Dark green (distinct from forest via darkness)
-riotColor = "#b91c1c"          # Dark red
-xboxColor = "#22c55e"          # Bright green (distinct via brightness)
-ubisoftColor = "#f472b6"       # Pink (distinct from red/green/orange)
+# Service colors - calm 25-color set, tritanopia-safe (red/green/neutral lightness ladders only, NO blue/yellow reliance, verified with CVD simulation)
+steamColor = "#379556"         # Forest green
+epicColor = "#db5a8c"          # Deep pink
+originColor = "#e8834a"        # Coral-orange
+blizzardColor = "#c24444"      # Soft crimson
+wsusColor = "#2c7743"          # Dark green
+riotColor = "#962c2c"          # Dark red
+xboxColor = "#7ed89a"          # Light green
+ubisoftColor = "#f4b6c2"       # Light pink
+
+# Additional service colors - 17 more cache services on the same tritanopia-safe lightness ladders
+arenanetColor = "#c7e2bd"       # Pale sage
+bsgColor = "#647f4a"            # Olive green
+cityofheroesColor = "#a3c284"   # Soft sage
+codColor = "#8c4a3c"            # Maroon brown
+daybreakColor = "#f4d3c2"       # Pale peach
+frontierColor = "#c89873"       # Sienna tan
+neverwinterColor = "#d2cfc9"    # Soft silver
+nexusmodsColor = "#a5e4b5"      # Mint green
+nintendoColor = "#f49c8d"       # Salmon
+pathofexileColor = "#7fa24e"    # Moss green
+renegadexColor = "#aca9a4"      # Light grey
+sonyColor = "#89857e"           # Medium grey
+squareColor = "#b8969e"         # Rose grey
+tesoColor = "#af6270"           # Dusty wine
+testColor = "#63605a"           # Dark warm grey (neutral)
+warframeColor = "#52b872"       # Medium green
+wargamingColor = "#465e2c"      # Deep olive
 
 # Components - Neutral grey
 cardBg = "#252526"             # Card background

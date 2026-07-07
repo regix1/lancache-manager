@@ -66,15 +66,32 @@ waiting = "#9b59b6"
 waitingBg = "#322a38"
 waitingText = "#d2b4de"
 
-# Service colors - Warm reds/oranges/yellows only
-steamColor = "#f39c12"
-epicColor = "#e74c3c"
-originColor = "#e67e22"
-blizzardColor = "#f5b041"
-wsusColor = "#d4ac0d"
-riotColor = "#c0392b"
-xboxColor = "#d4ac0d"
-ubisoftColor = "#d5a6bd"       # Muted warm pink
+# Service colors - Molten lava palette with a few cool embers
+steamColor = "#4b698b"  # Dark slate-blue ember
+epicColor = "#e9683a"  # Flame orange
+originColor = "#f2b078"  # Light molten peach
+blizzardColor = "#83aec3"  # Glacial ice blue
+wsusColor = "#e7d374"  # Pale gold
+riotColor = "#e05256"  # Rose red
+xboxColor = "#509572"  # Jade green ember
+ubisoftColor = "#d2899b"  # Dusty magma rose
+arenanetColor = "#7e8a2f"  # Olive-sulfur green
+bsgColor = "#b8af3d"  # Sulfur yellow
+cityofheroesColor = "#d7427b"  # Magma pink
+codColor = "#b65116"  # Burnt vermillion
+daybreakColor = "#f88a82"  # Bright coral
+frontierColor = "#d5a958"  # Golden bronze
+neverwinterColor = "#a14591"  # Magenta plum
+nexusmodsColor = "#ed7a12"  # Vivid deep orange
+nintendoColor = "#c53025"  # Crimson red
+pathofexileColor = "#ad871f"  # Antique goldenrod
+renegadexColor = "#a05a4e"  # Ember clay
+sonyColor = "#6550a5"  # Deep violet ember
+squareColor = "#72241d"  # Dark oxblood
+tesoColor = "#962c4f"  # Deep wine-crimson
+testColor = "#9d8c7b"  # Warm ash-taupe
+warframeColor = "#388f94"  # Deep teal ember
+wargamingColor = "#796649"  # Ash bronze-brown
 
 # Components
 cardBg = "#222224"

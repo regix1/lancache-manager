@@ -71,15 +71,34 @@ waiting = "#b3a7d6"            # Light dusty violet - much lighter/less saturate
 waitingBg = "#262138"            # Dark violet-slate background
 waitingText = "#d6cdf0"          # Pale violet text
 
-# Service colors - 7 ALL distinct, Okabe-Ito inspired
-steamColor = "#0072B2"         # Deep ocean blue
-epicColor = "#CC79A7"          # Mauve-pink
-originColor = "#e69f00"        # Warm amber
-blizzardColor = "#56B4E9"      # Sky blue
-wsusColor = "#7c3aed"          # Vivid violet
-riotColor = "#D55E00"          # Burnt orange (Okabe-Ito)
-xboxColor = "#F0E442"          # Bright yellow (Okabe-Ito)
-ubisoftColor = "#f472b6"       # Pink (distinct from sapphire/amber/mauve)
+# Service colors - calm 25-color set, protanopia-safe (Okabe-Ito derived blue/violet/mauve/gold ladders separated by lightness, verified with CVD simulation)
+steamColor = "#1583c9"         # Ocean blue
+epicColor = "#e6a2c9"          # Soft mauve pink
+originColor = "#dcab42"        # Warm amber
+blizzardColor = "#6cb8ee"      # Sky blue
+wsusColor = "#a78fe4"          # Soft violet
+riotColor = "#bc6224"          # Muted vermillion
+xboxColor = "#e5d468"          # Soft lemon
+ubisoftColor = "#f7c0de"       # Light pink
+
+# Additional service colors - 17 more cache services on the same protanopia-safe lightness ladders
+arenanetColor = "#188f5d"       # Emerald green
+bsgColor = "#1a7e84"            # Deep teal
+cityofheroesColor = "#9cd4f7"   # Pale sky
+codColor = "#a0790f"            # Dark bronze
+daybreakColor = "#f3d6e1"       # Petal pink
+frontierColor = "#c8a87a"       # Soft sand
+neverwinterColor = "#664ba8"    # Deep violet
+nexusmodsColor = "#c29224"      # Gold
+nintendoColor = "#ecdf9e"       # Pale straw
+pathofexileColor = "#7f3369"    # Dark plum
+renegadexColor = "#9a9a9a"      # Neutral grey
+sonyColor = "#324b8c"           # Muted navy
+squareColor = "#c06e9e"         # Dusty magenta
+tesoColor = "#c6b7a4"           # Warm greige
+testColor = "#615d53"           # Dark warm grey (neutral)
+warframeColor = "#219bb4"       # Cyan teal
+wargamingColor = "#a2486f"      # Deep raspberry
 
 # Components - Neutral grey cards
 cardBg = "#252526"             # Card background

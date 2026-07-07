@@ -66,15 +66,32 @@ waiting = "#a98ba6"
 waitingBg = "#383037"
 waitingText = "#d8c3d4"
 
-# Service colors - All warm browns/tans/grays
-steamColor = "#c9a67a"
-epicColor = "#8b7355"
-originColor = "#d4915c"
-blizzardColor = "#a8a095"
-wsusColor = "#b5a48f"
-riotColor = "#b57161"
-xboxColor = "#8b7355"
-ubisoftColor = "#c49a7a"       # Warm tan-pink
+# Service colors - Earthy clays, olives, taupes with dusty blue/sage accents
+steamColor = "#6b8095"  # Dusty slate blue
+epicColor = "#b0aca6"  # Warm silver grey
+originColor = "#c69579"  # Soft caramel clay
+blizzardColor = "#a5baca"  # Pale ice blue-grey
+wsusColor = "#8fbc9a"  # Dusty sage green
+riotColor = "#c87164"  # Terracotta rose
+xboxColor = "#79a061"  # Muted moss green
+ubisoftColor = "#a9839b"  # Dusty rose-mauve
+arenanetColor = "#6f7740"  # Dark olive green
+bsgColor = "#a2924a"  # Khaki brass
+cityofheroesColor = "#74aec4"  # Dusty cerulean
+codColor = "#8b4a23"  # Burnt rust
+daybreakColor = "#dfa98f"  # Pale peach coral
+frontierColor = "#d1a54e"  # Golden bronze
+neverwinterColor = "#7d6489"  # Dusky heather purple
+nexusmodsColor = "#c5672f"  # Muted copper
+nintendoColor = "#ac4038"  # Brick red
+pathofexileColor = "#8d6c26"  # Antique dark gold
+renegadexColor = "#62666c"  # Cool graphite stone
+sonyColor = "#47687c"  # Deep petrol slate
+squareColor = "#653129"  # Dark oxblood brown
+tesoColor = "#7e4a5d"  # Dusky wine
+testColor = "#877e70"  # Neutral warm taupe
+warframeColor = "#4f8b80"  # Deep sea-teal stone
+wargamingColor = "#635b4b"  # Dark field brown
 
 # Components
 cardBg = "#282523"

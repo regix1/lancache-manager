@@ -67,15 +67,34 @@ waiting = "#c4b5fd"               # Pale lavender - luminance-separated from the
 waitingBg = "#27203f"             # Dark violet-slate background
 waitingText = "#ddd6fe"           # Very light lavender text
 
-# Service colors - 7 distinct hues, all deuteranopia-safe
-steamColor = "#1d4ed8"          # Cobalt blue
-epicColor = "#e11d48"           # Rose
-originColor = "#ea580c"         # Vivid orange
-blizzardColor = "#0ea5e9"       # Sky blue
-wsusColor = "#a855f7"           # Vivid purple
-riotColor = "#f59e0b"           # Amber
-xboxColor = "#fbbf24"           # Golden yellow
-ubisoftColor = "#d946ef"        # Fuchsia (distinct from orange/blue/rose)
+# Service colors - calm 25-color set, deuteranopia-safe (blue/violet/pink/warm ladders separated by lightness, verified with CVD simulation)
+steamColor = "#4c80dc"          # Steel cobalt
+epicColor = "#de8ab1"           # Soft raspberry pink
+originColor = "#db7f41"         # Soft orange
+blizzardColor = "#5bacea"       # Sky blue
+wsusColor = "#9c82c4"           # Dusty violet
+riotColor = "#9e6c15"           # Deep bronze amber
+xboxColor = "#dbae3f"           # Muted gold
+ubisoftColor = "#f0b3ce"        # Light orchid pink
+
+# Additional service colors - 17 more cache services on the same deuteranopia-safe lightness ladders
+arenanetColor = "#757e42"       # Muted olive
+bsgColor = "#3b8c8c"            # Sea teal
+cityofheroesColor = "#bce2f7"   # Pale sky
+codColor = "#8f3f2b"            # Brick red
+daybreakColor = "#f5d8e4"       # Petal pink
+frontierColor = "#c4a379"       # Soft sand
+neverwinterColor = "#7c57ad"    # Deep violet
+nexusmodsColor = "#ca6c92"      # Rose magenta
+nintendoColor = "#e9d678"       # Soft banana yellow
+pathofexileColor = "#8c3f70"    # Dark plum
+renegadexColor = "#8c9db2"      # Cool slate
+sonyColor = "#38508e"           # Muted navy
+squareColor = "#b0536f"         # Dusty rose
+tesoColor = "#b4a2df"           # Light lavender
+testColor = "#66614f"           # Warm grey (neutral)
+warframeColor = "#74d6ec"       # Light cyan
+wargamingColor = "#a18a6b"      # Warm taupe
 
 # Components - Neutral grey cards with orange accents
 cardBg = "#252526"              # Card background

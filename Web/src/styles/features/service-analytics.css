@@ -586,6 +586,74 @@
   --legend-color: var(--theme-ubisoft);
 }
 
+.legend-color-arenanet {
+  --legend-color: var(--theme-arenanet);
+}
+
+.legend-color-bsg {
+  --legend-color: var(--theme-bsg);
+}
+
+.legend-color-cityofheroes {
+  --legend-color: var(--theme-cityofheroes);
+}
+
+.legend-color-cod {
+  --legend-color: var(--theme-cod);
+}
+
+.legend-color-daybreak {
+  --legend-color: var(--theme-daybreak);
+}
+
+.legend-color-frontier {
+  --legend-color: var(--theme-frontier);
+}
+
+.legend-color-neverwinter {
+  --legend-color: var(--theme-neverwinter);
+}
+
+.legend-color-nexusmods {
+  --legend-color: var(--theme-nexusmods);
+}
+
+.legend-color-nintendo {
+  --legend-color: var(--theme-nintendo);
+}
+
+.legend-color-pathofexile {
+  --legend-color: var(--theme-pathofexile);
+}
+
+.legend-color-renegadex {
+  --legend-color: var(--theme-renegadex);
+}
+
+.legend-color-sony {
+  --legend-color: var(--theme-sony);
+}
+
+.legend-color-square {
+  --legend-color: var(--theme-square);
+}
+
+.legend-color-teso {
+  --legend-color: var(--theme-teso);
+}
+
+.legend-color-test {
+  --legend-color: var(--theme-test);
+}
+
+.legend-color-warframe {
+  --legend-color: var(--theme-warframe);
+}
+
+.legend-color-wargaming {
+  --legend-color: var(--theme-wargaming);
+}
+
 .legend-color-gog {
   --legend-color: var(--theme-text-secondary);
 }

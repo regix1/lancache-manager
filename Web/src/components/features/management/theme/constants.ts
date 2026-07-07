@@ -696,6 +696,91 @@ export const colorGroups: ColorGroup[] = [
         key: 'ubisoftColor',
         supportsAlpha: true,
         pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'arenanetColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'bsgColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'cityofheroesColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'codColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'daybreakColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'frontierColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'neverwinterColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'nexusmodsColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'nintendoColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'pathofexileColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'renegadexColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'sonyColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'squareColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'tesoColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'testColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'warframeColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'wargamingColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
       }
     ]
   },

@@ -4669,7 +4669,7 @@
         },
         "platforms": {
           "title": "Platforms",
-          "description": "Steam, Epic, Origin, Blizzard, WSUS, Riot, Xbox, Ubisoft - Platform-specific colors for badges and charts"
+          "description": "Platform-specific colors for service badges and charts"
         },
         "performance": {
           "title": "Performance",
@@ -5384,6 +5384,91 @@
           "label": "Ubisoft",
           "description": "Ubisoft platform color",
           "affects": ["Ubisoft badges", "Ubisoft charts"]
+        },
+        "arenanetColor": {
+          "label": "ArenaNet",
+          "description": "ArenaNet platform color",
+          "affects": ["ArenaNet badges", "ArenaNet charts"]
+        },
+        "bsgColor": {
+          "label": "BSG",
+          "description": "BSG platform color",
+          "affects": ["BSG badges", "BSG charts"]
+        },
+        "cityofheroesColor": {
+          "label": "City of Heroes",
+          "description": "City of Heroes platform color",
+          "affects": ["City of Heroes badges", "City of Heroes charts"]
+        },
+        "codColor": {
+          "label": "Call of Duty",
+          "description": "Call of Duty platform color",
+          "affects": ["Call of Duty badges", "Call of Duty charts"]
+        },
+        "daybreakColor": {
+          "label": "Daybreak",
+          "description": "Daybreak platform color",
+          "affects": ["Daybreak badges", "Daybreak charts"]
+        },
+        "frontierColor": {
+          "label": "Frontier",
+          "description": "Frontier platform color",
+          "affects": ["Frontier badges", "Frontier charts"]
+        },
+        "neverwinterColor": {
+          "label": "Neverwinter",
+          "description": "Neverwinter platform color",
+          "affects": ["Neverwinter badges", "Neverwinter charts"]
+        },
+        "nexusmodsColor": {
+          "label": "Nexus Mods",
+          "description": "Nexus Mods platform color",
+          "affects": ["Nexus Mods badges", "Nexus Mods charts"]
+        },
+        "nintendoColor": {
+          "label": "Nintendo",
+          "description": "Nintendo platform color",
+          "affects": ["Nintendo badges", "Nintendo charts"]
+        },
+        "pathofexileColor": {
+          "label": "Path of Exile",
+          "description": "Path of Exile platform color",
+          "affects": ["Path of Exile badges", "Path of Exile charts"]
+        },
+        "renegadexColor": {
+          "label": "Renegade X",
+          "description": "Renegade X platform color",
+          "affects": ["Renegade X badges", "Renegade X charts"]
+        },
+        "sonyColor": {
+          "label": "Sony",
+          "description": "Sony platform color",
+          "affects": ["Sony badges", "Sony charts"]
+        },
+        "squareColor": {
+          "label": "Square Enix",
+          "description": "Square Enix platform color",
+          "affects": ["Square Enix badges", "Square Enix charts"]
+        },
+        "tesoColor": {
+          "label": "Elder Scrolls Online",
+          "description": "Elder Scrolls Online platform color",
+          "affects": ["Elder Scrolls Online badges", "Elder Scrolls Online charts"]
+        },
+        "testColor": {
+          "label": "Test",
+          "description": "Test platform color",
+          "affects": ["Test badges", "Test charts"]
+        },
+        "warframeColor": {
+          "label": "Warframe",
+          "description": "Warframe platform color",
+          "affects": ["Warframe badges", "Warframe charts"]
+        },
+        "wargamingColor": {
+          "label": "Wargaming",
+          "description": "Wargaming platform color",
+          "affects": ["Wargaming badges", "Wargaming charts"]
         },
         "hitRateHighBg": {
           "label": "High Hit Rate Background",
