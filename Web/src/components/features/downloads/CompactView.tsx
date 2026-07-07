@@ -225,7 +225,9 @@ const GroupRow: React.FC<GroupRowProps> = ({
       <button
         type="button"
         onClick={() => onItemClick(group.id)}
-        className="w-full text-left px-3 py-3 focus:outline-none [-webkit-tap-highlight-color:transparent]"
+        className={`w-full text-left px-3 py-3 focus:outline-none [-webkit-tap-highlight-color:transparent] ${
+          isExpanded ? 'rounded-t-lg' : 'rounded-lg'
+        }`}
       >
         {/* Get datasource from primary download */}
         {(() => {
