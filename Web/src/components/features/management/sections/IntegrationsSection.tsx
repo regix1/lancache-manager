@@ -46,9 +46,6 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
     >
       {/* Page Header */}
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-themed-primary mb-1">
-          {t('management.sections.integrations.title')}
-        </h2>
         <p className="text-themed-secondary text-sm">
           {t('management.sections.integrations.subtitle')}
         </p>

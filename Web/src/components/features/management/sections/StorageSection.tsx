@@ -596,9 +596,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       <div className="mb-4 sm:mb-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-semibold text-themed-primary mb-1">
-              {t('management.sections.storage.title')}
-            </h2>
             <p className="text-themed-secondary text-sm">
               {t('management.sections.storage.subtitle')}
             </p>

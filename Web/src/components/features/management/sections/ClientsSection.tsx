@@ -328,9 +328,6 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
       {/* Section Header */}
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-themed-primary mb-1">
-            {t('management.sections.clients.title')}
-          </h2>
           <p className="text-themed-secondary text-sm">
             {t('management.sections.clients.subtitle')}
           </p>

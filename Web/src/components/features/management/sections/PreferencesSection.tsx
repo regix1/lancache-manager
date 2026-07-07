@@ -18,9 +18,6 @@ const PreferencesSection: React.FC<PreferencesSectionProps> = ({ isAdmin }) => {
     >
       {/* Section Header */}
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-themed-primary mb-1">
-          {t('management.sections.preferences.title')}
-        </h2>
         <p className="text-themed-secondary text-sm">
           {t('management.sections.preferences.subtitle')}
         </p>

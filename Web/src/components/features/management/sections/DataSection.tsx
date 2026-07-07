@@ -284,9 +284,6 @@ const DataSection: React.FC<DataSectionProps> = ({
     >
       {/* Section Header */}
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-themed-primary mb-1">
-          {t('management.sections.data.title')}
-        </h2>
         <p className="text-themed-secondary text-sm">{t('management.sections.data.subtitle')}</p>
       </div>
 

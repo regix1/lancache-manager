@@ -23,6 +23,12 @@ import DomainSourceFooter from './DomainSourceFooter';
 import { useClientProbe } from './useClientProbe';
 import { prefersReducedMotion } from './helpers';
 import { RESOLVER_MODE_OPTIONS } from './constants';
+import {
+  getCachedDomainGroups,
+  getCachedStatus,
+  setCachedDomainGroups,
+  setCachedStatus
+} from './statusCheckCache';
 import type {
   CacheDomainsRefreshedEvent,
   RibbonSegment,
@@ -46,10 +52,18 @@ const StatusCheckSection: React.FC = () => {
   const keys = 'management.sections.statusCheck';
   const { on, off, isConnected } = useSignalR();
 
-  const [status, setStatus] = useState<StatusCheckStatusResponse | null>(null);
+  // Seed from the module-level cache so a reopen paints the last result instantly
+  // (stale-while-revalidate): no full-page spinner when we already have a cached snapshot.
+  const [status, setStatus] = useState<StatusCheckStatusResponse | null>(() => getCachedStatus());
   const [statusError, setStatusError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [domainGroups, setDomainGroups] = useState<StatusCheckDomainGroup[] | null>(null);
+  const [isLoading, setIsLoading] = useState(() => getCachedStatus() === null);
+  const [domainGroups, setDomainGroups] = useState<StatusCheckDomainGroup[] | null>(() =>
+    getCachedDomainGroups()
+  );
+  // Seed isRunning FALSE, never from the cached snapshot: a settled first paint is the whole
+  // point (crit 10). The authoritative GET + SignalR progress establish "running" within a
+  // round-trip if a sweep really is in flight, so seeding from a possibly-stale cache would
+  // only risk a phantom scan-replay on reopen (and a stuck one if that GET fails).
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState<StatusCheckProgressEvent | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
@@ -63,7 +77,7 @@ const StatusCheckSection: React.FC = () => {
   // sweep completed, or a stale complete event from a previous sweep, must not flip run state.
   // Only the most recently finished sweep ever needs to be ignored - the server runs one sweep
   // at a time, so there's never more than one "stale" operation id in flight.
-  const currentOperationRef = useRef<string | null>(null);
+  const currentOperationRef = useRef<string | null>(getCachedStatus()?.operationId ?? null);
   const lastFinishedOperationRef = useRef<string | null>(null);
   const { state: probeState, retry: retryProbe } = useClientProbe();
 
@@ -99,6 +113,16 @@ const StatusCheckSection: React.FC = () => {
     void loadAll(controller.signal);
     return () => controller.abort();
   }, [loadAll]);
+
+  // Keep the seed cache fresh on EVERY status change - GET refresh, SignalR completion, and
+  // resolver-mode change all flow through setStatus - so the next reopen paints the newest data.
+  useEffect(() => {
+    if (status) setCachedStatus(status);
+  }, [status]);
+
+  useEffect(() => {
+    if (domainGroups) setCachedDomainGroups(domainGroups);
+  }, [domainGroups]);
 
   useEffect(() => {
     const handleProgress = (event: StatusCheckProgressEvent): void => {
@@ -315,7 +339,6 @@ const StatusCheckSection: React.FC = () => {
       aria-labelledby="tab-status-check"
     >
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-themed-primary mb-1">{t(`${keys}.title`)}</h2>
         <p className="text-themed-secondary text-sm">{t(`${keys}.subtitle`)}</p>
       </div>
       {children}
