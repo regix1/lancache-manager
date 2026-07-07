@@ -18,13 +18,12 @@ public partial class SteamKit2Service
     {
         try
         {
-            var pollResult = await RunWithCmRetryAsync(
-                () => PollCredentialsAuthAsync(
-                    username,
-                    password,
-                    twoFactorCode,
-                    emailCode,
-                    allowMobileConfirmation),
+            var pollResult = await PollCredentialsWithRetryAsync(
+                username,
+                password,
+                twoFactorCode,
+                emailCode,
+                allowMobileConfirmation,
                 "Steam refresh token acquisition");
 
             if (!pollResult.Success)
@@ -40,9 +39,9 @@ public partial class SteamKit2Service
                 RefreshToken = pollResult.RefreshToken
             };
         }
-        catch (AsyncJobFailedException ex)
+        catch (Exception ex) when (ex is AsyncJobFailedException or SteamConnectionLostException)
         {
-            _logger.LogError(ex, "Scheduled prefill Steam refresh token acquisition failed (Steam job failed - servers likely busy)");
+            _logger.LogError(ex, "Scheduled prefill Steam refresh token acquisition failed (Steam servers busy)");
             return new AuthenticationResult
             {
                 Success = false,
@@ -67,13 +66,12 @@ public partial class SteamKit2Service
     {
         try
         {
-            var pollResult = await RunWithCmRetryAsync(
-                () => PollCredentialsAuthAsync(
-                    username,
-                    password,
-                    twoFactorCode,
-                    emailCode,
-                    allowMobileConfirmation),
+            var pollResult = await PollCredentialsWithRetryAsync(
+                username,
+                password,
+                twoFactorCode,
+                emailCode,
+                allowMobileConfirmation,
                 "Steam authentication");
 
             if (!pollResult.Success)
@@ -85,27 +83,23 @@ public partial class SteamKit2Service
             _stateService.SetSteamRefreshToken(pollResult.RefreshToken!);
             _logger.LogInformation("Successfully authenticated and saved refresh token");
 
-            // Now login with the refresh token
-            await RunWithCmRetryAsync(async () =>
+            // Now log on with the fresh refresh token through the shared session engine
+            await _sessionGate.WaitAsync();
+            try
             {
-                _loggedOnTcs = new TaskCompletionSource();
-                _steamUser!.LogOn(new SteamUser.LogOnDetails
+                // Longer logon timeout for the interactive auth flow (Steam servers can be slow)
+                await LogonLockedAsync(new SteamUser.LogOnDetails
                 {
                     Username = pollResult.AccountName!,
                     AccessToken = pollResult.RefreshToken!,
                     ShouldRememberPassword = true,
                     LoginID = _steamLoginId
-                });
-                _logger.LogInformation(
-                    "SteamKit2 auth-flow login with LoginID: {LoginID} (0x{LoginIDHex:X8}) for user: {Username}",
-                    _steamLoginId,
-                    _steamLoginId,
-                    pollResult.AccountName);
-
-                // Use longer timeout for authentication (Steam servers can be slow)
-                await WaitWithTimeoutAsync(_loggedOnTcs.Task, TimeSpan.FromMinutes(2), CancellationToken.None);
-                return true;
-            }, "Steam sign-in");
+                }, CancellationToken.None, logonTimeout: TimeSpan.FromMinutes(2));
+            }
+            finally
+            {
+                _sessionGate.Release();
+            }
 
             return new AuthenticationResult
             {
@@ -113,22 +107,23 @@ public partial class SteamKit2Service
                 Message = "Authentication successful"
             };
         }
-        catch (AsyncJobFailedException ex)
+        catch (Exception ex) when (ex is AsyncJobFailedException or SteamConnectionLostException)
         {
-            // A Steam connection-manager dropped the auth job mid-flight (usually TryAnotherCM
-            // server churn) and the CM-rotation retries were exhausted. Surface a friendly
-            // message, not the raw exception text.
-            _logger.LogError(ex, "Authentication failed (Steam job failed - servers likely busy)");
+            // A CM dropped the auth job or the connection mid-login and the CM-rotation retries
+            // were exhausted. Surface a friendly message, not the raw exception text.
+            _logger.LogError(ex, "Authentication failed (Steam servers busy): {Message}", ex.Message);
             return new AuthenticationResult
             {
                 Success = false,
                 Message = "Steam's servers are busy right now. This is temporary, please wait a moment and try again."
             };
         }
-        catch (SteamTransientLoginException ex)
+        catch (SteamLogonException ex)
         {
-            // Logon kept landing on busy CM servers even after rotating; Message is already friendly.
-            _logger.LogError(ex, "Authentication failed after CM-rotation retries (Steam servers busy)");
+            // The logon was rejected after retries. Message is already friendly; the toast keeps
+            // the second frontend surface (SteamSessionError) in sync with the modal response.
+            _logger.LogError(ex, "Authentication failed: {Message}", ex.Message);
+            NotifySessionError(ex);
             return new AuthenticationResult
             {
                 Success = false,
@@ -147,97 +142,36 @@ public partial class SteamKit2Service
     }
 
     /// <summary>
-    /// Runs a Steam auth step, reconnecting and retrying (bounded) when the current CM server
-    /// turns us away with a transient failure: a TryAnotherCM/ServiceUnavailable logon result or a
-    /// dropped auth job (AsyncJobFailedException). SteamKit2 marks the failing endpoint bad, so the
-    /// reconnect rotates to a different CM server - staying on the same connection just fails again.
+    /// Runs the credentials auth poll while holding _sessionGate, retrying on a different CM
+    /// server when the current one drops the auth job (AsyncJobFailedException) or the connection.
+    /// The gate is held for the whole poll (which can wait minutes for a mobile confirmation) so
+    /// no other flow can log the shared client into a different mode mid-authentication.
     /// </summary>
-    private async Task<T> RunWithCmRetryAsync<T>(Func<Task<T>> step, string stepName, CancellationToken ct = default)
+    private async Task<CredentialsAuthPollOutcome> PollCredentialsWithRetryAsync(
+        string username,
+        string password,
+        string? twoFactorCode,
+        string? emailCode,
+        bool allowMobileConfirmation,
+        string stepName)
     {
-        await _cmRetryGate.WaitAsync(ct);
+        await _sessionGate.WaitAsync();
         try
         {
-            for (var attempt = 1; ; attempt++)
-            {
-                _transientCmRetryActive = attempt <= TransientCmRetries;
-                try
-                {
-                    return await step();
-                }
-                catch (Exception ex) when (attempt <= TransientCmRetries &&
-                                           ex is AsyncJobFailedException or SteamTransientLoginException)
-                {
-                    _logger.LogWarning(
-                        "{Step} hit a busy Steam server (attempt {Attempt}/{MaxAttempts}) - reconnecting to a different server and retrying: {Message}",
-                        stepName, attempt, TransientCmRetries + 1, ex.Message);
-                    try
-                    {
-                        await ReconnectForCmRetryAsync(ct);
-                    }
-                    catch (Exception reconnectEx)
-                    {
-                        // Reconnection itself failed (e.g. Steam dropped us mid-handshake). Surface
-                        // the original transient failure - its message is the friendly one.
-                        _logger.LogWarning(reconnectEx, "Reconnect during {Step} retry failed - surfacing the original transient failure", stepName);
-                        throw ex;
-                    }
-                }
-                finally
-                {
-                    _transientCmRetryActive = false;
-                }
-            }
+            return await RetryOnBusyCmLockedAsync(
+                () => PollCredentialsAuthAsync(
+                    username,
+                    password,
+                    twoFactorCode,
+                    emailCode,
+                    allowMobileConfirmation),
+                stepName,
+                CancellationToken.None);
         }
         finally
         {
-            _cmRetryGate.Release();
+            _sessionGate.Release();
         }
-    }
-
-    /// <summary>
-    /// Forces a fresh connection so SteamKit2 picks a different CM server. After TryAnotherCM the
-    /// CM usually disconnects us itself; after a dropped auth job we are still connected to the
-    /// same bad server and must disconnect explicitly.
-    /// </summary>
-    private async Task ReconnectForCmRetryAsync(CancellationToken ct)
-    {
-        if (_steamClient?.IsConnected == true)
-        {
-            _intentionalDisconnect = true;
-            _steamClient.Disconnect();
-        }
-
-        // Give the disconnect a moment to settle before reconnecting
-        await Task.Delay(TimeSpan.FromSeconds(2), ct);
-
-        // The disconnect callback can land after the settle delay and fault the fresh
-        // _connectedTcs below (seen live as "Disconnected from Steam" killing the retry),
-        // so allow one extra connect pass before giving up.
-        for (var connectAttempt = 1; ; connectAttempt++)
-        {
-            _connectedTcs = new TaskCompletionSource();
-            _steamClient!.Connect();
-            try
-            {
-                await WaitWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(30), ct, "Reconnecting to Steam");
-                return;
-            }
-            catch (Exception ex) when (connectAttempt == 1 && !ct.IsCancellationRequested)
-            {
-                _logger.LogWarning("Reconnect pass {Attempt} failed ({Message}) - trying once more", connectAttempt, ex.Message);
-                await Task.Delay(TimeSpan.FromSeconds(2), ct);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Thrown when Steam logon fails with a transient server-side result (TryAnotherCM /
-    /// ServiceUnavailable): the CM turned us away and a different server should be tried.
-    /// The message is already user-friendly.
-    /// </summary>
-    public sealed class SteamTransientLoginException : Exception
-    {
-        public SteamTransientLoginException(string message) : base(message) { }
     }
 
     /// <summary>

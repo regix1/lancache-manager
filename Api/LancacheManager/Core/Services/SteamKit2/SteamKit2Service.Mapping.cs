@@ -267,8 +267,10 @@ public partial class SteamKit2Service
                 await Task.Delay(100, ct);
             }
             catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
+            catch (Exception ex) when (!IsSessionFatal(ex))
             {
+                // Session-fatal failures abort the resolution pass - the session could not be
+                // re-established, so every remaining candidate batch would fail the same way.
                 _logger.LogWarning(ex, "Failed to process candidate batch for depot resolution. Continuing...");
             }
         }

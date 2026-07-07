@@ -201,7 +201,7 @@ public partial class SteamKit2Service
     {
         try
         {
-            await ConnectAndLoginAsync(ct);
+            await EnsureSessionAsync(ct);
             await BuildDepotIndexAsync(ct, incrementalOnly);
         }
         catch (OperationCanceledException)
@@ -418,8 +418,11 @@ public partial class SteamKit2Service
                             // Cancellation is expected, just rethrow
                             throw;
                         }
-                        catch (Exception ex)
+                        catch (Exception ex) when (!IsSessionFatal(ex))
                         {
+                            // Session-fatal failures abort the crawl - the session could not be
+                            // re-established, so every later batch would fail the same way.
+                            // Anything else is a per-batch hiccup.
                             _logger.LogWarning(ex, "Failed to process DLC batch. Continuing...");
                         }
                     }
@@ -459,8 +462,11 @@ public partial class SteamKit2Service
                 // Cancellation is expected, just rethrow
                 throw;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!IsSessionFatal(ex))
             {
+                // Session-fatal failures abort the crawl - the session could not be
+                // re-established even after FetchProductInfoBatchAsync's retries, so every
+                // later batch would fail the same way. Anything else is a per-batch hiccup.
                 _logger.LogWarning(ex, "Failed to process batch {Batch}/{Total}. Continuing...",
                     _processedBatches + 1, allBatches.Count);
             }
@@ -747,8 +753,12 @@ public partial class SteamKit2Service
         {
             ct.ThrowIfCancellationRequested();
 
-            var job = _steamApps.PICSGetChangesSince(since, true, true);
-            var changes = await WaitForCallbackAsync(job, ct);
+            var currentSince = since;
+            var changes = await RunPicsWithRecoveryAsync(async () =>
+            {
+                var job = _steamApps.PICSGetChangesSince(currentSince, true, true);
+                return await WaitForCallbackAsync(job, ct);
+            }, "PICS incremental changes", ct);
 
             if (changes.RequiresFullUpdate || changes.RequiresFullAppUpdate)
             {
@@ -913,17 +923,12 @@ public partial class SteamKit2Service
 
         while (!tcs.Task.IsCompleted)
         {
-            // Check if we're still connected
+            // A dropped connection kills the in-flight PICS job - waiting for the callback would
+            // just burn the timeout. Fail fast so the caller (FetchProductInfoBatchAsync) can
+            // re-establish the session and re-issue the job.
             if (!_isLoggedOn || _steamClient?.IsConnected != true)
             {
-                // Give reconnection time to complete (reconnect delay is 5s + connection time)
-                await Task.Delay(TimeSpan.FromSeconds(10), linkedCts.Token);
-
-                // If still not connected after waiting, throw a more descriptive exception
-                if (!_isLoggedOn || _steamClient?.IsConnected != true)
-                {
-                    throw new InvalidOperationException("Lost connection to Steam during PICS operation");
-                }
+                throw new SteamConnectionLostException("Lost connection to Steam during PICS operation");
             }
 
             _manager.RunWaitCallbacks(TimeSpan.FromMilliseconds(50));
@@ -966,6 +971,14 @@ public partial class SteamKit2Service
 
         while (!isCompleted && !linkedCts.Token.IsCancellationRequested)
         {
+            // Fail fast on a dropped connection - the in-flight job is dead and the caller
+            // (FetchProductInfoBatchAsync) re-establishes the session and re-issues the batch.
+            // Previously this loop had no connection check and burned the full 10-minute timeout.
+            if (!_isLoggedOn || _steamClient?.IsConnected != true)
+            {
+                throw new SteamConnectionLostException("Lost connection to Steam during PICS operation");
+            }
+
             _manager.RunWaitCallbacks(TimeSpan.FromMilliseconds(100));
             await Task.Yield();
         }
@@ -999,7 +1012,7 @@ public partial class SteamKit2Service
             isLoggedOn = IsSteamAuthenticated,
             isReconnecting,
             reconnectAttempt,
-            maxReconnectAttempts = isReconnecting ? MaxReconnectAttempts : (int?)null,
+            maxReconnectAttempts = isReconnecting ? MaxBatchConnectionRetries : (int?)null,
             message
         });
     }

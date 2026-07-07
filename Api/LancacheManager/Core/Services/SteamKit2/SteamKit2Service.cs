@@ -33,8 +33,10 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     private SteamApps? _steamApps;
 
     private bool _isRunning = false;
-    private bool _isLoggedOn = false;
-    private bool _intentionalDisconnect = false;
+    // Volatile: written on the SteamKit2 callback thread, read as load-bearing fast-fail
+    // checks on the crawl thread (WaitForCallbackAsync/WaitForProductInfoAsync).
+    private volatile bool _isLoggedOn = false;
+    private volatile bool _intentionalDisconnect = false;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private Task? _currentBuildTask;
     private CancellationTokenSource? _currentRebuildCts;
@@ -43,20 +45,17 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     private bool _disposed;
     private bool _initialized;
 
-    // Exponential backoff for reconnection attempts
-    private int _reconnectAttempt = 0;
-    private const int MaxReconnectAttempts = 2; // Give up after 2 attempts
-    private const int MaxReconnectDelaySeconds = 60; // Cap at 60 seconds
-
-    // Bounded retry for transient CM failures (TryAnotherCM / dropped auth jobs). SteamKit2 marks
-    // the failing endpoint bad, so a reconnect rotates to a different CM server.
-    private const int TransientCmRetries = 2; // retries after the first attempt (3 attempts total)
-    // True while a retry-capable attempt is in flight: suppresses the transient error toast and
-    // rebuild teardown in OnLoggedOn, and tells OnDisconnected the retry owns reconnection.
-    private volatile bool _transientCmRetryActive;
-    // Serializes CM-retry loops. Concurrent auth flows share ONE SteamClient - without this gate
-    // two loops interleave and one loop's reconnect tears down the connection the other just made.
-    private readonly SemaphoreSlim _cmRetryGate = new(1, 1);
+    // All Steam session transitions (connect/logon/credentials auth) are serialized through this
+    // gate. The gate holder is the ONLY code that creates or awaits _connectedTcs/_loggedOnTcs;
+    // the SteamKit2 callbacks only complete or fault them. Everything else calls EnsureSessionAsync.
+    private readonly SemaphoreSlim _sessionGate = new(1, 1);
+    // Attempts per session transition. Transient CM failures (TryAnotherCM / dropped auth jobs /
+    // mid-handshake disconnects) rotate to a different CM server between attempts - SteamKit2
+    // marks the failing endpoint bad, so staying on the same connection would just fail again.
+    private const int MaxLogonAttempts = 3;
+    // Attempts per PICS batch when the connection drops mid-crawl; the session is re-established
+    // between tries so the batch's data is retried instead of silently dropped.
+    private const int MaxBatchConnectionRetries = 3;
 
     // Scheduling for periodic PICS crawls
     private DateTime _lastCrawlTime = DateTime.MinValue;
@@ -418,20 +417,60 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     private async Task<IReadOnlyList<SteamApps.PICSProductInfoCallback>> FetchProductInfoBatchAsync(
         uint[] appIds, CancellationToken ct)
     {
-        var tokensJob = _steamApps!.PICSGetAccessTokens(appIds, Enumerable.Empty<uint>());
-        var tokens = await WaitForCallbackAsync(tokensJob, ct);
-
-        var appRequests = new List<SteamApps.PICSRequest>(appIds.Length);
-        foreach (var appId in appIds)
+        return await RunPicsWithRecoveryAsync(async () =>
         {
-            var request = new SteamApps.PICSRequest(appId);
-            if (tokens.AppTokens.TryGetValue(appId, out var token))
-                request.AccessToken = token;
-            appRequests.Add(request);
-        }
+            var tokensJob = _steamApps!.PICSGetAccessTokens(appIds, Enumerable.Empty<uint>());
+            var tokens = await WaitForCallbackAsync(tokensJob, ct);
 
-        var productJob = _steamApps.PICSGetProductInfo(appRequests, Enumerable.Empty<SteamApps.PICSRequest>());
-        return await WaitForProductInfoAsync(productJob, ct);
+            var appRequests = new List<SteamApps.PICSRequest>(appIds.Length);
+            foreach (var appId in appIds)
+            {
+                var request = new SteamApps.PICSRequest(appId);
+                if (tokens.AppTokens.TryGetValue(appId, out var token))
+                    request.AccessToken = token;
+                appRequests.Add(request);
+            }
+
+            var productJob = _steamApps.PICSGetProductInfo(appRequests, Enumerable.Empty<SteamApps.PICSRequest>());
+            return await WaitForProductInfoAsync(productJob, ct);
+        }, "PICS batch", ct);
+    }
+
+    /// <summary>
+    /// Runs a PICS operation, re-establishing the session and retrying (bounded) when the
+    /// connection drops or the CM drops the in-flight job - the job dies with the connection
+    /// either way, so the operation is re-issued instead of its data being silently skipped.
+    /// Recovery forces a reconnect: after a dropped job the socket can still be up on the same
+    /// bad CM server, and reusing it would just fail again. A rejected re-logon
+    /// (SteamLogonException) is not retried here - it propagates as session-fatal.
+    /// </summary>
+    private async Task<T> RunPicsWithRecoveryAsync<T>(Func<Task<T>> operation, string operationName, CancellationToken ct)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await operation();
+            }
+            catch (Exception ex) when (attempt < MaxBatchConnectionRetries &&
+                                       ex is SteamConnectionLostException or AsyncJobFailedException)
+            {
+                _logger.LogWarning(
+                    "Steam connection lost during {Operation} - re-establishing session and retrying (attempt {Attempt}/{MaxAttempts}): {Message}",
+                    operationName, attempt, MaxBatchConnectionRetries, ex.Message);
+
+                if (IsRebuildRunning)
+                {
+                    await SendDepotMappingProgressAsync(
+                        "Reconnecting to Steam...",
+                        $"Connection lost. Reconnecting (attempt {attempt}/{MaxBatchConnectionRetries})...",
+                        isReconnecting: true,
+                        reconnectAttempt: attempt);
+                }
+
+                await EnsureSessionAsync(ct, forceReconnect: true);
+            }
+        }
     }
 
     /// <summary>
@@ -440,9 +479,12 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     /// </summary>
     private async Task<uint> GetPicsChangeNumberAsync(CancellationToken ct)
     {
-        var job = _steamApps!.PICSGetChangesSince(0, false, false);
-        var changes = await WaitForCallbackAsync(job, ct);
-        return changes.CurrentChangeNumber;
+        return await RunPicsWithRecoveryAsync(async () =>
+        {
+            var job = _steamApps!.PICSGetChangesSince(0, false, false);
+            var changes = await WaitForCallbackAsync(job, ct);
+            return changes.CurrentChangeNumber;
+        }, "PICS change number check", ct);
     }
 
     /// <summary>

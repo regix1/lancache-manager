@@ -25,45 +25,179 @@ public partial class SteamKit2Service
         }
     }
 
-    private async Task ConnectAndLoginAsync(CancellationToken ct)
+    /// <summary>
+    /// Ensures the shared SteamKit2 session is connected and logged on, using the mode picked by
+    /// Login() (daemon-active anonymous / saved token / anonymous). This is THE entry point for
+    /// every flow that needs a session: all transitions are serialized by _sessionGate and
+    /// transient CM failures are retried on a different server. On final failure the
+    /// SteamSessionError toast is emitted here (not in the callbacks) and the exception
+    /// propagates to the caller, whose own operation lifecycle reports the failure.
+    /// </summary>
+    private async Task EnsureSessionAsync(CancellationToken ct, bool forceReconnect = false)
     {
-        if (_isLoggedOn && _steamClient?.IsConnected == true)
+        await _sessionGate.WaitAsync(ct);
+        try
         {
-            return;
-        }
+            if (!forceReconnect && _isLoggedOn && _steamClient?.IsConnected == true)
+            {
+                return;
+            }
 
-        await RunWithCmRetryAsync(async () =>
+            if (forceReconnect)
+            {
+                // The caller saw the CM drop its job while the socket stayed up. The session
+                // looks healthy but the server is bad - rotate instead of reusing it.
+                await ResetConnectionLockedAsync(ct);
+            }
+
+            await LogonLockedAsync(details: null, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _lastErrorMessage = ex.Message;
+            NotifySessionError(ex);
+            throw;
+        }
+        finally
+        {
+            _sessionGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// The session engine: connect if needed, fire the logon, await the result, and rotate to a
+    /// different CM server on transient failures (bounded by MaxLogonAttempts). Must be called
+    /// while holding _sessionGate. When details is null, Login() picks the mode; otherwise the
+    /// explicit LogOnDetails are used (interactive auth logging on with a fresh refresh token).
+    /// A disconnect that lands mid-handshake faults the pending wait with
+    /// SteamConnectionLostException, which is just another transient failure here.
+    /// </summary>
+    private async Task LogonLockedAsync(SteamUser.LogOnDetails? details, CancellationToken ct, TimeSpan? logonTimeout = null)
+    {
+        await RetryOnBusyCmLockedAsync(async () =>
         {
             if (_steamClient?.IsConnected != true)
             {
                 _connectedTcs = new TaskCompletionSource();
-                _loggedOnTcs = new TaskCompletionSource();
-
                 _logger.LogInformation("Connecting to Steam...");
                 _steamClient!.Connect();
-
-                // Wait for connected (increased timeout to handle Steam server delays)
                 await WaitWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(60), ct, "Connecting to Steam");
+            }
+
+            _loggedOnTcs = new TaskCompletionSource();
+            if (details != null)
+            {
+                _steamUser!.LogOn(details);
+                _logger.LogInformation(
+                    "SteamKit2 auth-flow login with LoginID: {LoginID} (0x{LoginIDHex:X8}) for user: {Username}",
+                    _steamLoginId, _steamLoginId, details.Username);
             }
             else
             {
-                // Retry pass: ReconnectForCmRetryAsync already reconnected us to a different CM
-                _loggedOnTcs = new TaskCompletionSource();
+                Login();
             }
 
-            Login();
-
-            // Wait for logged on (increased timeout to handle Steam server delays)
-            await WaitWithTimeoutAsync(_loggedOnTcs.Task, TimeSpan.FromSeconds(60), ct, "Logging into Steam");
+            await WaitWithTimeoutAsync(_loggedOnTcs.Task, logonTimeout ?? TimeSpan.FromSeconds(60), ct, "Logging into Steam");
             return true;
-        }, "Steam login", ct);
+        }, "Steam logon", ct);
+    }
+
+    /// <summary>
+    /// The single CM-rotation retry policy: runs one session step (logon or credentials poll),
+    /// rotating to a different CM server between attempts when the current one fails transiently.
+    /// Must be called while holding _sessionGate.
+    /// </summary>
+    private async Task<T> RetryOnBusyCmLockedAsync<T>(Func<Task<T>> step, string stepName, CancellationToken ct)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await step();
+            }
+            catch (Exception ex) when (attempt < MaxLogonAttempts && IsTransientSessionFailure(ex))
+            {
+                _logger.LogWarning(
+                    "{Step} hit a busy Steam server (attempt {Attempt}/{MaxAttempts}) - rotating to a different CM server: {Message}",
+                    stepName, attempt, MaxLogonAttempts, ex.Message);
+                await ResetConnectionLockedAsync(ct);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Transient session-step failures a CM rotation can fix: a dropped connection, a dropped
+    /// auth job, or a busy-server logon result. Credential/permission rejections are not here.
+    /// </summary>
+    private static bool IsTransientSessionFailure(Exception ex) =>
+        ex is SteamConnectionLostException
+            or AsyncJobFailedException
+            or SteamLogonException { IsTransient: true };
+
+    /// <summary>
+    /// True when an exception from a PICS operation means the Steam session could not be
+    /// re-established (RunPicsWithRecoveryAsync exhausted its retries or the re-logon was
+    /// rejected). Every subsequent operation would fail the same way, so batch loops must
+    /// rethrow these instead of logging-and-continuing.
+    /// </summary>
+    private static bool IsSessionFatal(Exception ex) =>
+        ex is SteamLogonException or SteamConnectionLostException or TimeoutException;
+
+    /// <summary>
+    /// Drops the current connection (if any) so the next connect picks a different CM server.
+    /// Must be called while holding _sessionGate. After TryAnotherCM the CM usually disconnects
+    /// us itself; after a dropped auth job we are still connected to the same bad server.
+    /// </summary>
+    private async Task ResetConnectionLockedAsync(CancellationToken ct)
+    {
+        if (_steamClient?.IsConnected == true)
+        {
+            _intentionalDisconnect = true;
+            _steamClient.Disconnect();
+        }
+
+        // Give the disconnect a moment to settle before the next attempt reconnects
+        await Task.Delay(TimeSpan.FromSeconds(2), ct);
+    }
+
+    /// <summary>
+    /// Emits the SteamSessionError toast for a failed session transition. Called once per
+    /// operation at the point we give up - never from the SteamKit2 callbacks, so retries
+    /// don't spam the frontend. Timeouts and cancellations surface through the calling
+    /// operation's own error path instead (matching the old behavior, which never toasted them).
+    /// </summary>
+    private void NotifySessionError(Exception ex)
+    {
+        if (ex is SteamLogonException logonEx)
+        {
+            _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
+            {
+                errorType = logonEx.ErrorType,
+                stageKey = logonEx.StageKey,
+                context = new Dictionary<string, object?> { ["result"] = logonEx.Result },
+                result = logonEx.Result,
+                extendedResult = logonEx.ExtendedResult,
+                timestamp = DateTime.UtcNow,
+                wasRebuildActive = IsRebuildRunning
+            });
+        }
+        else if (ex is SteamConnectionLostException)
+        {
+            _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
+            {
+                errorType = "ConnectionFailed",
+                stageKey = "signalr.steamSession.reconnectFailed",
+                context = new Dictionary<string, object?> { ["maxAttempts"] = MaxLogonAttempts },
+                timestamp = DateTime.UtcNow,
+                wasRebuildActive = IsRebuildRunning
+            });
+        }
     }
 
     /// <summary>
     /// Determines which login mode to use and fires the appropriate SteamUser logon call.
-    /// Synchronous (void) by design - the SteamKit2 reconnect callback (OnConnected) fires this
-    /// synchronously, and ConnectAndLoginAsync awaits the logon result separately via _loggedOnTcs.
-    /// Never use .Result or .Wait() here; SteamKit2 callbacks must not block the event loop thread.
+    /// Synchronous (void) by design - only LogonLockedAsync calls this, and it awaits the logon
+    /// result separately via _loggedOnTcs.
     /// </summary>
     private void Login()
     {
@@ -117,20 +251,7 @@ public partial class SteamKit2Service
     private void OnConnected(SteamClient.ConnectedCallback callback)
     {
         _logger.LogInformation("Connected to Steam");
-        _reconnectAttempt = 0; // Reset backoff on successful connection
         _connectedTcs?.TrySetResult();
-
-        // If we're reconnecting during an active rebuild, automatically re-login
-        if (IsRebuildRunning && !_isLoggedOn)
-        {
-            _logger.LogInformation("Reconnected during active rebuild - attempting to re-login");
-
-            // Always check if Steam daemon is active during reconnection.
-            // Steam often fires OnDisconnected WITHOUT a preceding OnLoggedOff callback,
-            // so we can't rely on tracking session replacement flags. Checking the daemon
-            // status directly is reliable and avoids the authenticated reconnection loop.
-            Login();
-        }
     }
 
     private void OnDisconnected(SteamClient.DisconnectedCallback callback)
@@ -147,78 +268,11 @@ public partial class SteamKit2Service
         }
         _isLoggedOn = false;
 
-        // Only reconnect if we're running AND there's an active rebuild
-        // This prevents endless reconnection loops after PICS crawls complete.
-        // When a CM-rotation retry is in flight it owns reconnection - scheduling a second
-        // Connect() here would race it and orphan its TaskCompletionSources.
-        if (_isRunning && IsRebuildRunning && !_transientCmRetryActive)
-        {
-            _reconnectAttempt++;
-
-            // Check if we've exceeded max attempts
-            if (_reconnectAttempt > MaxReconnectAttempts)
-            {
-                var errorMessage = $"Failed to maintain Steam connection after {MaxReconnectAttempts} reconnection attempts. Steam servers may be experiencing issues or your network connection is unstable.";
-                _logger.LogError("Max reconnection attempts ({MaxAttempts}) exceeded during rebuild", MaxReconnectAttempts);
-                _lastErrorMessage = errorMessage;
-
-                // Fail any pending connection/login tasks
-                FailConnectionTasks(new Exception(errorMessage));
-
-                // Cancel the rebuild
-                _currentRebuildCts?.Cancel();
-
-                // Send error notification via SignalR
-                _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
-                {
-                    errorType = "ConnectionFailed",
-                    stageKey = "signalr.steamSession.reconnectFailed",
-                    context = new Dictionary<string, object?> { ["maxAttempts"] = MaxReconnectAttempts },
-                    reconnectAttempts = _reconnectAttempt,
-                    timestamp = DateTime.UtcNow,
-                    wasRebuildActive = true
-                });
-
-                // Send failure completion event
-                SendDepotMappingFailure(errorMessage, "ConnectionFailed");
-
-                _reconnectAttempt = 0; // Reset for next time
-                return;
-            }
-
-            // Exponential backoff: 5s, 10s, 20s, 40s, 60s (capped)
-            var delaySeconds = Math.Min(5 * (int)Math.Pow(2, _reconnectAttempt - 1), MaxReconnectDelaySeconds);
-            _logger.LogInformation("Unexpected disconnection during active rebuild - attempting to reconnect in {Delay} seconds (attempt {Attempt}/{MaxAttempts})...",
-                delaySeconds, _reconnectAttempt, MaxReconnectAttempts);
-
-            // Send progress update so UI knows we're reconnecting (fire-and-forget)
-            _ = SendDepotMappingProgressAsync(
-                $"Reconnecting to Steam (attempt {_reconnectAttempt}/{MaxReconnectAttempts})...",
-                $"Connection lost. Reconnecting in {delaySeconds} seconds...",
-                isReconnecting: true,
-                reconnectAttempt: _reconnectAttempt
-            );
-
-            Task.Delay(delaySeconds * 1000, _cancellationTokenSource.Token).ContinueWith(_ =>
-            {
-                if (_isRunning && IsRebuildRunning && !_cancellationTokenSource.Token.IsCancellationRequested)
-                {
-                    // Create new TaskCompletionSources for the reconnection attempt
-                    _connectedTcs = new TaskCompletionSource();
-                    _loggedOnTcs = new TaskCompletionSource();
-                    _steamClient?.Connect();
-                }
-            }, _cancellationTokenSource.Token);
-        }
-        else
-        {
-            // Fail pending tasks if not reconnecting
-            if (!_connectedTcs?.Task.IsCompleted ?? false)
-            {
-                FailConnectionTasks(new Exception("Disconnected from Steam"));
-            }
-            _reconnectAttempt = 0; // Reset when not actively rebuilding
-        }
+        // Fault any pending session waits so their owner reacts: LogonLockedAsync treats this as
+        // a transient failure and rotates CM servers; a PICS batch re-establishes the session via
+        // EnsureSessionAsync and retries. All reconnection lives in those owning flows - this
+        // callback never schedules its own Connect().
+        FailConnectionTasks(new SteamConnectionLostException("Disconnected from Steam"));
     }
 
     private void OnLoggedOn(SteamUser.LoggedOnCallback callback)
@@ -267,47 +321,27 @@ public partial class SteamKit2Service
 
             // TryAnotherCM/ServiceUnavailable mean this particular CM server can't serve us right
             // now - a reconnect (which rotates to a different server) is the documented remedy.
+            // TryAnotherCM keeps the friendly serverBusy stageKey instead of echoing the raw enum.
             var isTransientServerFailure = callback.Result is EResult.TryAnotherCM or EResult.ServiceUnavailable;
-
-            _lastErrorMessage = errorMessage;
-            // Surface the friendly per-result message (not the raw enum) to the interactive login
-            // modal, which returns this text via AuthenticateAsync. Raw result is logged just below.
-            _loggedOnTcs?.TrySetException(isTransientServerFailure
-                ? new SteamTransientLoginException(errorMessage)
-                : new Exception(errorMessage));
-            _logger.LogError("Unable to logon to Steam: {Result} / {ExtendedResult}", callback.Result, callback.ExtendedResult);
-
-            if (isTransientServerFailure && _transientCmRetryActive)
-            {
-                // A CM-rotation retry is about to re-attempt this logon on a different server.
-                // Hold off on the error toast and rebuild teardown until the final attempt fails.
-                return;
-            }
-
-            // TryAnotherCM is a transient "reconnect to a different CM" signal, not a login problem,
-            // so give it a friendly stageKey instead of the generic one that echoes the raw enum.
             var stageKey = callback.Result == EResult.TryAnotherCM
                 ? "signalr.steamSession.serverBusy"
                 : "signalr.steamSession.loginFailed";
 
-            // Send error notification to frontend
-            _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
-            {
+            _lastErrorMessage = errorMessage;
+            _logger.LogError("Unable to logon to Steam: {Result} / {ExtendedResult}", callback.Result, callback.ExtendedResult);
+
+            // Fault the pending logon wait with the friendly per-result message (not the raw
+            // enum). The owning flow retries transient failures on a different CM server, emits
+            // the SteamSessionError toast if it gives up, and its operation lifecycle (rebuild
+            // terminal emit / login modal response) reports the failure - nothing else happens
+            // in this callback.
+            _loggedOnTcs?.TrySetException(new SteamLogonException(
+                errorMessage,
                 errorType,
                 stageKey,
-                context = new Dictionary<string, object?> { ["result"] = callback.Result.ToString() },
-                result = callback.Result.ToString(),
-                extendedResult = callback.ExtendedResult.ToString(),
-                timestamp = DateTime.UtcNow,
-                wasRebuildActive = IsRebuildRunning
-            });
-
-            // If a rebuild was in progress, send failure completion
-            if (IsRebuildRunning)
-            {
-                SendDepotMappingFailure(errorMessage, errorType);
-                _currentRebuildCts?.Cancel();
-            }
+                callback.Result.ToString(),
+                callback.ExtendedResult.ToString(),
+                isTransientServerFailure));
         }
     }
 

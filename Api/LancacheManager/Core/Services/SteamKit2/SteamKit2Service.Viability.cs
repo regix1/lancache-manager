@@ -56,7 +56,7 @@ public partial class SteamKit2Service
 
             if (!wasConnected)
             {
-                await ConnectAndLoginAsync(ct);
+                await EnsureSessionAsync(ct);
             }
 
             try
@@ -75,8 +75,11 @@ public partial class SteamKit2Service
                     _logger.LogInformation("Checking with Steam if incremental update is viable (last: {Last}, current: {Current}, gap: {Gap})",
                         changeNumberToCheck, currentChangeNumber, changeGap);
 
-                    var incrementalJob = _steamApps!.PICSGetChangesSince(changeNumberToCheck, true, true);
-                    var incrementalChanges = await WaitForCallbackAsync(incrementalJob, ct);
+                    var incrementalChanges = await RunPicsWithRecoveryAsync(async () =>
+                    {
+                        var incrementalJob = _steamApps!.PICSGetChangesSince(changeNumberToCheck, true, true);
+                        return await WaitForCallbackAsync(incrementalJob, ct);
+                    }, "PICS viability check", ct);
 
                     // Steam will tell us if it requires a full update
                     willRequireFullScan = incrementalChanges.RequiresFullUpdate || incrementalChanges.RequiresFullAppUpdate;
@@ -198,7 +201,7 @@ public partial class SteamKit2Service
             bool wasConnected = _isLoggedOn && _steamClient?.IsConnected == true;
             if (!wasConnected)
             {
-                await ConnectAndLoginAsync(ct);
+                await EnsureSessionAsync(ct);
             }
 
             try
