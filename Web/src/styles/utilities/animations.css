@@ -23,72 +23,6 @@
   }
 }
 
-@keyframes slideInFromLeft {
-  from {
-    transform: translateX(-20px);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-@keyframes slideInFromRight {
-  from {
-    transform: translateX(20px);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-@keyframes rotateIn {
-  from {
-    transform: rotate(-180deg) scale(0.5);
-    opacity: 0;
-  }
-  to {
-    transform: rotate(0) scale(1);
-    opacity: 1;
-  }
-}
-
-@keyframes slideInFromBottom {
-  from {
-    transform: translateY(20px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-@keyframes zoomIn {
-  from {
-    transform: scale(0.9);
-    opacity: 0;
-  }
-  to {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-@keyframes slideUp {
-  from {
-    transform: translateY(8px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
 @keyframes expandDown {
   from {
     max-height: 0;
@@ -99,19 +33,6 @@
     max-height: 2000px;
     opacity: 1;
     transform: translateY(0);
-  }
-}
-
-@keyframes collapseUp {
-  from {
-    max-height: 2000px;
-    opacity: 1;
-    transform: translateY(0);
-  }
-  to {
-    max-height: 0;
-    opacity: 0;
-    transform: translateY(-4px);
   }
 }
 
@@ -135,29 +56,6 @@
   }
 }
 
-@keyframes dropdownSlideUp {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes smoothScale {
-  0% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(0.98);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
 /* Progress bar smooth transition - uses transition instead of animation to avoid restart on re-render */
 .progress-bar-animate {
   transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
@@ -171,6 +69,14 @@
 /* Smooth data transition animations */
 .animate-fadeIn {
   animation: gentleFadeIn 0.4s ease-out;
+}
+
+/* Respect reduced-motion: skip the tab/section fade-in entrance animations. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-fadeIn {
+    animation: none;
+  }
 }
 
 /* Highlight glow animation - used to draw attention to a component */

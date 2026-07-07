@@ -7,6 +7,7 @@ import { formatBytes, formatPercent, formatCount } from '@utils/formatters';
 import { DownloadTimestamp } from './DownloadTimestamp';
 import BadgesRow from './BadgesRow';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
+import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
@@ -359,11 +360,11 @@ const GroupRow: React.FC<GroupRowProps> = ({
         })()}
       </button>
 
-      {isExpanded && (
-        <div
-          className="px-3 pb-3 pt-2 border-t border-[var(--theme-border-secondary)]"
-          onClick={(event) => event.stopPropagation()}
-        >
+      <CollapsibleRegion
+        open={isExpanded}
+        contentClassName="px-3 pb-3 pt-2 border-t border-[var(--theme-border-secondary)]"
+      >
+        <div onClick={(event: React.MouseEvent<HTMLDivElement>) => event.stopPropagation()}>
           {/* Compact layout: stacked on mobile, side-by-side on desktop */}
           <div className="flex flex-col sm:flex-row gap-3">
             {/* Game image */}
@@ -531,7 +532,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                             </button>
 
                             {/* Session rows - only when expanded */}
-                            {expanded && (
+                            <CollapsibleRegion open={expanded}>
                               <IpSessionList
                                 ip={ip}
                                 items={ipDownloads}
@@ -629,7 +630,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                   );
                                 }}
                               />
-                            )}
+                            </CollapsibleRegion>
                           </div>
                         );
                       })}
@@ -640,7 +641,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
             </div>
           </div>
         </div>
-      )}
+      </CollapsibleRegion>
     </div>
   );
 };

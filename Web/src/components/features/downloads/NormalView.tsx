@@ -25,6 +25,7 @@ import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
+import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { GameImage } from '@components/common/GameImage';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
@@ -567,11 +568,11 @@ const GroupCard: React.FC<GroupCardProps> = ({
         </button>
       )}
 
-      {isExpanded && (
-        <div
-          className="border-t border-[var(--theme-primary)] bg-[var(--theme-bg-secondary)] px-4 pb-4 pt-4 sm:px-6 sm:pb-6 sm:pt-5 animate-[expandDown_0.4s_cubic-bezier(0.4,0,0.2,1)]"
-          onClick={(event) => event.stopPropagation()}
-        >
+      <CollapsibleRegion
+        open={isExpanded}
+        contentClassName="border-t border-[var(--theme-primary)] bg-[var(--theme-bg-secondary)] px-4 pb-4 pt-4 sm:px-6 sm:pb-6 sm:pt-5"
+      >
+        <div onClick={(event: React.MouseEvent<HTMLDivElement>) => event.stopPropagation()}>
           <div className="flex flex-col gap-6">
             {/* Stats Overview Section */}
             <div>
@@ -829,7 +830,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                             </button>
 
                             {/* Sessions Table-like list - shown only when expanded */}
-                            {expanded && (
+                            <CollapsibleRegion open={expanded}>
                               <IpSessionList
                                 ip={clientIp}
                                 items={clientDownloads}
@@ -921,7 +922,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                   );
                                 }}
                               />
-                            )}
+                            </CollapsibleRegion>
                           </div>
                         );
                       })}
@@ -946,7 +947,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
               })()}
           </div>
         </div>
-      )}
+      </CollapsibleRegion>
     </div>
   );
 };
@@ -1579,7 +1580,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                     </div>
                   </button>
 
-                  {expanded && (
+                  <CollapsibleRegion open={expanded}>
                     <IpSessionList
                       ip={clientIp}
                       items={clientDownloads}
@@ -1665,7 +1666,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                         );
                       }}
                     />
-                  )}
+                  </CollapsibleRegion>
                 </div>
               );
             })}

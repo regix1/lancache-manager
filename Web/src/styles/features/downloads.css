@@ -108,22 +108,6 @@
     opacity: 1;
   }
 
-  /* Card expand animation */
-  .download-card-expanding {
-    animation: cardExpand 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  @keyframes cardExpand {
-    from {
-      opacity: 0;
-      max-height: 0;
-    }
-    to {
-      opacity: 1;
-      max-height: 1000px;
-    }
-  }
-
   /* ===== DOWNLOADS HEADER ===== */
 
   .downloads-header {
@@ -531,16 +515,19 @@
     cursor: pointer;
     transition:
       border-color 0.15s ease,
-      box-shadow 0.15s ease;
+      box-shadow 0.15s ease,
+      transform 0.15s ease;
   }
 
   .card-grid-item:hover {
     border-color: var(--theme-primary);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px var(--theme-shadow);
   }
 
-  .card-grid-item.expanded {
-    border-color: var(--theme-primary);
-    box-shadow: 0 2px 8px var(--theme-shadow);
+  .card-grid-item:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 4px var(--theme-shadow);
   }
 
   .card-grid-item-banner {
@@ -592,71 +579,6 @@
     background: var(--theme-success);
     transition: width 0.3s ease;
     border-radius: 2px;
-  }
-
-  /* Expand/collapse animation wrapper */
-  .card-grid-item-details-wrapper {
-    display: grid;
-    grid-template-rows: 0fr;
-    opacity: 0;
-    transition:
-      grid-template-rows 0.3s ease,
-      opacity 0.25s ease;
-    overflow: hidden;
-  }
-
-  .card-grid-item-details-inner {
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  .card-grid-item-details-wrapper.expanded {
-    grid-template-rows: 1fr;
-    opacity: 1;
-  }
-
-  .card-grid-item-details {
-    padding: 0.75rem 1rem 1rem;
-    border-top: 1px solid var(--theme-border-secondary);
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  /* Spacing for analytics sections inside expanded card details */
-  .card-grid-item-details > .pt-3 {
-    padding-top: 0.5rem;
-  }
-
-  /* Force analytics grid to single column inside narrow card grid items */
-  .card-grid-item-details .grid {
-    grid-template-columns: 1fr !important;
-    gap: 1rem;
-  }
-
-  /* Ensure text wraps properly in narrow analytics cards */
-  .card-grid-item-details .grid > .rounded-lg {
-    padding: 1rem;
-    overflow-wrap: break-word;
-    word-break: break-word;
-  }
-
-  /* Prevent flex rows from overlapping in narrow cards */
-  .card-grid-item-details .flex.items-baseline,
-  .card-grid-item-details .flex.items-center {
-    flex-wrap: wrap;
-    gap: 0.25rem;
-  }
-
-  /* Download Sessions: ensure IP group containers have rounded corners */
-  .card-grid-item-details .space-y-4 > div {
-    border-radius: 0.5rem;
-    overflow: hidden;
-  }
-
-  /* Download Sessions: round the IP group header button top corners */
-  .card-grid-item-details .space-y-4 > div > button:first-child {
-    border-radius: 0.5rem 0.5rem 0 0;
   }
 
   .card-grid-item-collapse-btn {
@@ -1411,6 +1333,16 @@
     color: var(--theme-text-muted);
   }
 
+  /* Retro data-row hover: reinforce the row hover on the grid body only.
+     [data-row] scopes this to data rows so the sticky header is untouched. */
+  .retro-grid-row[data-row] {
+    transition: background-color 0.15s ease;
+  }
+
+  .retro-grid-row[data-row]:hover {
+    background-color: var(--theme-bg-hover);
+  }
+
   /* ===== PAGINATION - CARD BLEED & MOBILE ===== */
 
   /*
@@ -1439,7 +1371,7 @@
 
   /* ===== DOWNLOADS SETTINGS PANEL (gear toggle) ===== */
 
-  /* Height animates via the grid-rows idiom (same as .card-grid-item-details-wrapper)
+  /* Height animates via the grid-rows idiom (grid-template-rows 0fr -> 1fr)
      so opening AND closing both slide instead of the card snapping to size. */
   .downloads-settings-panel {
     display: grid;
@@ -1504,8 +1436,26 @@
     .downloads-settings-panel,
     .downloads-settings-panel-inner,
     .downloads-settings-panel-content,
-    .downloads-settings-trigger svg {
+    .downloads-settings-trigger svg,
+    .card-grid-item,
+    .retro-grid-row[data-row] {
       transition: none;
+    }
+
+    .card-grid-item:hover,
+    .card-grid-item:active {
+      transform: none;
+    }
+
+    /* Still the continuous header/live-download motion for reduced-motion users. */
+    .downloads-header .speed-indicator.active .speed-ring,
+    .downloads-header .speed-indicator.active .speed-icon,
+    .downloads-header .tab-button:not(.active) .tab-badge.has-active,
+    .downloads-header .active-dot,
+    .active-empty-state .empty-icon-ring,
+    .active-downloads-view .active-indicator,
+    .active-loading-spinner {
+      animation: none;
     }
   }
 }
