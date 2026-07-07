@@ -60,6 +60,7 @@ import {
   formatDataImportFailureMessage
 } from './detailMessageFormatters';
 import { translateStageKeyMessage } from '@utils/stageKeyMessage';
+import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { classifyRemovalKind, removalStageKey } from './removalKind';
 import { SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY } from '@components/features/management/schedules/scheduled-prefill/constants';
 
@@ -113,6 +114,29 @@ function standardGetStatus(event: { status?: string }): string | undefined {
   if (event.status === 'completed') return 'completed';
   if (event.status === 'failed' || event.status === 'cancelled') return 'failed';
   return undefined;
+}
+
+/**
+ * Prefixes a translated corruption-removal progress message with the display
+ * service name so the shared notification card always shows which service is
+ * being worked. During "Remove All" the per-service position is appended when
+ * the context carries both serviceIndex and serviceCount, e.g. `Steam (2/5): …`.
+ * The prefix is skipped for the aggregate 'all' service and when no service is
+ * present. Display-only: the raw service tag is unchanged everywhere else.
+ */
+function prefixCorruptionRemovalService(
+  message: string,
+  service: string | undefined,
+  context: Record<string, string | number | boolean> | undefined
+): string {
+  if (!service || service === 'all') return message;
+  const label = getServiceDisplayName(service);
+  const index = context?.serviceIndex;
+  const count = context?.serviceCount;
+  if (index !== undefined && count !== undefined) {
+    return `${label} (${index}/${count}): ${message}`;
+  }
+  return `${label}: ${message}`;
 }
 
 // ============================================================================
@@ -592,7 +616,11 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     progress: {
       getMessage: (event: CorruptionRemovalProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.corruptionRemove.scanningFiles', event.context ?? {}),
+        prefixCorruptionRemovalService(
+          i18n.t(event.stageKey ?? 'signalr.corruptionRemove.scanningFiles', event.context ?? {}),
+          event.service,
+          event.context
+        ),
       getProgress: (event: CorruptionRemovalProgressEvent) => event.percentComplete,
       getStatus: (event: CorruptionRemovalProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: CorruptionRemovalProgressEvent) =>

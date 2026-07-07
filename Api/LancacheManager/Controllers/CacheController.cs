@@ -620,19 +620,65 @@ public class CacheController : ControllerBase
                 await LiveLogMonitorService.PauseAsync();
                 _logger.LogInformation("Paused LiveLogMonitorService for all-services corruption removal");
 
-                foreach (var service in servicesWithCorruption)
+                // One shared state for the whole run: per-service cores suppress their terminal
+                // emits and report in here, so the notification card advances service by service
+                // and completes exactly once below with aggregated totals.
+                var bulkState = new BulkCorruptionRemovalState { ServiceCount = servicesWithCorruption.Count };
+                var cancelled = false;
+
+                for (var serviceIndex = 0; serviceIndex < servicesWithCorruption.Count; serviceIndex++)
                 {
+                    var service = servicesWithCorruption[serviceIndex];
+                    bulkState.ServiceIndex = serviceIndex + 1;
                     try
                     {
                         await RunCorruptionRemovalCoreAsync(
-                            service, threshold, compareToCacheLogs, detectionMode, datasources);
+                            service, threshold, compareToCacheLogs, detectionMode, datasources,
+                            bulk: bulkState);
                     }
                     catch (OperationCanceledException)
                     {
                         // The core already completed this service's operation as cancelled.
                         // Stop processing further services on cancellation.
+                        cancelled = true;
                         break;
                     }
+                }
+
+                // The run's single terminal emit.
+                var processedCount = bulkState.SucceededServices + bulkState.FailedServices;
+                if (cancelled)
+                {
+                    await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                        new CorruptionRemovalComplete(false, "all",
+                            StageKey: "signalr.corruptionRemove.allCancelled",
+                            OperationId: bulkState.LastOperationId,
+                            Context: new Dictionary<string, object?>
+                            {
+                                ["completedCount"] = processedCount,
+                                ["serviceCount"] = bulkState.ServiceCount
+                            }));
+                }
+                else if (bulkState.FailedServices > 0)
+                {
+                    var context = bulkState.Totals.ToContext("all");
+                    context["failedCount"] = bulkState.FailedServices;
+                    context["serviceCount"] = bulkState.ServiceCount;
+                    await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                        new CorruptionRemovalComplete(false, "all",
+                            StageKey: "signalr.corruptionRemove.allCompleteWithFailures",
+                            OperationId: bulkState.LastOperationId,
+                            Context: context));
+                }
+                else
+                {
+                    var context = bulkState.Totals.ToContext("all");
+                    context["serviceCount"] = bulkState.ServiceCount;
+                    await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                        new CorruptionRemovalComplete(true, "all",
+                            StageKey: "signalr.corruptionRemove.allComplete",
+                            OperationId: bulkState.LastOperationId,
+                            Context: context));
                 }
             }
             catch (Exception ex)
@@ -716,6 +762,82 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
+    /// Per-service outcome totals harvested from the Rust binary's final progress checkpoint
+    /// (both remove flows persist {count, files, logLines, downloads, logEntries} at 100%),
+    /// summed across datasources. Drives the rich terminal notification message.
+    /// </summary>
+    private sealed class CorruptionRemovalTotals
+    {
+        public long UrlsRemoved;
+        public long FilesDeleted;
+        public long LogLinesRemoved;
+        public long DownloadsDeleted;
+        public long LogEntriesDeleted;
+
+        public bool AnythingRemoved =>
+            UrlsRemoved > 0 || FilesDeleted > 0 || LogLinesRemoved > 0
+            || DownloadsDeleted > 0 || LogEntriesDeleted > 0;
+
+        public void Add(CorruptionRemovalTotals other)
+        {
+            UrlsRemoved += other.UrlsRemoved;
+            FilesDeleted += other.FilesDeleted;
+            LogLinesRemoved += other.LogLinesRemoved;
+            DownloadsDeleted += other.DownloadsDeleted;
+            LogEntriesDeleted += other.LogEntriesDeleted;
+        }
+
+        public Dictionary<string, object?> ToContext(string service) => new()
+        {
+            ["service"] = service,
+            ["count"] = UrlsRemoved,
+            ["files"] = FilesDeleted,
+            ["logLines"] = LogLinesRemoved,
+            ["downloads"] = DownloadsDeleted,
+            ["logEntries"] = LogEntriesDeleted
+        };
+    }
+
+    /// <summary>
+    /// Shared state for an all-services corruption removal run. The per-service cores suppress
+    /// their individual terminal SignalR emits and report into this instead, so the singleton
+    /// notification card walks service by service as ONE running operation and completes exactly
+    /// once with aggregated totals. Previously every service (and every datasource within it)
+    /// raced its own completion onto the same card: mid-run "completed" checkpoints armed
+    /// auto-dismiss timers, later events were dropped against the no-longer-running card, and
+    /// the final state was whichever writer happened to land last.
+    /// </summary>
+    private sealed class BulkCorruptionRemovalState
+    {
+        public required int ServiceCount { get; init; }
+        public int ServiceIndex; // 1-based position of the service currently running
+        public int SucceededServices;
+        public int FailedServices;
+        public Guid LastOperationId;
+        public CorruptionRemovalTotals Totals { get; } = new();
+    }
+
+    /// <summary>
+    /// Reads a numeric value out of a Rust progress-checkpoint context, which deserializes
+    /// as JsonElement values inside the object dictionary.
+    /// </summary>
+    private static long ReadContextCount(Dictionary<string, object?>? context, string key)
+    {
+        if (context == null || !context.TryGetValue(key, out var value) || value == null)
+        {
+            return 0;
+        }
+
+        return value switch
+        {
+            System.Text.Json.JsonElement je when je.ValueKind == System.Text.Json.JsonValueKind.Number => je.GetInt64(),
+            long l => l,
+            int i => i,
+            _ => long.TryParse(value.ToString(), out var parsed) ? parsed : 0
+        };
+    }
+
+    /// <summary>
     /// Shared per-service corruption-removal core: registers a tracked operation, emits the
     /// start notification, runs the corruption-remove Rust binary across every datasource with
     /// progress monitoring, and completes the operation. Caller responsibilities (NOT done here):
@@ -726,52 +848,94 @@ public class CacheController : ControllerBase
     /// non-cancellation failures complete the operation as failed and are swallowed so the
     /// all-services loop continues with the next service. <paramref name="onRegistered"/> fires
     /// synchronously with the operationId the moment the operation is registered.
+    /// When <paramref name="bulk"/> is provided (all-services run) the terminal SignalR emit is
+    /// suppressed - the bulk loop emits ONE aggregated completion after the last service - and
+    /// every event context carries serviceIndex/serviceCount so the card shows which service is
+    /// being worked and how far through the run it is. Returns true when every datasource
+    /// succeeded for this service.
     /// </summary>
-    private async Task RunCorruptionRemovalCoreAsync(
+    private async Task<bool> RunCorruptionRemovalCoreAsync(
         string service,
         int threshold,
         bool compareToCacheLogs,
         string detectionMode,
         IReadOnlyList<ResolvedDatasource> datasources,
-        Action<Guid>? onRegistered = null)
+        Action<Guid>? onRegistered = null,
+        BulkCorruptionRemovalState? bulk = null)
     {
         // Create CancellationTokenSource and register with unified operation tracker for cancel support
         var cts = new CancellationTokenSource();
         var metadata = new RemovalMetrics { EntityKey = service.ToLowerInvariant(), EntityName = service };
         var serviceName = service;
+        var totals = new CorruptionRemovalTotals();
         Guid operationId = Guid.Empty;
         operationId = _operationTracker.RegisterOperation(
             OperationType.CorruptionRemoval,
             $"Corruption removal: {service}",
             cts,
             metadata,
-            onTerminalEmit: info => info.Cancelled
-                ? _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                    new CorruptionRemovalComplete(false, serviceName,
-                        StageKey: "signalr.corruptionRemove.cancelled",
-                        OperationId: operationId))
-                : info.Success
-                    ? _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                        new CorruptionRemovalComplete(true, serviceName,
-                            StageKey: "signalr.corruptionRemove.success",
-                            OperationId: operationId,
-                            Context: new Dictionary<string, object?> { ["service"] = serviceName }))
-                    : _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+            onTerminalEmit: info =>
+            {
+                // In an all-services run the terminal emit belongs to the bulk loop (one
+                // aggregated completion after the last service). Emitting per service here is
+                // what made completions race each other on the singleton notification card.
+                if (bulk != null)
+                {
+                    return Task.CompletedTask;
+                }
+
+                if (info.Cancelled)
+                {
+                    return _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                        new CorruptionRemovalComplete(false, serviceName,
+                            StageKey: "signalr.corruptionRemove.cancelled",
+                            OperationId: operationId));
+                }
+
+                if (!info.Success)
+                {
+                    return _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                         new CorruptionRemovalComplete(false, serviceName,
                             StageKey: "signalr.corruptionRemove.failed.generic",
                             OperationId: operationId,
-                            Error: info.Error)));
+                            Error: info.Error));
+                }
+
+                // Success carries the Rust binary's real numbers (harvested from its final
+                // progress checkpoint) instead of a generic "successfully removed" line.
+                return totals.AnythingRemoved
+                    ? _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                        new CorruptionRemovalComplete(true, serviceName,
+                            StageKey: "signalr.corruptionRemove.complete",
+                            OperationId: operationId,
+                            Context: totals.ToContext(serviceName)))
+                    : _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                        new CorruptionRemovalComplete(true, serviceName,
+                            StageKey: "signalr.corruptionRemove.noChunksFoundService",
+                            OperationId: operationId,
+                            Context: new Dictionary<string, object?> { ["service"] = serviceName }));
+            });
 
         onRegistered?.Invoke(operationId);
 
         // Send start notification via SignalR
+        var startContext = new Dictionary<string, object?> { ["service"] = service };
+        var startStageKey = "signalr.corruptionRemove.starting";
+        if (bulk != null)
+        {
+            bulk.LastOperationId = operationId;
+            startContext["serviceIndex"] = bulk.ServiceIndex;
+            startContext["serviceCount"] = bulk.ServiceCount;
+            startStageKey = "signalr.corruptionRemove.startingService";
+        }
+
         _notifications.NotifyAllFireAndForget(SignalREvents.CorruptionRemovalStarted,
             new CorruptionRemovalStarted(
                 service,
                 operationId,
-                "signalr.corruptionRemove.starting",
+                startStageKey,
                 DateTime.UtcNow,
-                new Dictionary<string, object?> { ["service"] = service }));
+                startContext));
 
         try
         {
@@ -783,9 +947,15 @@ public class CacheController : ControllerBase
             bool allSucceeded = true;
             string? lastError = null;
 
-            foreach (ResolvedDatasource datasource in datasources)
+            var datasourceCount = datasources.Count;
+            for (var datasourceIndex = 0; datasourceIndex < datasourceCount; datasourceIndex++)
             {
                 cts.Token.ThrowIfCancellationRequested();
+
+                // Copy for the async progress closure: the for variable is shared across
+                // iterations and a late callback must not see the next iteration's index.
+                var dsIndex = datasourceIndex;
+                var datasource = datasources[datasourceIndex];
 
                 var logsPath = datasource.LogPath;
                 var cachePath = datasource.CachePath;
@@ -820,13 +990,39 @@ public class CacheController : ControllerBase
                                 return;
                             }
 
-                            _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.StageKey ?? "");
+                            // "completed" checkpoints are DATA for the terminal emit, not live
+                            // progress: relaying them fired once per datasource and per service,
+                            // flipping the notification card to completed while work was still
+                            // running - the reason completions never displayed reliably. The
+                            // tracker's CompleteOperation / the bulk loop own the completion.
+                            // "failed" checkpoints still relay: they carry the rich errorDetail
+                            // (error.fatal) that the generic terminal failure message lacks.
+                            if (progress.Status == "completed")
+                            {
+                                return;
+                            }
+
+                            // One continuous 0-100 across all datasources instead of the bar
+                            // snapping back to zero when the next datasource starts.
+                            var overallPercent = (dsIndex * 100.0 + progress.PercentComplete) / datasourceCount;
+
+                            _operationTracker.UpdateProgress(operationId, overallPercent, progress.StageKey ?? "");
                             _operationTracker.UpdateMetadata(operationId, (object meta) =>
                             {
                                 var m = (RemovalMetrics)meta;
                                 m.FilesProcessed = progress.FilesProcessed;
                                 m.TotalFiles = progress.TotalFiles;
                             });
+
+                            // Every progress context names the service (the Rust stage contexts
+                            // don't), plus the run position during an all-services removal.
+                            var context = progress.Context ?? new Dictionary<string, object?>();
+                            context["service"] = service;
+                            if (bulk != null)
+                            {
+                                context["serviceIndex"] = bulk.ServiceIndex;
+                                context["serviceCount"] = bulk.ServiceCount;
+                            }
 
                             // Send progress notification via SignalR
                             await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalProgress,
@@ -838,9 +1034,25 @@ public class CacheController : ControllerBase
                                     DateTime.UtcNow,
                                     progress.FilesProcessed,
                                     progress.TotalFiles,
-                                    progress.PercentComplete,
-                                    progress.Context));
+                                    overallPercent,
+                                    context));
                         });
+
+                    // Harvest this datasource's outcome numbers from the final checkpoint
+                    // before the finally below deletes the file. Both Rust remove flows persist
+                    // {count, files, logLines, downloads, logEntries} in their 100% checkpoint.
+                    if (result.Success)
+                    {
+                        var finalProgress = await _rustProcessHelper.ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
+                        if (finalProgress is { Status: "completed", Context: not null })
+                        {
+                            totals.UrlsRemoved += ReadContextCount(finalProgress.Context, "count");
+                            totals.FilesDeleted += ReadContextCount(finalProgress.Context, "files");
+                            totals.LogLinesRemoved += ReadContextCount(finalProgress.Context, "logLines");
+                            totals.DownloadsDeleted += ReadContextCount(finalProgress.Context, "downloads");
+                            totals.LogEntriesDeleted += ReadContextCount(finalProgress.Context, "logEntries");
+                        }
+                    }
 
                     if (result.Success)
                     {
@@ -875,12 +1087,24 @@ public class CacheController : ControllerBase
                 // Terminal SignalR emit is centralized in the onTerminalEmit closure
                 // registered with RegisterOperation (fires exactly once from CompleteOperation).
                 _operationTracker.CompleteOperation(operationId, success: true);
+
+                if (bulk != null)
+                {
+                    bulk.SucceededServices++;
+                    bulk.Totals.Add(totals);
+                }
+
+                return true;
             }
-            else
+
+            _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, lastError);
+            _operationTracker.CompleteOperation(operationId, success: false, error: lastError);
+            if (bulk != null)
             {
-                _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, lastError);
-                _operationTracker.CompleteOperation(operationId, success: false, error: lastError);
+                bulk.FailedServices++;
             }
+
+            return false;
         }
         catch (OperationCanceledException)
         {
@@ -894,6 +1118,12 @@ public class CacheController : ControllerBase
         {
             _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
             _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+            if (bulk != null)
+            {
+                bulk.FailedServices++;
+            }
+
+            return false;
         }
     }
 

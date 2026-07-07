@@ -6016,8 +6016,10 @@
     },
     "corruptionRemove": {
       "starting": "Starting removal for {{service}}",
+      "startingService": "Removing corruption for {{service}} ({{serviceIndex}} of {{serviceCount}})",
       "scanningRedownload": "Scanning log files for re-download patterns...",
       "noChunksFound": "No corrupted chunks found, nothing to remove",
+      "noChunksFoundService": "No corrupted chunks were found for {{service}}, nothing to remove",
       "filteringLogs": "Filtering {{totalFiles}} log files",
       "filteringFile": "Filtering file {{fileIndex}}/{{totalFiles}}",
       "removingCacheFiles": "Removing cache files for {{totalUrls}} corrupted URLs",
@@ -6028,6 +6030,9 @@
       "complete": "Removed {{count}} corrupted URLs for {{service}} ({{files}} cache files deleted, {{logLines}} log lines removed, {{downloads}} downloads deleted, {{logEntries}} log entries deleted)",
       "success": "Successfully removed corrupted chunks for {{service}}",
       "cancelled": "Operation was cancelled.",
+      "allComplete": "Corruption removal completed across {{serviceCount}} services: {{count}} corrupted URLs removed ({{files}} cache files, {{logLines}} log lines, {{logEntries}} database entries)",
+      "allCompleteWithFailures": "Corruption removal completed with {{failedCount}} of {{serviceCount}} services failing. Removed {{count}} corrupted URLs ({{files}} cache files, {{logLines}} log lines)",
+      "allCancelled": "Corruption removal cancelled after {{completedCount}} of {{serviceCount}} services",
       "redownload": {
         "complete": "Removed {{count}} re-download corrupted URLs for {{service}} ({{files}} cache files deleted, {{logLines}} log lines removed, {{downloads}} downloads deleted, {{logEntries}} log entries deleted)"
       },

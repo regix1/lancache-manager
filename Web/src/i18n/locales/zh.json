@@ -5986,8 +5986,10 @@
     },
     "corruptionRemove": {
       "starting": "开始移除 {{service}}",
+      "startingService": "正在移除 {{service}} 的损坏数据（第 {{serviceIndex}}/{{serviceCount}} 个）",
       "scanningRedownload": "正在扫描日志文件查找重新下载模式...",
       "noChunksFound": "未发现损坏块，无需移除",
+      "noChunksFoundService": "未发现 {{service}} 的损坏块，无需移除",
       "filteringLogs": "正在过滤 {{totalFiles}} 个日志文件",
       "filteringFile": "正在过滤文件 {{fileIndex}}/{{totalFiles}}",
       "removingCacheFiles": "正在移除 {{totalUrls}} 个损坏URL的缓存文件",
@@ -5998,6 +6000,9 @@
       "complete": "已为 {{service}} 移除 {{count}} 个损坏URL（删除了 {{files}} 个缓存文件、{{logLines}} 行日志、{{downloads}} 条下载记录、{{logEntries}} 条日志条目）",
       "success": "已成功移除 {{service}} 的损坏块",
       "cancelled": "操作已被取消。",
+      "allComplete": "已完成 {{serviceCount}} 个服务的损坏移除：移除 {{count}} 个损坏URL（{{files}} 个缓存文件、{{logLines}} 行日志、{{logEntries}} 条数据库条目）",
+      "allCompleteWithFailures": "损坏移除已完成，{{serviceCount}} 个服务中有 {{failedCount}} 个失败。已移除 {{count}} 个损坏URL（{{files}} 个缓存文件、{{logLines}} 行日志）",
+      "allCancelled": "损坏移除已取消，已处理 {{completedCount}}/{{serviceCount}} 个服务",
       "redownload": {
         "complete": "已为 {{service}} 移除 {{count}} 个重新下载的损坏URL（删除了 {{files}} 个缓存文件、{{logLines}} 行日志、{{downloads}} 条下载记录、{{logEntries}} 条日志条目）"
       },

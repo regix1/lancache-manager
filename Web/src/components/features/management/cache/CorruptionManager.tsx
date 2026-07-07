@@ -20,6 +20,7 @@ import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Button } from '@components/ui/Button';
 import { showPermissionBlock } from '@utils/permissionUi';
+import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -316,6 +317,17 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       const serviceName = event.service;
       if (!serviceName) return;
 
+      // "Remove All" now emits exactly ONE terminal event with service === 'all'
+      // (per-service completes are suppressed by the backend, which deletes every
+      // service's cached detection rows up front). Clear all local corruption state
+      // in one shot. Single-service removals still arrive per service below.
+      if (serviceName === 'all') {
+        setCorruptionSummary({});
+        setExpandedCorruptionService(null);
+        setCorruptionDetails({});
+        return;
+      }
+
       setCorruptionSummary((prev) => {
         if (!(serviceName in prev)) return prev;
         const updated = { ...prev };
@@ -416,7 +428,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           buildSeededRunningNotification(
             'corruption_removal',
             result.operationId,
-            t('signalr.corruptionRemove.starting', { service }),
+            t('signalr.corruptionRemove.starting', { service: getServiceDisplayName(service) }),
+            // Raw tag: notification matching and the backend operate on the service tag.
             { service }
           )
         );
@@ -425,7 +438,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       console.error('Removal failed:', err);
       onError?.(
         (err instanceof Error ? err.message : String(err)) ||
-          t('management.corruption.errors.removeCorrupted', { service })
+          t('management.corruption.errors.removeCorrupted', {
+            service: getServiceDisplayName(service)
+          })
       );
       clearCorruptionRemovalPending(service);
     }
@@ -480,7 +495,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       } catch (err: unknown) {
         onError?.(
           (err instanceof Error ? err.message : String(err)) ||
-            t('management.corruption.errors.loadDetails', { service })
+            t('management.corruption.errors.loadDetails', {
+              service: getServiceDisplayName(service)
+            })
         );
         setExpandedCorruptionService((prev) => (prev === service ? null : prev));
       } finally {
@@ -726,7 +743,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                       {corruptionList.map(([service, count]) => (
                         <AccordionSection
                           key={`corruption-${service}`}
-                          title={service}
+                          title={getServiceDisplayName(service)}
                           count={count}
                           isExpanded={expandedCorruptionService === service}
                           onToggle={() => toggleCorruptionDetails(service)}
@@ -921,7 +938,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            {t('management.corruption.modal.confirmRemove', { service: pendingCorruptionRemoval })}
+            {t('management.corruption.modal.confirmRemove', {
+              service: pendingCorruptionRemoval
+                ? getServiceDisplayName(pendingCorruptionRemoval)
+                : undefined
+            })}
           </p>
 
           <Alert color="red">
@@ -955,6 +976,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                 <li>
                   {t('management.corruption.modal.validFilesRemain', {
                     service: pendingCorruptionRemoval
+                      ? getServiceDisplayName(pendingCorruptionRemoval)
+                      : undefined
                   })}
                 </li>
                 <li>
