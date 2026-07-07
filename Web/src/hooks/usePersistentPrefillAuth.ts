@@ -12,6 +12,7 @@ import {
   armPersistentLoginTimeout,
   derivePersistentChallengeFlags,
   extractPersistentSessionId,
+  getPersistentLoginEpoch,
   getPersistentLoginSessionId,
   getPersistentLoginStartPromise,
   isPersistentLoginAuthenticatedResponse,
@@ -390,16 +391,29 @@ export function usePersistentPrefillAuth(
       armPersistentLoginTimeout(service);
       setLoading(true);
       setError(null);
+      // Captured AFTER the synchronous writes above: every reset path (container stop/start, the
+      // cleanup retire, an explicit cancel, the overall timeout) bumps the store's login epoch, so
+      // comparing against this snapshot below tells this attempt that the store no longer belongs
+      // to it by the time its REST call settles - the backend can hold this call open for tens of
+      // seconds waiting for a daemon challenge, easily spanning a whole stop/start cycle.
+      const startEpoch = getPersistentLoginEpoch(service);
 
       try {
         const challenge = await ApiService.startPersistentLogin(service);
-        if (isPersistentLoginCancelled(service)) {
-          setLoading(false);
-          // The user cancelled while start() was still contacting the daemon, before any sessionId
-          // was pinned - so cancel()'s own daemon round-trip was skipped (it had nothing to
-          // address yet). Now that the daemon has answered with this attempt's session, tear that
-          // login down here so it is not left running orphaned. cancelPersistentLogin is idempotent,
-          // so this never conflicts with cancel()'s own call in the already-pinned window.
+        const epochStale = getPersistentLoginEpoch(service) !== startEpoch;
+        if (epochStale || isPersistentLoginCancelled(service)) {
+          if (!epochStale) {
+            // Same attempt, an explicit cancel racing this response (cancel() sets the flag before
+            // its own reset runs): stop the spinner this attempt still owns. A stale epoch writes
+            // NOTHING - the store already belongs to whatever came after the reset, and stomping it
+            // with loading=false/fail() is exactly how a hung start from a stopped container used
+            // to close or wedge the replacement attempt's auth modal.
+            setLoading(false);
+          }
+          // Either way the daemon answered a login attempt that no longer has an owner - tear a
+          // late challenge down so its daemon login is not left running orphaned.
+          // cancelPersistentLogin is idempotent and session-pinned, so this can never cancel a
+          // newer attempt's login.
           if (isPersistentLoginCredentialChallenge(challenge)) {
             const cancelSessionId = extractPersistentSessionId(challenge);
             if (cancelSessionId) {
@@ -429,6 +443,13 @@ export function usePersistentPrefillAuth(
         );
         return null;
       } catch (err) {
+        if (getPersistentLoginEpoch(service) !== startEpoch) {
+          // The flow this call belonged to was already reset/superseded - its failure (typically
+          // the backend's "Login timeout" 400 for a container that has since been stopped) is not
+          // the current attempt's failure. Discard it instead of writing a stale error over live
+          // state.
+          return null;
+        }
         const message = err instanceof Error ? err.message : 'Failed to start persistent login';
         fail(message);
         return null;

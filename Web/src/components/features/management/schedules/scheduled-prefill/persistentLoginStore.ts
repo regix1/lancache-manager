@@ -161,6 +161,39 @@ const startPromises = new Map<PersistentPrefillServiceId, Promise<CredentialChal
 // across a store reset, so this counter's value is never reused/collided with a prior click.
 const loginAttemptCounters = new Map<PersistentPrefillServiceId, number>();
 const loginAttemptListeners = new Map<PersistentPrefillServiceId, Set<Listener>>();
+// Monotonic per-service epoch, bumped by every reset/terminal transition. An async login flow
+// (start()'s REST call, which the backend can hold open ~40s waiting for a daemon challenge)
+// captures the epoch when it begins and compares on settlement: a mismatch means the store was
+// reset out from under it (container stop/start, cleanup retire, explicit cancel, overall timeout)
+// and its result must be DISCARDED, not written - a stale fail()/setLoading(false) landing in the
+// NEXT attempt's store is exactly how a hung start from a stopped container used to close or wedge
+// the replacement attempt's auth modal.
+const loginEpochs = new Map<PersistentPrefillServiceId, number>();
+
+/** Reads the current login epoch for a service - see `loginEpochs`. Captured by start() when an
+ *  attempt begins; a later mismatch marks that attempt's settlement as stale. */
+export function getPersistentLoginEpoch(service: PersistentPrefillServiceId): number {
+  return loginEpochs.get(service) ?? 0;
+}
+
+/**
+ * Invalidates everything a still-running async login flow could later write through: bumps the
+ * epoch (so an in-flight start()'s eventual settlement is recognized as stale and discarded),
+ * drops the registered in-flight start promise (so the NEXT "Log in" click fires a real daemon
+ * login instead of silently awaiting a dead session's hung REST call - the wedge where every
+ * click after a container stop/start did nothing until that call timed out server-side), and
+ * clears the cancel flag (which otherwise leaked `true` into a later challenge that arrived
+ * without a fresh start() ever re-running, making that modal's submit poll loop bail instantly).
+ * Called by every reset/terminal transition below.
+ */
+function invalidateInFlightLogin(service: PersistentPrefillServiceId): void {
+  loginEpochs.set(service, (loginEpochs.get(service) ?? 0) + 1);
+  startPromises.delete(service);
+  const cancelFlag = cancelFlags.get(service);
+  if (cancelFlag) {
+    cancelFlag.current = false;
+  }
+}
 
 function notify(service: PersistentPrefillServiceId): void {
   listeners.get(service)?.forEach((listener) => listener());
@@ -207,7 +240,10 @@ export function armPersistentLoginTimeout(service: PersistentPrefillServiceId): 
   clearPersistentLoginTimeout(service);
   const handle = setTimeout(() => {
     loginTimeoutHandles.delete(service);
-    setPersistentLoginCancelled(service, true);
+    // Epoch bump (not the cancel flag, which would leak `true` into a later resumed challenge):
+    // the still-hanging start() recognizes its settlement as stale, discards it, and best-effort
+    // cancels a late daemon challenge itself - the same teardown the flag used to buy here.
+    invalidateInFlightLogin(service);
     updatePersistentLoginState(service, () => ({
       ...INITIAL_PERSISTENT_LOGIN_STATE,
       error: 'Timed out waiting for a response. Please try again.'
@@ -224,9 +260,12 @@ export function resetPersistentLoginState(service: PersistentPrefillServiceId): 
     // cleanup pass now calls this for every persistent service on every refresh (see
     // ScheduledPrefillConfigModal's authenticated-or-stopped cleanup effect), and most services are
     // simply idle/never touched most of the time - without this guard every refresh would re-render
-    // every subscribed card for no reason.
+    // every subscribed card for no reason. Skipping invalidateInFlightLogin here is safe for the
+    // same reason: a start() attempt writes loading=true synchronously before anything can await,
+    // so the state can only be at rest again after a reset that already invalidated it.
     return;
   }
+  invalidateInFlightLogin(service);
   states.set(service, INITIAL_PERSISTENT_LOGIN_STATE);
   notify(service);
 }
@@ -244,6 +283,7 @@ export function terminatePersistentLoginSessionUnavailable(
   state: PersistentSessionNotFoundState = 'notStarted'
 ): void {
   clearPersistentLoginTimeout(service);
+  invalidateInFlightLogin(service);
   states.set(service, { ...INITIAL_PERSISTENT_LOGIN_STATE, sessionUnavailableState: state });
   notify(service);
 }
@@ -263,6 +303,7 @@ export function resetPersistentLoginSessionReplaced(
   message: string
 ): void {
   clearPersistentLoginTimeout(service);
+  invalidateInFlightLogin(service);
   states.set(service, { ...INITIAL_PERSISTENT_LOGIN_STATE, error: message });
   notify(service);
 }
@@ -306,6 +347,13 @@ export function applyPersistentLoginChallenge(
     return {
       ...current,
       pendingChallenge: challenge,
+      // A genuinely NEW challenge means the network phase that produced it is over - the flow is
+      // now waiting on the USER - so the spinner state must end even when the challenge arrived
+      // via the SignalR push while the REST leg that started the login is still hanging (or was
+      // reset away entirely). Leaving `loading` stuck true here rendered the credentials form with
+      // every input disabled and the submit button spinning "Authenticating..." with no way out.
+      // A redelivery keeps whatever loading state an in-flight submit currently owns.
+      loading: isRedelivery ? current.loading : false,
       dismissed: isRedelivery ? current.dismissed : false,
       sessionId: sessionId !== undefined ? sessionId : current.sessionId
     };
