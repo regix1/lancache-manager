@@ -161,7 +161,7 @@ public static class GamesOnDiskCalculator
     private static (ulong Bytes, bool ClaimedElsewhere) AccumulatePaths(
         HashSet<string> seenPaths,
         List<string>? paths,
-        IReadOnlyDictionary<string, ulong>? sizeByPath = null)
+        ConcurrentDictionary<string, ulong>? sizeByPath = null)
     {
         if (paths == null || paths.Count == 0)
         {
@@ -202,7 +202,7 @@ public static class GamesOnDiskCalculator
     /// round-trips on network filesystems); fanning it out cuts the wall clock by roughly
     /// the degree of parallelism while leaving the attribution semantics untouched.
     /// </summary>
-    private static IReadOnlyDictionary<string, ulong> PreStatPathsInParallel(
+    private static ConcurrentDictionary<string, ulong> PreStatPathsInParallel(
         IReadOnlyList<GameCacheInfo> games,
         IReadOnlyList<ServiceCacheInfo> services,
         Action<int, int>? onPathProgress)
