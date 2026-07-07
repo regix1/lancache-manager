@@ -77,9 +77,12 @@ const buildGroupKey = (download: DownloadType, groupByGame: boolean): string => 
         ? `app-${download.gameAppId}`
         : download.epicAppId
           ? `epic-${download.epicAppId}`
-          : download.gameName
+          : download.gameName && download.gameName !== download.service
             ? `name-${download.gameName.toLowerCase()}`
-            : `unknown-${download.id}`;
+            : // No resolved game identity (e.g. WSUS/Windows Update, unmapped depots):
+              // collapse every such row for this service into one per-service bucket so
+              // grouping by game groups them together instead of one row per download.
+              'unknown';
     return `game-${download.service}-${gameId}`;
   }
   return download.depotId

@@ -484,9 +484,12 @@ public class DownloadsController : ControllerBase
                     }
                     else
                     {
-                        // Stable per-row key - never merges with other rows
-                        var depotPart = row.DepotId.HasValue ? row.DepotId.Value.ToString() : "0";
-                        mergeKey = $"{normalizedService}-unknown-{depotPart}-{row.ClientIp}";
+                        // No resolved game identity (e.g. WSUS/Windows Update, unmapped
+                        // depots). Collapse every such row for this service into a single
+                        // per-service bucket so "group by game" groups them together instead
+                        // of showing one row per depot/client. The merged row renders
+                        // aggregated depot/client counts.
+                        mergeKey = $"{normalizedService}-unknown";
                     }
 
                     if (!mergedBuckets.TryGetValue(mergeKey, out var bucket))
