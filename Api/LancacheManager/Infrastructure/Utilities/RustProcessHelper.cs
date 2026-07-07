@@ -518,11 +518,16 @@ public partial class RustProcessHelper
             throw new FileNotFoundException($"{operationName} output file not found: {outputJsonPath}");
         }
 
-        var jsonContent = await File.ReadAllTextAsync(outputJsonPath);
-        _logger.LogInformation("[{Operation}] Read JSON output, length: {Length}", operationName, jsonContent.Length);
-
+        // Deserialize straight off the stream - report payloads (corruption chunk lists,
+        // removal reports) can run to hundreds of MB, and ReadAllText would hold the whole
+        // document as a string next to the parsed result.
         var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        var result = JsonSerializer.Deserialize<T>(jsonContent, options);
+        T? result;
+        await using (var fileStream = File.OpenRead(outputJsonPath))
+        {
+            _logger.LogInformation("[{Operation}] Reading JSON output, {Length} bytes", operationName, fileStream.Length);
+            result = await JsonSerializer.DeserializeAsync<T>(fileStream, options);
+        }
 
         if (result == null)
         {
@@ -544,6 +549,26 @@ public partial class RustProcessHelper
         await DeleteTempFileAsync(outputJsonPath);
 
         return result;
+    }
+
+    /// <summary>
+    /// Streams a rust binary's output file into a JsonElement without materializing the
+    /// document as a string first. Returns null (with a debug log) for an empty file;
+    /// parse failures propagate so callers keep their existing cleanup semantics.
+    /// </summary>
+    private async Task<object?> DeserializeOutputFileAsync(
+        string outputFile,
+        string binaryName,
+        CancellationToken cancellationToken = default)
+    {
+        await using var fileStream = File.OpenRead(outputFile);
+        if (fileStream.Length == 0)
+        {
+            _logger.LogDebug("{Binary} output file is empty", binaryName);
+            return null;
+        }
+
+        return await JsonSerializer.DeserializeAsync<object>(fileStream, cancellationToken: cancellationToken);
     }
 
     /// <summary>
@@ -624,17 +649,7 @@ public partial class RustProcessHelper
                 {
                     try
                     {
-                        var jsonContent = await File.ReadAllTextAsync(outputFile);
-
-                        // Only attempt to deserialize if content is not empty
-                        if (!string.IsNullOrWhiteSpace(jsonContent))
-                        {
-                            data = System.Text.Json.JsonSerializer.Deserialize<object>(jsonContent);
-                        }
-                        else
-                        {
-                            _logger.LogDebug("log_manager output file is empty");
-                        }
+                        data = await DeserializeOutputFileAsync(outputFile, "log_manager");
 
                         // Clean up temp file
                         if (progressFile == null)
@@ -754,19 +769,9 @@ public partial class RustProcessHelper
                 {
                     try
                     {
-                        var jsonContent = await File.ReadAllTextAsync(outputFile, cancellationToken);
-
-                        // Only attempt to deserialize if content is not empty
-                        if (!string.IsNullOrWhiteSpace(jsonContent))
-                        {
-                            data = System.Text.Json.JsonSerializer.Deserialize<object>(jsonContent);
-                        }
-                        else
-                        {
-                            _logger.LogDebug("corruption_manager output file is empty");
-                        }
+                        data = await DeserializeOutputFileAsync(outputFile, "corruption_manager", cancellationToken);
                     }
-                    catch (Exception ex)
+                    catch (Exception ex) when (ex is not OperationCanceledException)
                     {
                         _logger.LogWarning(ex, "Failed to parse corruption_manager output JSON");
                     }

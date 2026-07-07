@@ -6,6 +6,7 @@ use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -30,7 +31,6 @@ use cache_detect_matching::{
     detect_steam_game_cache_info,
     detect_steam_game_cache_info_incremental,
     group_epic_records,
-    group_game_records,
     group_named_records,
 };
 use cache_detect_queries::{
@@ -143,56 +143,62 @@ struct DetectionReport {
     services: Vec<ServiceCacheInfo>,
 }
 
-#[derive(Debug, Clone)]
-struct CacheFileInfo {
-    path: PathBuf,
-    size: u64,
-    // Note: hash is stored as HashMap key, not needed in struct
-}
-
 /// Scan cache directory and build in-memory index of all cache files
 /// This is much faster than checking 2.3M individual file.exists() calls
-fn scan_cache_directory(cache_dir: &Path) -> Result<HashMap<String, CacheFileInfo>> {
+///
+/// Index = file-name digest -> size. A lancache file's name IS the md5 of its cache key, so
+/// the parsed u128 fully identifies the file; storing no path keeps the multi-million-file
+/// index to ~24 bytes per entry instead of ~200. Report paths are reconstructed from the
+/// digest via `cache_utils::cache_path_for_digest` (the `levels=2:2` layout every fs-probing
+/// path in this binary already assumes).
+fn scan_cache_directory(cache_dir: &Path) -> Result<HashMap<u128, u64>> {
     eprintln!("\n=== Phase 1: Scanning Cache Directory ===");
     eprintln!("Building in-memory index of cache files...");
 
     let counter = AtomicUsize::new(0);
+    let non_hash_names = AtomicUsize::new(0);
 
     // Use jwalk for parallel directory walking (4x faster than walkdir)
-    let cache_files: HashMap<String, CacheFileInfo> = WalkDir::new(cache_dir)
+    let cache_files: HashMap<u128, u64> = WalkDir::new(cache_dir)
         .parallelism(jwalk::Parallelism::RayonNewPool(num_cpus::get()))
         .into_iter()
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.file_type().is_file())
         .par_bridge()
         .filter_map(|entry| {
-            let path = entry.path();
-
-            // Extract hash from path (last component of path)
-            let hash = path.file_name().and_then(|n| n.to_str())?;
-            let metadata = entry.metadata().ok()?;
-            let size = metadata.len();
-
             // Progress counter
             let count = counter.fetch_add(1, Ordering::Relaxed) + 1;
             if count % 10000 == 0 {
                 eprint!("\r  Scanned {} files...", count);
             }
 
-            Some((
-                hash.to_string(),
-                CacheFileInfo {
-                    path: path.to_path_buf(),
-                    size,
-                },
-            ))
+            let digest = entry
+                .file_name()
+                .to_str()
+                .and_then(cache_utils::parse_cache_file_digest);
+            let Some(digest) = digest else {
+                // Not a 32-hex md5 name -> can never match a probe candidate; keep it out of
+                // the index but count it so a foreign cache layout stays visible.
+                non_hash_names.fetch_add(1, Ordering::Relaxed);
+                return None;
+            };
+
+            let metadata = entry.metadata().ok()?;
+            Some((digest, metadata.len()))
         })
         .collect();
 
     let total = cache_files.len();
-    let total_size_gb = cache_files.values().map(|f| f.size).sum::<u64>() as f64 / 1_073_741_824.0;
+    let total_size_gb = cache_files.values().copied().sum::<u64>() as f64 / 1_073_741_824.0;
 
     eprintln!("\r  Found {} cache files ({:.2} GB total)", total, total_size_gb);
+    let skipped = non_hash_names.load(Ordering::Relaxed);
+    if skipped > 0 {
+        eprintln!(
+            "  Skipped {} file(s) whose names are not 32-hex md5 cache keys (nginx temp or foreign files)",
+            skipped
+        );
+    }
 
     Ok(cache_files)
 }
@@ -248,7 +254,7 @@ async fn main() -> Result<()> {
     let pool = db::create_pool().await?;
 
     // Variables that may or may not be used depending on mode
-    let cache_files_index: Option<HashMap<String, CacheFileInfo>>;
+    let cache_files_index: Option<HashMap<u128, u64>>;
 
     if incremental_mode {
         // INCREMENTAL MODE: Skip expensive cache directory scan
@@ -272,13 +278,11 @@ async fn main() -> Result<()> {
     write_progress(progress_path.as_deref(), "querying", "signalr.gameDetect.db.querying", json!({}), 20.0, 0, 0)?;
     reporter.emit_progress(20.0, "signalr.gameDetect.db.querying", json!({}));
 
-    // Query ALL URLs to get accurate cache sizes (no sampling)
-    let all_records = query_game_downloads(&pool, None, &excluded_game_ids).await?;
+    // Query ALL URLs to get accurate cache sizes (no sampling); rows stream straight into
+    // the per-game map inside the query helper.
+    let games_map = query_game_downloads(&pool, None, &excluded_game_ids).await?;
     write_progress(progress_path.as_deref(), "querying", "signalr.gameDetect.db.complete", json!({}), 30.0, 0, 0)?;
     reporter.emit_progress(30.0, "signalr.gameDetect.db.complete", json!({}));
-
-    // Group records by game_app_id
-    let games_map = group_game_records(all_records);
 
     let total_games = games_map.len();
     eprintln!("Found {} unique games in database", total_games);
@@ -352,7 +356,7 @@ async fn main() -> Result<()> {
             let cache_index = cache_files_index
                 .as_ref()
                 .context("Cache file index missing during full game scan")?;
-            detect_steam_game_cache_info(&records, cache_index)
+            detect_steam_game_cache_info(&records, cache_index, &cache_dir)
         };
 
         match result {
@@ -445,7 +449,7 @@ async fn main() -> Result<()> {
                 let cache_index = cache_files_index
                     .as_ref()
                     .context("Cache file index missing during full Epic scan")?;
-                detect_epic_game_cache_info(epic_id, game_name, service_urls, cache_index)
+                detect_epic_game_cache_info(epic_id, game_name, service_urls, cache_index, &cache_dir)
             };
 
             match result {
@@ -539,7 +543,7 @@ async fn main() -> Result<()> {
                 let cache_index = cache_files_index
                     .as_ref()
                     .context("Cache file index missing during full named game scan")?;
-                detect_named_game_cache_info(service, game_name, service_urls, cache_index)
+                detect_named_game_cache_info(service, game_name, service_urls, cache_index, &cache_dir)
             };
 
             match result {
@@ -722,6 +726,7 @@ async fn main() -> Result<()> {
                     &service_name,
                     &service_urls,
                     cache_index,
+                    &cache_dir,
                     &url_counter,
                 )
             };
@@ -783,6 +788,11 @@ async fn main() -> Result<()> {
         eprintln!("Total service cache size: {:.2} GB", service_bytes_found as f64 / 1_073_741_824.0);
     }
 
+    // Phase 4 was the last consumer of the on-disk index; on a multi-million-file cache it
+    // holds hundreds of MB, so it must be gone before the report (which carries its own copy
+    // of every matched path) is serialized on top of it.
+    drop(cache_files_index);
+
     let report = DetectionReport {
         total_games_detected: detected_games.len(),
         total_services_detected: detected_services.len(),
@@ -794,8 +804,13 @@ async fn main() -> Result<()> {
     write_progress(progress_path.as_deref(), "writing", "signalr.gameDetect.writing", json!({}), 90.0, 0, 0)?;
     reporter.emit_progress(90.0, "signalr.gameDetect.writing", json!({}));
 
-    let json = serde_json::to_string_pretty(&report)?;
-    fs::write(&output_json, json)?;
+    // Stream the report straight to the file: to_string_pretty would materialize the whole
+    // JSON (all cache_file_paths again) as one giant String before writing.
+    let output_file = fs::File::create(&output_json)
+        .with_context(|| format!("Failed to create output file: {}", output_json.display()))?;
+    let mut output_writer = BufWriter::new(output_file);
+    serde_json::to_writer_pretty(&mut output_writer, &report)?;
+    output_writer.flush()?;
 
     let epic_game_count = report.games.iter().filter(|g| g.epic_app_id.is_some()).count();
     // Named (Blizzard/Riot) games: GameAppId 0, no EpicAppId, but carry a non-steam service.

@@ -30,11 +30,15 @@ public class SteamService : ScopedScheduledBackgroundService
 
     // Caches for performance
     private readonly ConcurrentDictionary<long, GameInfo> _gameCache = new();
-    private readonly ConcurrentDictionary<long, long> _depotToAppCache = new();
+    // depot -> representative (lowest) AppId, swapped by reference on reload. The old shape
+    // held every mapped app per depot in a HashSet<long> AND eagerly duplicated the Min()
+    // into a second ConcurrentDictionary - tens of MB resident for values only ever read as
+    // Count/Sum (logging) and Min() (the representative).
+    private Dictionary<long, long> _depotMappings = new();
+    private int _totalDepotMappingCount;
 
     // Steam API data
     private Dictionary<long, SteamAppInfo> _steamApps = new();
-    private Dictionary<long, HashSet<long>> _depotMappings = new();
     private DateTime _lastRefresh = DateTime.MinValue;
     private bool _isReady = false;
 
@@ -159,13 +163,11 @@ public class SteamService : ScopedScheduledBackgroundService
             // Check if we need to refresh from Steam API (daily refresh)
             if (DateTime.UtcNow - _lastRefresh < TimeSpan.FromDays(1) && _steamApps.Count > 0)
             {
-                var depotCount = _depotMappings.Count;
-                var mappingCount = _depotMappings.Sum(kvp => kvp.Value.Count);
                 _logger.LogInformation(
                     "Using cached Steam data ({AppCount} apps, {DepotCount} depots, {MappingCount} depot mappings)",
                     _steamApps.Count,
-                    depotCount,
-                    mappingCount);
+                    _depotMappings.Count,
+                    _totalDepotMappingCount);
                 _isReady = true;
                 return;
             }
@@ -176,12 +178,11 @@ public class SteamService : ScopedScheduledBackgroundService
             _lastRefresh = DateTime.UtcNow;
             _isReady = true;
 
-            var totalMappings = _depotMappings.Sum(kvp => kvp.Value.Count);
             _logger.LogInformation(
                 "Steam data refreshed: {AppCount} apps, {DepotCount} depots, {MappingCount} depot mappings",
                 _steamApps.Count,
                 _depotMappings.Count,
-                totalMappings);
+                _totalDepotMappingCount);
         }
         catch (Exception ex)
         {
@@ -208,42 +209,32 @@ public class SteamService : ScopedScheduledBackgroundService
         {
             using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
-            // Load depot mappings from database and bucket by depot
-            var depotMappings = await scopedDb.DbContext.SteamDepotMappings.AsNoTracking().ToListAsync();
+            // Load depot mappings from database, projected to the two columns this map needs
+            // (full entities would also materialize every name column transiently), and keep
+            // only the lowest AppId per depot - the sole value ever read from the mapping.
+            var depotMappings = await scopedDb.DbContext.SteamDepotMappings
+                .AsNoTracking()
+                .Select(m => new { m.DepotId, m.AppId })
+                .ToListAsync();
 
-            var grouped = new Dictionary<long, HashSet<long>>();
+            var grouped = new Dictionary<long, long>();
+            var distinctPairs = new HashSet<(long DepotId, long AppId)>();
             foreach (var mapping in depotMappings)
             {
-                if (!grouped.TryGetValue(mapping.DepotId, out var set))
+                distinctPairs.Add((mapping.DepotId, mapping.AppId));
+                if (!grouped.TryGetValue(mapping.DepotId, out var representative) || mapping.AppId < representative)
                 {
-                    set = new HashSet<long>();
-                    grouped[mapping.DepotId] = set;
+                    grouped[mapping.DepotId] = mapping.AppId;
                 }
-
-                set.Add(mapping.AppId);
             }
 
             _depotMappings = grouped;
-            _depotToAppCache.Clear();
+            _totalDepotMappingCount = distinctPairs.Count;
 
-            foreach (var kvp in _depotMappings)
-            {
-                var depotId = kvp.Key;
-                if (kvp.Value.Count == 0)
-                {
-                    continue;
-                }
-
-                var representativeApp = kvp.Value.Min();
-                _depotToAppCache[depotId] = representativeApp;
-            }
-
-            var depotCount = _depotMappings.Count;
-            var mappingCount = _depotMappings.Sum(kvp => kvp.Value.Count);
             _logger.LogInformation(
                 "Loaded {DepotCount} depots with {MappingCount} mappings from database",
-                depotCount,
-                mappingCount);
+                grouped.Count,
+                _totalDepotMappingCount);
         }
         catch (Exception ex)
         {
@@ -262,17 +253,9 @@ public class SteamService : ScopedScheduledBackgroundService
     {
         try
         {
-            // Check cache first
-            if (_depotToAppCache.TryGetValue(depotId, out var cachedAppId))
+            // The map stores the representative (lowest) AppId per depot directly.
+            if (_depotMappings.TryGetValue(depotId, out var selectedAppId))
             {
-                return cachedAppId;
-            }
-
-            // Check main mappings
-            if (_depotMappings.TryGetValue(depotId, out var appIds) && appIds.Count > 0)
-            {
-                var selectedAppId = appIds.Min();
-                _depotToAppCache[depotId] = selectedAppId;
                 return selectedAppId;
             }
 
@@ -449,7 +432,6 @@ public class SteamService : ScopedScheduledBackgroundService
     public void ClearCache()
     {
         _gameCache.Clear();
-        _depotToAppCache.Clear();
         _logger.LogInformation("Cleared all Steam service caches");
     }
 

@@ -128,7 +128,15 @@ struct Processor {
     logged_tact_products: HashSet<String>, // Track Blizzard TACT products already logged
     logged_riot_hosts: HashSet<String>, // Track Riot CDN hosts already logged
     datasource_name: String,
+    /// Depot -> (AppId, AppName) memo, filled lazily per depot actually seen in a batch.
+    /// The old shape preloaded the WHOLE owner-mapping table here on every spawn - and this
+    /// binary is respawned every second by LiveLogMonitorService, so an idle box paid a
+    /// full-table SELECT plus a tens-of-MB HashMap rebuild per second to resolve at most a
+    /// handful of new depots.
     depot_map: HashMap<u32, (u32, Option<String>)>,
+    /// Depots confirmed to have no owner mapping this run (negative memo, so an unmapped
+    /// depot is queried at most once per run - mirroring the old start-of-run snapshot).
+    depots_unmapped: HashSet<u32>,
     skip_dedup: bool, // True when table is empty - skip duplicate checks for max speed
     /// Xbox CDN fragment -> (title, product_id), longest fragment first. Xbox content arrives as
     /// lancache-tagged `wsus` traffic over opaque /filestreamingservice/files/<GUID> URLs;
@@ -138,9 +146,13 @@ struct Processor {
     xbox_patterns: Vec<(String, String, String)>,
     /// Last time `xbox_patterns` was loaded; throttles reloads to once per `XBOX_PATTERN_RELOAD`.
     last_xbox_pattern_load: Option<Instant>,
-    /// Per-URL Xbox resolution cache: url -> Some((title, product_id)) or None (confirmed no
-    /// match → stays generic wsus). None is cached too, so a non-match is never re-walked.
-    xbox_url_cache: HashMap<String, Option<(String, String)>>,
+    /// Per-URL Xbox NEGATIVE resolution cache, keyed by the URL's md5 digest (16 bytes; a
+    /// collision would need two crafted URLs in one run - not a realistic log shape). A full
+    /// reprocess sees every unique wsus URL, and the old String-keyed map holding each URL
+    /// (mostly for None results) grew to hundreds of MB.
+    xbox_url_negative: HashSet<u128>,
+    /// Per-URL Xbox POSITIVE resolutions (rare - only matched game URLs), same digest key.
+    xbox_url_positive: HashMap<u128, (String, String)>,
 }
 
 impl Processor {
@@ -152,7 +164,6 @@ impl Processor {
         start_position: u64,
         auto_map_depots: bool,
         datasource_name: String,
-        depot_map: HashMap<u32, (u32, Option<String>)>,
     ) -> Self {
         // Get timezone from environment variable (same as C# uses)
         let tz_str = env::var("TZ").unwrap_or_else(|_| "UTC".to_string());
@@ -183,11 +194,13 @@ impl Processor {
             logged_tact_products: HashSet::new(),
             logged_riot_hosts: HashSet::new(),
             datasource_name,
-            depot_map,
+            depot_map: HashMap::new(),
+            depots_unmapped: HashSet::new(),
             skip_dedup: false,
             xbox_patterns: Vec::new(),
             last_xbox_pattern_load: None,
-            xbox_url_cache: HashMap::new(),
+            xbox_url_negative: HashSet::new(),
+            xbox_url_positive: HashMap::new(),
         }
     }
 
@@ -616,8 +629,47 @@ impl Processor {
         Ok(())
     }
 
-    fn lookup_depot_mapping(&self, depot_id: u32) -> Option<(u32, Option<String>)> {
-        self.depot_map.get(&depot_id).cloned()
+    /// Depot -> (AppId, AppName) via the lazy per-depot memo. At most ONE indexed SELECT per
+    /// new depot per run (a batch resolves a single primary depot); already-seen depots and
+    /// confirmed-unmapped depots never touch the DB again this run. A transient query error
+    /// is NOT negative-memoized, so the depot retries on the next batch.
+    async fn lookup_depot_mapping(&mut self, depot_id: u32) -> Option<(u32, Option<String>)> {
+        if let Some(mapped) = self.depot_map.get(&depot_id) {
+            return Some(mapped.clone());
+        }
+        if self.depots_unmapped.contains(&depot_id) {
+            return None;
+        }
+
+        // ORDER BY makes the pick deterministic for shared depots with multiple owner rows,
+        // and lowest-AppId matches the representative SteamService.GetAppIdFromDepot uses.
+        let row = match sqlx::query(
+            r#"SELECT "AppId", "AppName" FROM "SteamDepotMappings" WHERE "DepotId" = $1 AND "IsOwner" = true ORDER BY "AppId" LIMIT 1"#,
+        )
+        .bind(depot_id as i64)
+        .fetch_optional(&self.pool)
+        .await
+        {
+            Ok(row) => row,
+            Err(e) => {
+                eprintln!("Warning: Failed to look up depot mapping for {}: {}", depot_id, e);
+                return None;
+            }
+        };
+
+        match row {
+            Some(row) => {
+                let app_id: i64 = row.get("AppId");
+                let app_name: Option<String> = row.get("AppName");
+                let mapped = (app_id as u32, app_name);
+                self.depot_map.insert(depot_id, mapped.clone());
+                Some(mapped)
+            }
+            None => {
+                self.depots_unmapped.insert(depot_id);
+                None
+            }
+        }
     }
 
     /// True for lancache service tags that carry Xbox / Microsoft Store delivery traffic. Two shapes
@@ -681,7 +733,7 @@ impl Processor {
                 // SPLIT into two rows. New URLs first seen AFTER the pattern exists resolve normally;
                 // the next process run (a natural session gap) re-evaluates everything against the
                 // now-populated table. Positive entries are cleared so a renamed title can refresh.
-                self.xbox_url_cache.retain(|_, decision| decision.is_none());
+                self.xbox_url_positive.clear();
             }
             Err(_) => {
                 // Silently ignore (tables may not exist yet); wsus stays generic.
@@ -693,8 +745,12 @@ impl Processor {
     /// (longest-first), or None if it is generic Windows Update / Xbox Live. Per-URL cached (None
     /// caches too, so a confirmed non-match is never re-walked). Loads the patterns on first use.
     async fn lookup_xbox_game(&mut self, url: &str) -> Option<(String, String)> {
-        if let Some(cached) = self.xbox_url_cache.get(url) {
-            return cached.clone();
+        let key = cache_utils::calculate_md5_digest(url);
+        if self.xbox_url_negative.contains(&key) {
+            return None;
+        }
+        if let Some(cached) = self.xbox_url_positive.get(&key) {
+            return Some(cached.clone());
         }
 
         self.load_xbox_patterns().await;
@@ -702,7 +758,14 @@ impl Processor {
         let result = Self::match_xbox_fragment(&self.xbox_patterns, url)
             .map(|(_, name, pid)| (name.clone(), pid.clone()));
 
-        self.xbox_url_cache.insert(url.to_string(), result.clone());
+        match &result {
+            Some(game) => {
+                self.xbox_url_positive.insert(key, game.clone());
+            }
+            None => {
+                self.xbox_url_negative.insert(key);
+            }
+        }
         result
     }
 
@@ -920,7 +983,7 @@ impl Processor {
             (None, Some(title.clone()))
         } else if self.auto_map_depots && service.to_lowercase() == "steam" {
             if let Some(depot_id) = primary_depot_id {
-                match self.lookup_depot_mapping(depot_id) {
+                match self.lookup_depot_mapping(depot_id).await {
                     Some((app_id, app_name)) => {
                         // Only log each depot mapping once to avoid log spam
                         if !self.logged_depots.contains(&depot_id) {
@@ -1462,34 +1525,9 @@ async fn main() -> Result<()> {
 
     let pool = db::create_pool().await?;
 
-    // Pre-load all SteamDepotMappings into a HashMap so no per-session DB lookups are needed.
-    // Only owner apps (IsOwner = true) - matches prior C# behavior.
-    let depot_map: HashMap<u32, (u32, Option<String>)> = if auto_map_depots {
-        eprintln!("Pre-loading Steam depot mappings...");
-        let rows = sqlx::query(
-            r#"SELECT "DepotId", "AppId", "AppName" FROM "SteamDepotMappings" WHERE "IsOwner" = true"#
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap_or_else(|e| {
-            eprintln!("Warning: Failed to load depot mappings: {}", e);
-            vec![]
-        });
-        let map: HashMap<u32, (u32, Option<String>)> = rows
-            .into_iter()
-            .map(|row| {
-                let depot_id: i64 = row.get("DepotId");
-                let app_id: i64 = row.get("AppId");
-                let app_name: Option<String> = row.get("AppName");
-                (depot_id as u32, (app_id as u32, app_name))
-            })
-            .collect();
-        eprintln!("Loaded {} depot mappings", map.len());
-        map
-    } else {
-        HashMap::new()
-    };
-
+    // Depot mappings are resolved lazily per depot inside the processor (one indexed SELECT
+    // per new depot). The old whole-table preload ran on every spawn - once per second on a
+    // live box - just to resolve at most a handful of new depots.
     let mut processor = Processor::new(
         pool,
         log_dir,
@@ -1498,7 +1536,6 @@ async fn main() -> Result<()> {
         start_position,
         auto_map_depots,
         datasource_name,
-        depot_map,
     );
 
     match processor.process().await {

@@ -856,6 +856,7 @@ dependencies = [
  "chrono-tz",
  "clap",
  "flate2",
+ "futures-util",
  "jwalk",
  "libc",
  "md5",

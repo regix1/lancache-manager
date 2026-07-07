@@ -735,9 +735,10 @@ async fn main() -> Result<()> {
             let parser = LogParser::new(chrono_tz::UTC);
             let log_files = crate::log_discovery::discover_log_files(&log_dir, "access.log")?;
 
-            // PASS 1: Scan all logs to identify corrupted URLs AND their sizes
-            let mut miss_tracker: HashMap<String, usize> = HashMap::new();
-            let mut url_sizes: HashMap<String, i64> = HashMap::new(); // Track max response size per URL
+            // PASS 1: Scan all logs to identify corrupted URLs AND their sizes.
+            // One map holds (miss_count, max response size) per URL - two separate URL-keyed
+            // maps stored every URL string twice.
+            let mut miss_tracker: HashMap<String, (usize, i64)> = HashMap::new();
             let mut entries_processed: usize = 0;
             let miss_threshold: usize = threshold.unwrap_or(3);
 
@@ -769,13 +770,13 @@ async fn main() -> Result<()> {
                                 // Track MISS/UNKNOWN for this service
                                 if entry.service == service_lower &&
                                    (entry.cache_status == "MISS" || entry.cache_status == "UNKNOWN") {
-                                    *miss_tracker.entry(entry.url.clone()).or_insert(0) += 1;
-                                    entries_processed += 1;
-
+                                    let tracked = miss_tracker
+                                        .entry(entry.url.clone())
+                                        .or_insert((0usize, i64::MIN));
+                                    tracked.0 += 1;
                                     // Track the maximum response size for this URL
-                                    url_sizes.entry(entry.url.clone())
-                                        .and_modify(|size| *size = (*size).max(entry.bytes_served))
-                                        .or_insert(entry.bytes_served);
+                                    tracked.1 = tracked.1.max(entry.bytes_served);
+                                    entries_processed += 1;
 
                                     // Log progress periodically
                                     if entries_processed % 500_000 == 0 {
@@ -797,12 +798,9 @@ async fn main() -> Result<()> {
 
             // Build map of candidate URLs with their response sizes (those with threshold+ misses)
             let candidates: HashMap<String, i64> = miss_tracker
-                .iter()
-                .filter(|(_, &count)| count >= miss_threshold)
-                .map(|(url, _)| {
-                    let size = url_sizes.get(url).copied().unwrap_or(0);
-                    (url.clone(), size)
-                })
+                .into_iter()
+                .filter(|(_, (count, _))| *count >= miss_threshold)
+                .map(|(url, (_, max_size))| (url, max_size))
                 .collect();
 
             let candidate_count = candidates.len();

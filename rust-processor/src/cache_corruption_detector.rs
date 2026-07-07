@@ -8,6 +8,35 @@ use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+/// String interner for the HIT-retry tracking maps. The (service, url, client_ip, http_range)
+/// tuples repeat the same handful of strings across millions of map entries; storing each
+/// unique string once and keying the maps by 4x u32 ids cuts the tracking maps from ~300 B
+/// per entry (four owned Strings, url often >100 chars) to 16 bytes plus one shared copy per
+/// unique string.
+#[derive(Default)]
+struct StringInterner {
+    ids: HashMap<Arc<str>, u32>,
+    values: Vec<Arc<str>>,
+}
+
+impl StringInterner {
+    fn intern(&mut self, s: &str) -> u32 {
+        if let Some(&id) = self.ids.get(s) {
+            return id;
+        }
+        let value: Arc<str> = Arc::from(s);
+        let id = u32::try_from(self.values.len()).expect("interner overflow (>4B unique strings)");
+        self.values.push(value.clone());
+        self.ids.insert(value, id);
+        id
+    }
+
+    fn get(&self, id: u32) -> &str {
+        &self.values[id as usize]
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CorruptedChunk {
@@ -374,11 +403,13 @@ impl CorruptionDetector {
         }
 
         let parser = LogParser::new(timezone);
-        // Track (service, url, client_ip, http_range) -> list of timestamps
-        // Including http_range prevents false positives from WSUS/BITS Range requests,
-        // where the same URL is requested with different byte ranges during normal downloads.
-        let mut hit_timestamps: HashMap<(String, String, String, String), Vec<NaiveDateTime>> = HashMap::new();
-        let mut url_sizes: HashMap<(String, String), i64> = HashMap::new(); // Track max response size per (service, url)
+        // Track (service, url, client_ip, http_range) -> list of timestamps, keyed by interned
+        // string ids (see StringInterner). Including http_range prevents false positives from
+        // WSUS/BITS Range requests, where the same URL is requested with different byte ranges
+        // during normal downloads.
+        let mut interner = StringInterner::default();
+        let mut hit_timestamps: HashMap<(u32, u32, u32, u32), Vec<NaiveDateTime>> = HashMap::new();
+        let mut url_sizes: HashMap<(u32, u32), i64> = HashMap::new(); // Track max response size per (service, url)
         let mut entries_processed = 0usize;
 
         for (file_index, log_file) in log_files.iter().enumerate() {
@@ -428,13 +459,18 @@ impl CorruptionDetector {
 
                     // Collect HIT timestamps per (service, url, client_ip, http_range)
                     if entry.cache_status == "HIT" {
-                        let key = (entry.service.clone(), entry.url.clone(), entry.client_ip.clone(), entry.http_range.clone());
-                        hit_timestamps.entry(key).or_default().push(entry.timestamp);
+                        let service_id = interner.intern(&entry.service);
+                        let url_id = interner.intern(&entry.url);
+                        let client_id = interner.intern(&entry.client_ip);
+                        let range_id = interner.intern(&entry.http_range);
+                        hit_timestamps
+                            .entry((service_id, url_id, client_id, range_id))
+                            .or_default()
+                            .push(entry.timestamp);
                         entries_processed += 1;
 
                         // Track the maximum response size per (service, url) for multi-slice cache deletion
-                        let size_key = (entry.service.clone(), entry.url.clone());
-                        url_sizes.entry(size_key)
+                        url_sizes.entry((service_id, url_id))
                             .and_modify(|size| *size = (*size).max(entry.bytes_served))
                             .or_insert(entry.bytes_served);
 
@@ -464,7 +500,7 @@ impl CorruptionDetector {
         let window_seconds: i64 = 60;
         let mut result: HashMap<(String, String), (usize, i64)> = HashMap::new();
 
-        for ((service, url, _client_ip, _http_range), mut timestamps) in hit_timestamps {
+        for ((service_id, url_id, _client_id, _range_id), mut timestamps) in hit_timestamps {
             // Need at least threshold timestamps to be worth checking
             if timestamps.len() < self.miss_threshold {
                 continue;
@@ -489,8 +525,9 @@ impl CorruptionDetector {
             }
 
             if max_in_window >= self.miss_threshold {
-                let key = (service.clone(), url.clone());
-                let size = url_sizes.get(&(service, url)).copied().unwrap_or(0);
+                // Only threshold-passing tuples (a handful) materialize owned strings again.
+                let key = (interner.get(service_id).to_string(), interner.get(url_id).to_string());
+                let size = url_sizes.get(&(service_id, url_id)).copied().unwrap_or(0);
                 let entry = result.entry(key).or_insert((0, 0));
                 entry.0 = entry.0.max(max_in_window);
                 entry.1 = entry.1.max(size);

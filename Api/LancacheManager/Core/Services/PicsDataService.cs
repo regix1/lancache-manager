@@ -95,8 +95,6 @@ public class PicsDataService
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase
             };
 
-            var jsonContent = JsonSerializer.Serialize(picsData, jsonOptions);
-
             // Ensure data directory exists
             var dataDir = Path.GetDirectoryName(_picsJsonFile);
             if (!string.IsNullOrEmpty(dataDir) && !Directory.Exists(dataDir))
@@ -104,10 +102,7 @@ public class PicsDataService
                 Directory.CreateDirectory(dataDir);
             }
 
-            lock (_fileLock)
-            {
-                File.WriteAllText(_picsJsonFile, jsonContent);
-            }
+            WritePicsJsonFile(picsData, jsonOptions);
 
             // Clear cache so next load reads the new file
             ClearCache();
@@ -248,8 +243,6 @@ public class PicsDataService
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase
             };
 
-            var jsonContent = JsonSerializer.Serialize(existingData, jsonOptions);
-
             // Ensure data directory exists
             var dataDir = Path.GetDirectoryName(_picsJsonFile);
             if (!string.IsNullOrEmpty(dataDir) && !Directory.Exists(dataDir))
@@ -257,10 +250,7 @@ public class PicsDataService
                 Directory.CreateDirectory(dataDir);
             }
 
-            lock (_fileLock)
-            {
-                File.WriteAllText(_picsJsonFile, jsonContent);
-            }
+            WritePicsJsonFile(existingData, jsonOptions);
 
             // Clear cache so next load reads the new file
             ClearCache();
@@ -305,24 +295,63 @@ public class PicsDataService
                 return Task.FromResult<PicsJsonData?>(_cachedPicsData);
             }
 
-            string jsonContent;
-            lock (_fileLock)
-            {
-                jsonContent = File.ReadAllText(_picsJsonFile);
-            }
-
-            if (string.IsNullOrWhiteSpace(jsonContent))
-            {
-                _logger.LogWarning("PICS JSON file is empty");
-                return Task.FromResult<PicsJsonData?>(null);
-            }
-
             var jsonOptions = new JsonSerializerOptions
             {
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase
             };
 
-            var picsData = JsonSerializer.Deserialize<PicsJsonData>(jsonContent, jsonOptions);
+            // Deserialize straight off the stream while holding the same lock the writers use.
+            // The ~100 MB depot map would otherwise land in memory as a >200 MB UTF-16 string
+            // before parsing even starts.
+            PicsJsonData? picsData;
+            lock (_fileLock)
+            {
+                using var fileStream = File.OpenRead(_picsJsonFile);
+                if (fileStream.Length == 0)
+                {
+                    _logger.LogWarning("PICS JSON file is empty");
+                    return Task.FromResult<PicsJsonData?>(null);
+                }
+
+                picsData = JsonSerializer.Deserialize<PicsJsonData>(fileStream, jsonOptions);
+            }
+
+            // Dedup repeated strings across the ~250k mappings before caching: every mapping
+            // carries its own copy of the constant Source string, and app/depot names repeat
+            // across all depots of the same app - tens of MB of identical strings on a graph
+            // that stays resident between refreshes.
+            if (picsData?.DepotMappings != null)
+            {
+                var stringPool = new Dictionary<string, string>(StringComparer.Ordinal);
+                string Pooled(string value) =>
+                    stringPool.TryGetValue(value, out var pooled) ? pooled : stringPool[value] = value;
+
+                foreach (var mapping in picsData.DepotMappings.Values)
+                {
+                    if (mapping == null)
+                    {
+                        continue;
+                    }
+
+                    mapping.Source = Pooled(mapping.Source);
+                    if (mapping.DepotName != null)
+                    {
+                        mapping.DepotName = Pooled(mapping.DepotName);
+                    }
+
+                    if (mapping.AppNames != null)
+                    {
+                        for (var i = 0; i < mapping.AppNames.Count; i++)
+                        {
+                            var appName = mapping.AppNames[i];
+                            if (appName != null)
+                            {
+                                mapping.AppNames[i] = Pooled(appName);
+                            }
+                        }
+                    }
+                }
+            }
 
             // Cache the loaded data
             if (picsData != null)
@@ -668,12 +697,7 @@ public class PicsDataService
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase
             };
 
-            var jsonContent = JsonSerializer.Serialize(existingData, jsonOptions);
-
-            lock (_fileLock)
-            {
-                File.WriteAllText(_picsJsonFile, jsonContent);
-            }
+            WritePicsJsonFile(existingData, jsonOptions);
 
             // Clear cache
             ClearCache();
@@ -684,6 +708,20 @@ public class PicsDataService
         {
             _logger.LogError(ex, "Error updating change number in PICS JSON file");
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Serializes straight to the file under the shared file lock. The depot map's JSON is
+    /// ~100 MB on disk, so building it as an intermediate string would allocate a >200 MB
+    /// UTF-16 copy on every save.
+    /// </summary>
+    private void WritePicsJsonFile(PicsJsonData picsData, JsonSerializerOptions jsonOptions)
+    {
+        lock (_fileLock)
+        {
+            using var fileStream = File.Create(_picsJsonFile);
+            JsonSerializer.Serialize(fileStream, picsData, jsonOptions);
         }
     }
 

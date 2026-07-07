@@ -148,16 +148,20 @@ fn remove_cache_files_for_service(
 
     // All-slice existence walk (matches detection coverage) instead of the size-derived
     // candidate list, so range-served objects that log each ~1 MiB range as a separate
-    // row are fully enumerated rather than truncated to slice 0. `existing_cache_paths_for_url`
-    // stat-walks every on-disk slice for the URL, so the per-URL `total_bytes` is unused here.
-    let paths_to_check: Vec<PathBuf> = urls
+    // row are fully enumerated rather than truncated to slice 0. Collected as 16-byte
+    // file-name digests - a steam-sized service is millions of slices, and holding a full
+    // PathBuf per slice peaked at hundreds of MB. The canonical path is rebuilt per digest
+    // at deletion time (the same layout the existence probe below uses).
+    let digests_to_delete: Vec<u128> = urls
         .par_iter()
         .flat_map(|(url, _total_bytes)| {
-            cache_utils::existing_cache_paths_for_url(cache_dir, service, url)
+            cache_utils::existing_cache_digests_for_url(service, url, |digest| {
+                cache_utils::cache_path_for_digest(cache_dir, digest).exists()
+            })
         })
         .collect();
 
-    let total_paths = paths_to_check.len();
+    let total_paths = digests_to_delete.len();
     eprintln!("Checking {} potential cache file locations...", total_paths);
 
     let deleted_files = AtomicUsize::new(0);
@@ -168,7 +172,7 @@ fn remove_cache_files_for_service(
     // Track last reported percent to avoid writing progress too frequently
     let last_reported_percent = AtomicUsize::new(0);
 
-    paths_to_check.par_iter().for_each(|cache_path| {
+    digests_to_delete.par_iter().for_each(|digest| {
         // Cooperative cancellation: skip remaining files if cancel was requested.
         // Already-deleted files stay deleted — consistent partial state that C# reconciles.
         if cancel::is_cancelled() {
@@ -177,14 +181,15 @@ fn remove_cache_files_for_service(
 
         let checked = paths_checked.fetch_add(1, Ordering::Relaxed) + 1;
 
+        let cache_path = cache_utils::cache_path_for_digest(cache_dir, *digest);
         if cache_path.exists() {
-            match cache_utils::safe_path_under_root(cache_dir, cache_path) {
+            match cache_utils::safe_path_under_root(cache_dir, &cache_path) {
                 Ok(_) => {
-                    if let Ok(metadata) = fs::metadata(cache_path) {
+                    if let Ok(metadata) = fs::metadata(&cache_path) {
                         bytes_freed.fetch_add(metadata.len(), Ordering::Relaxed);
                     }
 
-                    match fs::remove_file(cache_path) {
+                    match fs::remove_file(&cache_path) {
                         Ok(_) => {
                             let count = deleted_files.fetch_add(1, Ordering::Relaxed) + 1;
                             if count.is_multiple_of(100) {

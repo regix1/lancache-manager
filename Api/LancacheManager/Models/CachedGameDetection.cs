@@ -6,6 +6,11 @@ namespace LancacheManager.Models;
 /// Database-persisted cache of game detection results
 /// Stores results from game cache detection to survive backend restarts
 /// </summary>
+/// <remarks>
+/// Adding a column? GameCacheDetectionDataService.LoadGameEntitiesAsync projects this entity
+/// column-by-column for the paths-excluded load - list the new column there too, or it will
+/// silently read as default on that path.
+/// </remarks>
 public class CachedGameDetection
 {
     [Key]

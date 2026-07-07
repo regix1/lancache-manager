@@ -4,7 +4,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Postgres, Transaction, Row};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 mod cache_utils;
@@ -312,8 +312,11 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, re
 
     // Scan-wide probe memo: many downloads share the same (service, url, datasource)
     // tuple, and the on-disk file-name index is immutable for the whole scan, so each
-    // unique tuple is hashed and probed exactly once.
-    let mut probe_memo: HashMap<cache_eviction_paths::ProbeKey, bool> = HashMap::new();
+    // unique tuple is hashed and probed exactly once. Keyed by ProbeKey::memo_key (the
+    // md5 digest of the tuple) so the memo holds 16 bytes + bool per unique tuple instead
+    // of owning the tuple's strings - the old shape grew unbounded into hundreds of MB on
+    // large libraries.
+    let mut probe_memo: HashMap<u128, bool> = HashMap::new();
 
     loop {
         // Step A: Fetch a batch of distinct inactive download IDs
@@ -402,19 +405,18 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, re
         }
 
         // Probe each not-yet-memoized unique key once, in parallel (pure CPU over the
-        // immutable on-disk index), then fold the results into the scan-wide memo.
-        let unprobed: HashSet<cache_eviction_paths::ProbeKey> = download_keys
-            .values()
-            .flatten()
-            .filter(|key| !probe_memo.contains_key(*key))
-            .cloned()
-            .collect();
-        let probe_results: Vec<(cache_eviction_paths::ProbeKey, bool)> = unprobed
+        // immutable on-disk index), then fold the results into the scan-wide memo. One
+        // representative ProbeKey per memo_key suffices: keys with equal memo_key probe
+        // the same candidate set (bytes_served is deliberately outside the identity).
+        let mut unprobed: HashMap<u128, &cache_eviction_paths::ProbeKey> = HashMap::new();
+        for key in download_keys.values().flatten() {
+            if !probe_memo.contains_key(&key.memo_key) {
+                unprobed.entry(key.memo_key).or_insert(key);
+            }
+        }
+        let probe_results: Vec<(u128, bool)> = unprobed
             .into_par_iter()
-            .map(|key| {
-                let has_file = key.has_cache_file(&files_on_disk);
-                (key, has_file)
-            })
+            .map(|(memo_key, key)| (memo_key, key.has_cache_file(&files_on_disk)))
             .collect();
         probe_memo.extend(probe_results);
 
@@ -478,7 +480,7 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, re
                 .iter()
                 .any(|key| {
                     probe_memo
-                        .get(key)
+                        .get(&key.memo_key)
                         .copied()
                         .expect("probe memo must contain every key collected this batch")
                 });

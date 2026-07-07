@@ -509,8 +509,14 @@ public partial class GameCacheDetectionService : IDisposable
                     throw new FileNotFoundException($"Output file not found: {outputJson}");
                 }
 
-                var json = await File.ReadAllTextAsync(outputJson, cancellationToken);
-                var detectionResult = JsonSerializer.Deserialize<GameDetectionResult>(json);
+                // Deserialize straight off the stream: the full-scan report carries every matched
+                // cache path, so ReadAllText would first materialize hundreds of MB as one string.
+                GameDetectionResult? detectionResult;
+                await using (var outputStream = File.OpenRead(outputJson))
+                {
+                    detectionResult = await JsonSerializer.DeserializeAsync<GameDetectionResult>(
+                        outputStream, cancellationToken: cancellationToken);
+                }
 
                 if (detectionResult == null)
                 {
@@ -1056,7 +1062,10 @@ public partial class GameCacheDetectionService : IDisposable
                 return _cachedDetectionResponse;
             }
 
-            var result = await LoadDetectionAsync();
+            // The retained cache deliberately excludes CacheFilePaths: across all rows the paths
+            // are millions of strings, and no consumer of the cached response reads them.
+            // Path-bearing responses are served per request by GetCachedDetectionWithPathsAsync.
+            var result = await LoadDetectionAsync(includeCacheFilePaths: false);
             _cachedDetectionResponse = result;
             return result;
         }
@@ -1066,9 +1075,19 @@ public partial class GameCacheDetectionService : IDisposable
         }
     }
 
-    private Task<DetectionOperationResponse?> LoadDetectionAsync(
+    /// <summary>
+    /// Loads detection results INCLUDING per-entity cache file paths. Never cached: the paths are
+    /// the dominant allocation, so they are materialized per request and reclaimed by the GC
+    /// instead of living on this singleton.
+    /// </summary>
+    public Task<DetectionOperationResponse?> GetCachedDetectionWithPathsAsync(
         CancellationToken cancellationToken = default) =>
-        _detectionDataService.LoadDetectionAsync(cancellationToken);
+        LoadDetectionAsync(cancellationToken, includeCacheFilePaths: true);
+
+    private Task<DetectionOperationResponse?> LoadDetectionAsync(
+        CancellationToken cancellationToken = default,
+        bool includeCacheFilePaths = true) =>
+        _detectionDataService.LoadDetectionAsync(cancellationToken, includeCacheFilePaths);
 
     public async Task InvalidateCacheAsync()
     {

@@ -675,7 +675,9 @@ public class GamesController : ControllerBase
     [HttpGet("detect/cached")]
     public async Task<IActionResult> GetCachedDetectionAsync()
     {
-        var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
+        // Non-slim response carries cache_file_paths, which the singleton cache deliberately
+        // omits - load them per request instead.
+        var cachedResults = await _gameCacheDetectionService.GetCachedDetectionWithPathsAsync(HttpContext.RequestAborted);
 
         if (cachedResults == null)
         {

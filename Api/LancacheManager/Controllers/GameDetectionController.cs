@@ -29,7 +29,9 @@ public class GameDetectionController : ControllerBase
     [HttpGet("evicted-games")]
     public async Task<IActionResult> GetEvictedGamesAsync()
     {
-        var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
+        // Returns raw GameCacheInfo objects (cache_file_paths included), which the singleton
+        // cache deliberately omits - load them per request instead.
+        var cachedResults = await _gameCacheDetectionService.GetCachedDetectionWithPathsAsync(HttpContext.RequestAborted);
 
         if (cachedResults?.Games == null)
         {

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use futures_util::TryStreamExt;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use std::collections::HashMap;
 
@@ -46,11 +47,14 @@ pub(crate) struct NamedDownloadRecord {
     pub(crate) bytes_served: i64,
 }
 
+/// Returns the per-game record map directly. Rows are streamed off the connection straight
+/// into the map: fetch_all would buffer every GROUP BY row (one per unique URL, millions on a
+/// large library) as PgRows and then again as a flat Vec before grouping.
 pub(crate) async fn query_game_downloads(
     pool: &PgPool,
     max_urls_per_game: Option<usize>,
     excluded_game_ids: &[u32],
-) -> Result<Vec<DownloadRecord>> {
+) -> Result<HashMap<u32, Vec<DownloadRecord>>> {
     eprintln!("Querying LogEntries for game URLs...");
 
     if !excluded_game_ids.is_empty() {
@@ -127,46 +131,52 @@ pub(crate) async fn query_game_downloads(
         );
     }
 
-    let rows = mapped_query.build().fetch_all(pool).await?;
-
-    let mut records: Vec<DownloadRecord> = Vec::new();
+    let mut games_map: HashMap<u32, Vec<DownloadRecord>> = HashMap::new();
+    let mut mapped_url_count = 0usize;
     let mut current_game_id: Option<u32> = None;
     let mut current_game_count = 0;
 
-    for row in rows {
-        let service: String = row.get(0);
-        let game_app_id: i64 = row.get(1);
-        let game_name: String = row.get(2);
-        let url: String = row.get(3);
-        let depot_id: Option<i64> = row.get(4);
-        // MAX() is typed nullable; NULL means no usable size → 0 → probe-chunk floor.
-        let bytes_served: Option<i64> = row.get(5);
+    {
+        let mut rows = mapped_query.build().fetch(pool);
+        while let Some(row) = rows.try_next().await? {
+            let service: String = row.get(0);
+            let game_app_id: i64 = row.get(1);
+            let game_name: String = row.get(2);
+            let url: String = row.get(3);
+            let depot_id: Option<i64> = row.get(4);
+            // MAX() is typed nullable; NULL means no usable size → 0 → probe-chunk floor.
+            let bytes_served: Option<i64> = row.get(5);
 
-        let record = DownloadRecord {
-            service,
-            game_app_id: game_app_id as u32,
-            game_name,
-            url,
-            depot_id: depot_id.map(|d| d as u32),
-            bytes_served: bytes_served.unwrap_or(0),
-        };
+            let record = DownloadRecord {
+                service,
+                game_app_id: game_app_id as u32,
+                game_name,
+                url,
+                depot_id: depot_id.map(|d| d as u32),
+                bytes_served: bytes_served.unwrap_or(0),
+            };
 
-        if let Some(limit) = max_urls_per_game {
-            if Some(record.game_app_id) != current_game_id {
-                current_game_id = Some(record.game_app_id);
-                current_game_count = 0;
+            if let Some(limit) = max_urls_per_game {
+                if Some(record.game_app_id) != current_game_id {
+                    current_game_id = Some(record.game_app_id);
+                    current_game_count = 0;
+                }
+
+                if current_game_count >= limit {
+                    continue;
+                }
+                current_game_count += 1;
             }
 
-            if current_game_count >= limit {
-                continue;
-            }
-            current_game_count += 1;
+            mapped_url_count += 1;
+            games_map
+                .entry(record.game_app_id)
+                .or_default()
+                .push(record);
         }
-
-        records.push(record);
     }
 
-    eprintln!("Found {} URLs across all mapped games", records.len());
+    eprintln!("Found {} URLs across all mapped games", mapped_url_count);
     eprintln!("Querying unknown games...");
 
     // Both branches GROUP BY (depot, url, service) and carry MAX(le."BytesServed") as the
@@ -210,42 +220,45 @@ pub(crate) async fn query_game_downloads(
         unknown_query.push(" GROUP BY le.\"DepotId\", le.\"Url\", le.\"Service\" ORDER BY le.\"DepotId\"");
     }
 
-    let unknown_rows = unknown_query.build().fetch_all(pool).await?;
-
+    let mut total_url_count = mapped_url_count;
     let mut unknown_current_depot: Option<u32> = None;
     let mut unknown_depot_count = 0;
 
-    for row in unknown_rows {
-        let service: String = row.get(0);
-        let depot_id: i64 = row.get(1);
-        let url: String = row.get(2);
-        let bytes_served: Option<i64> = row.get(3);
-        let depot_id_u32 = depot_id as u32;
+    {
+        let mut rows = unknown_query.build().fetch(pool);
+        while let Some(row) = rows.try_next().await? {
+            let service: String = row.get(0);
+            let depot_id: i64 = row.get(1);
+            let url: String = row.get(2);
+            let bytes_served: Option<i64> = row.get(3);
+            let depot_id_u32 = depot_id as u32;
 
-        if let Some(limit) = max_urls_per_game {
-            if Some(depot_id_u32) != unknown_current_depot {
-                unknown_current_depot = Some(depot_id_u32);
-                unknown_depot_count = 0;
+            if let Some(limit) = max_urls_per_game {
+                if Some(depot_id_u32) != unknown_current_depot {
+                    unknown_current_depot = Some(depot_id_u32);
+                    unknown_depot_count = 0;
+                }
+
+                if unknown_depot_count >= limit {
+                    continue;
+                }
+                unknown_depot_count += 1;
             }
 
-            if unknown_depot_count >= limit {
-                continue;
-            }
-            unknown_depot_count += 1;
+            total_url_count += 1;
+            games_map.entry(depot_id_u32).or_default().push(DownloadRecord {
+                service,
+                game_app_id: depot_id_u32,
+                game_name: format!("Unknown Game (Depot {})", depot_id_u32),
+                url,
+                depot_id: Some(depot_id_u32),
+                bytes_served: bytes_served.unwrap_or(0),
+            });
         }
-
-        records.push(DownloadRecord {
-            service,
-            game_app_id: depot_id_u32,
-            game_name: format!("Unknown Game (Depot {})", depot_id_u32),
-            url,
-            depot_id: Some(depot_id_u32),
-            bytes_served: bytes_served.unwrap_or(0),
-        });
     }
 
-    eprintln!("Found {} total URLs to check", records.len());
-    Ok(records)
+    eprintln!("Found {} total URLs to check", total_url_count);
+    Ok(games_map)
 }
 
 pub(crate) async fn query_service_downloads(
@@ -288,19 +301,22 @@ pub(crate) async fn query_service_downloads(
         ORDER BY le.\"Service\"
     ";
 
-    let rows = sqlx::query(query).fetch_all(pool).await?;
-
+    // Stream rows straight into the per-service map - the steam bucket alone can be millions
+    // of URLs, and fetch_all would buffer every PgRow next to the map being built.
     let mut services: HashMap<String, Vec<(String, String, i64)>> = HashMap::new();
 
-    for row in rows {
-        let service: String = row.get(0);
-        let url: String = row.get(1);
-        let bytes_served: Option<i64> = row.get(2);
-        let service_lower = cache_utils::service_name_lowercase(&service);
-        services
-            .entry(service_lower.clone())
-            .or_default()
-            .push((service_lower, url, bytes_served.unwrap_or(0)));
+    {
+        let mut rows = sqlx::query(query).fetch(pool);
+        while let Some(row) = rows.try_next().await? {
+            let service: String = row.get(0);
+            let url: String = row.get(1);
+            let bytes_served: Option<i64> = row.get(2);
+            let service_lower = cache_utils::service_name_lowercase(&service);
+            services
+                .entry(service_lower.clone())
+                .or_default()
+                .push((service_lower, url, bytes_served.unwrap_or(0)));
+        }
     }
 
     let service_count = services.len();

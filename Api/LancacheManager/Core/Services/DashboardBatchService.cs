@@ -3,6 +3,7 @@ using LancacheManager.Core.Constants;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Utilities;
+using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Models.Responses;
 using Microsoft.EntityFrameworkCore;
@@ -29,6 +30,7 @@ public class DashboardBatchService : IDashboardBatchService
     private readonly ILogger<DashboardBatchService> _logger;
     private readonly CacheSnapshotService _cacheSnapshotService;
     private readonly IMemoryCache _memoryCache;
+    private readonly JsonSerializerOptions _wireJsonOptions;
 
     // Live (unbounded time-range) batch entries are linked to this token so a download write can
     // expire ALL of them at once — every evicted-mode key variant — via InvalidateLiveCache,
@@ -44,7 +46,8 @@ public class DashboardBatchService : IDashboardBatchService
         IOptions<ApiOptions> apiOptions,
         ILogger<DashboardBatchService> logger,
         CacheSnapshotService cacheSnapshotService,
-        IMemoryCache memoryCache)
+        IMemoryCache memoryCache,
+        IOptions<Microsoft.AspNetCore.Mvc.JsonOptions> mvcJsonOptions)
     {
         _cacheService = cacheService;
         _gameCacheDetectionService = gameCacheDetectionService;
@@ -55,6 +58,9 @@ public class DashboardBatchService : IDashboardBatchService
         _logger = logger;
         _cacheSnapshotService = cacheSnapshotService;
         _memoryCache = memoryCache;
+        // The MVC wire options: pre-serialized sections must match what the output formatter
+        // would have produced for the same object, byte for byte.
+        _wireJsonOptions = mvcJsonOptions.Value.JsonSerializerOptions;
     }
 
     public async Task<DashboardBatchResponse> GetBatchAsync(
@@ -105,13 +111,23 @@ public class DashboardBatchService : IDashboardBatchService
 
         var detectionResult = await detectionTask;
 
+        // Pre-serialize the downloads section once per cache window. It dominates the payload
+        // (the whole visible downloads list in live mode), and a JsonElement re-emits as a raw
+        // UTF-8 copy on every poll of every client instead of re-serializing tens of MB of
+        // entities per request. The entity list itself is released here instead of living in
+        // the cache entry.
+        var downloadsResult = await downloadsTask;
+        object? downloadsSection = downloadsResult == null
+            ? null
+            : JsonSerializer.SerializeToElement(downloadsResult, _wireJsonOptions);
+
         DashboardBatchResponse response = new()
         {
             Cache = cacheResult,
             Clients = await clientsTask,
             Services = await servicesTask,
             Dashboard = await dashboardTask,
-            Downloads = await downloadsTask,
+            Downloads = downloadsSection,
             Detection = detectionResult,
             Sparklines = await sparklinesTask,
             HourlyActivity = await hourlyTask,
@@ -447,15 +463,10 @@ public class DashboardBatchService : IDashboardBatchService
                 .ToListAsync();
         }
 
-        // Filter out excluded and prefill client IPs
-        if (excludedClientIps.Count > 0)
-        {
-            downloads = downloads
-                .Where(d => !excludedClientIps.Contains(d.ClientIp))
-                .ToList();
-        }
-
+        // Filter out excluded and prefill client IPs in a single pass - in live mode this list
+        // is the whole visible downloads table, so each extra ToList is a full-size copy.
         downloads = downloads
+            .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
             .Where(d => !string.Equals(d.ClientIp, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase))
             .Where(d => !string.Equals(d.Datasource, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase))
             .ToList();

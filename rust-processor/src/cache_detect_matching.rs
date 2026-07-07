@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::cache_detect_queries::{DownloadRecord, EpicDownloadRecord, NamedDownloadRecord};
 use crate::cache_utils;
-use crate::{CacheFileInfo, GameCacheInfo, ServiceCacheInfo};
+use crate::{GameCacheInfo, ServiceCacheInfo};
 
 /// (service, url, bytes_served) — `bytes_served` is the URL's `MAX(LogEntries.BytesServed)`.
 /// Detection IGNORES this value: for range-served objects (Blizzard /tpr/ TACT archives, Riot
@@ -24,19 +24,6 @@ struct SteamGameInputs {
     unique_urls: HashSet<String>,
     depot_ids: HashSet<u32>,
     service_urls: Vec<ServiceUrl>,
-}
-
-pub(crate) fn group_game_records(records: Vec<DownloadRecord>) -> HashMap<u32, Vec<DownloadRecord>> {
-    let mut games_map: HashMap<u32, Vec<DownloadRecord>> = HashMap::new();
-
-    for record in records {
-        games_map
-            .entry(record.game_app_id)
-            .or_insert_with(Vec::new)
-            .push(record);
-    }
-
-    games_map
 }
 
 pub(crate) fn group_epic_records(
@@ -131,17 +118,17 @@ fn collect_steam_game_inputs(records: &[DownloadRecord]) -> Result<SteamGameInpu
 
 fn match_files_with_index(
     service_urls: &[ServiceUrl],
-    cache_files_index: &HashMap<String, CacheFileInfo>,
-) -> HashSet<PathBuf> {
+    cache_files_index: &HashMap<u128, u64>,
+) -> HashSet<u128> {
     let counter = AtomicUsize::new(0);
     match_files_with_index_tracked(service_urls, cache_files_index, &counter)
 }
 
 fn match_files_with_index_tracked(
     service_urls: &[ServiceUrl],
-    cache_files_index: &HashMap<String, CacheFileInfo>,
+    cache_files_index: &HashMap<u128, u64>,
     counter: &AtomicUsize,
-) -> HashSet<PathBuf> {
+) -> HashSet<u128> {
     service_urls
         .par_iter()
         .flat_map_iter(|(service, url, _bytes_served)| {
@@ -151,16 +138,13 @@ fn match_files_with_index_tracked(
             // here (it is MAX(BytesServed) per URL and can be a single range for range-served
             // objects) and instead walk slice indices, collecting all that exist in the index —
             // safe because non-existent candidates are simply not returned. The all-miss cost is
-            // bounded by CONSECUTIVE_MISS_LIMIT, not MAX_PROBE_CHUNKS (see existing_cache_hashes_for_url).
-            let paths: Vec<PathBuf> = cache_utils::existing_cache_hashes_for_url(service, url, |hash| {
-                cache_files_index.contains_key(hash)
-            })
-            .into_iter()
-            .filter_map(|hash| cache_files_index.get(&hash).map(|info| info.path.clone()))
-            .collect();
+            // bounded by CONSECUTIVE_MISS_LIMIT, not MAX_PROBE_CHUNKS (see existing_cache_digests_for_url).
+            let digests = cache_utils::existing_cache_digests_for_url(service, url, |digest| {
+                cache_files_index.contains_key(&digest)
+            });
             counter.fetch_add(1, Ordering::Relaxed);
             // The outer HashSet dedups physical files shared across URLs.
-            paths.into_iter()
+            digests.into_iter()
         })
         .collect()
 }
@@ -190,17 +174,12 @@ fn match_files_in_cache_tracked(
 }
 
 fn total_size_from_index(
-    found_files: &HashSet<PathBuf>,
-    cache_files_index: &HashMap<String, CacheFileInfo>,
+    found_files: &HashSet<u128>,
+    cache_files_index: &HashMap<u128, u64>,
 ) -> u64 {
     found_files
         .iter()
-        .filter_map(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .and_then(|hash| cache_files_index.get(hash))
-                .map(|info| info.size)
-        })
+        .filter_map(|digest| cache_files_index.get(digest).copied())
         .sum()
 }
 
@@ -209,6 +188,16 @@ fn total_size_from_filesystem(found_files: &HashSet<PathBuf>) -> u64 {
         .iter()
         .filter_map(|path| fs::metadata(path).ok().map(|metadata| metadata.len()))
         .sum()
+}
+
+/// Report paths for index-matched digests, reconstructed via the canonical
+/// `{last_2}/{middle_2}/{hash}` layout - the same layout the incremental fs probes and the
+/// removers already assume, so this yields the same strings the disk walk used to carry.
+fn cache_file_paths_from_digests(found_files: &HashSet<u128>, cache_dir: &Path) -> Vec<String> {
+    found_files
+        .iter()
+        .map(|digest| cache_utils::cache_path_for_digest(cache_dir, *digest).display().to_string())
+        .collect()
 }
 
 fn cache_file_paths(found_files: &HashSet<PathBuf>) -> Vec<String> {
@@ -221,7 +210,8 @@ fn cache_file_paths(found_files: &HashSet<PathBuf>) -> Vec<String> {
 pub(crate) fn detect_service_cache_info(
     service_name: &str,
     service_urls: &[ServiceUrl],
-    cache_files_index: &HashMap<String, CacheFileInfo>,
+    cache_files_index: &HashMap<u128, u64>,
+    cache_dir: &Path,
     counter: &AtomicUsize,
 ) -> Result<ServiceCacheInfo> {
     let found_files = match_files_with_index_tracked(service_urls, cache_files_index, counter);
@@ -234,7 +224,7 @@ pub(crate) fn detect_service_cache_info(
         cache_files_found: found_files.len(),
         total_size_bytes: total_size,
         sample_urls,
-        cache_file_paths: cache_file_paths(&found_files),
+        cache_file_paths: cache_file_paths_from_digests(&found_files, cache_dir),
     })
 }
 
@@ -260,19 +250,20 @@ pub(crate) fn detect_service_cache_info_incremental(
 
 fn build_steam_game_cache_info(
     inputs: SteamGameInputs,
-    found_files: HashSet<PathBuf>,
+    cache_files_found: usize,
     total_size_bytes: u64,
+    cache_file_paths: Vec<String>,
 ) -> GameCacheInfo {
     let sample_urls = cache_utils::sorted_sample_urls(inputs.unique_urls.iter(), 5);
 
     GameCacheInfo {
         game_app_id: inputs.game_app_id,
         game_name: inputs.game_name,
-        cache_files_found: found_files.len(),
+        cache_files_found,
         total_size_bytes,
         depot_ids: inputs.depot_ids.into_iter().collect(),
         sample_urls,
-        cache_file_paths: cache_file_paths(&found_files),
+        cache_file_paths,
         service: None,
         epic_app_id: None,
     }
@@ -280,13 +271,15 @@ fn build_steam_game_cache_info(
 
 pub(crate) fn detect_steam_game_cache_info(
     records: &[DownloadRecord],
-    cache_files_index: &HashMap<String, CacheFileInfo>,
+    cache_files_index: &HashMap<u128, u64>,
+    cache_dir: &Path,
 ) -> Result<GameCacheInfo> {
     let inputs = collect_steam_game_inputs(records)?;
     let found_files = match_files_with_index(&inputs.service_urls, cache_files_index);
     let total_size = total_size_from_index(&found_files, cache_files_index);
+    let paths = cache_file_paths_from_digests(&found_files, cache_dir);
 
-    Ok(build_steam_game_cache_info(inputs, found_files, total_size))
+    Ok(build_steam_game_cache_info(inputs, found_files.len(), total_size, paths))
 }
 
 pub(crate) fn detect_steam_game_cache_info_incremental(
@@ -296,8 +289,9 @@ pub(crate) fn detect_steam_game_cache_info_incremental(
     let inputs = collect_steam_game_inputs(records)?;
     let found_files = match_files_in_cache(&inputs.service_urls, cache_dir);
     let total_size = total_size_from_filesystem(&found_files);
+    let paths = cache_file_paths(&found_files);
 
-    Ok(build_steam_game_cache_info(inputs, found_files, total_size))
+    Ok(build_steam_game_cache_info(inputs, found_files.len(), total_size, paths))
 }
 
 fn generate_epic_game_app_id(epic_app_id: &str) -> u32 {
@@ -312,8 +306,9 @@ fn build_epic_game_cache_info(
     epic_app_id: &str,
     game_name: &str,
     service_urls: &[ServiceUrl],
-    found_files: HashSet<PathBuf>,
+    cache_files_found: usize,
     total_size_bytes: u64,
+    cache_file_paths: Vec<String>,
 ) -> GameCacheInfo {
     let sample_urls =
         cache_utils::sorted_sample_urls(service_urls.iter().map(|(_, url, _)| url.as_str()), 5);
@@ -321,11 +316,11 @@ fn build_epic_game_cache_info(
     GameCacheInfo {
         game_app_id: generate_epic_game_app_id(epic_app_id),
         game_name: game_name.to_string(),
-        cache_files_found: found_files.len(),
+        cache_files_found,
         total_size_bytes,
         depot_ids: Vec::new(),
         sample_urls,
-        cache_file_paths: cache_file_paths(&found_files),
+        cache_file_paths,
         service: Some("epicgames".to_string()),
         epic_app_id: Some(epic_app_id.to_string()),
     }
@@ -335,17 +330,20 @@ pub(crate) fn detect_epic_game_cache_info(
     epic_app_id: &str,
     game_name: &str,
     service_urls: &[ServiceUrl],
-    cache_files_index: &HashMap<String, CacheFileInfo>,
+    cache_files_index: &HashMap<u128, u64>,
+    cache_dir: &Path,
 ) -> Result<GameCacheInfo> {
     let found_files = match_files_with_index(service_urls, cache_files_index);
     let total_size = total_size_from_index(&found_files, cache_files_index);
+    let paths = cache_file_paths_from_digests(&found_files, cache_dir);
 
     Ok(build_epic_game_cache_info(
         epic_app_id,
         game_name,
         service_urls,
-        found_files,
+        found_files.len(),
         total_size,
+        paths,
     ))
 }
 
@@ -357,13 +355,15 @@ pub(crate) fn detect_epic_game_cache_info_incremental(
 ) -> Result<GameCacheInfo> {
     let found_files = match_files_in_cache(service_urls, cache_dir);
     let total_size = total_size_from_filesystem(&found_files);
+    let paths = cache_file_paths(&found_files);
 
     Ok(build_epic_game_cache_info(
         epic_app_id,
         game_name,
         service_urls,
-        found_files,
+        found_files.len(),
         total_size,
+        paths,
     ))
 }
 
@@ -374,8 +374,9 @@ fn build_named_game_cache_info(
     service: &str,
     game_name: &str,
     service_urls: &[ServiceUrl],
-    found_files: HashSet<PathBuf>,
+    cache_files_found: usize,
     total_size_bytes: u64,
+    cache_file_paths: Vec<String>,
 ) -> GameCacheInfo {
     let sample_urls =
         cache_utils::sorted_sample_urls(service_urls.iter().map(|(_, url, _)| url.as_str()), 5);
@@ -383,11 +384,11 @@ fn build_named_game_cache_info(
     GameCacheInfo {
         game_app_id: 0,
         game_name: game_name.to_string(),
-        cache_files_found: found_files.len(),
+        cache_files_found,
         total_size_bytes,
         depot_ids: Vec::new(),
         sample_urls,
-        cache_file_paths: cache_file_paths(&found_files),
+        cache_file_paths,
         service: Some(service.to_lowercase()),
         epic_app_id: None,
     }
@@ -397,17 +398,20 @@ pub(crate) fn detect_named_game_cache_info(
     service: &str,
     game_name: &str,
     service_urls: &[ServiceUrl],
-    cache_files_index: &HashMap<String, CacheFileInfo>,
+    cache_files_index: &HashMap<u128, u64>,
+    cache_dir: &Path,
 ) -> Result<GameCacheInfo> {
     let found_files = match_files_with_index(service_urls, cache_files_index);
     let total_size = total_size_from_index(&found_files, cache_files_index);
+    let paths = cache_file_paths_from_digests(&found_files, cache_dir);
 
     Ok(build_named_game_cache_info(
         service,
         game_name,
         service_urls,
-        found_files,
+        found_files.len(),
         total_size,
+        paths,
     ))
 }
 
@@ -419,13 +423,15 @@ pub(crate) fn detect_named_game_cache_info_incremental(
 ) -> Result<GameCacheInfo> {
     let found_files = match_files_in_cache(service_urls, cache_dir);
     let total_size = total_size_from_filesystem(&found_files);
+    let paths = cache_file_paths(&found_files);
 
     Ok(build_named_game_cache_info(
         service,
         game_name,
         service_urls,
-        found_files,
+        found_files.len(),
         total_size,
+        paths,
     ))
 }
 
@@ -509,14 +515,14 @@ mod tests {
         }
     }
 
-    /// Build an index keyed by md5-hex filename containing the first `n_slices` ranged slices of
+    /// Build an index keyed by file-name digest containing the first `n_slices` ranged slices of
     /// (service, url), each `slice_size` bytes. Mirrors how the real on-disk index is keyed.
     fn build_multi_slice_index(
         service: &str,
         url: &str,
         n_slices: usize,
         slice_size: u64,
-    ) -> HashMap<String, CacheFileInfo> {
+    ) -> HashMap<u128, u64> {
         let mut index = HashMap::new();
         for chunk in 0..n_slices {
             let start = chunk as u64 * cache_utils::DEFAULT_SLICE_SIZE;
@@ -528,14 +534,7 @@ mod tests {
                 start,
                 end
             );
-            let hash = cache_utils::calculate_md5(&key);
-            index.insert(
-                hash.clone(),
-                CacheFileInfo {
-                    path: PathBuf::from(format!("/cache/xx/yy/{}", hash)),
-                    size: slice_size,
-                },
-            );
+            index.insert(cache_utils::calculate_md5_digest(&key), slice_size);
         }
         index
     }
@@ -584,14 +583,14 @@ mod tests {
         for chunk in [3usize, 4usize] {
             let start = chunk as u64 * cache_utils::DEFAULT_SLICE_SIZE;
             let end = start + cache_utils::DEFAULT_SLICE_SIZE - 1;
-            let hash = cache_utils::calculate_md5(&format!(
+            let digest = cache_utils::calculate_md5_digest(&format!(
                 "{}{}bytes={}-{}",
                 service,
                 cache_utils::nginx_cache_uri(url),
                 start,
                 end
             ));
-            index.remove(&hash);
+            index.remove(&digest);
         }
 
         let service_urls: Vec<ServiceUrl> = vec![(service.to_string(), url.to_string(), 0)];
@@ -605,8 +604,9 @@ mod tests {
             "Blizzard",
             "Diablo",
             &[("blizzard".to_string(), "http://b/1".to_string(), 0)],
-            HashSet::new(),
             0,
+            0,
+            Vec::new(),
         );
         assert_eq!(info.game_app_id, 0);
         assert_eq!(info.epic_app_id, None);

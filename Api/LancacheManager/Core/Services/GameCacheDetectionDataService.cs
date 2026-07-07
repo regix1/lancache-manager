@@ -136,12 +136,13 @@ public sealed partial class GameCacheDetectionDataService
     }
 
     public async Task<DetectionOperationResponse?> LoadDetectionAsync(
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool includeCacheFilePaths = true)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var cachedGames = await dbContext.CachedGameDetections.AsNoTracking().ToListAsync(cancellationToken);
-        var cachedServices = await dbContext.CachedServiceDetections.AsNoTracking().ToListAsync(cancellationToken);
+        var cachedGames = await LoadGameEntitiesAsync(dbContext, includeCacheFilePaths, cancellationToken);
+        var cachedServices = await LoadServiceEntitiesAsync(dbContext, includeCacheFilePaths, cancellationToken);
 
         var games = cachedGames.Select(ToGameCacheInfo).ToList();
         var services = cachedServices.Select(ToServiceCacheInfo).ToList();
@@ -435,8 +436,9 @@ public sealed partial class GameCacheDetectionDataService
         ulong retainedGameBytes = 0;
         var retainedGameKeys = new List<string>();
 
-        foreach (var cached in cachedGames)
+        for (var i = 0; i < cachedGames.Count; i++)
         {
+            var cached = cachedGames[i];
             cancellationToken.ThrowIfCancellationRequested();
             if (cached.IsEvicted)
             {
@@ -444,7 +446,9 @@ public sealed partial class GameCacheDetectionDataService
                 continue;
             }
 
-            var key = GamesOnDiskCalculator.GetGameKey(ToGameCacheInfo(cached));
+            // games is index-aligned with cachedGames (Select above); computing the key from it
+            // avoids re-deserializing every row's CacheFilePathsJson a second time just for the key.
+            var key = GamesOnDiskCalculator.GetGameKey(games[i]);
             if (attributed.GameBytesByKey.TryGetValue(key, out var bytes))
             {
                 cached.TotalSizeBytes = bytes;
@@ -469,8 +473,9 @@ public sealed partial class GameCacheDetectionDataService
             }
         }
 
-        foreach (var cached in cachedServices)
+        for (var i = 0; i < cachedServices.Count; i++)
         {
+            var cached = cachedServices[i];
             cancellationToken.ThrowIfCancellationRequested();
             if (cached.IsEvicted)
             {
@@ -478,7 +483,7 @@ public sealed partial class GameCacheDetectionDataService
                 continue;
             }
 
-            var key = GamesOnDiskCalculator.GetServiceKey(ToServiceCacheInfo(cached));
+            var key = GamesOnDiskCalculator.GetServiceKey(services[i]);
             cached.TotalSizeBytes = attributed.ServiceBytesByKey.TryGetValue(key, out var bytes) ? bytes : 0;
         }
 
@@ -1102,6 +1107,103 @@ public sealed partial class GameCacheDetectionDataService
         {
             return new List<string>();
         }
+    }
+
+    /// <summary>
+    /// Loads game detection rows, optionally excluding the CacheFilePathsJson column at the SQL
+    /// level. That column dominates the table (one JSON element per cache file, millions of paths
+    /// across all rows), so consumers that never read the paths must not pull it into memory.
+    /// Reconstructed entities keep the column at its "[]" default in that case, which
+    /// <see cref="ToGameCacheInfo"/> turns into an empty list.
+    /// </summary>
+    private static async Task<List<CachedGameDetection>> LoadGameEntitiesAsync(
+        AppDbContext dbContext,
+        bool includeCacheFilePaths,
+        CancellationToken cancellationToken)
+    {
+        if (includeCacheFilePaths)
+        {
+            return await dbContext.CachedGameDetections.AsNoTracking().ToListAsync(cancellationToken);
+        }
+
+        var rows = await dbContext.CachedGameDetections.AsNoTracking()
+            .Select(g => new
+            {
+                g.Id,
+                g.GameAppId,
+                g.GameName,
+                g.CacheFilesFound,
+                g.TotalSizeBytes,
+                g.DepotIdsJson,
+                g.SampleUrlsJson,
+                g.DatasourcesJson,
+                g.Service,
+                g.EpicAppId,
+                g.LastDetectedUtc,
+                g.CreatedAtUtc,
+                g.IsEvicted
+            })
+            .ToListAsync(cancellationToken);
+
+        return rows.Select(g => new CachedGameDetection
+        {
+            Id = g.Id,
+            GameAppId = g.GameAppId,
+            GameName = g.GameName,
+            CacheFilesFound = g.CacheFilesFound,
+            TotalSizeBytes = g.TotalSizeBytes,
+            DepotIdsJson = g.DepotIdsJson,
+            SampleUrlsJson = g.SampleUrlsJson,
+            DatasourcesJson = g.DatasourcesJson,
+            Service = g.Service,
+            EpicAppId = g.EpicAppId,
+            LastDetectedUtc = g.LastDetectedUtc,
+            CreatedAtUtc = g.CreatedAtUtc,
+            IsEvicted = g.IsEvicted
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Service-detection counterpart of <see cref="LoadGameEntitiesAsync"/>; a single popular
+    /// service row (e.g. steam) can carry hundreds of thousands of paths in CacheFilePathsJson.
+    /// </summary>
+    private static async Task<List<CachedServiceDetection>> LoadServiceEntitiesAsync(
+        AppDbContext dbContext,
+        bool includeCacheFilePaths,
+        CancellationToken cancellationToken)
+    {
+        if (includeCacheFilePaths)
+        {
+            return await dbContext.CachedServiceDetections.AsNoTracking().ToListAsync(cancellationToken);
+        }
+
+        var rows = await dbContext.CachedServiceDetections.AsNoTracking()
+            .Select(s => new
+            {
+                s.Id,
+                s.ServiceName,
+                s.CacheFilesFound,
+                s.TotalSizeBytes,
+                s.SampleUrlsJson,
+                s.DatasourcesJson,
+                s.LastDetectedUtc,
+                s.CreatedAtUtc,
+                s.IsEvicted
+            })
+            .ToListAsync(cancellationToken);
+
+        return rows.Select(s => new CachedServiceDetection
+        {
+            Id = s.Id,
+            ServiceName = s.ServiceName,
+            CacheFilesFound = s.CacheFilesFound,
+            TotalSizeBytes = s.TotalSizeBytes,
+            SampleUrlsJson = s.SampleUrlsJson,
+            DatasourcesJson = s.DatasourcesJson,
+            LastDetectedUtc = s.LastDetectedUtc,
+            CreatedAtUtc = s.CreatedAtUtc,
+            IsEvicted = s.IsEvicted
+        }).ToList();
     }
 
     private static GameCacheInfo ToGameCacheInfo(CachedGameDetection cached)

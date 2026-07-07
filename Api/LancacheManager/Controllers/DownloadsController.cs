@@ -102,16 +102,11 @@ public class DownloadsController : ControllerBase
                 downloads.WithUtcMarking();
             }
 
-            // Apply hidden-client filter to ALL downloads (both cached and direct query paths)
-            if (hiddenClientIps.Count > 0)
-            {
-                downloads = downloads
-                    .Where(d => !hiddenClientIps.Contains(d.ClientIp))
-                    .ToList();
-            }
-
-            // Filter out prefill sessions (safety net - StatsDataService already filters, but direct queries may not)
+            // Apply hidden-client filter (both cached and direct query paths) and the prefill
+            // safety net (StatsDataService already filters, but direct queries may not) in one
+            // pass - the unfiltered list can be the whole downloads table.
             downloads = downloads
+                .Where(d => hiddenClientIps.Count == 0 || !hiddenClientIps.Contains(d.ClientIp))
                 .Where(d => !string.Equals(d.ClientIp, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase))
                 .Where(d => !string.Equals(d.Datasource, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase))
                 .ToList();

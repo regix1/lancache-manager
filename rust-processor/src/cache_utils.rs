@@ -183,6 +183,41 @@ pub fn calculate_md5(cache_key: &str) -> String {
     format!("{:x}", md5::compute(cache_key.as_bytes()))
 }
 
+/// 128-bit md5 digest of a cache key - the numeric form of the 32-hex on-disk file name
+/// (`calculate_md5` prints exactly these bytes as lowercase hex). Probe indexes key on this
+/// instead of the hex String: 16 inline bytes, no heap allocation per candidate.
+#[allow(dead_code)]
+pub fn calculate_md5_digest(cache_key: &str) -> u128 {
+    u128::from_be_bytes(md5::compute(cache_key.as_bytes()).0)
+}
+
+/// Parses an on-disk cache file name (32 hex chars) into its u128 digest. Any other name
+/// returns None - it cannot be an md5 cache key, so no probe candidate can ever match it.
+/// Case-insensitive, mirroring the filesystem-casing normalization the String-keyed index
+/// applied on Windows; nginx itself only writes lowercase names.
+#[allow(dead_code)]
+pub fn parse_cache_file_digest(name: &str) -> Option<u128> {
+    if name.len() != 32 {
+        return None;
+    }
+    let mut value: u128 = 0;
+    for byte in name.bytes() {
+        value = (value << 4) | (byte as char).to_digit(16)? as u128;
+    }
+    Some(value)
+}
+
+/// Canonical on-disk path for a cache-key digest under `cache_dir`, mirroring
+/// `calculate_cache_path`'s `{last_2}/{middle_2}/{full_hash}` lancache layout (nginx
+/// `levels=2:2`, the layout every fs-probing path in this module already assumes).
+#[allow(dead_code)]
+pub fn cache_path_for_digest(cache_dir: &Path, digest: u128) -> PathBuf {
+    let hash = format!("{:032x}", digest);
+    let last_2 = &hash[30..];
+    let middle_2 = &hash[28..30];
+    cache_dir.join(last_2).join(middle_2).join(&hash)
+}
+
 /// Reproduce nginx's `$uri` from a stored `LogEntries.Url`.
 ///
 /// The lancache monolithic image keys the cache on `$cacheidentifier$uri$slice_range`
@@ -459,6 +494,79 @@ pub fn cache_hash_candidates_iter(
 #[allow(dead_code)]
 pub fn cache_hash_candidates_for_probe(service: &str, url: &str, max_chunks: usize) -> Vec<String> {
     cache_hash_candidates_iter(service, url, max_chunks).collect()
+}
+
+/// Digest twin of [`cache_hash_candidates_iter`]: yields the same candidates in the same order
+/// as u128 digests. Reuses one key buffer across the ranged candidates, so probing allocates
+/// nothing per candidate (the String form allocated a format! input plus a 32-byte hex String
+/// for each of up to `max_chunks + 2` candidates - billions of allocations across a full scan).
+#[allow(dead_code)]
+pub fn cache_digest_candidates_iter(
+    service: &str,
+    url: &str,
+    max_chunks: usize,
+) -> impl Iterator<Item = u128> {
+    use std::fmt::Write;
+
+    let service = service_name_lowercase(service);
+    let url = nginx_cache_uri(url).into_owned();
+    let no_range = calculate_md5_digest(&format!("{}{}", service, url));
+    let noslice = calculate_md5_digest(&format!("{}{}::noslice", service, url));
+
+    let mut key_buf = String::with_capacity(service.len() + url.len() + 40);
+    std::iter::once(no_range).chain(std::iter::once(noslice)).chain(
+        chunk_ranges_for_probe(max_chunks).into_iter().map(move |(start, end)| {
+            key_buf.clear();
+            let _ = write!(key_buf, "{}{}bytes={}-{}", service, url, start, end);
+            calculate_md5_digest(&key_buf)
+        }),
+    )
+}
+
+/// Digest twin of [`existing_cache_hashes_for_url`]: collects every EXISTING slice digest for
+/// (service, url) with the same consecutive-miss-bounded walk, allocating no per-candidate
+/// strings. Same coverage and safety guarantees.
+#[allow(dead_code)]
+pub fn existing_cache_digests_for_url<F>(service: &str, url: &str, mut exists: F) -> Vec<u128>
+where
+    F: FnMut(u128) -> bool,
+{
+    use std::fmt::Write;
+
+    let service = service_name_lowercase(service);
+    let url = nginx_cache_uri(url).into_owned();
+    let mut hits: Vec<u128> = Vec::new();
+
+    let no_range = calculate_md5_digest(&format!("{}{}", service, url));
+    if exists(no_range) {
+        hits.push(no_range);
+    }
+    let noslice = calculate_md5_digest(&format!("{}{}::noslice", service, url));
+    if exists(noslice) {
+        hits.push(noslice);
+    }
+
+    let mut key_buf = String::with_capacity(service.len() + url.len() + 40);
+    let mut consecutive_misses = 0usize;
+    let mut chunk = 0usize;
+    while chunk < MAX_PROBE_CHUNKS {
+        let start = chunk as u64 * DEFAULT_SLICE_SIZE;
+        key_buf.clear();
+        let _ = write!(key_buf, "{}{}bytes={}-{}", service, url, start, chunk_end(start));
+        let digest = calculate_md5_digest(&key_buf);
+        if exists(digest) {
+            hits.push(digest);
+            consecutive_misses = 0;
+        } else {
+            consecutive_misses += 1;
+            if consecutive_misses >= CONSECUTIVE_MISS_LIMIT {
+                break;
+            }
+        }
+        chunk += 1;
+    }
+
+    hits
 }
 
 /// Maximum run of CONSECUTIVE absent slices tolerated by the collect-all detection walk before it
@@ -868,6 +976,78 @@ mod tests {
             "md5 hex must be lowercase: {}",
             hash
         );
+    }
+
+    /// The digest pipeline must be a bit-for-bit re-encoding of the hex pipeline: same
+    /// candidates in the same order, where each u128 is exactly the parsed 32-hex name.
+    #[test]
+    fn digest_candidates_match_hex_candidates() {
+        let service = "steam";
+        let url = "/depot/1/chunk/aa?ver=2";
+        let hex: Vec<String> =
+            cache_hash_candidates_iter(service, url, DEFAULT_MAX_CHUNKS).collect();
+        let digests: Vec<u128> =
+            cache_digest_candidates_iter(service, url, DEFAULT_MAX_CHUNKS).collect();
+        assert_eq!(hex.len(), digests.len());
+        for (h, d) in hex.iter().zip(&digests) {
+            assert_eq!(parse_cache_file_digest(h), Some(*d));
+            assert_eq!(format!("{:032x}", d), *h);
+        }
+    }
+
+    #[test]
+    fn parse_cache_file_digest_rejects_non_hex_names() {
+        assert_eq!(parse_cache_file_digest("tmp1234"), None);
+        assert_eq!(parse_cache_file_digest(""), None);
+        assert_eq!(parse_cache_file_digest("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"), None);
+        // 31 and 33 chars must both fail even if all-hex.
+        assert_eq!(parse_cache_file_digest("0123456789abcdef0123456789abcde"), None);
+        assert_eq!(parse_cache_file_digest("0123456789abcdef0123456789abcdef0"), None);
+        // Case-insensitive accept, mirroring the Windows casing normalization.
+        assert_eq!(
+            parse_cache_file_digest("00000000000000000000000000000ABC"),
+            Some(0xabc)
+        );
+    }
+
+    /// cache_path_for_digest must reproduce calculate_cache_path's layout exactly for the
+    /// same key: same subdirectories, same file name.
+    #[test]
+    fn cache_path_for_digest_matches_calculate_cache_path() {
+        let cache_dir = Path::new("/cache/cache");
+        let service = "steam";
+        let url = "/depot/1/chunk/aa";
+        let by_key = calculate_cache_path(cache_dir, service, url, 0, DEFAULT_SLICE_SIZE - 1);
+        let digest = calculate_md5_digest(&format!(
+            "{}{}bytes={}-{}",
+            service,
+            nginx_cache_uri(url),
+            0,
+            DEFAULT_SLICE_SIZE - 1
+        ));
+        assert_eq!(cache_path_for_digest(cache_dir, digest), by_key);
+    }
+
+    /// The digest walk must agree with the hex walk over an arbitrary membership set (same
+    /// hits, same order), proving the eviction/detect index conversion changes nothing.
+    #[test]
+    fn existing_digests_walk_matches_hex_walk() {
+        let service = "blizzard";
+        let url = "/tpr/x//archive%41?q=1";
+        let member: std::collections::HashSet<String> = cache_hash_candidates_for_probe(service, url, 12)
+            .into_iter()
+            .skip(1)
+            .step_by(3)
+            .collect();
+        let hex_hits = existing_cache_hashes_for_url(service, url, |h| member.contains(h));
+        let digest_hits =
+            existing_cache_digests_for_url(service, url, |d| member.contains(&format!("{:032x}", d)));
+        let hex_as_digests: Vec<u128> = hex_hits
+            .iter()
+            .map(|h| parse_cache_file_digest(h).expect("hex hit must parse"))
+            .collect();
+        assert_eq!(hex_as_digests, digest_hits);
+        assert!(!digest_hits.is_empty(), "membership set must produce hits for the gate to mean anything");
     }
 
     /// The probe-list iterator and the eager Vec form must agree (the scan probes via the

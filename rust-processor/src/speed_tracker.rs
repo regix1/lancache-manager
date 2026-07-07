@@ -260,11 +260,15 @@ struct SpeedTracker {
     entries: VecDeque<SpeedLogEntry>,
     depot_cache: HashMap<u32, (Option<String>, Option<u32>)>, // depot_id -> (game_name, game_app_id)
     file_positions: HashMap<PathBuf, u64>,
-    epic_cdn_cache: HashMap<String, Option<String>>, // url -> game_name (None = no match)
-    epic_patterns: Vec<(String, String)>,            // (ChunkBaseUrl trimmed, GameName)
+    // The CDN caches key on the URL's md5 digest instead of the URL string: this daemon lives
+    // for months, and a heavy chunked download pushes tens of thousands of unique URLs into
+    // these maps between the 60s pattern-reload clears - ~180 bytes each as Strings, ~46 as
+    // digests. None (no match) is cached too.
+    epic_cdn_cache: HashMap<u128, Option<String>>, // md5(url) -> game_name (None = no match)
+    epic_patterns: Vec<(String, String)>,          // (ChunkBaseUrl trimmed, GameName)
     last_epic_pattern_load: Option<Instant>,
-    xbox_cdn_cache: HashMap<String, Option<String>>, // url -> game_name (None = no match)
-    xbox_patterns: Vec<(String, String)>,            // (UrlFragment, Title), longest-first
+    xbox_cdn_cache: HashMap<u128, Option<String>>, // md5(url) -> game_name (None = no match)
+    xbox_patterns: Vec<(String, String)>,          // (UrlFragment, Title), longest-first
     last_xbox_pattern_load: Option<Instant>,
 }
 
@@ -392,16 +396,36 @@ impl SpeedTracker {
             .cloned()
             .collect();
 
+        // Whole-window aggregates and the per-client aggregation read from window_entries
+        // BEFORE the grouping below consumes it by move, so this snapshot clones every
+        // windowed entry exactly once (it used to clone each entry up to three times, every
+        // 500ms broadcast).
+        let entries_count = window_entries.len();
+        let total_bytes: i64 = window_entries.iter().map(|e| e.bytes_sent).sum();
+
+        // Per-client (total, cache-hit) byte aggregates - only three fields are read per
+        // entry, so no entry clone is needed.
+        let mut client_aggregates: HashMap<String, (i64, i64)> = HashMap::new();
+        for entry in &window_entries {
+            let aggregate = client_aggregates.entry(entry.client_ip.clone()).or_insert((0, 0));
+            aggregate.0 += entry.bytes_sent;
+            if entry.is_cache_hit {
+                aggregate.1 += entry.bytes_sent;
+            }
+        }
+
         // Group by depot + client for game speeds (Steam and other services with depot IDs)
         let mut depot_groups: HashMap<(u32, String), Vec<SpeedLogEntry>> = HashMap::new();
         // Group by service + client for non-depot entries (Epic, Origin, etc.)
         let mut service_groups: HashMap<(String, String), Vec<SpeedLogEntry>> = HashMap::new();
 
-        for entry in &window_entries {
+        for entry in window_entries {
             if let Some(depot_id) = entry.depot_id {
-                depot_groups.entry((depot_id, entry.client_ip.clone())).or_default().push(entry.clone());
+                let key = (depot_id, entry.client_ip.clone());
+                depot_groups.entry(key).or_default().push(entry);
             } else {
-                service_groups.entry((entry.service.clone(), entry.client_ip.clone())).or_default().push(entry.clone());
+                let key = (entry.service.clone(), entry.client_ip.clone());
+                service_groups.entry(key).or_default().push(entry);
             }
         }
 
@@ -523,16 +547,9 @@ impl SpeedTracker {
         // Sort by speed descending
         game_speeds.sort_by(|a, b| b.bytes_per_second.partial_cmp(&a.bytes_per_second).unwrap_or(std::cmp::Ordering::Equal));
 
-        // Group by client for client speeds (all entries with actual data)
-        let mut client_groups: HashMap<String, Vec<SpeedLogEntry>> = HashMap::new();
-        for entry in &window_entries {
-            client_groups.entry(entry.client_ip.clone()).or_default().push(entry.clone());
-        }
-
-        let mut client_speeds: Vec<ClientSpeedInfo> = client_groups.into_iter()
-            .map(|(client_ip, entries)| {
-                let total_bytes: i64 = entries.iter().map(|e| e.bytes_sent).sum();
-                let cache_hit_bytes: i64 = entries.iter().filter(|e| e.is_cache_hit).map(|e| e.bytes_sent).sum();
+        // Client speeds from the per-client aggregates computed before the grouping.
+        let mut client_speeds: Vec<ClientSpeedInfo> = client_aggregates.into_iter()
+            .map(|(client_ip, (total_bytes, cache_hit_bytes))| {
                 let cache_miss_bytes = total_bytes - cache_hit_bytes;
                 // Count active games as this client's rows in the collapsed game_speeds
                 // list, so the client card agrees with the games list (counting raw
@@ -551,9 +568,6 @@ impl SpeedTracker {
             .collect();
 
         client_speeds.sort_by(|a, b| b.bytes_per_second.partial_cmp(&a.bytes_per_second).unwrap_or(std::cmp::Ordering::Equal));
-
-        let entries_count = window_entries.len();
-        let total_bytes: i64 = window_entries.iter().map(|e| e.bytes_sent).sum();
 
         DownloadSpeedSnapshot {
             timestamp_utc: now.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
@@ -608,7 +622,8 @@ impl SpeedTracker {
 
     async fn lookup_epic_game(&mut self, url: &str) -> Option<String> {
         // Check cache first
-        if let Some(cached) = self.epic_cdn_cache.get(url) {
+        let key = cache_utils::calculate_md5_digest(url);
+        if let Some(cached) = self.epic_cdn_cache.get(&key) {
             return cached.clone();
         }
 
@@ -621,7 +636,7 @@ impl SpeedTracker {
             .map(|(_, name)| name.clone());
 
         // Cache the result (including None for no match)
-        self.epic_cdn_cache.insert(url.to_string(), result.clone());
+        self.epic_cdn_cache.insert(key, result.clone());
 
         result
     }
@@ -676,7 +691,8 @@ impl SpeedTracker {
 
     async fn lookup_xbox_game(&mut self, url: &str) -> Option<String> {
         // Check cache first.
-        if let Some(cached) = self.xbox_cdn_cache.get(url) {
+        let key = cache_utils::calculate_md5_digest(url);
+        if let Some(cached) = self.xbox_cdn_cache.get(&key) {
             return cached.clone();
         }
 
@@ -694,7 +710,7 @@ impl SpeedTracker {
             .map(|(_, name)| name.clone());
 
         // Cache the result (including None for no match).
-        self.xbox_cdn_cache.insert(url.to_string(), result.clone());
+        self.xbox_cdn_cache.insert(key, result.clone());
 
         result
     }
