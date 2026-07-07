@@ -3,7 +3,7 @@ name = "LANCache Unofficial"
 id = "lancache-unofficial"
 description = "Lava-inspired theme - bold reds and warm ambers on deep charcoal"
 author = "Regix"
-version = "2.4.2"
+version = "2.4.3"
 isDark = true
 sharpCorners = false
 

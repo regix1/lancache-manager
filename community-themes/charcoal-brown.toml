@@ -3,7 +3,7 @@ name = "Timber & Stone"
 id = "charcoal-brown"
 description = "Warm browns, rich charcoals, and soft taupes - sophisticated earth tones"
 author = "Nature"
-version = "3.4.2"
+version = "3.4.3"
 isDark = true
 sharpCorners = false
 
