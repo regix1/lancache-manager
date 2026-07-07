@@ -448,14 +448,24 @@ public partial class RustProcessHelper
                 continue;
             }
 
+            // Progress envelopes are always emitted as a complete single-line JSON object. Some
+            // binaries (e.g. cache_size) also print their final result PRETTY-PRINTED on this same
+            // stream - those fragment lines ("{", "  \"totalBytes\": ...,", "}") are raw output,
+            // not malformed events, so skip them without attempting a parse.
+            var trimmed = line.Trim();
+            if (!trimmed.StartsWith('{') || !trimmed.EndsWith('}'))
+            {
+                continue;
+            }
+
             RustProgressEvent? progressEvent;
             try
             {
-                progressEvent = JsonSerializer.Deserialize<RustProgressEvent>(line, _jsonOptions);
+                progressEvent = JsonSerializer.Deserialize<RustProgressEvent>(trimmed, _jsonOptions);
             }
             catch (JsonException ex)
             {
-                _logger.LogWarning(ex, "[{ProcessLabel}] Failed to parse stdout progress event line: {Line}", processLabel, line);
+                _logger.LogDebug(ex, "[{ProcessLabel}] Skipping unparseable stdout line: {Line}", processLabel, line);
                 continue;
             }
 
