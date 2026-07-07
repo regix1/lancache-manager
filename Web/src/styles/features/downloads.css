@@ -1198,6 +1198,7 @@
     padding: 0;
     background: transparent;
     border: none;
+    border-radius: var(--theme-border-radius);
     color: inherit;
     cursor: pointer;
     opacity: 0.65;
