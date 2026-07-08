@@ -153,6 +153,12 @@ public class StateService : IStateService
         // Whether the eviction scan shows the universal notification bar
         public bool EvictionScanNotifications { get; set; } = false;
 
+        // Whether the eviction scan also deletes orphaned downloads (rows with no log
+        // entries - they produce no probe keys, so the scan can never verify them and
+        // they linger in stats forever). Opt-in because clearing a service's logs also
+        // orphans its genuine download history.
+        public bool PruneOrphanedDownloads { get; set; } = false;
+
         // Setup wizard state
         public string? CurrentSetupStep { get; set; }
         public string? DataSourceChoice { get; set; }
@@ -1195,6 +1201,7 @@ public class StateService : IStateService
             EvictedDataMode = EvictedDataModeExtensions.TryParseWire(persisted.EvictedDataMode) ?? EvictedDataMode.Show,
             // Eviction scan on startup
             EvictionScanNotifications = persisted.EvictionScanNotifications,
+            PruneOrphanedDownloads = persisted.PruneOrphanedDownloads,
             // Setup wizard state
             CurrentSetupStep = SetupStepExtensions.TryParseWire(persisted.CurrentSetupStep),
             DataSourceChoice = DataSourceChoiceExtensions.TryParseWire(persisted.DataSourceChoice),
@@ -1299,6 +1306,7 @@ public class StateService : IStateService
             EvictedDataMode = state.EvictedDataMode.ToWireString(),
             // Eviction scan on startup
             EvictionScanNotifications = state.EvictionScanNotifications,
+            PruneOrphanedDownloads = state.PruneOrphanedDownloads,
             // Setup wizard state
             CurrentSetupStep = state.CurrentSetupStep?.ToWireString(),
             DataSourceChoice = state.DataSourceChoice?.ToWireString(),
@@ -1580,6 +1588,16 @@ public class StateService : IStateService
     public bool GetEvictionScanNotifications()
     {
         return GetState().EvictionScanNotifications;
+    }
+
+    public bool GetPruneOrphanedDownloads()
+    {
+        return GetState().PruneOrphanedDownloads;
+    }
+
+    public void SetPruneOrphanedDownloads(bool enabled)
+    {
+        UpdateState(state => state.PruneOrphanedDownloads = enabled);
     }
 
     public void SetEvictionScanNotifications(bool enabled)

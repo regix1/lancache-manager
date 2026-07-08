@@ -1688,6 +1688,8 @@
         "evictionScanWaiting": "等待淘汰扫描完成...",
         "evictionScanNotifications": "显示计划扫描通知",
         "evictionScanNotificationsDescription": "手动扫描始终显示通知。启用此选项也将在启动时的自动扫描和每6小时的定期扫描时显示。",
+        "pruneOrphanedDownloads": "扫描时清理孤立的下载记录",
+        "pruneOrphanedDownloadsDescription": "删除已不再有任何日志条目支持的下载记录。扫描无法将这些记录与缓存核对，因此它们会永远留在统计数据中。注意：清除某服务的日志也会使其真实的下载历史变为孤立记录，如需保留已清除服务的统计数据请勿启用。",
         "resetEvictions": "重置淘汰",
         "resetEvictionsSuccess": "已将 {{count}} 个已淘汰下载重置为正常",
         "resetEvictionsError": "重置淘汰失败",

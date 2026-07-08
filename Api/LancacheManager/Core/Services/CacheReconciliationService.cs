@@ -409,6 +409,41 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     }
                 }
 
+                // Opt-in orphan prune: a download with no LogEntries rows produces no probe
+                // keys, so the scan classifies it as unverifiable and can never flag it
+                // evicted - it lingers in Service Analytics forever (typical after a
+                // purge/clear/reprocess cycle). When the setting is on, delete those rows
+                // here so the disk-summary refresh below reflects the deletions. The age
+                // guard keeps any download the log processor is still filling out safe.
+                var prunedOrphans = 0;
+                if (_stateService.GetPruneOrphanedDownloads())
+                {
+                    try
+                    {
+                        stoppingToken.ThrowIfCancellationRequested();
+                        var pruneCutoffUtc = DateTime.UtcNow.AddMinutes(-5);
+                        // !IsEvicted: flagged downloads already have a consistent removal path
+                        // (Remove all evicted deletes their detection rows too); deleting them
+                        // here would strand CachedGame/ServiceDetection rows in the Evicted UI.
+                        prunedOrphans = await context.Downloads
+                            .Where(d => !d.IsActive
+                                     && !d.IsEvicted
+                                     && d.EndTimeUtc < pruneCutoffUtc
+                                     && !context.LogEntries.Any(le => le.DownloadId == d.Id))
+                            .ExecuteDeleteAsync(stoppingToken);
+                        if (prunedOrphans > 0)
+                        {
+                            _logger.LogInformation(
+                                "[EvictionScan] Orphan prune: deleted {Count} download(s) with no log entries backing them (unverifiable by the scan)",
+                                prunedOrphans);
+                        }
+                    }
+                    catch (Exception pruneEx) when (pruneEx is not OperationCanceledException)
+                    {
+                        _logger.LogWarning(pruneEx, "[EvictionScan] Orphan prune failed - will retry next scan");
+                    }
+                }
+
                 // Fix A + B: Propagate eviction to CachedGameDetection and bust the in-memory cache
                 if (scanResult.Evicted > 0)
                 {
@@ -479,6 +514,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                     await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken, onPathProgress);
                 }
+                else if (prunedOrphans > 0)
+                {
+                    // The Evicted>0 branch above already covers pruned rows (the prune runs
+                    // first); when nothing was newly evicted the prune needs its own refresh
+                    // so Service Analytics stops showing the deleted downloads.
+                    await _gameCacheDetectionService.RefreshDiskSummaryAndInvalidateAsync(stoppingToken);
+                }
 
                 stoppingToken.ThrowIfCancellationRequested();
 
@@ -495,6 +537,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     scanTerminalState.Processed = scanResult.Processed;
                     scanTerminalState.Evicted = scanResult.Evicted;
                     scanTerminalState.UnEvicted = scanResult.UnEvicted;
+                    scanTerminalState.PrunedOrphans = prunedOrphans;
                 }
                 _operationTracker.CompleteOperation(operationId, success: true);
 
@@ -511,8 +554,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     await RemoveEvictedRecordsAsync(context, stoppingToken, operationId: null, silent: silent);
                 }
 
-                // Notify clients to refresh if eviction flags changed
-                if (scanResult.Evicted > 0 || scanResult.UnEvicted > 0)
+                // Notify clients to refresh if eviction flags changed or orphans were pruned
+                if (scanResult.Evicted > 0 || scanResult.UnEvicted > 0 || prunedOrphans > 0)
                 {
                     await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
                     {
@@ -610,11 +653,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         Processed: terminalState.Processed,
                         Evicted: terminalState.Evicted,
                         UnEvicted: terminalState.UnEvicted,
+                        PrunedOrphans: terminalState.PrunedOrphans,
                         Context: new Dictionary<string, object?>
                         {
                             ["totalProcessed"] = terminalState.Processed,
                             ["totalEvicted"] = terminalState.Evicted,
-                            ["totalUnEvicted"] = terminalState.UnEvicted
+                            ["totalUnEvicted"] = terminalState.UnEvicted,
+                            ["prunedOrphans"] = terminalState.PrunedOrphans
                         }));
                 }
 
@@ -709,6 +754,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         public int Processed;
         public int Evicted;
         public int UnEvicted;
+        public int PrunedOrphans;
     }
 
     /// <summary>

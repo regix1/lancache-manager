@@ -301,6 +301,7 @@ public class UpdateEvictionSettingsRequest
 {
     public string EvictedDataMode { get; set; } = string.Empty;
     public bool? EvictionScanNotifications { get; set; }
+    public bool? PruneOrphanedDownloads { get; set; }
 }
 
 #endregion

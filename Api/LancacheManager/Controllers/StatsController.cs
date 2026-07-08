@@ -409,7 +409,8 @@ public class StatsController : ControllerBase
     {
         var evictedDataMode = _stateRepository.GetEvictedDataMode();
         var evictionScanNotifications = _stateRepository.GetEvictionScanNotifications();
-        return Ok(new { evictedDataMode, evictionScanNotifications });
+        var pruneOrphanedDownloads = _stateRepository.GetPruneOrphanedDownloads();
+        return Ok(new { evictedDataMode, evictionScanNotifications, pruneOrphanedDownloads });
     }
 
     [HttpPut("eviction")]
@@ -430,6 +431,10 @@ public class StatsController : ControllerBase
         if (request.EvictionScanNotifications.HasValue)
         {
             _stateRepository.SetEvictionScanNotifications(request.EvictionScanNotifications.Value);
+        }
+        if (request.PruneOrphanedDownloads.HasValue)
+        {
+            _stateRepository.SetPruneOrphanedDownloads(request.PruneOrphanedDownloads.Value);
         }
         // Notify clients to refresh downloads/stats since eviction mode affects all tabs
         await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
@@ -457,6 +462,7 @@ public class StatsController : ControllerBase
                 {
                     evictedDataMode = request.EvictedDataMode,
                     evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(),
+                    pruneOrphanedDownloads = _stateRepository.GetPruneOrphanedDownloads(),
                     operationId = (Guid?)queuedOutcome.OperationId,
                     queued = queuedOutcome.Queued
                 });
@@ -464,10 +470,10 @@ public class StatsController : ControllerBase
 
             var operationId = await _reconciliationService.StartBulkEvictionRemovalAsync(HttpContext.RequestAborted);
 
-            return Accepted(new { evictedDataMode = request.EvictedDataMode, evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(), operationId });
+            return Accepted(new { evictedDataMode = request.EvictedDataMode, evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(), pruneOrphanedDownloads = _stateRepository.GetPruneOrphanedDownloads(), operationId });
         }
 
-        return Ok(new { evictedDataMode = request.EvictedDataMode, evictionScanNotifications = _stateRepository.GetEvictionScanNotifications() });
+        return Ok(new { evictedDataMode = request.EvictedDataMode, evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(), pruneOrphanedDownloads = _stateRepository.GetPruneOrphanedDownloads() });
     }
 
     [HttpPost("eviction/reconcile")]

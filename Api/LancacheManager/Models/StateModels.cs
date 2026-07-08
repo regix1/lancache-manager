@@ -102,6 +102,9 @@ public class AppState
     // Whether the eviction scan shows the universal notification bar (false = silent/no notification)
     public bool EvictionScanNotifications { get; set; } = false;
 
+    // Whether the eviction scan also prunes orphaned downloads (no log entries backing them)
+    public bool PruneOrphanedDownloads { get; set; } = false;
+
     // Setup wizard state (persisted for resumption across page refreshes)
     public SetupStep? CurrentSetupStep { get; set; }
     public DataSourceChoice? DataSourceChoice { get; set; }

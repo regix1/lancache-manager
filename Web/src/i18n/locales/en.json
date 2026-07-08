@@ -1688,6 +1688,8 @@
         "evictionScanWaiting": "Waiting for eviction scan to finish...",
         "evictionScanNotifications": "Show scheduled scan notifications",
         "evictionScanNotificationsDescription": "Notifications are always shown for manual scans. Enable this to also show them for the automatic scan on startup and the recurring 6-hour scan.",
+        "pruneOrphanedDownloads": "Prune orphaned downloads during scans",
+        "pruneOrphanedDownloadsDescription": "Deletes download records that no longer have any log entries backing them. The scan cannot verify these against the cache, so they stay in statistics forever. Note: clearing a service's logs also orphans its genuine download history, so leave this off if you want to keep stats for cleared services.",
         "resetEvictions": "Reset Evictions",
         "resetEvictionsSuccess": "Reset {{count}} evicted downloads back to normal",
         "resetEvictionsError": "Failed to reset evictions",

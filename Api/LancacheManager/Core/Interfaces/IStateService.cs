@@ -142,6 +142,10 @@ public interface IStateService
     bool GetEvictionScanNotifications();
     void SetEvictionScanNotifications(bool enabled);
 
+    // Orphaned Downloads Prune Methods (eviction scan opt-in)
+    bool GetPruneOrphanedDownloads();
+    void SetPruneOrphanedDownloads(bool enabled);
+
     // Stats Exclusion Methods
     List<string> GetExcludedClientIps();
     void SetExcludedClientIps(List<string> ips);

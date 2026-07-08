@@ -29,6 +29,7 @@ public record EvictionScanComplete(
     int Processed,
     int Evicted,
     int UnEvicted,
+    int PrunedOrphans = 0,
     string? Error = null,
     Dictionary<string, object?>? Context = null);
 
