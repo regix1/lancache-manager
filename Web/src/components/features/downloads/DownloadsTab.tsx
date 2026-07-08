@@ -1568,8 +1568,8 @@ const DownloadsTab: React.FC = () => {
                   />
                 </div>
 
-                {/* Mobile: Second row with items per page, sort, and view mode */}
-                <div className="flex sm:hidden gap-2 w-full items-center flex-wrap">
+                {/* Mobile: Second row with items per page and sort */}
+                <div className="flex sm:hidden gap-2 w-full items-center">
                   <EnhancedDropdown
                     options={itemsPerPageOptions}
                     value={
@@ -1600,7 +1600,10 @@ const DownloadsTab: React.FC = () => {
                     prefix={t('downloads.tab.sort.prefix')}
                     className="flex-1 min-w-0"
                   />
-                  {/* View mode toggle inline with dropdowns */}
+                </div>
+
+                {/* Mobile: Third row with view mode and hit/miss filter */}
+                <div className="flex sm:hidden gap-2 w-full items-center justify-between">
                   <SegmentedControl
                     options={[
                       {

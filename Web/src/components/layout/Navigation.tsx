@@ -8,7 +8,6 @@ import {
   Menu,
   Users,
   Key,
-  ChevronDown,
   CalendarDays,
   Terminal
 } from 'lucide-react';
@@ -218,12 +217,9 @@ const Navigation: React.FC<NavigationProps> = React.memo(
               </div>
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="p-2 rounded-lg transition-colors flex items-center gap-1 bg-transparent text-[var(--theme-nav-tab-inactive)] hover:bg-[var(--theme-nav-mobile-item-hover)]"
+                className="p-2 rounded-lg transition-colors flex items-center bg-transparent text-[var(--theme-nav-tab-inactive)] hover:bg-[var(--theme-nav-mobile-item-hover)]"
               >
                 <Menu className="w-5 h-5" />
-                <ChevronDown
-                  className={`w-4 h-4 transition-transform duration-300 ease-out ${mobileMenuOpen ? 'rotate-180' : 'rotate-0'}`}
-                />
               </button>
             </div>
 

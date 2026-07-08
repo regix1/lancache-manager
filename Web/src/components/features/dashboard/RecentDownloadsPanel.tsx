@@ -851,6 +851,26 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           flex-shrink: 0;
         }
 
+        /* Narrow containers: stats no longer fit beside the name without
+           crushing it, so wrap them onto their own full-width row aligned
+           with the text column (icon is 32px + 0.65rem gap). */
+        @container (max-width: 419px) {
+          .download-item {
+            flex-wrap: wrap;
+            row-gap: 0.5rem;
+          }
+
+          .item-right {
+            width: 100%;
+            justify-content: space-between;
+            padding-left: calc(32px + 0.65rem);
+          }
+
+          .size-time {
+            align-items: flex-start;
+          }
+        }
+
         .speed-value {
           font-size: 0.8rem;
           font-weight: 700;
