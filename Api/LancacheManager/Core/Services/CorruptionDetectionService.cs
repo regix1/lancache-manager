@@ -416,7 +416,7 @@ public class CorruptionDetectionService
 
                 await dbContext.SaveChangesAsync();
                 await transaction.CommitAsync();
-                _logger.LogInformation("[CorruptionDetection] Saved {Count} corruption records to database", corruptionCounts.Count);
+                _logger.LogInformation("[CorruptionDetection] Saved {ServiceCount} service record(s) covering {ChunkCount} corrupted chunk(s), replacing previous snapshot", corruptionCounts.Count, corruptionCounts.Values.Sum());
             }
             catch (Exception ex)
             {
