@@ -9,6 +9,7 @@ import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { useNotifications } from '@contexts/notifications';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { useDockerSocket } from '@contexts/useDockerSocket';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
 import { Card } from '@components/ui/Card';
@@ -97,6 +98,7 @@ interface LogRemovalManagerProps {
 const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMode, onError }) => {
   const { t } = useTranslation();
   const { notifications, isAnyRemovalRunning, addNotification } = useNotifications();
+  const { on, off } = useSignalR();
   const { isDockerAvailable } = useDockerSocket();
   const { logsReadOnly, logsExist, checkingPermissions } = useDirectoryPermissionsContext();
 
@@ -151,6 +153,19 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasInitiallyLoaded]);
 
+  // Refetch whenever the backend invalidates the per-service counts cache. This is the
+  // single live-update signal covering every log writer (manual clear, eviction log
+  // purge, partial cache removals) - the backend broadcasts it from the one invalidation
+  // choke point, so this panel never needs a manual refresh after a removal.
+  useEffect(() => {
+    const handleServiceCountsChanged = () => {
+      void loadData(true);
+    };
+    on('ServiceCountsChanged', handleServiceCountsChanged);
+    return () => off('ServiceCountsChanged', handleServiceCountsChanged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [on, off]);
+
   // Listen for log removal completion via notifications to trigger reload
   // Use ref to prevent duplicate processing of the same completion notification
   useEffect(() => {
@@ -159,9 +174,13 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     );
 
     if (completedLogRemoval && hasInitiallyLoaded) {
-      // Only reload if we haven't already processed this completion
-      if (lastProcessedCompletionRef.current !== completedLogRemoval.id) {
-        lastProcessedCompletionRef.current = completedLogRemoval.id;
+      // Only reload if we haven't already processed this completion. Key on the per-run
+      // operationId - the notification id is the stable per-type 'log_removal', so keying
+      // on it would block every clear after the first one.
+      const completionKey =
+        (completedLogRemoval.details?.operationId as string | undefined) ?? completedLogRemoval.id;
+      if (lastProcessedCompletionRef.current !== completionKey) {
+        lastProcessedCompletionRef.current = completionKey;
         void loadData(true);
       }
     }

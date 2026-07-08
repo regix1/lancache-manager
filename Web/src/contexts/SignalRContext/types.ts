@@ -41,6 +41,7 @@ export const SIGNALR_EVENTS = [
   'LogRemovalStarted',
   'LogRemovalProgress',
   'LogRemovalComplete',
+  'ServiceCountsChanged',
 
   // Database Operations
   'DatabaseResetStarted',

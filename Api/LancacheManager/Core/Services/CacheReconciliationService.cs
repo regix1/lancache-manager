@@ -1170,6 +1170,15 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 datasourcesProcessed,
                 datasourcesFailed);
 
+            if (totalLinesRemoved > 0)
+            {
+                // The purge rewrote the log files, so the per-service count cache is stale.
+                // InvalidateServiceCountsAsync also broadcasts ServiceCountsChanged so the
+                // Log Removal panel refetches live (covers both bulk and per-entity purges).
+                var cacheManagementService = _serviceProvider.GetRequiredService<CacheManagementService>();
+                await cacheManagementService.InvalidateServiceCountsAsync();
+            }
+
             return new EvictedLogPurgeSummary(totalLinesRemoved, datasourcesProcessed, datasourcesFailed);
         }
         finally

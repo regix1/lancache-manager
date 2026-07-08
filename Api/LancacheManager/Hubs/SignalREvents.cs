@@ -80,6 +80,11 @@ public static class SignalREvents
     public const string LogRemovalStarted = "LogRemovalStarted";
     public const string LogRemovalProgress = "LogRemovalProgress";
     public const string LogRemovalComplete = "LogRemovalComplete";
+    /// <summary>
+    /// Broadcast whenever the per-service log entry counts cache is invalidated
+    /// (manual clear, eviction log purge, partial cache removals) so panels refetch.
+    /// </summary>
+    public const string ServiceCountsChanged = "ServiceCountsChanged";
 
     // Database Operations
     public const string DatabaseResetStarted = "DatabaseResetStarted";

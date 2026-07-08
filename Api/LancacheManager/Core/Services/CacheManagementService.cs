@@ -522,6 +522,10 @@ public partial class CacheManagementService
                 }
             }
         });
+
+        // Single choke point: every writer that changes log contents lands here, so this one
+        // broadcast keeps the Log Removal panel counts live for all of them.
+        await _notifications.NotifyAllAsync(SignalREvents.ServiceCountsChanged);
     }
 
     /// <summary>
