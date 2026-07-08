@@ -5384,6 +5384,91 @@
           "description": "育碧平台颜色",
           "affects": ["育碧徽章", "育碧图表"]
         },
+        "arenanetColor": {
+          "label": "ArenaNet",
+          "description": "ArenaNet 平台颜色",
+          "affects": ["ArenaNet 徽章", "ArenaNet 图表"]
+        },
+        "bsgColor": {
+          "label": "BSG",
+          "description": "BSG 平台颜色",
+          "affects": ["BSG 徽章", "BSG 图表"]
+        },
+        "cityofheroesColor": {
+          "label": "城市英雄",
+          "description": "城市英雄平台颜色",
+          "affects": ["城市英雄徽章", "城市英雄图表"]
+        },
+        "codColor": {
+          "label": "使命召唤",
+          "description": "使命召唤平台颜色",
+          "affects": ["使命召唤徽章", "使命召唤图表"]
+        },
+        "daybreakColor": {
+          "label": "Daybreak",
+          "description": "Daybreak 平台颜色",
+          "affects": ["Daybreak 徽章", "Daybreak 图表"]
+        },
+        "frontierColor": {
+          "label": "Frontier",
+          "description": "Frontier 平台颜色",
+          "affects": ["Frontier 徽章", "Frontier 图表"]
+        },
+        "neverwinterColor": {
+          "label": "Neverwinter",
+          "description": "Neverwinter 平台颜色",
+          "affects": ["Neverwinter 徽章", "Neverwinter 图表"]
+        },
+        "nexusmodsColor": {
+          "label": "Nexus Mods",
+          "description": "Nexus Mods 平台颜色",
+          "affects": ["Nexus Mods 徽章", "Nexus Mods 图表"]
+        },
+        "nintendoColor": {
+          "label": "任天堂",
+          "description": "任天堂平台颜色",
+          "affects": ["任天堂徽章", "任天堂图表"]
+        },
+        "pathofexileColor": {
+          "label": "流放之路",
+          "description": "流放之路平台颜色",
+          "affects": ["流放之路徽章", "流放之路图表"]
+        },
+        "renegadexColor": {
+          "label": "Renegade X",
+          "description": "Renegade X 平台颜色",
+          "affects": ["Renegade X 徽章", "Renegade X 图表"]
+        },
+        "sonyColor": {
+          "label": "索尼",
+          "description": "索尼平台颜色",
+          "affects": ["索尼徽章", "索尼图表"]
+        },
+        "squareColor": {
+          "label": "史克威尔艾尼克斯",
+          "description": "史克威尔艾尼克斯平台颜色",
+          "affects": ["史克威尔艾尼克斯徽章", "史克威尔艾尼克斯图表"]
+        },
+        "tesoColor": {
+          "label": "上古卷轴 Online",
+          "description": "上古卷轴 Online 平台颜色",
+          "affects": ["上古卷轴 Online 徽章", "上古卷轴 Online 图表"]
+        },
+        "testColor": {
+          "label": "测试",
+          "description": "测试平台颜色",
+          "affects": ["测试徽章", "测试图表"]
+        },
+        "warframeColor": {
+          "label": "星际战甲",
+          "description": "星际战甲平台颜色",
+          "affects": ["星际战甲徽章", "星际战甲图表"]
+        },
+        "wargamingColor": {
+          "label": "Wargaming",
+          "description": "Wargaming 平台颜色",
+          "affects": ["Wargaming 徽章", "Wargaming 图表"]
+        },
         "hitRateHighBg": {
           "label": "高命中率背景",
           "description": "高缓存命中率背景",
