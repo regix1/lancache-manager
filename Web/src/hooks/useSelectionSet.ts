@@ -25,6 +25,19 @@ export interface SelectionSet<K extends string> {
   allSelected: (keys: K[]) => boolean;
 }
 
+/**
+ * The subset of a selection surface passed down to the list/card components that
+ * render multi-select checkboxes. `isSelected`/`onToggle` drive per-row checkboxes;
+ * the optional `allSelected`/`setMany` pair enables a scoped "select all" toggle.
+ * Owning sections adapt their `SelectionSet` (or a prefixed view of it) into this shape.
+ */
+export interface SelectionAdapter {
+  isSelected: (key: string) => boolean;
+  onToggle: (key: string) => void;
+  allSelected?: (keys: string[]) => boolean;
+  setMany?: (keys: string[], selected: boolean) => void;
+}
+
 export function useSelectionSet<K extends string>(): SelectionSet<K> {
   const [selected, setSelected] = useState<ReadonlySet<K>>(() => new Set<K>());
 

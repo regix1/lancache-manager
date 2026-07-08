@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import ServiceCard from './ServiceCard';
 import CacheEntityList from './CacheEntityList';
 import type { ServiceCacheInfo, CacheEntityVariant } from '../../../../types';
+import type { SelectionAdapter } from '@hooks/useSelectionSet';
 
 interface ServicesListProps {
   services: ServiceCacheInfo[];
@@ -15,12 +16,7 @@ interface ServicesListProps {
    * CacheEntityList. Keyed on `service_name` (the list's item key). Absent =
    * no checkboxes / no select-all (behaviour identical to today).
    */
-  selection?: {
-    isSelected: (key: string) => boolean;
-    onToggle: (key: string) => void;
-    allSelected?: (keys: string[]) => boolean;
-    setMany?: (keys: string[], selected: boolean) => void;
-  };
+  selection?: SelectionAdapter;
 }
 
 const filterAndSortServices = (services: ServiceCacheInfo[], searchQuery: string) => {

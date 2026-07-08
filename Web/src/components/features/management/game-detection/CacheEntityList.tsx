@@ -6,6 +6,7 @@ import { Checkbox } from '@components/ui/Checkbox';
 import { Pagination } from '@components/ui/Pagination';
 import { usePaginatedList } from '@hooks/usePaginatedList';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
+import type { SelectionAdapter } from '@hooks/useSelectionSet';
 
 interface CacheEntityListRenderState {
   itemId: string;
@@ -17,18 +18,6 @@ interface CacheEntityListRenderState {
   onSelectToggle: () => void;
 }
 
-/**
- * Client-only multi-select surface passed down from the owning section. `isSelected`
- * and `onToggle` drive per-row checkboxes; the optional `allSelected`/`setMany` pair
- * enables the "select all (filtered)" toolbar checkbox scoped to the visible items.
- */
-interface CacheEntityListSelection {
-  isSelected: (key: string) => boolean;
-  onToggle: (key: string) => void;
-  allSelected?: (keys: string[]) => boolean;
-  setMany?: (keys: string[], selected: boolean) => void;
-}
-
 interface CacheEntityListProps<TItem> {
   items: TItem[];
   searchPlaceholder: string;
@@ -37,7 +26,7 @@ interface CacheEntityListProps<TItem> {
   getItemKey: (item: TItem) => string;
   filterAndSortItems: (items: TItem[], query: string) => TItem[];
   renderItem: (item: TItem, state: CacheEntityListRenderState) => React.ReactNode;
-  selection?: CacheEntityListSelection;
+  selection?: SelectionAdapter;
 }
 
 const ITEMS_PER_PAGE = 20;

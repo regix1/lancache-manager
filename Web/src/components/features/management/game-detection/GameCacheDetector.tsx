@@ -588,11 +588,13 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Selected items derived from the CURRENTLY FILTERED lists, so a stale key can
   // never contribute to the count or the removal batch even before the prune
   // effect below runs.
-  const selectedServiceItems = filteredServices.filter((s) =>
-    servicesSelection.isSelected(s.service_name)
+  const selectedServiceItems = useMemo(
+    () => filteredServices.filter((s) => servicesSelection.isSelected(s.service_name)),
+    [filteredServices, servicesSelection]
   );
-  const selectedGameItems = filteredGames.filter((g) =>
-    gamesSelection.isSelected(getGameUniqueId(g))
+  const selectedGameItems = useMemo(
+    () => filteredGames.filter((g) => gamesSelection.isSelected(getGameUniqueId(g))),
+    [filteredGames, gamesSelection]
   );
   // Services + games remove TOGETHER in one confirmed run (mirrors Remove All),
   // so the shared Remove Selected control counts and clears both sets at once.

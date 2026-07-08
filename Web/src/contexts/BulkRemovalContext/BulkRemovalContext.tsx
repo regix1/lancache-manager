@@ -447,6 +447,11 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             // silent success so the batch tally stays honest.
             throw new Error('Evicted removal timed out');
           }
+          // A completion that reports failure (e.g. locked files) must count as failed,
+          // not succeeded. Exclude server-side cancels, which the queue's abort path owns.
+          if (outcome.event && outcome.event.success === false && !outcome.event.cancelled) {
+            throw new Error(outcome.event.error ?? 'Evicted removal failed');
+          }
         },
         finalize: ({ id, succeeded, failed, cancelled, total: finalizeTotal }) => {
           finalizeBulkRemovalNotification({

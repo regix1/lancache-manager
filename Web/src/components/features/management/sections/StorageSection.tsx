@@ -23,7 +23,7 @@ import { buildSeededRunningNotification } from '@contexts/notifications/seedOper
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
-import { useSelectionSet, type SelectionSet } from '@/hooks/useSelectionSet';
+import { useSelectionSet, type SelectionSet, type SelectionAdapter } from '@/hooks/useSelectionSet';
 import { useBulkRemoval, type EvictedQueueEntry } from '@contexts/BulkRemovalContext';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
@@ -52,6 +52,23 @@ import {
   useScheduledRemovalRefresh
 } from '../game-detection/cacheRemovalHelpers';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
+
+// Adapts the combined evicted selection set (prefixed keyspace) into the raw-keyed
+// SelectionAdapter each list expects, translating keys through the given prefix.
+function scopedSelection(selection: SelectionSet<string>, prefix: string): SelectionAdapter {
+  return {
+    isSelected: (key: string) => selection.isSelected(`${prefix}${key}`),
+    onToggle: (key: string) => selection.toggle(`${prefix}${key}`),
+    allSelected: (keys: string[]) =>
+      keys.length > 0 && keys.every((k) => selection.isSelected(`${prefix}${k}`)),
+    setMany: (keys: string[], selected: boolean) =>
+      selection.setMany(
+        keys.map((k) => `${prefix}${k}`),
+        selected
+      )
+  };
+}
+
 interface StorageSectionProps {
   isAdmin: boolean;
   authMode: AuthMode;
@@ -429,6 +446,9 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // happening and a single failure doesn't abort the rest.
   const [showRemoveAllConfirm, setShowRemoveAllConfirm] = useState(false);
   const [removeAllRunning, setRemoveAllRunning] = useState(false);
+  // Kick-off flag for the "Remove Selected" evicted batch, kept separate from the
+  // "Remove All" kick-off flag so a selected run does not spin the Remove All button.
+  const [removeSelectedEvictedRunning, setRemoveSelectedEvictedRunning] = useState(false);
 
   // Client-only multi-select for the combined evicted games + services list.
   // ONE set covers both kinds via collision-safe prefixes ('svc::' service_name,
@@ -439,11 +459,13 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
 
   // Selected items derived from the current evicted lists so a stale key never
   // contributes to the count or the batch (the prune effect below is hygiene).
-  const selectedEvictedServices = evictedServices.filter((s) =>
-    evictedSelection.isSelected(`svc::${s.service_name}`)
+  const selectedEvictedServices = useMemo(
+    () => evictedServices.filter((s) => evictedSelection.isSelected(`svc::${s.service_name}`)),
+    [evictedServices, evictedSelection]
   );
-  const selectedEvictedGames = evictedGames.filter((g) =>
-    evictedSelection.isSelected(`game::${getGameUniqueId(g)}`)
+  const selectedEvictedGames = useMemo(
+    () => evictedGames.filter((g) => evictedSelection.isSelected(`game::${getGameUniqueId(g)}`)),
+    [evictedGames, evictedSelection]
   );
   const selectedEvictedCount = selectedEvictedServices.length + selectedEvictedGames.length;
 
@@ -465,31 +487,11 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // Prefixed adapters: CacheEntityList keys rows by raw service_name /
   // getGameUniqueId, so translate to the combined set's prefixed keyspace.
   const evictedServicesSelectionProp = useMemo(
-    () => ({
-      isSelected: (key: string) => evictedSelection.isSelected(`svc::${key}`),
-      onToggle: (key: string) => evictedSelection.toggle(`svc::${key}`),
-      allSelected: (keys: string[]) =>
-        keys.length > 0 && keys.every((k) => evictedSelection.isSelected(`svc::${k}`)),
-      setMany: (keys: string[], selected: boolean) =>
-        evictedSelection.setMany(
-          keys.map((k) => `svc::${k}`),
-          selected
-        )
-    }),
+    () => scopedSelection(evictedSelection, 'svc::'),
     [evictedSelection]
   );
   const evictedGamesSelectionProp = useMemo(
-    () => ({
-      isSelected: (key: string) => evictedSelection.isSelected(`game::${key}`),
-      onToggle: (key: string) => evictedSelection.toggle(`game::${key}`),
-      allSelected: (keys: string[]) =>
-        keys.length > 0 && keys.every((k) => evictedSelection.isSelected(`game::${k}`)),
-      setMany: (keys: string[], selected: boolean) =>
-        evictedSelection.setMany(
-          keys.map((k) => `game::${k}`),
-          selected
-        )
-    }),
+    () => scopedSelection(evictedSelection, 'game::'),
     [evictedSelection]
   );
 
@@ -502,7 +504,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     ];
     if (items.length === 0) return;
     await runEvictedRemoval(items, {
-      onRunningChange: setRemoveAllRunning,
+      onRunningChange: setRemoveSelectedEvictedRunning,
       onSettled: () => {
         evictedSelection.clear();
         onDataRefresh();
@@ -827,10 +829,11 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                           size="sm"
                           onClick={() => setConfirmRemoveSelectedEvicted(true)}
                           awaitPermissions
-                          loading={isEvictedRemovalRunning || removeAllRunning}
+                          loading={isEvictedRemovalRunning || removeSelectedEvictedRunning}
                           disabled={
                             selectedEvictedCount === 0 ||
                             removeAllRunning ||
+                            removeSelectedEvictedRunning ||
                             isAnyEvictedRemovalRunning ||
                             cacheReadOnly
                           }
@@ -851,6 +854,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                           disabled={
                             evictedGames.length + evictedServices.length === 0 ||
                             removeAllRunning ||
+                            removeSelectedEvictedRunning ||
                             isAnyEvictedRemovalRunning ||
                             cacheReadOnly
                           }

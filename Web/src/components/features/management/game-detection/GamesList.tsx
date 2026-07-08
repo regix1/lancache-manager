@@ -4,6 +4,7 @@ import GameCard from './GameCard';
 import CacheEntityList from './CacheEntityList';
 import { getGameUniqueId } from './gameUtils';
 import type { GameCacheInfo, CacheEntityVariant } from '../../../../types';
+import type { SelectionAdapter } from '@hooks/useSelectionSet';
 
 interface GamesListProps {
   games: GameCacheInfo[];
@@ -16,12 +17,7 @@ interface GamesListProps {
    * CacheEntityList. Keyed on `getGameUniqueId(game)` (the list's item key).
    * Absent = no checkboxes / no select-all (behaviour identical to today).
    */
-  selection?: {
-    isSelected: (key: string) => boolean;
-    onToggle: (key: string) => void;
-    allSelected?: (keys: string[]) => boolean;
-    setMany?: (keys: string[], selected: boolean) => void;
-  };
+  selection?: SelectionAdapter;
 }
 
 const filterAndSortGames = (games: GameCacheInfo[], searchQuery: string) => {

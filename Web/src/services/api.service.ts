@@ -1483,7 +1483,7 @@ class ApiService {
     compareToCacheLogs = true,
     detectionMode = 'miss_count',
     services?: string[]
-  ): Promise<{ message: string }> {
+  ): Promise<{ message: string; started: boolean }> {
     try {
       const params = new URLSearchParams();
       params.set('threshold', String(threshold));
@@ -1500,7 +1500,11 @@ class ApiService {
           headers: { 'Content-Type': 'application/json' }
         })
       );
-      return await this.handleResponse<{ message: string }>(res);
+      // 202 Accepted = an operation was started (or queued); 200 OK = a no-op response
+      // (no corruption data / no matching services) with no SignalR event to follow.
+      const started = res.status === 202;
+      const body = await this.handleResponse<{ message?: string }>(res);
+      return { message: body?.message ?? '', started };
     } catch (error) {
       console.error('removeAllCorruptedChunks error:', error);
       throw error;

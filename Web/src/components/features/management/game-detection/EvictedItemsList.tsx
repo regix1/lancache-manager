@@ -6,18 +6,7 @@ import GamesList from './GamesList';
 import ServicesList from './ServicesList';
 import { getEvictedGames, getEvictedServices } from './cacheEntityFilters';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
-
-/**
- * Client-only multi-select surface for one evicted list. Keyed on the raw list
- * key (`service_name` / `getGameUniqueId`); the owning section adapts these to
- * its combined, prefixed selection set.
- */
-interface EvictedListSelection {
-  isSelected: (key: string) => boolean;
-  onToggle: (key: string) => void;
-  allSelected?: (keys: string[]) => boolean;
-  setMany?: (keys: string[], selected: boolean) => void;
-}
+import type { SelectionAdapter } from '@hooks/useSelectionSet';
 
 interface EvictedItemsListProps {
   games: GameCacheInfo[];
@@ -27,8 +16,8 @@ interface EvictedItemsListProps {
   onRemoveGame: (game: GameCacheInfo) => void;
   onRemoveService: (service: ServiceCacheInfo) => void;
   loading?: boolean;
-  servicesSelection?: EvictedListSelection;
-  gamesSelection?: EvictedListSelection;
+  servicesSelection?: SelectionAdapter;
+  gamesSelection?: SelectionAdapter;
 }
 
 const EvictedItemsList: React.FC<EvictedItemsListProps> = ({

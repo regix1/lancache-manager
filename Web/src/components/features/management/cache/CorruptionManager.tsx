@@ -545,12 +545,18 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     try {
       // Reuses the bulk endpoint with a subset filter; the backend emits the same single
       // Service="all" aggregate terminal, so notification handling is unchanged.
-      await ApiService.removeAllCorruptedChunks(
+      const result = await ApiService.removeAllCorruptedChunks(
         missThreshold,
         compareToCacheLogs,
         detectionMode,
         selectedServices
       );
+      // No-op response (e.g. the selected services no longer have corruption data): no
+      // SignalR notification will arrive to clear the gate, so release it now instead of
+      // waiting for the ~5s safety timeout.
+      if (!result.started) {
+        clearRemoveSelectedPending('removeSelected');
+      }
       // Selection prunes to the remaining services once the reload lands (pruning effect).
     } catch (err: unknown) {
       console.error('Remove selected corrupted failed:', err);

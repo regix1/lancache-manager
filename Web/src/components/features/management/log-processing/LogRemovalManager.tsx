@@ -490,6 +490,11 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
           // success so the batch tally and progress stay honest.
           throw new Error(`Log removal timed out for ${service}`);
         }
+        // A completion that reports failure (e.g. locked files) must count as failed,
+        // not succeeded. Exclude server-side cancels, which the queue's abort path owns.
+        if (outcome.event && outcome.event.success === false && !outcome.event.cancelled) {
+          throw new Error(outcome.event.message || `Log removal failed for ${service}`);
+        }
       },
       finalize: ({ id, succeeded, failed, cancelled, total: finalizeTotal }) => {
         finalizeBulkRemovalNotification({
@@ -729,7 +734,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                     isLogRemovalActive ||
                                     authMode !== 'authenticated' ||
                                     !ds.logsWritable ||
-                                    !isDockerAvailable;
+                                    !isDockerAvailable ||
+                                    isBatchRunning;
                                   return (
                                     <ServiceButton
                                       key={key}
