@@ -129,7 +129,17 @@ public class AppState
     // Per-service scheduled-prefill last-run timestamps (UTC), keyed by PrefillPlatform name
     // (e.g. "Steam"). Drives the independent per-service due-check + next-run computation and is
     // durable across restart (state.json) so a recurring service is never double-run or skipped.
+    // NOTE: this is the SCHEDULE BASIS, not the display "last run" - it is stamped on first-run
+    // anchoring (enable/save/load/reset) and advanced on every poll attempt (including skips), so it
+    // can hold a time before the service has ever genuinely run. Use ScheduledPrefillServiceLastActualRunUtc
+    // for the honest "Last run" the UI shows.
     public Dictionary<string, DateTime> ScheduledPrefillServiceLastRunUtc { get; set; } = new();
+
+    // Per-service timestamp (UTC) of the last time a service GENUINELY ran (its persistent container
+    // actually engaged a prefill), keyed by PrefillPlatform name. Stamped ONLY on a real run - never on
+    // anchoring or a skip/needs-login attempt - so the schedule view shows "Never" until a service has
+    // truly run at least once. Durable across restart.
+    public Dictionary<string, DateTime> ScheduledPrefillServiceLastActualRunUtc { get; set; } = new();
 }
 
 /// <summary>

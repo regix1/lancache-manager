@@ -287,24 +287,26 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         {
             // The outer card's timing is derived entirely from per-service reality, so scan the per-service
             // configs ONCE up front and reuse the result in every branch below:
-            //   latestLastRun  = MAX per-service last-run over ALL services (the honest "Last run"). This must
-            //                    NEVER be service.LastRunUtc: the fixed 1-minute poll loop re-stamps that on
-            //                    every tick, even a no-op tick (ConfigurableScheduledService ExecuteAsync,
-            //                    ~:213), so an all-disabled card would otherwise read "Last run: just now"
-            //                    forever. Null when no service has ever run -> UI shows "Never run".
-            //   soonestNextRun = MIN per-service next-run over ENABLED recurring services (reusing
-            //                    ScheduledPrefillRunGates.ComputeNextRunUtc so the outer card and the
-            //                    per-service detail agree). Null when nothing enabled is recurring.
+            //   latestLastRun  = MAX per-service GENUINE last-run over ALL services (the honest "Last run").
+            //                    This reads the actual-run map, NOT the schedule-basis map: the basis is
+            //                    stamped by first-run anchoring and advanced on every skipped attempt, so it
+            //                    holds a time before a service has ever truly run (and service.LastRunUtc is
+            //                    even worse - the 1-minute poll re-stamps it every no-op tick). Null when no
+            //                    service has ever genuinely run -> UI shows "Never run".
+            //   soonestNextRun = MIN per-service next-run over ENABLED recurring services, computed from the
+            //                    schedule BASIS (reusing ScheduledPrefillRunGates.ComputeNextRunUtc so the
+            //                    outer card and the per-service detail agree). Null when nothing enabled is
+            //                    recurring.
             var config = _stateService.GetScheduledPrefillConfig();
             DateTime? soonestNextRun = null;
             DateTime? latestLastRun = null;
 
             foreach (var perService in config.GetServicesInRunOrder())
             {
-                var lastRun = _stateService.GetScheduledPrefillServiceLastRun(perService.ServiceId.ToString());
-                if (lastRun is not null && (latestLastRun is null || lastRun.Value > latestLastRun.Value))
+                var actualLastRun = _stateService.GetScheduledPrefillServiceLastActualRun(perService.ServiceId.ToString());
+                if (actualLastRun is not null && (latestLastRun is null || actualLastRun.Value > latestLastRun.Value))
                 {
-                    latestLastRun = lastRun;
+                    latestLastRun = actualLastRun;
                 }
 
                 if (!perService.Enabled)
@@ -312,7 +314,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                     continue;
                 }
 
-                var nextRun = ScheduledPrefillRunGates.ComputeNextRunUtc(perService.IntervalHours, lastRun);
+                var scheduleBasis = _stateService.GetScheduledPrefillServiceLastRun(perService.ServiceId.ToString());
+                var nextRun = ScheduledPrefillRunGates.ComputeNextRunUtc(perService.IntervalHours, scheduleBasis);
                 if (nextRun is not null && (soonestNextRun is null || nextRun.Value < soonestNextRun.Value))
                 {
                     soonestNextRun = nextRun;

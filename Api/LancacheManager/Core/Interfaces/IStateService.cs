@@ -80,9 +80,15 @@ public interface IStateService
 
     // Scheduled Prefill Per-Service Last-Run Methods (durable, keyed by PrefillPlatform name).
     // Drive the independent per-service due-check + next-run computation; persist to state.json.
+    // This is the SCHEDULE BASIS (anchor + advance-on-attempt), not the display "last run".
     DateTime? GetScheduledPrefillServiceLastRun(string platform);
     void SetScheduledPrefillServiceLastRun(string platform, DateTime lastRunUtc);
     void ClearScheduledPrefillServiceLastRun();
+
+    // Actual per-service last-run (the honest "Last run" the schedule view shows): stamped ONLY when a
+    // service genuinely runs, so it stays null until the first real run. Durable across restart.
+    DateTime? GetScheduledPrefillServiceLastActualRun(string platform);
+    void SetScheduledPrefillServiceLastActualRun(string platform, DateTime lastRunUtc);
 
     // Crawl Interval Methods
     double GetCrawlIntervalHours();

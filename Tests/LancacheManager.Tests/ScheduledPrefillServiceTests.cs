@@ -175,6 +175,54 @@ public class ScheduledPrefillServiceTests
         Assert.Null(stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Epic.ToString()));
     }
 
+    // ---- BUG FIX: a service that has only been ANCHORED (enabled/saved) but never genuinely run must
+    // show "Never" for Last run, not the anchor time. The schedule basis and the genuine-run map diverge
+    // until the first real run: enabling stamps the basis (so Next run is one interval out) but leaves the
+    // actual-run null (so Last run reads "Never"). Reported: every just-enabled service showed a fake
+    // "Last run: Nm ago" (the anchor time) even though it had never actually run. ----
+
+    [Fact]
+    public void SetScheduledPrefillConfig_AnchorsScheduleBasis_ButLeavesActualRunNull()
+    {
+        using var context = new TempStateServiceContext();
+        var stateService = context.StateService;
+
+        stateService.SetScheduledPrefillConfig(BuildConfig(steamEnabled: true, steamIntervalHours: 48d));
+
+        // Enabling anchors the schedule basis so the next poll is not instant...
+        Assert.NotNull(stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Steam.ToString()));
+        // ...but the GENUINE last-run stays null until the service actually runs, so the schedule view
+        // reads "Never" instead of the anchor time.
+        Assert.Null(stateService.GetScheduledPrefillServiceLastActualRun(PrefillPlatform.Steam.ToString()));
+    }
+
+    [Fact]
+    public void ScheduledPrefillServiceLastActualRun_PersistsAcrossReload_AndIsClearedByReset()
+    {
+        using var context = new TempStateServiceContext();
+        var stateService = context.StateService;
+
+        stateService.SetScheduledPrefillConfig(BuildConfig(steamEnabled: true, steamIntervalHours: 48d));
+
+        var ranAt = DateTime.UtcNow;
+        stateService.SetScheduledPrefillServiceLastActualRun(PrefillPlatform.Steam.ToString(), ranAt);
+
+        // Durable across restart: persist to disk, drop the in-memory cache, and reload.
+        stateService.SaveState(stateService.GetState());
+        SetCachedState(stateService, null);
+        var reloaded = stateService.GetScheduledPrefillServiceLastActualRun(PrefillPlatform.Steam.ToString());
+        Assert.NotNull(reloaded);
+        Assert.True(
+            Math.Abs((reloaded!.Value - ranAt).TotalSeconds) < 1d,
+            "The genuine last-run must round-trip through save/load.");
+
+        // Reset wipes the genuine-run history (nothing has run post-reset -> "Never") while the schedule
+        // basis is reseeded so the next poll is still not instant.
+        stateService.ClearScheduledPrefillServiceLastRun();
+        Assert.Null(stateService.GetScheduledPrefillServiceLastActualRun(PrefillPlatform.Steam.ToString()));
+        Assert.NotNull(stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Steam.ToString()));
+    }
+
     // Overwrites StateService's private _cachedState so a test can stage a persisted state (then null the
     // cache to force a real disk load). Mirrors the reflection the context uses to seed an empty state.
     private static void SetCachedState(StateService stateService, AppState? state)

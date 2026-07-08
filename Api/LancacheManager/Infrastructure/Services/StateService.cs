@@ -172,7 +172,12 @@ public class StateService : IStateService
         public ScheduledPrefillConfigDto? ScheduledPrefill { get; set; }
 
         // Per-service scheduled-prefill last-run timestamps (UTC), keyed by PrefillPlatform name.
+        // Schedule basis (anchor + due-check), NOT the display "last run".
         public Dictionary<string, DateTime> ScheduledPrefillServiceLastRunUtc { get; set; } = new();
+
+        // Per-service timestamp of the last GENUINE run (real prefill engaged), keyed by PrefillPlatform
+        // name. Stamped only on a real run, so the schedule view shows "Never" until a service truly ran.
+        public Dictionary<string, DateTime> ScheduledPrefillServiceLastActualRunUtc { get; set; } = new();
 
         // LEGACY: SteamAuth migrated to separate file - kept for reading old state.json during migration
         // JsonIgnore(Condition = WhenWritingNull) excludes it when saving (always null after migration)
@@ -928,6 +933,27 @@ public class StateService : IStateService
         });
     }
 
+    // Actual last-run (the honest "Last run" the schedule view shows): stamped ONLY when a service
+    // genuinely runs, distinct from the anchor / advance-on-attempt semantics of the schedule-basis map.
+    public DateTime? GetScheduledPrefillServiceLastActualRun(string platform)
+    {
+        // Match the locked read discipline of GetScheduledPrefillServiceLastRun (concurrent writers).
+        lock (_lock)
+        {
+            return GetState().ScheduledPrefillServiceLastActualRunUtc.TryGetValue(platform, out var value)
+                ? value
+                : null;
+        }
+    }
+
+    public void SetScheduledPrefillServiceLastActualRun(string platform, DateTime lastRunUtc)
+    {
+        UpdateState(state =>
+        {
+            state.ScheduledPrefillServiceLastActualRunUtc[platform] = lastRunUtc;
+        });
+    }
+
     /// <summary>
     /// Clears every persisted per-service last-run timestamp and immediately re-anchors the currently
     /// enabled, positive-interval services to now (the same initial-seed rule the load path applies via
@@ -942,6 +968,9 @@ public class StateService : IStateService
         {
             state.ScheduledPrefillServiceLastRunUtc.Clear();
             SeedInitialFirstRunAnchors(state, DateTime.UtcNow);
+            // The genuine-run history is NOT reseeded: after a reset nothing has actually run, so the
+            // schedule view must read "Never" for every service until its next real run.
+            state.ScheduledPrefillServiceLastActualRunUtc.Clear();
         });
     }
 
@@ -1183,6 +1212,8 @@ public class StateService : IStateService
                 GetLegacyScheduledPrefillInterval(persisted.ServiceIntervals)),
             // Per-service scheduled-prefill last-run timestamps
             ScheduledPrefillServiceLastRunUtc = persisted.ScheduledPrefillServiceLastRunUtc ?? new Dictionary<string, DateTime>(),
+            // Per-service GENUINE last-run timestamps (the honest "Last run" the schedule view shows)
+            ScheduledPrefillServiceLastActualRunUtc = persisted.ScheduledPrefillServiceLastActualRunUtc ?? new Dictionary<string, DateTime>(),
             // LEGACY: Only load SteamAuth if present (for migration from old state.json)
             SteamAuth = persisted.SteamAuth != null ? new SteamAuthState
             {
@@ -1283,6 +1314,8 @@ public class StateService : IStateService
                 GetLegacyScheduledPrefillInterval(state.ServiceIntervals)),
             // Per-service scheduled-prefill last-run timestamps
             ScheduledPrefillServiceLastRunUtc = state.ScheduledPrefillServiceLastRunUtc ?? new Dictionary<string, DateTime>(),
+            // Per-service GENUINE last-run timestamps (the honest "Last run" the schedule view shows)
+            ScheduledPrefillServiceLastActualRunUtc = state.ScheduledPrefillServiceLastActualRunUtc ?? new Dictionary<string, DateTime>(),
             // LEGACY: Only persist SteamAuth if not null (will be null after migration)
             // JsonIgnore(WhenWritingNull) on property will exclude from JSON when null
             SteamAuth = state.SteamAuth != null ? new SteamAuthState

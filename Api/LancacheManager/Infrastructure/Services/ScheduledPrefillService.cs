@@ -175,11 +175,13 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             {
                 runToken.ThrowIfCancellationRequested();
 
+                var serviceGenuinelyRan = false;
                 try
                 {
                     if (await RunServiceAsync(serviceConfig, operationIdString, scope.ServiceProvider, notifications, config, runToken))
                     {
                         servicesAttempted++;
+                        serviceGenuinelyRan = true;
                     }
                     else
                     {
@@ -200,8 +202,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 }
                 finally
                 {
-                    // Stamp last-run + mark process-ran for EVERY due service we attempted this tick
-                    // (including skips/failures), so the 1-minute poll does not immediately re-run it
+                    // Stamp the SCHEDULE-BASIS last-run + mark process-ran for EVERY due service we attempted
+                    // this tick (including skips/failures), so the 1-minute poll does not immediately re-run it
                     // (recurring) nor re-fire a startup-only service. A still-needs-login service then
                     // retries on its next interval rather than spamming a Started/Completed cycle every
                     // minute. Cancellation is exempt: do not stamp when the run is being torn down.
@@ -209,6 +211,15 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                     {
                         _ranThisProcess.Add(serviceConfig.ServiceId);
                         _stateService.SetScheduledPrefillServiceLastRun(serviceConfig.ServiceId.ToString(), DateTime.UtcNow);
+
+                        // Stamp the GENUINE last-run (the "Last run" the schedule view shows) ONLY when the
+                        // service actually engaged its container. A skip / needs-login / failure advances the
+                        // schedule basis above but must NOT count as a real run, so the UI keeps reading
+                        // "Never" until the service has truly prefilled at least once.
+                        if (serviceGenuinelyRan)
+                        {
+                            _stateService.SetScheduledPrefillServiceLastActualRun(serviceConfig.ServiceId.ToString(), DateTime.UtcNow);
+                        }
                     }
                 }
             }

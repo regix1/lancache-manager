@@ -52,14 +52,20 @@ public class ScheduledPrefillConfigController : ControllerBase
         var schedule = new List<ScheduledPrefillServiceScheduleDto>();
         foreach (var service in config.GetServicesInRunOrder())
         {
-            var lastRun = _stateService.GetScheduledPrefillServiceLastRun(service.ServiceId.ToString());
+            var key = service.ServiceId.ToString();
+            // Schedule basis (anchor + advance-on-attempt) drives Next run; the genuine last-run drives the
+            // "Last run" the card shows. They diverge until the service has truly run once: a just-enabled
+            // (anchored) service has a schedule basis but a null actual-run, so Last run reads "Never" while
+            // Next run still shows one interval out.
+            var scheduleBasis = _stateService.GetScheduledPrefillServiceLastRun(key);
+            var actualLastRun = _stateService.GetScheduledPrefillServiceLastActualRun(key);
             schedule.Add(new ScheduledPrefillServiceScheduleDto
             {
                 ServiceId = service.ServiceId,
                 IntervalHours = service.IntervalHours,
                 Enabled = service.Enabled,
-                LastRunUtc = lastRun,
-                NextRunUtc = ScheduledPrefillRunGates.ComputeNextRunUtc(service.IntervalHours, lastRun)
+                LastRunUtc = actualLastRun,
+                NextRunUtc = ScheduledPrefillRunGates.ComputeNextRunUtc(service.IntervalHours, scheduleBasis)
             });
         }
 

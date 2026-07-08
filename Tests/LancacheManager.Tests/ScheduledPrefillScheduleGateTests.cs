@@ -269,7 +269,12 @@ public class ScheduledPrefillScheduleGateTests
                 return Config;
             }
 
-            if (targetMethod?.Name == nameof(IStateService.GetScheduledPrefillServiceLastRun))
+            // These registry tests model services that have GENUINELY run at the given times, and for a
+            // real run the schedule-basis and actual-run maps hold the same timestamp - so both getters
+            // read the one LastRuns map. (The basis-vs-actual divergence for an anchored-but-never-run
+            // service is covered separately in ScheduledPrefillServiceTests.)
+            if (targetMethod?.Name is nameof(IStateService.GetScheduledPrefillServiceLastRun)
+                or nameof(IStateService.GetScheduledPrefillServiceLastActualRun))
             {
                 return args?[0] is string key && LastRuns.TryGetValue(key, out var lastRun)
                     ? lastRun
