@@ -114,9 +114,10 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
             </div>
           )}
 
-          {/* Title */}
+          {/* Title — wraps to two lines before ellipsizing so narrow screens
+              keep the meaningful trailing words instead of cutting them off */}
           <span
-            className={`font-semibold transition-colors duration-200 truncate ${
+            className={`font-semibold transition-colors duration-200 min-w-0 line-clamp-2 ${
               isExpanded ? 'text-themed-primary' : 'text-themed-secondary'
             }`}
           >
