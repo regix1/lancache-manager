@@ -253,6 +253,15 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
     }
   ].filter((bucket) => bucket.services.length > 0);
 
+  // Upstreams forcing HTTP -> HTTPS bypass the cache even though DNS is perfect, so this signal
+  // is orthogonal to the failure buckets above (it mostly hits fully "resolved" services).
+  const httpsRedirectDomains = summary?.httpsRedirectDomains ?? 0;
+  const httpsRedirectServices = lastResult
+    ? lastResult.services.filter((service) =>
+        service.domains.some((domain) => domain.httpsRedirect === true)
+      )
+    : [];
+
   // Collapse the expected-cache-IP list to one IP + "+N more" (full list in the title tooltip).
   const expectedCacheIps = lastResult?.expectedCacheIps ?? [];
   const { shown: expectedIpShown, moreCount: expectedIpMore } = splitExamples(expectedCacheIps, 1);
@@ -321,7 +330,7 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
         </div>
       )}
 
-      {!isRunning && failureBuckets.length > 0 && (
+      {!isRunning && (failureBuckets.length > 0 || httpsRedirectDomains > 0) && (
         <div className="status-check-breakdown mt-3">
           {failureBuckets.map((bucket) => {
             const labels = bucket.services.map((service) => formatServiceLabel(service.service));
@@ -347,6 +356,33 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
               </div>
             );
           })}
+          {httpsRedirectDomains > 0 &&
+            (() => {
+              const labels = httpsRedirectServices.map((service) =>
+                formatServiceLabel(service.service)
+              );
+              const { shown, moreCount } = splitExamples(labels, CHIP_LIMIT);
+              return (
+                <div className="status-check-breakdown-row">
+                  <span className="status-check-breakdown-dot status-check-breakdown-dot--https" />
+                  <span className="status-check-breakdown-count tabular-nums">
+                    {t(`${keys}.breakdownHttpsRedirect`, { count: httpsRedirectDomains })}
+                  </span>
+                  <span className="status-check-chips">
+                    {shown.map((label) => (
+                      <span key={label} className="status-check-chip">
+                        {label}
+                      </span>
+                    ))}
+                    {moreCount > 0 && (
+                      <span className="status-check-chip status-check-chip--more">
+                        {t(`${keys}.breakdownMore`, { count: moreCount })}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              );
+            })()}
         </div>
       )}
 
@@ -363,7 +399,9 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
           {expectedCacheIps.length > 0 && (
             <Tooltip
               content={expectedCacheIps.join(', ')}
-              className="text-xs text-themed-muted tabular-nums"
+              // self-start keeps the trigger box text-sized inside the stretch-by-default flex
+              // column, so the tooltip anchors over the text instead of the card's full width.
+              className="text-xs text-themed-muted tabular-nums self-start"
             >
               {t(`${keys}.expectedIp`, {
                 ips: expectedIpLabel,

@@ -42,6 +42,19 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
         Timeout = TimeSpan.FromSeconds(2),
     };
 
+    // Separate client for the upstream HTTPS-redirect probe: the request travels cache -> upstream
+    // CDN, so it needs more headroom than the LAN-only heartbeat's 2s. AllowAutoRedirect=false is
+    // the entire point here - the redirect itself is the finding.
+    private static readonly HttpClient _httpsRedirectProbeClient = new(new SocketsHttpHandler
+    {
+        ConnectTimeout = TimeSpan.FromSeconds(2),
+        PooledConnectionLifetime = TimeSpan.FromMinutes(1),
+        AllowAutoRedirect = false,
+    })
+    {
+        Timeout = TimeSpan.FromSeconds(5),
+    };
+
     // The canonical universal lancache test domain: lancache-dns poisons it to the LAN cache IP,
     // upstream/public DNS returns the real Steam CDN. Same probe host the reference resolver uses.
     private const string LancacheTestDomain = "lancache.steamcontent.com";
@@ -491,6 +504,50 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
                 Error = $"probe failed ({ex.GetType().Name}: {ex.Message})"
             };
         }
+    }
+
+    public async Task<HttpsRedirectProbeResult> ProbeHttpsRedirectAsync(string cacheIp, string domain, CancellationToken cancellationToken)
+    {
+        // Same SSRF bound as the heartbeat: this method only ever talks to the LAN cache, which
+        // relays the request upstream exactly the way a game client's download would travel. The
+        // hostname check also keeps the ad hoc test-domain flow from smuggling arbitrary bytes
+        // into a Host header.
+        if (!IsPrivateIp(cacheIp) || Uri.CheckHostName(domain) != UriHostNameType.Dns)
+        {
+            return new HttpsRedirectProbeResult { Redirected = null, Location = null };
+        }
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"http://{cacheIp}/");
+            request.Headers.Host = domain;
+            using var response = await _httpsRedirectProbeClient.SendAsync(
+                request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+
+            var target = GetHttpsRedirectTarget((int)response.StatusCode, response.Headers.Location);
+            return new HttpsRedirectProbeResult { Redirected = target != null, Location = target };
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        {
+            // Unreachable upstream / timeout / cancelled sweep - explicitly "couldn't determine",
+            // never "no redirect" (a dead upstream must not read as a healthy plain-HTTP path).
+            return new HttpsRedirectProbeResult { Redirected = null, Location = null };
+        }
+    }
+
+    /// <summary>Pure classification for the HTTPS-redirect probe: the absolute <c>https://</c>
+    /// Location of a 3xx answer, else null. Relative Locations keep the request's http scheme and
+    /// same-scheme redirects are ordinary CDN behavior - neither upgrades the client to HTTPS.</summary>
+    internal static string? GetHttpsRedirectTarget(int statusCode, Uri? location)
+    {
+        if (statusCode is < 300 or > 399 || location == null || !location.IsAbsoluteUri)
+        {
+            return null;
+        }
+
+        return string.Equals(location.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            ? location.AbsoluteUri
+            : null;
     }
 
     /// <summary>Caller-scoping profile for the cache-server candidate builder. There is deliberately

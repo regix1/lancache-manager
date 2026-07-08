@@ -439,6 +439,76 @@ public class StatusCheckTests
         Assert.Equal(10, summary.TotalDomains);
     }
 
+    // ===== HTTPS-redirect probe: upstream forcing HTTP -> HTTPS bypasses the cache =====
+
+    [Theory]
+    [InlineData(301, "https://cdn.example.com/")]
+    [InlineData(302, "https://cdn.example.com/path?x=1")]
+    [InlineData(307, "https://cdn.example.com/")]
+    [InlineData(308, "https://cdn.example.com/")]
+    public void GetHttpsRedirectTarget_AbsoluteHttpsLocationOn3xx_IsFlagged(int statusCode, string location)
+    {
+        var target = LancacheServerLocator.GetHttpsRedirectTarget(statusCode, new Uri(location));
+
+        Assert.Equal(location, target);
+    }
+
+    [Theory]
+    [InlineData(200)]
+    [InlineData(404)]
+    [InlineData(502)]
+    public void GetHttpsRedirectTarget_NonRedirectStatus_IsNull(int statusCode)
+    {
+        // Even with an https Location header present, a non-3xx answer is not a redirect.
+        var target = LancacheServerLocator.GetHttpsRedirectTarget(statusCode, new Uri("https://cdn.example.com/"));
+
+        Assert.Null(target);
+    }
+
+    [Fact]
+    public void GetHttpsRedirectTarget_HttpLocation_IsNull()
+    {
+        // A same-scheme redirect is ordinary CDN behavior - the client stays on plain HTTP.
+        var target = LancacheServerLocator.GetHttpsRedirectTarget(301, new Uri("http://cdn2.example.com/"));
+
+        Assert.Null(target);
+    }
+
+    [Fact]
+    public void GetHttpsRedirectTarget_RelativeOrMissingLocation_IsNull()
+    {
+        // A relative Location keeps the request's http scheme; no Location is no redirect target.
+        Assert.Null(LancacheServerLocator.GetHttpsRedirectTarget(301, new Uri("/somewhere", UriKind.Relative)));
+        Assert.Null(LancacheServerLocator.GetHttpsRedirectTarget(301, null));
+    }
+
+    [Fact]
+    public void BuildSummaryCore_CountsHttpsRedirectDomains()
+    {
+        var services = new List<ServiceCheckResult>
+        {
+            new()
+            {
+                Status = "resolved", ResolvedCount = 2, TotalCount = 2,
+                Domains = new List<DomainCheckResult>
+                {
+                    new() { Status = "resolved", HttpsRedirect = true },
+                    new() { Status = "resolved", HttpsRedirect = false }
+                }
+            },
+            // Null = probe not attempted/undeterminable - must never count as a forced redirect.
+            new()
+            {
+                Status = "resolved", ResolvedCount = 1, TotalCount = 1,
+                Domains = new List<DomainCheckResult> { new() { Status = "resolved", HttpsRedirect = null } }
+            }
+        };
+
+        var summary = StatusCheckService.BuildSummaryCore(services);
+
+        Assert.Equal(1, summary.HttpsRedirectDomains);
+    }
+
     // ===== Contract amendment v1.3: empty expectedIps -> unverified, LANCACHE_IP lists =====
 
     [Fact]

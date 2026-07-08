@@ -150,6 +150,7 @@ rust-processor/target/
 
 # Build test artifacts
 build-test/
+_verify_bin/
 EPIC_IMAGE_FIX_PLAN.md
 CODE_CONSOLIDATION_PLAN.md
 DEAD_CODE_AUDIT.md

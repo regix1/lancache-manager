@@ -147,6 +147,7 @@ RUN apt-get update && \
     nano \
     procps \
     net-tools \
+    dnsutils \
     rsync \
     findutils \
     coreutils \

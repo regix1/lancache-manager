@@ -1,11 +1,18 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MonitorSmartphone } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import { CLIENT_PROBE_HOST, CLIENT_PROBE_TIMEOUT_MS } from './constants';
+import { CLIENT_PROBE_HOST, CLIENT_PROBE_TIMEOUT_MS, CLIENT_PROBE_URL } from './constants';
 import type { ClientProbeState, ClientProbeStatus } from './types';
+
+// Terminal fallback for the mixed-content case: an https-served dashboard can never fire a
+// plain-HTTP fetch at the cache, but the person reading it can, from any shell on this device.
+const BLOCKED_FALLBACK_COMMANDS = [
+  `nslookup ${CLIENT_PROBE_HOST}`,
+  `curl -I ${CLIENT_PROBE_URL}`
+].join('\n');
 
 interface ClientProbeCardProps {
   state: ClientProbeState;
@@ -31,6 +38,19 @@ const DETAIL_BOX_CLASS_BY_STATUS: Record<ClientProbeStatus, string> = {
 const ClientProbeCard: React.FC<ClientProbeCardProps> = ({ state, onRetry }) => {
   const { t } = useTranslation();
   const keys = 'management.sections.statusCheck';
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyCommands = async () => {
+    try {
+      // The blocked state only exists on https pages, i.e. secure contexts, where the
+      // Clipboard API is always available.
+      await navigator.clipboard.writeText(BLOCKED_FALLBACK_COMMANDS);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard permission denied - the commands stay visible for manual selection.
+    }
+  };
 
   const titleByStatus: Record<ClientProbeStatus, string> = {
     checking: t(`${keys}.probeChecking`),
@@ -77,6 +97,28 @@ const ClientProbeCard: React.FC<ClientProbeCardProps> = ({ state, onRetry }) => 
           className={`mt-3 text-xs p-2.5 rounded leading-relaxed ${DETAIL_BOX_CLASS_BY_STATUS[state.status]}`}
         >
           {detailByStatus[state.status]}
+        </div>
+      )}
+      {state.status === 'blocked' && (
+        <div className="mt-3">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className="text-xs font-medium text-themed-primary">
+              {t(`${keys}.probeBlockedFallback`)}
+            </p>
+            <Button
+              size="xs"
+              variant={copied ? 'filled' : 'default'}
+              color={copied ? 'green' : undefined}
+              className="flex-shrink-0"
+              onClick={() => void handleCopyCommands()}
+            >
+              {copied ? t(`${keys}.probeCopied`) : t('common.copy')}
+            </Button>
+          </div>
+          <code className="block whitespace-pre-wrap break-all text-xs font-mono px-3 py-2 rounded-md bg-themed-secondary text-themed-secondary">
+            {BLOCKED_FALLBACK_COMMANDS}
+          </code>
+          <p className="text-xs text-themed-muted mt-2">{t(`${keys}.probeBlockedFallbackHint`)}</p>
         </div>
       )}
     </Card>

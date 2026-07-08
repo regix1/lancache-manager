@@ -149,6 +149,10 @@
   background-color: var(--theme-error);
 }
 
+.status-check-breakdown-dot--https {
+  background-color: var(--theme-warning);
+}
+
 .status-check-breakdown-count {
   font-size: 0.8125rem;
   font-weight: 500;
@@ -210,6 +214,12 @@
 .status-check-tag--unverified {
   background-color: var(--theme-info-bg);
   color: var(--theme-info-text);
+}
+
+/* Upstream forces HTTP -> HTTPS: DNS is right, but downloads bypass the cache. */
+.status-check-tag--https {
+  background-color: var(--theme-warning-bg);
+  color: var(--theme-warning-text);
 }
 
 /* Expected cache IPs, shown ONCE at the top of an expanded service. */

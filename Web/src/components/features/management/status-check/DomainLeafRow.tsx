@@ -29,6 +29,10 @@ const DomainLeafRow: React.FC<DomainLeafRowProps> = ({ result }) => {
     </span>
   ) : null;
 
+  // Only heartbeat-verified (cache-routed) domains are ever redirect-probed, so this tag can
+  // only appear on otherwise-"resolved" rows - DNS is right, yet downloads bypass the cache.
+  const httpsRedirect = result.httpsRedirect === true;
+
   const tag =
     result.status === 'mismatched' ? (
       <span className="status-check-tag status-check-tag--wrong">{t(`${keys}.tagWrongIp`)}</span>
@@ -38,19 +42,27 @@ const DomainLeafRow: React.FC<DomainLeafRowProps> = ({ result }) => {
       </span>
     ) : result.status === 'unresolved' ? (
       <span className="status-check-tag status-check-tag--none">{t(`${keys}.tagNoAnswer`)}</span>
+    ) : httpsRedirect ? (
+      <span className="status-check-tag status-check-tag--https">
+        {t(`${keys}.tagHttpsRedirect`)}
+      </span>
     ) : null;
 
   const rowTitle =
     result.status === 'unresolved'
       ? t(`${keys}.reasonUnresolved`, { error: result.error ?? t(`${keys}.unknownError`) })
-      : isWildcardProbe
-        ? testedAsNote
-        : undefined;
+      : httpsRedirect
+        ? t(`${keys}.httpsRedirectTooltip`, { location: result.httpsRedirectLocation ?? '' })
+        : isWildcardProbe
+          ? testedAsNote
+          : undefined;
 
   const rowContent = (
     <>
       <div className="flex items-center gap-2 min-w-0">
-        {result.status === 'resolved' ? (
+        {httpsRedirect ? (
+          <AlertTriangle className="h-4 w-4 flex-shrink-0 text-[var(--theme-warning)]" />
+        ) : result.status === 'resolved' ? (
           <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />
         ) : result.status === 'mismatched' ? (
           <AlertTriangle className="h-4 w-4 flex-shrink-0 text-[var(--theme-warning)]" />

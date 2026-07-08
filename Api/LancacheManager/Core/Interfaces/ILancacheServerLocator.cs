@@ -61,4 +61,12 @@ public interface ILancacheServerLocator
     /// <summary>Probes <c>GET http://{ip}/lancache-heartbeat</c> and reports whether the
     /// <c>X-LanCache-Processed-By</c> header was present (and its value).</summary>
     Task<HeartbeatResult> ProbeHeartbeatAsync(string ip, CancellationToken cancellationToken);
+
+    /// <summary>Probes whether the upstream behind <paramref name="domain"/> forces HTTP-to-HTTPS
+    /// when requested through the cache: sends <c>GET http://{cacheIp}/</c> with
+    /// <c>Host: {domain}</c> (redirects never followed) and reports a 3xx answer whose Location is
+    /// an absolute <c>https://</c> URL. Such a redirect is relayed to game clients, which then
+    /// download over TLS and bypass the cache entirely. Only ever probes a private/LAN cache IP
+    /// (same SSRF bound as the heartbeat); anything else returns the undeterminable result.</summary>
+    Task<HttpsRedirectProbeResult> ProbeHttpsRedirectAsync(string cacheIp, string domain, CancellationToken cancellationToken);
 }

@@ -499,6 +499,7 @@ public sealed class StatusCheckService : IStatusCheckService
         // surface; public answers classify directly via the verdict table instead.
         var heartbeatVerified = false;
         string? servedBy = null;
+        string? verifyingIp = null;
         foreach (var ip in resolvedIps.Where(LancacheServerLocator.IsPrivateIp).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             var probe = await _heartbeatCache.GetAsync(ip, ct);
@@ -506,12 +507,27 @@ public sealed class StatusCheckService : IStatusCheckService
             {
                 heartbeatVerified = true;
                 servedBy = probe.ServedBy;
+                verifyingIp = ip;
                 if (verifiedIpSink != null && !string.IsNullOrWhiteSpace(probe.ServedBy))
                 {
                     verifiedIpSink.TryAdd(ip, probe.ServedBy);
                 }
                 break;
             }
+        }
+
+        // An upstream that answers plain HTTP with a redirect to https:// is relayed through the
+        // cache to the client, which then downloads over TLS and bypasses the cache entirely -
+        // DNS can be perfect and the service still caches nothing. Probe it through the verified
+        // cache IP exactly like a client request would travel. Only meaningful for domains that
+        // actually route through the cache; everything else stays null (not checked).
+        bool? httpsRedirect = null;
+        string? httpsRedirectLocation = null;
+        if (verifyingIp != null)
+        {
+            var redirectProbe = await _serverLocator.ProbeHttpsRedirectAsync(verifyingIp, queryDomain, ct);
+            httpsRedirect = redirectProbe.Redirected;
+            httpsRedirectLocation = redirectProbe.Location;
         }
 
         return new DomainCheckResult
@@ -525,7 +541,9 @@ public sealed class StatusCheckService : IStatusCheckService
             HeartbeatVerified = heartbeatVerified,
             ServedBy = servedBy,
             Error = error,
-            LatencyMs = Math.Round(stopwatch.Elapsed.TotalMilliseconds, 1)
+            LatencyMs = Math.Round(stopwatch.Elapsed.TotalMilliseconds, 1),
+            HttpsRedirect = httpsRedirect,
+            HttpsRedirectLocation = httpsRedirectLocation
         };
     }
 
@@ -630,7 +648,8 @@ public sealed class StatusCheckService : IStatusCheckService
             UnverifiedServices = services.Count(s => s.Status == "unverified"),
             TotalDomains = services.Sum(s => s.TotalCount),
             ResolvedDomains = services.Sum(s => s.ResolvedCount),
-            UnverifiedDomains = services.Sum(s => s.Domains.Count(d => d.Status == "unverified"))
+            UnverifiedDomains = services.Sum(s => s.Domains.Count(d => d.Status == "unverified")),
+            HttpsRedirectDomains = services.Sum(s => s.Domains.Count(d => d.HttpsRedirect == true))
         };
     }
 

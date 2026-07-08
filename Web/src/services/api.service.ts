@@ -3610,6 +3610,12 @@ export interface StatusCheckDomainResult {
   servedBy: string | null;
   error: string | null;
   latencyMs: number | null;
+  /** True when a plain-HTTP probe through the verified cache IP answered with a redirect to an
+   *  https:// URL - the upstream forces HTTPS, so clients bypass the cache at download time.
+   *  Null when the probe wasn't attempted or couldn't determine an answer. */
+  httpsRedirect: boolean | null;
+  /** Absolute https:// redirect target; null unless httpsRedirect is true. */
+  httpsRedirectLocation: string | null;
 }
 
 export interface StatusCheckServiceResult {
@@ -3643,6 +3649,8 @@ export interface StatusCheckSummary {
   resolvedDomains: number;
   /** Domains resolving with no expected cache IP to verify against (v1.3). */
   unverifiedDomains: number;
+  /** Domains whose upstream forced an HTTP-to-HTTPS redirect through the cache (cache bypassed). */
+  httpsRedirectDomains: number;
 }
 
 /** One cache node behind the resolved fleet, identified by its X-LanCache-Processed-By hostname,
