@@ -135,11 +135,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // not abort the remaining queue.
   const [showRemoveAllConfirm, setShowRemoveAllConfirm] = useState(false);
   const [removeAllRunning, setRemoveAllRunning] = useState(false);
-  const [removeAllProgress, setRemoveAllProgress] = useState<{
-    current: number;
-    total: number;
-    label: string;
-  } | null>(null);
   const [isLoadingInitialCache, setIsLoadingInitialCache] = useState(() => !mockMode);
 
   useEffect(() => {
@@ -662,11 +657,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     ];
     if (items.length === 0) return;
     await runCacheRemoval(items, {
-      onRunningChange: (running) => {
-        setRemoveAllRunning(running);
-        if (!running) setRemoveAllProgress(null);
-      },
-      onProgress: setRemoveAllProgress,
+      onRunningChange: setRemoveAllRunning,
       onSettled: () => {
         servicesSelection.clear();
         gamesSelection.clear();
@@ -698,11 +689,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     ];
 
     await runCacheRemoval(items, {
-      onRunningChange: (running) => {
-        setRemoveAllRunning(running);
-        if (!running) setRemoveAllProgress(null);
-      },
-      onProgress: setRemoveAllProgress,
+      onRunningChange: setRemoveAllRunning,
       onSettled: () => {
         onDataRefresh?.();
       }
@@ -1098,21 +1085,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           {t('management.batchSelect.confirmBody', { count: selectedCombinedCount })}
         </p>
       </ConfirmationModal>
-
-      {/* Remove-all progress indicator - rendered at the bottom so it is visible
-          no matter which accordion the user is viewing. */}
-      {removeAllRunning && removeAllProgress && (
-        <div className="fixed bottom-4 right-4 z-50 max-w-sm bg-themed-secondary border border-themed-secondary rounded-lg p-3 shadow-lg">
-          <p className="text-sm text-themed-primary">
-            {t('management.sections.data.gameCacheRemoveAllProgress', {
-              current: removeAllProgress.current,
-              total: removeAllProgress.total,
-              label: removeAllProgress.label,
-              defaultValue: 'Removing {{current}} of {{total}} - {{label}}'
-            })}
-          </p>
-        </div>
-      )}
     </>
   );
 };

@@ -703,6 +703,17 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         </Button>
       </Tooltip>
       <Button
+        onClick={handleRemoveSelected}
+        awaitPermissions
+        loading={startingRemoveSelected}
+        disabled={batchGateActive || selection.count === 0}
+        variant="filled"
+        color="red"
+        size="sm"
+      >
+        {t('management.batchSelect.removeSelected', { count: selection.count })}
+      </Button>
+      <Button
         onClick={handleRemoveAll}
         awaitPermissions
         loading={startingRemoveAll}
@@ -852,8 +863,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                     <LoadingState message={t('management.corruption.loadingCachedData')} />
                   ) : hasCachedResults && corruptionList.length > 0 ? (
                     <div className="space-y-3">
-                      {/* Batch multi-select toolbar: select-all (visible) + Remove Selected.
-                          Wraps at 390px; no icons on the button (text-only like Remove All). */}
+                      {/* Batch multi-select toolbar: select-all (visible) + selected count.
+                          Remove Selected lives in the section header cluster (with Remove All);
+                          wraps at 390px. */}
                       <div className="flex flex-wrap items-center gap-3">
                         <Checkbox
                           checked={allVisibleSelected}
@@ -872,18 +884,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                             {t('management.batchSelect.selectedCount', { count: selection.count })}
                           </span>
                         )}
-                        <Button
-                          onClick={handleRemoveSelected}
-                          awaitPermissions
-                          loading={startingRemoveSelected}
-                          disabled={batchGateActive || selection.count === 0}
-                          variant="filled"
-                          color="red"
-                          size="sm"
-                          className="ml-auto"
-                        >
-                          {t('management.batchSelect.removeSelected', { count: selection.count })}
-                        </Button>
                       </div>
                       {corruptionList.map(([service, count]) => (
                         <div key={`corruption-${service}`} className="flex items-start gap-2">

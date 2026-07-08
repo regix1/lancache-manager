@@ -552,9 +552,11 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     hasPermissionIssue || !isDockerAvailable
   );
 
-  // Header badge - Refresh button in AccordionSection header
+  // Header action cluster: Refresh + Remove Selected. Mirrors the other Storage
+  // sections so Remove Selected stays reachable in the header (disabled until a
+  // selection exists). flex-wrap keeps both buttons from overflowing at 390px.
   const headerBadge = (
-    <div className="flex w-full justify-start sm:contents">
+    <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
       <Tooltip content={t('management.logRemoval.refreshServiceCounts')} position="top">
         <Button
           onClick={() => loadData(true)}
@@ -566,6 +568,23 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
           {isRefreshing ? <LoadingSpinner inline size="sm" /> : t('common.refresh')}
         </Button>
       </Tooltip>
+      <Button
+        variant="filled"
+        color="red"
+        size="sm"
+        onClick={() => setShowBatchConfirm(true)}
+        disabled={
+          selection.count === 0 ||
+          mockMode ||
+          authMode !== 'authenticated' ||
+          !isDockerAvailable ||
+          isLogRemovalActive ||
+          anyServiceRemovalPending ||
+          isBatchRunning
+        }
+      >
+        {t('management.batchSelect.removeSelected', { count: selection.count })}
+      </Button>
     </div>
   );
 
@@ -673,34 +692,13 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                               : 'management.batchSelect.selectAll'
                           )}
                         />
-                        <div className="flex flex-wrap items-center gap-2">
-                          {selection.count > 0 && (
-                            <span className="text-sm text-themed-secondary">
-                              {t('management.batchSelect.selectedCount', {
-                                count: selection.count
-                              })}
-                            </span>
-                          )}
-                          <Button
-                            variant="filled"
-                            color="red"
-                            size="sm"
-                            onClick={() => setShowBatchConfirm(true)}
-                            disabled={
-                              selection.count === 0 ||
-                              mockMode ||
-                              authMode !== 'authenticated' ||
-                              !isDockerAvailable ||
-                              isLogRemovalActive ||
-                              anyServiceRemovalPending ||
-                              isBatchRunning
-                            }
-                          >
-                            {t('management.batchSelect.removeSelected', {
+                        {selection.count > 0 && (
+                          <span className="text-sm text-themed-secondary">
+                            {t('management.batchSelect.selectedCount', {
                               count: selection.count
                             })}
-                          </Button>
-                        </div>
+                          </span>
+                        )}
                       </div>
                     )}
                     {datasourceCounts.map((ds) => {
