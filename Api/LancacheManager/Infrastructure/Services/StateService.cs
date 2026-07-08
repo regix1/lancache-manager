@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
 using LancacheManager.Models.Responses;
 
@@ -191,6 +192,11 @@ public class StateService : IStateService
                 return _cachedState;
             }
 
+            // Whether we may persist the normalized/seeded scheduled-prefill result below. Left true on the
+            // normal load / legacy-migration paths; the corrupt-load fallback flips it false so a transient
+            // read error never overwrites a possibly-recoverable state.json.
+            var canPersistScheduledPrefillInit = true;
+
             try
             {
                 if (File.Exists(_stateFilePath))
@@ -231,15 +237,29 @@ public class StateService : IStateService
                     _cachedState = MigrateFromLegacyFiles();
                     SaveState(_cachedState);
                 }
-
-                return _cachedState;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to load state, using default");
                 _cachedState = new AppState();
-                return _cachedState;
+                canPersistScheduledPrefillInit = false;
             }
+
+            // Fix 2: seed first-run anchors for enabled positive-interval services that have no last-run key
+            // yet, so the default config, a v1->v2 migration, and a fresh install wait one full interval
+            // instead of instant-running on the next poll. Seeds only MISSING keys, so a normal restart
+            // (keys already persisted and reloaded) is a no-op and the schedule never shifts. (AppState
+            // defaults ScheduledPrefill to a non-null CreateDefault(), so no null-normalization is needed.)
+            // The in-memory state is always seeded; persist only when it seeded AND the load succeeded, so a
+            // corrupt-load fallback still avoids an instant run without clobbering a recoverable state.json.
+            var loadedState = _cachedState!;
+            var anchorsSeeded = SeedInitialFirstRunAnchors(loadedState, DateTime.UtcNow);
+            if (anchorsSeeded && canPersistScheduledPrefillInit)
+            {
+                SaveState(loadedState);
+            }
+
+            return loadedState;
         }
     }
 
@@ -835,8 +855,9 @@ public class StateService : IStateService
     // Scheduled Prefill Config Methods
     public ScheduledPrefillConfigDto GetScheduledPrefillConfig()
     {
-        // GetState() already returns a config normalized/validated via ResolveScheduledPrefillConfig
-        // in FromPersisted; revalidate so callers always receive a known-good object.
+        // AppState.ScheduledPrefill is a non-nullable property defaulted to CreateDefault() (StateModels.cs),
+        // and every load path resolves it via ResolveScheduledPrefillConfig, so it is never null here.
+        // Revalidate so callers always receive a known-good object.
         return ScheduledPrefillConfigFactory.Validate(GetState().ScheduledPrefill);
     }
 
@@ -847,14 +868,56 @@ public class StateService : IStateService
         // Validate before mutating state so an invalid config surfaces an explicit error to the
         // caller and never gets persisted. ToPersisted re-validates as a final guard.
         var validated = ScheduledPrefillConfigFactory.Validate(config);
-        UpdateState(state => state.ScheduledPrefill = validated);
+        UpdateState(state =>
+        {
+            // Capture the OLD per-service enabled flags BEFORE overwriting the config, so we can tell a
+            // brand-new / re-enabled service (whose first run we anchor to save-time) apart from one that
+            // was already enabled (whose genuine last-run we must never clobber). Null-safe: no prior
+            // config means "not enabled before" for every service.
+            var previousEnabled = new Dictionary<string, bool>();
+            var previousConfig = state.ScheduledPrefill;
+            if (previousConfig is not null)
+            {
+                foreach (var previousService in previousConfig.GetServicesInRunOrder())
+                {
+                    previousEnabled[previousService.ServiceId.ToString()] = previousService.Enabled;
+                }
+            }
+
+            state.ScheduledPrefill = validated;
+
+            // Anchor first-run for each newly-enabled positive-interval service to save-time, so the next
+            // 1-minute poll sees lastRun = now (not null) and schedules it one interval out instead of
+            // running it immediately. Uses the SAME per-service key the poll loop and
+            // Get/SetScheduledPrefillServiceLastRun use (ServiceId.ToString()). Run Now stays instant.
+            var anchoredAt = DateTime.UtcNow;
+            foreach (var service in validated.GetServicesInRunOrder())
+            {
+                var key = service.ServiceId.ToString();
+                var hasExistingLastRun = state.ScheduledPrefillServiceLastRunUtc.ContainsKey(key);
+                var wasEnabledBefore = previousEnabled.TryGetValue(key, out var enabledBefore) && enabledBefore;
+
+                if (ScheduledPrefillRunGates.ShouldAnchorFirstRunOnSave(
+                        service.Enabled, service.IntervalHours, hasExistingLastRun, wasEnabledBefore))
+                {
+                    state.ScheduledPrefillServiceLastRunUtc[key] = anchoredAt;
+                }
+            }
+        });
     }
 
     // Scheduled Prefill Per-Service Last-Run Methods (durable, keyed by PrefillPlatform name)
     public DateTime? GetScheduledPrefillServiceLastRun(string platform)
     {
-        var lastRuns = GetState().ScheduledPrefillServiceLastRunUtc;
-        return lastRuns.TryGetValue(platform, out var value) ? value : null;
+        // Read under _lock: the backing dictionary is mutated by the save / reset / post-run stamp writers
+        // (all under _lock), so an unlocked TryGetValue on the poll thread can tear or throw
+        // InvalidOperationException if it races a concurrent resize. Match the write discipline.
+        lock (_lock)
+        {
+            return GetState().ScheduledPrefillServiceLastRunUtc.TryGetValue(platform, out var value)
+                ? value
+                : null;
+        }
     }
 
     public void SetScheduledPrefillServiceLastRun(string platform, DateTime lastRunUtc)
@@ -865,12 +928,50 @@ public class StateService : IStateService
         });
     }
 
+    /// <summary>
+    /// Clears every persisted per-service last-run timestamp and immediately re-anchors the currently
+    /// enabled, positive-interval services to now (the same initial-seed rule the load path applies via
+    /// <see cref="SeedInitialFirstRunAnchors"/>). A bare clear would leave those services with a null
+    /// last-run, which the next poll treats as never-run and instant-runs; reseeding returns the schedule
+    /// to a "wait one full interval" baseline. Clear-and-reseed happens in a single <see cref="UpdateState"/>
+    /// so the poll thread never observes the momentarily-empty map. Used by the Schedules reset-to-defaults path.
+    /// </summary>
     public void ClearScheduledPrefillServiceLastRun()
     {
         UpdateState(state =>
         {
             state.ScheduledPrefillServiceLastRunUtc.Clear();
+            SeedInitialFirstRunAnchors(state, DateTime.UtcNow);
         });
+    }
+
+    /// <summary>
+    /// Anchors the initial first-run for each enabled, positive-interval service that has no last-run key
+    /// yet, stamping it to <paramref name="nowUtc"/> so the next poll schedules it one interval out instead
+    /// of running it immediately. Only seeds MISSING keys via
+    /// <see cref="ScheduledPrefillRunGates.ShouldAnchorFirstRunOnLoad"/> — a genuine persisted last-run is
+    /// never clobbered, so a normal restart (whose last-run map already round-tripped) never shifts its
+    /// schedule. Shared by the load path and the reset path; the explicit-save path keeps its own
+    /// transition-aware anchor (<see cref="ScheduledPrefillRunGates.ShouldAnchorFirstRunOnSave"/>).
+    /// Returns true when it added at least one anchor, so the caller can persist the change.
+    /// </summary>
+    private static bool SeedInitialFirstRunAnchors(AppState state, DateTime nowUtc)
+    {
+        var seeded = false;
+        foreach (var service in state.ScheduledPrefill.GetServicesInRunOrder())
+        {
+            var key = service.ServiceId.ToString();
+            if (ScheduledPrefillRunGates.ShouldAnchorFirstRunOnLoad(
+                    service.Enabled,
+                    service.IntervalHours,
+                    state.ScheduledPrefillServiceLastRunUtc.ContainsKey(key)))
+            {
+                state.ScheduledPrefillServiceLastRunUtc[key] = nowUtc;
+                seeded = true;
+            }
+        }
+
+        return seeded;
     }
 
     // Depot Processing Methods

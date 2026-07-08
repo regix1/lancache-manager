@@ -2,6 +2,7 @@ using System.Reflection;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Base;
+using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
@@ -219,8 +220,10 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         }
 
         // Scheduled prefill keeps its cadence per-service in the config DTO + durable last-run map
-        // (not in ServiceIntervals), so clear the per-service last-run here too — otherwise a reset
-        // would leave stale next-run times on the schedule view.
+        // (not in ServiceIntervals). Clearing that map alone would make the next poll treat every enabled
+        // service as never-run and instant-run it, so ClearScheduledPrefillServiceLastRun also re-anchors
+        // the currently-enabled services to now — a reset returns to a "wait one full interval" baseline
+        // rather than leaving stale next-run times or triggering an immediate run.
         _stateService.ClearScheduledPrefillServiceLastRun();
     }
 
@@ -272,29 +275,106 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         };
     }
 
-    private static ServiceScheduleInfo MapConfigurableService(ConfigurableScheduledService service)
+    private ServiceScheduleInfo MapConfigurableService(ConfigurableScheduledService service)
     {
-        // A service like ScheduledPrefillService can implement IScheduleEnabledGate when its own
-        // ConfiguredInterval is a fixed outer poll cadence that never reflects whether any of its
-        // nested per-service configs are actually enabled. When nothing is enabled, report the
-        // schedule as paused (interval 0, no next-run) instead of that fixed cadence, reusing the
-        // same paused representation the frontend already renders for interval-0 services.
-        if (service is IScheduleEnabledGate gate && !gate.HasAnyServiceEnabled())
+        var key = GetServiceKey(service);
+
+        // A service like ScheduledPrefillService implements IScheduleEnabledGate because its own
+        // ConfiguredInterval is a fixed outer poll cadence (a 1-minute due-check) that re-stamps
+        // LastRun/NextRun every tick and never reflects the real per-service schedule. For such a service,
+        // derive the outer card's timing from the per-service reality instead of leaking the poll cadence.
+        if (service is IScheduleEnabledGate gate)
         {
+            // The outer card's timing is derived entirely from per-service reality, so scan the per-service
+            // configs ONCE up front and reuse the result in every branch below:
+            //   latestLastRun  = MAX per-service last-run over ALL services (the honest "Last run"). This must
+            //                    NEVER be service.LastRunUtc: the fixed 1-minute poll loop re-stamps that on
+            //                    every tick, even a no-op tick (ConfigurableScheduledService ExecuteAsync,
+            //                    ~:213), so an all-disabled card would otherwise read "Last run: just now"
+            //                    forever. Null when no service has ever run -> UI shows "Never run".
+            //   soonestNextRun = MIN per-service next-run over ENABLED recurring services (reusing
+            //                    ScheduledPrefillRunGates.ComputeNextRunUtc so the outer card and the
+            //                    per-service detail agree). Null when nothing enabled is recurring.
+            var config = _stateService.GetScheduledPrefillConfig();
+            DateTime? soonestNextRun = null;
+            DateTime? latestLastRun = null;
+
+            foreach (var perService in config.GetServicesInRunOrder())
+            {
+                var lastRun = _stateService.GetScheduledPrefillServiceLastRun(perService.ServiceId.ToString());
+                if (lastRun is not null && (latestLastRun is null || lastRun.Value > latestLastRun.Value))
+                {
+                    latestLastRun = lastRun;
+                }
+
+                if (!perService.Enabled)
+                {
+                    continue;
+                }
+
+                var nextRun = ScheduledPrefillRunGates.ComputeNextRunUtc(perService.IntervalHours, lastRun);
+                if (nextRun is not null && (soonestNextRun is null || nextRun.Value < soonestNextRun.Value))
+                {
+                    soonestNextRun = nextRun;
+                }
+            }
+
+            // Nothing enabled: report paused (interval 0, no next-run) — the same representation the frontend
+            // already renders for any interval-0 service (dimmed card, "Disabled" label, disabled Run Now).
+            // LastRunUtc is the per-service MAX (null if nothing ever ran), never the poll stamp.
+            if (!gate.HasAnyServiceEnabled())
+            {
+                return new ServiceScheduleInfo
+                {
+                    Key = key,
+                    IntervalHours = 0,
+                    RunOnStartup = service.RunOnStartup,
+                    IsRunning = service.IsCurrentlyExecuting,
+                    LastRunUtc = latestLastRun,
+                    NextRunUtc = null,
+                };
+            }
+
+            // Enabled, but no enabled service has a recurring next-run (every enabled one is startup-only -1
+            // or paused 0, so ComputeNextRunUtc returned null for all). Report IntervalHours = -1, NOT 0:
+            // interval 0 both dims the card AND disables Run Now (SchedulesSection.tsx: isDimmed :190,
+            // Run Now disabled={isDisabled || isDimmed} :313) — but a service IS enabled here, so the user
+            // must still be able to Run Now. -1 is the only value that keeps Run Now enabled without inventing
+            // a countdown: CountdownDisplay short-circuits -1 to the "Startup only" label (:48-53) before the
+            // countdown block, so a null NextRunUtc never renders a fake "Soon" (a positive interval would,
+            // since useCountdownTimer(null) => 0 => "soon"). -1 is exactly truthful for the common
+            // all-startup-only case; for a mixed startup-only/paused set it slightly over-states "startup
+            // only", but that is the least-wrong of the three renderings the frontend offers (0 kills Run Now,
+            // positive fabricates a countdown). NextRunUtc stays null — there is genuinely no scheduled run.
+            if (soonestNextRun is null)
+            {
+                return new ServiceScheduleInfo
+                {
+                    Key = key,
+                    IntervalHours = -1d,
+                    RunOnStartup = service.RunOnStartup,
+                    IsRunning = service.IsCurrentlyExecuting,
+                    LastRunUtc = latestLastRun,
+                    NextRunUtc = null,
+                };
+            }
+
+            // Enabled with a real recurring next-run: surface the soonest per-service next-run and the most
+            // recent per-service last-run instead of the outer poll cadence.
             return new ServiceScheduleInfo
             {
-                Key = GetServiceKey(service),
-                IntervalHours = 0,
+                Key = key,
+                IntervalHours = service.ConfiguredInterval.TotalHours,
                 RunOnStartup = service.RunOnStartup,
                 IsRunning = service.IsCurrentlyExecuting,
-                LastRunUtc = service.LastRunUtc,
-                NextRunUtc = null,
+                LastRunUtc = latestLastRun,
+                NextRunUtc = soonestNextRun,
             };
         }
 
         return new ServiceScheduleInfo
         {
-            Key = GetServiceKey(service),
+            Key = key,
             IntervalHours = service.ConfiguredInterval.TotalHours,
             RunOnStartup = service.RunOnStartup,
             IsRunning = service.IsCurrentlyExecuting,

@@ -278,6 +278,68 @@ public class ScheduledPrefillRunGatesTests
         Assert.Null(ScheduledPrefillRunGates.ComputeNextRunUtc(-1d, lastRunUtc: DateTime.UtcNow)); // startup-only
     }
 
+    // ---- First-run anchoring on save (ShouldAnchorFirstRunOnSave) ----
+    // The reported bug: saving a config never anchored a per-service last-run, so IsServiceDue saw a
+    // null last-run for a positive interval and ran the service on the very next 1-minute poll. The
+    // save path now anchors last-run = save-time for the services this predicate selects.
+
+    [Theory]
+    [InlineData(true, 48d, false, false, true)]   // first-ever save of an enabled service
+    [InlineData(true, 48d, false, true, true)]    // enabled but never anchored yet (defensive)
+    [InlineData(true, 48d, true, false, true)]    // re-enable after a disable -> re-anchor from now
+    [InlineData(true, 48d, true, true, false)]    // already enabled + has a real run -> don't clobber
+    [InlineData(true, 0d, false, false, false)]   // paused (0) is never anchored
+    [InlineData(true, -1d, false, false, false)]  // startup-only (-1) is never anchored
+    [InlineData(false, 48d, false, false, false)] // disabled service is never anchored
+    public void ShouldAnchorFirstRunOnSave_MatchesTruthTable(
+        bool enabled,
+        double intervalHours,
+        bool hasExistingLastRun,
+        bool wasEnabledBefore,
+        bool expected)
+    {
+        var shouldAnchor = ScheduledPrefillRunGates.ShouldAnchorFirstRunOnSave(
+            enabled, intervalHours, hasExistingLastRun, wasEnabledBefore);
+
+        Assert.Equal(expected, shouldAnchor);
+    }
+
+    [Fact]
+    public void IsServiceDue_AnchoredOnSave_IsNotDueUntilOneIntervalLater()
+    {
+        // After the save-time anchor (last-run = save time) a freshly-enabled 48h service must NOT be
+        // due on the next poll; it becomes due exactly one interval later. Contrast with
+        // IsServiceDue_NeverRunRecurring_IsDue above, which is the un-anchored (buggy) instant-run path.
+        var savedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        Assert.False(ScheduledPrefillRunGates.IsServiceDue(48d, savedAt, savedAt.AddMinutes(1), hasRunThisProcess: false));
+        Assert.True(ScheduledPrefillRunGates.IsServiceDue(48d, savedAt, savedAt.AddHours(48), hasRunThisProcess: false));
+    }
+
+    // ---- First-run anchoring on the non-save paths (ShouldAnchorFirstRunOnLoad) ----
+    // Default config / v1->v2 migration / post-reset / load all reach IsServiceDue with a null last-run
+    // too, so they need anchoring as well — but ONLY for services with no existing last-run key. The
+    // (true, 24, true) => false row is the restart-no-shift invariant: a persisted+reloaded key must never
+    // be re-anchored, or every restart would push the schedule out one interval.
+
+    [Theory]
+    [InlineData(true, 24d, false, true)]    // enabled, recurring, no key -> seed (default / migrated / reset / fresh)
+    [InlineData(true, 24d, true, false)]    // enabled, recurring, key ALREADY present -> NOT re-seeded (restart-no-shift)
+    [InlineData(true, 0d, false, false)]    // paused (0) is never anchored
+    [InlineData(true, -1d, false, false)]   // startup-only (-1) is never anchored
+    [InlineData(false, 24d, false, false)]  // disabled service is never anchored
+    public void ShouldAnchorFirstRunOnLoad_MatchesInitialSeedTruthTable(
+        bool enabled,
+        double intervalHours,
+        bool hasExistingLastRun,
+        bool expected)
+    {
+        var shouldAnchor = ScheduledPrefillRunGates.ShouldAnchorFirstRunOnLoad(
+            enabled, intervalHours, hasExistingLastRun);
+
+        Assert.Equal(expected, shouldAnchor);
+    }
+
     private static DaemonSession MakeSession(
         Guid userId,
         bool isPersistent,

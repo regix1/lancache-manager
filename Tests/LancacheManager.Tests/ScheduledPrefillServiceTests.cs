@@ -1,10 +1,15 @@
 using System.Reflection;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
+using LancacheManager.Security;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
 
@@ -50,6 +55,235 @@ public class ScheduledPrefillServiceTests
 
         Assert.False(outcome.Success);
         Assert.Equal("All enabled services were skipped", outcome.Error);
+    }
+
+    // ---- Criteria 3/4: saving a config anchors first-run so the next poll is NOT instant ----
+    // The reported bug end-to-end: SetScheduledPrefillConfig persisted the DTO but never wrote a
+    // per-service last-run, so the next 1-minute poll saw null and ran the service immediately. This
+    // exercises the REAL StateService save path over a throwaway temp state dir and asserts the anchor
+    // is now written for the enabled service, that disabled services stay un-anchored, that the anchored
+    // service is not due on the next poll, and that its next-run is ~now+interval instead of "soon".
+    // Fails before the fix (GetScheduledPrefillServiceLastRun returns null -> Assert.NotNull throws).
+
+    [Fact]
+    public void SetScheduledPrefillConfig_AnchorsFirstRunForEnabledService_NotDueOnNextPoll()
+    {
+        using var context = new TempStateServiceContext();
+        var stateService = context.StateService;
+
+        var config = BuildConfig(steamEnabled: true, steamIntervalHours: 48d);
+
+        var beforeSave = DateTime.UtcNow;
+        stateService.SetScheduledPrefillConfig(config);
+        var afterSave = DateTime.UtcNow;
+
+        // Steam (enabled, 48h) is anchored to save-time...
+        var steamLastRun = stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Steam.ToString());
+        Assert.NotNull(steamLastRun);
+        Assert.InRange(steamLastRun!.Value, beforeSave, afterSave);
+
+        // ...while the disabled services are left un-anchored (null), so nothing runs for them either.
+        Assert.Null(stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Epic.ToString()));
+        Assert.Null(stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.BattleNet.ToString()));
+
+        // The next poll must NOT treat Steam as due (the bug: it used to be due immediately at null).
+        Assert.False(ScheduledPrefillRunGates.IsServiceDue(
+            48d, steamLastRun, DateTime.UtcNow, hasRunThisProcess: false));
+
+        // And the schedule view shows a concrete next-run one interval out (not null / "soon").
+        var nextRun = ScheduledPrefillRunGates.ComputeNextRunUtc(48d, steamLastRun);
+        Assert.NotNull(nextRun);
+        Assert.Equal(steamLastRun!.Value.AddHours(48d), nextRun!.Value);
+    }
+
+    // ---- Fix 2: load-path anchor seeds a MISSING key but never clobbers an EXISTING one ----
+    // The restart-no-shift invariant (the #1 regression risk): on a normal restart the last-run map is
+    // persisted and reloaded, so an enabled service already has a key and must keep its genuine last-run
+    // (re-anchoring it would push its schedule out one interval every restart). A service enabled but
+    // never anchored (e.g. persisted by a pre-anchor build) has no key and must be seeded to ~now so it
+    // waits one interval instead of instant-running on the next poll.
+
+    [Fact]
+    public void GetState_OnLoad_SeedsMissingAnchor_ButPreservesExistingLastRun()
+    {
+        using var context = new TempStateServiceContext();
+        var stateService = context.StateService;
+
+        // Steam enabled (48h) WITH a genuine past last-run (key present); BattleNet enabled (24h) with NO
+        // last-run key yet. Persist it, then drop the in-memory cache to force a real load from disk.
+        var steamPastRun = DateTime.UtcNow.AddHours(-10d);
+        var persistedState = new AppState
+        {
+            ScheduledPrefill = BuildConfig(
+                steamEnabled: true, steamIntervalHours: 48d,
+                battleNetEnabled: true, battleNetIntervalHours: 24d),
+            ScheduledPrefillServiceLastRunUtc = new Dictionary<string, DateTime>
+            {
+                [PrefillPlatform.Steam.ToString()] = steamPastRun
+            }
+        };
+
+        SetCachedState(stateService, persistedState);
+        stateService.SaveState(persistedState);
+        SetCachedState(stateService, null);
+
+        var beforeLoad = DateTime.UtcNow;
+        stateService.GetState(); // triggers FromPersisted + the in-memory normalize/seed on load
+        var afterLoad = DateTime.UtcNow;
+
+        // Steam already had a key -> a restart must NOT re-anchor it (restart-no-shift invariant).
+        var steamLastRun = stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Steam.ToString());
+        Assert.NotNull(steamLastRun);
+        Assert.True(
+            Math.Abs((steamLastRun!.Value - steamPastRun).TotalSeconds) < 1d,
+            "Steam's persisted last-run must be preserved across a restart, not reseeded to now.");
+
+        // BattleNet had no key -> load seeds it to ~now so it waits one interval instead of instant-running.
+        var battleNetLastRun = stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.BattleNet.ToString());
+        Assert.NotNull(battleNetLastRun);
+        Assert.InRange(battleNetLastRun!.Value, beforeLoad.AddSeconds(-1), afterLoad.AddSeconds(1));
+
+        // Disabled services stay un-anchored.
+        Assert.Null(stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Epic.ToString()));
+    }
+
+    // ---- Fix 2: reset (clear) reseeds the still-enabled services so the next poll is not due ----
+    // ResetToDefaults clears the per-service last-run map; a bare clear would make every enabled service
+    // look never-run and instant-run on the next poll. The clear now reseeds enabled positive-interval
+    // services to ~now. Fails before the fix (Steam last-run is null after clear); passes after.
+
+    [Fact]
+    public void ClearScheduledPrefillServiceLastRun_ReseedsEnabledServices_NotDueOnNextPoll()
+    {
+        using var context = new TempStateServiceContext();
+        var stateService = context.StateService;
+
+        stateService.SetScheduledPrefillConfig(BuildConfig(steamEnabled: true, steamIntervalHours: 48d));
+        Assert.NotNull(stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Steam.ToString()));
+
+        var beforeReset = DateTime.UtcNow;
+        stateService.ClearScheduledPrefillServiceLastRun();
+        var afterReset = DateTime.UtcNow;
+
+        var steamLastRun = stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Steam.ToString());
+        Assert.NotNull(steamLastRun);
+        Assert.InRange(steamLastRun!.Value, beforeReset.AddSeconds(-1), afterReset.AddSeconds(1));
+        Assert.False(ScheduledPrefillRunGates.IsServiceDue(
+            48d, steamLastRun, DateTime.UtcNow, hasRunThisProcess: false));
+
+        // Disabled services are not reseeded.
+        Assert.Null(stateService.GetScheduledPrefillServiceLastRun(PrefillPlatform.Epic.ToString()));
+    }
+
+    // Overwrites StateService's private _cachedState so a test can stage a persisted state (then null the
+    // cache to force a real disk load). Mirrors the reflection the context uses to seed an empty state.
+    private static void SetCachedState(StateService stateService, AppState? state)
+    {
+        var field = typeof(StateService).GetField(
+            "_cachedState", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        field.SetValue(stateService, state);
+    }
+
+    // Starts from a known-valid default so every non-Steam service stays valid through
+    // ScheduledPrefillConfigFactory.Validate, then flips Steam to (enabled, interval) and disables the
+    // rest so the anchor under test is isolated to a single service.
+    private static ScheduledPrefillConfigDto BuildConfig(
+        bool steamEnabled,
+        double steamIntervalHours,
+        bool battleNetEnabled = false,
+        double battleNetIntervalHours = ScheduledPrefillConfigFactory.DefaultIntervalHours)
+    {
+        var template = ScheduledPrefillConfigFactory.CreateDefault();
+        return new ScheduledPrefillConfigDto
+        {
+            Version = template.Version,
+            MaxServiceRuntime = template.MaxServiceRuntime,
+            StallTimeout = template.StallTimeout,
+            Steam = Reconfigure(template.Steam, steamEnabled, steamIntervalHours),
+            Epic = Reconfigure(template.Epic, enabled: false, template.Epic.IntervalHours),
+            Xbox = Reconfigure(template.Xbox, enabled: false, template.Xbox.IntervalHours),
+            BattleNet = Reconfigure(template.BattleNet, battleNetEnabled, battleNetIntervalHours),
+            Riot = Reconfigure(template.Riot, enabled: false, template.Riot.IntervalHours)
+        };
+    }
+
+    private static ScheduledPrefillServiceConfigDto Reconfigure(
+        ScheduledPrefillServiceConfigDto template, bool enabled, double intervalHours)
+        => new ScheduledPrefillServiceConfigDto
+        {
+            ServiceId = template.ServiceId,
+            Enabled = enabled,
+            IntervalHours = intervalHours,
+            Preset = template.Preset,
+            TopCount = template.TopCount,
+            SelectedAppIds = template.SelectedAppIds,
+            OperatingSystems = template.OperatingSystems,
+            Force = template.Force,
+            MaxConcurrency = template.MaxConcurrency
+        };
+
+    // Builds a REAL StateService rooted at a throwaway temp directory. The encryption / steam-auth deps
+    // are constructed for real but never exercised (no SteamAuth is set, so Encrypt short-circuits and
+    // no key material is needed); the in-memory state starts empty so the save path runs only the
+    // anchor logic and never touches the disk-migration / steam-auth machinery.
+    private sealed class TempStateServiceContext : IDisposable
+    {
+        private readonly string _root;
+
+        public StateService StateService { get; }
+
+        public TempStateServiceContext()
+        {
+            _root = Path.Combine(Path.GetTempPath(), "lcm-scheduled-prefill-tests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(_root);
+
+            var pathResolver = new TempDirPathResolver(_root);
+            var configuration = new ConfigurationBuilder().Build();
+            var apiKeyService = new ApiKeyService(NullLogger<ApiKeyService>.Instance, configuration, pathResolver);
+            var dataProtection = DataProtectionProvider.Create(new DirectoryInfo(Path.Combine(_root, "dp-keys")));
+            var encryption = new SecureStateEncryptionService(
+                dataProtection, apiKeyService, NullLogger<SecureStateEncryptionService>.Instance);
+            var steamAuthStorage = new SteamAuthStorageService(
+                NullLogger<SteamAuthStorageService>.Instance, pathResolver, encryption);
+
+            StateService = new StateService(
+                NullLogger<StateService>.Instance, pathResolver, encryption, steamAuthStorage);
+
+            // Seed an empty in-memory state so GetState() short-circuits on the cache and the save path
+            // never runs the legacy-file migration - this isolates the test to the anchor behaviour.
+            var cachedStateField = typeof(StateService).GetField(
+                "_cachedState", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            cachedStateField.SetValue(StateService, new AppState());
+        }
+
+        public void Dispose()
+        {
+            try
+            {
+                Directory.Delete(_root, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Best-effort cleanup of the throwaway temp dir; a locked file must not fail the test.
+            }
+        }
+    }
+
+    private sealed class TempDirPathResolver : PathResolverBase
+    {
+        private readonly string _basePath;
+
+        public TempDirPathResolver(string basePath) : base(NullLogger.Instance)
+        {
+            _basePath = basePath;
+        }
+
+        protected override string BasePath => _basePath;
+        protected override string RustExecutableExtension => string.Empty;
+
+        public override string ResolvePath(string relativePath) => relativePath;
+        public override string NormalizePath(string path) => path;
+        public override bool IsDockerSocketAvailable() => false;
     }
 
     // ---- Criterion 3: DI-boot smoke test for the auth-orchestrator rip-out ----

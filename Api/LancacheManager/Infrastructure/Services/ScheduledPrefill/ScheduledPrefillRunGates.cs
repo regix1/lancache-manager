@@ -126,6 +126,32 @@ public static class ScheduledPrefillRunGates
     }
 
     /// <summary>
+    /// Decides whether saving a config should anchor a service's first scheduled run to save-time
+    /// (by stamping its last-run = now), so it fires one full interval later instead of on the very
+    /// next poll — where <see cref="IsServiceDue"/> treats a never-run positive-interval service as
+    /// due immediately. Anchors on the first-ever save AND on a disabled-&gt;enabled transition; never
+    /// re-anchors a service that was already enabled, so a genuine past run is preserved and an
+    /// interval change recomputes from the real last-run. Paused (<c>0</c>) and startup-only
+    /// (<c>-1</c>) services are never anchored. The manual "Run Now" path stays the only instant run.
+    /// </summary>
+    public static bool ShouldAnchorFirstRunOnSave(bool enabled, double intervalHours, bool hasExistingLastRun, bool wasEnabledBefore)
+        => enabled && intervalHours > 0d && (!hasExistingLastRun || !wasEnabledBefore);
+
+    /// <summary>
+    /// Initial-seed rule for the non-save paths that also reach <see cref="IsServiceDue"/> with a null
+    /// last-run — the default config, a v1-&gt;v2 migration, a post-reset clear, and load. Anchors an
+    /// enabled positive-interval service to now ONLY when it has no existing last-run key, so those paths
+    /// wait one full interval instead of instant-running on the next poll. Because it requires
+    /// <c>!hasExistingLastRun</c>, a normal restart (whose last-run map is persisted and reloaded, so every
+    /// enabled service already has a key) is never re-anchored and its schedule never shifts. Unlike
+    /// <see cref="ShouldAnchorFirstRunOnSave"/> there is deliberately NO disabled-&gt;enabled re-anchor here
+    /// (that transition only exists for an explicit save): with a key already present this must return
+    /// false. Paused (<c>0</c>) and startup-only (<c>-1</c>) services are never anchored.
+    /// </summary>
+    public static bool ShouldAnchorFirstRunOnLoad(bool enabled, double intervalHours, bool hasExistingLastRun)
+        => enabled && intervalHours > 0d && !hasExistingLastRun;
+
+    /// <summary>
     /// Computes the overall outcome of a completed scheduled-prefill pass. The run is only reported
     /// successful when at least one service actually engaged its persistent container AND no service
     /// threw, skipped, or failed to engage. This stops a partial failure (one service erroring or
