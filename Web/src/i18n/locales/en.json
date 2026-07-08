@@ -1686,8 +1686,6 @@
         "evictionScanStarted": "Eviction scan started",
         "evictionScanError": "Failed to start eviction scan",
         "evictionScanWaiting": "Waiting for eviction scan to finish...",
-        "evictionScanNotifications": "Show scheduled scan notifications",
-        "evictionScanNotificationsDescription": "Notifications are always shown for manual scans. Enable this to also show them for the automatic scan on startup and the recurring 6-hour scan.",
         "pruneOrphanedDownloads": "Prune orphaned downloads during scans",
         "pruneOrphanedDownloadsDescription": "Deletes download records that no longer have any log entries backing them. The scan cannot verify these against the cache, so they stay in statistics forever. Note: clearing a service's logs also orphans its genuine download history, so leave this off if you want to keep stats for cleared services.",
         "resetEvictions": "Reset Evictions",
@@ -3405,7 +3403,9 @@
           "description": "Compares your cache directory against the database to see what is still on disk vs. what nginx has evicted. Keeps the 'evicted' badges in the UI accurate.",
           "gain": "Eviction badges and cache status in the UI are more accurate and up to date",
           "loss": "The UI may show stale eviction status - items marked as cached might actually be evicted, or vice versa",
-          "viewManagement": "View Eviction Settings"
+          "viewManagement": "View Eviction Settings",
+          "notificationsLabel": "Show scheduled scan notifications",
+          "notificationsHelp": "Notifications are always shown for manual scans. Enable this to also show them for the automatic scan on startup and the recurring scheduled scan."
         },
         "cacheSizeScan": {
           "displayName": "Cache File Scan",

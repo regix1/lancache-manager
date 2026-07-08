@@ -417,8 +417,10 @@ public class StatsController : ControllerBase
     [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> UpdateEvictionSettingsAsync([FromBody] UpdateEvictionSettingsRequest request)
     {
+        // EvictedDataMode is optional: the Schedules page saves only the toggles and
+        // must not touch (or have to know) the current display mode.
         var validModes = new[] { EvictedDataMode.Show.ToWireString(), EvictedDataMode.ShowClean.ToWireString(), EvictedDataMode.Hide.ToWireString(), EvictedDataMode.Remove.ToWireString() };
-        if (string.IsNullOrEmpty(request.EvictedDataMode) || !validModes.Contains(request.EvictedDataMode))
+        if (!string.IsNullOrEmpty(request.EvictedDataMode) && !validModes.Contains(request.EvictedDataMode))
         {
             return BadRequest(new
             {
@@ -427,7 +429,10 @@ public class StatsController : ControllerBase
             });
         }
 
-        _stateRepository.SetEvictedDataMode(request.EvictedDataMode);
+        if (!string.IsNullOrEmpty(request.EvictedDataMode))
+        {
+            _stateRepository.SetEvictedDataMode(request.EvictedDataMode);
+        }
         if (request.EvictionScanNotifications.HasValue)
         {
             _stateRepository.SetEvictionScanNotifications(request.EvictionScanNotifications.Value);
@@ -460,7 +465,7 @@ public class StatsController : ControllerBase
                     StartBulkRemovalAsync, HttpContext.RequestAborted);
                 return Accepted(new
                 {
-                    evictedDataMode = request.EvictedDataMode,
+                    evictedDataMode = _stateRepository.GetEvictedDataMode(),
                     evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(),
                     pruneOrphanedDownloads = _stateRepository.GetPruneOrphanedDownloads(),
                     operationId = (Guid?)queuedOutcome.OperationId,
@@ -470,10 +475,10 @@ public class StatsController : ControllerBase
 
             var operationId = await _reconciliationService.StartBulkEvictionRemovalAsync(HttpContext.RequestAborted);
 
-            return Accepted(new { evictedDataMode = request.EvictedDataMode, evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(), pruneOrphanedDownloads = _stateRepository.GetPruneOrphanedDownloads(), operationId });
+            return Accepted(new { evictedDataMode = _stateRepository.GetEvictedDataMode(), evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(), pruneOrphanedDownloads = _stateRepository.GetPruneOrphanedDownloads(), operationId });
         }
 
-        return Ok(new { evictedDataMode = request.EvictedDataMode, evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(), pruneOrphanedDownloads = _stateRepository.GetPruneOrphanedDownloads() });
+        return Ok(new { evictedDataMode = _stateRepository.GetEvictedDataMode(), evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(), pruneOrphanedDownloads = _stateRepository.GetPruneOrphanedDownloads() });
     }
 
     [HttpPost("eviction/reconcile")]

@@ -159,6 +159,8 @@ interface ScheduleCardProps {
   justCompleted: boolean;
   completedVariant: 'navigate' | 'subtle';
   onNavigateToEvictionSettings?: () => void;
+  evictionScanNotifications?: boolean;
+  onEvictionScanNotificationsChange?: (enabled: boolean) => Promise<void>;
 }
 
 const ScheduleCard = memo(function ScheduleCard({
@@ -173,7 +175,9 @@ const ScheduleCard = memo(function ScheduleCard({
   runningKey,
   justCompleted,
   completedVariant,
-  onNavigateToEvictionSettings
+  onNavigateToEvictionSettings,
+  evictionScanNotifications,
+  onEvictionScanNotificationsChange
 }: ScheduleCardProps) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -213,6 +217,13 @@ const ScheduleCard = memo(function ScheduleCard({
       onDepotScanModeChange(value);
     },
     [onDepotScanModeChange]
+  );
+
+  const handleEvictionScanNotificationsChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      void onEvictionScanNotificationsChange?.(e.target.checked);
+    },
+    [onEvictionScanNotificationsChange]
   );
 
   const handleToggleExpand = useCallback(() => {
@@ -361,6 +372,22 @@ const ScheduleCard = memo(function ScheduleCard({
             </div>
           )}
 
+          {/* Scheduled-scan notification toggle lives on this card (not the Storage
+          eviction settings) because it governs the scheduled runs configured here.
+          Saves immediately, like the other card toggles. */}
+          {isCacheReconciliation && onEvictionScanNotificationsChange && (
+            <div className="schedule-startup-row">
+              <Checkbox
+                id="eviction-scan-notifications"
+                checked={evictionScanNotifications ?? false}
+                disabled={isDisabled}
+                onChange={handleEvictionScanNotificationsChange}
+                title={t('management.schedules.services.cacheReconciliation.notificationsHelp')}
+                label={t('management.schedules.services.cacheReconciliation.notificationsLabel')}
+              />
+            </div>
+          )}
+
           {/* Expandable Gain/Loss */}
           {hasExpandableContent && (
             <div>
@@ -452,6 +479,32 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       setError(t('management.schedules.fetchError'));
     }
   }, [t]);
+
+  // Eviction scan notification toggle (rendered on the cacheReconciliation card).
+  // Saves immediately like the other card toggles; the mode argument is omitted so
+  // the display mode configured in Storage stays untouched.
+  const [evictionScanNotifications, setEvictionScanNotifications] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    ApiService.getEvictionSettings(controller.signal)
+      .then((response) => setEvictionScanNotifications(response.evictionScanNotifications))
+      .catch(() => {
+        /* leave default; the toggle corrects itself on the next successful save/load */
+      });
+    return () => controller.abort();
+  }, []);
+
+  const handleEvictionScanNotificationsChange = useCallback(async (enabled: boolean) => {
+    setEvictionScanNotifications(enabled);
+    try {
+      const response = await ApiService.updateEvictionSettings(undefined, enabled);
+      setEvictionScanNotifications(response.evictionScanNotifications);
+    } catch {
+      // Revert silently - the server rejected the change
+      setEvictionScanNotifications(!enabled);
+    }
+  }, []);
 
   // Initial load
   useEffect(() => {
@@ -766,6 +819,14 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
               completedVariant={completedKeys[service.key] ?? 'navigate'}
               onNavigateToEvictionSettings={
                 service.key === 'cacheReconciliation' ? onNavigateToEvictionSettings : undefined
+              }
+              evictionScanNotifications={
+                service.key === 'cacheReconciliation' ? evictionScanNotifications : undefined
+              }
+              onEvictionScanNotificationsChange={
+                service.key === 'cacheReconciliation'
+                  ? handleEvictionScanNotificationsChange
+                  : undefined
               }
             />
           </div>

@@ -111,8 +111,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // Eviction Settings State
   const [evictionMode, setEvictionMode] = useState<string>('show');
   const [savedEvictionMode, setSavedEvictionMode] = useState<string>('show');
-  const [evictionScanNotifications, setEvictionScanNotifications] = useState(false);
-  const [savedEvictionScanNotifications, setSavedEvictionScanNotifications] = useState(false);
   const [pruneOrphanedDownloads, setPruneOrphanedDownloads] = useState(false);
   const [savedPruneOrphanedDownloads, setSavedPruneOrphanedDownloads] = useState(false);
   const [evictionLoading, setEvictionLoading] = useState(false);
@@ -123,7 +121,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const [resettingEvictions, setResettingEvictions] = useState(false);
   const isEvictionDirty =
     evictionMode !== savedEvictionMode ||
-    evictionScanNotifications !== savedEvictionScanNotifications ||
     pruneOrphanedDownloads !== savedPruneOrphanedDownloads;
 
   const { notifications, addNotification, updateNotification, isAnyRemovalRunning } =
@@ -445,8 +442,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         const response = await ApiService.getEvictionSettings(signal);
         setEvictionMode(response.evictedDataMode);
         setSavedEvictionMode(response.evictedDataMode);
-        setEvictionScanNotifications(response.evictionScanNotifications);
-        setSavedEvictionScanNotifications(response.evictionScanNotifications);
         setPruneOrphanedDownloads(response.pruneOrphanedDownloads);
         setSavedPruneOrphanedDownloads(response.pruneOrphanedDownloads);
       } catch (err: unknown) {
@@ -470,13 +465,11 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     try {
       const response = await ApiService.updateEvictionSettings(
         evictionMode,
-        evictionScanNotifications,
+        undefined,
         pruneOrphanedDownloads
       );
       setEvictionMode(response.evictedDataMode);
       setSavedEvictionMode(response.evictedDataMode);
-      setEvictionScanNotifications(response.evictionScanNotifications);
-      setSavedEvictionScanNotifications(response.evictionScanNotifications);
       setPruneOrphanedDownloads(response.pruneOrphanedDownloads);
       setSavedPruneOrphanedDownloads(response.pruneOrphanedDownloads);
       const detail: EvictionSettingsChangedDetail = {
@@ -805,23 +798,12 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                           </div>
 
                           <div className="pt-4 border-t border-themed-primary">
-                            <Checkbox
-                              label={t('management.sections.data.pruneOrphanedDownloads')}
-                              checked={pruneOrphanedDownloads}
-                              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                                setPruneOrphanedDownloads(e.target.checked)
-                              }
-                            />
-                            <p className="text-xs text-themed-muted mt-2 ml-6">
-                              {t('management.sections.data.pruneOrphanedDownloadsDescription')}
-                            </p>
-
-                            <div className="flex flex-wrap items-center justify-between gap-2 mt-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
                               <Checkbox
-                                label={t('management.sections.data.evictionScanNotifications')}
-                                checked={evictionScanNotifications}
+                                label={t('management.sections.data.pruneOrphanedDownloads')}
+                                checked={pruneOrphanedDownloads}
                                 onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                                  setEvictionScanNotifications(e.target.checked)
+                                  setPruneOrphanedDownloads(e.target.checked)
                                 }
                               />
                               <Button
@@ -835,7 +817,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                             </div>
 
                             <p className="text-xs text-themed-muted mt-2 ml-6">
-                              {t('management.sections.data.evictionScanNotificationsDescription')}
+                              {t('management.sections.data.pruneOrphanedDownloadsDescription')}
                             </p>
                           </div>
                         </>

@@ -583,7 +583,7 @@ class ApiService {
   }
 
   static async updateEvictionSettings(
-    evictedDataMode: string,
+    evictedDataMode?: string,
     evictionScanNotifications?: boolean,
     pruneOrphanedDownloads?: boolean
   ): Promise<{
