@@ -5,6 +5,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { formatBytes, formatSpeed } from '@utils/formatters';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
+import { Tooltip } from '@components/ui/Tooltip';
 import BadgesRow from './BadgesRow';
 import type { GameSpeedInfo, ClientSpeedInfo } from '../../../types';
 
@@ -87,14 +88,14 @@ const ActiveDownloadsView: React.FC = () => {
                 <div className="download-info">
                   <div className="download-name-row">
                     <BadgesRow service={game.service} showDatasource={false} />
-                    <span
-                      className="download-name"
-                      title={
+                    <Tooltip
+                      content={
                         game.gameName || t('downloads.active.depotLabel', { depotId: game.depotId })
                       }
+                      className="download-name"
                     >
                       {game.gameName || t('downloads.active.depotLabel', { depotId: game.depotId })}
-                    </span>
+                    </Tooltip>
                   </div>
                   <div className="download-meta">
                     <span className="meta-item">{formatBytes(game.totalBytes)}</span>

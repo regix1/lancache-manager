@@ -26,6 +26,7 @@ import { XboxIcon } from '@components/ui/XboxIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
+import { Tooltip } from '@components/ui/Tooltip';
 import { GameImage } from '@components/common/GameImage';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
@@ -1119,10 +1120,15 @@ const GridCard: React.FC<GridCardProps> = ({
       ref={cardRef}
       className={`card-grid-item ${bannerOnly ? 'banner-only' : ''}${isEvicted ? ' opacity-60' : ''}`}
       onClick={() => onItemClick(group.id)}
-      title={bannerOnly ? group.name : undefined}
     >
       {/* Banner */}
-      <div className="card-grid-item-banner">{bannerContent}</div>
+      {bannerOnly ? (
+        <Tooltip content={group.name} className="card-grid-item-banner">
+          {bannerContent}
+        </Tooltip>
+      ) : (
+        <div className="card-grid-item-banner">{bannerContent}</div>
+      )}
 
       {/* Info */}
       {!bannerOnly && (
@@ -1136,9 +1142,9 @@ const GridCard: React.FC<GridCardProps> = ({
               isPartiallyEvicted={isPartiallyEvicted}
             />
           </div>
-          <div className="card-grid-item-name" title={group.name}>
+          <Tooltip content={group.name} className="card-grid-item-name">
             {group.name}
-          </div>
+          </Tooltip>
           <div className="card-grid-item-stats">
             <span className="font-semibold text-[var(--theme-text-primary)]">
               {formatBytes(group.totalBytes)}

@@ -571,25 +571,30 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                         {eventCount > 0 &&
                           settings.eventDisplayStyle === 'spanning' &&
                           (eventCount > 5 ? (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setExpandedDay(
-                                  expandedDay?.day === day &&
-                                    expandedDay?.weekIndex === week.weekIndex
-                                    ? null
-                                    : { day, weekIndex: week.weekIndex }
-                                );
-                              }}
-                              className="text-[10px] font-semibold px-1.5 rounded-full transition hover:scale-105"
-                              style={{
-                                backgroundColor: 'var(--theme-primary)',
-                                color: 'var(--theme-primary-text)'
-                              }}
-                              title={t('events.calendar.eventCountTooltip', { count: eventCount })}
+                            <Tooltip
+                              content={t('events.calendar.eventCountTooltip', {
+                                count: eventCount
+                              })}
                             >
-                              {eventCount}
-                            </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedDay(
+                                    expandedDay?.day === day &&
+                                      expandedDay?.weekIndex === week.weekIndex
+                                      ? null
+                                      : { day, weekIndex: week.weekIndex }
+                                  );
+                                }}
+                                className="text-[10px] font-semibold px-1.5 rounded-full transition hover:scale-105"
+                                style={{
+                                  backgroundColor: 'var(--theme-primary)',
+                                  color: 'var(--theme-primary-text)'
+                                }}
+                              >
+                                {eventCount}
+                              </button>
+                            </Tooltip>
                           ) : (
                             <span
                               className="text-[10px] font-medium px-1.5 rounded-full"
@@ -962,51 +967,55 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                             const intenseVar = colorVar.replace(')', '-intense)');
                             const isEnded = hasEventEnded(event);
                             return (
-                              <button
+                              <Tooltip
                                 key={event.id}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onEventClick(event);
-                                  setExpandedDay(null);
-                                }}
-                                className="w-full text-left px-3 py-2.5 text-xs font-medium truncate transition rounded-lg flex items-center gap-2"
-                                style={{
-                                  backgroundColor: isEnded ? subtleVar : mutedVar,
-                                  borderLeft: `3px solid ${isEnded ? emphasisVar : colorVar}`,
-                                  color: isEnded ? intenseVar : colorVar,
-                                  opacity: isEnded ? 0.8 : 1
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.transform = 'translateX(3px)';
-                                  e.currentTarget.style.backgroundColor = isEnded
-                                    ? subtleVar
-                                    : mutedVar;
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.transform = 'translateX(0)';
-                                  e.currentTarget.style.backgroundColor = isEnded
-                                    ? subtleVar
-                                    : mutedVar;
-                                }}
-                                title={
+                                content={
                                   isEnded
                                     ? t('events.calendar.eventEnded', { name: event.name })
                                     : event.name
                                 }
+                                className="w-full"
                               >
-                                <span
-                                  className="w-2 h-2 rounded-full flex-shrink-0"
-                                  style={{ backgroundColor: colorVar }}
-                                />
-                                <span className="truncate">
-                                  {hasEventEnded(event) && (
-                                    <span style={{ opacity: 0.7, marginRight: '4px' }}>
-                                      (Ended)
-                                    </span>
-                                  )}
-                                  {event.name}
-                                </span>
-                              </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onEventClick(event);
+                                    setExpandedDay(null);
+                                  }}
+                                  className="w-full text-left px-3 py-2.5 text-xs font-medium truncate transition rounded-lg flex items-center gap-2"
+                                  style={{
+                                    backgroundColor: isEnded ? subtleVar : mutedVar,
+                                    borderLeft: `3px solid ${isEnded ? emphasisVar : colorVar}`,
+                                    color: isEnded ? intenseVar : colorVar,
+                                    opacity: isEnded ? 0.8 : 1
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.transform = 'translateX(3px)';
+                                    e.currentTarget.style.backgroundColor = isEnded
+                                      ? subtleVar
+                                      : mutedVar;
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.transform = 'translateX(0)';
+                                    e.currentTarget.style.backgroundColor = isEnded
+                                      ? subtleVar
+                                      : mutedVar;
+                                  }}
+                                >
+                                  <span
+                                    className="w-2 h-2 rounded-full flex-shrink-0"
+                                    style={{ backgroundColor: colorVar }}
+                                  />
+                                  <span className="truncate">
+                                    {hasEventEnded(event) && (
+                                      <span style={{ opacity: 0.7, marginRight: '4px' }}>
+                                        (Ended)
+                                      </span>
+                                    )}
+                                    {event.name}
+                                  </span>
+                                </button>
+                              </Tooltip>
                             );
                           })}
                         </div>

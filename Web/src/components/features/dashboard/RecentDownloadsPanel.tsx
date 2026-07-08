@@ -9,6 +9,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { useClientGroups } from '@contexts/useClientGroups';
@@ -251,7 +252,8 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
           ) : null}
           <span className="time-value">{formattedTime}</span>
         </div>
-        <div
+        <Tooltip
+          content={hitTooltip}
           className={`hit-badge ${
             display.cacheHitPercent >= 75
               ? 'high'
@@ -261,10 +263,9 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
                   ? 'low'
                   : 'critical'
           }`}
-          title={hitTooltip}
         >
           {formatPercent(display.cacheHitPercent)} {t('dashboard.downloadsPanel.hitLabel')}
-        </div>
+        </Tooltip>
       </div>
     </div>
   );

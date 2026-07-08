@@ -187,12 +187,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
       {show &&
         !tooltipsDisabled &&
         strategy === 'overlay' &&
-        createPortal(
-          <div className="tooltip-overlay" style={{ left: x + 10, top: y + 10 }}>
-            {content}
-          </div>,
-          document.body
-        )}
+        createPortal(<OverlayTooltip x={x} y={y} content={content} />, document.body)}
 
       {show &&
         !tooltipsDisabled &&
@@ -209,6 +204,67 @@ export const Tooltip: React.FC<TooltipProps> = ({
           document.body
         )}
     </>
+  );
+};
+
+// Cursor/tap-anchored tooltips for the 'overlay' strategy. Positioned relative to the
+// pointer, then flipped/clamped to the viewport so they don't run off-screen near
+// edges (a raw x+10/y+10 offset with no clamping was the cause of tooltips and
+// popovers being cut off near the right/bottom edge, especially on mobile taps).
+const OverlayTooltip: React.FC<{
+  x: number;
+  y: number;
+  content: React.ReactNode;
+}> = ({ x, y, content }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [isReady, setIsReady] = useState(false);
+
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+
+    const rect = ref.current.getBoundingClientRect();
+    const viewportPadding = 12;
+    const offset = 10;
+
+    let left = x + offset;
+    let top = y + offset;
+
+    // Flip to the other side of the cursor if the default placement would overflow
+    if (left + rect.width > window.innerWidth - viewportPadding) {
+      left = x - rect.width - offset;
+    }
+    if (top + rect.height > window.innerHeight - viewportPadding) {
+      top = y - rect.height - offset;
+    }
+
+    // Final clamp in case flipping still doesn't fit (e.g. near a corner)
+    left = Math.max(
+      viewportPadding,
+      Math.min(left, window.innerWidth - rect.width - viewportPadding)
+    );
+    top = Math.max(
+      viewportPadding,
+      Math.min(top, window.innerHeight - rect.height - viewportPadding)
+    );
+
+    setPos({ x: left, y: top });
+    setIsReady(true);
+  }, [x, y]);
+
+  return (
+    <div
+      ref={ref}
+      className="tooltip-overlay"
+      style={{
+        left: pos?.x ?? x + 10,
+        top: pos?.y ?? y + 10,
+        opacity: isReady ? 1 : 0,
+        transition: 'none'
+      }}
+    >
+      {content}
+    </div>
   );
 };
 
