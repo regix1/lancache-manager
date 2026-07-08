@@ -132,9 +132,20 @@ public sealed class StatusCheckService : IStatusCheckService
         var location = await _serverLocator.LocateAsync(cancellationToken);
         var (resolverSource, dnsServer, dnsClient) = await ResolveDnsTargetAsync(location, cancellationToken);
 
+        // The upstream HTTPS-redirect probe only runs for curated cache-domains entries. An
+        // arbitrary user-typed hostname must never be probed upstream, or this endpoint becomes
+        // a generic server-side request proxy.
+        var domains = await _domainsService.GetDomainsAsync(forceRefresh: false, cancellationToken);
+        var probeRedirect = IsKnownCacheDomain(domain, domains);
+        (LookupClient? Client, string? Server) upstream = probeRedirect
+            ? await CreateUpstreamDnsClientAsync(cancellationToken)
+            : (null, null);
+
         // Ad hoc tests aren't tied to a known service; the frontend already knows which service the
         // user picked from the dropdown (if any) and can render that context itself.
-        var result = await ResolveDomainAsync(domain, string.Empty, location.CacheIps, dnsClient, cancellationToken);
+        var result = await ResolveDomainAsync(
+            domain, string.Empty, location.CacheIps, dnsClient,
+            upstream.Client, probeRedirect, cancellationToken);
 
         // Heartbeat only makes sense against a LAN cache; probing whatever public IP an arbitrary
         // hostname resolves to would make this endpoint a server-side request proxy (SSRF surface),
@@ -171,6 +182,21 @@ public sealed class StatusCheckService : IStatusCheckService
             var domains = await _domainsService.GetDomainsAsync(forceRefresh: false, token);
             var location = await _serverLocator.LocateAsync(token);
             var (resolverSource, dnsServer, dnsClient) = await ResolveDnsTargetAsync(location, token);
+
+            // The HTTPS-redirect check needs each domain's REAL public address, which only the
+            // upstream resolver knows (the lancache DNS answers with the cache). No configured
+            // upstream resolver = the check honestly reports unknown; there is deliberately no
+            // hardcoded public-resolver fallback.
+            var (upstreamDnsClient, upstreamDnsServer) = await CreateUpstreamDnsClientAsync(token);
+            if (upstreamDnsClient == null)
+            {
+                _logger.LogInformation(
+                    "Status Check: no UPSTREAM_DNS resolver could be determined - the HTTPS-redirect check will report unknown for this sweep");
+            }
+            else
+            {
+                _logger.LogDebug("Status Check: HTTPS-redirect probes will resolve upstream addresses via {UpstreamDns}", upstreamDnsServer);
+            }
 
             // Contract amendment v1.1: DISABLE_<SERVICE>=true (uppercased cache_domains name) in
             // lancache-dns means the service is intentionally not cached - never query its domains,
@@ -222,7 +248,9 @@ public sealed class StatusCheckService : IStatusCheckService
                     await semaphore.WaitAsync(token);
                     try
                     {
-                        var result = await ResolveDomainAsync(originalEntry, service.Name, location.CacheIps, dnsClient, token, verifiedIps);
+                        var result = await ResolveDomainAsync(
+                            originalEntry, service.Name, location.CacheIps, dnsClient,
+                            upstreamDnsClient, probeUpstreamRedirect: true, token, verifiedIps);
                         if (result.ResolvedIps.Count == 0)
                         {
                             var reason = result.Error ?? "No A records returned";
@@ -430,6 +458,8 @@ public sealed class StatusCheckService : IStatusCheckService
         string serviceName,
         List<string> expectedIps,
         LookupClient? dnsClient,
+        LookupClient? upstreamDnsClient,
+        bool probeUpstreamRedirect,
         CancellationToken ct,
         ConcurrentDictionary<string, string>? verifiedIpSink = null)
     {
@@ -499,7 +529,6 @@ public sealed class StatusCheckService : IStatusCheckService
         // surface; public answers classify directly via the verdict table instead.
         var heartbeatVerified = false;
         string? servedBy = null;
-        string? verifyingIp = null;
         foreach (var ip in resolvedIps.Where(LancacheServerLocator.IsPrivateIp).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             var probe = await _heartbeatCache.GetAsync(ip, ct);
@@ -507,7 +536,6 @@ public sealed class StatusCheckService : IStatusCheckService
             {
                 heartbeatVerified = true;
                 servedBy = probe.ServedBy;
-                verifyingIp = ip;
                 if (verifiedIpSink != null && !string.IsNullOrWhiteSpace(probe.ServedBy))
                 {
                     verifiedIpSink.TryAdd(ip, probe.ServedBy);
@@ -516,18 +544,17 @@ public sealed class StatusCheckService : IStatusCheckService
             }
         }
 
-        // An upstream that answers plain HTTP with a redirect to https:// is relayed through the
-        // cache to the client, which then downloads over TLS and bypasses the cache entirely -
-        // DNS can be perfect and the service still caches nothing. Probe it through the verified
-        // cache IP exactly like a client request would travel. Only meaningful for domains that
-        // actually route through the cache; everything else stays null (not checked).
+        // An upstream that answers plain HTTP with a redirect to https:// bounces game clients
+        // around the cache entirely - DNS can be perfect and the service still caches nothing.
+        // Asked of the REAL upstream (resolved via UPSTREAM_DNS), never through the cache: a
+        // through-cache probe writes synthetic lines into access.log and manufactures phantom
+        // downloads in every tool that reads that file. Only meaningful for domains that route
+        // through the cache; everything else stays null (not checked).
         bool? httpsRedirect = null;
         string? httpsRedirectLocation = null;
-        if (verifyingIp != null)
+        if (heartbeatVerified && probeUpstreamRedirect && upstreamDnsClient != null)
         {
-            var redirectProbe = await _serverLocator.ProbeHttpsRedirectAsync(verifyingIp, queryDomain, ct);
-            httpsRedirect = redirectProbe.Redirected;
-            httpsRedirectLocation = redirectProbe.Location;
+            (httpsRedirect, httpsRedirectLocation) = await ProbeUpstreamHttpsRedirectAsync(queryDomain, upstreamDnsClient, ct);
         }
 
         return new DomainCheckResult
@@ -545,6 +572,97 @@ public sealed class StatusCheckService : IStatusCheckService
             HttpsRedirect = httpsRedirect,
             HttpsRedirectLocation = httpsRedirectLocation
         };
+    }
+
+    /// <summary>Builds a resolver pointed at the lancache host's <c>UPSTREAM_DNS</c> (the resolver
+    /// lancache itself forwards cache misses through), read via the tiered environment source
+    /// (docker-inspect -> .env file). Used to learn a domain's REAL public address for the
+    /// HTTPS-redirect probe without asking the poisoned lancache DNS, whose answer is the cache.
+    /// Null when nothing is configured - never a hardcoded public resolver.</summary>
+    private async Task<(LookupClient? Client, string? Server)> CreateUpstreamDnsClientAsync(CancellationToken ct)
+    {
+        var envResult = await _environmentSource.GetValueAsync("UPSTREAM_DNS", ct);
+        if (string.IsNullOrWhiteSpace(envResult.Value))
+        {
+            return (null, null);
+        }
+
+        foreach (var entry in LancacheServerLocator.SplitAddressList(envResult.Value))
+        {
+            if (IPAddress.TryParse(entry, out var address))
+            {
+                var options = new LookupClientOptions(address)
+                {
+                    Timeout = TimeSpan.FromSeconds(2),
+                    Retries = 0,
+                    UseCache = true,
+                };
+                return (new LookupClient(options), entry);
+            }
+        }
+
+        return (null, null);
+    }
+
+    /// <summary>Resolves the domain's real public address via the upstream resolver and asks the
+    /// upstream CDN itself whether plain HTTP gets bounced to https. Never routed through the
+    /// cache - synthetic through-cache requests pollute access.log and manufacture phantom
+    /// downloads in every tool reading it. (null, null) whenever anything short of a definitive
+    /// answer happens.</summary>
+    private async Task<(bool? Redirected, string? Location)> ProbeUpstreamHttpsRedirectAsync(
+        string queryDomain, LookupClient upstreamDnsClient, CancellationToken ct)
+    {
+        try
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(_perDomainTimeout);
+            var response = await upstreamDnsClient.QueryAsync(queryDomain, QueryType.A, cancellationToken: timeoutCts.Token);
+            var upstreamIp = response.Answers.ARecords()
+                .Select(r => r.Address)
+                .FirstOrDefault(a => !LancacheServerLocator.IsPrivateIp(a.ToString()) && !IPAddress.IsLoopback(a));
+            if (upstreamIp == null)
+            {
+                // NXDOMAIN (e.g. a wildcard probe label) or a private answer - nothing public to ask.
+                return (null, null);
+            }
+
+            var probe = await _serverLocator.ProbeHttpsRedirectAsync(upstreamIp.ToString(), queryDomain, ct);
+            return (probe.Redirected, probe.Location);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            // Upstream resolver unreachable / timed out - "couldn't determine", never "no redirect".
+            return (null, null);
+        }
+    }
+
+    /// <summary>True when <paramref name="domain"/> appears in the loaded cache-domains list -
+    /// exactly, or under a wildcard entry's suffix (<c>*.x.y</c> matches <c>a.x.y</c>, not
+    /// <c>x.y</c> itself). Gates the ad hoc test-domain flow's upstream HTTPS-redirect probe to
+    /// curated list members only.</summary>
+    internal static bool IsKnownCacheDomain(string domain, CacheDomainsList domains)
+    {
+        foreach (var entry in domains.Services.SelectMany(s => s.Domains))
+        {
+            if (entry.StartsWith('*'))
+            {
+                var suffix = entry[1..];
+                if (domain.Length > suffix.Length && domain.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            else if (string.Equals(entry, domain, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private async Task<HeartbeatResult> BuildHeartbeatResultAsync(LancacheServerLocation location, CancellationToken ct)

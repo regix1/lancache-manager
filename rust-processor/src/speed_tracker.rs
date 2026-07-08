@@ -128,6 +128,11 @@ impl LogParser {
 
         let rest = captures.name("rest").map(|m| m.as_str()).unwrap_or("");
 
+        // Manager Status Check probes tag themselves; never show them as live activity.
+        if service_utils::is_manager_probe(rest) {
+            return None;
+        }
+
         let timestamp = self.parse_timestamp(time_str)?;
         let cache_status = self.extract_cache_status(rest);
         let is_cache_hit = cache_status == "HIT";

@@ -28,32 +28,38 @@ namespace LancacheManager.Core.Services.StatusCheck;
 /// </summary>
 public sealed class LancacheServerLocator : ILancacheServerLocator
 {
+    /// <summary>User-Agent sent on every server-side probe the manager pushes through the cache, so
+    /// the rust log pipeline can drop those synthetic access-log lines instead of counting them as
+    /// downloads, live speed, or corruption evidence. Must stay in sync with
+    /// MANAGER_PROBE_USER_AGENT in rust-processor's service_utils.rs.</summary>
+    internal const string ProbeUserAgent = "lancache-manager-status-check/1.0";
+
     // Short timeouts, shared/static to avoid per-call socket churn during Docker-detect candidate
-    // probing. AllowAutoRedirect=false so the probe verifies the address it was pointed at.
-    private static readonly HttpClient _heartbeatProbeClient = new(new SocketsHttpHandler
-    {
-        ConnectTimeout = TimeSpan.FromSeconds(2),
-        PooledConnectionLifetime = TimeSpan.FromMinutes(1),
-        // The probe must verify the address it was pointed at, never wherever that address
-        // chooses to redirect it (the test-domain flow probes DNS-derived IPs).
-        AllowAutoRedirect = false,
-    })
-    {
-        Timeout = TimeSpan.FromSeconds(2),
-    };
+    // probing.
+    private static readonly HttpClient _heartbeatProbeClient = CreateProbeClient(TimeSpan.FromSeconds(2));
 
     // Separate client for the upstream HTTPS-redirect probe: the request travels cache -> upstream
-    // CDN, so it needs more headroom than the LAN-only heartbeat's 2s. AllowAutoRedirect=false is
-    // the entire point here - the redirect itself is the finding.
-    private static readonly HttpClient _httpsRedirectProbeClient = new(new SocketsHttpHandler
+    // CDN, so it needs more headroom than the LAN-only heartbeat's 2s.
+    private static readonly HttpClient _httpsRedirectProbeClient = CreateProbeClient(TimeSpan.FromSeconds(5));
+
+    /// <summary>Probe clients never follow redirects (each probe must verify the exact address or
+    /// answer it was pointed at - for the HTTPS-redirect probe the redirect itself is the finding)
+    /// and always identify themselves via <see cref="ProbeUserAgent"/> so the access-log lines they
+    /// generate are recognizable as synthetic.</summary>
+    private static HttpClient CreateProbeClient(TimeSpan timeout)
     {
-        ConnectTimeout = TimeSpan.FromSeconds(2),
-        PooledConnectionLifetime = TimeSpan.FromMinutes(1),
-        AllowAutoRedirect = false,
-    })
-    {
-        Timeout = TimeSpan.FromSeconds(5),
-    };
+        var client = new HttpClient(new SocketsHttpHandler
+        {
+            ConnectTimeout = TimeSpan.FromSeconds(2),
+            PooledConnectionLifetime = TimeSpan.FromMinutes(1),
+            AllowAutoRedirect = false,
+        })
+        {
+            Timeout = timeout,
+        };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(ProbeUserAgent);
+        return client;
+    }
 
     // The canonical universal lancache test domain: lancache-dns poisons it to the LAN cache IP,
     // upstream/public DNS returns the real Steam CDN. Same probe host the reference resolver uses.
@@ -506,20 +512,24 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
         }
     }
 
-    public async Task<HttpsRedirectProbeResult> ProbeHttpsRedirectAsync(string cacheIp, string domain, CancellationToken cancellationToken)
+    public async Task<HttpsRedirectProbeResult> ProbeHttpsRedirectAsync(string upstreamIp, string domain, CancellationToken cancellationToken)
     {
-        // Same SSRF bound as the heartbeat: this method only ever talks to the LAN cache, which
-        // relays the request upstream exactly the way a game client's download would travel. The
-        // hostname check also keeps the ad hoc test-domain flow from smuggling arbitrary bytes
-        // into a Host header.
-        if (!IsPrivateIp(cacheIp) || Uri.CheckHostName(domain) != UriHostNameType.Dns)
+        // The INVERSE gate of every other probe here: this request must reach the real upstream
+        // CDN, never anything on the LAN. A private/loopback target would mean re-probing the
+        // cache, which writes synthetic request lines into access.log - lines this app's log
+        // pipeline and any third-party dashboard reading the same file would have to special-case
+        // away. The hostname check keeps arbitrary bytes out of the Host header.
+        if (!IPAddress.TryParse(upstreamIp, out var address) ||
+            IsPrivateIp(upstreamIp) ||
+            IPAddress.IsLoopback(address) ||
+            Uri.CheckHostName(domain) != UriHostNameType.Dns)
         {
             return new HttpsRedirectProbeResult { Redirected = null, Location = null };
         }
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"http://{cacheIp}/");
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"http://{upstreamIp}/");
             request.Headers.Host = domain;
             using var response = await _httpsRedirectProbeClient.SendAsync(
                 request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);

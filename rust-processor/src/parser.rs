@@ -79,6 +79,13 @@ impl LogParser {
 
         let rest = captures.name("rest").map(|m| m.as_str()).unwrap_or("");
 
+        // The manager's own Status Check probes (heartbeat + HTTPS-redirect) tag themselves
+        // with a marker User-Agent; they are synthetic traffic and must never become
+        // downloads, corruption evidence, or purge candidates.
+        if service_utils::is_manager_probe(rest) {
+            return None;
+        }
+
         // Parse timestamp
         let timestamp = self.parse_timestamp(time_str)?;
 
@@ -280,5 +287,23 @@ mod tests {
         assert_eq!(entry.url, "/depot/123456/chunk/abcdef");
         assert_eq!(entry.service, "steam");
         assert_eq!(entry.cache_status, "HIT");
+    }
+
+    #[test]
+    fn parse_line_drops_manager_probe_lines_by_user_agent() {
+        // The Status Check HTTPS-redirect probe: GET / with the marker UA. Must never parse
+        // into an entry, or every sweep manufactures phantom downloads per service.
+        let parser = LogParser::new(chrono_tz::UTC);
+        let line = "[steam] 172.20.0.5 / - - - [01/Jan/2024:00:00:00 +0000] \"GET / HTTP/1.1\" 301 162 \"-\" \"lancache-manager-status-check/1.0\" \"MISS\" \"lancache.steamcontent.com\" \"-\"";
+        assert!(parser.parse_line(line).is_none());
+    }
+
+    #[test]
+    fn should_skip_url_covers_heartbeat_but_never_bare_root() {
+        // Bare "/" stays visible: the manager must never hide lines it didn't generate.
+        // Only the explicit probe User-Agent marker identifies manager traffic.
+        assert!(service_utils::should_skip_url("/lancache-heartbeat"));
+        assert!(!service_utils::should_skip_url("/"));
+        assert!(!service_utils::should_skip_url("/depot/123/chunk/abc"));
     }
 }
