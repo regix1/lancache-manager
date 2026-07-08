@@ -17,6 +17,7 @@ import { useCountdownTimer } from '@hooks/useCountdownTimer';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useManagerLoading } from '@hooks/useManagerLoading';
 import type { ServiceScheduleInfo } from './types';
+import { formatLastRun } from './scheduleFormatting';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 import { ScheduledPrefillScheduleDetail } from './scheduled-prefill/ScheduledPrefillScheduleDetail';
@@ -189,29 +190,6 @@ const ScheduleCard = memo(function ScheduleCard({
   // ancestor cannot be undone by a descendant's own opacity.
   const isDimmed = service.intervalHours === 0;
 
-  const formatLastRun = (lastRunUtc: string | null): string => {
-    if (!lastRunUtc) {
-      return t('management.schedules.neverRun');
-    }
-    const date = new Date(lastRunUtc);
-    const nowMs = Date.now();
-    const diffMs = nowMs - date.getTime();
-    const diffSeconds = Math.floor(diffMs / 1000);
-    if (diffSeconds < 60) {
-      return t('management.schedules.justNow');
-    }
-    const diffMinutes = Math.floor(diffSeconds / 60);
-    if (diffMinutes < 60) {
-      return t('management.schedules.minutesAgo', { count: diffMinutes });
-    }
-    const diffHours = Math.floor(diffMinutes / 60);
-    if (diffHours < 24) {
-      return t('management.schedules.hoursAgo', { count: diffHours });
-    }
-    const diffDays = Math.floor(diffHours / 24);
-    return t('management.schedules.daysAgo', { count: diffDays });
-  };
-
   const handleIntervalChange = useCallback(
     (hours: number) => {
       onIntervalChange(service.key, hours);
@@ -274,24 +252,30 @@ const ScheduleCard = memo(function ScheduleCard({
             </div>
           </div>
 
-          {/* Timing Info */}
-          <div className="schedule-timing-row">
-            <div className="schedule-timing-item">
-              <span className="schedule-timing-label">{t('management.schedules.lastRun')}</span>
-              <span className="schedule-timing-value">{formatLastRun(service.lastRunUtc)}</span>
+          {/* Timing Info. Scheduled prefill replaces this single aggregate Last/Next row
+          (which only surfaced the MIN next-run / MAX last-run across services) with a
+          per-service next+last readout inside ScheduledPrefillScheduleDetail below. */}
+          {!isScheduledPrefill && (
+            <div className="schedule-timing-row">
+              <div className="schedule-timing-item">
+                <span className="schedule-timing-label">{t('management.schedules.lastRun')}</span>
+                <span className="schedule-timing-value">
+                  {formatLastRun(service.lastRunUtc, t)}
+                </span>
+              </div>
+              <div className="schedule-timing-item">
+                <span className="schedule-timing-label">{t('management.schedules.nextRun')}</span>
+                <CountdownDisplay
+                  nextRunUtc={service.nextRunUtc}
+                  intervalHours={service.intervalHours}
+                  isRunning={service.isRunning}
+                />
+                {service.nextRunUtc && service.intervalHours > 0 && !service.isRunning && (
+                  <span className="schedule-next-run-date">{formattedNextRun}</span>
+                )}
+              </div>
             </div>
-            <div className="schedule-timing-item">
-              <span className="schedule-timing-label">{t('management.schedules.nextRun')}</span>
-              <CountdownDisplay
-                nextRunUtc={service.nextRunUtc}
-                intervalHours={service.intervalHours}
-                isRunning={service.isRunning}
-              />
-              {service.nextRunUtc && service.intervalHours > 0 && !service.isRunning && (
-                <span className="schedule-next-run-date">{formattedNextRun}</span>
-              )}
-            </div>
-          </div>
+          )}
 
           {/* Controls. Scheduled prefill hides the card-level single interval picker -
           each platform owns its own interval in the per-service detail below. */}

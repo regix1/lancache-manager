@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -16,8 +16,15 @@ import {
   SCHEDULED_PREFILL_SERVICE_RUN_ORDER
 } from './constants';
 import ScheduleIntervalPicker from '../ScheduleIntervalPicker';
+import { formatLastRun } from '../scheduleFormatting';
+import type { ServiceScheduleInfo } from '../types';
+import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { ScheduledPrefillConfigModal } from './ScheduledPrefillConfigModal';
-import { getPersistentServiceId, needsPersistentLogin } from './scheduledPrefillPlatformUi';
+import {
+  getPersistentServiceId,
+  needsPersistentLogin,
+  SCHEDULED_PREFILL_PLATFORM_UI
+} from './scheduledPrefillPlatformUi';
 import type {
   ScheduledPrefillCompletedEvent,
   ScheduledPrefillConfigDto,
@@ -39,6 +46,73 @@ interface ScheduledPrefillScheduleDetailProps {
   dimmed?: boolean;
 }
 
+interface ScheduledPrefillServiceScheduleRowProps {
+  serviceKey: ScheduledPrefillServiceKey;
+  label: string;
+  intervalHours: number;
+  /** Relative next-run hint ("in 2d", "soon", "paused", "on startup") from formatTiming. */
+  nextTiming: string;
+  /** Raw next-run timestamp; non-null only for a real upcoming run (drives the absolute date). */
+  nextRunUtc: string | null;
+  lastRunUtc: string | null;
+  disabled: boolean;
+  onIntervalChange: (serviceKey: ScheduledPrefillServiceKey, hours: number) => void;
+}
+
+/**
+ * One enabled-service row: service icon + display name + its interval picker on the first line,
+ * then a two-column "Next run" / "Last run" readout below. Extracted into its own component
+ * because it calls hooks (useTranslation, useFormattedDateTime) that cannot run inside a .map()
+ * loop in the parent.
+ */
+function ScheduledPrefillServiceScheduleRow({
+  serviceKey,
+  label,
+  intervalHours,
+  nextTiming,
+  nextRunUtc,
+  lastRunUtc,
+  disabled,
+  onIntervalChange
+}: ScheduledPrefillServiceScheduleRowProps) {
+  const { t } = useTranslation();
+  const nextRunDate = useFormattedDateTime(nextRunUtc);
+  const ServiceIcon = SCHEDULED_PREFILL_PLATFORM_UI[serviceKey].icon;
+
+  return (
+    <div className="scheduled-prefill-card-summary__schedule-row">
+      <div className="scheduled-prefill-card-summary__schedule-head">
+        <span className="scheduled-prefill-card-summary__schedule-icon" aria-hidden="true">
+          <ServiceIcon size={16} />
+        </span>
+        <span className="scheduled-prefill-card-summary__schedule-service">{label}</span>
+        <div className="scheduled-prefill-card-summary__schedule-picker">
+          <ScheduleIntervalPicker
+            intervalHours={intervalHours}
+            isDisabled={disabled}
+            onChange={(hours) => onIntervalChange(serviceKey, hours)}
+          />
+        </div>
+      </div>
+      <div className="scheduled-prefill-card-summary__schedule-readout">
+        <div className="scheduled-prefill-card-summary__schedule-slot">
+          <span className="schedule-timing-label">{t('management.schedules.nextRun')}</span>
+          <span className="scheduled-prefill-card-summary__schedule-value">{nextTiming}</span>
+          {nextRunUtc && (
+            <span className="scheduled-prefill-card-summary__schedule-date">{nextRunDate}</span>
+          )}
+        </div>
+        <div className="scheduled-prefill-card-summary__schedule-slot">
+          <span className="schedule-timing-label">{t('management.schedules.lastRun')}</span>
+          <span className="scheduled-prefill-card-summary__schedule-value">
+            {formatLastRun(lastRunUtc, t)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ScheduledPrefillScheduleDetail({
   disabled = false,
   dimmed = false
@@ -58,6 +132,20 @@ export function ScheduledPrefillScheduleDetail({
   const [runError, setRunError] = useState<string | null>(null);
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const eventsKey = 'management.schedules.services.scheduledPrefill.events';
+
+  // Aborts the in-flight refreshSchedule() fetch so an unmounted or superseded refresh never
+  // setStates (last writer wins).
+  const refreshScheduleControllerRef = useRef<AbortController | null>(null);
+
+  // Last-seen prefill entry from the SchedulesUpdated broadcast. That event fires on every
+  // tracked service's work-tick, so we only refetch when the prefill aggregate actually
+  // changed (a real run or a config save), never on idle ticks. null until the first payload,
+  // which only seeds the snapshot since mount's loadSummary already fetched.
+  const lastPrefillAggregateRef = useRef<{
+    lastRunUtc: string | null;
+    nextRunUtc: string | null;
+    intervalHours: number;
+  } | null>(null);
 
   // Auto-dismiss the terminal run-result line (e.g. "Riot: Prefill completed (130.05 MB
   // downloaded)") back to idle so it does not linger on the card forever; in-progress runs
@@ -92,10 +180,19 @@ export function ScheduledPrefillScheduleDetail({
   // Best-effort refresh of just the per-service schedule (no spinner) after a run
   // completes, so the next-run summary reflects the freshly stamped last-run times.
   const refreshSchedule = useCallback(async () => {
+    // Supersede any in-flight refresh so only the newest one wins, and give this fetch its
+    // own signal so an unmount (see the load effect cleanup) cancels it.
+    refreshScheduleControllerRef.current?.abort();
+    const controller = new AbortController();
+    refreshScheduleControllerRef.current = controller;
     try {
-      setSchedule(await ApiService.getScheduledPrefillSchedule());
+      const nextSchedule = await ApiService.getScheduledPrefillSchedule(controller.signal);
+      if (!controller.signal.aborted) {
+        setSchedule(nextSchedule);
+      }
     } catch {
-      // Keep the prior schedule on failure; SchedulesUpdated / a later load will correct it.
+      // Aborted (unmount/superseded) or failed: keep the prior schedule; SchedulesUpdated /
+      // a later load will correct it.
     }
   }, []);
 
@@ -131,6 +228,7 @@ export function ScheduledPrefillScheduleDetail({
 
     return () => {
       controller.abort();
+      refreshScheduleControllerRef.current?.abort();
     };
   }, [loadSummary]);
 
@@ -198,14 +296,49 @@ export function ScheduledPrefillScheduleDetail({
       });
     };
 
+    // The generic schedule broadcast carries the full ServiceScheduleInfo[] and fires on every
+    // tracked service's work-tick (roughly once a minute) plus schedule mutations. Refetching
+    // the per-service block on every one of those would hammer a constrained server, so gate
+    // on the pushed prefill entry: only refresh when its last/next-run or interval actually
+    // moved, which happens only on a real run or a config save (from any surface). The first
+    // payload just seeds the snapshot - mount's loadSummary already fetched the schedule.
+    const handleSchedulesUpdated = (schedules: ServiceScheduleInfo[]) => {
+      const prefill = schedules.find((entry) => entry.key === 'scheduledPrefill');
+      if (!prefill) {
+        return;
+      }
+
+      const previous = lastPrefillAggregateRef.current;
+      const next = {
+        lastRunUtc: prefill.lastRunUtc,
+        nextRunUtc: prefill.nextRunUtc,
+        intervalHours: prefill.intervalHours
+      };
+      lastPrefillAggregateRef.current = next;
+
+      if (!previous) {
+        return;
+      }
+
+      if (
+        previous.lastRunUtc !== next.lastRunUtc ||
+        previous.nextRunUtc !== next.nextRunUtc ||
+        previous.intervalHours !== next.intervalHours
+      ) {
+        void refreshSchedule();
+      }
+    };
+
     on('ScheduledPrefillStarted', handleStarted);
     on('ScheduledPrefillProgress', handleProgress);
     on('ScheduledPrefillCompleted', handleCompleted);
+    on('SchedulesUpdated', handleSchedulesUpdated);
 
     return () => {
       off('ScheduledPrefillStarted', handleStarted);
       off('ScheduledPrefillProgress', handleProgress);
       off('ScheduledPrefillCompleted', handleCompleted);
+      off('SchedulesUpdated', handleSchedulesUpdated);
     };
   }, [
     eventsKey,
@@ -291,7 +424,9 @@ export function ScheduledPrefillScheduleDetail({
       key: ScheduledPrefillServiceKey;
       label: string;
       intervalHours: number;
-      timing: string | null;
+      nextTiming: string;
+      nextRunUtc: string | null;
+      lastRunUtc: string | null;
     }[] = [];
     for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
       const item = byServiceKey.get(serviceKey);
@@ -301,13 +436,24 @@ export function ScheduledPrefillScheduleDetail({
       // Prefer the (optimistically updated) config value so the picker reflects a change
       // immediately; the schedule DTO catches up on the post-save refresh.
       const intervalHours = config ? config[serviceKey].intervalHours : item.intervalHours;
+      // The absolute date is only meaningful for a real upcoming run. An overdue (past)
+      // nextRunUtc that has not been re-stamped yet still reads as "soon" via formatTiming, so
+      // suppress the stale elapsed timestamp here rather than render a confusing past date.
+      const upcomingNextRunUtc =
+        intervalHours > 0 &&
+        item.nextRunUtc !== null &&
+        new Date(item.nextRunUtc).getTime() > Date.now()
+          ? item.nextRunUtc
+          : null;
       rows.push({
         key: serviceKey,
         label: t(`${baseKey}.services.${serviceKey}`),
         intervalHours,
-        // Paused (0) / startup-only (-1) are already spelled out by the picker itself;
-        // only show a timing hint when there is an actual upcoming run.
-        timing: intervalHours > 0 ? formatTiming({ ...item, intervalHours }) : null
+        // formatTiming resolves paused (0) / startup-only (-1) / soon / "in Xd" for the Next
+        // run readout independently of the absolute date above.
+        nextTiming: formatTiming({ ...item, intervalHours }),
+        nextRunUtc: upcomingNextRunUtc,
+        lastRunUtc: item.lastRunUtc
       });
     }
     return rows;
@@ -344,23 +490,19 @@ export function ScheduledPrefillScheduleDetail({
                 {scheduleRows.length > 0 && (
                   <div className="scheduled-prefill-card-summary__schedule">
                     {scheduleRows.map((row) => (
-                      <div key={row.key} className="scheduled-prefill-card-summary__schedule-row">
-                        <span className="scheduled-prefill-card-summary__schedule-service">
-                          {row.label}
-                        </span>
-                        <div className="scheduled-prefill-card-summary__schedule-picker">
-                          <ScheduleIntervalPicker
-                            intervalHours={row.intervalHours}
-                            isDisabled={disabled}
-                            onChange={(hours) => void handleServiceIntervalChange(row.key, hours)}
-                          />
-                        </div>
-                        {row.timing && (
-                          <span className="scheduled-prefill-card-summary__schedule-timing">
-                            {row.timing}
-                          </span>
-                        )}
-                      </div>
+                      <ScheduledPrefillServiceScheduleRow
+                        key={row.key}
+                        serviceKey={row.key}
+                        label={row.label}
+                        intervalHours={row.intervalHours}
+                        nextTiming={row.nextTiming}
+                        nextRunUtc={row.nextRunUtc}
+                        lastRunUtc={row.lastRunUtc}
+                        disabled={disabled}
+                        onIntervalChange={(serviceKey, hours) =>
+                          void handleServiceIntervalChange(serviceKey, hours)
+                        }
+                      />
                     ))}
                   </div>
                 )}
