@@ -7,6 +7,18 @@ import ServicesList from './ServicesList';
 import { getEvictedGames, getEvictedServices } from './cacheEntityFilters';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
 
+/**
+ * Client-only multi-select surface for one evicted list. Keyed on the raw list
+ * key (`service_name` / `getGameUniqueId`); the owning section adapts these to
+ * its combined, prefixed selection set.
+ */
+interface EvictedListSelection {
+  isSelected: (key: string) => boolean;
+  onToggle: (key: string) => void;
+  allSelected?: (keys: string[]) => boolean;
+  setMany?: (keys: string[], selected: boolean) => void;
+}
+
 interface EvictedItemsListProps {
   games: GameCacheInfo[];
   services: ServiceCacheInfo[];
@@ -15,6 +27,8 @@ interface EvictedItemsListProps {
   onRemoveGame: (game: GameCacheInfo) => void;
   onRemoveService: (service: ServiceCacheInfo) => void;
   loading?: boolean;
+  servicesSelection?: EvictedListSelection;
+  gamesSelection?: EvictedListSelection;
 }
 
 const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
@@ -24,7 +38,9 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
   dockerSocketAvailable,
   onRemoveGame,
   onRemoveService,
-  loading = false
+  loading = false,
+  servicesSelection,
+  gamesSelection
 }) => {
   const { t } = useTranslation();
 
@@ -49,6 +65,7 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
           dockerSocketAvailable={dockerSocketAvailable}
           onRemoveService={onRemoveService}
           variant="evicted"
+          selection={servicesSelection}
         />
       )}
       {evictedGames.length > 0 && (
@@ -58,6 +75,7 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
           dockerSocketAvailable={dockerSocketAvailable}
           onRemoveGame={onRemoveGame}
           variant="evicted"
+          selection={gamesSelection}
         />
       )}
     </div>

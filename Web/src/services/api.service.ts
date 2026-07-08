@@ -558,9 +558,7 @@ class ApiService {
     }
   }
 
-  static async getEvictionSettings(
-    signal?: AbortSignal
-  ): Promise<{
+  static async getEvictionSettings(signal?: AbortSignal): Promise<{
     evictedDataMode: string;
     evictionScanNotifications: boolean;
     pruneOrphanedDownloads: boolean;
@@ -597,7 +595,11 @@ class ApiService {
         this.getFetchOptions({
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ evictedDataMode, evictionScanNotifications, pruneOrphanedDownloads })
+          body: JSON.stringify({
+            evictedDataMode,
+            evictionScanNotifications,
+            pruneOrphanedDownloads
+          })
         })
       );
       return await this.handleResponse<{
@@ -1479,11 +1481,20 @@ class ApiService {
   static async removeAllCorruptedChunks(
     threshold = 3,
     compareToCacheLogs = true,
-    detectionMode = 'miss_count'
+    detectionMode = 'miss_count',
+    services?: string[]
   ): Promise<{ message: string }> {
     try {
+      const params = new URLSearchParams();
+      params.set('threshold', String(threshold));
+      params.set('compareToCacheLogs', String(compareToCacheLogs));
+      params.set('detectionMode', detectionMode);
+      // Optional subset filter: absent = remove corruption for all services (unchanged).
+      if (services && services.length > 0) {
+        params.set('services', services.join(','));
+      }
       const res = await fetch(
-        `${API_BASE}/cache/corruption?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}&detectionMode=${detectionMode}`,
+        `${API_BASE}/cache/corruption?${params.toString()}`,
         this.getFetchOptions({
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' }

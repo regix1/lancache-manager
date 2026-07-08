@@ -6,10 +6,16 @@ import { waitForSignalRCompletion } from '@contexts/notifications/waitForSignalR
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useCancellableQueue } from '@/hooks/useCancellableQueue';
 import { finalizeBulkRemovalNotification } from '@components/features/management/game-detection/cacheRemovalHelpers';
+import type {
+  EvictionRemovalStartedEvent,
+  EvictionRemovalCompleteEvent,
+  EvictionRemovalProgressEvent
+} from '@contexts/SignalRContext/types';
 import {
   BulkRemovalContext,
   type BulkRemovalRunOptions,
-  type BulkQueueEntry
+  type BulkQueueEntry,
+  type EvictedQueueEntry
 } from './BulkRemovalContext.types';
 
 interface BulkRemovalProviderProps {
@@ -162,10 +168,16 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
                   updateNotification
                 });
               },
-              signal: ctx.signal
+              signal: ctx.signal,
+              timeoutMs: 600_000
             });
             await ApiService.removeServiceFromCache(serviceName);
-            await waitPromise;
+            const outcome = await waitPromise;
+            if (outcome.timedOut) {
+              // No completion within the window: count as a failure rather than a
+              // silent success so the batch tally stays honest.
+              throw new Error(`Service removal timed out for ${serviceName}`);
+            }
           } else {
             const game = entry.game;
             const gameAppId = game.game_app_id;
@@ -257,7 +269,8 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
                   updateNotification
                 });
               },
-              signal: ctx.signal
+              signal: ctx.signal,
+              timeoutMs: 600_000
             });
 
             if (isEpic) {
@@ -273,7 +286,12 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
               currentOperationId = response.operationId;
               ctx.setOperationId(response.operationId);
             }
-            await waitPromise;
+            const outcome = await waitPromise;
+            if (outcome.timedOut) {
+              // No completion within the window: count as a failure rather than a
+              // silent success so the batch tally stays honest.
+              throw new Error(`Game removal timed out for ${gameName ?? gameAppId}`);
+            }
           }
         },
         finalize: ({ id, succeeded, failed, cancelled, total: finalizeTotal }) => {
@@ -306,15 +324,172 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
 
   const isCacheRemovalRunning = cacheState.status === 'running';
 
+  // --- Evicted-items queue -------------------------------------------------
+  // Structurally the same sequential/cancellable pipeline as the cache queue
+  // above, but each item is dispatched to the correct per-entity EVICTED
+  // endpoint (steam/epic/named game, or service) and waits for that op's
+  // EvictionRemovalComplete. The completion event carries only an operationId
+  // (no entity identity), and the per-entity DELETE returns its operationId in
+  // the response body, so matching is opId-based - no Started-event correlation.
+  const evictedRunOptionsRef = useRef<BulkRemovalRunOptions | null>(null);
+
+  const { run: runEvictedQueue, state: evictedState } = useCancellableQueue<EvictedQueueEntry>({
+    onSettled: () => {
+      const opts = evictedRunOptionsRef.current;
+      opts?.onRunningChange?.(false);
+      opts?.onSettled?.();
+    }
+  });
+
+  const runEvictedRemoval = useCallback(
+    async (items: EvictedQueueEntry[], options: BulkRemovalRunOptions): Promise<void> => {
+      const total = items.length;
+      if (total === 0) return;
+
+      evictedRunOptionsRef.current = options;
+      options.onRunningChange?.(true);
+
+      let bulkNotifId: string | null = null;
+      let currentIndex = 0;
+
+      await runEvictedQueue({
+        items,
+        openNotification: () => {
+          const id = addNotification({
+            type: 'bulk_removal',
+            status: 'running',
+            message: t('management.sections.data.evictionRemoveSelectedStarting', {
+              total,
+              defaultValue: 'Removing 0 of {{total}} evicted items...'
+            }),
+            progress: 0,
+            // No operationId → handleCancel special-cases bulk_removal
+            details: {}
+          });
+          bulkNotifId = id;
+          return id;
+        },
+        onItemStart: (entry, index, _total, notifId) => {
+          currentIndex = index;
+          const label =
+            entry.kind === 'service'
+              ? entry.service.service_name
+              : (entry.game.game_name ?? String(entry.game.game_app_id));
+          options.onProgress?.({ current: index, total, label });
+          updateNotification(notifId, {
+            message: t('management.sections.data.evictionRemoveSelectedProgress', {
+              current: index,
+              total,
+              label,
+              defaultValue: 'Removing {{current}} of {{total}} - {{label}}'
+            }),
+            progress: Math.floor(((index - 1) / total) * 100)
+          });
+        },
+        processItem: async (entry, ctx) => {
+          let operationId: string | null = null;
+          const waitPromise = waitForSignalRCompletion<
+            EvictionRemovalStartedEvent,
+            EvictionRemovalCompleteEvent,
+            EvictionRemovalProgressEvent
+          >({
+            signalR: { on, off },
+            completeEvent: 'EvictionRemovalComplete',
+            match: (payload) => operationId !== null && payload?.operationId === operationId,
+            progressEvent: 'EvictionRemovalProgress',
+            onProgress: (payload) => {
+              if (!operationId || payload?.operationId !== operationId) return;
+              updateBulkProgress({
+                bulkNotifId,
+                currentIndex,
+                total,
+                inner: payload.percentComplete ?? 0,
+                updateNotification
+              });
+            },
+            signal: ctx.signal,
+            timeoutMs: 600_000
+          });
+
+          // Dispatch to the per-entity evicted endpoint. Identity logic mirrors
+          // StorageSection.confirmPartialEvictedRemoval exactly: Epic games are
+          // keyed by epic_app_id, named (Blizzard/Riot/Xbox) games by
+          // (service, gameName), Steam games by game_app_id.
+          if (entry.kind === 'service') {
+            const response = await ApiService.removeEvictedForService(entry.service.service_name);
+            operationId = response.operationId;
+          } else {
+            const game = entry.game;
+            const isEpic = game.service === 'epicgames';
+            const isNamed =
+              !isEpic && game.game_app_id === 0 && !!game.service && game.service !== 'steam';
+            if (isEpic) {
+              if (!game.epic_app_id) {
+                throw new Error(t('management.gameDetection.failedToRemoveGame'));
+              }
+              const response = await ApiService.removeEvictedForEpicGame(game.epic_app_id);
+              operationId = response.operationId;
+            } else if (isNamed) {
+              const response = await ApiService.removeEvictedForNamedGame(
+                game.service!,
+                game.game_name
+              );
+              operationId = response.operationId;
+            } else {
+              const response = await ApiService.removeEvictedForGame(game.game_app_id);
+              operationId = response.operationId;
+            }
+          }
+          ctx.setOperationId(operationId);
+          const outcome = await waitPromise;
+          if (outcome.timedOut) {
+            // No completion within the window: count as a failure rather than a
+            // silent success so the batch tally stays honest.
+            throw new Error('Evicted removal timed out');
+          }
+        },
+        finalize: ({ id, succeeded, failed, cancelled, total: finalizeTotal }) => {
+          finalizeBulkRemovalNotification({
+            id,
+            succeeded,
+            failed,
+            total: finalizeTotal,
+            cancelled,
+            t,
+            updateNotification,
+            text: {
+              completeKey: 'management.sections.data.evictionRemoveSelectedComplete',
+              completeDefaultValue: 'Removed {{count}} evicted items',
+              partialFailureKey:
+                'management.sections.data.evictionRemoveSelectedCompleteWithFailures',
+              partialFailureDefaultValue: 'Removed {{count}} evicted items, but {{failed}} failed',
+              cancelledKey: 'management.sections.data.evictionRemoveSelectedCancelled',
+              cancelledDefaultValue: 'Evicted removal cancelled after {{count}} items',
+              cancelledWithFailuresKey:
+                'management.sections.data.evictionRemoveSelectedCancelledWithFailures',
+              cancelledWithFailuresDefaultValue:
+                'Evicted removal cancelled after {{count}} items, with {{failed}} failures'
+            }
+          });
+        }
+      });
+    },
+    [addNotification, updateNotification, runEvictedQueue, on, off, t]
+  );
+
+  const isEvictedRemovalRunning = evictedState.status === 'running';
+
   // Memoized so a parent re-render (NotificationsProvider updates on every
   // notification tick) does not hand consumers a fresh context object when
   // nothing they read has changed.
   const contextValue = useMemo(
     () => ({
       runCacheRemoval,
-      isCacheRemovalRunning
+      isCacheRemovalRunning,
+      runEvictedRemoval,
+      isEvictedRemovalRunning
     }),
-    [runCacheRemoval, isCacheRemovalRunning]
+    [runCacheRemoval, isCacheRemovalRunning, runEvictedRemoval, isEvictedRemovalRunning]
   );
 
   return <BulkRemovalContext.Provider value={contextValue}>{children}</BulkRemovalContext.Provider>;

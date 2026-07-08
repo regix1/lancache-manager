@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useOptimisticPending } from '@/hooks/useOptimisticPending';
+import { useSelectionSet } from '@/hooks/useSelectionSet';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle } from 'lucide-react';
 import ApiService from '@services/api.service';
@@ -19,6 +20,7 @@ import { Card } from '@components/ui/Card';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Button } from '@components/ui/Button';
+import { Checkbox } from '@components/ui/Checkbox';
 import { showPermissionBlock } from '@utils/permissionUi';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { Alert } from '@components/ui/Alert';
@@ -80,6 +82,18 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     clearPending: clearRemoveAllPending,
     clearOnNotification: clearRemoveAllOnNotification
   } = useOptimisticPending<'removeAll'>();
+
+  // Batch multi-select removal: client-only selection over service tags, plus a confirm
+  // modal and an optimistic "starting" flag mirroring the Remove All flow (both hit the
+  // same endpoint and share the single corruption_removal notification lifecycle).
+  const selection = useSelectionSet<string>();
+  const [pendingRemoveSelected, setPendingRemoveSelected] = useState(false);
+  const {
+    anyPending: startingRemoveSelected,
+    markStarting: markRemoveSelectedStarting,
+    clearPending: clearRemoveSelectedPending,
+    clearOnNotification: clearRemoveSelectedOnNotification
+  } = useOptimisticPending<'removeSelected'>();
 
   // Directory permissions are provided by StorageSection to avoid duplicate API calls.
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
@@ -317,14 +331,31 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       const serviceName = event.service;
       if (!serviceName) return;
 
-      // "Remove All" now emits exactly ONE terminal event with service === 'all'
-      // (per-service completes are suppressed by the backend, which deletes every
-      // service's cached detection rows up front). Clear all local corruption state
-      // in one shot. Single-service removals still arrive per service below.
+      // A bulk removal (all services OR a selected subset) emits exactly ONE terminal
+      // event with service === 'all' (per-service completes are suppressed by the
+      // backend). Reload from the database rather than blindly clearing, so a SUBSET
+      // removal keeps showing the services that were not selected; a full Remove All
+      // simply comes back empty. Single-service removals still arrive per service below.
       if (serviceName === 'all') {
-        setCorruptionSummary({});
         setExpandedCorruptionService(null);
         setCorruptionDetails({});
+        void (async () => {
+          try {
+            const result = await ApiService.getCachedCorruptionDetection();
+            if (result.hasCachedResults && result.corruptionCounts) {
+              setCorruptionSummary(result.corruptionCounts);
+              setLastDetectionTime(result.lastDetectionTime || null);
+            } else {
+              setCorruptionSummary({});
+            }
+          } catch (err) {
+            console.error(
+              '[CorruptionManager] Failed to reload after bulk corruption removal:',
+              err
+            );
+            setCorruptionSummary({});
+          }
+        })();
         return;
       }
 
@@ -387,8 +418,29 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         (n) => n.type === 'corruption_removal' && n.status === 'running'
       );
     }
+    if (startingRemoveSelected) {
+      clearRemoveSelectedOnNotification(
+        'removeSelected',
+        notifications,
+        (n) => n.type === 'corruption_removal' && n.status === 'running'
+      );
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notifications]);
+
+  // Prune selection when services disappear from the summary (e.g. after removal or a
+  // fresh scan) so a stale key never survives a reload; also serves as the post-batch
+  // clear for services that were removed. Keys are the corruption service tags.
+  useEffect(() => {
+    const validKeys = new Set(
+      Object.keys(corruptionSummary).filter((k) => corruptionSummary[k] > 0)
+    );
+    const stale = [...selection.selected].filter((key) => !validKeys.has(key));
+    if (stale.length > 0) {
+      selection.setMany(stale, false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [corruptionSummary]);
 
   // Initial load - load cached data without auto-scanning (matches GameCacheDetector pattern)
   // Note: Directory permissions are now handled by useDirectoryPermissions hook
@@ -473,6 +525,43 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     }
   };
 
+  const handleRemoveSelected = () => {
+    if (authMode !== 'authenticated') {
+      onError?.(t('common.fullAuthRequired'));
+      return;
+    }
+    if (selection.count === 0) return;
+    setPendingRemoveSelected(true);
+  };
+
+  const confirmRemoveSelected = async () => {
+    if (authMode !== 'authenticated') return;
+
+    const selectedServices = [...selection.selected];
+    setPendingRemoveSelected(false);
+    if (selectedServices.length === 0) return;
+    markRemoveSelectedStarting('removeSelected');
+
+    try {
+      // Reuses the bulk endpoint with a subset filter; the backend emits the same single
+      // Service="all" aggregate terminal, so notification handling is unchanged.
+      await ApiService.removeAllCorruptedChunks(
+        missThreshold,
+        compareToCacheLogs,
+        detectionMode,
+        selectedServices
+      );
+      // Selection prunes to the remaining services once the reload lands (pruning effect).
+    } catch (err: unknown) {
+      console.error('Remove selected corrupted failed:', err);
+      onError?.(
+        (err instanceof Error ? err.message : String(err)) ||
+          t('management.corruption.errors.removeAllCorrupted')
+      );
+      clearRemoveSelectedPending('removeSelected');
+    }
+  };
+
   const toggleCorruptionDetails = async (service: string) => {
     if (expandedCorruptionService === service) {
       setExpandedCorruptionService(null);
@@ -519,6 +608,23 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const corruptionList = Object.entries(corruptionSummary)
     .filter(([_, count]) => count > 0)
     .sort((a, b) => b[1] - a[1]);
+
+  // Batch selection derives from the CURRENTLY VISIBLE list, matching Remove All semantics.
+  const visibleServiceKeys = corruptionList.map(([service]) => service);
+  const allVisibleSelected = selection.allSelected(visibleServiceKeys);
+  // Shared busy gate for every batch control (same conditions Remove All disables on, plus
+  // the optimistic "starting" flags so a second click can't fire mid-start).
+  const batchGateActive =
+    (isLoading && !hasInitiallyLoaded) ||
+    mockMode ||
+    anyCorruptionRemovalPending ||
+    isCorruptionRemovalActive ||
+    startingRemoveAll ||
+    startingRemoveSelected ||
+    authMode !== 'authenticated' ||
+    logsReadOnly ||
+    cacheReadOnly ||
+    !isDockerAvailable;
 
   const isReadOnly = logsReadOnly || cacheReadOnly;
   const directoryMissing = !logsExist || !cacheExist;
@@ -740,101 +846,150 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                     <LoadingState message={t('management.corruption.loadingCachedData')} />
                   ) : hasCachedResults && corruptionList.length > 0 ? (
                     <div className="space-y-3">
-                      {corruptionList.map(([service, count]) => (
-                        <AccordionSection
-                          key={`corruption-${service}`}
-                          title={getServiceDisplayName(service)}
-                          count={count}
-                          isExpanded={expandedCorruptionService === service}
-                          onToggle={() => toggleCorruptionDetails(service)}
+                      {/* Batch multi-select toolbar: select-all (visible) + Remove Selected.
+                          Wraps at 390px; no icons on the button (text-only like Remove All). */}
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Checkbox
+                          checked={allVisibleSelected}
+                          onChange={() =>
+                            selection.setMany(visibleServiceKeys, !allVisibleSelected)
+                          }
+                          disabled={batchGateActive || visibleServiceKeys.length === 0}
+                          label={
+                            allVisibleSelected
+                              ? t('management.batchSelect.deselectAll')
+                              : t('management.batchSelect.selectAll')
+                          }
+                        />
+                        {selection.count > 0 && (
+                          <span className="text-sm text-themed-muted">
+                            {t('management.batchSelect.selectedCount', { count: selection.count })}
+                          </span>
+                        )}
+                        <Button
+                          onClick={handleRemoveSelected}
+                          awaitPermissions
+                          loading={startingRemoveSelected}
+                          disabled={batchGateActive || selection.count === 0}
+                          variant="filled"
+                          color="red"
+                          size="sm"
+                          className="ml-auto"
                         >
-                          {loadingDetailsServices.has(service) ? (
-                            <LoadingState
-                              message={t('management.corruption.loadingDetails')}
-                              submessage={
-                                detailsProgress[service] != null
-                                  ? `${Math.round(detailsProgress[service])}%`
-                                  : undefined
-                              }
-                            />
-                          ) : corruptionDetails[service] &&
-                            corruptionDetails[service].length > 0 ? (
-                            <div className="flex flex-col gap-3 max-h-96 overflow-y-auto">
-                              {corruptionDetails[service].map((chunk, idx) => (
-                                <div key={idx} className="p-3 bg-themed-tertiary rounded-lg">
-                                  <div className="flex items-start gap-2">
-                                    <div className="flex-1 min-w-0">
-                                      <div className="mb-1">
-                                        <Tooltip content={chunk.url}>
-                                          <span className="text-sm font-medium text-themed-primary truncate block font-mono">
-                                            {chunk.url}
-                                          </span>
-                                        </Tooltip>
-                                      </div>
-                                      <div className="flex items-center gap-3 text-xs text-themed-muted">
-                                        <span>
-                                          {isRedownloadMode
-                                            ? t('management.corruption.redownloadCount')
-                                            : t('management.corruption.missCount')}{' '}
-                                          <strong className="text-themed-error">
-                                            {chunk.miss_count || 0}
-                                          </strong>
-                                        </span>
-                                        {chunk.cache_file_path && (
-                                          <Tooltip content={chunk.cache_file_path}>
-                                            <span className="truncate">
-                                              {t('management.corruption.cache')}{' '}
-                                              <code className="text-xs">
-                                                {chunk.cache_file_path.split('/').pop() ||
-                                                  chunk.cache_file_path.split('\\').pop()}
-                                              </code>
+                          {t('management.batchSelect.removeSelected', { count: selection.count })}
+                        </Button>
+                      </div>
+                      {corruptionList.map(([service, count]) => (
+                        <div key={`corruption-${service}`} className="flex items-start gap-2">
+                          <Checkbox
+                            checked={selection.isSelected(service)}
+                            onChange={() => selection.toggle(service)}
+                            disabled={
+                              batchGateActive ||
+                              removingCorruption === service ||
+                              isCorruptionRemovalPending(service)
+                            }
+                            aria-label={t('management.batchSelect.selectItem', {
+                              name: getServiceDisplayName(service)
+                            })}
+                            className="flex-shrink-0 mt-4"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <AccordionSection
+                              title={getServiceDisplayName(service)}
+                              count={count}
+                              isExpanded={expandedCorruptionService === service}
+                              onToggle={() => toggleCorruptionDetails(service)}
+                            >
+                              {loadingDetailsServices.has(service) ? (
+                                <LoadingState
+                                  message={t('management.corruption.loadingDetails')}
+                                  submessage={
+                                    detailsProgress[service] != null
+                                      ? `${Math.round(detailsProgress[service])}%`
+                                      : undefined
+                                  }
+                                />
+                              ) : corruptionDetails[service] &&
+                                corruptionDetails[service].length > 0 ? (
+                                <div className="flex flex-col gap-3 max-h-96 overflow-y-auto">
+                                  {corruptionDetails[service].map((chunk, idx) => (
+                                    <div key={idx} className="p-3 bg-themed-tertiary rounded-lg">
+                                      <div className="flex items-start gap-2">
+                                        <div className="flex-1 min-w-0">
+                                          <div className="mb-1">
+                                            <Tooltip content={chunk.url}>
+                                              <span className="text-sm font-medium text-themed-primary truncate block font-mono">
+                                                {chunk.url}
+                                              </span>
+                                            </Tooltip>
+                                          </div>
+                                          <div className="flex items-center gap-3 text-xs text-themed-muted">
+                                            <span>
+                                              {isRedownloadMode
+                                                ? t('management.corruption.redownloadCount')
+                                                : t('management.corruption.missCount')}{' '}
+                                              <strong className="text-themed-error">
+                                                {chunk.miss_count || 0}
+                                              </strong>
                                             </span>
-                                          </Tooltip>
-                                        )}
+                                            {chunk.cache_file_path && (
+                                              <Tooltip content={chunk.cache_file_path}>
+                                                <span className="truncate">
+                                                  {t('management.corruption.cache')}{' '}
+                                                  <code className="text-xs">
+                                                    {chunk.cache_file_path.split('/').pop() ||
+                                                      chunk.cache_file_path.split('\\').pop()}
+                                                  </code>
+                                                </span>
+                                              </Tooltip>
+                                            )}
+                                          </div>
+                                        </div>
                                       </div>
                                     </div>
-                                  </div>
+                                  ))}
                                 </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="text-center py-6">
-                              <p className="text-sm text-themed-muted">
-                                {t('management.corruption.noDetailsAvailable')}
-                              </p>
-                            </div>
-                          )}
-                          <div className="flex justify-end pt-3 border-t border-themed-secondary mt-3">
-                            <Tooltip content={t('management.corruption.deleteCorrupted')}>
-                              <Button
-                                onClick={() => handleRemoveCorruption(service)}
-                                awaitPermissions
-                                loading={
-                                  removingCorruption === service ||
-                                  isCorruptionRemovalPending(service)
-                                }
-                                disabled={
-                                  mockMode ||
-                                  anyCorruptionRemovalPending ||
-                                  isCorruptionRemovalActive ||
-                                  loadingDetailsServices.has(service) ||
-                                  authMode !== 'authenticated' ||
-                                  logsReadOnly ||
-                                  cacheReadOnly ||
-                                  !isDockerAvailable
-                                }
-                                variant="filled"
-                                color="red"
-                                size="sm"
-                              >
-                                {removingCorruption !== service &&
-                                !isCorruptionRemovalPending(service)
-                                  ? t('management.corruption.removeAll')
-                                  : t('management.corruption.removing')}
-                              </Button>
-                            </Tooltip>
+                              ) : (
+                                <div className="text-center py-6">
+                                  <p className="text-sm text-themed-muted">
+                                    {t('management.corruption.noDetailsAvailable')}
+                                  </p>
+                                </div>
+                              )}
+                              <div className="flex justify-end pt-3 border-t border-themed-secondary mt-3">
+                                <Tooltip content={t('management.corruption.deleteCorrupted')}>
+                                  <Button
+                                    onClick={() => handleRemoveCorruption(service)}
+                                    awaitPermissions
+                                    loading={
+                                      removingCorruption === service ||
+                                      isCorruptionRemovalPending(service)
+                                    }
+                                    disabled={
+                                      mockMode ||
+                                      anyCorruptionRemovalPending ||
+                                      isCorruptionRemovalActive ||
+                                      loadingDetailsServices.has(service) ||
+                                      authMode !== 'authenticated' ||
+                                      logsReadOnly ||
+                                      cacheReadOnly ||
+                                      !isDockerAvailable
+                                    }
+                                    variant="filled"
+                                    color="red"
+                                    size="sm"
+                                  >
+                                    {removingCorruption !== service &&
+                                    !isCorruptionRemovalPending(service)
+                                      ? t('management.corruption.removeAll')
+                                      : t('management.corruption.removing')}
+                                  </Button>
+                                </Tooltip>
+                              </div>
+                            </AccordionSection>
                           </div>
-                        </AccordionSection>
+                        </div>
                       ))}
                     </div>
                   ) : hasCachedResults && corruptionList.length === 0 ? (
@@ -920,6 +1075,65 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             </Button>
             <Button variant="filled" color="red" onClick={confirmRemoveAll}>
               {t('management.corruption.modal.removeAllConfirm')}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Remove Selected Corrupted Confirmation Modal */}
+      <Modal
+        opened={pendingRemoveSelected}
+        onClose={() => setPendingRemoveSelected(false)}
+        title={
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>{t('management.batchSelect.confirmTitle')}</span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            {t('management.batchSelect.confirmBody', { count: selection.count })}
+          </p>
+
+          <Alert color="red">
+            <div>
+              <p className="text-sm font-medium mb-2">
+                {t('management.corruption.modal.willDelete')}
+              </p>
+              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+                <li>
+                  <strong>{t('management.corruption.modal.cacheFilesLabel')}</strong>{' '}
+                  {t('management.corruption.modal.cacheFilesDesc')}
+                </li>
+                <li>
+                  <strong>{t('management.corruption.modal.logEntriesLabel')}</strong>{' '}
+                  {t('management.corruption.modal.logEntriesDesc')}
+                </li>
+                <li>
+                  <strong>{t('management.corruption.modal.databaseRecordsLabel')}</strong>{' '}
+                  {t('management.corruption.modal.databaseRecordsDesc')}
+                </li>
+              </ul>
+            </div>
+          </Alert>
+
+          <Alert color="yellow">
+            <div>
+              <p className="text-sm font-medium mb-2">{t('management.cache.alerts.important')}</p>
+              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+                <li>{t('management.corruption.modal.cannotBeUndone')}</li>
+                <li>{t('management.corruption.modal.mayTakeSeveralMinutes')}</li>
+              </ul>
+            </div>
+          </Alert>
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button variant="default" onClick={() => setPendingRemoveSelected(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="filled" color="red" onClick={confirmRemoveSelected}>
+              {t('management.batchSelect.removeSelected', { count: selection.count })}
             </Button>
           </div>
         </div>

@@ -2,14 +2,31 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next';
 import { Search } from 'lucide-react';
 import { Button } from '@components/ui/Button';
+import { Checkbox } from '@components/ui/Checkbox';
 import { Pagination } from '@components/ui/Pagination';
 import { usePaginatedList } from '@hooks/usePaginatedList';
+import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
 
 interface CacheEntityListRenderState {
   itemId: string;
   isExpanded: boolean;
   isExpanding: boolean;
   onToggleDetails: (itemId: string) => void;
+  selectable: boolean;
+  selected: boolean;
+  onSelectToggle: () => void;
+}
+
+/**
+ * Client-only multi-select surface passed down from the owning section. `isSelected`
+ * and `onToggle` drive per-row checkboxes; the optional `allSelected`/`setMany` pair
+ * enables the "select all (filtered)" toolbar checkbox scoped to the visible items.
+ */
+interface CacheEntityListSelection {
+  isSelected: (key: string) => boolean;
+  onToggle: (key: string) => void;
+  allSelected?: (keys: string[]) => boolean;
+  setMany?: (keys: string[], selected: boolean) => void;
 }
 
 interface CacheEntityListProps<TItem> {
@@ -20,6 +37,7 @@ interface CacheEntityListProps<TItem> {
   getItemKey: (item: TItem) => string;
   filterAndSortItems: (items: TItem[], query: string) => TItem[];
   renderItem: (item: TItem, state: CacheEntityListRenderState) => React.ReactNode;
+  selection?: CacheEntityListSelection;
 }
 
 const ITEMS_PER_PAGE = 20;
@@ -33,9 +51,13 @@ function CacheEntityList<TItem>({
   itemLabel,
   getItemKey,
   filterAndSortItems,
-  renderItem
+  renderItem,
+  selection
 }: CacheEntityListProps<TItem>) {
   const { t } = useTranslation();
+  // Any running/queued cache-domain removal (single, bulk, or evicted) disables the
+  // select-all toggle so mid-run toggles cannot be silently discarded on settle.
+  const isCacheRemovalActive = useCacheRemovalActive();
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const [expandingItemId, setExpandingItemId] = useState<string | null>(null);
@@ -54,6 +76,18 @@ function CacheEntityList<TItem>({
     () => filterAndSortItems(items, searchQuery),
     [items, searchQuery, filterAndSortItems]
   );
+
+  // Select-all is scoped to the currently filtered items (matches Remove All semantics).
+  const filteredKeys = useMemo(
+    () => filteredAndSortedItems.map(getItemKey),
+    [filteredAndSortedItems, getItemKey]
+  );
+  const canSelectAll = Boolean(selection?.allSelected && selection?.setMany);
+  const allVisibleSelected = selection?.allSelected ? selection.allSelected(filteredKeys) : false;
+
+  const handleSelectAllToggle = useCallback(() => {
+    selection?.setMany?.(filteredKeys, !allVisibleSelected);
+  }, [selection, filteredKeys, allVisibleSelected]);
 
   const {
     page: currentPage,
@@ -116,6 +150,21 @@ function CacheEntityList<TItem>({
         </div>
       </div>
 
+      {canSelectAll && filteredAndSortedItems.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <Checkbox
+            checked={allVisibleSelected}
+            onChange={handleSelectAllToggle}
+            disabled={isCacheRemovalActive}
+            label={
+              allVisibleSelected
+                ? t('management.batchSelect.deselectAll')
+                : t('management.batchSelect.selectAll')
+            }
+          />
+        </div>
+      )}
+
       {filteredAndSortedItems.length === 0 && (
         <div className="text-center py-8 text-themed-muted">
           <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
@@ -148,7 +197,10 @@ function CacheEntityList<TItem>({
                     itemId,
                     isExpanded: expandedItemId === itemId,
                     isExpanding: expandingItemId === itemId,
-                    onToggleDetails: toggleItemDetails
+                    onToggleDetails: toggleItemDetails,
+                    selectable: !!selection,
+                    selected: selection ? selection.isSelected(itemId) : false,
+                    onSelectToggle: () => selection?.onToggle(itemId)
                   })}
                 </React.Fragment>
               );

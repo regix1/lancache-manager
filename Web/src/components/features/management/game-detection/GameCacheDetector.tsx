@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HardDrive, Database, Server, AlertTriangle } from 'lucide-react';
 import ApiService from '@services/api.service';
@@ -15,6 +15,7 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useBulkRemoval, type BulkQueueEntry } from '@contexts/BulkRemovalContext';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
+import { useSelectionSet, type SelectionSet } from '@/hooks/useSelectionSet';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 import { useConfig } from '@contexts/useConfig';
 import { useDockerSocket } from '@contexts/useDockerSocket';
@@ -28,8 +29,10 @@ import Badge from '@components/ui/Badge';
 import GamesList from './GamesList';
 import ServicesList from './ServicesList';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { getActiveGames, getActiveServices } from './cacheEntityFilters';
+import { getGameUniqueId } from './gameUtils';
 import {
   buildLoadedResultsSummary,
   CACHED_DETECTION_RELOAD_DELAY_MS,
@@ -575,6 +578,109 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // survives an in-app tab switch because the provider never unmounts.
   const { runCacheRemoval } = useBulkRemoval();
 
+  // Client-only multi-select for the Services (S3) and Games (S4) lists. Keyed
+  // by the same list keys CacheEntityList uses (service_name / getGameUniqueId).
+  const servicesSelection: SelectionSet<string> = useSelectionSet<string>();
+  const gamesSelection: SelectionSet<string> = useSelectionSet<string>();
+
+  const [confirmRemoveSelected, setConfirmRemoveSelected] = useState(false);
+
+  // Selected items derived from the CURRENTLY FILTERED lists, so a stale key can
+  // never contribute to the count or the removal batch even before the prune
+  // effect below runs.
+  const selectedServiceItems = filteredServices.filter((s) =>
+    servicesSelection.isSelected(s.service_name)
+  );
+  const selectedGameItems = filteredGames.filter((g) =>
+    gamesSelection.isSelected(getGameUniqueId(g))
+  );
+  // Services + games remove TOGETHER in one confirmed run (mirrors Remove All),
+  // so the shared Remove Selected control counts and clears both sets at once.
+  const selectedCombinedCount = selectedServiceItems.length + selectedGameItems.length;
+
+  // Prune selection keys that dropped out of the visible list on refresh/scan so
+  // a removed item never lingers in the set (plan §6). Keyed on a stable
+  // signature of the visible keys to avoid running the effect every render
+  // (filteredServices/filteredGames are recomputed fresh each render).
+  const serviceKeySignature = filteredServices.map((s) => s.service_name).join('|');
+  const gameKeySignature = filteredGames.map((g) => getGameUniqueId(g)).join('|');
+  useEffect(() => {
+    const valid = new Set(filteredServices.map((s) => s.service_name));
+    const stale = [...servicesSelection.selected].filter((k) => !valid.has(k));
+    if (stale.length > 0) servicesSelection.setMany(stale, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceKeySignature]);
+  useEffect(() => {
+    const valid = new Set(filteredGames.map((g) => getGameUniqueId(g)));
+    const stale = [...gamesSelection.selected].filter((k) => !valid.has(k));
+    if (stale.length > 0) gamesSelection.setMany(stale, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameKeySignature]);
+
+  // Adapter objects passed to CacheEntityList (via ServicesList/GamesList). The
+  // select-all checkbox uses allSelected/setMany over the filtered keys.
+  const servicesSelectionProp = useMemo(
+    () => ({
+      isSelected: servicesSelection.isSelected,
+      onToggle: servicesSelection.toggle,
+      allSelected: servicesSelection.allSelected,
+      setMany: servicesSelection.setMany
+    }),
+    [
+      servicesSelection.isSelected,
+      servicesSelection.toggle,
+      servicesSelection.allSelected,
+      servicesSelection.setMany
+    ]
+  );
+  const gamesSelectionProp = useMemo(
+    () => ({
+      isSelected: gamesSelection.isSelected,
+      onToggle: gamesSelection.toggle,
+      allSelected: gamesSelection.allSelected,
+      setMany: gamesSelection.setMany
+    }),
+    [
+      gamesSelection.isSelected,
+      gamesSelection.toggle,
+      gamesSelection.allSelected,
+      gamesSelection.setMany
+    ]
+  );
+
+  // Remove the selected services AND games in ONE runCacheRemoval batch (one
+  // confirm, one progress card), exactly like Remove All but scoped to the
+  // selected subset. Both sets clear on settle.
+  const handleRemoveSelected = useCallback(async () => {
+    setConfirmRemoveSelected(false);
+    if (!isAdmin) return;
+    const items: BulkQueueEntry[] = [
+      ...selectedServiceItems.map((service) => ({ kind: 'service' as const, service })),
+      ...selectedGameItems.map((game) => ({ kind: 'game' as const, game }))
+    ];
+    if (items.length === 0) return;
+    await runCacheRemoval(items, {
+      onRunningChange: (running) => {
+        setRemoveAllRunning(running);
+        if (!running) setRemoveAllProgress(null);
+      },
+      onProgress: setRemoveAllProgress,
+      onSettled: () => {
+        servicesSelection.clear();
+        gamesSelection.clear();
+        onDataRefresh?.();
+      }
+    });
+  }, [
+    isAdmin,
+    selectedServiceItems,
+    selectedGameItems,
+    runCacheRemoval,
+    servicesSelection,
+    gamesSelection,
+    onDataRefresh
+  ]);
+
   const handleRemoveAllCached = useCallback(async () => {
     setShowRemoveAllConfirm(false);
     if (!isAdmin) return;
@@ -672,6 +778,26 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           )}
         </Button>
       </Tooltip>
+
+      {isAdmin && (
+        <Button
+          onClick={() => setConfirmRemoveSelected(true)}
+          awaitPermissions
+          loading={isBulkRemovalRunning}
+          disabled={
+            selectedCombinedCount === 0 ||
+            loading ||
+            mockMode ||
+            cacheReadOnly ||
+            isCacheRemovalActive
+          }
+          variant="filled"
+          color="red"
+          size="sm"
+        >
+          {t('management.batchSelect.removeSelected', { count: selectedCombinedCount })}
+        </Button>
+      )}
 
       {isAdmin && (
         <Tooltip content={t('management.sections.data.gameCacheRemoveAll', 'Remove All')}>
@@ -837,6 +963,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                         isAdmin={isAdmin}
                         dockerSocketAvailable={isDockerAvailable}
                         onRemoveService={handleServiceRemoveClick}
+                        selection={servicesSelectionProp}
                       />
                     </AccordionSection>
                   )}
@@ -856,6 +983,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                         isAdmin={isAdmin}
                         dockerSocketAvailable={isDockerAvailable}
                         onRemoveGame={handleRemoveClick}
+                        selection={gamesSelectionProp}
                       />
                     </AccordionSection>
                   )}
@@ -952,6 +1080,22 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           </div>
         </div>
       </Modal>
+
+      {/* Remove Selected (combined services + games) Confirmation Modal */}
+      <ConfirmationModal
+        opened={confirmRemoveSelected}
+        onClose={() => setConfirmRemoveSelected(false)}
+        onConfirm={handleRemoveSelected}
+        title={t('management.batchSelect.confirmTitle')}
+        confirmLabel={t('management.batchSelect.removeSelected', {
+          count: selectedCombinedCount
+        })}
+        confirmColor="red"
+      >
+        <p className="text-themed-secondary">
+          {t('management.batchSelect.confirmBody', { count: selectedCombinedCount })}
+        </p>
+      </ConfirmationModal>
 
       {/* Remove-all progress indicator - rendered at the bottom so it is visible
           no matter which accordion the user is viewing. */}

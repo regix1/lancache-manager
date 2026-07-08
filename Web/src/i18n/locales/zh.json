@@ -1679,6 +1679,12 @@
         "gameCacheRemoveAllProgress": "正在移除 {{current}} / {{total}} - {{label}}",
         "gameCacheRemoveAllComplete": "已移除 {{count}} 个缓存项目",
         "gameCacheRemoveAllCancelled": "批量移除在 {{count}} 个项目后被取消",
+        "evictionRemoveSelectedStarting": "正在移除 0 / {{total}} 个已淘汰项目...",
+        "evictionRemoveSelectedProgress": "正在移除 {{current}} / {{total}} - {{label}}",
+        "evictionRemoveSelectedComplete": "已移除 {{count}} 个已淘汰项目",
+        "evictionRemoveSelectedCompleteWithFailures": "已移除 {{count}} 个已淘汰项目，但有 {{failed}} 个失败",
+        "evictionRemoveSelectedCancelled": "已在移除 {{count}} 个已淘汰项目后取消",
+        "evictionRemoveSelectedCancelledWithFailures": "已在移除 {{count}} 个已淘汰项目后取消，其中有 {{failed}} 个失败",
         "gameCacheRemoveAllConfirmTitle": "移除所有缓存的游戏与服务？",
         "gameCacheRemoveAllConfirmMessage": "这将永久删除所有 {{count}} 个当前缓存的游戏和服务的缓存文件、日志条目和数据库记录。项目逐个移除。此操作无法撤销。",
         "gameCacheRemoveAllConfirmWarning": "这是不可逆的。任何重新下载这些游戏的客户端都将必须从上游而非缓存获取完整负载。",
@@ -2211,6 +2217,19 @@
         "updateDeleteMode": "更新删除模式失败",
         "startCacheClearing": "启动缓存清除失败：{{error}}"
       }
+    },
+    "batchSelect": {
+      "selectAll": "全选",
+      "deselectAll": "取消全选",
+      "selectedCount": "已选择 {{count}} 项",
+      "removeSelected": "移除所选（{{count}}）",
+      "confirmTitle": "移除所选项目",
+      "confirmBody": "这将移除 {{count}} 个所选项目。此操作无法撤销。",
+      "selectItem": "选择 {{name}}",
+      "batchComplete": "已移除 {{total}} 个服务日志中的 {{count}} 个",
+      "batchCompleteWithFailures": "已移除 {{count}} 个服务日志，但有 {{failed}} 个失败",
+      "batchCancelled": "已在移除 {{count}} 个服务日志后取消",
+      "batchCancelledWithFailures": "已在移除 {{count}} 个服务日志后取消，其中有 {{failed}} 个失败"
     },
     "corruption": {
       "title": "损坏检测",

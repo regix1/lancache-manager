@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useOptimisticPending } from '@/hooks/useOptimisticPending';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
+import { useSelectionSet } from '@/hooks/useSelectionSet';
+import { useCancellableQueue } from '@/hooks/useCancellableQueue';
 import { useTranslation } from 'react-i18next';
 import { FileText, AlertTriangle, Trash2 } from 'lucide-react';
 import ApiService from '@services/api.service';
@@ -8,13 +10,21 @@ import { type AuthMode } from '@services/auth.service';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { useNotifications } from '@contexts/notifications';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
+import { waitForSignalRCompletion } from '@contexts/notifications/waitForSignalRCompletion';
 import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import type {
+  LogRemovalStartedEvent,
+  LogRemovalProgressEvent,
+  LogRemovalCompleteEvent
+} from '@contexts/SignalRContext/types';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
+import { finalizeBulkRemovalNotification } from '@components/features/management/game-detection/cacheRemovalHelpers';
 import { Card } from '@components/ui/Card';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { Button } from '@components/ui/Button';
+import { Checkbox } from '@components/ui/Checkbox';
 import { showPermissionBlock } from '@utils/permissionUi';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
@@ -24,6 +34,12 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatCount } from '@utils/formatters';
 import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
 import type { DatasourceServiceCounts } from '@/types';
+
+/** One (datasource, service) pair queued for sequential log removal. */
+interface LogBatchEntry {
+  datasource: string;
+  service: string;
+}
 
 // Main services that should always be shown first
 const MAIN_SERVICES = [
@@ -50,6 +66,11 @@ const ServiceButton: React.FC<{
   clearLabel: string;
   entriesLabel: string;
   removingLabel: string;
+  selectable: boolean;
+  selected: boolean;
+  onSelectToggle: () => void;
+  selectLabel: string;
+  selectDisabled: boolean;
 }> = ({
   service,
   count,
@@ -58,19 +79,35 @@ const ServiceButton: React.FC<{
   onClick,
   clearLabel,
   entriesLabel,
-  removingLabel
+  removingLabel,
+  selectable,
+  selected,
+  onSelectToggle,
+  selectLabel,
+  selectDisabled
 }) => {
   return (
     <div className="flex items-center justify-between gap-3 p-3 bg-themed-tertiary rounded-lg">
-      <div className="min-w-0">
-        {/* Display-only fold (xboxlive -> Xbox): the raw LogEntries.Service tag stays on keys
-            and API calls - on-disk cache filenames are md5(tag+url), so the tag itself must
-            never be relabeled. */}
-        <div className="capitalize font-medium text-sm text-themed-primary truncate">
-          {getServiceDisplayName(service)}
-        </div>
-        <div className="text-xs text-themed-muted">
-          {formatCount(count)} {entriesLabel}
+      <div className="flex items-center gap-3 min-w-0">
+        {selectable && (
+          <Checkbox
+            checked={selected}
+            onChange={onSelectToggle}
+            disabled={selectDisabled}
+            aria-label={selectLabel}
+            className="flex-shrink-0"
+          />
+        )}
+        <div className="min-w-0">
+          {/* Display-only fold (xboxlive -> Xbox): the raw LogEntries.Service tag stays on keys
+              and API calls - on-disk cache filenames are md5(tag+url), so the tag itself must
+              never be relabeled. */}
+          <div className="capitalize font-medium text-sm text-themed-primary truncate">
+            {getServiceDisplayName(service)}
+          </div>
+          <div className="text-xs text-themed-muted">
+            {formatCount(count)} {entriesLabel}
+          </div>
         </div>
       </div>
       <Button
@@ -97,7 +134,8 @@ interface LogRemovalManagerProps {
 
 const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMode, onError }) => {
   const { t } = useTranslation();
-  const { notifications, isAnyRemovalRunning, addNotification } = useNotifications();
+  const { notifications, isAnyRemovalRunning, addNotification, updateNotification } =
+    useNotifications();
   const { on, off } = useSignalR();
   const { isDockerAvailable } = useDockerSocket();
   const { logsReadOnly, logsExist, checkingPermissions } = useDirectoryPermissionsContext();
@@ -112,6 +150,13 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const [pendingLogFileDeletion, setPendingLogFileDeletion] = useState<string | null>(null);
   const [deletingLogFile, setDeletingLogFile] = useState<string | null>(null);
   const [showMoreServices, setShowMoreServices] = useState<Record<string, boolean>>({});
+  const [showBatchConfirm, setShowBatchConfirm] = useState(false);
+
+  // Client-only selection of (datasource::service) pairs for the "Remove Selected"
+  // batch. Toggling a checkbox never hits the network - the batch runs only on confirm.
+  const selection = useSelectionSet<string>();
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
   const { isLoading, isRefreshing, hasInitiallyLoaded, beginLoad, markLoaded, markFailed } =
     useManagerLoading(true);
   const {
@@ -303,6 +348,185 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     [showMoreServices]
   );
 
+  // All currently visible + writable (datasource::service) pairs - the scope of both
+  // the select-all checkbox and prune-on-reload. Mirrors "Remove All" semantics: only
+  // rows the user can actually see and act on.
+  const selectableKeys = useMemo<string[]>(() => {
+    const keys: string[] = [];
+    datasourceCounts.forEach((ds) => {
+      if (!ds.logsWritable) return;
+      // Scope is EVERY writable service with entries, independent of the per-datasource
+      // show-more/less UI state. Keying off `displayed` would drop a selected "other"
+      // service the moment its datasource collapsed (prune effect) and would leave
+      // select-all unable to reach the hidden rows.
+      Object.keys(ds.serviceCounts).forEach((service) => {
+        if ((ds.serviceCounts[service] || 0) > 0) {
+          keys.push(`${ds.datasource}::${service}`);
+        }
+      });
+    });
+    return keys;
+  }, [datasourceCounts]);
+
+  const allVisibleSelected = selectableKeys.length > 0 && selection.allSelected(selectableKeys);
+
+  // Prune selection keys that disappear from the visible list on refresh so a stale
+  // (datasource, service) pair can never survive a reload into a batch.
+  useEffect(() => {
+    const valid = new Set(selectableKeys);
+    const sel = selectionRef.current;
+    const stale = [...sel.selected].filter((key) => !valid.has(key));
+    if (stale.length > 0) {
+      sel.setMany(stale, false);
+    }
+  }, [selectableKeys]);
+
+  const { run: runLogBatch, state: logBatchState } = useCancellableQueue<LogBatchEntry>({
+    onSettled: () => {
+      // Counts refresh via the existing ServiceCountsChanged subscription; here we
+      // only drop the selection so the next batch starts clean.
+      selectionRef.current.clear();
+    }
+  });
+  const isBatchRunning =
+    logBatchState.status === 'running' || logBatchState.status === 'cancelling';
+
+  const runBatchRemoval = useCallback(async () => {
+    setShowBatchConfirm(false);
+    if (authMode !== 'authenticated') {
+      onError?.(t('common.fullAuthRequired'));
+      return;
+    }
+
+    // Snapshot the selection, dropping any pair that is no longer removable.
+    const valid = new Set(selectableKeys);
+    const items: LogBatchEntry[] = [...selection.selected]
+      .filter((key) => valid.has(key))
+      .map((key) => {
+        const sep = key.indexOf('::');
+        return { datasource: key.slice(0, sep), service: key.slice(sep + 2) };
+      });
+    const total = items.length;
+    if (total === 0) return;
+
+    let bulkNotifId: string | null = null;
+    let currentIndex = 0;
+
+    await runLogBatch({
+      items,
+      openNotification: () => {
+        // Mirror BulkRemovalContext's cache card exactly: a bulk_removal card with no
+        // operationId, so handleCancel routes cancellation through the client-queue
+        // branch (flips details.cancelling) rather than a server-side cancel.
+        const id = addNotification({
+          type: 'bulk_removal',
+          status: 'running',
+          message: t('management.batchSelect.removeSelected', { count: total }),
+          progress: 0,
+          details: {}
+        });
+        bulkNotifId = id;
+        return id;
+      },
+      onItemStart: (entry, index, tot, notifId) => {
+        currentIndex = index;
+        updateNotification(notifId, {
+          message: t('signalr.logRemoval.removing', {
+            service: getServiceDisplayName(entry.service)
+          }),
+          progress: Math.floor(((index - 1) / tot) * 100)
+        });
+      },
+      processItem: async (entry, ctx) => {
+        const { datasource, service } = entry;
+        let operationId: string | null = null;
+        // Register the SignalR listeners BEFORE the DELETE so the Started/Complete
+        // events are never missed in a race. Log removal is single-flight
+        // server-side and this queue runs one item at a time, so matching on the
+        // captured operationId (else the service name on the terminal event) is
+        // unambiguous within the batch.
+        const waitPromise = waitForSignalRCompletion<
+          LogRemovalStartedEvent,
+          LogRemovalCompleteEvent,
+          LogRemovalProgressEvent
+        >({
+          signalR: { on, off },
+          completeEvent: 'LogRemovalComplete',
+          startedEvent: 'LogRemovalStarted',
+          match: (payload) =>
+            operationId ? payload?.operationId === operationId : payload?.service === service,
+          onStartedCapture: (payload) => {
+            const startedService = payload?.context?.service;
+            return typeof payload?.operationId === 'string' &&
+              (startedService === undefined || startedService === service)
+              ? { opId: payload.operationId }
+              : null;
+          },
+          onOperationIdCaptured: (opId) => {
+            operationId = opId;
+            ctx.setOperationId(opId);
+          },
+          progressEvent: 'LogRemovalProgress',
+          onProgress: (payload) => {
+            if (!bulkNotifId || !operationId || payload?.operationId !== operationId) return;
+            const inner = Math.min(100, Math.max(0, payload.percentComplete ?? 0));
+            const overall = Math.min(100, ((currentIndex - 1 + inner / 100) / total) * 100);
+            updateNotification(bulkNotifId, { progress: Math.floor(overall) });
+          },
+          signal: ctx.signal,
+          // Large log files can take several minutes to rewrite; give each item a
+          // generous window so a legitimately-slow removal is not misreported.
+          timeoutMs: 600_000
+        });
+
+        const result = await ApiService.removeServiceFromDatasourceLogs(datasource, service);
+        if (result?.operationId) {
+          operationId = result.operationId;
+          ctx.setOperationId(result.operationId);
+        }
+        const outcome = await waitPromise;
+        if (outcome.timedOut) {
+          // No completion within the window: count as a failure rather than a silent
+          // success so the batch tally and progress stay honest.
+          throw new Error(`Log removal timed out for ${service}`);
+        }
+      },
+      finalize: ({ id, succeeded, failed, cancelled, total: finalizeTotal }) => {
+        finalizeBulkRemovalNotification({
+          id,
+          succeeded,
+          failed,
+          total: finalizeTotal,
+          cancelled,
+          t,
+          updateNotification,
+          text: {
+            completeKey: 'management.batchSelect.batchComplete',
+            completeDefaultValue: 'Removed {{count}} of {{total}} service logs',
+            partialFailureKey: 'management.batchSelect.batchCompleteWithFailures',
+            partialFailureDefaultValue: 'Removed {{count}} service logs, but {{failed}} failed',
+            cancelledKey: 'management.batchSelect.batchCancelled',
+            cancelledDefaultValue: 'Log removal cancelled after {{count}} service logs',
+            cancelledWithFailuresKey: 'management.batchSelect.batchCancelledWithFailures',
+            cancelledWithFailuresDefaultValue:
+              'Log removal cancelled after {{count}} service logs, with {{failed}} failures'
+          }
+        });
+      }
+    });
+  }, [
+    authMode,
+    onError,
+    t,
+    selectableKeys,
+    selection,
+    runLogBatch,
+    addNotification,
+    updateNotification,
+    on,
+    off
+  ]);
+
   const toggleDatasourceExpanded = (name: string) => {
     setExpandedDatasources((prev) => {
       const next = new Set(prev);
@@ -426,6 +650,54 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                   />
                 ) : hasAnyLogEntries ? (
                   <div className="space-y-3">
+                    {selectableKeys.length > 0 && (
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Checkbox
+                          checked={allVisibleSelected}
+                          onChange={() => selection.setMany(selectableKeys, !allVisibleSelected)}
+                          disabled={
+                            mockMode ||
+                            authMode !== 'authenticated' ||
+                            isLogRemovalActive ||
+                            anyServiceRemovalPending ||
+                            isBatchRunning
+                          }
+                          label={t(
+                            allVisibleSelected
+                              ? 'management.batchSelect.deselectAll'
+                              : 'management.batchSelect.selectAll'
+                          )}
+                        />
+                        <div className="flex flex-wrap items-center gap-2">
+                          {selection.count > 0 && (
+                            <span className="text-sm text-themed-secondary">
+                              {t('management.batchSelect.selectedCount', {
+                                count: selection.count
+                              })}
+                            </span>
+                          )}
+                          <Button
+                            variant="filled"
+                            color="red"
+                            size="sm"
+                            onClick={() => setShowBatchConfirm(true)}
+                            disabled={
+                              selection.count === 0 ||
+                              mockMode ||
+                              authMode !== 'authenticated' ||
+                              !isDockerAvailable ||
+                              isLogRemovalActive ||
+                              anyServiceRemovalPending ||
+                              isBatchRunning
+                            }
+                          >
+                            {t('management.batchSelect.removeSelected', {
+                              count: selection.count
+                            })}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                     {datasourceCounts.map((ds) => {
                       const { other, displayed } = getServicesForDatasource(ds);
                       const isExpanded = expandedDatasources.has(ds.datasource);
@@ -450,6 +722,14 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                                 {displayed.map((service) => {
                                   const key = `${ds.datasource}:${service}`;
+                                  const selectKey = `${ds.datasource}::${service}`;
+                                  const rowDisabled =
+                                    mockMode ||
+                                    anyServiceRemovalPending ||
+                                    isLogRemovalActive ||
+                                    authMode !== 'authenticated' ||
+                                    !ds.logsWritable ||
+                                    !isDockerAvailable;
                                   return (
                                     <ServiceButton
                                       key={key}
@@ -458,14 +738,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                       isRemoving={
                                         activeLogRemoval === service || isServiceRemovalPending(key)
                                       }
-                                      isDisabled={
-                                        mockMode ||
-                                        anyServiceRemovalPending ||
-                                        isLogRemovalActive ||
-                                        authMode !== 'authenticated' ||
-                                        !ds.logsWritable ||
-                                        !isDockerAvailable
-                                      }
+                                      isDisabled={rowDisabled}
                                       onClick={() =>
                                         handleRemoveServiceLogs(ds.datasource, service)
                                       }
@@ -474,6 +747,13 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                       removingLabel={t('management.logRemoval.labels.removing', {
                                         service
                                       })}
+                                      selectable={ds.logsWritable}
+                                      selected={selection.isSelected(selectKey)}
+                                      onSelectToggle={() => selection.toggle(selectKey)}
+                                      selectLabel={t('management.batchSelect.selectItem', {
+                                        name: getServiceDisplayName(service)
+                                      })}
+                                      selectDisabled={rowDisabled || isBatchRunning}
                                     />
                                   );
                                 })}
@@ -681,6 +961,60 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
               loading={!!deletingLogFile}
             >
               {t('management.logRemoval.buttons.deleteLogFile')}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Batch Remove Selected Confirmation Modal */}
+      <Modal
+        opened={showBatchConfirm}
+        onClose={() => {
+          if (!isBatchRunning) {
+            setShowBatchConfirm(false);
+          }
+        }}
+        title={
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>{t('management.batchSelect.confirmTitle')}</span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            {t('management.batchSelect.confirmBody', { count: selection.count })}
+          </p>
+
+          <Alert color="yellow">
+            <div>
+              <p className="text-sm font-medium mb-2">
+                {t('management.logRemoval.modal.important')}:
+              </p>
+              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+                <li>{t('management.logRemoval.modal.cannotUndo')}</li>
+                <li>{t('management.logRemoval.modal.mayTakeMinutes')}</li>
+              </ul>
+            </div>
+          </Alert>
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button
+              variant="default"
+              onClick={() => setShowBatchConfirm(false)}
+              disabled={isBatchRunning}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="filled"
+              color="red"
+              onClick={() => {
+                void runBatchRemoval();
+              }}
+              loading={isBatchRunning}
+            >
+              {t('management.batchSelect.removeSelected', { count: selection.count })}
             </Button>
           </div>
         </div>

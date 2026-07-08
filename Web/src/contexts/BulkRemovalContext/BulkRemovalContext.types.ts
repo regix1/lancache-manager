@@ -11,6 +11,16 @@ export type BulkQueueEntry =
   | { kind: 'game'; game: GameCacheInfo };
 
 /**
+ * Queue entry for the evicted-items removal queue (StorageSection "Remove
+ * Selected"). Structurally identical to {@link BulkQueueEntry} - one entry per
+ * evicted game or service - but routed to the per-entity EVICTED endpoints
+ * (removeEvictedForGame / removeEvictedForEpicGame / removeEvictedForNamedGame /
+ * removeEvictedForService) instead of the full cache-removal endpoints. Aliased
+ * rather than re-declared so the two unions can never drift apart.
+ */
+export type EvictedQueueEntry = BulkQueueEntry;
+
+/**
  * Per-run options threaded into a bulk-removal entry point. `onSettled` is the
  * caller-supplied post-settle refresh (GameCacheDetector's `onDataRefresh`).
  * It must survive the provider hoist — the provider lives at app root and
@@ -44,6 +54,14 @@ export interface BulkRemovalRunOptions {
 interface BulkRemovalContextType {
   runCacheRemoval: (items: BulkQueueEntry[], options: BulkRemovalRunOptions) => Promise<void>;
   isCacheRemovalRunning: boolean;
+  /**
+   * Sequential queue for the evicted-items "Remove Selected" batch. Dispatches
+   * each entry to the correct per-entity evicted endpoint and waits for its
+   * EvictionRemovalComplete before advancing. Shares the same run-options shape,
+   * seeded bulk_removal card, and finalize transition as {@link runCacheRemoval}.
+   */
+  runEvictedRemoval: (items: EvictedQueueEntry[], options: BulkRemovalRunOptions) => Promise<void>;
+  isEvictedRemovalRunning: boolean;
 }
 
 export const BulkRemovalContext = createContext<BulkRemovalContextType | undefined>(undefined);

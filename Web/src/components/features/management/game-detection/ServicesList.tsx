@@ -10,6 +10,17 @@ interface ServicesListProps {
   dockerSocketAvailable: boolean;
   onRemoveService: (service: ServiceCacheInfo) => void;
   variant?: CacheEntityVariant;
+  /**
+   * Optional client-only multi-select surface, forwarded straight to
+   * CacheEntityList. Keyed on `service_name` (the list's item key). Absent =
+   * no checkboxes / no select-all (behaviour identical to today).
+   */
+  selection?: {
+    isSelected: (key: string) => boolean;
+    onToggle: (key: string) => void;
+    allSelected?: (keys: string[]) => boolean;
+    setMany?: (keys: string[], selected: boolean) => void;
+  };
 }
 
 const filterAndSortServices = (services: ServiceCacheInfo[], searchQuery: string) => {
@@ -28,7 +39,8 @@ const ServicesList: React.FC<ServicesListProps> = ({
   isAdmin,
   dockerSocketAvailable,
   onRemoveService,
-  variant = 'active'
+  variant = 'active',
+  selection
 }) => {
   const { t } = useTranslation();
   return (
@@ -39,6 +51,7 @@ const ServicesList: React.FC<ServicesListProps> = ({
       itemLabel={t('management.gameDetection.servicesLabel')}
       getItemKey={(service) => service.service_name}
       filterAndSortItems={filterAndSortServices}
+      selection={selection}
       renderItem={(service, state) => (
         <ServiceCard
           service={service}
@@ -49,6 +62,9 @@ const ServicesList: React.FC<ServicesListProps> = ({
           onToggleDetails={state.onToggleDetails}
           onRemove={onRemoveService}
           variant={variant}
+          selectable={state.selectable}
+          selected={state.selected}
+          onSelectToggle={state.onSelectToggle}
         />
       )}
     />

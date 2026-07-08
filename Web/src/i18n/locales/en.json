@@ -1679,6 +1679,12 @@
         "gameCacheRemoveAllProgress": "Removing {{current}} of {{total}} - {{label}}",
         "gameCacheRemoveAllComplete": "Removed {{count}} cached items",
         "gameCacheRemoveAllCancelled": "Bulk removal cancelled after {{count}} items",
+        "evictionRemoveSelectedStarting": "Removing 0 of {{total}} evicted items...",
+        "evictionRemoveSelectedProgress": "Removing {{current}} of {{total}} - {{label}}",
+        "evictionRemoveSelectedComplete": "Removed {{count}} evicted items",
+        "evictionRemoveSelectedCompleteWithFailures": "Removed {{count}} evicted items, but {{failed}} failed",
+        "evictionRemoveSelectedCancelled": "Evicted removal cancelled after {{count}} items",
+        "evictionRemoveSelectedCancelledWithFailures": "Evicted removal cancelled after {{count}} items, with {{failed}} failures",
         "gameCacheRemoveAllConfirmTitle": "Remove all cached games & services?",
         "gameCacheRemoveAllConfirmMessage": "This will permanently delete cache files, log entries, and database records for all {{count}} currently-cached games and services. Items are removed one at a time. The operation cannot be undone.",
         "gameCacheRemoveAllConfirmWarning": "This is irreversible. Any client that re-downloads these games will have to pull the full payload from upstream, not the cache.",
@@ -2211,6 +2217,19 @@
         "updateDeleteMode": "Failed to update delete mode",
         "startCacheClearing": "Failed to start cache clearing: {{error}}"
       }
+    },
+    "batchSelect": {
+      "selectAll": "Select all",
+      "deselectAll": "Deselect all",
+      "selectedCount": "{{count}} selected",
+      "removeSelected": "Remove Selected ({{count}})",
+      "confirmTitle": "Remove selected items",
+      "confirmBody": "This will remove {{count}} selected item(s). This cannot be undone.",
+      "selectItem": "Select {{name}}",
+      "batchComplete": "Removed {{count}} of {{total}} service logs",
+      "batchCompleteWithFailures": "Removed {{count}} service logs, but {{failed}} failed",
+      "batchCancelled": "Log removal cancelled after {{count}} service logs",
+      "batchCancelledWithFailures": "Log removal cancelled after {{count}} service logs, with {{failed}} failures"
     },
     "corruption": {
       "title": "Corruption Detection",

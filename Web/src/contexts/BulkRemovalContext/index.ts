@@ -1,3 +1,3 @@
 export { BulkRemovalProvider } from './BulkRemovalContext';
 export { useBulkRemoval } from './useBulkRemoval';
-export type { BulkQueueEntry } from './BulkRemovalContext.types';
+export type { BulkQueueEntry, EvictedQueueEntry } from './BulkRemovalContext.types';

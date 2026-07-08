@@ -20,6 +20,9 @@ interface GameCardProps {
   onToggleDetails: (gameId: string) => void;
   onRemove: (game: GameCacheInfo) => void;
   variant?: CacheEntityVariant;
+  selectable?: boolean;
+  selected?: boolean;
+  onSelectToggle?: () => void;
 }
 
 const MAX_INITIAL_PATHS = 50;
@@ -33,7 +36,10 @@ const GameCard: React.FC<GameCardProps> = ({
   dockerSocketAvailable,
   onToggleDetails,
   onRemove,
-  variant = 'active'
+  variant = 'active',
+  selectable = false,
+  selected = false,
+  onSelectToggle
 }) => {
   const { t } = useTranslation();
   const isEpic = game.service === 'epicgames';
@@ -161,6 +167,10 @@ const GameCard: React.FC<GameCardProps> = ({
         onToggleDetails={(id) => onToggleDetails(String(id))}
         onRemove={() => onRemove(game)}
         removeTooltip={removeTooltip}
+        selectable={selectable}
+        selected={selected}
+        onSelectToggle={onSelectToggle}
+        selectLabel={t('management.batchSelect.selectItem', { name: game.game_name })}
       >
         {/* Depot IDs - Steam only */}
         {isSteam &&

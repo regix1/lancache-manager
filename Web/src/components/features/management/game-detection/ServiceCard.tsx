@@ -18,6 +18,9 @@ interface ServiceCardProps {
   onToggleDetails: (serviceName: string) => void;
   onRemove: (service: ServiceCacheInfo) => void;
   variant?: CacheEntityVariant;
+  selectable?: boolean;
+  selected?: boolean;
+  onSelectToggle?: () => void;
 }
 
 const MAX_INITIAL_PATHS = 50;
@@ -31,7 +34,10 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   dockerSocketAvailable,
   onToggleDetails,
   onRemove,
-  variant = 'active'
+  variant = 'active',
+  selectable = false,
+  selected = false,
+  onSelectToggle
 }) => {
   const { t } = useTranslation();
   const isEvictedVariant = variant === 'evicted';
@@ -91,6 +97,12 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
       onToggleDetails={(id) => onToggleDetails(id as string)}
       onRemove={() => onRemove(service)}
       removeTooltip={removeTooltip}
+      selectable={selectable}
+      selected={selected}
+      onSelectToggle={onSelectToggle}
+      selectLabel={t('management.batchSelect.selectItem', {
+        name: getServiceDisplayName(service.service_name)
+      })}
     >
       {/* Sample URLs */}
       <ExpandableList

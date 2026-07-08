@@ -574,7 +574,7 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("corruption")]
-    public async Task<IActionResult> RemoveAllCorruptedChunksAsync(CancellationToken cancellationToken, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
+    public async Task<IActionResult> RemoveAllCorruptedChunksAsync(CancellationToken cancellationToken, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count", [FromQuery] string? services = null)
     {
         // Query which services currently have corruption data
         var cachedDetection = await _corruptionDetectionService.GetDetectionAsync();
@@ -584,6 +584,31 @@ public class CacheController : ControllerBase
         }
 
         var servicesWithCorruption = cachedDetection.CorruptionCounts.Keys.ToList();
+
+        // Optional subset filter: when 'services' is provided (comma-separated), restrict the
+        // removal to only those services. Absent/empty preserves the all-services behavior
+        // byte-for-byte. Unknown names (no corruption data in the current summary) are skipped
+        // with a warning rather than failing, since the summary may have changed since the UI
+        // loaded. The existing bulk machinery below still emits a single Service="all" terminal.
+        if (!string.IsNullOrWhiteSpace(services))
+        {
+            var requested = services
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToList();
+            var available = new HashSet<string>(servicesWithCorruption, StringComparer.OrdinalIgnoreCase);
+            foreach (var name in requested.Where(name => !available.Contains(name)))
+            {
+                _logger.LogWarning("[CorruptionRemoval] Requested service '{Service}' has no corruption data and was skipped", name);
+            }
+
+            var requestedSet = new HashSet<string>(requested, StringComparer.OrdinalIgnoreCase);
+            servicesWithCorruption = servicesWithCorruption.Where(s => requestedSet.Contains(s)).ToList();
+
+            if (servicesWithCorruption.Count == 0)
+            {
+                return Ok(new { Message = "No matching services with corruption data to remove." });
+            }
+        }
 
         var datasources = _datasourceService.GetDatasources();
 

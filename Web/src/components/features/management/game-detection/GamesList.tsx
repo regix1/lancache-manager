@@ -11,6 +11,17 @@ interface GamesListProps {
   dockerSocketAvailable: boolean;
   onRemoveGame: (game: GameCacheInfo) => void;
   variant?: CacheEntityVariant;
+  /**
+   * Optional client-only multi-select surface, forwarded straight to
+   * CacheEntityList. Keyed on `getGameUniqueId(game)` (the list's item key).
+   * Absent = no checkboxes / no select-all (behaviour identical to today).
+   */
+  selection?: {
+    isSelected: (key: string) => boolean;
+    onToggle: (key: string) => void;
+    allSelected?: (keys: string[]) => boolean;
+    setMany?: (keys: string[], selected: boolean) => void;
+  };
 }
 
 const filterAndSortGames = (games: GameCacheInfo[], searchQuery: string) => {
@@ -34,7 +45,8 @@ const GamesList: React.FC<GamesListProps> = ({
   isAdmin,
   dockerSocketAvailable,
   onRemoveGame,
-  variant = 'active'
+  variant = 'active',
+  selection
 }) => {
   const { t } = useTranslation();
   return (
@@ -45,6 +57,7 @@ const GamesList: React.FC<GamesListProps> = ({
       itemLabel={t('management.gameDetection.gamesLabel')}
       getItemKey={getGameUniqueId}
       filterAndSortItems={filterAndSortGames}
+      selection={selection}
       renderItem={(game, state) => (
         <GameCard
           game={game}
@@ -55,6 +68,9 @@ const GamesList: React.FC<GamesListProps> = ({
           onToggleDetails={state.onToggleDetails}
           onRemove={onRemoveGame}
           variant={variant}
+          selectable={state.selectable}
+          selected={state.selected}
+          onSelectToggle={state.onSelectToggle}
         />
       )}
     />

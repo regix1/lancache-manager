@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@components/ui/Button';
+import { Checkbox } from '@components/ui/Checkbox';
 import { Tooltip } from '@components/ui/Tooltip';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -37,6 +38,11 @@ interface ExpandableItemCardProps {
   onToggleDetails: (id: number | string) => void;
   onRemove: () => void;
   removeTooltip: string;
+  /** When true, a selection checkbox renders as the first child of the header row. */
+  selectable?: boolean;
+  selected?: boolean;
+  onSelectToggle?: () => void;
+  selectLabel?: string;
   children?: React.ReactNode;
 }
 
@@ -59,6 +65,10 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   onToggleDetails,
   onRemove,
   removeTooltip,
+  selectable = false,
+  selected = false,
+  onSelectToggle,
+  selectLabel,
   children
 }) => {
   const { t } = useTranslation();
@@ -82,6 +92,15 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   return (
     <div className="rounded-lg border bg-themed-tertiary border-themed-secondary">
       <div className="flex items-center gap-2 p-3">
+        {selectable && (
+          <Checkbox
+            checked={selected}
+            onChange={() => onSelectToggle?.()}
+            disabled={isRemoving || isCacheRemovalActive}
+            aria-label={selectLabel}
+            className="flex-shrink-0"
+          />
+        )}
         <div className="flex items-center gap-2 flex-1 min-w-0 game-card-content">
           {hasExpandableContent && (
             <Button

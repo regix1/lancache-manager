@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import './StorageSection.css';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, AlertTriangle, Archive, Sliders, Database } from 'lucide-react';
@@ -23,7 +23,10 @@ import { buildSeededRunningNotification } from '@contexts/notifications/seedOper
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
+import { useSelectionSet, type SelectionSet } from '@/hooks/useSelectionSet';
+import { useBulkRemoval, type EvictedQueueEntry } from '@contexts/BulkRemovalContext';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import EvictedItemsList from '../game-detection/EvictedItemsList';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
 import LogRemovalManager from '../log-processing/LogRemovalManager';
@@ -36,6 +39,7 @@ import {
   type EvictionSettingsChangedDetail
 } from './managementStorageKeys';
 import { getEvictedGames, getEvictedServices } from '../game-detection/cacheEntityFilters';
+import { getGameUniqueId } from '../game-detection/gameUtils';
 import {
   CACHED_DETECTION_RELOAD_DELAY_MS,
   loadCachedDetectionSnapshot,
@@ -120,8 +124,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const evictionScanInFlightRef = useRef(false);
   const [resettingEvictions, setResettingEvictions] = useState(false);
   const isEvictionDirty =
-    evictionMode !== savedEvictionMode ||
-    pruneOrphanedDownloads !== savedPruneOrphanedDownloads;
+    evictionMode !== savedEvictionMode || pruneOrphanedDownloads !== savedPruneOrphanedDownloads;
 
   const { notifications, addNotification, updateNotification, isAnyRemovalRunning } =
     useNotifications();
@@ -426,6 +429,93 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // happening and a single failure doesn't abort the rest.
   const [showRemoveAllConfirm, setShowRemoveAllConfirm] = useState(false);
   const [removeAllRunning, setRemoveAllRunning] = useState(false);
+
+  // Client-only multi-select for the combined evicted games + services list.
+  // ONE set covers both kinds via collision-safe prefixes ('svc::' service_name,
+  // 'game::' getGameUniqueId) so a single "Remove Selected" removes any mix.
+  const evictedSelection: SelectionSet<string> = useSelectionSet<string>();
+  const { runEvictedRemoval, isEvictedRemovalRunning } = useBulkRemoval();
+  const [confirmRemoveSelectedEvicted, setConfirmRemoveSelectedEvicted] = useState(false);
+
+  // Selected items derived from the current evicted lists so a stale key never
+  // contributes to the count or the batch (the prune effect below is hygiene).
+  const selectedEvictedServices = evictedServices.filter((s) =>
+    evictedSelection.isSelected(`svc::${s.service_name}`)
+  );
+  const selectedEvictedGames = evictedGames.filter((g) =>
+    evictedSelection.isSelected(`game::${getGameUniqueId(g)}`)
+  );
+  const selectedEvictedCount = selectedEvictedServices.length + selectedEvictedGames.length;
+
+  // Prune selection keys that dropped out of the evicted lists on refresh (plan §6).
+  const evictedKeySignature = [
+    ...evictedServices.map((s) => `svc::${s.service_name}`),
+    ...evictedGames.map((g) => `game::${getGameUniqueId(g)}`)
+  ].join('|');
+  useEffect(() => {
+    const valid = new Set([
+      ...evictedServices.map((s) => `svc::${s.service_name}`),
+      ...evictedGames.map((g) => `game::${getGameUniqueId(g)}`)
+    ]);
+    const stale = [...evictedSelection.selected].filter((k) => !valid.has(k));
+    if (stale.length > 0) evictedSelection.setMany(stale, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [evictedKeySignature]);
+
+  // Prefixed adapters: CacheEntityList keys rows by raw service_name /
+  // getGameUniqueId, so translate to the combined set's prefixed keyspace.
+  const evictedServicesSelectionProp = useMemo(
+    () => ({
+      isSelected: (key: string) => evictedSelection.isSelected(`svc::${key}`),
+      onToggle: (key: string) => evictedSelection.toggle(`svc::${key}`),
+      allSelected: (keys: string[]) =>
+        keys.length > 0 && keys.every((k) => evictedSelection.isSelected(`svc::${k}`)),
+      setMany: (keys: string[], selected: boolean) =>
+        evictedSelection.setMany(
+          keys.map((k) => `svc::${k}`),
+          selected
+        )
+    }),
+    [evictedSelection]
+  );
+  const evictedGamesSelectionProp = useMemo(
+    () => ({
+      isSelected: (key: string) => evictedSelection.isSelected(`game::${key}`),
+      onToggle: (key: string) => evictedSelection.toggle(`game::${key}`),
+      allSelected: (keys: string[]) =>
+        keys.length > 0 && keys.every((k) => evictedSelection.isSelected(`game::${k}`)),
+      setMany: (keys: string[], selected: boolean) =>
+        evictedSelection.setMany(
+          keys.map((k) => `game::${k}`),
+          selected
+        )
+    }),
+    [evictedSelection]
+  );
+
+  const handleRemoveSelectedEvicted = useCallback(async () => {
+    setConfirmRemoveSelectedEvicted(false);
+    if (!isAdmin) return;
+    const items: EvictedQueueEntry[] = [
+      ...selectedEvictedServices.map((service) => ({ kind: 'service' as const, service })),
+      ...selectedEvictedGames.map((game) => ({ kind: 'game' as const, game }))
+    ];
+    if (items.length === 0) return;
+    await runEvictedRemoval(items, {
+      onRunningChange: setRemoveAllRunning,
+      onSettled: () => {
+        evictedSelection.clear();
+        onDataRefresh();
+      }
+    });
+  }, [
+    isAdmin,
+    selectedEvictedServices,
+    selectedEvictedGames,
+    runEvictedRemoval,
+    evictedSelection,
+    onDataRefresh
+  ]);
 
   const evictionAllExpanded = evictionSettingsExpanded && evictedItemsExpanded;
 
@@ -735,6 +825,26 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                           variant="filled"
                           color="red"
                           size="sm"
+                          onClick={() => setConfirmRemoveSelectedEvicted(true)}
+                          awaitPermissions
+                          loading={isEvictedRemovalRunning || removeAllRunning}
+                          disabled={
+                            selectedEvictedCount === 0 ||
+                            removeAllRunning ||
+                            isAnyEvictedRemovalRunning ||
+                            cacheReadOnly
+                          }
+                        >
+                          {t('management.batchSelect.removeSelected', {
+                            count: selectedEvictedCount
+                          })}
+                        </Button>
+                      )}
+                      {isAdmin && (
+                        <Button
+                          variant="filled"
+                          color="red"
+                          size="sm"
                           onClick={() => setShowRemoveAllConfirm(true)}
                           awaitPermissions
                           loading={removeAllRunning || isEvictionRemovalRunning}
@@ -844,6 +954,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                         dockerSocketAvailable={isDockerAvailable}
                         onRemoveGame={handleEvictedGameRemoveClick}
                         onRemoveService={handleEvictedServiceRemoveClick}
+                        servicesSelection={evictedServicesSelectionProp}
+                        gamesSelection={evictedGamesSelectionProp}
                       />
                     </AccordionSection>
                   </div>
@@ -934,6 +1046,20 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
           </div>
         </div>
       </Modal>
+
+      {/* Remove Selected Evicted Confirmation Modal */}
+      <ConfirmationModal
+        opened={confirmRemoveSelectedEvicted}
+        onClose={() => setConfirmRemoveSelectedEvicted(false)}
+        onConfirm={handleRemoveSelectedEvicted}
+        title={t('management.batchSelect.confirmTitle')}
+        confirmLabel={t('management.batchSelect.removeSelected', { count: selectedEvictedCount })}
+        confirmColor="red"
+      >
+        <p className="text-themed-secondary">
+          {t('management.batchSelect.confirmBody', { count: selectedEvictedCount })}
+        </p>
+      </ConfirmationModal>
 
       {/* Evicted Game Removal Confirmation Modal */}
       <CacheRemovalModal
