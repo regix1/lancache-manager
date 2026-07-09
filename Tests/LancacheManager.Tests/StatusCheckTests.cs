@@ -532,23 +532,25 @@ public class StatusCheckTests
     }
 
     [Fact]
-    public void IsKnownCacheDomain_MatchesExactAndWildcardEntriesOnly()
+    public void TryGetOwningService_MatchesExactAndWildcardEntriesOnly()
     {
         var domains = new CacheDomainsList
         {
             Services = new List<CacheDomainService>
             {
+                new() { Name = "riot", Domains = new List<string> { "l3cdn.riotgames.com" } },
                 new() { Name = "steam", Domains = new List<string> { "lancache.steamcontent.com", "*.steamcontent.com" } }
             }
         };
 
-        Assert.True(StatusCheckService.IsKnownCacheDomain("lancache.steamcontent.com", domains));
-        Assert.True(StatusCheckService.IsKnownCacheDomain("LANCACHE.STEAMCONTENT.COM", domains));
-        Assert.True(StatusCheckService.IsKnownCacheDomain("cache1-lhr1.steamcontent.com", domains));
+        Assert.Equal("steam", StatusCheckService.TryGetOwningService("lancache.steamcontent.com", domains));
+        Assert.Equal("steam", StatusCheckService.TryGetOwningService("LANCACHE.STEAMCONTENT.COM", domains));
+        Assert.Equal("steam", StatusCheckService.TryGetOwningService("cache1-lhr1.steamcontent.com", domains));
+        Assert.Equal("riot", StatusCheckService.TryGetOwningService("l3cdn.riotgames.com", domains));
         // The wildcard's bare base is not a member, and arbitrary hostnames never are - the
         // test-domain flow must not upstream-probe anything outside the curated list.
-        Assert.False(StatusCheckService.IsKnownCacheDomain("steamcontent.com", domains));
-        Assert.False(StatusCheckService.IsKnownCacheDomain("example.com", domains));
+        Assert.Null(StatusCheckService.TryGetOwningService("steamcontent.com", domains));
+        Assert.Null(StatusCheckService.TryGetOwningService("example.com", domains));
     }
 
     [Fact]

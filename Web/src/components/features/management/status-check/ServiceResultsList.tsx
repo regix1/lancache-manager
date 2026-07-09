@@ -59,7 +59,10 @@ const ServiceResultsList: React.FC<ServiceResultsListProps> = ({
     <div className="space-y-2">
       {visibleServices.map((service) => {
         const wrongCount = service.totalCount - service.resolvedCount;
-        const badge =
+        // The per-domain HTTPS tag is invisible while a row is collapsed, and a flagged service
+        // is usually fully "resolved" (green) - surface the warning on the header too.
+        const hasHttpsRedirect = service.domains.some((domain) => domain.httpsRedirect === true);
+        const statusBadge =
           service.status === 'resolved' ? (
             <Badge variant="success" className="tabular-nums">
               {t(`${keys}.badgeResolved`, {
@@ -81,6 +84,14 @@ const ServiceResultsList: React.FC<ServiceResultsListProps> = ({
           ) : (
             <Badge variant="error">{t(`${keys}.badgeNone`)}</Badge>
           );
+        const badge = hasHttpsRedirect ? (
+          <span className="flex items-center gap-1.5">
+            <Badge variant="warning">{t(`${keys}.badgeHttps`)}</Badge>
+            {statusBadge}
+          </span>
+        ) : (
+          statusBadge
+        );
 
         const sortedDomains = [...service.domains].sort(
           (a, b) =>

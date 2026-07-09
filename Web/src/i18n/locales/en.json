@@ -1581,6 +1581,7 @@
         "badgePartial": "{{wrong}} of {{total}} wrong",
         "badgeNone": "none resolving",
         "badgeMismatched": "resolving to the wrong IP",
+        "badgeHttps": "prefers HTTPS",
         "badgeUnverified": "resolving, unverified",
         "badgeDisabled": "Disabled in lancache-dns",
         "disabledNote": "Skipped: DISABLE_{{service}} is set in lancache-dns, so this service is intentionally not cached.",

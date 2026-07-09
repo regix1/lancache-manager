@@ -1581,6 +1581,7 @@
         "badgePartial": "{{total}} 个中有 {{wrong}} 个错误",
         "badgeNone": "全部未解析",
         "badgeMismatched": "解析到了错误的 IP",
+        "badgeHttps": "偏好 HTTPS",
         "badgeUnverified": "已解析,未验证",
         "badgeDisabled": "已在 lancache-dns 中禁用",
         "disabledNote": "已跳过:lancache-dns 中设置了 DISABLE_{{service}},此服务被有意排除在缓存之外。",

@@ -5,8 +5,10 @@ using System.Net.Sockets;
 using DnsClient;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using LancacheManager.Models.Responses;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace LancacheManager.Core.Services.StatusCheck;
@@ -37,6 +39,7 @@ public sealed class StatusCheckService : IStatusCheckService
     private readonly ISignalRNotificationService _notifications;
     private readonly IStateService _stateService;
     private readonly IOptionsMonitor<PrefillNetworkOptions> _networkOptions;
+    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
 
     private int _running;
     private Guid? _currentOperationId;
@@ -57,7 +60,8 @@ public sealed class StatusCheckService : IStatusCheckService
         IUnifiedOperationTracker operationTracker,
         ISignalRNotificationService notifications,
         IStateService stateService,
-        IOptionsMonitor<PrefillNetworkOptions> networkOptions)
+        IOptionsMonitor<PrefillNetworkOptions> networkOptions,
+        IDbContextFactory<AppDbContext> dbContextFactory)
     {
         _logger = logger;
         _domainsService = domainsService;
@@ -67,6 +71,7 @@ public sealed class StatusCheckService : IStatusCheckService
         _notifications = notifications;
         _stateService = stateService;
         _networkOptions = networkOptions;
+        _dbContextFactory = dbContextFactory;
         _heartbeatCache = new HeartbeatVerdictCache(
             ip => serverLocator.ProbeHeartbeatAsync(ip, CancellationToken.None),
             ttl: TimeSpan.FromSeconds(60),
@@ -134,9 +139,12 @@ public sealed class StatusCheckService : IStatusCheckService
 
         // The upstream HTTPS-redirect probe only runs for curated cache-domains entries. An
         // arbitrary user-typed hostname must never be probed upstream, or this endpoint becomes
-        // a generic server-side request proxy.
+        // a generic server-side request proxy. Same evidence gate as the sweep: recent cache HITs
+        // for the owning service already prove downloads route through the cache.
         var domains = await _domainsService.GetDomainsAsync(forceRefresh: false, cancellationToken);
-        var probeRedirect = IsKnownCacheDomain(domain, domains);
+        var owningService = TryGetOwningService(domain, domains);
+        var probeRedirect = owningService != null &&
+            !(await GetServicesWithRecentCacheHitsAsync(cancellationToken)).Contains(owningService);
         (LookupClient? Client, string? Server) upstream = probeRedirect
             ? await CreateUpstreamDnsClientAsync(cancellationToken)
             : (null, null);
@@ -203,6 +211,13 @@ public sealed class StatusCheckService : IStatusCheckService
             // and exclude it from the progress denominator so the ribbon still reaches 100%.
             var disabledServices = await DetermineDisabledServicesAsync(domains.Services, token);
 
+            // A recent cache HIT is direct proof the service's downloads route through the cache
+            // over plain HTTP, and it outranks anything the redirect probe can see: many CDN edges
+            // (TESO's Akamai, Cloudflare fronts) blanket-redirect every outside HTTP request while
+            // the cache's own miss fetches sail through. Don't probe - and never warn - where the
+            // user's own traffic already answered the question.
+            var servicesWithRecentHits = await GetServicesWithRecentCacheHitsAsync(token);
+
             var totalDomains = domains.Services
                 .Where(s => !disabledServices.Contains(s.Name))
                 .Sum(s => s.Domains.Count);
@@ -242,6 +257,8 @@ public sealed class StatusCheckService : IStatusCheckService
                     continue;
                 }
 
+                var probeRedirectForService = !servicesWithRecentHits.Contains(service.Name);
+
                 using var semaphore = new SemaphoreSlim(MaxConcurrency);
                 var tasks = service.Domains.Select(async originalEntry =>
                 {
@@ -250,7 +267,7 @@ public sealed class StatusCheckService : IStatusCheckService
                     {
                         var result = await ResolveDomainAsync(
                             originalEntry, service.Name, location.CacheIps, dnsClient,
-                            upstreamDnsClient, probeUpstreamRedirect: true, token, verifiedIps);
+                            upstreamDnsClient, probeRedirectForService, token, verifiedIps);
                         if (result.ResolvedIps.Count == 0)
                         {
                             var reason = result.Error ?? "No A records returned";
@@ -399,6 +416,38 @@ public sealed class StatusCheckService : IStatusCheckService
             cts.Dispose();
             Interlocked.Exchange(ref _running, 0);
             _currentOperationId = null;
+        }
+    }
+
+    // How far back a cache HIT still counts as proof that a service's downloads route through
+    // the cache. Beyond this, the upstream may have flipped to HTTPS since - warn again.
+    private static readonly TimeSpan _recentHitEvidenceWindow = TimeSpan.FromDays(30);
+
+    /// <summary>Service names (as logged by lancache, matching the cache_domains names) that
+    /// recorded at least one cache HIT inside <see cref="_recentHitEvidenceWindow"/>. A DB
+    /// hiccup yields an empty set (warnings stay probe-driven) rather than failing the sweep.</summary>
+    private async Task<HashSet<string>> GetServicesWithRecentCacheHitsAsync(CancellationToken ct)
+    {
+        try
+        {
+            var cutoff = DateTime.UtcNow - _recentHitEvidenceWindow;
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(ct);
+            var services = await dbContext.Downloads
+                .AsNoTracking()
+                .Where(d => d.CacheHitBytes > 0 && d.EndTimeUtc >= cutoff)
+                .Select(d => d.Service)
+                .Distinct()
+                .ToListAsync(ct);
+            return new HashSet<string>(services, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Status Check: could not read recent cache-hit evidence; HTTPS-redirect warnings will not be suppressed this sweep");
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
     }
 
@@ -676,29 +725,33 @@ public sealed class StatusCheckService : IStatusCheckService
         return definitive.All(v => !v) ? false : null;
     }
 
-    /// <summary>True when <paramref name="domain"/> appears in the loaded cache-domains list -
-    /// exactly, or under a wildcard entry's suffix (<c>*.x.y</c> matches <c>a.x.y</c>, not
-    /// <c>x.y</c> itself). Gates the ad hoc test-domain flow's upstream HTTPS-redirect probe to
-    /// curated list members only.</summary>
-    internal static bool IsKnownCacheDomain(string domain, CacheDomainsList domains)
+    /// <summary>The cache-domains service that owns <paramref name="domain"/> - matched exactly,
+    /// or under a wildcard entry's suffix (<c>*.x.y</c> matches <c>a.x.y</c>, not <c>x.y</c>
+    /// itself) - or null for a hostname outside the curated list. Gates the ad hoc test-domain
+    /// flow's upstream HTTPS-redirect probe to curated list members only, and names the service
+    /// for the recent-hit evidence check.</summary>
+    internal static string? TryGetOwningService(string domain, CacheDomainsList domains)
     {
-        foreach (var entry in domains.Services.SelectMany(s => s.Domains))
+        foreach (var service in domains.Services)
         {
-            if (entry.StartsWith('*'))
+            foreach (var entry in service.Domains)
             {
-                var suffix = entry[1..];
-                if (domain.Length > suffix.Length && domain.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                if (entry.StartsWith('*'))
                 {
-                    return true;
+                    var suffix = entry[1..];
+                    if (domain.Length > suffix.Length && domain.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return service.Name;
+                    }
                 }
-            }
-            else if (string.Equals(entry, domain, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
+                else if (string.Equals(entry, domain, StringComparison.OrdinalIgnoreCase))
+                {
+                    return service.Name;
+                }
             }
         }
 
-        return false;
+        return null;
     }
 
     private async Task<HeartbeatResult> BuildHeartbeatResultAsync(LancacheServerLocation location, CancellationToken ct)
