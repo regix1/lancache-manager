@@ -54,7 +54,9 @@ const ActiveDownloadsView: React.FC = () => {
           >
             <HardDrive />
             {t('downloads.active.tabs.games')}
-            {games.length > 0 && <span className="count-badge">{games.length}</span>}
+            {games.length > 0 && (
+              <span className="themed-badge status-badge-neutral badge-count">{games.length}</span>
+            )}
           </button>
           <button
             className={`view-toggle-btn ${viewMode === 'clients' ? 'active' : ''}`}
@@ -62,7 +64,11 @@ const ActiveDownloadsView: React.FC = () => {
           >
             <Users />
             {t('downloads.active.tabs.clients')}
-            {clients.length > 0 && <span className="count-badge">{clients.length}</span>}
+            {clients.length > 0 && (
+              <span className="themed-badge status-badge-neutral badge-count">
+                {clients.length}
+              </span>
+            )}
           </button>
         </div>
 

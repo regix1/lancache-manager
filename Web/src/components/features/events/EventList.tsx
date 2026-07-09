@@ -429,7 +429,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
         )}
         {title}
         <span
-          className="inline-flex items-center justify-center min-w-[1.25rem] h-[1.25rem] px-1.5 text-[10px] rounded-full font-medium"
+          className="themed-badge badge-count"
           style={{
             backgroundColor: color.replace(')', '-subtle)'),
             color

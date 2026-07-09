@@ -358,7 +358,8 @@
     font-weight: 700;
     line-height: 1;
     text-align: center;
-    border-radius: var(--theme-border-radius);
+    border-radius: 3px;
+    border: 1px solid var(--theme-border-secondary);
     background: var(--theme-text-muted-muted);
     color: inherit;
   }

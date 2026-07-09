@@ -1719,7 +1719,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     className={`filter-chip ${activeFilterValue === filter ? 'filter-chip--active' : ''}`}
                     onClick={() => setActiveFilter(filter)}
                   >
-                    <span className="filter-chip-count">{getCountForFilter(filter)}</span>
+                    <span className="filter-chip-count themed-badge status-badge-neutral badge-count">
+                      {getCountForFilter(filter)}
+                    </span>
                     <span>{getFilterLabel(filter)}</span>
                   </button>
                 ))}

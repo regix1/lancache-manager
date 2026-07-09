@@ -277,7 +277,9 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           <div className="mb-4">
             <label className="block text-sm font-medium text-themed-secondary mb-2">
               {t('modals.clientGroup.labels.currentIps')}{' '}
-              <span className="count-badge">{group.memberIps.length}</span>
+              <span className="themed-badge status-badge-neutral badge-count">
+                {group.memberIps.length}
+              </span>
             </label>
             <div className="flex flex-wrap gap-2 mb-3">
               {group.memberIps.map((ip) => (
@@ -295,7 +297,9 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
               <>
                 <label className="block text-sm font-medium text-themed-secondary mb-2">
                   {t('modals.clientGroup.labels.ipsToAdd')}{' '}
-                  <span className="count-badge">{pendingIps.length}</span>
+                  <span className="themed-badge status-badge-neutral badge-count">
+                    {pendingIps.length}
+                  </span>
                 </label>
                 <div className="flex flex-wrap gap-2 mb-3">
                   {pendingIps.map((ip) => (

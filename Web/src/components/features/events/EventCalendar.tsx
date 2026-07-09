@@ -586,7 +586,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                                       : { day, weekIndex: week.weekIndex }
                                   );
                                 }}
-                                className="text-[10px] font-semibold px-1.5 rounded-full transition hover:scale-105"
+                                className="themed-badge badge-count font-semibold transition hover:scale-105"
                                 style={{
                                   backgroundColor: 'var(--theme-primary)',
                                   color: 'var(--theme-primary-text)'
@@ -597,7 +597,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                             </Tooltip>
                           ) : (
                             <span
-                              className="text-[10px] font-medium px-1.5 rounded-full"
+                              className="themed-badge badge-count"
                               style={{
                                 backgroundColor: 'var(--theme-bg-tertiary)',
                                 color: 'var(--theme-text-secondary)'

@@ -712,13 +712,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const headerActions = (
     <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
       {corruptionList.length > 0 && (
-        <Badge variant="warning">{corruptionList.reduce((sum, [, count]) => sum + count, 0)}</Badge>
+        <Badge variant="warning" className="badge-count">
+          {corruptionList.reduce((sum, [, count]) => sum + count, 0)}
+        </Badge>
       )}
       {selection.count > 0 && (
-        <Badge
-          variant="neutral"
-          className="rounded-full min-w-[1.25rem] justify-center px-1.5 tabular-nums"
-        >
+        <Badge variant="neutral" className="badge-count">
           {selection.count}
         </Badge>
       )}
@@ -903,9 +902,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                     <LoadingState message={t('management.corruption.loadingCachedData')} />
                   ) : hasCachedResults && corruptionList.length > 0 ? (
                     <div className="space-y-3">
-                      {/* Batch multi-select toolbar: select-all (visible) + selected count.
-                          Remove Selected lives in the section header cluster (with Remove All);
-                          wraps at 390px. */}
+                      {/* Batch multi-select toolbar: select-all (visible). The selected
+                          count shows once in the section header badge; Remove Selected lives
+                          in the header cluster (with Remove All). Wraps at 390px. */}
                       <div className="flex flex-wrap items-center gap-3">
                         <Checkbox
                           checked={allVisibleSelected}
@@ -919,11 +918,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                               : t('management.batchSelect.selectAll')
                           }
                         />
-                        {selection.count > 0 && (
-                          <span className="text-sm text-themed-muted">
-                            {t('management.batchSelect.selectedCount', { count: selection.count })}
-                          </span>
-                        )}
                       </div>
                       {corruptionList.map(([service, count]) => (
                         <div key={`corruption-${service}`} className="flex items-start gap-2">

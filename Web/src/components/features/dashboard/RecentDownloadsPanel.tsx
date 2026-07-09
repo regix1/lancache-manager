@@ -215,7 +215,11 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
         <div className="item-info">
           <div className="item-name">
             {display.name}
-            {isGroup && display.count > 1 && <span className="count-badge">{display.count}×</span>}
+            {isGroup && display.count > 1 && (
+              <span className="themed-badge status-badge-neutral badge-count">
+                {display.count}×
+              </span>
+            )}
           </div>
           <div className="item-meta">
             <BadgesRow
@@ -584,12 +588,13 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          min-width: 18px;
+          min-width: 1.25rem;
           height: 18px;
           padding: 0 5px;
           font-size: 0.65rem;
           font-weight: 700;
-          border-radius: 9px;
+          border-radius: 3px;
+          border: 1px solid var(--theme-border-secondary);
           background: var(--theme-success);
           color: var(--theme-button-text);
           animation: badge-glow 2s ease-in-out infinite;
@@ -798,15 +803,6 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           display: flex;
           align-items: center;
           gap: 0.4rem;
-        }
-
-        .count-badge {
-          font-size: 0.65rem;
-          font-weight: 600;
-          padding: 0.1rem 0.35rem;
-          border-radius: 4px;
-          background: var(--theme-bg-tertiary);
-          color: var(--theme-text-muted);
         }
 
         .item-meta {

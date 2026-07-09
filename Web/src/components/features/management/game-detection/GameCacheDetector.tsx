@@ -730,10 +730,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const headerActions = (
     <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
       {selectedCombinedCount > 0 && (
-        <Badge
-          variant="neutral"
-          className="rounded-full min-w-[1.25rem] justify-center px-1.5 tabular-nums"
-        >
+        <Badge variant="neutral" className="badge-count">
           {selectedCombinedCount}
         </Badge>
       )}
@@ -854,7 +851,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             badge={
               <>
                 {hasResults && (
-                  <Badge variant="info">{filteredGames.length + filteredServices.length}</Badge>
+                  <Badge variant="info" className="badge-count">
+                    {filteredGames.length + filteredServices.length}
+                  </Badge>
                 )}
                 {headerActions}
               </>

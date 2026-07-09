@@ -567,10 +567,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const headerBadge = (
     <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
       {selection.count > 0 && (
-        <Badge
-          variant="neutral"
-          className="rounded-full min-w-[1.25rem] justify-center px-1.5 tabular-nums"
-        >
+        <Badge variant="neutral" className="badge-count">
           {selection.count}
         </Badge>
       )}
@@ -699,7 +696,9 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                 ) : hasAnyLogEntries ? (
                   <div className="space-y-3">
                     {selectableKeys.length > 0 && (
-                      <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* Select-all only. The selected count shows once in the section
+                            header badge, so it is not repeated here. */}
                         <Checkbox
                           checked={allVisibleSelected}
                           onChange={() => selection.setMany(selectableKeys, !allVisibleSelected)}
@@ -716,13 +715,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                               : 'management.batchSelect.selectAll'
                           )}
                         />
-                        {selection.count > 0 && (
-                          <span className="text-sm text-themed-secondary">
-                            {t('management.batchSelect.selectedCount', {
-                              count: selection.count
-                            })}
-                          </span>
-                        )}
                       </div>
                     )}
                     {datasourceCounts.map((ds) => {

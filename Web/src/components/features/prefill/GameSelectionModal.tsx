@@ -402,7 +402,9 @@ export function GameSelectionModal({
                   <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 bg-[var(--theme-primary-on-bg-hover)] text-[var(--theme-primary)] border-b border-[var(--theme-border-secondary)]">
                     {t('prefill.gameSelection.selected')}
                     {localSelected.size > 0 && (
-                      <span className="count-badge">{localSelected.size}</span>
+                      <span className="themed-badge status-badge-neutral badge-count">
+                        {localSelected.size}
+                      </span>
                     )}
                   </div>
                   <CustomScrollbar
@@ -453,7 +455,7 @@ export function GameSelectionModal({
                 <div className="flex-1 min-h-0 flex flex-col">
                   <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-muted)] border-b border-[var(--theme-border-secondary)]">
                     {t('prefill.gameSelection.availableGames')}
-                    <span className="count-badge">
+                    <span className="themed-badge status-badge-neutral badge-count">
                       {sortedGames.filter((g) => !localSelected.has(g.appId)).length}
                     </span>
                   </div>

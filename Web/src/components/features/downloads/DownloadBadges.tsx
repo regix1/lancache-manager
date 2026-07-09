@@ -40,9 +40,7 @@ const DownloadBadges: React.FC<DownloadBadgesProps> = ({
       {/* Hidden count indicator */}
       {hiddenCount > 0 && (
         <span
-          className={`inline-flex items-center justify-center rounded-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] font-medium ${
-            size === 'sm' ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-xs'
-          }`}
+          className="themed-badge status-badge-neutral badge-count"
           title={t('downloads.tab.badges.more', { count: hiddenCount })}
         >
           +{hiddenCount}

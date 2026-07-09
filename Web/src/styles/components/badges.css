@@ -40,24 +40,6 @@
     color: var(--theme-warning-text);
   }
 
-  /* Count Badge - small pill for inline count indicators */
-  .count-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 1.375rem;
-    height: 1.375rem;
-    padding: 0 0.4rem;
-    margin-left: 0.5rem;
-    border-radius: 9999px;
-    font-size: var(--font-size-xs);
-    font-weight: 700;
-    line-height: 1;
-    text-align: center;
-    background: var(--theme-primary-muted);
-    color: var(--theme-primary);
-  }
-
   /* Badge Base Class */
   .themed-badge {
     @apply px-1.5 py-0.5 font-medium;
@@ -128,5 +110,19 @@
     background-color: var(--theme-bg-tertiary);
     color: var(--theme-text-secondary);
     border: 1px solid var(--theme-border-secondary);
+  }
+
+  /* Numeric count indicator — THE canonical look for every count/number badge
+   * across the app (nav counts, section-header counts, selection counts, etc.).
+   * Square box with lightly rounded corners (inherits themed-badge's 3px radius,
+   * never rounded-full) + a border + centered tabular figures. Compose on top of
+   * a Badge variant (`<Badge variant="neutral" className="badge-count">`) or a raw
+   * span (`themed-badge status-badge-neutral badge-count`). Placed after the
+   * status-badge-* rules so its border wins for every variant. */
+  .badge-count {
+    justify-content: center;
+    min-width: 1.25rem;
+    border: 1px solid var(--theme-border-secondary);
+    font-variant-numeric: tabular-nums;
   }
 }

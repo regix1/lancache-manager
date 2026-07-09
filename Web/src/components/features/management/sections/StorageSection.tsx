@@ -806,10 +806,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                   badge={
                     <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
                       {selectedEvictedCount > 0 && (
-                        <Badge
-                          variant="neutral"
-                          className="rounded-full min-w-[1.25rem] justify-center px-1.5 tabular-nums"
-                        >
+                        <Badge variant="neutral" className="badge-count">
                           {selectedEvictedCount}
                         </Badge>
                       )}
