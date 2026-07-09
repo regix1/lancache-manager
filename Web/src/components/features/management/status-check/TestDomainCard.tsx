@@ -112,13 +112,6 @@ const TestDomainCard: React.FC<TestDomainCardProps> = ({ groups }) => {
       {response && (
         <div className="mt-3 pt-3 border-t border-themed-secondary space-y-1">
           <DomainLeafRow result={response.result} />
-          {response.result.httpsRedirect === true && (
-            <p className="text-xs text-[var(--theme-warning)] ml-6">
-              {t(`${keys}.testHttpsRedirect`, {
-                location: response.result.httpsRedirectLocation ?? ''
-              })}
-            </p>
-          )}
           {heartbeat && (
             <p className="text-xs text-themed-muted ml-6">
               {heartbeat.reachable

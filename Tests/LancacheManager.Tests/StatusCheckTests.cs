@@ -260,25 +260,6 @@ public class StatusCheckTests
         Assert.Equal("riot", result[0].Name);
     }
 
-    [Fact]
-    public void ParseCacheDomainsJson_ReadsMixedContentFlag_DefaultsFalse()
-    {
-        var json = """
-        {
-          "cache_domains": [
-            { "name": "origin", "domain_files": ["origin.txt"], "mixed_content": true },
-            { "name": "steam", "domain_files": ["steam.txt"] }
-          ]
-        }
-        """;
-
-        var result = CacheDomainsService.ParseCacheDomainsJson(json);
-
-        Assert.Equal(2, result.Count);
-        Assert.True(result[0].MixedContent);
-        Assert.False(result[1].MixedContent);
-    }
-
     // ===== CacheDomainsService.ParseDomainFile =====
 
     [Fact]
@@ -491,112 +472,6 @@ public class StatusCheckTests
         Assert.Equal(summary.TotalServices, summary.ResolvedServices + summary.PartialServices + summary.UnresolvedServices + summary.DisabledServices);
         // TotalDomains still counts a disabled service's listed domain count (contract: totalCount = listed count).
         Assert.Equal(10, summary.TotalDomains);
-    }
-
-    // ===== HTTPS-redirect probe: upstream forcing HTTP -> HTTPS bypasses the cache =====
-
-    [Theory]
-    [InlineData(301, "https://cdn.example.com/")]
-    [InlineData(302, "https://cdn.example.com/path?x=1")]
-    [InlineData(307, "https://cdn.example.com/")]
-    [InlineData(308, "https://cdn.example.com/")]
-    public void GetHttpsRedirectTarget_AbsoluteHttpsLocationOn3xx_IsFlagged(int statusCode, string location)
-    {
-        var target = LancacheServerLocator.GetHttpsRedirectTarget(statusCode, new Uri(location));
-
-        Assert.Equal(location, target);
-    }
-
-    [Theory]
-    [InlineData(200)]
-    [InlineData(404)]
-    [InlineData(502)]
-    public void GetHttpsRedirectTarget_NonRedirectStatus_IsNull(int statusCode)
-    {
-        // Even with an https Location header present, a non-3xx answer is not a redirect.
-        var target = LancacheServerLocator.GetHttpsRedirectTarget(statusCode, new Uri("https://cdn.example.com/"));
-
-        Assert.Null(target);
-    }
-
-    [Fact]
-    public void GetHttpsRedirectTarget_HttpLocation_IsNull()
-    {
-        // A same-scheme redirect is ordinary CDN behavior - the client stays on plain HTTP.
-        var target = LancacheServerLocator.GetHttpsRedirectTarget(301, new Uri("http://cdn2.example.com/"));
-
-        Assert.Null(target);
-    }
-
-    [Fact]
-    public void GetHttpsRedirectTarget_RelativeOrMissingLocation_IsNull()
-    {
-        // A relative Location keeps the request's http scheme; no Location is no redirect target.
-        Assert.Null(LancacheServerLocator.GetHttpsRedirectTarget(301, new Uri("/somewhere", UriKind.Relative)));
-        Assert.Null(LancacheServerLocator.GetHttpsRedirectTarget(301, null));
-    }
-
-    [Fact]
-    public void CombineEdgeVerdicts_RequiresUnanimousDefinitiveAnswers()
-    {
-        // Unanimous definitive answers decide; mixed or unknown must stay null (under-claim).
-        Assert.True(StatusCheckService.CombineEdgeVerdicts(new bool?[] { true, true, true }));
-        Assert.False(StatusCheckService.CombineEdgeVerdicts(new bool?[] { false, false }));
-        Assert.Null(StatusCheckService.CombineEdgeVerdicts(new bool?[] { true, false, true }));
-        Assert.Null(StatusCheckService.CombineEdgeVerdicts(new bool?[] { null, null }));
-        Assert.Null(StatusCheckService.CombineEdgeVerdicts(Array.Empty<bool?>()));
-        // Unknown edges do not veto a unanimous definitive rest.
-        Assert.True(StatusCheckService.CombineEdgeVerdicts(new bool?[] { null, true }));
-        Assert.False(StatusCheckService.CombineEdgeVerdicts(new bool?[] { false, null }));
-    }
-
-    [Fact]
-    public void TryGetOwningService_MatchesExactAndWildcardEntriesOnly()
-    {
-        var domains = new CacheDomainsList
-        {
-            Services = new List<CacheDomainService>
-            {
-                new() { Name = "riot", Domains = new List<string> { "l3cdn.riotgames.com" } },
-                new() { Name = "steam", Domains = new List<string> { "lancache.steamcontent.com", "*.steamcontent.com" } }
-            }
-        };
-
-        Assert.Equal("steam", StatusCheckService.TryGetOwningService("lancache.steamcontent.com", domains));
-        Assert.Equal("steam", StatusCheckService.TryGetOwningService("LANCACHE.STEAMCONTENT.COM", domains));
-        Assert.Equal("steam", StatusCheckService.TryGetOwningService("cache1-lhr1.steamcontent.com", domains));
-        Assert.Equal("riot", StatusCheckService.TryGetOwningService("l3cdn.riotgames.com", domains));
-        // The wildcard's bare base is not a member, and arbitrary hostnames never are - the
-        // test-domain flow must not upstream-probe anything outside the curated list.
-        Assert.Null(StatusCheckService.TryGetOwningService("steamcontent.com", domains));
-        Assert.Null(StatusCheckService.TryGetOwningService("example.com", domains));
-    }
-
-    [Fact]
-    public void BuildSummaryCore_CountsHttpsRedirectDomains()
-    {
-        var services = new List<ServiceCheckResult>
-        {
-            new()
-            {
-                Status = "resolved", ResolvedCount = 2, TotalCount = 2,
-                Domains = new List<DomainCheckResult>
-                {
-                    new() { Status = "resolved", HttpsRedirect = true },
-                    new() { Status = "resolved", HttpsRedirect = false }
-                }
-            },
-            // Null = probe not attempted/undeterminable - must never count as a forced redirect.
-            new()
-            {
-                Status = "resolved", ResolvedCount = 1, TotalCount = 1,
-                Domains = new List<DomainCheckResult> { new() { Status = "resolved", HttpsRedirect = null } }
-            }
-        };
-
-        var summary = StatusCheckService.BuildSummaryCore(services);
-
-        Assert.Equal(1, summary.HttpsRedirectDomains);
     }
 
     // ===== Contract amendment v1.3: empty expectedIps -> unverified, LANCACHE_IP lists =====

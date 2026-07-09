@@ -25,7 +25,4 @@ internal sealed class TestLancacheServerLocator : ILancacheServerLocator
 
     public Task<HeartbeatResult> ProbeHeartbeatAsync(string ip, CancellationToken cancellationToken)
         => Task.FromResult(new HeartbeatResult { Reachable = false, CacheIp = ip, Error = "test locator" });
-
-    public Task<HttpsRedirectProbeResult> ProbeHttpsRedirectAsync(string upstreamIp, string domain, CancellationToken cancellationToken)
-        => Task.FromResult(new HttpsRedirectProbeResult { Redirected = null, Location = null });
 }

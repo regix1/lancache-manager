@@ -34,24 +34,13 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
     /// MANAGER_PROBE_USER_AGENT in rust-processor's service_utils.rs.</summary>
     internal const string ProbeUserAgent = "lancache-manager-status-check/1.0";
 
-    /// <summary>Path used by the HTTPS-redirect probe. Deliberately a synthetic deep path, never
-    /// the bare vhost root: many origins bounce "/" to an https marketing page while serving real
-    /// download paths over plain HTTP, and only a server that blanket-forces HTTPS redirects a
-    /// path that cannot exist.</summary>
-    internal const string HttpsRedirectProbePath = "/lancache-manager-status-check-probe";
-
     // Short timeouts, shared/static to avoid per-call socket churn during Docker-detect candidate
     // probing.
     private static readonly HttpClient _heartbeatProbeClient = CreateProbeClient(TimeSpan.FromSeconds(2));
 
-    // Separate client for the upstream HTTPS-redirect probe: the request travels cache -> upstream
-    // CDN, so it needs more headroom than the LAN-only heartbeat's 2s.
-    private static readonly HttpClient _httpsRedirectProbeClient = CreateProbeClient(TimeSpan.FromSeconds(5));
-
     /// <summary>Probe clients never follow redirects (each probe must verify the exact address or
-    /// answer it was pointed at - for the HTTPS-redirect probe the redirect itself is the finding)
-    /// and always identify themselves via <see cref="ProbeUserAgent"/> so the access-log lines they
-    /// generate are recognizable as synthetic.</summary>
+    /// answer it was pointed at) and always identify themselves via <see cref="ProbeUserAgent"/> so
+    /// the access-log lines they generate are recognizable as synthetic.</summary>
     private static HttpClient CreateProbeClient(TimeSpan timeout)
     {
         var client = new HttpClient(new SocketsHttpHandler
@@ -516,54 +505,6 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
                 Error = $"probe failed ({ex.GetType().Name}: {ex.Message})"
             };
         }
-    }
-
-    public async Task<HttpsRedirectProbeResult> ProbeHttpsRedirectAsync(string upstreamIp, string domain, CancellationToken cancellationToken)
-    {
-        // The INVERSE gate of every other probe here: this request must reach the real upstream
-        // CDN, never anything on the LAN. A private/loopback target would mean re-probing the
-        // cache, which writes synthetic request lines into access.log - lines this app's log
-        // pipeline and any third-party dashboard reading the same file would have to special-case
-        // away. The hostname check keeps arbitrary bytes out of the Host header.
-        if (!IPAddress.TryParse(upstreamIp, out var address) ||
-            IsPrivateIp(upstreamIp) ||
-            IPAddress.IsLoopback(address) ||
-            Uri.CheckHostName(domain) != UriHostNameType.Dns)
-        {
-            return new HttpsRedirectProbeResult { Redirected = null, Location = null };
-        }
-
-        try
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"http://{upstreamIp}{HttpsRedirectProbePath}");
-            request.Headers.Host = domain;
-            using var response = await _httpsRedirectProbeClient.SendAsync(
-                request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-
-            var target = GetHttpsRedirectTarget((int)response.StatusCode, response.Headers.Location);
-            return new HttpsRedirectProbeResult { Redirected = target != null, Location = target };
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
-        {
-            // Unreachable upstream / timeout / cancelled sweep - explicitly "couldn't determine",
-            // never "no redirect" (a dead upstream must not read as a healthy plain-HTTP path).
-            return new HttpsRedirectProbeResult { Redirected = null, Location = null };
-        }
-    }
-
-    /// <summary>Pure classification for the HTTPS-redirect probe: the absolute <c>https://</c>
-    /// Location of a 3xx answer, else null. Relative Locations keep the request's http scheme and
-    /// same-scheme redirects are ordinary CDN behavior - neither upgrades the client to HTTPS.</summary>
-    internal static string? GetHttpsRedirectTarget(int statusCode, Uri? location)
-    {
-        if (statusCode is < 300 or > 399 || location == null || !location.IsAbsoluteUri)
-        {
-            return null;
-        }
-
-        return string.Equals(location.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
-            ? location.AbsoluteUri
-            : null;
     }
 
     /// <summary>Caller-scoping profile for the cache-server candidate builder. There is deliberately

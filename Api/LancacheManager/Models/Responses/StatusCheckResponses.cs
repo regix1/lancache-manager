@@ -38,18 +38,6 @@ public class DomainCheckResult
     public string? Error { get; set; }
 
     public double? LatencyMs { get; set; }
-
-    /// <summary>True when a plain-HTTP request for this domain, sent through the heartbeat-verified
-    /// cache IP exactly like a game client's download would travel, answered with a redirect to an
-    /// <c>https://</c> URL - the upstream is forcing HTTPS, so clients follow it past the cache and
-    /// nothing gets cached. False when plain HTTP passed through un-upgraded. Null when the probe
-    /// wasn't attempted (domain not heartbeat-verified) or couldn't determine an answer (upstream
-    /// unreachable through the cache). Older persisted results deserialize this as null.</summary>
-    public bool? HttpsRedirect { get; set; }
-
-    /// <summary>Absolute <c>https://</c> URL from the redirect's Location header; null unless
-    /// <see cref="HttpsRedirect"/> is true.</summary>
-    public string? HttpsRedirectLocation { get; set; }
 }
 
 /// <summary>Aggregated verdict for one cache-domains service (e.g. "steam").</summary>
@@ -64,11 +52,6 @@ public class ServiceCheckResult
     /// but at least one resolves to a private IP that isn't answering as lancache).</summary>
     public string Status { get; set; } = string.Empty;
 
-    /// <summary>Mirrors <see cref="CacheDomainService.MixedContent"/> into this sweep's snapshot -
-    /// the curated "this service uses HTTPS for some downloads" flag that drives the UI's
-    /// prefers-HTTPS warning.</summary>
-    public bool MixedContent { get; set; }
-
     public int ResolvedCount { get; set; }
     public int TotalCount { get; set; }
     public List<DomainCheckResult> Domains { get; set; } = new();
@@ -81,19 +64,6 @@ public class HeartbeatResult
     public string? ServedBy { get; set; }
     public string? CacheIp { get; set; }
     public string? Error { get; set; }
-}
-
-/// <summary>Result of probing whether an upstream forces HTTP-to-HTTPS for a cache domain (request
-/// sent to the verified cache IP with the domain as Host, redirects never followed).</summary>
-public class HttpsRedirectProbeResult
-{
-    /// <summary>True = upstream answered 3xx with an absolute <c>https://</c> Location; false =
-    /// plain HTTP was served (any non-redirect answer, or a redirect staying on http); null =
-    /// undeterminable (probe failed, timed out, or was never attempted).</summary>
-    public bool? Redirected { get; set; }
-
-    /// <summary>Absolute <c>https://</c> redirect target; null unless <see cref="Redirected"/> is true.</summary>
-    public string? Location { get; set; }
 }
 
 public class StatusCheckSummary
@@ -117,11 +87,6 @@ public class StatusCheckSummary
 
     /// <summary>Count of domains with status "unverified" across all services (contract amendment v1.3).</summary>
     public int UnverifiedDomains { get; set; }
-
-    /// <summary>Count of domains whose upstream forced an HTTP-to-HTTPS redirect when probed through
-    /// the cache (<see cref="DomainCheckResult.HttpsRedirect"/> true) - DNS resolves correctly, yet
-    /// downloads bypass the cache at fetch time. Older persisted results deserialize this as 0.</summary>
-    public int HttpsRedirectDomains { get; set; }
 }
 
 /// <summary>Full result of one Status Check sweep. Persisted via <c>IStateService</c> so it survives restarts.</summary>
@@ -196,12 +161,6 @@ public class CacheDomainService
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public List<string> Domains { get; set; } = new();
-
-    /// <summary>The manifest's curated <c>mixed_content</c> flag: the service serves some
-    /// downloads over HTTPS, so caching only partially works by design. This is the community's
-    /// own HTTPS signal - unlike an edge probe it can't be fooled by a CDN that redirects
-    /// arbitrary outside requests.</summary>
-    public bool MixedContent { get; set; }
 }
 
 /// <summary>In-memory/on-disk representation of the fetched cache-domains list.</summary>

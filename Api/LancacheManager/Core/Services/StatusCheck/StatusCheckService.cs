@@ -5,10 +5,8 @@ using System.Net.Sockets;
 using DnsClient;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using LancacheManager.Models.Responses;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace LancacheManager.Core.Services.StatusCheck;
@@ -39,7 +37,6 @@ public sealed class StatusCheckService : IStatusCheckService
     private readonly ISignalRNotificationService _notifications;
     private readonly IStateService _stateService;
     private readonly IOptionsMonitor<PrefillNetworkOptions> _networkOptions;
-    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
 
     private int _running;
     private Guid? _currentOperationId;
@@ -60,8 +57,7 @@ public sealed class StatusCheckService : IStatusCheckService
         IUnifiedOperationTracker operationTracker,
         ISignalRNotificationService notifications,
         IStateService stateService,
-        IOptionsMonitor<PrefillNetworkOptions> networkOptions,
-        IDbContextFactory<AppDbContext> dbContextFactory)
+        IOptionsMonitor<PrefillNetworkOptions> networkOptions)
     {
         _logger = logger;
         _domainsService = domainsService;
@@ -71,7 +67,6 @@ public sealed class StatusCheckService : IStatusCheckService
         _notifications = notifications;
         _stateService = stateService;
         _networkOptions = networkOptions;
-        _dbContextFactory = dbContextFactory;
         _heartbeatCache = new HeartbeatVerdictCache(
             ip => serverLocator.ProbeHeartbeatAsync(ip, CancellationToken.None),
             ttl: TimeSpan.FromSeconds(60),
@@ -137,28 +132,9 @@ public sealed class StatusCheckService : IStatusCheckService
         var location = await _serverLocator.LocateAsync(cancellationToken);
         var (resolverSource, dnsServer, dnsClient) = await ResolveDnsTargetAsync(location, cancellationToken);
 
-        // The upstream HTTPS-redirect probe only runs for curated cache-domains entries. An
-        // arbitrary user-typed hostname must never be probed upstream, or this endpoint becomes
-        // a generic server-side request proxy. Same evidence gate as the sweep: recent cache
-        // traffic for the owning service already proves downloads route through the cache.
-        var domains = await _domainsService.GetDomainsAsync(forceRefresh: false, cancellationToken);
-        var owningService = TryGetOwningService(domain, domains);
-        var probeRedirect = owningService != null &&
-            !(await GetServicesWithRecentCacheTrafficAsync(cancellationToken)).Contains(owningService);
-        _logger.LogInformation(
-            "Status Check: test domain {Domain} - owning service {Service}; HTTPS-redirect probe {Decision}",
-            domain,
-            owningService ?? "(none, not in the cache-domains list)",
-            owningService == null ? "skipped (uncurated domain)" : probeRedirect ? "will run" : "skipped (recent cache traffic)");
-        (LookupClient? Client, string? Server) upstream = probeRedirect
-            ? await CreateUpstreamDnsClientAsync(cancellationToken)
-            : (null, null);
-
         // Ad hoc tests aren't tied to a known service; the frontend already knows which service the
         // user picked from the dropdown (if any) and can render that context itself.
-        var result = await ResolveDomainAsync(
-            domain, string.Empty, location.CacheIps, dnsClient,
-            upstream.Client, probeRedirect, cancellationToken);
+        var result = await ResolveDomainAsync(domain, string.Empty, location.CacheIps, dnsClient, cancellationToken);
 
         // Heartbeat only makes sense against a LAN cache; probing whatever public IP an arbitrary
         // hostname resolves to would make this endpoint a server-side request proxy (SSRF surface),
@@ -196,55 +172,10 @@ public sealed class StatusCheckService : IStatusCheckService
             var location = await _serverLocator.LocateAsync(token);
             var (resolverSource, dnsServer, dnsClient) = await ResolveDnsTargetAsync(location, token);
 
-            // The HTTPS-redirect check needs each domain's REAL public address, which only the
-            // upstream resolver knows (the lancache DNS answers with the cache). No configured
-            // upstream resolver = the check honestly reports unknown; there is deliberately no
-            // hardcoded public-resolver fallback.
-            var (upstreamDnsClient, upstreamDnsServer) = await CreateUpstreamDnsClientAsync(token);
-            if (upstreamDnsClient == null)
-            {
-                _logger.LogInformation(
-                    "Status Check: no UPSTREAM_DNS resolver could be determined - the HTTPS-redirect check will report unknown for this sweep");
-            }
-            else
-            {
-                _logger.LogDebug("Status Check: HTTPS-redirect probes will resolve upstream addresses via {UpstreamDns}", upstreamDnsServer);
-            }
-
             // Contract amendment v1.1: DISABLE_<SERVICE>=true (uppercased cache_domains name) in
             // lancache-dns means the service is intentionally not cached - never query its domains,
             // and exclude it from the progress denominator so the ribbon still reaches 100%.
             var disabledServices = await DetermineDisabledServicesAsync(domains.Services, token);
-
-            // Recent cache traffic (hit OR miss - both route through the cache over plain HTTP)
-            // is direct proof the service isn't bypassed, and it outranks anything the redirect
-            // probe can see: many CDN edges (TESO's Akamai, Cloudflare fronts) blanket-redirect
-            // every outside HTTP request while the cache's own fetches sail through. Don't probe -
-            // and never warn - where the user's own traffic already answered the question.
-            var servicesWithRecentTraffic = await GetServicesWithRecentCacheTrafficAsync(token);
-            if (servicesWithRecentTraffic.Count == 0)
-            {
-                _logger.LogInformation(
-                    "Status Check: no service recorded cache traffic in the last {Days} days - every heartbeat-verified domain will be HTTPS-redirect probed",
-                    (int)_recentTrafficEvidenceWindow.TotalDays);
-            }
-            else
-            {
-                // Both lists on purpose: the first shows the service names exactly as the DB logged
-                // them, the second which listed services they matched - a name mismatch (e.g. a
-                // download tagged differently than the cache_domains name) is visible as a service
-                // appearing in the first list but not the second.
-                var suppressedServices = domains.Services
-                    .Where(s => servicesWithRecentTraffic.Contains(s.Name))
-                    .Select(s => s.Name)
-                    .ToList();
-                _logger.LogInformation(
-                    "Status Check: cache traffic in the last {Days} days for [{TrafficServices}] - skipping HTTPS-redirect probes for {SuppressedCount} listed service(s) [{SuppressedServices}]",
-                    (int)_recentTrafficEvidenceWindow.TotalDays,
-                    string.Join(", ", servicesWithRecentTraffic.OrderBy(s => s, StringComparer.OrdinalIgnoreCase)),
-                    suppressedServices.Count,
-                    string.Join(", ", suppressedServices));
-            }
 
             var totalDomains = domains.Services
                 .Where(s => !disabledServices.Contains(s.Name))
@@ -285,8 +216,6 @@ public sealed class StatusCheckService : IStatusCheckService
                     continue;
                 }
 
-                var probeRedirectForService = !servicesWithRecentTraffic.Contains(service.Name);
-
                 using var semaphore = new SemaphoreSlim(MaxConcurrency);
                 var tasks = service.Domains.Select(async originalEntry =>
                 {
@@ -294,8 +223,7 @@ public sealed class StatusCheckService : IStatusCheckService
                     try
                     {
                         var result = await ResolveDomainAsync(
-                            originalEntry, service.Name, location.CacheIps, dnsClient,
-                            upstreamDnsClient, probeRedirectForService, token, verifiedIps);
+                            originalEntry, service.Name, location.CacheIps, dnsClient, token, verifiedIps);
                         if (result.ResolvedIps.Count == 0)
                         {
                             var reason = result.Error ?? "No A records returned";
@@ -338,9 +266,7 @@ public sealed class StatusCheckService : IStatusCheckService
                     currentService = service.Name
                 });
 
-                var serviceResult = BuildServiceResultCore(service.Name, service.Description, domainResults);
-                serviceResult.MixedContent = service.MixedContent;
-                serviceResults.Add(serviceResult);
+                serviceResults.Add(BuildServiceResultCore(service.Name, service.Description, domainResults));
             }
 
             var failedDomains = failureReasons.Values.Sum();
@@ -369,20 +295,6 @@ public sealed class StatusCheckService : IStatusCheckService
                 _logger.LogInformation(
                     "Status Check: sweep {OperationId} finished - all {TotalDomains} domains resolved",
                     operationId, totalDomains);
-            }
-
-            if (upstreamDnsClient != null)
-            {
-                // One aggregate line per sweep so the state of the HTTPS-redirect check is always
-                // visible in the log: how many domains were even eligible, and how each came out.
-                var probedDomains = serviceResults
-                    .Where(s => !servicesWithRecentTraffic.Contains(s.Service))
-                    .SelectMany(s => s.Domains)
-                    .Count(d => d.HeartbeatVerified);
-                var plainHttpDomains = serviceResults.SelectMany(s => s.Domains).Count(d => d.HttpsRedirect == false);
-                _logger.LogInformation(
-                    "Status Check: HTTPS-redirect probes - {Probed} heartbeat-verified domain(s) probed, {PlainHttp} confirmed plain HTTP, {Inconclusive} inconclusive",
-                    probedDomains, plainHttpDomains, probedDomains - plainHttpDomains);
             }
 
             var heartbeat = await BuildHeartbeatResultAsync(location, token);
@@ -463,45 +375,6 @@ public sealed class StatusCheckService : IStatusCheckService
         }
     }
 
-    // How far back cache traffic still counts as proof that a service's downloads route through
-    // the cache. Beyond this, the upstream may have flipped to HTTPS since - warn again.
-    private static readonly TimeSpan _recentTrafficEvidenceWindow = TimeSpan.FromDays(30);
-
-    // A MISS is proof too: it means the client asked the cache over plain HTTP and the cache
-    // fetched upstream - a first-time download is all misses and still refutes "bypasses the
-    // cache". The floor exists solely to ignore junk rows (the v1 probe incident left tiny
-    // synthetic downloads per service); a real download chunk clears 1 MB trivially.
-    private const long MinTrafficEvidenceBytes = 1024 * 1024;
-
-    /// <summary>Service names (as logged by lancache, matching the cache_domains names) with a
-    /// download of at least <see cref="MinTrafficEvidenceBytes"/> (hit or miss - both route
-    /// through the cache over plain HTTP) inside <see cref="_recentTrafficEvidenceWindow"/>. A DB
-    /// hiccup yields an empty set (warnings stay probe-driven) rather than failing the sweep.</summary>
-    private async Task<HashSet<string>> GetServicesWithRecentCacheTrafficAsync(CancellationToken ct)
-    {
-        try
-        {
-            var cutoff = DateTime.UtcNow - _recentTrafficEvidenceWindow;
-            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(ct);
-            var services = await dbContext.Downloads
-                .AsNoTracking()
-                .Where(d => d.EndTimeUtc >= cutoff && d.CacheHitBytes + d.CacheMissBytes >= MinTrafficEvidenceBytes)
-                .Select(d => d.Service)
-                .Distinct()
-                .ToListAsync(ct);
-            return new HashSet<string>(services, StringComparer.OrdinalIgnoreCase);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Status Check: could not read recent cache-traffic evidence; HTTPS-redirect warnings will not be suppressed this sweep");
-            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        }
-    }
-
     /// <summary>Looks up <c>DISABLE_&lt;SERVICE&gt;</c> (uppercased cache_domains service name) for
     /// every listed service via the tiered env source. Per-service IP overrides
     /// (<c>&lt;SERVICE&gt;CACHE_IP</c>-style) are explicitly out of scope (v1.1) - not implemented,
@@ -558,8 +431,6 @@ public sealed class StatusCheckService : IStatusCheckService
         string serviceName,
         List<string> expectedIps,
         LookupClient? dnsClient,
-        LookupClient? upstreamDnsClient,
-        bool probeUpstreamRedirect,
         CancellationToken ct,
         ConcurrentDictionary<string, string>? verifiedIpSink = null)
     {
@@ -644,19 +515,6 @@ public sealed class StatusCheckService : IStatusCheckService
             }
         }
 
-        // An upstream that answers plain HTTP with a redirect to https:// bounces game clients
-        // around the cache entirely - DNS can be perfect and the service still caches nothing.
-        // Asked of the REAL upstream (resolved via UPSTREAM_DNS), never through the cache: a
-        // through-cache probe writes synthetic lines into access.log and manufactures phantom
-        // downloads in every tool that reads that file. Only meaningful for domains that route
-        // through the cache; everything else stays null (not checked).
-        bool? httpsRedirect = null;
-        string? httpsRedirectLocation = null;
-        if (heartbeatVerified && probeUpstreamRedirect && upstreamDnsClient != null)
-        {
-            (httpsRedirect, httpsRedirectLocation) = await ProbeUpstreamHttpsRedirectAsync(queryDomain, upstreamDnsClient, ct);
-        }
-
         return new DomainCheckResult
         {
             Domain = queryDomain,
@@ -668,169 +526,10 @@ public sealed class StatusCheckService : IStatusCheckService
             HeartbeatVerified = heartbeatVerified,
             ServedBy = servedBy,
             Error = error,
-            LatencyMs = Math.Round(stopwatch.Elapsed.TotalMilliseconds, 1),
-            HttpsRedirect = httpsRedirect,
-            HttpsRedirectLocation = httpsRedirectLocation
+            LatencyMs = Math.Round(stopwatch.Elapsed.TotalMilliseconds, 1)
         };
     }
 
-    /// <summary>Builds a resolver pointed at the lancache host's <c>UPSTREAM_DNS</c> (the resolver
-    /// lancache itself forwards cache misses through), read via the tiered environment source
-    /// (docker-inspect -> .env file). Used to learn a domain's REAL public address for the
-    /// HTTPS-redirect probe without asking the poisoned lancache DNS, whose answer is the cache.
-    /// Null when nothing is configured - never a hardcoded public resolver.</summary>
-    private async Task<(LookupClient? Client, string? Server)> CreateUpstreamDnsClientAsync(CancellationToken ct)
-    {
-        var envResult = await _environmentSource.GetValueAsync("UPSTREAM_DNS", ct);
-        if (string.IsNullOrWhiteSpace(envResult.Value))
-        {
-            return (null, null);
-        }
-
-        foreach (var entry in LancacheServerLocator.SplitAddressList(envResult.Value))
-        {
-            if (IPAddress.TryParse(entry, out var address))
-            {
-                var options = new LookupClientOptions(address)
-                {
-                    Timeout = TimeSpan.FromSeconds(2),
-                    Retries = 0,
-                    UseCache = true,
-                };
-                return (new LookupClient(options), entry);
-            }
-        }
-
-        return (null, null);
-    }
-
-    // CDN edges can answer differently per IP and rotate over time (observed live: the same
-    // domain 301ing on one Akamai edge and 404ing on another), so a single edge is never proof.
-    private const int MaxRedirectProbeEdges = 3;
-
-    /// <summary>Resolves the domain's real public addresses via the upstream resolver and asks the
-    /// upstream CDN itself whether plain HTTP gets bounced to https, corroborated across up to
-    /// <see cref="MaxRedirectProbeEdges"/> edges (see <see cref="CombineEdgeVerdicts"/>). Never
-    /// routed through the cache - synthetic through-cache requests pollute access.log and
-    /// manufacture phantom downloads in every tool reading it. Can only ever CLEAR a domain
-    /// (unanimous plain-HTTP answers = false) or stay null: a unanimous redirect is logged but
-    /// deliberately returned as inconclusive, because the canary path cannot tell a
-    /// blanket-redirecting CDN apart from a genuine HTTPS migration.</summary>
-    private async Task<(bool? Redirected, string? Location)> ProbeUpstreamHttpsRedirectAsync(
-        string queryDomain, LookupClient upstreamDnsClient, CancellationToken ct)
-    {
-        try
-        {
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(_perDomainTimeout);
-            var response = await upstreamDnsClient.QueryAsync(queryDomain, QueryType.A, cancellationToken: timeoutCts.Token);
-            var upstreamIps = response.Answers.ARecords()
-                .Select(r => r.Address)
-                .Where(a => !LancacheServerLocator.IsPrivateIp(a.ToString()) && !IPAddress.IsLoopback(a))
-                .Select(a => a.ToString())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Take(MaxRedirectProbeEdges)
-                .ToList();
-            if (upstreamIps.Count == 0)
-            {
-                // NXDOMAIN (e.g. a wildcard probe label) or private answers - nothing public to ask.
-                _logger.LogDebug(
-                    "Status Check: redirect probe for {Domain} skipped - upstream resolver returned no public address",
-                    queryDomain);
-                return (null, null);
-            }
-
-            var edges = new List<(string Ip, bool? Redirected, string? Location)>(upstreamIps.Count);
-            foreach (var ip in upstreamIps)
-            {
-                var probe = await _serverLocator.ProbeHttpsRedirectAsync(ip, queryDomain, ct);
-                edges.Add((ip, probe.Redirected, probe.Location));
-            }
-
-            var combined = CombineEdgeVerdicts(edges.Select(e => e.Redirected).ToList());
-
-            var edgeSummary = string.Join("; ", edges.Select(e =>
-                e.Redirected == true ? $"{e.Ip} redirects to {e.Location}"
-                : e.Redirected == false ? $"{e.Ip} serves plain HTTP"
-                : $"{e.Ip} no definitive answer"));
-            if (combined == true)
-            {
-                // A unanimous redirect on the canary path is NOT proof the service moved to HTTPS:
-                // blanket-redirecting CDNs (TESO's Akamai, Cloudflare fronts, wargaming's wgus
-                // hosts - all measured live) bounce every unknown outside path while real client
-                // downloads and the cache's own fetches work over plain HTTP. Indistinguishable
-                // from the outside = inconclusive, never a warning; the curated mixed_content
-                // manifest flag and the cache-traffic evidence are the signals that can be trusted.
-                _logger.LogInformation(
-                    "Status Check: {Domain} public edges redirect the canary path ({Edges}) - inconclusive, a blanket-redirecting CDN is indistinguishable from an HTTPS migration; not flagging",
-                    queryDomain, edgeSummary);
-                return (null, null);
-            }
-
-            _logger.LogDebug(
-                "Status Check: redirect probe for {Domain} verdict {Verdict}: {Edges}",
-                queryDomain, combined?.ToString() ?? "inconclusive", edgeSummary);
-
-            return (combined, null);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // Upstream resolver unreachable / timed out - "couldn't determine", never "no redirect".
-            _logger.LogDebug(ex, "Status Check: redirect probe for {Domain} failed", queryDomain);
-            return (null, null);
-        }
-    }
-
-    /// <summary>Combines per-edge HTTPS-redirect verdicts. Unanimous definitive answers decide;
-    /// anything mixed, or no definitive answer at all, stays undeterminable - this warning must
-    /// under-claim, never over-claim, because it only sees the upstream's PUBLIC edges, not the
-    /// path the cache's own miss fetches take.</summary>
-    internal static bool? CombineEdgeVerdicts(IReadOnlyList<bool?> verdicts)
-    {
-        var definitive = verdicts.Where(v => v.HasValue).Select(v => v!.Value).ToList();
-        if (definitive.Count == 0)
-        {
-            return null;
-        }
-        if (definitive.All(v => v))
-        {
-            return true;
-        }
-        return definitive.All(v => !v) ? false : null;
-    }
-
-    /// <summary>The cache-domains service that owns <paramref name="domain"/> - matched exactly,
-    /// or under a wildcard entry's suffix (<c>*.x.y</c> matches <c>a.x.y</c>, not <c>x.y</c>
-    /// itself) - or null for a hostname outside the curated list. Gates the ad hoc test-domain
-    /// flow's upstream HTTPS-redirect probe to curated list members only, and names the service
-    /// for the recent-hit evidence check.</summary>
-    internal static string? TryGetOwningService(string domain, CacheDomainsList domains)
-    {
-        foreach (var service in domains.Services)
-        {
-            foreach (var entry in service.Domains)
-            {
-                if (entry.StartsWith('*'))
-                {
-                    var suffix = entry[1..];
-                    if (domain.Length > suffix.Length && domain.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return service.Name;
-                    }
-                }
-                else if (string.Equals(entry, domain, StringComparison.OrdinalIgnoreCase))
-                {
-                    return service.Name;
-                }
-            }
-        }
-
-        return null;
-    }
 
     private async Task<HeartbeatResult> BuildHeartbeatResultAsync(LancacheServerLocation location, CancellationToken ct)
     {
@@ -933,8 +632,7 @@ public sealed class StatusCheckService : IStatusCheckService
             UnverifiedServices = services.Count(s => s.Status == "unverified"),
             TotalDomains = services.Sum(s => s.TotalCount),
             ResolvedDomains = services.Sum(s => s.ResolvedCount),
-            UnverifiedDomains = services.Sum(s => s.Domains.Count(d => d.Status == "unverified")),
-            HttpsRedirectDomains = services.Sum(s => s.Domains.Count(d => d.HttpsRedirect == true))
+            UnverifiedDomains = services.Sum(s => s.Domains.Count(d => d.Status == "unverified"))
         };
     }
 

@@ -193,18 +193,6 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
         })
       : null;
 
-  // Services whose downloads partially use HTTPS bypass the cache even though DNS is perfect, so
-  // this signal is orthogonal to the failure buckets (it mostly hits fully "resolved" services).
-  // Primary source is the manifest's curated mixed_content flag; probe-based domain flags are
-  // kept for completeness.
-  const httpsWarningServices = lastResult
-    ? lastResult.services.filter(
-        (service) =>
-          service.mixedContent === true ||
-          service.domains.some((domain) => domain.httpsRedirect === true)
-      )
-    : [];
-
   // Primary at-a-glance signal: the verdict tally as prominent count pills. Zero buckets stay
   // muted so the ones that actually hold services carry the eye.
   const statPills: { id: string; value: number; label: string }[] = summary
@@ -216,15 +204,6 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
           value: summary.unresolvedServices,
           label: t(`${keys}.statLabel.unresolved`)
         },
-        ...(httpsWarningServices.length > 0
-          ? [
-              {
-                id: 'https',
-                value: httpsWarningServices.length,
-                label: t(`${keys}.statLabel.https`)
-              }
-            ]
-          : []),
         ...(summary.unverifiedServices > 0
           ? [
               {
@@ -342,7 +321,7 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
         </div>
       )}
 
-      {!isRunning && (failureBuckets.length > 0 || httpsWarningServices.length > 0) && (
+      {!isRunning && failureBuckets.length > 0 && (
         <div className="status-check-breakdown mt-3">
           {failureBuckets.map((bucket) => {
             const labels = bucket.services.map((service) => formatServiceLabel(service.service));
@@ -368,33 +347,6 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
               </div>
             );
           })}
-          {httpsWarningServices.length > 0 &&
-            (() => {
-              const labels = httpsWarningServices.map((service) =>
-                formatServiceLabel(service.service)
-              );
-              const { shown, moreCount } = splitExamples(labels, CHIP_LIMIT);
-              return (
-                <div className="status-check-breakdown-row">
-                  <span className="status-check-breakdown-dot status-check-breakdown-dot--https" />
-                  <span className="status-check-breakdown-count tabular-nums">
-                    {t(`${keys}.breakdownHttpsRedirect`, { count: httpsWarningServices.length })}
-                  </span>
-                  <span className="status-check-chips">
-                    {shown.map((label) => (
-                      <span key={label} className="status-check-chip">
-                        {label}
-                      </span>
-                    ))}
-                    {moreCount > 0 && (
-                      <span className="status-check-chip status-check-chip--more">
-                        {t(`${keys}.breakdownMore`, { count: moreCount })}
-                      </span>
-                    )}
-                  </span>
-                </div>
-              );
-            })()}
         </div>
       )}
 
