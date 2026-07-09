@@ -193,12 +193,15 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
         })
       : null;
 
-  // Upstreams forcing HTTP -> HTTPS bypass the cache even though DNS is perfect, so this signal
-  // is orthogonal to the failure buckets (it mostly hits fully "resolved" services).
-  const httpsRedirectDomains = summary?.httpsRedirectDomains ?? 0;
-  const httpsRedirectServices = lastResult
-    ? lastResult.services.filter((service) =>
-        service.domains.some((domain) => domain.httpsRedirect === true)
+  // Services whose downloads partially use HTTPS bypass the cache even though DNS is perfect, so
+  // this signal is orthogonal to the failure buckets (it mostly hits fully "resolved" services).
+  // Primary source is the manifest's curated mixed_content flag; probe-based domain flags are
+  // kept for completeness.
+  const httpsWarningServices = lastResult
+    ? lastResult.services.filter(
+        (service) =>
+          service.mixedContent === true ||
+          service.domains.some((domain) => domain.httpsRedirect === true)
       )
     : [];
 
@@ -213,11 +216,11 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
           value: summary.unresolvedServices,
           label: t(`${keys}.statLabel.unresolved`)
         },
-        ...(httpsRedirectDomains > 0
+        ...(httpsWarningServices.length > 0
           ? [
               {
                 id: 'https',
-                value: httpsRedirectDomains,
+                value: httpsWarningServices.length,
                 label: t(`${keys}.statLabel.https`)
               }
             ]
@@ -339,7 +342,7 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
         </div>
       )}
 
-      {!isRunning && (failureBuckets.length > 0 || httpsRedirectDomains > 0) && (
+      {!isRunning && (failureBuckets.length > 0 || httpsWarningServices.length > 0) && (
         <div className="status-check-breakdown mt-3">
           {failureBuckets.map((bucket) => {
             const labels = bucket.services.map((service) => formatServiceLabel(service.service));
@@ -365,9 +368,9 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
               </div>
             );
           })}
-          {httpsRedirectDomains > 0 &&
+          {httpsWarningServices.length > 0 &&
             (() => {
-              const labels = httpsRedirectServices.map((service) =>
+              const labels = httpsWarningServices.map((service) =>
                 formatServiceLabel(service.service)
               );
               const { shown, moreCount } = splitExamples(labels, CHIP_LIMIT);
@@ -375,7 +378,7 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
                 <div className="status-check-breakdown-row">
                   <span className="status-check-breakdown-dot status-check-breakdown-dot--https" />
                   <span className="status-check-breakdown-count tabular-nums">
-                    {t(`${keys}.breakdownHttpsRedirect`, { count: httpsRedirectDomains })}
+                    {t(`${keys}.breakdownHttpsRedirect`, { count: httpsWarningServices.length })}
                   </span>
                   <span className="status-check-chips">
                     {shown.map((label) => (

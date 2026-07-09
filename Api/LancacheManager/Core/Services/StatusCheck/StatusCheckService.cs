@@ -338,7 +338,9 @@ public sealed class StatusCheckService : IStatusCheckService
                     currentService = service.Name
                 });
 
-                serviceResults.Add(BuildServiceResultCore(service.Name, service.Description, domainResults));
+                var serviceResult = BuildServiceResultCore(service.Name, service.Description, domainResults);
+                serviceResult.MixedContent = service.MixedContent;
+                serviceResults.Add(serviceResult);
             }
 
             var failedDomains = failureReasons.Values.Sum();
@@ -377,11 +379,10 @@ public sealed class StatusCheckService : IStatusCheckService
                     .Where(s => !servicesWithRecentTraffic.Contains(s.Service))
                     .SelectMany(s => s.Domains)
                     .Count(d => d.HeartbeatVerified);
-                var flaggedDomains = serviceResults.SelectMany(s => s.Domains).Count(d => d.HttpsRedirect == true);
                 var plainHttpDomains = serviceResults.SelectMany(s => s.Domains).Count(d => d.HttpsRedirect == false);
                 _logger.LogInformation(
-                    "Status Check: HTTPS-redirect probes - {Probed} heartbeat-verified domain(s) probed, {Flagged} prefer HTTPS, {PlainHttp} confirmed plain HTTP, {Inconclusive} inconclusive",
-                    probedDomains, flaggedDomains, plainHttpDomains, probedDomains - flaggedDomains - plainHttpDomains);
+                    "Status Check: HTTPS-redirect probes - {Probed} heartbeat-verified domain(s) probed, {PlainHttp} confirmed plain HTTP, {Inconclusive} inconclusive",
+                    probedDomains, plainHttpDomains, probedDomains - plainHttpDomains);
             }
 
             var heartbeat = await BuildHeartbeatResultAsync(location, token);
@@ -711,8 +712,10 @@ public sealed class StatusCheckService : IStatusCheckService
     /// upstream CDN itself whether plain HTTP gets bounced to https, corroborated across up to
     /// <see cref="MaxRedirectProbeEdges"/> edges (see <see cref="CombineEdgeVerdicts"/>). Never
     /// routed through the cache - synthetic through-cache requests pollute access.log and
-    /// manufacture phantom downloads in every tool reading it. (null, null) whenever anything
-    /// short of a definitive unanimous answer happens.</summary>
+    /// manufacture phantom downloads in every tool reading it. Can only ever CLEAR a domain
+    /// (unanimous plain-HTTP answers = false) or stay null: a unanimous redirect is logged but
+    /// deliberately returned as inconclusive, because the canary path cannot tell a
+    /// blanket-redirecting CDN apart from a genuine HTTPS migration.</summary>
     private async Task<(bool? Redirected, string? Location)> ProbeUpstreamHttpsRedirectAsync(
         string queryDomain, LookupClient upstreamDnsClient, CancellationToken ct)
     {
@@ -745,28 +748,30 @@ public sealed class StatusCheckService : IStatusCheckService
             }
 
             var combined = CombineEdgeVerdicts(edges.Select(e => e.Redirected).ToList());
-            var location = combined == true ? edges.FirstOrDefault(e => e.Location != null).Location : null;
 
-            // The flagged case explains itself at Information (it drives a visible warning); the
-            // clean/inconclusive cases stay at Debug so a healthy sweep doesn't print a line per domain.
             var edgeSummary = string.Join("; ", edges.Select(e =>
                 e.Redirected == true ? $"{e.Ip} redirects to {e.Location}"
                 : e.Redirected == false ? $"{e.Ip} serves plain HTTP"
                 : $"{e.Ip} no definitive answer"));
             if (combined == true)
             {
+                // A unanimous redirect on the canary path is NOT proof the service moved to HTTPS:
+                // blanket-redirecting CDNs (TESO's Akamai, Cloudflare fronts, wargaming's wgus
+                // hosts - all measured live) bounce every unknown outside path while real client
+                // downloads and the cache's own fetches work over plain HTTP. Indistinguishable
+                // from the outside = inconclusive, never a warning; the curated mixed_content
+                // manifest flag and the cache-traffic evidence are the signals that can be trusted.
                 _logger.LogInformation(
-                    "Status Check: {Domain} flagged as preferring HTTPS - every public edge redirected the probe: {Edges}",
+                    "Status Check: {Domain} public edges redirect the canary path ({Edges}) - inconclusive, a blanket-redirecting CDN is indistinguishable from an HTTPS migration; not flagging",
                     queryDomain, edgeSummary);
-            }
-            else
-            {
-                _logger.LogDebug(
-                    "Status Check: redirect probe for {Domain} verdict {Verdict}: {Edges}",
-                    queryDomain, combined?.ToString() ?? "inconclusive", edgeSummary);
+                return (null, null);
             }
 
-            return (combined, location);
+            _logger.LogDebug(
+                "Status Check: redirect probe for {Domain} verdict {Verdict}: {Edges}",
+                queryDomain, combined?.ToString() ?? "inconclusive", edgeSummary);
+
+            return (combined, null);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

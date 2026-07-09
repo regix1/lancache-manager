@@ -260,6 +260,25 @@ public class StatusCheckTests
         Assert.Equal("riot", result[0].Name);
     }
 
+    [Fact]
+    public void ParseCacheDomainsJson_ReadsMixedContentFlag_DefaultsFalse()
+    {
+        var json = """
+        {
+          "cache_domains": [
+            { "name": "origin", "domain_files": ["origin.txt"], "mixed_content": true },
+            { "name": "steam", "domain_files": ["steam.txt"] }
+          ]
+        }
+        """;
+
+        var result = CacheDomainsService.ParseCacheDomainsJson(json);
+
+        Assert.Equal(2, result.Count);
+        Assert.True(result[0].MixedContent);
+        Assert.False(result[1].MixedContent);
+    }
+
     // ===== CacheDomainsService.ParseDomainFile =====
 
     [Fact]

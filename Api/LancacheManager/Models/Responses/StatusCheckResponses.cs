@@ -64,6 +64,11 @@ public class ServiceCheckResult
     /// but at least one resolves to a private IP that isn't answering as lancache).</summary>
     public string Status { get; set; } = string.Empty;
 
+    /// <summary>Mirrors <see cref="CacheDomainService.MixedContent"/> into this sweep's snapshot -
+    /// the curated "this service uses HTTPS for some downloads" flag that drives the UI's
+    /// prefers-HTTPS warning.</summary>
+    public bool MixedContent { get; set; }
+
     public int ResolvedCount { get; set; }
     public int TotalCount { get; set; }
     public List<DomainCheckResult> Domains { get; set; } = new();
@@ -191,6 +196,12 @@ public class CacheDomainService
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public List<string> Domains { get; set; } = new();
+
+    /// <summary>The manifest's curated <c>mixed_content</c> flag: the service serves some
+    /// downloads over HTTPS, so caching only partially works by design. This is the community's
+    /// own HTTPS signal - unlike an edge probe it can't be fooled by a CDN that redirects
+    /// arbitrary outside requests.</summary>
+    public bool MixedContent { get; set; }
 }
 
 /// <summary>In-memory/on-disk representation of the fetched cache-domains list.</summary>

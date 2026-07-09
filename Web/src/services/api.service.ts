@@ -3650,6 +3650,9 @@ export interface StatusCheckServiceResult {
   /** "disabled" = DISABLE_<SERVICE>=true in lancache-dns; skipped by the sweep (domains: []).
    *  "unverified" = resolving, but no expected cache IP was known to verify against (v1.3). */
   status: 'resolved' | 'partial' | 'unresolved' | 'disabled' | 'unverified';
+  /** The cache-domains manifest's curated mixed_content flag: some of this service's downloads
+   *  use HTTPS and bypass the cache by design. Drives the prefers-HTTPS warning. */
+  mixedContent: boolean;
   resolvedCount: number;
   totalCount: number;
   domains: StatusCheckDomainResult[];

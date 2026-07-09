@@ -263,7 +263,7 @@ public sealed class CacheDomainsService : ICacheDomainsService
 
             var result = new CacheDomainsList();
             var referencedFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var (name, description, fileNames) in services)
+            foreach (var (name, description, fileNames, mixedContent) in services)
             {
                 var domains = new List<string>();
                 foreach (var file in fileNames)
@@ -287,7 +287,8 @@ public sealed class CacheDomainsService : ICacheDomainsService
                 {
                     Name = name,
                     Description = description,
-                    Domains = DedupeDomainsPreservingOrder(domains)
+                    Domains = DedupeDomainsPreservingOrder(domains),
+                    MixedContent = mixedContent
                 });
             }
 
@@ -381,7 +382,7 @@ public sealed class CacheDomainsService : ICacheDomainsService
             var services = ParseCacheDomainsJson(manifestJson);
             var result = new CacheDomainsList();
 
-            foreach (var (name, description, files) in services)
+            foreach (var (name, description, files, mixedContent) in services)
             {
                 var domains = new List<string>();
                 foreach (var file in files)
@@ -396,7 +397,8 @@ public sealed class CacheDomainsService : ICacheDomainsService
                 {
                     Name = name,
                     Description = description,
-                    Domains = DedupeDomainsPreservingOrder(domains)
+                    Domains = DedupeDomainsPreservingOrder(domains),
+                    MixedContent = mixedContent
                 });
             }
 
@@ -491,9 +493,9 @@ public sealed class CacheDomainsService : ICacheDomainsService
     /// Unlike the Go original, this keeps the individual domain_files list per service (the caller
     /// then reads each file for the actual domain strings - this parser never opens .txt files).
     /// </summary>
-    internal static List<(string Name, string Description, List<string> DomainFiles)> ParseCacheDomainsJson(string json)
+    internal static List<(string Name, string Description, List<string> DomainFiles, bool MixedContent)> ParseCacheDomainsJson(string json)
     {
-        var results = new List<(string, string, List<string>)>();
+        var results = new List<(string, string, List<string>, bool)>();
 
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
@@ -515,7 +517,7 @@ public sealed class CacheDomainsService : ICacheDomainsService
                     }
                     var description = entry.TryGetProperty("description", out var d) ? d.GetString() ?? string.Empty : string.Empty;
                     var files = ExtractDomainFiles(entry);
-                    results.Add((name, description, files));
+                    results.Add((name, description, files, ExtractMixedContent(entry)));
                 }
                 return results;
             }
@@ -538,9 +540,10 @@ public sealed class CacheDomainsService : ICacheDomainsService
         return results;
     }
 
-    private static (string Name, string Description, List<string> DomainFiles) ParseServiceObject(string name, JsonElement value)
+    private static (string Name, string Description, List<string> DomainFiles, bool MixedContent) ParseServiceObject(string name, JsonElement value)
     {
         var description = string.Empty;
+        var mixedContent = false;
         List<string> files;
 
         if (value.ValueKind == JsonValueKind.Object)
@@ -550,6 +553,7 @@ public sealed class CacheDomainsService : ICacheDomainsService
                 description = d.GetString() ?? string.Empty;
             }
             files = ExtractDomainFiles(value);
+            mixedContent = ExtractMixedContent(value);
         }
         else if (value.ValueKind == JsonValueKind.Array)
         {
@@ -569,7 +573,19 @@ public sealed class CacheDomainsService : ICacheDomainsService
             files = new List<string>();
         }
 
-        return (name, description, files);
+        return (name, description, files, mixedContent);
+    }
+
+    /// <summary>Reads the optional <c>mixed_content</c> flag, tolerating both the JSON boolean the
+    /// upstream manifest uses and a "true" string (same leniency as the rest of this parser).</summary>
+    private static bool ExtractMixedContent(JsonElement serviceElement)
+    {
+        if (!serviceElement.TryGetProperty("mixed_content", out var mc))
+        {
+            return false;
+        }
+        return mc.ValueKind == JsonValueKind.True ||
+               (mc.ValueKind == JsonValueKind.String && EnvValueParsing.ParseBool(mc.GetString()) == true);
     }
 
     private static List<string> ExtractDomainFiles(JsonElement serviceElement)
