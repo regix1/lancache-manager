@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use jwalk::WalkDir;
 use rayon::prelude::*;
 use serde::Serialize;
@@ -1449,7 +1449,7 @@ fn calculate_cache_size_network(
     Ok(result)
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     // Cooperative stdin-CANCEL: the scan loop, calibration loop, and progress monitor all
     // poll cancel::is_cancelled() and bail out cleanly between items.
     cancel::install();
@@ -1472,7 +1472,7 @@ fn main() {
         eprintln!("  cache_size /var/cache/lancache ./data/cache_size.json");
         eprintln!("\nOutput:");
         eprintln!("  Writes JSON with total size, file count, and estimated deletion times");
-        std::process::exit(1);
+        anyhow::bail!("invalid arguments: expected <cache_path> <output_json_path> [--progress]");
     }
 
     let cache_path = &args[1];
@@ -1503,24 +1503,15 @@ fn main() {
 
     reporter.emit_started("signalr.cacheSizeScan.starting", serde_json::json!({}));
 
-    match calculate_cache_size(cache_path, output_path, &reporter) {
-        Ok(result) => {
-            println!("{}", serde_json::to_string_pretty(&result).unwrap());
-            std::process::exit(0);
-        }
-        Err(e) => {
-            eprintln!("Error: {:?}", e);
-            reporter.emit_failed("signalr.cacheSizeScan.error.fatal", serde_json::json!({ "errorDetail": e.to_string() }));
+    // Fatal failures (including a `?` inside calculate_cache_size) route through the ONE
+    // uniform stdout `failed` event with a real `errorDetail`, replacing the old bespoke
+    // error-to-file side channel - see progress_events::finish_or_exit.
+    progress_events::run_or_exit(&reporter, "signalr.cacheSizeScan.error.fatal", || {
+        let result = calculate_cache_size(cache_path, output_path, &reporter)?;
+        let json = serde_json::to_string_pretty(&result).context("serialize cache-size result")?;
+        println!("{}", json);
+        Ok(())
+    });
 
-            // Write error to output file
-            let error_data = serde_json::json!({
-                "error": e.to_string(),
-                "status": "failed",
-                "timestamp": progress_utils::current_timestamp()
-            });
-            let _ = fs::write(output_path, serde_json::to_string_pretty(&error_data).unwrap());
-            
-            std::process::exit(1);
-        }
-    }
+    Ok(())
 }

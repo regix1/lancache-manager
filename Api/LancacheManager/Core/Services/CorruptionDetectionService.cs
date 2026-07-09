@@ -360,11 +360,18 @@ public class CorruptionDetectionService
 
             _logger.LogDebug("[CorruptionDetection] Rust process exit code: {Code}", result.ExitCode);
 
-            if (result.ExitCode != 0)
+            // Diagnostic stderr capture regardless of outcome - kept out of the exception message
+            // (EnsureSuccess below builds a safe, generic message) so raw process output never
+            // leaks to the client, but is still visible server-side for debugging.
+            if (!string.IsNullOrEmpty(result.Error))
             {
-                _logger.LogError("[CorruptionDetection] Failed with exit code {Code}: {Error}", result.ExitCode, result.Error);
-                throw new Exception($"corruption_manager failed with exit code {result.ExitCode}: {result.Error}");
+                _logger.LogDebug("[CorruptionDetection] corruption_manager stderr: {Error}", result.Error);
             }
+
+            // No-op when ExitCode==0; otherwise throws a typed RustProcessException carrying the
+            // exit code and stderr. The caller's catch (Exception ex) below logs it with the
+            // exception object and completes the operation as a failure.
+            result.EnsureSuccess("corruption_manager", datasourceName);
 
             var summaryData = JsonSerializer.Deserialize<CorruptionSummaryData>(result.Output,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });

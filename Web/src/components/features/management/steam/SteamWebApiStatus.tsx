@@ -14,6 +14,7 @@ import { usePicsProgress } from '@contexts/usePicsProgress';
 import { useNotifications } from '@contexts/notifications';
 import ApiService from '@services/api.service';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import { getErrorMessage } from '@utils/error';
 
 interface SteamWebApiStatusProps {
   steamAuthMode?: 'anonymous' | 'authenticated';
@@ -94,9 +95,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
         scheduleAutoDismiss(cardId);
       }
     } catch (error: unknown) {
-      const errorDetail =
-        (error instanceof Error ? error.message : String(error)) ||
-        t('modals.steamAuth.errors.networkError');
+      const errorDetail = getErrorMessage(error) || t('modals.steamAuth.errors.networkError');
       updateNotification(cardId, {
         status: 'failed',
         message: t('signalr.steamWebApi.keyRemoveFailed', { errorDetail }),

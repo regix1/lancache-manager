@@ -13,6 +13,8 @@ import {
   Clock
 } from 'lucide-react';
 import ApiService from '@services/api.service';
+import { getErrorMessage } from '@utils/error';
+import i18n from '../../i18n';
 import {
   useNotifications,
   type UnifiedNotification,
@@ -60,6 +62,18 @@ const CANCEL_CONFIG_BY_TYPE: Record<string, CancelConfig> = (() => {
 
 const FORCE_KILL_TOOLTIP_KEY = 'common.notifications.forceKillOperation';
 
+/**
+ * Surface a genuine cancel/force-kill failure to the user via the `show-toast` bridge. `handleCancel`
+ * is a module-level helper (not a hook/component), so `useErrorHandler` is unavailable here - this
+ * mirrors it using the documented non-hook escape hatch, which NotificationsContext bridges into the
+ * same generic notification the hook would create.
+ */
+const notifyToastError = (i18nKey: string): void => {
+  window.dispatchEvent(
+    new CustomEvent('show-toast', { detail: { type: 'error', message: i18n.t(i18nKey) } })
+  );
+};
+
 const handleCancel = async (
   notification: UnifiedNotification,
   updateNotification: (id: string, updates: Partial<UnifiedNotification>) => void,
@@ -101,7 +115,7 @@ const handleCancel = async (
     try {
       await ApiService.cancelOperation(operationId);
     } catch (err) {
-      console.error('Cancel failed:', err);
+      console.error('Cancel failed:', getErrorMessage(err));
       const errorMessage = err instanceof Error ? err.message : '';
       if (
         errorMessage.includes('not found') ||
@@ -110,6 +124,10 @@ const handleCancel = async (
       ) {
         removeNotification(notification.id);
       } else {
+        // Genuine cancel failure (not the "already gone" case above) - the operation is still
+        // running, so tell the user rather than leaving the reset X button as the only signal.
+        // This is a module-level helper (no hooks available), so report via the show-toast bridge.
+        notifyToastError('common.notifications.cancelOperationFailed');
         updateNotification(notification.id, {
           details: { ...notification.details, cancelRequested: false, cancelSent: false }
         });
@@ -125,10 +143,12 @@ const handleCancel = async (
   try {
     await ApiService.forceKillOperation(operationId);
   } catch (err) {
-    console.error('Force kill failed:', err);
+    console.error('Force kill failed:', getErrorMessage(err));
     const errorMessage = err instanceof Error ? err.message : '';
     if (errorMessage.includes('not found') || errorMessage.includes('Not Found')) {
       removeNotification(notification.id);
+    } else {
+      notifyToastError('common.notifications.forceKillOperationFailed');
     }
   }
 };
@@ -526,8 +546,10 @@ const UniversalNotificationBar: React.FC = () => {
         updateNotification(n.id, {
           details: { ...n.details, cancelRequested: false, cancelSent: true }
         });
+        // Background retry of a cancel the user already requested - the notification stays visible
+        // either way, so this only needs a console trail, not a second user-facing error.
         ApiService.cancelOperation(opId).catch((err) => {
-          console.error('[UniversalNotificationBar] Deferred cancel failed:', err);
+          console.error('[UniversalNotificationBar] Deferred cancel failed:', getErrorMessage(err));
         });
       }
     });

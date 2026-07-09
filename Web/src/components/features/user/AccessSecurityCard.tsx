@@ -7,7 +7,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
-import { useNotifications } from '@contexts/notifications';
+import { useErrorHandler } from '@hooks/useErrorHandler';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { GuestDurationResponse } from './AccessSecurityCard.types';
 import './AccessSecurityCard.css';
@@ -25,21 +25,25 @@ interface AccessSecurityCardProps {
 const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions }) => {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
-  const { addNotification } = useNotifications();
+  const { notifyError } = useErrorHandler();
   const { on, off, connectionState } = useSignalR();
 
   const [state, setState] = useState<GuestDurationResponse | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  const fetchGuestDuration = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const data = await ApiService.getGuestSessionDuration(signal);
-      setState(data);
-    } catch (error: unknown) {
-      if (error instanceof Error && error.name === 'AbortError') return;
-      console.error('Failed to load guest session duration:', error);
-    }
-  }, []);
+  const fetchGuestDuration = useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        const data = await ApiService.getGuestSessionDuration(signal);
+        setState(data);
+      } catch (error: unknown) {
+        notifyError(t('user.guest.errors.loadSessionDuration'), error, {
+          logLabel: 'Failed to load guest session duration'
+        });
+      }
+    },
+    [notifyError, t]
+  );
 
   // Initial load
   useEffect(() => {
@@ -80,12 +84,8 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
     } catch (error: unknown) {
       // Revert optimistic update
       setState(previous);
-      const message = error instanceof Error ? error.message : 'network';
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: t('user.guest.guestDurationToggle.error', { status: message }),
-        details: { notificationType: 'error' }
+      notifyError(t('user.guest.guestDurationToggle.error'), error, {
+        logLabel: 'Failed to update guest session duration'
       });
     } finally {
       setIsSaving(false);

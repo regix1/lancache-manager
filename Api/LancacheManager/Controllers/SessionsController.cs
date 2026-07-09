@@ -129,7 +129,7 @@ public class SessionsController : ControllerBase
         var success = await _sessionService.RevokeSessionAsync(id);
         if (!success)
         {
-            return NotFound(new { error = "Session not found" });
+            return NotFound(ApiResponse.NotFound("Session"));
         }
 
         // Broadcast session revoked
@@ -151,7 +151,7 @@ public class SessionsController : ControllerBase
         var success = await _sessionService.DeleteSessionAsync(id);
         if (!success)
         {
-            return NotFound(new { error = "Session not found" });
+            return NotFound(ApiResponse.NotFound("Session"));
         }
 
         // Broadcast session deleted (permanently removed)
@@ -176,7 +176,7 @@ public class SessionsController : ControllerBase
 
         // Guests cannot change their refresh rate when the global lock is active
         if (!isAdmin && _stateService.GetGuestRefreshRateLocked())
-            return StatusCode(403, new { error = "Refresh rate changes are locked by the administrator" });
+            throw new ForbiddenException("Refresh rate changes are locked by the administrator");
 
         using var scope = _scopeFactory.CreateScope();
         var prefsService = scope.ServiceProvider.GetRequiredService<UserPreferencesService>();
@@ -185,7 +185,7 @@ public class SessionsController : ControllerBase
         var result = await prefsService.UpdatePreferenceAsync(id, PreferenceKey.RefreshRate, refreshRateJson);
         if (result == null)
         {
-            return NotFound(new { error = "Session not found or update failed" });
+            return NotFound(ApiResponse.Error("Session not found or update failed"));
         }
 
         await _signalR.NotifyAllAsync(SignalREvents.GuestRefreshRateUpdated, new

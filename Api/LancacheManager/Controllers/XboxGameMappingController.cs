@@ -126,7 +126,7 @@ public class XboxGameMappingController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to start Xbox mapping login");
-            return StatusCode(500, ApiResponse.Error("Failed to start Xbox login: " + ex.Message));
+            throw; // -> GlobalExceptionMiddleware -> 500 safe { error, details?, statusCode, traceId }
         }
     }
 

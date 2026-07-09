@@ -7,6 +7,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { usePaginatedList } from '@hooks/usePaginatedList';
 import { useTranslation } from 'react-i18next';
+import { getErrorMessage } from '@utils/error';
 import type { ClientGroup } from '../../types';
 
 const IPS_PER_PAGE = 20;
@@ -166,9 +167,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
         }
         onClose();
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : t('modals.clientGroup.errors.failedToSave');
-        setError(message);
+        setError(getErrorMessage(err) || t('modals.clientGroup.errors.failedToSave'));
       } finally {
         setSaving(false);
       }

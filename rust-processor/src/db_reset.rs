@@ -70,7 +70,7 @@ fn write_progress(progress_path: &Path, reporter: &ProgressReporter, stage_key: 
         "starting" => reporter.emit_started(stage_key, context),
         "completed" => reporter.emit_complete(stage_key, context),
         "cancelled" => reporter.emit_cancelled(stage_key, context),
-        "error" => reporter.emit_failed(stage_key, context),
+        "error" => reporter.emit_failed(stage_key, context, Some(progress.message.clone())),
         _ => reporter.emit_progress(progress.percent_complete, stage_key, context),
     }
 
@@ -316,7 +316,7 @@ async fn reset_database(
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     let mut args: Vec<String> = env::args().collect();
 
     // Emit JSON progress events to stdout (mirrors cache_clear.rs/cache_game_detect.rs's
@@ -335,7 +335,7 @@ async fn main() {
         eprintln!("\nExample:");
         eprintln!("  database_reset ./data ./data/reset_progress.json");
         eprintln!("\nNote: Database connection is configured via DATABASE_URL environment variable.");
-        std::process::exit(1);
+        anyhow::bail!("invalid arguments");
     }
 
     cancel::install();
@@ -347,13 +347,11 @@ async fn main() {
     // Create data directory if it doesn't exist
     if let Err(e) = fs::create_dir_all(data_directory) {
         eprintln!("Failed to create data directory: {}", e);
-        std::process::exit(1);
+        anyhow::bail!("failed to create data directory: {e}");
     }
 
     match reset_database(data_directory, progress_path, &reporter).await {
-        Ok(_) => {
-            std::process::exit(0);
-        }
+        Ok(_) => Ok(()),
         Err(e) => {
             eprintln!("Error: {:?}", e);
 
@@ -369,7 +367,7 @@ async fn main() {
             );
             let _ = write_progress(progress_path, &reporter, "signalr.dbReset.error.fatal", &error_progress);
 
-            std::process::exit(1);
+            Err(e)
         }
     }
 }

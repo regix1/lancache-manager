@@ -208,7 +208,10 @@ public partial class GameCacheDetectionService : IDisposable
 
     /// <summary>
     /// Check if unknown depot IDs now have mappings available in SteamDepotMappings
-    /// Returns the count of unknown depot IDs that now have mappings
+    /// Returns the count of unknown depot IDs that now have mappings.
+    /// On failure (logged as a warning), returns (0, 0) - indistinguishable from "no unknowns
+    /// found"; this is a best-effort pre-check, not a required value, so the caller proceeds
+    /// with a normal scan either way.
     /// </summary>
     private async Task<(int totalUnknowns, int nowMapped)> CountMappedDepotsAsync()
     {
@@ -248,7 +251,9 @@ public partial class GameCacheDetectionService : IDisposable
 
     /// <summary>
     /// Smart pre-check: If 3+ unknown games detected in cache, check if depot mappings are now available
-    /// If mappings exist, invalidate cache to trigger fresh scan with new mappings
+    /// If mappings exist, invalidate cache to trigger fresh scan with new mappings.
+    /// On failure (logged as a warning), returns false and the scan proceeds normally - this is a
+    /// best-effort optimization, not a required step.
     /// </summary>
     private async Task<bool> PreCheckMappingsAsync(Guid operationId)
     {
@@ -511,12 +516,11 @@ public partial class GameCacheDetectionService : IDisposable
                         datasource.Name, result.Error);
                 }
 
-                if (result.ExitCode != 0)
-                {
-                    _logger.LogError("[GameDetection] Process failed for datasource '{DatasourceName}' with exit code {ExitCode}. Error: {Error}",
-                        datasource.Name, result.ExitCode, result.Error);
-                    throw new Exception($"Game detection failed for datasource '{datasource.Name}': {result.Error}");
-                }
+                // No-op when ExitCode==0; otherwise throws a typed RustProcessException carrying the
+                // exit code and stderr (result.Error, already logged above regardless of outcome).
+                // The outer catch (Exception ex) logs it with the exception object and completes
+                // the detection operation as a failure.
+                result.EnsureSuccess("cache_game_detect", datasource.Name);
 
                 // Read results from JSON
                 if (!File.Exists(outputJson))
@@ -914,9 +918,15 @@ public partial class GameCacheDetectionService : IDisposable
             TotalServicesDetected: payload.ServicesDetected,
             NewGamesCount: payload.NewGamesCount,
             Timestamp: DateTime.UtcNow,
-            Context: payload.Context);
+            Context: payload.Context,
+            Error: info.Error);
 
-        return _notifications.NotifyAllAsync(SignalREvents.GameDetectionComplete, record);
+        // A genuine failure (not cancellation) routes through the uniform failure broadcast so the
+        // reason is logged centrally and guaranteed on IOperationComplete.Error; success and cancel
+        // stay on the plain broadcast.
+        return status == OperationStatus.Failed
+            ? _notifications.NotifyOperationFailedAsync(SignalREvents.GameDetectionComplete, record)
+            : _notifications.NotifyAllAsync(SignalREvents.GameDetectionComplete, record);
     }
 
     public DetectionOperationResponse? GetOperationStatus(Guid operationId)
@@ -1256,11 +1266,21 @@ public partial class GameCacheDetectionService : IDisposable
             .ToListAsync();
     }
 
-    private static List<string> DeserializeStringList(string? json)
+    /// <summary>
+    /// Deserializes a persisted JSON string-array column. Returns an empty list both when the
+    /// column is genuinely empty AND when the JSON fails to parse (logged as a warning) - the two
+    /// cases are indistinguishable to callers by design: this backs best-effort display fields
+    /// (sample URLs, cache file paths, datasources), not a required value.
+    /// </summary>
+    private List<string> DeserializeStringList(string? json)
     {
         if (string.IsNullOrEmpty(json)) return new List<string>();
         try { return JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>(); }
-        catch { return new List<string>(); }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[GameDetection] Failed to deserialize JSON string list, treating as empty: {Json}", json);
+            return new List<string>();
+        }
     }
 
     /// <summary>
@@ -1292,7 +1312,7 @@ public partial class GameCacheDetectionService : IDisposable
         return $"steam:{game.GameAppId}";
     }
 
-    private static GameCacheInfo ToGameCacheInfo(CachedGameDetection cached)
+    private GameCacheInfo ToGameCacheInfo(CachedGameDetection cached)
     {
         var datasourcesJson = string.IsNullOrWhiteSpace(cached.DatasourcesJson) ? "[]" : cached.DatasourcesJson;
         return new GameCacheInfo
@@ -1311,7 +1331,7 @@ public partial class GameCacheDetectionService : IDisposable
         };
     }
 
-    private static ServiceCacheInfo ToServiceCacheInfo(CachedServiceDetection cached)
+    private ServiceCacheInfo ToServiceCacheInfo(CachedServiceDetection cached)
     {
         var datasourcesJson = string.IsNullOrWhiteSpace(cached.DatasourcesJson) ? "[]" : cached.DatasourcesJson;
         return new ServiceCacheInfo

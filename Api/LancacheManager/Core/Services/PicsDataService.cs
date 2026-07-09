@@ -280,6 +280,13 @@ public class PicsDataService
     private DateTime _cacheLastLoaded = DateTime.MinValue;
     private readonly TimeSpan _cacheExpiration = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// Loads PICS depot mapping data from the JSON file, using the in-memory cache when fresh.
+    /// Returns null both when no file exists yet AND when the load/parse fails (logged as a
+    /// warning/error; a corrupted file is also deleted so it regenerates on the next scan) - the
+    /// cases are indistinguishable to callers by design: absence of mapping data is always
+    /// handled as "not loaded yet", never a silent default for a required value.
+    /// </summary>
     public Task<PicsJsonData?> LoadFromJsonAsync()
     {
         try
@@ -393,7 +400,10 @@ public class PicsDataService
     }
 
     /// <summary>
-    /// Check if PICS JSON data needs updating (always use incremental)
+    /// Check if PICS JSON data needs updating (always use incremental).
+    /// Returns true (assume an update is needed) both when there is genuinely no data yet AND
+    /// when the check itself fails (logged as a warning) - a fail-safe default that triggers a
+    /// scan rather than silently skipping one.
     /// </summary>
     public async Task<bool> NeedsUpdateAsync()
     {
@@ -417,7 +427,9 @@ public class PicsDataService
     }
 
     /// <summary>
-    /// Get app IDs for a depot from JSON data
+    /// Get app IDs for a depot from JSON data.
+    /// Returns an empty list both when the depot has no known app IDs AND when the lookup fails
+    /// (logged as a warning) - the two cases are indistinguishable to callers by design.
     /// </summary>
     public async Task<List<long>> GetAppIdsForDepotFromJsonAsync(long depotId)
     {

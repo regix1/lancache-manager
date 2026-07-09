@@ -47,12 +47,21 @@ public class ConflictResponse
 }
 
 /// <summary>
-/// Generic error response for BadRequest/validation errors
+/// Generic error response for BadRequest/validation errors.
+/// Aligned with the <c>GlobalExceptionMiddleware</c> wire shape { error, details?, statusCode?, traceId? }
+/// (camelCase, nulls omitted). <see cref="Error"/> is the canonical, primary message key.
 /// </summary>
 public class ErrorResponse
 {
     public string Error { get; set; } = string.Empty;
     public string? Details { get; set; }
+    public int? StatusCode { get; set; }
+    public string? TraceId { get; set; }
+
+    /// <summary>
+    /// Legacy secondary message field. <see cref="Error"/> is the canonical error key; this is retained
+    /// only for the existing SteamApiKeysController payload that sets both. Do NOT add new usages.
+    /// </summary>
     public string? Message { get; set; }
 }
 
@@ -105,6 +114,12 @@ public static class ApiResponse
 
     /// <summary>Creates a conflict response (e.g., operation already running).</summary>
     public static ConflictResponse Conflict(string error) => new()
+    {
+        Error = error
+    };
+
+    /// <summary>Creates a forbidden (403) error response. Optional convenience for guard-clause bodies.</summary>
+    public static ErrorResponse Forbidden(string error) => new()
     {
         Error = error
     };

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
+import { getErrorMessage } from '@utils/error';
 import type { NotificationVariant } from '../types/operations';
 import type { SteamAuthActions, SteamLoginFlowState } from './steamAuthTypes';
 
@@ -315,7 +316,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       if (!(err instanceof Error && err.name === 'AbortError')) {
         setWaitingForMobileConfirmation(false);
         setLoading(false);
-        const errorMessage = err instanceof Error ? err.message : 'Authentication failed';
+        const errorMessage = getErrorMessage(err);
         notifyLoginFailure(errorMessage);
         resetAuthForm();
         onError?.(errorMessage);

@@ -14,6 +14,8 @@ import type { LogProcessingCompleteEvent } from '@contexts/SignalRContext/types'
 import { useConfig } from '@contexts/useConfig';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useNotifications } from '@contexts/notifications';
+import { useErrorHandler } from '@/hooks/useErrorHandler';
+import { getErrorMessage } from '@utils/error';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { LoadingState } from '@components/ui/ManagerCard';
@@ -57,6 +59,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   });
 
   const { addNotification } = useNotifications();
+  const { notifyError } = useErrorHandler();
   const signalR = useSignalR();
 
   // Check if processing is running or queued behind another operation
@@ -72,7 +75,11 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         const positionsData = await fetchLogPositions();
         setLogPositions(positionsData);
       } catch (err) {
-        console.error('Failed to load datasource data:', err);
+        notifyError(
+          t('management.datasources.errors.loadFailed', 'Failed to load datasource data'),
+          err,
+          { logLabel: 'Failed to load datasource data' }
+        );
       } finally {
         setLoading(false);
       }
@@ -83,7 +90,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     } else {
       setLoading(false);
     }
-  }, [mockMode]);
+  }, [mockMode, notifyError, t]);
 
   // Listen for processing complete events to refresh positions
   useEffect(() => {
@@ -92,7 +99,13 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         const positions = await fetchLogPositions();
         setLogPositions(positions);
       } catch (err) {
-        console.error('Failed to refresh log positions after processing:', err);
+        // Background auto-refresh after a completed processing run; the position display simply
+        // stays stale until the next successful refresh, so this is explicit background noise.
+        notifyError(
+          t('management.datasources.errors.loadFailed', 'Failed to load datasource data'),
+          err,
+          { silent: true, logLabel: 'Failed to refresh log positions after processing' }
+        );
       }
     };
 
@@ -101,7 +114,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     return () => {
       signalR.off('LogProcessingComplete', handleProcessingComplete);
     };
-  }, [signalR]);
+  }, [signalR, notifyError, t]);
 
   useEffect(() => {
     localStorage.setItem('management-datasources-expanded-v2', String(isExpanded));
@@ -137,10 +150,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       }
       onDataRefresh?.();
     } catch (err: unknown) {
-      onError?.(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('management.datasources.errors.processingFailed')
-      );
+      onError?.(getErrorMessage(err) || t('management.datasources.errors.processingFailed'));
     } finally {
       setActionLoading(null);
     }
@@ -164,10 +174,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       }
       onDataRefresh?.();
     } catch (err: unknown) {
-      onError?.(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('management.datasources.errors.processingFailed')
-      );
+      onError?.(getErrorMessage(err) || t('management.datasources.errors.processingFailed'));
     } finally {
       setActionLoading(null);
     }
@@ -193,10 +200,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       setLogPositions(positions);
       onDataRefresh?.();
     } catch (err: unknown) {
-      onError?.(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('management.datasources.errors.resetFailed')
-      );
+      onError?.(getErrorMessage(err) || t('management.datasources.errors.resetFailed'));
     } finally {
       setActionLoading(null);
       setResetModal(null);

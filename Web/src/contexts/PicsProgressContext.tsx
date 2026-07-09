@@ -114,6 +114,9 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
         sessionStorage.setItem('pics_progress_cache', JSON.stringify(data));
       }
     } catch (error) {
+      // Background poll (mount + SignalR reconnect recovery). The sessionStorage cache and
+      // SignalR push events keep the UI reasonably fresh even if one poll fails. Deliberately
+      // silent - a toast on every transient poll failure would be noise, not signal.
       console.error('[PicsProgress] Failed to fetch progress:', error);
     } finally {
       setIsLoading(false);

@@ -1,3 +1,5 @@
+import type { ApiErrorData } from './apiError';
+
 export type AuthMode = 'authenticated' | 'guest' | 'unauthenticated';
 export type SessionType = 'admin' | 'guest';
 
@@ -94,7 +96,7 @@ class AuthService {
       }
 
       return data;
-    } catch (error) {
+    } catch (error: unknown) {
       if (error instanceof Error && error.name === 'AbortError') {
         console.warn(`[AuthService] checkAuth timed out after ${AUTH_CHECK_TIMEOUT_MS}ms`);
       }
@@ -145,8 +147,14 @@ class AuthService {
       });
 
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        return { success: false, message: data.error || `Login failed: ${response.status}` };
+        // Deliberate exception to the "throw ApiError" rule (documented in the error-handling
+        // standard): this method's contract is to RETURN {success,message} so the caller can render
+        // a form error, not to throw. It still parses the shared ApiErrorData shape.
+        const data: ApiErrorData = await response.json().catch(() => ({}) as ApiErrorData);
+        return {
+          success: false,
+          message: data.error || data.message || `Login failed: ${response.status}`
+        };
       }
 
       const data: LoginResponse = await response.json();
@@ -158,7 +166,7 @@ class AuthService {
       }
 
       return { success: data.success, message: data.error };
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('[AuthService] login error:', error);
       return { success: false, message: 'Network error during login' };
     }
@@ -172,8 +180,12 @@ class AuthService {
       });
 
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        return { success: false, message: data.error || 'Failed to start guest session' };
+        // Same deliberate {success,message} return contract as login() above.
+        const data: ApiErrorData = await response.json().catch(() => ({}) as ApiErrorData);
+        return {
+          success: false,
+          message: data.error || data.message || 'Failed to start guest session'
+        };
       }
 
       const data: LoginResponse = await response.json();
@@ -185,7 +197,7 @@ class AuthService {
       }
 
       return { success: data.success, message: data.error };
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('[AuthService] startGuestSession error:', error);
       return { success: false, message: 'Network error' };
     }
@@ -197,7 +209,7 @@ class AuthService {
         method: 'POST',
         credentials: 'include'
       });
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('[AuthService] logout error:', error);
     } finally {
       this.isAuthenticated = false;

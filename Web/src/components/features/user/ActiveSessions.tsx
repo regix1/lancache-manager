@@ -47,8 +47,8 @@ import {
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import authService from '@services/auth.service';
-import { getErrorMessage } from '@utils/error';
 import { useAuth } from '@contexts/useAuth';
+import { useErrorHandler } from '@hooks/useErrorHandler';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type {
@@ -155,6 +155,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 }) => {
   const { t } = useTranslation();
   const { refreshAuth } = useAuth();
+  const { notifyError } = useErrorHandler();
   const { on, off } = useSignalR();
   const { prefs: defaultGuestPrefs } = useDefaultGuestPreferences();
 
@@ -287,7 +288,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         setCurrentPage(data.pagination?.page || 1);
         setHistorySessions(data.historySessions);
       } catch (err: unknown) {
-        showToast('error', getErrorMessage(err) || t('activeSessions.errors.loadSessions'));
+        notifyError(t('activeSessions.errors.loadSessions'), err, {
+          logLabel: 'Failed to load sessions'
+        });
       } finally {
         setLoading(false);
       }
@@ -320,7 +323,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       setPendingRevokeSession(null);
       onSessionsChange();
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('activeSessions.errors.revokeSession'));
+      notifyError(t('activeSessions.errors.revokeSession'), err, {
+        logLabel: 'Failed to revoke session'
+      });
     } finally {
       setRevokingSession(null);
     }
@@ -347,7 +352,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         }, 2000);
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('activeSessions.errors.deleteSession'));
+      notifyError(t('activeSessions.errors.deleteSession'), err, {
+        logLabel: 'Failed to delete session'
+      });
     } finally {
       setDeletingSession(null);
     }
@@ -359,7 +366,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       await authService.logout();
       await refreshAuth();
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('activeSessions.errors.logout'));
+      notifyError(t('activeSessions.errors.logout'), err, { logLabel: 'Failed to log out' });
     } finally {
       setLoggingOut(false);
     }
@@ -396,7 +403,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         maxThreadCount: prefs.maxThreadCount ?? null
       });
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('activeSessions.errors.loadPreferences'));
+      notifyError(t('activeSessions.errors.loadPreferences'), err, {
+        logLabel: 'Failed to load session preferences'
+      });
       setEditingSession(null);
     } finally {
       setLoadingPreferences(false);
@@ -462,7 +471,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       setPendingXboxPrefillChange(null);
       loadSessions(false);
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('activeSessions.errors.savePreferences'));
+      notifyError(t('activeSessions.errors.savePreferences'), err, {
+        logLabel: 'Failed to save session preferences'
+      });
     } finally {
       setSavingPreferences(false);
     }
@@ -475,7 +486,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       showToast('success', t('user.bulkActions.resetSuccess', { count: data.affectedCount }));
       setShowBulkResetConfirm(false);
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('user.bulkActions.errors.resetFailed'));
+      notifyError(t('user.bulkActions.errors.resetFailed'), err, {
+        logLabel: 'Failed to reset sessions to defaults'
+      });
     } finally {
       setBulkActionInProgress(null);
     }
@@ -489,7 +502,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       onSessionsChange();
       setShowClearGuestsConfirm(false);
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('user.bulkActions.errors.clearFailed'));
+      notifyError(t('user.bulkActions.errors.clearFailed'), err, {
+        logLabel: 'Failed to clear guest sessions'
+      });
     } finally {
       setBulkActionInProgress(null);
     }
@@ -740,7 +755,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         setDefaultGuestMaxThreadCount(steamData.maxThreadCount ?? null);
         setEpicDefaultGuestMaxThreadCount(epicData.maxThreadCount ?? null);
       } catch (err) {
-        showToast('error', getErrorMessage(err) || t('user.errors.loadThreadConfig'));
+        notifyError(t('user.errors.loadThreadConfig'), err, {
+          logLabel: 'Failed to load thread config'
+        });
       }
     };
     loadThreadConfig();

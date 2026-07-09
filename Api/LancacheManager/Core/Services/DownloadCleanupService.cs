@@ -213,6 +213,9 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
     /// <summary>
     /// Removes database records for services that no longer exist in log files.
     /// This cleans up orphaned data left behind when log entries were removed but database wasn't updated.
+    /// Returns 0 both when nothing was orphaned AND when the cleanup pass fails (logged as an
+    /// error) - this is one best-effort pass among the periodic cleanup cycle's several
+    /// independent steps, so a failure here does not abort the others.
     /// </summary>
     private async Task<int> CleanupOrphanedServicesAsync(AppDbContext context, CancellationToken stoppingToken)
     {
@@ -391,6 +394,9 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
     /// - Null or empty datasource values
     /// - Inconsistent casing (e.g., "default" vs "Default")
     /// - Datasource names that don't match any configured datasource
+    /// Returns 0 both when nothing needed normalizing AND when the pass fails (logged as an
+    /// error) - this is one best-effort pass among the periodic cleanup cycle's several
+    /// independent steps, so a failure here does not abort the others.
     /// All invalid entries are remapped to the default datasource.
     /// </summary>
     private async Task<int> NormalizeDatasourceMappingsAsync(AppDbContext context, CancellationToken stoppingToken)

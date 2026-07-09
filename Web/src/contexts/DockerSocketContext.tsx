@@ -27,6 +27,8 @@ export const DockerSocketProvider: React.FC<DockerSocketProviderProps> = ({ chil
       const permissions = await ApiService.getDirectoryPermissions();
       setIsDockerAvailable(permissions.dockerSocket.available);
     } catch (error) {
+      // Background availability probe (runs on auth-mode change); degrades gracefully to
+      // "unavailable" below, which already gates the docker-dependent UI. Deliberately silent.
       console.error('[DockerSocket] Failed to check Docker socket status:', error);
       setIsDockerAvailable(false);
     } finally {

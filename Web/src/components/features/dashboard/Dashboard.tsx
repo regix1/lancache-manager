@@ -346,6 +346,9 @@ const Dashboard: React.FC = () => {
         }
         return merged;
       } catch (e) {
+        // Corrupt/stale localStorage - explicit silent fallback to defaults. This runs inside a
+        // useState lazy initializer (no hooks available), and re-rendering with the safe default
+        // is the correct outcome; nothing here is worth interrupting the user for.
         console.error('Failed to parse card visibility settings:', e);
         return DEFAULT_CARD_VISIBILITY;
       }

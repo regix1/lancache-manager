@@ -18,7 +18,11 @@ function fetchAvailableIds(cacheBuster: number): Promise<void> {
     .then((ids: string[]) => {
       availableIds = new Set(ids);
     })
-    .catch(() => {
+    .catch((err: unknown) => {
+      // Module-scope helper (no hook context available) - background image-availability check,
+      // only affects whether game icons show a fallback. Log for debugging and degrade to "no
+      // images available" rather than crash the consuming component.
+      console.error('Failed to load available game images, falling back to empty set:', err);
       availableIds = new Set();
     })
     .finally(() => {

@@ -2,7 +2,9 @@ import React, { use } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 
-// Fetch version from API
+// Fetch version from API. Intentionally silent/background: the footer version tag is cosmetic, not
+// required data, so a failed fetch degrades to the explicit 'unknown' label rather than surfacing a
+// notification for a non-critical background read.
 const fetchVersion = async (): Promise<string> => {
   try {
     return await ApiService.getVersion();

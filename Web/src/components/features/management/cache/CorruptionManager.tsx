@@ -23,6 +23,7 @@ import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import { showPermissionBlock } from '@utils/permissionUi';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
+import { getErrorMessage } from '@utils/error';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -33,6 +34,7 @@ import { LoadingState, ReadOnlyBadge } from '@components/ui/ManagerCard';
 import Badge from '@components/ui/Badge';
 import { useFormattedDateTime } from '@/hooks/useFormattedDateTime';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
+import { useErrorHandler } from '@/hooks/useErrorHandler';
 import type { CorruptedChunkDetail } from '@/types';
 
 interface CorruptionManagerProps {
@@ -44,6 +46,7 @@ interface CorruptionManagerProps {
 const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMode, onError }) => {
   const { t } = useTranslation();
   const { notifications, addNotification, isAnyRemovalRunning } = useNotifications();
+  const { notifyError } = useErrorHandler();
   const { on, off } = useSignalR();
   const { isDockerAvailable } = useDockerSocket();
   const { logsReadOnly, cacheReadOnly, logsExist, cacheExist, checkingPermissions } =
@@ -234,11 +237,17 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         }
         markLoaded();
       } catch (err: unknown) {
-        console.error('Failed to load cached corruption data:', err);
+        notifyError(
+          t('management.corruption.errors.loadCachedData', 'Failed to load corruption data'),
+          err,
+          {
+            logLabel: 'Failed to load cached corruption data'
+          }
+        );
         markFailed();
       }
     },
-    [addNotification, t, beginLoad, markLoaded, markFailed]
+    [addNotification, t, beginLoad, markLoaded, markFailed, notifyError]
   );
 
   // Start a background scan
@@ -272,10 +281,25 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         );
       }
     } catch (err: unknown) {
-      console.error('Failed to start corruption scan:', err);
+      notifyError(
+        t('management.corruption.errors.startScan', 'Failed to start corruption scan'),
+        err,
+        {
+          logLabel: 'Failed to start corruption scan'
+        }
+      );
       setIsStartingScan(false);
     }
-  }, [isScanning, mockMode, missThreshold, compareToCacheLogs, detectionMode, addNotification, t]);
+  }, [
+    isScanning,
+    mockMode,
+    missThreshold,
+    compareToCacheLogs,
+    detectionMode,
+    addNotification,
+    t,
+    notifyError
+  ]);
 
   // Listen for corruption detection completion via SignalR directly (same rationale as the
   // removal handler below). The event fires exactly once per bulk scan, so no per-operation
@@ -308,7 +332,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             setHasCachedResults(true);
           }
         } catch (err) {
-          console.error('[CorruptionManager] Failed to load detection results:', err);
+          // Background auto-refresh after a SignalR-confirmed scan; the manual Load action
+          // remains available, so a transient reload failure here is explicit background noise.
+          notifyError(
+            t('management.corruption.errors.loadCachedData', 'Failed to load corruption data'),
+            err,
+            { silent: true, logLabel: '[CorruptionManager] Failed to load detection results' }
+          );
         } finally {
           markLoaded();
         }
@@ -320,7 +350,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     return () => {
       off('CorruptionDetectionComplete', handleDetectionComplete);
     };
-  }, [on, off, beginLoad, markLoaded]);
+  }, [on, off, beginLoad, markLoaded, notifyError, t]);
 
   // Listen for corruption removal completion via SignalR directly. Subscribing to the
   // raw event (instead of deriving from notifications.filter(status === 'completed'))
@@ -352,9 +382,15 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               setCorruptionSummary({});
             }
           } catch (err) {
-            console.error(
-              '[CorruptionManager] Failed to reload after bulk corruption removal:',
-              err
+            // Background auto-refresh after a SignalR-confirmed removal; already falls back to
+            // an empty summary, so this is explicit background noise rather than a blocking error.
+            notifyError(
+              t('management.corruption.errors.loadCachedData', 'Failed to load corruption data'),
+              err,
+              {
+                silent: true,
+                logLabel: '[CorruptionManager] Failed to reload after bulk corruption removal'
+              }
             );
             setCorruptionSummary({});
           }
@@ -383,7 +419,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     return () => {
       off('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
     };
-  }, [on, off]);
+  }, [on, off, notifyError, t]);
 
   // Live percent for the per-service "view details" fetch. Deliberately a separate event from
   // the bulk scan's CorruptionDetectionProgress so this never surfaces as a global notification.
@@ -492,7 +528,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     } catch (err: unknown) {
       console.error('Removal failed:', err);
       onError?.(
-        (err instanceof Error ? err.message : String(err)) ||
+        getErrorMessage(err) ||
           t('management.corruption.errors.removeCorrupted', {
             service: getServiceDisplayName(service)
           })
@@ -520,10 +556,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       // SignalR will handle progress; clearOnNotification (in notifications useEffect) will clear pending
     } catch (err: unknown) {
       console.error('Remove all corrupted failed:', err);
-      onError?.(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('management.corruption.errors.removeAllCorrupted')
-      );
+      onError?.(getErrorMessage(err) || t('management.corruption.errors.removeAllCorrupted'));
       clearRemoveAllPending('removeAll');
     }
   };
@@ -563,10 +596,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       // Selection prunes to the remaining services once the reload lands (pruning effect).
     } catch (err: unknown) {
       console.error('Remove selected corrupted failed:', err);
-      onError?.(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('management.corruption.errors.removeAllCorrupted')
-      );
+      onError?.(getErrorMessage(err) || t('management.corruption.errors.removeAllCorrupted'));
       clearRemoveSelectedPending('removeSelected');
     }
   };
@@ -592,7 +622,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         setCorruptionDetails((prev) => ({ ...prev, [service]: details }));
       } catch (err: unknown) {
         onError?.(
-          (err instanceof Error ? err.message : String(err)) ||
+          getErrorMessage(err) ||
             t('management.corruption.errors.loadDetails', {
               service: getServiceDisplayName(service)
             })

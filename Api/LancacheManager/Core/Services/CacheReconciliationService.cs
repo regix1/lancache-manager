@@ -712,7 +712,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         }));
                 }
 
-                return _notifications.NotifyAllAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
+                return _notifications.NotifyOperationFailedAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
                     Success: false,
                     OperationId: operationId,
                     StageKey: "signalr.evictionScan.complete",

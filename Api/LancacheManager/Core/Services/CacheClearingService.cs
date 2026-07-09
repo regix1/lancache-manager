@@ -489,10 +489,7 @@ public class CacheClearingService : ScheduledBackgroundService
                     throw new OperationCanceledException(cancellationToken);
                 }
 
-                if (result.ExitCode != 0)
-                {
-                    throw new Exception($"Rust cache_cleaner failed for {dsName} with exit code {result.ExitCode}: {result.Error}");
-                }
+                result.EnsureSuccess("cache_cleaner", dsName);
 
                 _logger.LogInformation($"[{GetDeleteModeDisplayName()}] Rust cache cleaner output: {result.Output}");
 
@@ -588,7 +585,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
             if (isExpectedFailure)
             {
-                _logger.LogWarning("Cache clear operation {OperationId} failed: {Message}", operationId, ex.Message);
+                _logger.LogWarning(ex, "Cache clear operation {OperationId} failed", operationId);
             }
             else
             {

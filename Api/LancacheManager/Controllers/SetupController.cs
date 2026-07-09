@@ -34,37 +34,35 @@ public class SetupController : ControllerBase
         var mode = Environment.GetEnvironmentVariable("POSTGRES_MODE") ?? "embedded";
         if (mode == "external")
         {
-            return BadRequest(new SetupErrorResponse
-            {
-                Error = "POSTGRES_MODE=external is set. Use POST /api/setup/external to configure the external database connection."
-            });
+            return BadRequest(ApiResponse.Error(
+                "POSTGRES_MODE=external is set. Use POST /api/setup/external to configure the external database connection."));
         }
 
         if (string.IsNullOrWhiteSpace(request.Password))
-            return BadRequest(new SetupErrorResponse { Error = "Password is required" });
+            return BadRequest(ApiResponse.Error("Password is required"));
 
         if (request.Password.Length < 8)
-            return BadRequest(new SetupErrorResponse { Error = "Password must be at least 8 characters" });
+            return BadRequest(ApiResponse.Error("Password must be at least 8 characters"));
 
         // Reject passwords containing characters that cannot be safely serialized into an
         // ALTER USER ... PASSWORD '...' SQL literal (backslash is not standard-conforming in
         // Postgres string literals without E'', and control characters terminate the literal
         // on some drivers). Reject before any SQL is built.
         if (request.Password.AsSpan().IndexOfAny(_disallowedPasswordChars) >= 0)
-            return BadRequest(new SetupErrorResponse { Error = "Password contains disallowed characters." });
+            return BadRequest(ApiResponse.Error("Password contains disallowed characters."));
 
         var blockedPasswords = new[] { "lancache", "password", "12345678", "admin123", "qwerty123", "lancache1", "lancache123" };
         if (blockedPasswords.Contains(request.Password.ToLowerInvariant()))
-            return BadRequest(new SetupErrorResponse { Error = "This password is too common. Please choose a more secure password." });
+            return BadRequest(ApiResponse.Error("This password is too common. Please choose a more secure password."));
 
         var username = string.IsNullOrWhiteSpace(request.Username) ? "lancache" : request.Username.Trim();
         if (!Regex.IsMatch(username, "^[A-Za-z0-9_]+$"))
         {
-            return BadRequest(new SetupErrorResponse { Error = "Username may only contain letters, numbers, and underscores" });
+            return BadRequest(ApiResponse.Error("Username may only contain letters, numbers, and underscores"));
         }
 
         if (string.Equals(request.Password, username, StringComparison.OrdinalIgnoreCase))
-            return BadRequest(new SetupErrorResponse { Error = "Password cannot be the same as the username" });
+            return BadRequest(ApiResponse.Error("Password cannot be the same as the username"));
 
         var configPath = _pathResolver.GetPostgresCredentialsPath();
 
@@ -101,7 +99,7 @@ public class SetupController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to set PostgreSQL password for user {Username}", username);
-            return StatusCode(500, new SetupErrorResponse { Error = "Failed to set PostgreSQL password" });
+            return StatusCode(500, ApiResponse.Error("Failed to set PostgreSQL password"));
         }
 
         // Save credentials only after ALTER USER succeeds.
@@ -147,7 +145,7 @@ public class SetupController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to write credentials config file");
-            return StatusCode(500, new SetupErrorResponse { Error = "Failed to save credentials file" });
+            return StatusCode(500, ApiResponse.Error("Failed to save credentials file"));
         }
 
         return Ok(new SetupCredentialsResponse
@@ -174,26 +172,24 @@ public class SetupController : ControllerBase
         var mode = Environment.GetEnvironmentVariable("POSTGRES_MODE") ?? "embedded";
         if (mode != "external")
         {
-            return BadRequest(new SetupErrorResponse
-            {
-                Error = "External-mode endpoint called while POSTGRES_MODE is not 'external'. Set POSTGRES_MODE=external in your environment first."
-            });
+            return BadRequest(ApiResponse.Error(
+                "External-mode endpoint called while POSTGRES_MODE is not 'external'. Set POSTGRES_MODE=external in your environment first."));
         }
 
         if (string.IsNullOrWhiteSpace(request.Host))
-            return BadRequest(new SetupErrorResponse { Error = "Host is required" });
+            return BadRequest(ApiResponse.Error("Host is required"));
 
         if (request.Port <= 0 || request.Port > 65535)
-            return BadRequest(new SetupErrorResponse { Error = "Port must be between 1 and 65535" });
+            return BadRequest(ApiResponse.Error("Port must be between 1 and 65535"));
 
         if (string.IsNullOrWhiteSpace(request.Database))
-            return BadRequest(new SetupErrorResponse { Error = "Database name is required" });
+            return BadRequest(ApiResponse.Error("Database name is required"));
 
         if (string.IsNullOrWhiteSpace(request.Username))
-            return BadRequest(new SetupErrorResponse { Error = "Username is required" });
+            return BadRequest(ApiResponse.Error("Username is required"));
 
         if (string.IsNullOrWhiteSpace(request.Password))
-            return BadRequest(new SetupErrorResponse { Error = "Password is required" });
+            return BadRequest(ApiResponse.Error("Password is required"));
 
         // Validate the supplied credentials by attempting a real connection with a short timeout.
         // We intentionally don't run ALTER USER - the external Postgres isn't ours to manage.
@@ -219,10 +215,9 @@ public class SetupController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "External DB credential validation failed for {Host}:{Port}", request.Host, request.Port);
-            return BadRequest(new SetupErrorResponse
-            {
-                Error = $"Could not connect to {request.Host}:{request.Port}/{request.Database}: {ex.Message}"
-            });
+            return BadRequest(ApiResponse.Error(
+                $"Could not connect to {request.Host}:{request.Port}/{request.Database}",
+                ex.Message));
         }
 
         // Persist to postgres-credentials.json with extended schema (host/port/database).
@@ -272,7 +267,7 @@ public class SetupController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to write external credentials config file");
-            return StatusCode(500, new SetupErrorResponse { Error = "Failed to save credentials file" });
+            return StatusCode(500, ApiResponse.Error("Failed to save credentials file"));
         }
 
         return Ok(new SetExternalDbCredentialsResponse

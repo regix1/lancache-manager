@@ -82,7 +82,7 @@ class PreferencesService {
         console.warn('[PreferencesService] Failed to load preferences from API, using defaults');
         return DEFAULT_PREFERENCES;
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('[PreferencesService] Error loading preferences:', error);
       return DEFAULT_PREFERENCES;
     }
@@ -124,7 +124,7 @@ class PreferencesService {
           );
           return false;
         }
-      } catch (error) {
+      } catch (error: unknown) {
         console.error(`[PreferencesService] Error updating preference ${key}:`, error);
         return false;
       } finally {

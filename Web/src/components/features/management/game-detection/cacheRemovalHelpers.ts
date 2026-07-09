@@ -7,6 +7,7 @@ import {
 } from 'react';
 import ApiService from '@services/api.service';
 import { NOTIFICATION_IDS } from '@contexts/notifications';
+import { getErrorMessage } from '@utils/error';
 import type { TFunction } from 'i18next';
 import type { NotificationsContextType, UnifiedNotification } from '@contexts/notifications/types';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
@@ -154,9 +155,7 @@ export async function runTrackedGameRemoval({
 
     scheduleRemovalRefresh(onDataRefresh);
   } catch (err: unknown) {
-    const errorMsg =
-      (err instanceof Error ? err.message : String(err)) ||
-      t('management.gameDetection.failedToRemoveGame');
+    const errorMsg = getErrorMessage(err) || t('management.gameDetection.failedToRemoveGame');
 
     updateNotification(NOTIFICATION_IDS.GAME_REMOVAL, {
       status: 'failed',
@@ -196,9 +195,7 @@ export async function runTrackedServiceRemoval({
 
     scheduleRemovalRefresh(onDataRefresh);
   } catch (err: unknown) {
-    const errorMsg =
-      (err instanceof Error ? err.message : String(err)) ||
-      t('management.gameDetection.failedToRemoveService');
+    const errorMsg = getErrorMessage(err) || t('management.gameDetection.failedToRemoveService');
 
     updateNotification(NOTIFICATION_IDS.SERVICE_REMOVAL, {
       status: 'failed',

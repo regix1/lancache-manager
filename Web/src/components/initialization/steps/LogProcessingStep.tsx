@@ -231,7 +231,8 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           setProcessing(false);
         }
       } catch (error) {
-        console.error('[LogProcessing] Failed to check processing status:', error);
+        // Background mount check - SignalR events still drive the real processing state.
+        console.error('[LogProcessing] Failed to check processing status:', getErrorMessage(error));
       }
     };
     checkActiveProcessing();
@@ -274,7 +275,8 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           }
         }
       } catch (err) {
-        console.error('[LogProcessing] Watchdog poll failed:', err);
+        // Background watchdog poll - retries on the next 5s tick, no user-visible action to take.
+        console.error('[LogProcessing] Watchdog poll failed:', getErrorMessage(err));
       }
     }, 5000);
 

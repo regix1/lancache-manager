@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Download } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import ApiService from '@services/api.service';
-import { getErrorMessage } from '@utils/error';
+import { useErrorHandler } from '@hooks/useErrorHandler';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type {
   EpicGuestPrefillConfigChangedEvent,
@@ -82,6 +82,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   availableThemes
 }) => {
   const { t } = useTranslation();
+  const { notifyError } = useErrorHandler();
   const { on, off } = useSignalR();
   const { authMode } = useAuth();
   const [defaultGuestPreferences, setDefaultGuestPreferences] = useState<DefaultGuestPreferences>({
@@ -242,7 +243,9 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         });
       }
     } catch (err) {
-      showToast('error', getErrorMessage(err) || t('user.guest.errors.loadPreferences'));
+      notifyError(t('user.guest.errors.loadPreferences'), err, {
+        logLabel: 'Failed to load default guest preferences'
+      });
     } finally {
       setLoadingDefaultPrefs(false);
     }
@@ -270,21 +273,17 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         }));
       } else {
         const errorData = await response.json();
-        showToast(
-          'error',
-          errorData.error ||
-            t('user.guest.errors.updateDefault', {
-              label: preferenceLabels[key] || key
-            })
+        notifyError(
+          t('user.guest.errors.updateDefault', { label: preferenceLabels[key] || key }),
+          errorData?.error ? new Error(errorData.error) : undefined,
+          { logLabel: 'Failed to update default guest preference' }
         );
       }
     } catch (err: unknown) {
-      showToast(
-        'error',
-        getErrorMessage(err) ||
-          t('user.guest.errors.updateDefault', {
-            label: preferenceLabels[key] || key
-          })
+      notifyError(
+        t('user.guest.errors.updateDefault', { label: preferenceLabels[key] || key }),
+        err,
+        { logLabel: 'Failed to update default guest preference' }
       );
     } finally {
       setUpdatingDefaultPref(null);
@@ -386,10 +385,16 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         }));
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.error || t('user.guest.errors.updateAllowedTimeFormats'));
+        notifyError(
+          t('user.guest.errors.updateAllowedTimeFormats'),
+          errorData?.error ? new Error(errorData.error) : undefined,
+          { logLabel: 'Failed to update allowed time formats' }
+        );
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('user.guest.errors.updateAllowedTimeFormats'));
+      notifyError(t('user.guest.errors.updateAllowedTimeFormats'), err, {
+        logLabel: 'Failed to update allowed time formats'
+      });
     } finally {
       setUpdatingAllowedFormats(false);
     }
@@ -412,7 +417,9 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         });
       }
     } catch (err) {
-      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.loadConfig'));
+      notifyError(t('user.guest.prefill.errors.loadConfig'), err, {
+        logLabel: 'Failed to load Steam prefill config'
+      });
     } finally {
       setLoadingPrefillConfig(false);
     }
@@ -453,10 +460,16 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         showToast('success', t('user.guest.prefill.updated'));
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.error || t('user.guest.prefill.errors.update'));
+        notifyError(
+          t('user.guest.prefill.errors.update'),
+          errorData?.error ? new Error(errorData.error) : undefined,
+          { logLabel: 'Failed to update Steam prefill config' }
+        );
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.update'));
+      notifyError(t('user.guest.prefill.errors.update'), err, {
+        logLabel: 'Failed to update Steam prefill config'
+      });
     } finally {
       setUpdatingPrefillConfig(false);
     }
@@ -479,7 +492,9 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         });
       }
     } catch (err) {
-      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.loadConfig'));
+      notifyError(t('user.guest.prefill.errors.loadConfig'), err, {
+        logLabel: 'Failed to load Epic prefill config'
+      });
     } finally {
       setLoadingEpicPrefillConfig(false);
     }
@@ -520,10 +535,16 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         showToast('success', t('user.guest.prefill.updated'));
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.error || t('user.guest.prefill.errors.update'));
+        notifyError(
+          t('user.guest.prefill.errors.update'),
+          errorData?.error ? new Error(errorData.error) : undefined,
+          { logLabel: 'Failed to update Epic prefill config' }
+        );
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.update'));
+      notifyError(t('user.guest.prefill.errors.update'), err, {
+        logLabel: 'Failed to update Epic prefill config'
+      });
     } finally {
       setUpdatingEpicPrefillConfig(false);
     }
@@ -546,7 +567,9 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         });
       }
     } catch (err) {
-      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.loadConfig'));
+      notifyError(t('user.guest.prefill.errors.loadConfig'), err, {
+        logLabel: 'Failed to load Battle.net prefill config'
+      });
     } finally {
       setLoadingBattlenetPrefillConfig(false);
     }
@@ -577,10 +600,16 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         showToast('success', t('user.guest.prefill.updated'));
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.error || t('user.guest.prefill.errors.update'));
+        notifyError(
+          t('user.guest.prefill.errors.update'),
+          errorData?.error ? new Error(errorData.error) : undefined,
+          { logLabel: 'Failed to update Battle.net prefill config' }
+        );
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.update'));
+      notifyError(t('user.guest.prefill.errors.update'), err, {
+        logLabel: 'Failed to update Battle.net prefill config'
+      });
     } finally {
       setUpdatingBattlenetPrefillConfig(false);
     }
@@ -603,7 +632,9 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         });
       }
     } catch (err) {
-      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.loadConfig'));
+      notifyError(t('user.guest.prefill.errors.loadConfig'), err, {
+        logLabel: 'Failed to load Riot prefill config'
+      });
     } finally {
       setLoadingRiotPrefillConfig(false);
     }
@@ -634,10 +665,16 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         showToast('success', t('user.guest.prefill.updated'));
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.error || t('user.guest.prefill.errors.update'));
+        notifyError(
+          t('user.guest.prefill.errors.update'),
+          errorData?.error ? new Error(errorData.error) : undefined,
+          { logLabel: 'Failed to update Riot prefill config' }
+        );
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.update'));
+      notifyError(t('user.guest.prefill.errors.update'), err, {
+        logLabel: 'Failed to update Riot prefill config'
+      });
     } finally {
       setUpdatingRiotPrefillConfig(false);
     }
@@ -660,7 +697,9 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         });
       }
     } catch (err) {
-      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.loadConfig'));
+      notifyError(t('user.guest.prefill.errors.loadConfig'), err, {
+        logLabel: 'Failed to load Xbox prefill config'
+      });
     } finally {
       setLoadingXboxPrefillConfig(false);
     }
@@ -701,10 +740,16 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         showToast('success', t('user.guest.prefill.updated'));
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.error || t('user.guest.prefill.errors.update'));
+        notifyError(
+          t('user.guest.prefill.errors.update'),
+          errorData?.error ? new Error(errorData.error) : undefined,
+          { logLabel: 'Failed to update Xbox prefill config' }
+        );
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.update'));
+      notifyError(t('user.guest.prefill.errors.update'), err, {
+        logLabel: 'Failed to update Xbox prefill config'
+      });
     } finally {
       setUpdatingXboxPrefillConfig(false);
     }

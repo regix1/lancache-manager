@@ -8,6 +8,7 @@ import { useGuestConfig } from '@contexts/useGuestConfig';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useTranslation } from 'react-i18next';
 import { formatPercent } from '@utils/formatters';
+import { getErrorMessage } from '@utils/error';
 
 interface DatabaseResetStatus {
   isResetting: boolean;
@@ -166,10 +167,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
         setAuthError(result.message || t('modals.auth.errors.authenticationFailed'));
       }
     } catch (error: unknown) {
-      setAuthError(
-        (error instanceof Error ? error.message : String(error)) ||
-          t('modals.auth.errors.authenticationFailed')
-      );
+      setAuthError(getErrorMessage(error) || t('modals.auth.errors.authenticationFailed'));
     } finally {
       setAuthenticating(false);
     }
@@ -198,8 +196,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
         setAuthError(result.message || t('modals.auth.errors.guestModeUnavailable'));
       }
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : t('modals.auth.errors.failedToStartGuest');
+      const message = getErrorMessage(err) || t('modals.auth.errors.failedToStartGuest');
       setAuthError(
         message.includes('disabled') ? message : t('modals.auth.errors.guestModeUnavailable')
       );

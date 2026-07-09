@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback, useRef, type ReactNode } from 'react';
 import authService, { type AuthMode, type SessionType } from '@services/auth.service';
 import { useSignalR } from './SignalRContext/useSignalR';
+import type { ShowToastEvent } from './SignalRContext/types';
+import { isAbortError } from '@utils/error';
 import { AuthContext } from './AuthContext.types';
 
 interface AuthProviderProps {
@@ -80,6 +82,23 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
     } catch (error) {
       console.error('[Auth] Failed to check auth status:', error);
+      // AuthProvider is an ancestor of NotificationsProvider in AppProviders.tsx, so
+      // useErrorHandler (useNotifications) is not reachable here - it would throw. Use the
+      // existing show-toast bridge instead (mirrors NotificationsContext.tsx:332-356). A failed
+      // session check silently defaults to unauthenticated below, so surface it - otherwise the
+      // user has no idea why they were logged out. Cancellation (request timeout abort) is not
+      // a failure worth surfacing.
+      if (!isAbortError(error)) {
+        window.dispatchEvent(
+          new CustomEvent<ShowToastEvent>('show-toast', {
+            detail: {
+              type: 'error',
+              message: 'Failed to verify your session. Please refresh the page.',
+              duration: 5000
+            }
+          })
+        );
+      }
       setAuthenticationEnabled(true);
       setAuthMode('unauthenticated');
       setSessionType(null);
@@ -252,6 +271,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // (e.g. prefill permission grants that arrived via SignalR while the connection was down).
   useEffect(() => {
     if (signalR.isConnected && hasSession) {
+      // Best-effort group join for live session-revocation pushes - HTTP-based auth/session
+      // state (fetchAuth) still works if this fails. Deliberately silent; not user-actionable.
       signalR.invoke('JoinAuthenticatedGroupAsync').catch((err: unknown) => {
         console.error('[Auth] Failed to join AuthenticatedUsersGroup:', err);
       });

@@ -24,6 +24,7 @@ import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes, formatCount } from '@utils/formatters';
+import { getErrorMessage } from '@utils/error';
 import type { DatasourceInfo } from '../../../../types';
 
 const formatScanTime = (timestamp: string): string => {
@@ -221,10 +222,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       onSuccess?.(t('management.cache.deleteModeSet', { mode: modeDesc }));
     } catch (err: unknown) {
       console.error('Failed to update delete mode:', err);
-      onError?.(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('management.cache.errors.updateDeleteMode')
-      );
+      onError?.(getErrorMessage(err) || t('management.cache.errors.updateDeleteMode'));
     } finally {
       setDeleteModeLoading(false);
       deleteModeChangeInProgressRef.current = false;
@@ -272,7 +270,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     } catch (err: unknown) {
       onError?.(
         t('management.cache.errors.startCacheClearing', {
-          error: (err instanceof Error ? err.message : String(err)) || t('common.unknownError')
+          error: getErrorMessage(err) || t('common.unknownError')
         })
       );
       // Note: On error, NotificationsContext will handle the notification dismissal

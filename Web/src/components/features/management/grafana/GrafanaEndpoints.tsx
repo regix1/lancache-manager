@@ -22,6 +22,8 @@ import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
 import { useNotifications } from '@contexts/notifications';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useErrorHandler } from '@/hooks/useErrorHandler';
+import { getErrorMessage, isAbortError } from '@utils/error';
 import type { MetricsSecurityResponse } from './GrafanaEndpoints.types';
 import './GrafanaEndpoints.css';
 
@@ -29,6 +31,7 @@ const GrafanaEndpoints: React.FC = () => {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
   const { addNotification } = useNotifications();
+  const { notifyError } = useErrorHandler();
   const { on, off, connectionState } = useSignalR();
 
   const dataRefreshOptions = [
@@ -123,15 +126,22 @@ const GrafanaEndpoints: React.FC = () => {
   const [isToggling, setIsToggling] = useState(false);
   const [isConfigExpanded, setIsConfigExpanded] = useState(false);
 
-  const fetchMetricsSecurity = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const data = await ApiService.getMetricsSecurity(signal);
-      setMetricsSecurity(data);
-    } catch (error: unknown) {
-      if (error instanceof Error && error.name === 'AbortError') return;
-      console.error('Failed to load metrics security status:', error);
-    }
-  }, []);
+  const fetchMetricsSecurity = useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        const data = await ApiService.getMetricsSecurity(signal);
+        setMetricsSecurity(data);
+      } catch (error: unknown) {
+        if (isAbortError(error)) return;
+        notifyError(
+          t('management.grafana.errors.loadSecurityStatus', 'Failed to load metrics access status'),
+          error,
+          { logLabel: 'Failed to load metrics security status' }
+        );
+      }
+    },
+    [notifyError, t]
+  );
 
   // Load initial state on mount
   useEffect(() => {
@@ -147,13 +157,18 @@ const GrafanaEndpoints: React.FC = () => {
           setDataRefreshRate(String(intervalData.interval));
         }
       } catch (error: unknown) {
-        if (error instanceof Error && error.name === 'AbortError') return;
-        console.error('Failed to load metrics status:', error);
+        if (isAbortError(error)) return;
+        // Interval load has a workable default (dataRefreshRate stays '15'); background noise.
+        notifyError(
+          t('management.grafana.errors.loadMetricsStatus', 'Failed to load metrics status'),
+          error,
+          { silent: true, logLabel: 'Failed to load metrics status' }
+        );
       }
     };
     void loadStatus();
     return () => controller.abort();
-  }, [fetchMetricsSecurity]);
+  }, [fetchMetricsSecurity, notifyError, t]);
 
   // Subscribe to real-time MetricsSecurityUpdated events via SignalR
   useEffect(() => {
@@ -183,7 +198,11 @@ const GrafanaEndpoints: React.FC = () => {
         })
       );
     } catch (error) {
-      console.error('Failed to update data refresh rate:', error);
+      notifyError(
+        t('management.grafana.errors.updateRefreshRate', 'Failed to update data refresh rate'),
+        error,
+        { logLabel: 'Failed to update data refresh rate' }
+      );
     }
   };
 
@@ -203,7 +222,7 @@ const GrafanaEndpoints: React.FC = () => {
     } catch (error: unknown) {
       // Revert optimistic update
       setMetricsSecurity((prev) => (prev ? { ...prev, requiresAuthentication: !newValue } : prev));
-      const message = error instanceof Error ? error.message : 'network';
+      const message = getErrorMessage(error) || 'network';
       addNotification({
         type: 'generic',
         status: 'failed',
@@ -222,7 +241,7 @@ const GrafanaEndpoints: React.FC = () => {
       const data = await ApiService.setMetricsSecurity(null);
       setMetricsSecurity(data);
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'network';
+      const message = getErrorMessage(error) || 'network';
       addNotification({
         type: 'generic',
         status: 'failed',
@@ -268,7 +287,13 @@ const GrafanaEndpoints: React.FC = () => {
         setCopiedEndpoint(endpoint);
         setTimeout(() => setCopiedEndpoint(null), 2000);
       } catch (copyErr) {
-        console.error('Failed to copy text: ', copyErr);
+        // Legacy-clipboard-fallback failure: low-stakes UI action, no other visible cue either
+        // way. Silence is explicit rather than an accidental console.error.
+        notifyError(
+          t('management.grafana.errors.copyFailed', 'Failed to copy to clipboard'),
+          copyErr,
+          { silent: true, logLabel: 'Failed to copy text' }
+        );
       } finally {
         document.body.removeChild(textArea);
       }

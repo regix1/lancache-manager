@@ -6,9 +6,25 @@ import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import type {
   GuestRefreshRateUpdatedEvent,
   DefaultGuestRefreshRateChangedEvent,
-  GuestRefreshRateLockChangedEvent
+  GuestRefreshRateLockChangedEvent,
+  ShowToastEvent
 } from '@contexts/SignalRContext/types';
 import { RefreshRateContext } from './RefreshRateContext.types';
+
+// RefreshRateProvider is an ancestor of NotificationsProvider in AppProviders.tsx, so
+// useErrorHandler (useNotifications) is not reachable from it - it would throw. Use the existing
+// show-toast bridge instead (mirrors NotificationsContext.tsx:332-356).
+const notifyRefreshRateSaveFailed = (): void => {
+  window.dispatchEvent(
+    new CustomEvent<ShowToastEvent>('show-toast', {
+      detail: {
+        type: 'error',
+        message: 'Failed to save your refresh rate setting.',
+        duration: 4000
+      }
+    })
+  );
+};
 
 export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // Default to STANDARD (10s) until we fetch from API
@@ -43,6 +59,8 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
           setDefaultGuestRate(data.refreshRate || null);
         }
       } catch (error) {
+        // Background fetch on mount for guests; the STANDARD/locked defaults already set as
+        // initial state remain in effect. Deliberately silent.
         console.error('Failed to fetch global guest defaults:', error);
       }
     };
@@ -107,6 +125,8 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
           }
         }
       } catch (error) {
+        // Background fetch on mount for admins; falls back to the STANDARD default already
+        // set as initial state. Deliberately silent.
         console.error('Failed to fetch system refresh rate:', error);
       } finally {
         if (!isCancelled) {
@@ -202,9 +222,16 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
 
         if (!response.ok) {
           console.error('Failed to save refresh rate to API');
+          notifyRefreshRateSaveFailed();
         }
       } catch (error) {
+        // User-initiated action (changing the refresh rate setting). The optimistic state
+        // update above already applied, so without this the failure would be invisible and the
+        // choice would silently not persist. RefreshRateProvider is an ancestor of
+        // NotificationsProvider in AppProviders.tsx, so useErrorHandler is not reachable here -
+        // use the existing show-toast bridge instead (mirrors NotificationsContext.tsx:332-356).
         console.error('Failed to save refresh rate:', error);
+        notifyRefreshRateSaveFailed();
       }
     },
     [isControlledByAdmin, authMode]

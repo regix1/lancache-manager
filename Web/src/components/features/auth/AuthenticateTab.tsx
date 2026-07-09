@@ -7,26 +7,28 @@ import { Alert } from '@components/ui/Alert';
 import authService from '@services/auth.service';
 import { useAuth } from '@contexts/useAuth';
 import { useNotifications } from '@contexts/notifications';
+import { useErrorHandler } from '@hooks/useErrorHandler';
 
 const AuthenticateTab: React.FC = () => {
   const { t } = useTranslation();
   const { refreshAuth } = useAuth();
   const { addNotification } = useNotifications();
+  const { notifyError } = useErrorHandler();
   const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const showToast = (type: 'success' | 'error' | 'info', message: string) => {
+  const notifySuccess = (message: string) => {
     addNotification({
       type: 'generic',
-      status: type === 'error' ? 'failed' : 'completed',
+      status: 'completed',
       message,
-      details: { notificationType: type }
+      details: { notificationType: 'success' }
     });
   };
 
   const handleAuthenticate = async () => {
     if (!apiKey.trim()) {
-      showToast('error', t('auth.errors.missingKey'));
+      notifyError(t('auth.errors.missingKey'));
       return;
     }
 
@@ -36,7 +38,7 @@ const AuthenticateTab: React.FC = () => {
       const result = await authService.login(apiKey);
 
       if (result.success) {
-        showToast('success', t('auth.success'));
+        notifySuccess(t('auth.success'));
         // Refresh auth context
         await refreshAuth();
         // Clear input
@@ -47,14 +49,10 @@ const AuthenticateTab: React.FC = () => {
           window.location.reload();
         }, 1500);
       } else {
-        showToast('error', result.message || t('auth.errors.failed'));
+        notifyError(result.message || t('auth.errors.failed'));
       }
     } catch (err: unknown) {
-      console.error('Authentication error:', err);
-      showToast(
-        'error',
-        (err instanceof Error ? err.message : String(err)) || t('auth.errors.failed')
-      );
+      notifyError(t('auth.errors.failed'), err, { logLabel: 'Authentication error' });
     } finally {
       setLoading(false);
     }

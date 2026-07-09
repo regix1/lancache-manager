@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef, useEffect, type ReactNode } from 
 import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
+import { useErrorHandler } from '@hooks/useErrorHandler';
 import type { EventSummary } from '../types';
 import {
   DownloadAssociationsContext,
@@ -18,6 +19,7 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
 }) => {
   const { on, off } = useSignalR();
   const { authMode } = useAuth();
+  const { notifyError } = useErrorHandler();
   const isAdmin = authMode === 'authenticated';
   const [associations, setAssociations] = useState<AssociationsCache>({});
   const [loading, setLoading] = useState(false);
@@ -29,40 +31,49 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
   const isAdminRef = useRef(isAdmin);
   isAdminRef.current = isAdmin;
 
-  const fetchAssociations = useCallback(async (downloadIds: number[]) => {
-    // Batch download events endpoint is admin-only
-    if (!isAdminRef.current) return;
+  const fetchAssociations = useCallback(
+    async (downloadIds: number[]) => {
+      // Batch download events endpoint is admin-only
+      if (!isAdminRef.current) return;
 
-    // Filter out already fetched IDs
-    const newIds = downloadIds.filter((id) => !fetchedIds.current.has(id));
-    if (newIds.length === 0) return;
+      // Filter out already fetched IDs
+      const newIds = downloadIds.filter((id) => !fetchedIds.current.has(id));
+      if (newIds.length === 0) return;
 
-    setLoading(true);
-    try {
-      // Use batch endpoint - single API call for all IDs
-      const results = await ApiService.getBatchDownloadEvents(newIds);
+      setLoading(true);
+      try {
+        // Use batch endpoint - single API call for all IDs
+        const results = await ApiService.getBatchDownloadEvents(newIds);
 
-      const newAssociations: AssociationsCache = {};
-      for (const [idStr, data] of Object.entries(results)) {
-        const id = Number(idStr);
-        fetchedIds.current.add(id);
-        newAssociations[id] = {
-          events: data.events.map((e) => ({
-            id: e.id,
-            name: e.name,
-            colorIndex: e.colorIndex,
-            autoTagged: e.autoTagged
-          }))
-        };
+        const newAssociations: AssociationsCache = {};
+        for (const [idStr, data] of Object.entries(results)) {
+          const id = Number(idStr);
+          fetchedIds.current.add(id);
+          newAssociations[id] = {
+            events: data.events.map((e) => ({
+              id: e.id,
+              name: e.name,
+              colorIndex: e.colorIndex,
+              autoTagged: e.autoTagged
+            }))
+          };
+        }
+
+        setAssociations((prev) => ({ ...prev, ...newAssociations }));
+      } catch (err) {
+        // Best-effort enrichment fetch (event tags for the downloads list); can fire repeatedly as
+        // new download IDs scroll into view, so a toast per failure would be noisy. Downloads still
+        // render without their event tags. Deliberately silent.
+        notifyError('Failed to load download event tags', err, {
+          silent: true,
+          logLabel: 'Failed to fetch download associations'
+        });
+      } finally {
+        setLoading(false);
       }
-
-      setAssociations((prev) => ({ ...prev, ...newAssociations }));
-    } catch (err) {
-      console.error('Failed to fetch download associations:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    [notifyError]
+  );
 
   const getAssociations = useCallback(
     (downloadId: number): DownloadAssociations => {

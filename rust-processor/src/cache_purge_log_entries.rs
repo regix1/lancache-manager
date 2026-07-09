@@ -127,7 +127,10 @@ fn write_progress(
     match status {
         "starting" => reporter.emit_started(stage_key, context),
         "completed" => reporter.emit_complete(stage_key, context),
-        "failed" => reporter.emit_failed(stage_key, context),
+        "failed" => {
+            let error_detail = context.get("errorDetail").and_then(|v| v.as_str()).map(|s| s.to_string());
+            reporter.emit_failed(stage_key, context, error_detail);
+        }
         _ => reporter.emit_progress(percent_complete, stage_key, context),
     }
 
@@ -143,58 +146,54 @@ fn main() -> Result<()> {
     let progress_path = progress_path_buf.as_deref();
     let _ = write_progress(progress_path, &reporter, "starting", "signalr.logPurge.reading", json!({}), 0.0, 0, 0);
 
-    let result = run_purge(&args, progress_path, &reporter);
+    // Single failure funnel: run_or_exit emits the structured `failed` event (with
+    // errorDetail) exactly once, whether run_purge itself failed or a later step
+    // (serialize/write output) did - no more hand-written write_progress("failed", ...)
+    // racing a second emission.
+    progress_events::run_or_exit(&reporter, "signalr.logPurge.error.fatal", || {
+        match run_purge(&args, progress_path, &reporter) {
+            Ok(report) => {
+                let payload = serde_json::to_string_pretty(&report)
+                    .context("Failed to serialize purge report")?;
+                fs::write(&args.output_json, payload)
+                    .with_context(|| format!("Failed to write output JSON to {}", args.output_json))?;
 
-    match &result {
-        Ok(report) => {
-            let payload = serde_json::to_string_pretty(report)
-                .context("Failed to serialize purge report")?;
-            fs::write(&args.output_json, payload)
-                .with_context(|| format!("Failed to write output JSON to {}", args.output_json))?;
+                let _ = write_progress(
+                    progress_path,
+                    &reporter,
+                    "completed",
+                    "signalr.logPurge.complete",
+                    json!({ "linesRemoved": report.lines_removed, "permissionErrors": report.permission_errors }),
+                    100.0,
+                    0,
+                    0,
+                );
+                eprintln!("Purged {} log lines across access.log files ({} permission errors)", report.lines_removed, report.permission_errors);
+                Ok(())
+            }
+            Err(e) => {
+                let err_msg = format!("cache_purge_log_entries failed: {:#}", e);
+                eprintln!("{}", err_msg);
 
-            let _ = write_progress(
-                progress_path,
-                &reporter,
-                "completed",
-                "signalr.logPurge.complete",
-                json!({ "linesRemoved": report.lines_removed, "permissionErrors": report.permission_errors }),
-                100.0,
-                0,
-                0,
-            );
-            eprintln!("Purged {} log lines across access.log files ({} permission errors)", report.lines_removed, report.permission_errors);
+                // Still try to write a failure report so the C# caller can parse it -
+                // this is the data-file contract, independent of the stdout event stream.
+                let failure = PurgeReport {
+                    success: false,
+                    lines_removed: 0,
+                    permission_errors: 0,
+                    url_count: 0,
+                    depot_count: 0,
+                    error: Some(err_msg.clone()),
+                };
+                let _ = fs::write(
+                    &args.output_json,
+                    serde_json::to_string_pretty(&failure).unwrap_or_else(|_| "{}".to_string()),
+                );
+
+                Err(e)
+            }
         }
-        Err(e) => {
-            let err_msg = format!("cache_purge_log_entries failed: {:#}", e);
-            eprintln!("{}", err_msg);
-
-            // Still try to write a failure report so the C# caller can parse it
-            let failure = PurgeReport {
-                success: false,
-                lines_removed: 0,
-                permission_errors: 0,
-                url_count: 0,
-                depot_count: 0,
-                error: Some(err_msg.clone()),
-            };
-            let _ = fs::write(
-                &args.output_json,
-                serde_json::to_string_pretty(&failure).unwrap_or_else(|_| "{}".to_string()),
-            );
-
-            let _ = write_progress(
-                progress_path,
-                &reporter,
-                "failed",
-                "signalr.logPurge.error.fatal",
-                json!({ "errorDetail": err_msg }),
-                100.0,
-                0,
-                0,
-            );
-            std::process::exit(1);
-        }
-    }
+    });
 
     Ok(())
 }

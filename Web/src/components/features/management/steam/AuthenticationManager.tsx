@@ -11,6 +11,7 @@ import { useAuth } from '@contexts/useAuth';
 import { formatSessionTimeRemaining } from '@utils/timeFormatters';
 import { useSteamAuth } from '@contexts/useSteamAuth';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
+import { getErrorMessage } from '@utils/error';
 
 interface AuthenticationManagerProps {
   onError?: (message: string) => void;
@@ -104,6 +105,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
         await authService.logout();
       }
     } catch (error) {
+      // Intentional silent probe: a failed auth check degrades gracefully to the
+      // unauthenticated state (visible via the auth UI itself), not an error dialog.
       console.error('Auth check failed:', error);
       setHasData(false);
       setHasBeenInitialized(false);
@@ -138,10 +141,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
       }
     } catch (error: unknown) {
       console.error('Authentication error:', error);
-      setAuthError(
-        (error instanceof Error ? error.message : String(error)) ||
-          t('modals.steamAuth.errors.authenticationFailed')
-      );
+      setAuthError(getErrorMessage(error) || t('modals.steamAuth.errors.authenticationFailed'));
     } finally {
       setAuthLoading(false);
     }
@@ -196,7 +196,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
       onSuccess?.('Logged out successfully. This device slot is now available for another user.');
     } catch (error: unknown) {
       console.error('Error logging out:', error);
-      onError?.('Failed to logout: ' + (error instanceof Error ? error.message : String(error)));
+      onError?.('Failed to logout: ' + getErrorMessage(error));
     } finally {
       setAuthLoading(false);
     }

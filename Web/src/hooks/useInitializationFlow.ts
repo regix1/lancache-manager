@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 import { useSetupStatus } from '@contexts/useSetupStatus';
+import { useErrorHandler } from './useErrorHandler';
 import type { SetupStatus } from '@contexts/SetupStatusContext.types';
 import type { PicsStatus } from '@/types';
 
@@ -233,6 +234,7 @@ export function useInitializationFlow({
   onInitialized
 }: UseInitializationFlowOptions): UseInitializationFlowResult {
   const { t } = useTranslation();
+  const { notifyError } = useErrorHandler();
   const {
     setupStatus,
     isLoading: setupStatusLoading,
@@ -297,11 +299,13 @@ export function useInitializationFlow({
       const data = await ApiService.getPicsStatus();
       setPicsData(data);
       return data;
-    } catch (error) {
-      console.error('Failed to check PICS data status:', error);
+    } catch (error: unknown) {
+      notifyError(t('initialization.modal.errors.picsStatusCheckFailed'), error, {
+        logLabel: 'checkPicsDataStatus'
+      });
       return null;
     }
-  }, []);
+  }, [notifyError, t]);
 
   const markSetupCompleted = useCallback(async (): Promise<boolean> => {
     try {
@@ -311,11 +315,13 @@ export function useInitializationFlow({
       markSetupCompletedLocally();
       await refreshSetupStatus();
       return true;
-    } catch (error) {
-      console.error('Failed to mark setup as completed:', error);
+    } catch (error: unknown) {
+      notifyError(t('initialization.modal.errors.markCompletedFailed'), error, {
+        logLabel: 'markSetupCompleted'
+      });
       return false;
     }
-  }, [markSetupCompletedLocally, refreshSetupStatus]);
+  }, [markSetupCompletedLocally, refreshSetupStatus, notifyError, t]);
 
   const clearServerWizardState = useCallback(async (): Promise<boolean> => {
     return await updateWizardState({
@@ -420,8 +426,10 @@ export function useInitializationFlow({
         // No stored step - start at the first required wizard step.
         await checkPicsDataStatus();
         goToStep('database-setup');
-      } catch (error) {
-        console.error('Failed to check setup status:', error);
+      } catch (error: unknown) {
+        notifyError(t('initialization.modal.errors.setupStatusCheckFailed'), error, {
+          logLabel: 'checkSetupStatus'
+        });
         goToStep('database-setup');
       } finally {
         hydratedRef.current = true;

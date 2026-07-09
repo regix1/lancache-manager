@@ -8,6 +8,7 @@ import { FileText, AlertTriangle, RefreshCw, Trash2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
+import { getErrorMessage } from '@utils/error';
 import { useNotifications } from '@contexts/notifications';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { waitForSignalRCompletion } from '@contexts/notifications/waitForSignalRCompletion';
@@ -300,7 +301,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         clearServiceRemovalPending(key);
       }
     } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
+      const errMsg = getErrorMessage(err);
       const errorMessage = errMsg?.includes('read-only')
         ? t('management.logRemoval.errors.readOnly')
         : errMsg || t('management.logRemoval.errors.actionFailed');
@@ -334,7 +335,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       // Refresh data after deletion
       await loadData(true);
     } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
+      const errMsg = getErrorMessage(err);
       const errorMessage = errMsg?.includes('read-only')
         ? t('management.logRemoval.errors.readOnly')
         : errMsg || t('management.logRemoval.errors.deleteFailed');

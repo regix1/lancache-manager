@@ -3,10 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { Gamepad2, Search } from 'lucide-react';
 import { DataTable, type DataTableColumn } from '@components/ui/DataTable';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import ApiService from '@services/api.service';
+import { getErrorMessage } from '@utils/error';
 import type { EpicGameMappingDto, EpicMappingStats } from '../../../../types';
 
 /** Returns a badge CSS class based on the discovery source */
@@ -87,7 +89,7 @@ const EpicGameMappings: React.FC = () => {
       setMappings(mappingsData);
       setStats(statsData);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load Epic game mappings');
+      setError(getErrorMessage(err) || 'Failed to load Epic game mappings');
     }
   }, []);
 
@@ -238,7 +240,7 @@ const EpicGameMappings: React.FC = () => {
         </p>
 
         {/* Error / Info Message */}
-        {error && <div className="p-4 text-center text-[var(--theme-error)]">{error}</div>}
+        {error && <Alert color="red">{error}</Alert>}
 
         {/* Empty State */}
         {mappings.length === 0 && !searchQuery && (

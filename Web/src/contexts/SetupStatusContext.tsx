@@ -2,6 +2,7 @@ import React, { useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
 import { API_BASE } from '@utils/constants';
+import type { ShowToastEvent } from '@contexts/SignalRContext/types';
 import { SetupStatusContext, type SetupStatus } from './SetupStatusContext.types';
 
 interface SetupStatusProviderProps {
@@ -62,9 +63,26 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
       }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
+        // Own 10s timeout, not a user cancellation, but the request itself will be retried on
+        // the next auth-mode settle/mount - deliberately silent.
         console.warn('[SetupStatus] fetchSetupStatus timed out after 10000ms');
       } else {
         console.error('[SetupStatus] Failed to fetch setup status:', error);
+        // Falling back to "needs setup" below can incorrectly re-show the setup wizard for an
+        // already-configured instance on a transient network failure - surface it so the user
+        // knows to retry rather than assuming setup was reset. SetupStatusProvider is an
+        // ancestor of NotificationsProvider in AppProviders.tsx, so useErrorHandler is not
+        // reachable here; use the existing show-toast bridge instead (mirrors
+        // NotificationsContext.tsx:332-356).
+        window.dispatchEvent(
+          new CustomEvent<ShowToastEvent>('show-toast', {
+            detail: {
+              type: 'error',
+              message: 'Failed to check setup status. Please refresh the page.',
+              duration: 5000
+            }
+          })
+        );
       }
       // On error/timeout: default to showing the database-setup step so the
       // wizard doesn't silently skip it when credentials are actually needed.

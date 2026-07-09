@@ -1,5 +1,6 @@
 import { API_BASE } from '../utils/constants';
 import { isAbortError } from '../utils/error';
+import { ApiError, assertOk, buildApiError } from './apiError';
 import type {
   OperationStatus,
   PrefillSessionStatus,
@@ -63,27 +64,10 @@ import type { CredentialChallenge } from '../hooks/usePrefillSteamAuth';
 import type { MetricsSecurityResponse } from '../components/features/management/grafana/GrafanaEndpoints.types';
 import type { GuestDurationResponse } from '../components/features/user/AccessSecurityCard.types';
 
-// Structured body returned by the backend for HTTP 409 Conflict responses.
-// Matches C# OperationConflictResponse (camelCase via SignalR naming policy).
-// NOT exported - no consumer exists yet; export only when needed to avoid knip CI failure.
-interface OperationConflictBody {
-  code: string;
-  stageKey: string;
-  error: string;
-  activeOperationId?: string | null;
-  activeOperationType?: string | null;
-  activeOperationScope?: string | null;
-  context?: Record<string, unknown> | null;
-}
-
-// Response types for API operations
-interface ApiErrorData {
-  code?: string;
-  message?: string;
-  error?: string;
-  details?: string;
-  suggestion?: string;
-}
+// The backend error body shape (`ApiErrorData`) and the structured 409 `OperationConflictBody`
+// now live in ./apiError alongside the typed `ApiError` they feed, so the sibling services can
+// share them without importing this module. handleResponse routes every failure through
+// buildApiError there.
 
 interface CachedGameDetectionResponse {
   hasCachedResults: boolean;
@@ -246,103 +230,39 @@ export interface RetroDownloadQueryParams {
 
 class ApiService {
   static async handleResponse<T>(response: Response): Promise<T> {
-    // Handle 401 Unauthorized - dispatch event to trigger auth refresh
-    if (response.status === 401) {
-      window.dispatchEvent(new Event('auth-state-changed'));
-      let errorData: ApiErrorData | null = null;
-      try {
-        const text = await response.text();
-        errorData = text ? JSON.parse(text) : null;
-      } catch {
-        // Not JSON
-      }
-      throw new Error(errorData?.message || 'Authentication required');
-    }
-
-    // Handle 403 Forbidden - guest trying admin operation
-    if (response.status === 403) {
-      console.warn('403 Forbidden: Access denied. User may lack required permissions.');
-      let errorData: ApiErrorData | null = null;
-      try {
-        const text = await response.text();
-        errorData = text ? JSON.parse(text) : null;
-      } catch {
-        // Not JSON
-      }
-      throw new Error(errorData?.message || errorData?.error || 'Access denied');
-    }
-
-    // Handle 499 Client Closed Request (user cancelled the operation)
-    // This is not an error - just throw a cancellation signal
+    // Cancellation (499 / client-closed request) is a distinct terminal outcome, NOT a failure:
+    // it stays the AbortError path so isAbortError() catches it. Never fold this into ApiError.
     if (response.status === 499) {
       const error = new Error('Request cancelled');
       error.name = 'AbortError';
       throw error;
     }
 
-    // Handle 409 Conflict - may carry a structured OperationConflictBody
-    if (response.status === 409) {
-      const conflictText = await response.text().catch(() => '');
-      let conflictData: OperationConflictBody | null = null;
-      try {
-        conflictData = conflictText ? (JSON.parse(conflictText) as OperationConflictBody) : null;
-      } catch {
-        // Not JSON
-      }
-      if (conflictData && (conflictData.code === 'OPERATION_CONFLICT' || conflictData.stageKey)) {
-        // Structured conflict response - attach full body as .cause for i18n lookup
-        const conflictError = new Error(conflictData.error);
-        (conflictError as Error & { cause?: OperationConflictBody }).cause = conflictData;
-        throw conflictError;
-      }
-      // Legacy 409 shape: { error: "..." } or plain text
-      const legacyMessage =
-        ((conflictData as { error?: string } | null)?.error ?? conflictText) || 'Conflict';
-      throw new Error(legacyMessage);
-    }
-
+    // The single throw site for failures. All status classification (401 auth-event dispatch,
+    // 403 warn, 409 conflict cause) and the one message precedence live in buildApiError, so every
+    // failing response - here and via assertOk - throws the identical typed ApiError.
     if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-
-      // Try to parse error as JSON for structured error messages
-      let errorData = null;
-      try {
-        errorData = errorText ? JSON.parse(errorText) : null;
-      } catch (_parseError) {
-        // Not JSON, use default error format
-      }
-
-      // If we have a structured error with helpful fields, use them
-      if (errorData) {
-        if (errorData.message && errorData.details && errorData.suggestion) {
-          // Full structured error
-          throw new Error(
-            `${errorData.message}\n\n${errorData.details}\n\n${errorData.suggestion}`
-          );
-        } else if (errorData.message) {
-          // Just a message field
-          throw new Error(errorData.message);
-        } else if (errorData.error) {
-          // Legacy error field
-          throw new Error(errorData.error);
-        }
-      }
-
-      // Default error format
-      throw new Error(`HTTP ${response.status}: ${errorText || response.statusText}`);
+      throw await buildApiError(response);
     }
 
-    // Check if response has content before parsing JSON
+    // Success. An empty 2xx body is an explicit, documented "no content" result (void / 204-style
+    // endpoints) - it is NOT a masked error, since any failure already threw above. Callers that
+    // require a shape must not rely on this branch.
     const text = await response.text();
     if (!text || text.trim() === '') {
-      return {} as T; // Return empty object for empty responses
+      return undefined as unknown as T;
     }
 
     try {
-      return JSON.parse(text);
-    } catch (_e) {
-      console.error('Failed to parse JSON response:', text);
-      throw new Error('Invalid JSON response from server');
+      return JSON.parse(text) as T;
+    } catch {
+      // Success status but a non-JSON body: surface as a typed parse error, never silently.
+      throw new ApiError({
+        status: response.status,
+        kind: 'parse',
+        body: null,
+        message: 'Invalid JSON response from server'
+      });
     }
   }
 
@@ -825,30 +745,25 @@ class ApiService {
         })
       );
       return await this.handleResponse<ClearCacheResponse>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('clearAllCache error:', error);
       throw error;
     }
   }
 
+  // Surfaces failures (throws ApiError) rather than masking them as an empty list - a network/500
+  // error is not the same as "no images available". The caller decides how to react.
   static async getAvailableGameImages(): Promise<string[]> {
-    try {
-      const res = await fetch(`${API_BASE}/game-images/available`, this.getFetchOptions({}));
-      return await this.handleResponse<string[]>(res);
-    } catch {
-      return [];
-    }
+    const res = await fetch(`${API_BASE}/game-images/available`, this.getFetchOptions({}));
+    return await this.handleResponse<string[]>(res);
   }
 
-  // Get the backend's image cache generation (used as cache-bust param on image URLs)
+  // Get the backend's image cache generation (used as cache-bust param on image URLs). Surfaces
+  // failures instead of returning a bogus 0 that would masquerade as a real cache version.
   static async getImageCacheVersion(): Promise<number> {
-    try {
-      const res = await fetch(`${API_BASE}/game-images/cache-version`, this.getFetchOptions({}));
-      const result = await this.handleResponse<{ version: number }>(res);
-      return result.version;
-    } catch {
-      return 0;
-    }
+    const res = await fetch(`${API_BASE}/game-images/cache-version`, this.getFetchOptions({}));
+    const result = await this.handleResponse<{ version: number }>(res);
+    return result.version;
   }
 
   // Clear the game image cache (disk + in-memory failed-fetch cache)
@@ -872,7 +787,7 @@ class ApiService {
         cacheGeneration: number;
       }>(res);
       return result;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('clearImageCache error:', error);
       throw error;
     }
@@ -889,7 +804,7 @@ class ApiService {
         })
       );
       return await this.handleResponse<ClearCacheResponse>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('clearDatasourceCache error:', error);
       throw error;
     }
@@ -909,7 +824,7 @@ class ApiService {
         })
       );
       return await this.handleResponse<OperationResponse>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('resetSelectedTables error:', error);
       throw error;
     }
@@ -1015,7 +930,7 @@ class ApiService {
         })
       );
       return await this.handleResponse<ProcessingStatus>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('getProcessingStatus error:', error);
       throw error;
     }
@@ -1044,7 +959,7 @@ class ApiService {
         })
       );
       return await this.handleResponse<DatasourceServiceCounts[]>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('getServiceLogCountsByDatasource error:', error);
       throw error;
     }
@@ -1092,8 +1007,9 @@ class ApiService {
     try {
       const res = await fetch(`${API_BASE}/database/log-entries-count`, this.getFetchOptions());
       const data = await this.handleResponse<{ count: number }>(res);
-      return data.count;
-    } catch (error) {
+      // handleResponse returns undefined on an empty 2xx body; default to 0 rather than deref.
+      return data?.count ?? 0;
+    } catch (error: unknown) {
       console.error('getDatabaseLogEntriesCount error:', error);
       throw error;
     }
@@ -1145,10 +1061,7 @@ class ApiService {
         body: JSON.stringify({ apiKey })
       })
     );
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => null);
-      throw new Error(errorData?.message || `Failed to save API key (${response.status})`);
-    }
+    await assertOk(response);
   }
 
   // ==================== Steam Auth Mode ====================
@@ -1163,9 +1076,7 @@ class ApiService {
         body: JSON.stringify({ mode })
       })
     );
-    if (!response.ok) {
-      throw new Error(`Failed to set auth mode (${response.status})`);
-    }
+    await assertOk(response);
   }
 
   // ==================== Setup Status ====================
@@ -1216,9 +1127,7 @@ class ApiService {
         body: JSON.stringify({ completed: true })
       })
     );
-    if (!response.ok) {
-      throw new Error(`Failed to mark setup complete (${response.status})`);
-    }
+    await assertOk(response);
   }
 
   // PICS/Depot related endpoints (consolidated from GameInfoController)
@@ -1262,10 +1171,8 @@ class ApiService {
           headers: { 'Content-Type': 'application/json' }
         })
       );
-      if (!res.ok) {
-        throw new Error(`Failed to cancel scan: ${res.statusText}`);
-      }
-    } catch (error) {
+      await assertOk(res);
+    } catch (error: unknown) {
       console.error('cancelSteamKitRebuild error:', error);
       throw error;
     }
@@ -1367,7 +1274,7 @@ class ApiService {
     try {
       const res = await fetch(`${API_BASE}/system/rsync/available`, this.getFetchOptions());
       return await this.handleResponse<{ available: boolean }>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('isRsyncAvailable error:', error);
       throw error;
     }
@@ -1389,7 +1296,7 @@ class ApiService {
       // No timeout - cache size calculation can take a very long time for large caches
       const res = await fetch(url, this.getFetchOptions());
       return await this.handleResponse<CacheSizeInfo | CacheSizeScanningInfo>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('getCacheSize error:', error);
       throw error;
     }
@@ -1417,7 +1324,7 @@ class ApiService {
         totalCorruptedChunks?: number;
         lastDetectionTime?: string;
       }>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('getCachedCorruptionDetection error:', error);
       throw error;
     }
@@ -1440,7 +1347,7 @@ class ApiService {
       return await this.handleResponse<{ operationId: string; message: string; status: string; queued?: boolean; alreadyRunning?: boolean }>(
         res
       );
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('startCorruptionDetection error:', error);
       throw error;
     }
@@ -1472,7 +1379,7 @@ class ApiService {
         })
       );
       return await this.handleResponse<{ message: string; service: string }>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('removeCorruptedChunks error:', error);
       throw error;
     }
@@ -1505,7 +1412,7 @@ class ApiService {
       const started = res.status === 202;
       const body = await this.handleResponse<{ message?: string }>(res);
       return { message: body?.message ?? '', started };
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('removeAllCorruptedChunks error:', error);
       throw error;
     }
@@ -1533,7 +1440,7 @@ class ApiService {
         })
       );
       return await this.handleResponse<CorruptedChunkDetail[]>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('getCorruptionDetails error:', error);
       throw error;
     }
@@ -1553,7 +1460,7 @@ class ApiService {
         })
       );
       return await this.handleResponse<{ operationId: string }>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('startGameCacheDetection error:', error);
       throw error;
     }
@@ -1576,7 +1483,7 @@ class ApiService {
       try {
         const res = await fetch(`${API_BASE}/games/detect/cached`, ApiService.getFetchOptions({}));
         return await ApiService.handleResponse<CachedGameDetectionResponse>(res);
-      } catch (error) {
+      } catch (error: unknown) {
         console.error('getCachedGameDetection error:', error);
         throw error;
       } finally {
@@ -1615,7 +1522,7 @@ class ApiService {
         queued?: boolean;
         alreadyRunning?: boolean;
       }>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('removeGameFromCache error:', error);
       throw error;
     }
@@ -1648,7 +1555,7 @@ class ApiService {
         queued?: boolean;
         alreadyRunning?: boolean;
       }>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('removeEpicGameFromCache error:', error);
       throw error;
     }
@@ -1684,7 +1591,7 @@ class ApiService {
         queued?: boolean;
         alreadyRunning?: boolean;
       }>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('removeNamedGameFromCache error:', error);
       throw error;
     }
@@ -1717,7 +1624,7 @@ class ApiService {
         queued?: boolean;
         alreadyRunning?: boolean;
       }>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('removeServiceFromCache error:', error);
       throw error;
     }
@@ -1737,7 +1644,7 @@ class ApiService {
         this.getFetchOptions({ method: 'DELETE' })
       );
       return await this.handleResponse<{ operationId: string }>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('removeAllEvicted error:', error);
       throw error;
     }
@@ -1753,7 +1660,7 @@ class ApiService {
         this.getFetchOptions({ method: 'DELETE' })
       );
       return await this.handleResponse<{ operationId: string; scope: string; key: string }>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('removeEvictedForGame error:', error);
       throw error;
     }
@@ -1769,7 +1676,7 @@ class ApiService {
         this.getFetchOptions({ method: 'DELETE' })
       );
       return await this.handleResponse<{ operationId: string; scope: string; key: string }>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('removeEvictedForEpicGame error:', error);
       throw error;
     }
@@ -1785,7 +1692,7 @@ class ApiService {
         this.getFetchOptions({ method: 'DELETE' })
       );
       return await this.handleResponse<{ operationId: string; scope: string; key: string }>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('removeEvictedForService error:', error);
       throw error;
     }
@@ -1809,7 +1716,7 @@ class ApiService {
         service: string;
         gameName: string;
       }>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('removeEvictedForNamedGame error:', error);
       throw error;
     }
@@ -1854,7 +1761,7 @@ class ApiService {
         })
       );
       return await this.handleResponse<GuestDurationResponse>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('setGuestSessionDuration error:', error);
       throw error;
     }
@@ -1906,7 +1813,7 @@ class ApiService {
         })
       );
       return await this.handleResponse<Event>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('createEvent error:', error);
       throw error;
     }
@@ -1924,7 +1831,7 @@ class ApiService {
         })
       );
       return await this.handleResponse<Event>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('updateEvent error:', error);
       throw error;
     }
@@ -1939,11 +1846,8 @@ class ApiService {
           method: 'DELETE'
         })
       );
-      if (!res.ok) {
-        const errorText = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
-      }
-    } catch (error) {
+      await assertOk(res);
+    } catch (error: unknown) {
       console.error('deleteEvent error:', error);
       throw error;
     }
@@ -2058,7 +1962,7 @@ class ApiService {
         })
       );
       return await this.handleResponse<ClientGroup>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('createClientGroup error:', error);
       throw error;
     }
@@ -2076,7 +1980,7 @@ class ApiService {
         })
       );
       return await this.handleResponse<ClientGroup>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('updateClientGroup error:', error);
       throw error;
     }
@@ -2091,11 +1995,8 @@ class ApiService {
           method: 'DELETE'
         })
       );
-      if (!res.ok) {
-        const errorText = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
-      }
-    } catch (error) {
+      await assertOk(res);
+    } catch (error: unknown) {
       console.error('deleteClientGroup error:', error);
       throw error;
     }
@@ -2113,7 +2014,7 @@ class ApiService {
         })
       );
       return await this.handleResponse<ClientGroup>(res);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('addClientGroupMember error:', error);
       throw error;
     }
@@ -2128,11 +2029,8 @@ class ApiService {
           method: 'DELETE'
         })
       );
-      if (!res.ok) {
-        const errorText = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
-      }
-    } catch (error) {
+      await assertOk(res);
+    } catch (error: unknown) {
       console.error('removeClientGroupMember error:', error);
       throw error;
     }
@@ -2992,7 +2890,8 @@ class ApiService {
   static async getVersion(): Promise<string> {
     const response = await fetch(`${API_BASE}/version`);
     const data = await ApiService.handleResponse<{ version: string }>(response);
-    return data.version;
+    // handleResponse returns undefined on an empty 2xx body; default to '' rather than deref.
+    return data?.version ?? '';
   }
 
   static async getSchedules(signal?: AbortSignal): Promise<ServiceScheduleInfo[]> {

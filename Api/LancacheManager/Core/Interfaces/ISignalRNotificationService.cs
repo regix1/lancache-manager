@@ -1,3 +1,5 @@
+using LancacheManager.Models;
+
 namespace LancacheManager.Core.Interfaces;
 
 /// <summary>
@@ -20,6 +22,22 @@ public interface ISignalRNotificationService
     /// <param name="eventName">Use SignalREvents constants</param>
     /// <param name="data">Optional payload data</param>
     void NotifyAllFireAndForget(string eventName, object? data = null);
+
+    /// <summary>
+    /// Uniform "operation failed" terminal broadcast. Emits the caller-built terminal
+    /// <paramref name="failedEvent"/> on <paramref name="eventName"/> through the single
+    /// <see cref="NotifyAllAsync"/> choke point and logs the failure centrally, so a Rust
+    /// <c>Success=false</c> result (or any service exception) ALWAYS reaches the notification registry
+    /// instead of each caller hand-rolling (or forgetting) the failure broadcast.
+    ///
+    /// <paramref name="failedEvent"/> is the operation's own <c>*Complete</c> record (typed via the
+    /// shared <see cref="IOperationComplete"/> contract) and MUST represent a failure terminal:
+    /// <c>Success=false, Status=Failed, Cancelled=false, Error=&lt;message&gt;</c>. Cancellation is a
+    /// distinct terminal and must NOT be sent through this method.
+    /// </summary>
+    /// <param name="eventName">The SignalR event name (use SignalREvents constants, e.g. CacheClearComplete).</param>
+    /// <param name="failedEvent">The per-operation terminal record carrying the failure state and reason.</param>
+    Task NotifyOperationFailedAsync(string eventName, IOperationComplete failedEvent);
 
     // ===== Steam Prefill Hub Methods =====
 

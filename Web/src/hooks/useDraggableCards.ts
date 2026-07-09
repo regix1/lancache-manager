@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { storage } from '@utils/storage';
+import { useErrorHandler } from './useErrorHandler';
 
 interface UseDraggableCardsOptions {
   defaultOrder: string[];
@@ -37,6 +38,7 @@ export const useDraggableCards = ({
   storageKey,
   dragHintStorageKey
 }: UseDraggableCardsOptions): UseDraggableCardsReturn => {
+  const { notifyError } = useErrorHandler();
   const [draggedCard, setDraggedCard] = useState<string | null>(null);
   const [dragOverCard, setDragOverCard] = useState<string | null>(null);
   const [isDragMode, setIsDragMode] = useState(false);
@@ -58,7 +60,11 @@ export const useDraggableCards = ({
           return order;
         }
       } catch (e) {
-        console.error('Failed to parse card order:', e);
+        // Corrupted localStorage value: fall back to defaultOrder below.
+        notifyError('Failed to parse saved card order', e, {
+          silent: true,
+          logLabel: 'useDraggableCards cardOrder init'
+        });
       }
     }
     return defaultOrder;

@@ -177,6 +177,10 @@ async fn main() -> Result<()> {
     let progress_path = PathBuf::from(&args.progress_json);
     let reporter = ProgressReporter::new(args.progress);
 
+    // Whole removal routed through the single failure funnel; the permission-error abort
+    // below now just `bail!`s with context instead of also hand-emitting `failed`, so
+    // finish_or_exit is the ONE place this bin's failures get emitted.
+    let result: Result<()> = async {
     eprintln!("Epic Game Cache Removal");
     eprintln!("  Log directory: {}", log_dir.display());
     eprintln!("  Cache directory: {}", cache_dir.display());
@@ -272,7 +276,6 @@ async fn main() -> Result<()> {
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
 
-        removal_core::write_progress(&progress_path, &reporter, "failed", "signalr.epicRemove.error.fatal", json!({ "errorDetail": error_msg }), 90.0, 0, 0)?;
         anyhow::bail!("{}", error_msg);
     }
 
@@ -302,5 +305,8 @@ async fn main() -> Result<()> {
     eprintln!("Log entries removed: {}", report.log_entries_removed);
     eprintln!("Report saved to: {}", output_json.display());
 
+    Ok(())
+    }.await;
+    progress_events::finish_or_exit(&reporter, "signalr.epicRemove.error.fatal", result);
     Ok(())
 }

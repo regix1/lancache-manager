@@ -9,6 +9,7 @@ import { useTimeFilter } from '@contexts/useTimeFilter';
 import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
 import { getEventColorVar } from '@utils/eventColors';
 import DateTimePicker from '@components/common/DateTimePicker';
+import { getErrorMessage } from '@utils/error';
 import type { Event, CreateEventRequest, UpdateEventRequest } from '../../../types';
 
 interface EventModalProps {
@@ -133,7 +134,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
         }
         onSave();
       } catch (err) {
-        setError(err instanceof Error ? err.message : t('events.modal.errors.saveFailed'));
+        setError(getErrorMessage(err) || t('events.modal.errors.saveFailed'));
       } finally {
         setSaving(false);
       }
@@ -165,7 +166,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
       await deleteEvent(event.id);
       onSave();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('events.modal.errors.deleteFailed'));
+      setError(getErrorMessage(err) || t('events.modal.errors.deleteFailed'));
       setShowDeleteConfirm(false);
     } finally {
       setDeleting(false);

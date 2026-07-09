@@ -1,6 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import ApiService from '@services/api.service';
+import { useErrorHandler } from './useErrorHandler';
+import { getErrorMessage } from '@utils/error';
 import type { XboxMappingProgressEvent } from '../contexts/SignalRContext/types';
 
 interface UseXboxMappingAuthOptions {
@@ -26,6 +28,7 @@ const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   const { onSuccess, onError } = options;
   const { on, off } = useSignalR();
+  const { notifyError } = useErrorHandler();
 
   const [loading, setLoading] = useState(false);
   const [needsDeviceCode, setNeedsDeviceCode] = useState(false);
@@ -85,7 +88,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
       loginInProgressRef.current = false;
       setLoading(false);
       if (error instanceof Error && error.name === 'AbortError') return;
-      const message = error instanceof Error ? error.message : 'Login failed';
+      const message = getErrorMessage(error);
       onError?.(message);
     } finally {
       setAbortController(null);
@@ -107,10 +110,14 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   const cancelLogin = useCallback(async () => {
     try {
       await ApiService.cancelXboxMappingLogin();
-    } catch {
-      // Ignore: the poll will expire on its own if the cancel request fails.
+    } catch (error) {
+      // Best-effort: the poll will expire on its own if the cancel request fails.
+      notifyError('Failed to cancel Xbox mapping login', error, {
+        silent: true,
+        logLabel: 'useXboxMappingAuth cancelLogin'
+      });
     }
-  }, []);
+  }, [notifyError]);
 
   const cancelPendingRequest = useCallback(() => {
     resetAuthForm();

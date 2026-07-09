@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 import { formatDateTime } from '@utils/formatters';
+import { getErrorMessage } from '@utils/error';
 
 interface MemoryStats {
   totalSystemMemoryMB: number;
@@ -38,8 +39,9 @@ const MemoryDiagnostics: React.FC = () => {
       const data = await ApiService.getMemoryStats<MemoryStats>();
       setStats(data);
     } catch (err: unknown) {
-      console.error('Failed to fetch memory stats:', err);
-      setError((err instanceof Error ? err.message : String(err)) || t('memory.failedToLoad'));
+      const detail = getErrorMessage(err);
+      console.error('Failed to fetch memory stats:', detail);
+      setError(detail || t('memory.failedToLoad'));
     } finally {
       setLoading(false);
     }

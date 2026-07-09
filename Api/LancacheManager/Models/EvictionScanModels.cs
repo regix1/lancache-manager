@@ -21,6 +21,8 @@ public record EvictionScanProgress(
 
 /// <summary>
 /// SignalR event payload emitted when an eviction scan operation completes.
+/// Implements <see cref="IOperationComplete"/>; <c>Status</c>/<c>Cancelled</c> are derived (a scan has
+/// no cancellation concept) via explicit interface implementation, so the wire shape is unchanged.
 /// </summary>
 public record EvictionScanComplete(
     bool Success,
@@ -31,7 +33,12 @@ public record EvictionScanComplete(
     int UnEvicted,
     int PrunedOrphans = 0,
     string? Error = null,
-    Dictionary<string, object?>? Context = null);
+    Dictionary<string, object?>? Context = null) : IOperationComplete
+{
+    Guid? IOperationComplete.OperationId => OperationId;
+    OperationStatus IOperationComplete.Status => Success ? OperationStatus.Completed : OperationStatus.Failed;
+    bool IOperationComplete.Cancelled => false;
+}
 
 /// <summary>
 /// SignalR event payload emitted when an eviction removal operation starts.
@@ -52,6 +59,8 @@ public record EvictionRemovalProgress(
 
 /// <summary>
 /// SignalR event payload emitted when an eviction removal operation completes.
+/// Implements <see cref="IOperationComplete"/>; <c>Status</c> is derived from
+/// <c>Success</c>/<c>Cancelled</c> via explicit interface implementation, so the wire shape is unchanged.
 /// </summary>
 public record EvictionRemovalComplete(
     bool Success,
@@ -61,4 +70,9 @@ public record EvictionRemovalComplete(
     int LogEntriesRemoved,
     string? Error = null,
     bool Cancelled = false,
-    Dictionary<string, object?>? Context = null);
+    Dictionary<string, object?>? Context = null) : IOperationComplete
+{
+    Guid? IOperationComplete.OperationId => OperationId;
+    OperationStatus IOperationComplete.Status =>
+        Cancelled ? OperationStatus.Cancelled : Success ? OperationStatus.Completed : OperationStatus.Failed;
+}

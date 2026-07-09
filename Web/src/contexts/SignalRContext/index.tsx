@@ -117,6 +117,8 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       try {
         await connectionRef.current.stop();
       } catch (err) {
+        // Best-effort cleanup before establishing a fresh connection below. Deliberately silent -
+        // not user-actionable and the new connection attempt proceeds regardless.
         console.warn('[SignalR] Error stopping existing connection:', err);
       }
       connectionRef.current = null;
@@ -184,6 +186,10 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
                 try {
                   handler(...args);
                 } catch (error) {
+                  // Defensive catch-all so one broken consumer handler can't kill the shared
+                  // SignalR message loop for every other subscriber. The bug is in the consumer
+                  // handler, not this transport - it is that handler's own responsibility to
+                  // surface its own failures. Deliberately silent here.
                   console.error(`[SignalR] Error in handler for ${eventName}:`, error);
                 }
               });
@@ -209,6 +215,11 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
         isSettingUpRef.current = false;
       }
     } catch (error) {
+      // Connection failures are already surfaced structurally via connectionState/isConnected,
+      // which consumers render their own "disconnected" UI from; retry is automatic
+      // (InfiniteBackoffRetryPolicy once started, or the visibility/auth-change listeners below
+      // before the first successful start). A toast on every transient connect failure would be
+      // very noisy (fires on tab switches, brief network blips, etc). Deliberately silent.
       console.error('[SignalR] Connection failed:', error);
       isSettingUpRef.current = false;
       if (isMountedRef.current) {
@@ -242,6 +253,8 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
         const activeConnection = connectionRef.current;
         connectionRef.current = null;
         if (activeConnection) {
+          // Best-effort cleanup after auth/session was cleared - connectionRef is already nulled
+          // and state reset below regardless of whether stop() succeeds. Deliberately silent.
           activeConnection.stop().catch((err) => {
             console.error('[SignalR] Error stopping connection after auth clear:', err);
           });
@@ -344,6 +357,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       if (connectionRef.current) {
         const connToStop = connectionRef.current;
         connectionRef.current = null;
+        // Best-effort cleanup on unmount - nothing left to notify. Deliberately silent.
         connToStop.stop().catch((err) => {
           console.error('[SignalR] Error stopping connection:', err);
         });

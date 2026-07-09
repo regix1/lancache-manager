@@ -2,6 +2,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -54,7 +55,7 @@ public class PersistentPrefillController : ControllerBase
         var daemon = PrefillDaemonServiceBase.ResolveDaemon(_serviceProvider, request.Service);
         if (daemon is null)
         {
-            return BadRequest($"No daemon registered for service '{request.Service}'");
+            return BadRequest(ApiResponse.Error($"No daemon registered for service '{request.Service}'"));
         }
 
         DaemonSession session = await daemon.StartPersistentSessionAsync(request.Service, _systemUserId);
@@ -69,7 +70,7 @@ public class PersistentPrefillController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(request.SessionId))
         {
-            return BadRequest("sessionId is required");
+            return BadRequest(ApiResponse.Required("sessionId"));
         }
 
         foreach (var daemon in PrefillDaemonServiceBase.ResolveAllDaemons(_serviceProvider))
@@ -81,7 +82,7 @@ public class PersistentPrefillController : ControllerBase
             }
         }
 
-        return NotFound($"No persistent session found with id {request.SessionId}");
+        return NotFound(ApiResponse.Error($"No persistent session found with id {request.SessionId}"));
     }
 
     /// <summary>
@@ -172,13 +173,13 @@ public class PersistentPrefillController : ControllerBase
         var daemon = PrefillDaemonServiceBase.ResolveDaemon(_serviceProvider, service);
         if (daemon is null)
         {
-            return BadRequest($"No daemon registered for service '{service}'");
+            return BadRequest(ApiResponse.Error($"No daemon registered for service '{service}'"));
         }
 
         var session = daemon.GetActivePersistentSession();
         if (session is null)
         {
-            return NotFound($"No running persistent session for service '{service}'");
+            return NotFound(ApiResponse.Error($"No running persistent session for service '{service}'"));
         }
 
         // Defense-in-depth: never operate on a non-persistent session here.
@@ -270,7 +271,9 @@ public class PersistentPrefillController : ControllerBase
         }
         catch (PrefillAlreadyRunningException ex)
         {
-            return Conflict(new { error = ex.Message });
+            // ex.Message is developer-authored on this exception type, safe to surface directly.
+            // Throw the typed 409 so the middleware emits the unified { error, statusCode, traceId } shape.
+            throw new ConflictException(ex.Message);
         }
     }
 
@@ -594,7 +597,7 @@ public class PersistentPrefillController : ControllerBase
         }
         catch (ArgumentOutOfRangeException ex)
         {
-            return BadRequest(ex.Message);
+            return BadRequest(ApiResponse.Error(ex.Message));
         }
 
         // Re-anchor every running persistent session immediately so the new validity is the single
@@ -652,7 +655,7 @@ public class PersistentPrefillController : ControllerBase
         var daemon = PrefillDaemonServiceBase.ResolveDaemon(_serviceProvider, service);
         if (daemon is null)
         {
-            return (null, null, BadRequest($"No daemon registered for service '{service}'"));
+            return (null, null, BadRequest(ApiResponse.Error($"No daemon registered for service '{service}'")));
         }
 
         var session = daemon.GetActivePersistentSession();

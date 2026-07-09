@@ -21,6 +21,7 @@ import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
+import { getErrorMessage } from '@utils/error';
 import {
   EVICTION_SETTINGS_CHANGED_EVENT,
   type EvictionSettingsChangedDetail
@@ -40,6 +41,7 @@ import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ImageCacheContext } from '@components/common/ImageCacheContext';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { useErrorHandler } from '@hooks/useErrorHandler';
 
 // Import view components
 import CompactView from './CompactView';
@@ -348,6 +350,7 @@ const convertDownloadsToCSV = (downloads: Download[]): string => {
 // Main Downloads Tab Component
 const DownloadsTab: React.FC = () => {
   const { t } = useTranslation();
+  const { notifyError } = useErrorHandler();
   const { latestDownloads = [], loading } = useDownloads();
   const { detectionLookup, detectionByName, detectionByService } = useGameDetection();
   const { timeRange, selectedEventIds, getTimeRangeParams, customStartDate, customEndDate } =
@@ -417,7 +420,10 @@ const DownloadsTab: React.FC = () => {
         // Abort errors are expected on unmount; log other failures so the cached value is
         // visible as the in-session fallback. Do NOT overwrite storage - last-known-good stays.
         if (!controller.signal.aborted) {
-          console.warn('[DownloadsTab] Failed to load evictedDataMode; using cached/default:', err);
+          console.warn(
+            '[DownloadsTab] Failed to load evictedDataMode; using cached/default:',
+            getErrorMessage(err)
+          );
         }
       });
     return () => controller.abort();
@@ -1405,7 +1411,7 @@ const DownloadsTab: React.FC = () => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
     } catch (error) {
-      console.error('Export failed:', error);
+      notifyError(t('downloads.tab.errors.exportFailed'), error, { logLabel: 'Export failed' });
     } finally {
       setExportLoading(false);
       setShowExportOptions(false);
@@ -1430,7 +1436,9 @@ const DownloadsTab: React.FC = () => {
         }, 6000);
       }
     } catch (error) {
-      console.error('[handleClearImageCache] Failed to clear image cache:', error);
+      notifyError(t('downloads.tab.errors.clearImageCacheFailed'), error, {
+        logLabel: '[handleClearImageCache] Failed to clear image cache'
+      });
     } finally {
       setImageCacheClearing(false);
     }

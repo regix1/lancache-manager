@@ -6,6 +6,7 @@ import ApiService from '@services/api.service';
 import type { DownloadSpeedSnapshot, GameSpeedInfo, ClientSpeedInfo } from '../../types';
 import type { SpeedContextType, SpeedProviderProps } from './types';
 import { SpeedContext } from './SpeedContext.types';
+import type { ShowToastEvent } from '@contexts/SignalRContext/types';
 
 export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedProviderProps) => {
   const signalR = useSignalR();
@@ -82,19 +83,30 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
       const data = await ApiService.getCurrentSpeeds();
       applySpeedSnapshot(data);
     } catch (error) {
+      // Background poll (mount + SignalR reconnect + visibility change). Live SignalR
+      // DownloadSpeedUpdate events keep speeds fresh even if one poll fails. Deliberately silent.
       console.error('[SpeedContext] Failed to fetch speed data:', error);
     } finally {
       setIsLoading(false);
     }
   }, [applySpeedSnapshot]);
 
-  // Manual refresh function exposed to consumers
+  // Manual refresh function exposed to consumers (user-triggered) - unlike fetchSpeed's
+  // background polling, a failure here has no other feedback path, so surface it.
   const refreshSpeed = useCallback(async () => {
     try {
       const data = await ApiService.getCurrentSpeeds();
       applySpeedSnapshot(data);
     } catch (error) {
       console.error('[SpeedContext] Failed to refresh speed data:', error);
+      // SpeedProvider is an ancestor of NotificationsProvider in AppProviders.tsx, so
+      // useErrorHandler (useNotifications) is not reachable here. Use the existing show-toast
+      // bridge instead (mirrors NotificationsContext.tsx:332-356).
+      window.dispatchEvent(
+        new CustomEvent<ShowToastEvent>('show-toast', {
+          detail: { type: 'error', message: 'Failed to refresh download speeds.', duration: 4000 }
+        })
+      );
     }
   }, [applySpeedSnapshot]);
 

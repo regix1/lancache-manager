@@ -493,7 +493,7 @@ public class DataMigrationController : ControllerBase
                                 RecordsSkipped: result.RecordsSkipped,
                                 RecordsErrors: result.RecordsErrors,
                                 TotalRecords: result.TotalRecords))
-                        : _notifications.NotifyAllAsync(SignalREvents.DataImportComplete,
+                        : _notifications.NotifyOperationFailedAsync(SignalREvents.DataImportComplete,
                             new DataImportComplete(
                                 OperationId: registeredId,
                                 Success: false,

@@ -252,7 +252,7 @@ public class LogsController : ControllerBase
                 catch (Exception ex)
                 {
                     // Skip corrupted files (same as Rust processor behavior)
-                    _logger.LogWarning("Skipping corrupted log file {File}: {Error}", logFile, ex.Message);
+                    _logger.LogWarning(ex, "Skipping corrupted log file {File}", logFile);
                 }
             }
         }
@@ -462,7 +462,7 @@ public class LogsController : ControllerBase
         var killed = await _rustLogProcessorService.ForceKillProcessingAsync();
         if (!killed)
         {
-            return NotFound(new { error = "No log processing operation to kill" });
+            return NotFound(new NotFoundResponse { Error = "No log processing operation to kill" });
         }
         return Ok(new { message = "Log processing was force killed" });
     }
@@ -574,7 +574,7 @@ public class LogsController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(service))
         {
-            return BadRequest(new ConflictResponse { Error = "Service name is required" });
+            return BadRequest(ApiResponse.Invalid("Service name is required"));
         }
 
         // CRITICAL: Check write permissions BEFORE starting the operation
@@ -635,7 +635,7 @@ public class LogsController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(service))
         {
-            return BadRequest(new ConflictResponse { Error = "Service name is required" });
+            return BadRequest(ApiResponse.Invalid("Service name is required"));
         }
 
         var datasource = _datasourceService.GetDatasource(datasourceName);
@@ -646,7 +646,7 @@ public class LogsController : ControllerBase
 
         if (!datasource.LogsWritable)
         {
-            return BadRequest(new ConflictResponse { Error = $"Logs directory is read-only for datasource '{datasourceName}'" });
+            return BadRequest(ApiResponse.Invalid($"Logs directory is read-only for datasource '{datasourceName}'"));
         }
 
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
@@ -711,7 +711,7 @@ public class LogsController : ControllerBase
 
         if (!datasource.LogsWritable)
         {
-            return BadRequest(new ConflictResponse { Error = $"Logs directory is read-only for datasource '{datasourceName}'" });
+            return BadRequest(ApiResponse.Invalid($"Logs directory is read-only for datasource '{datasourceName}'"));
         }
 
         var accessLogPath = Path.Combine(datasource.LogPath, "access.log");
@@ -754,7 +754,7 @@ public class LogsController : ControllerBase
         catch (IOException ex)
         {
             _logger.LogError(ex, "Failed to delete log file: {Path}", accessLogPath);
-            return StatusCode(500, new ConflictResponse { Error = $"Failed to delete log file: {ex.Message}" });
+            throw; // -> GlobalExceptionMiddleware -> 500 safe message (IOException-mapped)
         }
     }
 

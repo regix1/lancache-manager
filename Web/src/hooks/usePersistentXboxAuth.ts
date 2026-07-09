@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { usePersistentPrefillAuth } from './usePersistentPrefillAuth';
+import { useErrorHandler } from './useErrorHandler';
 import { getPersistentLoginSessionId } from '@components/features/management/schedules/scheduled-prefill/persistentLoginStore';
 import type { CredentialChallenge } from './usePrefillSteamAuth';
 import type { XboxAuthActions, XboxAuthState } from './useXboxMappingAuth';
@@ -30,6 +31,7 @@ export function usePersistentXboxAuth(options: UsePersistentXboxAuthOptions = {}
     ...options,
     service: 'Xbox'
   });
+  const { notifyError } = useErrorHandler();
   const pollGenerationRef = useRef(0);
 
   const pollUntilAuthenticated = useCallback(
@@ -71,15 +73,19 @@ export function usePersistentXboxAuth(options: UsePersistentXboxAuthOptions = {}
 
     const challenge = await coreActions.start();
     if (challenge?.credentialType === 'device-code') {
-      void pollUntilAuthenticated(generation).catch(() => {
+      void pollUntilAuthenticated(generation).catch((err: unknown) => {
         // A 404 (session gone - diagnostic ADDENDUM) or any other poll failure already ends this
         // loop via the throw from coreActions.poll() and surfaces via state.error or
-        // state.sessionUnavailableState; nothing further to do here.
+        // state.sessionUnavailableState; silent here to avoid a duplicate notification.
+        notifyError('Xbox persistent login poll failed', err, {
+          silent: true,
+          logLabel: 'usePersistentXboxAuth pollUntilAuthenticated'
+        });
       });
     }
 
     return challenge;
-  }, [coreActions, pollUntilAuthenticated]);
+  }, [coreActions, pollUntilAuthenticated, notifyError]);
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
     await startLogin();

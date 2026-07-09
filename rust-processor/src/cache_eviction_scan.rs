@@ -165,7 +165,27 @@ async fn main() -> Result<()> {
     }
     reporter.emit_started("signalr.evictionScan.scanning", json!({}));
 
-    match run_scan(&args.datasource_config, progress_path.as_deref(), &reporter).await {
+    // Single failure funnel: run_scan_and_report prints the ScanResult JSON contract on every
+    // path (success, business failure, and transport error) and only calls emit_complete on
+    // genuine success; any Err it returns (business `success:false` or a propagated transport
+    // error) is handed to finish_or_exit, the ONE place that emits the structured `failed`
+    // event + errorDetail, so a business failure and a `?`-propagated one are no longer two
+    // different failure shapes.
+    let result = run_scan_and_report(&args.datasource_config, progress_path.as_deref(), &reporter).await;
+    progress_events::finish_or_exit(&reporter, "signalr.evictionScan.error.fatal", result);
+    Ok(())
+}
+
+/// Runs the scan, prints the `ScanResult` JSON contract as the last stdout line in every case
+/// (the C# caller reads only the last stdout line), and returns `Err` on any failure (business
+/// `success:false` or a propagated error) so the caller's single `finish_or_exit` funnel emits
+/// the structured failed event exactly once.
+async fn run_scan_and_report(
+    datasource_config: &str,
+    progress_path: Option<&Path>,
+    reporter: &ProgressReporter,
+) -> Result<()> {
+    match run_scan(datasource_config, progress_path, reporter).await {
         Ok(result) => {
             // Real final counts (never hardcoded zeros) - the exact bug fixed in cache_clear.
             if result.success {
@@ -178,25 +198,17 @@ async fn main() -> Result<()> {
                         "filesOnDisk": result.files_on_disk,
                     }),
                 );
-            } else {
-                reporter.emit_failed(
-                    "signalr.evictionScan.error.fatal",
-                    json!({ "errorDetail": result.error.clone().unwrap_or_default() }),
-                );
             }
-            // This final plain-JSON line stays the LAST line on stdout after the progress-event
-            // lines above - the C# caller reads only the last stdout line as the ScanResult.
             let json = serde_json::to_string(&result)?;
             println!("{}", json);
             if result.success {
                 Ok(())
             } else {
-                std::process::exit(1);
+                anyhow::bail!("{}", result.error.clone().unwrap_or_default());
             }
         }
         Err(e) => {
             let error_detail = format!("{:#}", e);
-            reporter.emit_failed("signalr.evictionScan.error.fatal", json!({ "errorDetail": error_detail.clone() }));
             let result = ScanResult {
                 success: false,
                 processed: 0,
@@ -207,7 +219,7 @@ async fn main() -> Result<()> {
             };
             let json = serde_json::to_string(&result)?;
             println!("{}", json);
-            std::process::exit(1);
+            Err(e)
         }
     }
 }
@@ -475,15 +487,19 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>, re
                 continue;
             }
 
-            let has_cache_file = keys
-                .expect("verifiable implies the download has probe keys")
-                .iter()
-                .any(|key| {
-                    probe_memo
-                        .get(&key.memo_key)
-                        .copied()
-                        .expect("probe memo must contain every key collected this batch")
-                });
+            let keys_for_probe = keys
+                .ok_or_else(|| anyhow::anyhow!("verifiable implies the download has probe keys"))?;
+            let mut has_cache_file = false;
+            for key in keys_for_probe {
+                let cached = probe_memo
+                    .get(&key.memo_key)
+                    .copied()
+                    .ok_or_else(|| anyhow::anyhow!("probe memo must contain every key collected this batch"))?;
+                if cached {
+                    has_cache_file = true;
+                    break;
+                }
+            }
 
             // Gate the evict decision on POSITIVE cache evidence: only content nginx actually
             // served bytes for (HIT or MISS - a MISS writes to cache too) can be "evicted".

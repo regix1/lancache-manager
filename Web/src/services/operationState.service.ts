@@ -1,4 +1,5 @@
 import { storage } from '@utils/storage';
+import { assertOk, buildApiError } from './apiError';
 
 // Operation state data can be various shapes depending on the operation type
 type OperationStateData = Record<string, unknown>;
@@ -54,10 +55,7 @@ class OperationStateService {
           })
         });
 
-        if (!response.ok) {
-          const error = await response.text();
-          throw new Error(`Failed to save state: ${error}`);
-        }
+        await assertOk(response);
 
         return await response.json();
       } catch (error: unknown) {
@@ -92,7 +90,7 @@ class OperationStateService {
           storage.removeItem(key);
           migrated++;
         }
-      } catch (err) {
+      } catch (err: unknown) {
         console.error(`Failed to migrate ${key}:`, err);
       }
     }
@@ -130,7 +128,7 @@ class OperationStateService {
     try {
       const result = await request.execute();
       request.resolve(result);
-    } catch (error) {
+    } catch (error: unknown) {
       request.reject(error);
     } finally {
       this.activeRequests--;
@@ -154,7 +152,9 @@ class OperationStateService {
           return response;
         }
 
-        lastError = new Error(`HTTP ${response.status}`);
+        // 5xx will be retried; capture the typed error so a retries-exhausted failure surfaces the
+        // same ApiError shape as the rest of the layer.
+        lastError = await buildApiError(response);
       } catch (error: unknown) {
         lastError = error;
 

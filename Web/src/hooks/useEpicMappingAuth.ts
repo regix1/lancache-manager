@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 import { useNotifications, type NotificationStatus } from '@contexts/notifications';
+import { getErrorMessage } from '@utils/error';
 
 interface UseEpicMappingAuthOptions {
   onSuccess?: () => void;
@@ -123,7 +124,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
       if (error instanceof Error && error.name === 'AbortError') {
         return false;
       }
-      const message = error instanceof Error ? error.message : 'Authentication failed';
+      const message = getErrorMessage(error);
       loginNotificationActiveRef.current = false;
       pushLoginCard(
         'failed',
@@ -157,7 +158,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
         setLoading(false);
         return;
       }
-      const message = error instanceof Error ? error.message : 'Login failed';
+      const message = getErrorMessage(error);
       onError?.(message);
       setLoading(false);
     } finally {

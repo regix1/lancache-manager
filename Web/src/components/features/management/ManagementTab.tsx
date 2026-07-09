@@ -9,6 +9,7 @@ import { useSteamAuth } from '@contexts/useSteamAuth';
 import operationStateService from '@services/operationState.service';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
+import ErrorBoundary from '@components/common/ErrorBoundary';
 
 // Import navigation and sections
 import ManagementNav, { type ManagementSection } from './ManagementNav';
@@ -290,8 +291,11 @@ const ManagementTab: React.FC = () => {
         isAdmin={isAdmin}
       />
 
-      {/* Active Section Content */}
-      <div className="management-content">{renderActiveSection()}</div>
+      {/* Active Section Content - keyed by section so a crash in one tab falls back
+          locally (never blanks the whole app) and switching tabs recovers cleanly. */}
+      <div className="management-content">
+        <ErrorBoundary key={renderedSection}>{renderActiveSection()}</ErrorBoundary>
+      </div>
 
       {/* Guest Mode Info - shown in nav area when not authenticated */}
       {authMode === 'guest' && activeSection !== 'settings' && (

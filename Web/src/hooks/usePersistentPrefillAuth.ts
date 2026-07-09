@@ -4,6 +4,8 @@ import ApiService, {
   type PersistentSessionConflictInfo,
   type PersistentSessionNotFoundInfo
 } from '@services/api.service';
+import { ApiError } from '@services/apiError';
+import { getErrorMessage } from '@utils/error';
 import type { PersistentPrefillServiceId } from '@components/features/prefill/persistentPrefillTypes';
 import type { CredentialChallenge } from './usePrefillSteamAuth';
 import type { SteamAuthActions, SteamLoginFlowState } from './useSteamAuthentication';
@@ -30,10 +32,10 @@ import {
 // The challenge GET 404s when its daemon session is gone entirely (socket dropped, container
 // stopped, etc. - diagnostic ADDENDUM). getPersistentChallenge (api.service.ts) parses
 // ResolveRunningPersistentSession's typed 404 body itself and attaches { status, state } as
-// `.cause` on the thrown error - that's the structural signal checked below. The message-prefix
-// check is kept only as a defensive fallback (e.g. a proxy/CDN 404 with no JSON body would still
-// carry api.service's default `HTTP 404: ` format), without relying on handleResponse's global
-// error semantics either way.
+// `.cause` on the thrown error - that's the structural signal checked below. The `ApiError` branch
+// is kept only as a defensive fallback (e.g. a proxy/CDN 404 that bypasses getPersistentChallenge's
+// own 404 handling and instead falls through to `handleResponse`, which throws a typed `ApiError`
+// with `status`) - never by sniffing the message text.
 function isPersistentChallengeNotFoundError(
   error: unknown
 ): error is Error & { cause?: PersistentSessionNotFoundInfo } {
@@ -48,7 +50,7 @@ function isPersistentChallengeNotFoundError(
   ) {
     return true;
   }
-  return /^HTTP 404\b/.test(error.message);
+  return error instanceof ApiError && error.status === 404;
 }
 
 // RC3 fix (session 20260703-221336-2070027597): the challenge GET and provide-credential 409
@@ -325,7 +327,7 @@ export function usePersistentPrefillAuth(
           // over a flow that already ended cleanly elsewhere).
           return false;
         }
-        const message = err instanceof Error ? err.message : 'Failed to submit credential';
+        const message = getErrorMessage(err);
         fail(message);
         return false;
       }
@@ -374,7 +376,7 @@ export function usePersistentPrefillAuth(
         // a second, unrelated fail() write here.
         throw err;
       }
-      const message = err instanceof Error ? err.message : 'Failed to poll persistent login';
+      const message = getErrorMessage(err);
       fail(message);
       throw err;
     }
@@ -450,7 +452,7 @@ export function usePersistentPrefillAuth(
           // state.
           return null;
         }
-        const message = err instanceof Error ? err.message : 'Failed to start persistent login';
+        const message = getErrorMessage(err);
         fail(message);
         return null;
       }
@@ -581,7 +583,7 @@ export function usePersistentPrefillAuth(
         // session-conflict handling above; avoid a second, unrelated fail() write here.
         return false;
       }
-      const message = err instanceof Error ? err.message : 'Failed to authenticate';
+      const message = getErrorMessage(err);
       fail(message);
       return false;
     }

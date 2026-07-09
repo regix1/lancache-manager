@@ -1,5 +1,7 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services.StatusCheck;
+using LancacheManager.Middleware;
+using LancacheManager.Models;
 using LancacheManager.Models.Responses;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -43,7 +45,7 @@ public class StatusCheckController : ControllerBase
     {
         if (!StatusCheckResolverModes.IsValid(request.Mode))
         {
-            return BadRequest(new { message = "mode must be one of: auto, bridge, host." });
+            return BadRequest(ApiResponse.Invalid("mode must be one of: auto, bridge, host."));
         }
 
         _statusCheckService.SetResolverMode(request.Mode);
@@ -56,7 +58,7 @@ public class StatusCheckController : ControllerBase
         var operationId = _statusCheckService.StartSweep();
         if (operationId == null)
         {
-            return Conflict(new { message = "A Status Check sweep is already running." });
+            throw new ConflictException("A Status Check sweep is already running.");
         }
 
         return Accepted(new RunStatusCheckResponse { OperationId = operationId.Value });
@@ -68,7 +70,7 @@ public class StatusCheckController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(request.Domain))
         {
-            return BadRequest(new { message = "domain is required." });
+            return BadRequest(ApiResponse.Invalid("domain is required."));
         }
 
         // Wildcard cache-domains entries (*.cdn.example.com) are legal test input - the sweep's
@@ -77,7 +79,7 @@ public class StatusCheckController : ControllerBase
         var hostnameToValidate = domain.StartsWith("*.", StringComparison.Ordinal) ? domain[2..] : domain;
         if (domain.Length > 253 || Uri.CheckHostName(hostnameToValidate) == UriHostNameType.Unknown)
         {
-            return BadRequest(new { message = "domain is not a valid hostname." });
+            return BadRequest(ApiResponse.Invalid("domain is not a valid hostname."));
         }
 
         var (result, heartbeat) = await _statusCheckService.TestDomainAsync(domain, cancellationToken);
@@ -90,7 +92,7 @@ public class StatusCheckController : ControllerBase
         var outcome = await _domainsService.RefreshDomainsAsync(cancellationToken);
         if (!outcome.Success)
         {
-            return Conflict(new { message = outcome.BlockedReason });
+            throw new ConflictException(outcome.BlockedReason ?? "Domain refresh was blocked.");
         }
 
         return Ok(new RefreshDomainsResponse

@@ -35,6 +35,9 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
         );
       }
     } catch (error) {
+      // Background poll (mount + SteamAutoLogout/SteamSessionError SignalR recovery). Steam
+      // auth state degrades to its 'anonymous' default, which already gates Steam-prefill UI.
+      // Deliberately silent.
       console.error('[SteamAuth] Failed to fetch Steam auth status:', error);
     } finally {
       setIsLoading(false);

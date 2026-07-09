@@ -6,6 +6,7 @@ import { EpicIcon } from '@components/ui/EpicIcon';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
 import ApiService from '@services/api.service';
+import { getErrorMessage } from '@utils/error';
 
 interface EpicAuthStepProps {
   onComplete: () => void;
@@ -43,7 +44,9 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
           setSucceeded(true);
         }
       } catch (err) {
-        console.error('[EpicAuthStep] Failed to check auth status:', err);
+        // Background mount check - if it fails the user just sees the normal (unauthenticated)
+        // auth step instead of the already-authenticated shortcut. Explicit silent background.
+        console.error('[EpicAuthStep] Failed to check auth status:', getErrorMessage(err));
       }
     };
 

@@ -110,7 +110,9 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
           setDownloadStatus(t('initialization.depotInit.operationInProgress'));
         }
       } catch (error) {
-        console.error('[DepotInit] Failed to check status:', error);
+        // Background mount check only - if it fails the "operation in progress" banner just
+        // doesn't show; SignalR events still drive the real state. Explicit silent background.
+        console.error('[DepotInit] Failed to check status:', getErrorMessage(error));
       }
     };
     checkActiveOperation();

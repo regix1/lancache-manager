@@ -1,5 +1,6 @@
 import React, { Component, type ReactNode } from 'react';
 import i18n from '../../i18n';
+import { getErrorMessage } from '@utils/error';
 
 interface Props {
   children: ReactNode;
@@ -21,7 +22,16 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('Error caught by boundary:', error, errorInfo);
+    // Render-phase crash - the technical detail stays in the console/log; the reporting sink below
+    // reaches the unified notification registry. This is a class component so the `useErrorHandler`
+    // hook is unavailable - the `show-toast` CustomEvent bridge is the documented escape hatch for
+    // non-hook code (NotificationsContext.tsx bridges it into the same generic notification).
+    console.error('Error caught by boundary:', getErrorMessage(error), errorInfo);
+    window.dispatchEvent(
+      new CustomEvent('show-toast', {
+        detail: { type: 'error', message: i18n.t('common.errorBoundary.title') }
+      })
+    );
   }
 
   render() {
@@ -49,8 +59,10 @@ class ErrorBoundary extends Component<Props, State> {
 
               <div className="error-boundary-body">
                 <h2 className="error-boundary-title">{i18n.t('common.errorBoundary.title')}</h2>
+                {/* Never render the raw error message to the user - the technical detail already
+                    went to console/the reporting sink in componentDidCatch. */}
                 <pre className="error-boundary-message">
-                  {this.state.error?.message || i18n.t('common.errorBoundary.unexpectedError')}
+                  {i18n.t('common.errorBoundary.unexpectedError')}
                 </pre>
               </div>
 

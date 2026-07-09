@@ -163,7 +163,10 @@ fn write_progress(
     match status {
         "starting" => reporter.emit_started(stage_key, context),
         "completed" => reporter.emit_complete(stage_key, context),
-        "failed" => reporter.emit_failed(stage_key, context),
+        "failed" => {
+            let error_detail = context.get("errorDetail").and_then(|v| v.as_str()).map(|s| s.to_string());
+            reporter.emit_failed(stage_key, context, error_detail);
+        }
         _ => reporter.emit_progress(percent_complete, stage_key, context),
     }
 
@@ -312,77 +315,72 @@ async fn main() -> Result<()> {
             let reporter = ProgressReporter::new(progress);
             let progress_path = progress_json.map(PathBuf::from);
 
-            if detect_redownloads {
-                eprintln!("Detecting re-downloaded chunks (HIT retries)...");
-            } else {
-                eprintln!("Detecting corrupted chunks...");
-            }
-            eprintln!("  Log directory: {}", log_dir.display());
-            eprintln!("  Cache directory: {}", cache_dir.display());
-            eprintln!("  Timezone: {}", timezone);
-            eprintln!("  Threshold: {}", threshold);
-            eprintln!("  Skip cache check: {}", no_cache_check);
-            eprintln!("  Detect redownloads: {}", detect_redownloads);
+            // Whole arm routed through the single failure funnel: any `?`-propagated error
+            // below (not just the hand-checked report-generation call) now produces the
+            // structured stdout `failed` event via finish_or_exit instead of a bare exit.
+            let result: Result<()> = async {
+                if detect_redownloads {
+                    eprintln!("Detecting re-downloaded chunks (HIT retries)...");
+                } else {
+                    eprintln!("Detecting corrupted chunks...");
+                }
+                eprintln!("  Log directory: {}", log_dir.display());
+                eprintln!("  Cache directory: {}", cache_dir.display());
+                eprintln!("  Timezone: {}", timezone);
+                eprintln!("  Threshold: {}", threshold);
+                eprintln!("  Skip cache check: {}", no_cache_check);
+                eprintln!("  Detect redownloads: {}", detect_redownloads);
 
-            // Seed the (C#-pre-created, empty) progress file before the "started" event so an
-            // event-triggered read never sees empty JSON - mirrors the Summary subcommand's invariant.
-            if let Some(path) = progress_path.as_deref() {
-                let starting = ProgressData {
-                    status: "starting".to_string(),
-                    stage_key: "signalr.corruptionRemove.scanningFiles".to_string(),
-                    context: json!({}),
-                    percent_complete: 0.0,
-                    files_processed: 0,
-                    total_files: 0,
-                    timestamp: progress_utils::current_timestamp(),
+                // Seed the (C#-pre-created, empty) progress file before the "started" event so an
+                // event-triggered read never sees empty JSON - mirrors the Summary subcommand's invariant.
+                if let Some(path) = progress_path.as_deref() {
+                    let starting = ProgressData {
+                        status: "starting".to_string(),
+                        stage_key: "signalr.corruptionRemove.scanningFiles".to_string(),
+                        context: json!({}),
+                        percent_complete: 0.0,
+                        files_processed: 0,
+                        total_files: 0,
+                        timestamp: progress_utils::current_timestamp(),
+                    };
+                    if let Err(e) = progress_utils::write_progress_json(path, &starting) {
+                        eprintln!("Warning: failed to seed progress file: {:#}", e);
+                    }
+                }
+                reporter.emit_started("signalr.corruptionRemove.scanningFiles", json!({}));
+
+                let detector = CorruptionDetector::new(&cache_dir, threshold)
+                    .with_skip_cache_check(no_cache_check);
+                // Granular scanning ticks come from cache_corruption_detector.rs's
+                // detect_*_chunks_with_progress (progress-file only); the stdout channel here
+                // brackets the coarse started/complete lifecycle, same split as Commands::Summary.
+                let report = if detect_redownloads {
+                    detector.generate_redownload_report(&log_dir, "access.log", timezone, progress_path.as_deref())
+                        .map_err(|e| anyhow::anyhow!("Failed to generate re-download report: {}", e))?
+                } else {
+                    detector.generate_report(&log_dir, "access.log", timezone, progress_path.as_deref())
+                        .map_err(|e| anyhow::anyhow!("Failed to generate corruption report: {}", e))?
                 };
-                if let Err(e) = progress_utils::write_progress_json(path, &starting) {
-                    eprintln!("Warning: failed to seed progress file: {:#}", e);
-                }
-            }
-            reporter.emit_started("signalr.corruptionRemove.scanningFiles", json!({}));
 
-            let detector = CorruptionDetector::new(&cache_dir, threshold)
-                .with_skip_cache_check(no_cache_check);
-            // Granular scanning ticks come from cache_corruption_detector.rs's
-            // detect_*_chunks_with_progress (progress-file only); the stdout channel here
-            // brackets the coarse started/complete lifecycle, same split as Commands::Summary.
-            let report = if detect_redownloads {
-                match detector.generate_redownload_report(&log_dir, "access.log", timezone, progress_path.as_deref()) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        let msg = format!("Failed to generate re-download report: {}", e);
-                        reporter.emit_failed("signalr.corruptionRemove.error.fatal", json!({ "errorDetail": msg }));
-                        anyhow::bail!("{}", msg);
-                    }
-                }
-            } else {
-                match detector.generate_report(&log_dir, "access.log", timezone, progress_path.as_deref()) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        let msg = format!("Failed to generate corruption report: {}", e);
-                        reporter.emit_failed("signalr.corruptionRemove.error.fatal", json!({ "errorDetail": msg }));
-                        anyhow::bail!("{}", msg);
-                    }
-                }
-            };
+                eprintln!("Found {} corrupted chunks across {} services",
+                    report.summary.total_corrupted,
+                    report.summary.service_counts.len());
 
-            eprintln!("Found {} corrupted chunks across {} services",
-                report.summary.total_corrupted,
-                report.summary.service_counts.len());
+                reporter.emit_complete(
+                    "signalr.corruptionRemove.complete",
+                    json!({ "totalCorrupted": report.summary.total_corrupted, "serviceCounts": report.summary.service_counts }),
+                );
 
-            reporter.emit_complete(
-                "signalr.corruptionRemove.complete",
-                json!({ "totalCorrupted": report.summary.total_corrupted, "serviceCounts": report.summary.service_counts }),
-            );
+                // Write detailed report to JSON
+                let json = serde_json::to_string_pretty(&report)?;
+                let mut file = File::create(&output_json)?;
+                file.write_all(json.as_bytes())?;
+                file.flush()?;
 
-            // Write detailed report to JSON
-            let json = serde_json::to_string_pretty(&report)?;
-            let mut file = File::create(&output_json)?;
-            file.write_all(json.as_bytes())?;
-            file.flush()?;
-
-            eprintln!("Report saved to: {}", output_json.display());
+                eprintln!("Report saved to: {}", output_json.display());
+                Ok(())
+            }.await;
+            progress_events::finish_or_exit(&reporter, "signalr.corruptionRemove.error.fatal", result);
         }
 
         Commands::Summary { log_dir, cache_dir, progress_json, timezone, threshold, no_cache_check, detect_redownloads, progress } => {
@@ -399,77 +397,68 @@ async fn main() -> Result<()> {
             let timezone = timezone.map(|tz| parse_timezone(&tz)).unwrap_or(chrono_tz::UTC);
             let threshold = threshold.unwrap_or(3);
 
-            // All diagnostic output to stderr so stdout only contains JSON
-            if detect_redownloads {
-                eprintln!("Generating re-download detection summary...");
-            } else {
-                eprintln!("Generating corruption summary...");
-            }
-            eprintln!("  Log directory: {}", log_dir.display());
-            eprintln!("  Cache directory: {}", cache_dir.display());
-            eprintln!("  Progress file: {}", progress_path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "none".to_string()));
-            eprintln!("  Timezone: {}", timezone);
-            eprintln!("  Threshold: {}", threshold);
-            eprintln!("  Skip cache check: {}", no_cache_check);
-            eprintln!("  Detect redownloads: {}", detect_redownloads);
+            // Whole arm routed through the single failure funnel (see Commands::Detect).
+            let result: Result<()> = async {
+                // All diagnostic output to stderr so stdout only contains JSON
+                if detect_redownloads {
+                    eprintln!("Generating re-download detection summary...");
+                } else {
+                    eprintln!("Generating corruption summary...");
+                }
+                eprintln!("  Log directory: {}", log_dir.display());
+                eprintln!("  Cache directory: {}", cache_dir.display());
+                eprintln!("  Progress file: {}", progress_path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "none".to_string()));
+                eprintln!("  Timezone: {}", timezone);
+                eprintln!("  Threshold: {}", threshold);
+                eprintln!("  Skip cache check: {}", no_cache_check);
+                eprintln!("  Detect redownloads: {}", detect_redownloads);
 
-            // Granular scanning ticks for Summary come from cache_corruption_detector.rs's
-            // generate_*_summary_with_progress (progress-file only, outside this migration's
-            // lane) - the stdout channel here brackets the coarse started/complete lifecycle.
-            // File-write-before-stdout-emit invariant: seed the (C#-pre-created, empty)
-            // progress file before the "started" event so an event-triggered read never sees
-            // empty JSON.
-            if let Some(path) = progress_path.as_deref() {
-                let starting = ProgressData {
-                    status: "starting".to_string(),
-                    stage_key: "signalr.corruptionRemove.scanningFiles".to_string(),
-                    context: json!({}),
-                    percent_complete: 0.0,
-                    files_processed: 0,
-                    total_files: 0,
-                    timestamp: progress_utils::current_timestamp(),
+                // Granular scanning ticks for Summary come from cache_corruption_detector.rs's
+                // generate_*_summary_with_progress (progress-file only, outside this migration's
+                // lane) - the stdout channel here brackets the coarse started/complete lifecycle.
+                // File-write-before-stdout-emit invariant: seed the (C#-pre-created, empty)
+                // progress file before the "started" event so an event-triggered read never sees
+                // empty JSON.
+                if let Some(path) = progress_path.as_deref() {
+                    let starting = ProgressData {
+                        status: "starting".to_string(),
+                        stage_key: "signalr.corruptionRemove.scanningFiles".to_string(),
+                        context: json!({}),
+                        percent_complete: 0.0,
+                        files_processed: 0,
+                        total_files: 0,
+                        timestamp: progress_utils::current_timestamp(),
+                    };
+                    if let Err(e) = progress_utils::write_progress_json(path, &starting) {
+                        eprintln!("Warning: failed to seed progress file: {:#}", e);
+                    }
+                }
+                reporter.emit_started("signalr.corruptionRemove.scanningFiles", json!({}));
+
+                let detector = CorruptionDetector::new(&cache_dir, threshold)
+                    .with_skip_cache_check(no_cache_check);
+                let summary = if detect_redownloads {
+                    detector.generate_redownload_summary_with_progress(
+                        &log_dir, "access.log", timezone, progress_path.as_deref()
+                    ).map_err(|e| anyhow::anyhow!("Failed to generate re-download summary: {}", e))?
+                } else {
+                    detector.generate_summary_with_progress(
+                        &log_dir, "access.log", timezone, progress_path.as_deref()
+                    ).map_err(|e| anyhow::anyhow!("Failed to generate corruption summary: {}", e))?
                 };
-                if let Err(e) = progress_utils::write_progress_json(path, &starting) {
-                    eprintln!("Warning: failed to seed progress file: {:#}", e);
-                }
-            }
-            reporter.emit_started("signalr.corruptionRemove.scanningFiles", json!({}));
 
-            let detector = CorruptionDetector::new(&cache_dir, threshold)
-                .with_skip_cache_check(no_cache_check);
-            let summary = if detect_redownloads {
-                match detector.generate_redownload_summary_with_progress(
-                    &log_dir, "access.log", timezone, progress_path.as_deref()
-                ) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        let msg = format!("Failed to generate re-download summary: {}", e);
-                        reporter.emit_failed("signalr.corruptionRemove.error.fatal", json!({ "errorDetail": msg }));
-                        anyhow::bail!("{}", msg);
-                    }
-                }
-            } else {
-                match detector.generate_summary_with_progress(
-                    &log_dir, "access.log", timezone, progress_path.as_deref()
-                ) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        let msg = format!("Failed to generate corruption summary: {}", e);
-                        reporter.emit_failed("signalr.corruptionRemove.error.fatal", json!({ "errorDetail": msg }));
-                        anyhow::bail!("{}", msg);
-                    }
-                }
-            };
+                // Real final counts (never hardcoded zeros).
+                reporter.emit_complete(
+                    "signalr.corruptionRemove.complete",
+                    json!({ "totalCorrupted": summary.total_corrupted, "serviceCounts": summary.service_counts }),
+                );
 
-            // Real final counts (never hardcoded zeros).
-            reporter.emit_complete(
-                "signalr.corruptionRemove.complete",
-                json!({ "totalCorrupted": summary.total_corrupted, "serviceCounts": summary.service_counts }),
-            );
-
-            // Output JSON to stdout for C# to capture (ONLY stdout should be JSON)
-            let json = serde_json::to_string(&summary)?;
-            println!("{}", json);
+                // Output JSON to stdout for C# to capture (ONLY stdout should be JSON)
+                let json = serde_json::to_string(&summary)?;
+                println!("{}", json);
+                Ok(())
+            }.await;
+            progress_events::finish_or_exit(&reporter, "signalr.corruptionRemove.error.fatal", result);
         }
 
         Commands::Remove { log_dir, cache_dir, service, progress_json, threshold, no_cache_check, detect_redownloads, progress } => {
@@ -479,6 +468,15 @@ async fn main() -> Result<()> {
             let progress_path = PathBuf::from(&progress_json);
             let reporter = ProgressReporter::new(progress);
 
+            use log_reader::LogFileReader;
+            use parser::LogParser;
+            use std::collections::HashMap;
+
+            // Whole arm routed through the single failure funnel (see Commands::Detect):
+            // the two hand-checked "permission errors abort" sites below now just `bail!`
+            // with context instead of hand-emitting `failed` + `process::exit(1)`, so
+            // finish_or_exit is the ONE place this arm's failures get emitted.
+            let result: Result<()> = async {
             if detect_redownloads {
                 eprintln!("Removing re-download corrupted cache files for service: {}", service);
             } else {
@@ -488,10 +486,6 @@ async fn main() -> Result<()> {
             eprintln!("  Cache directory: {}", cache_dir.display());
 
             write_progress(&progress_path, &reporter, "starting", "signalr.corruptionRemove.starting", json!({ "service": service }), 0.0, 0, 0)?;
-
-            use log_reader::LogFileReader;
-            use parser::LogParser;
-            use std::collections::HashMap;
 
             // Re-download mode: detect via HIT retries within 60s window, then remove cache files, log lines, and DB records
             if detect_redownloads {
@@ -707,8 +701,7 @@ async fn main() -> Result<()> {
                         permission_errors, puid, pgid
                     );
                     eprintln!("\n{}", error_msg);
-                    write_progress(&progress_path, &reporter, "failed", "signalr.corruptionRemove.error.fatal", json!({ "errorDetail": error_msg }), 0.0, 0, 0)?;
-                    std::process::exit(1);
+                    anyhow::bail!("{}", error_msg);
                 }
 
                 // Step 4: Delete database records for corrupted downloads
@@ -1031,8 +1024,7 @@ async fn main() -> Result<()> {
                     permission_errors, puid, pgid
                 );
                 eprintln!("\n{}", error_msg);
-                write_progress(&progress_path, &reporter, "failed", "signalr.corruptionRemove.error.fatal", json!({ "errorDetail": error_msg }), 0.0, 0, 0)?;
-                std::process::exit(1);
+                anyhow::bail!("{}", error_msg);
             }
 
             // Step 4: Delete database records for corrupted downloads
@@ -1050,6 +1042,9 @@ async fn main() -> Result<()> {
             eprintln!("Database downloads deleted: {}", downloads_deleted);
             eprintln!("Database log entries deleted: {}", log_entries_deleted);
             eprintln!("Removal completed successfully");
+            Ok(())
+            }.await;
+            progress_events::finish_or_exit(&reporter, "signalr.corruptionRemove.error.fatal", result);
         }
     }
 

@@ -481,11 +481,13 @@ public class CacheController : ControllerBase
         }
         catch (OperationCanceledException) when (linkedCts.Token.IsCancellationRequested)
         {
+            _logger.LogInformation("Corruption details request cancelled for service: {Service}", service);
             _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled");
-            return StatusCode(499, new { error = "Operation cancelled", operationId });
+            throw; // -> GlobalExceptionMiddleware -> 499, no body
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Error retrieving corruption details for service: {Service}", service);
             _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
             throw;
         }
@@ -1339,12 +1341,13 @@ public class CacheController : ControllerBase
                     "signalr.serviceRemove.error.default",
                     0,
                     Context: new Dictionary<string, object?> { ["name"] = name, ["errorDetail"] = ex.Message }),
-                BuildErrorCompletePayload: (id, _) => new ServiceRemovalComplete(
+                BuildErrorCompletePayload: (id, ex) => new ServiceRemovalComplete(
                     false,
                     name,
                     id,
                     "signalr.serviceRemove.failed.generic",
-                    Context: new Dictionary<string, object?> { ["name"] = name }),
+                    Context: new Dictionary<string, object?> { ["name"] = name },
+                    Error: ex.Message),
                 ExecuteAsync: (opId, ct, onProgress) => _cacheService.RemoveServiceFromCacheAsync(
                     name,
                     ct,

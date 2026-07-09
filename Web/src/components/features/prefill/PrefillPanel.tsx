@@ -17,6 +17,7 @@ import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { API_BASE } from '@utils/constants';
+import { getErrorMessage } from '@utils/error';
 
 import { ScrollText, X, Timer, LogIn, CheckCircle2, AlertCircle } from 'lucide-react';
 
@@ -638,9 +639,7 @@ function ServicePrefillPanel({
               await signalR.hubConnection.current.invoke('ClearCacheAsync', signalR.session.id);
               addLog('success', t('prefill.log.tempCacheCleared'));
             } catch (err) {
-              const errorMessage =
-                err instanceof Error ? err.message : t('prefill.log.failedClearCache');
-              addLog('error', errorMessage);
+              addLog('error', getErrorMessage(err) || t('prefill.log.failedClearCache'));
             }
             break;
           }
@@ -651,15 +650,13 @@ function ServicePrefillPanel({
               addLog('success', result.message || t('prefill.log.cacheDbCleared'));
               setCachedAppIds([]);
             } catch (err) {
-              const errorMessage =
-                err instanceof Error ? err.message : t('prefill.log.failedClearCacheDb');
-              addLog('error', errorMessage);
+              addLog('error', getErrorMessage(err) || t('prefill.log.failedClearCacheDb'));
             }
             break;
           }
         }
       } catch (err) {
-        addLog('error', err instanceof Error ? err.message : t('prefill.log.commandFailed'));
+        addLog('error', getErrorMessage(err) || t('prefill.log.commandFailed'));
         // V1: roll back the OPTIMISTIC 'starting' bar painted in handleConfirmCommand. If the
         // prefill POST threw (409 already-running / network / non-ok) no daemon run started, so no
         // terminal event will ever arrive to clear it — without this the fake "Contacting daemon..."
@@ -793,7 +790,10 @@ function ServicePrefillPanel({
         })),
         message: status.message
       });
-    } catch (_err) {
+    } catch (err) {
+      // Background size estimate - already has its own inline error slot (estimatedSize.error) that
+      // the UI reads directly, so no notification is needed; log the detail for diagnosis.
+      console.error('[PrefillPanel] Failed to estimate size:', getErrorMessage(err));
       setEstimatedSize({
         bytes: 0,
         loading: false,

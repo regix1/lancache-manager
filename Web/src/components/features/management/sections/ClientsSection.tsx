@@ -11,6 +11,8 @@ import { usePaginatedList } from '@hooks/usePaginatedList';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useStats, useDownloads } from '@contexts/DashboardDataContext/hooks';
 import ApiService from '@services/api.service';
+import { getErrorMessage } from '@utils/error';
+import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { Plus, Users, Trash2, Edit2, X, User, AlertTriangle } from 'lucide-react';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import ClientGroupModal from '@components/modals/ClientGroupModal';
@@ -31,6 +33,7 @@ interface ClientsSectionProps {
 
 const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuccess }) => {
   const { t } = useTranslation();
+  const { notifyError } = useErrorHandler();
   const { clientGroups, loading, deleteClientGroup, removeMember } = useClientGroups();
   const { refreshStats } = useStats();
   const { refreshDownloads } = useDownloads();
@@ -56,7 +59,16 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
           setAllClientIps(ips);
         }
       } catch (err) {
-        console.error('Failed to fetch all client IPs:', err);
+        // Background list population for the "known IPs" picker; the section still functions
+        // with an empty list, so this is genuine background noise, not a blocking failure.
+        notifyError(
+          t('management.sections.clients.errors.failedToLoadIps', 'Failed to load client IPs'),
+          err,
+          {
+            silent: true,
+            logLabel: 'Failed to fetch all client IPs'
+          }
+        );
       } finally {
         if (!cancelled) {
           setLoadingClients(false);
@@ -67,7 +79,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [notifyError, t]);
 
   const [excludedRules, setExcludedRules] = useState<ClientExclusionRule[]>([]);
   const [savedExcludedRules, setSavedExcludedRules] = useState<ClientExclusionRule[]>([]);
@@ -104,11 +116,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
       setExcludedRules(rules);
       setSavedExcludedRules(rules);
     } catch (err) {
-      onError(
-        err instanceof Error
-          ? err.message
-          : t('management.sections.clients.errors.failedToLoadExcluded')
-      );
+      onError(getErrorMessage(err) || t('management.sections.clients.errors.failedToLoadExcluded'));
     } finally {
       setLoadingExcluded(false);
     }
@@ -204,9 +212,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
       await refreshDownloads();
     } catch (err) {
       onError(
-        err instanceof Error
-          ? err.message
-          : t('management.sections.clients.errors.failedToUpdateExcluded')
+        getErrorMessage(err) || t('management.sections.clients.errors.failedToUpdateExcluded')
       );
     } finally {
       setSavingExcluded(false);
@@ -290,7 +296,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
       );
       setDeleteConfirmGroup(null);
     } catch (err) {
-      onError(err instanceof Error ? err.message : t('modals.clientGroup.errors.failedToDelete'));
+      onError(getErrorMessage(err) || t('modals.clientGroup.errors.failedToDelete'));
     } finally {
       setDeletingGroupId(null);
     }
@@ -302,7 +308,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
       await removeMember(groupId, ip);
       onSuccess(t('management.sections.clients.removedIpFromNickname', { ip, nickname }));
     } catch (err) {
-      onError(err instanceof Error ? err.message : t('modals.clientGroup.errors.failedToRemoveIp'));
+      onError(getErrorMessage(err) || t('modals.clientGroup.errors.failedToRemoveIp'));
     } finally {
       setRemovingMember(null);
     }

@@ -22,6 +22,8 @@ public record CacheSizeScanProgress(
 
 /// <summary>
 /// SignalR event payload emitted when a cache file scan operation completes.
+/// Implements <see cref="IOperationComplete"/>; <c>Status</c>/<c>Cancelled</c> are derived (this scan
+/// has no cancellation concept) via explicit interface implementation, so the wire shape is unchanged.
 /// </summary>
 public record CacheSizeScanComplete(
     bool Success,
@@ -31,4 +33,9 @@ public record CacheSizeScanComplete(
     long TotalBytes,
     string? FormattedSize = null,
     string? Error = null,
-    Dictionary<string, object?>? Context = null);
+    Dictionary<string, object?>? Context = null) : IOperationComplete
+{
+    Guid? IOperationComplete.OperationId => OperationId;
+    OperationStatus IOperationComplete.Status => Success ? OperationStatus.Completed : OperationStatus.Failed;
+    bool IOperationComplete.Cancelled => false;
+}

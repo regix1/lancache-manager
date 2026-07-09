@@ -434,7 +434,8 @@ public class GamesController : ControllerBase
                     EpicAppId: isEpic ? epicAppId : null,
                     StageKey: errorStageKey,
                     GameName: displayName,
-                    Context: RemovalContext(displayName, appId, epicAppId, errorDetail: ex.Message)),
+                    Context: RemovalContext(displayName, appId, epicAppId, errorDetail: ex.Message),
+                    Error: ex.Message),
                 ExecuteAsync: (opId, ct, onProgress) => removeFunc(
                     opId,
                     ct,

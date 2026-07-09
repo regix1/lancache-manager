@@ -277,6 +277,12 @@ pub async fn run(service: &str) -> Result<()> {
     let progress_path = PathBuf::from(&args.progress_json);
     let reporter = ProgressReporter::new(args.progress);
 
+    // Whole removal routed through the single failure funnel: the wrapper bins
+    // (cache_blizzard_remove / cache_riot_remove / cache_xbox_remove) just `await` this
+    // function as their whole `main` body, so finish_or_exit here is what turns a
+    // `?`-propagated failure into the structured stdout `failed` event for all three -
+    // not only the one hand-checked permission-error abort below.
+    let result: Result<()> = async {
     eprintln!("Named Game Cache Removal");
     eprintln!("  Log directory: {}", log_dir.display());
     eprintln!("  Cache directory: {}", cache_dir.display());
@@ -373,7 +379,6 @@ pub async fn run(service: &str) -> Result<()> {
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
 
-        removal_core::write_progress(&progress_path, &reporter, "failed", "signalr.gameRemove.error.fatal", json!({ "errorDetail": error_msg }), 90.0, 0, 0)?;
         anyhow::bail!("{}", error_msg);
     }
 
@@ -418,6 +423,9 @@ pub async fn run(service: &str) -> Result<()> {
     eprintln!("Log entries removed: {}", report.log_entries_removed);
     eprintln!("Report saved to: {}", output_json.display());
 
+    Ok(())
+    }.await;
+    crate::progress_events::finish_or_exit(&reporter, "signalr.gameRemove.error.fatal", result);
     Ok(())
 }
 

@@ -28,7 +28,7 @@ internal static class TrackedRemovalOperationRunner
         Func<Guid, TReport, object> BuildSuccessPayload,
         Func<Guid, object> BuildCancelledPayload,
         Func<Guid, Exception, object> BuildErrorProgressPayload,
-        Func<Guid, Exception, object> BuildErrorCompletePayload,
+        Func<Guid, Exception, IOperationComplete> BuildErrorCompletePayload,
         Func<Guid, CancellationToken, Func<RemovalProgressUpdate, Task>, Task<TReport>> ExecuteAsync,
         Action<RemovalMetrics, RemovalProgressUpdate>? ApplyProgressMetrics = null,
         Action<RemovalMetrics, TReport>? ApplyFinalMetrics = null,
@@ -66,7 +66,9 @@ internal static class TrackedRemovalOperationRunner
                     ? notifications.NotifyAllAsync(
                         config.CompleteEventName,
                         config.BuildSuccessPayload(operationId, capturedReport!))
-                    : notifications.NotifyAllAsync(
+                    // Genuine failure (not cancel/success) → the uniform failure broadcast: central
+                    // LogWarning + guaranteed IOperationComplete shape, still through the one send path.
+                    : notifications.NotifyOperationFailedAsync(
                         config.CompleteEventName,
                         config.BuildErrorCompletePayload(
                             operationId,

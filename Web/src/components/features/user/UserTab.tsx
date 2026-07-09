@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Users, Settings2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
-import { getErrorMessage } from '@utils/error';
+import { useErrorHandler } from '@hooks/useErrorHandler';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import ActiveSessions from './ActiveSessions';
@@ -12,6 +12,7 @@ import { type Session, type SessionFilter, type ThemeOption, showToast } from '.
 
 const UserTab: React.FC = () => {
   const { t } = useTranslation();
+  const { notifyError } = useErrorHandler();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
@@ -36,7 +37,9 @@ const UserTab: React.FC = () => {
       setGuestDurationHours(data.durationHours || 6);
       setGuestModeLocked(data.isLocked);
     } catch (err) {
-      showToast('error', getErrorMessage(err) || t('user.errors.loadGuestDuration'));
+      notifyError(t('user.errors.loadGuestDuration'), err, {
+        logLabel: 'Failed to load guest duration'
+      });
       setGuestDurationHours(6);
       setGuestModeLocked(false);
     }
@@ -48,7 +51,9 @@ const UserTab: React.FC = () => {
       const response = await ApiService.setGuestSessionDuration(newDuration);
       setGuestDurationHours(response.durationHours);
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('user.errors.updateGuestDuration'));
+      notifyError(t('user.errors.updateGuestDuration'), err, {
+        logLabel: 'Failed to update guest duration'
+      });
     } finally {
       setUpdatingDuration(false);
     }
@@ -62,7 +67,9 @@ const UserTab: React.FC = () => {
       setGuestModeLocked(newLockState);
       showToast('success', newLockState ? t('user.locked') : t('user.unlocked'));
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('user.errors.updateGuestLock'));
+      notifyError(t('user.errors.updateGuestLock'), err, {
+        logLabel: 'Failed to update guest lock'
+      });
     } finally {
       setUpdatingGuestLock(false);
     }
@@ -78,7 +85,7 @@ const UserTab: React.FC = () => {
         }))
       );
     } catch (err) {
-      showToast('error', getErrorMessage(err) || t('user.errors.loadThemes'));
+      notifyError(t('user.errors.loadThemes'), err, { logLabel: 'Failed to load themes' });
     }
   };
 
@@ -87,7 +94,9 @@ const UserTab: React.FC = () => {
       const data = await ApiService.getGuestThemePreference<{ themeId: string }>();
       setDefaultGuestTheme(data.themeId || 'dark-default');
     } catch (err) {
-      showToast('error', getErrorMessage(err) || t('user.errors.loadGuestTheme'));
+      notifyError(t('user.errors.loadGuestTheme'), err, {
+        logLabel: 'Failed to load guest theme'
+      });
     }
   };
 
@@ -97,7 +106,9 @@ const UserTab: React.FC = () => {
       await ApiService.setGuestThemePreference(newThemeId);
       setDefaultGuestTheme(newThemeId);
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('user.errors.updateGuestTheme'));
+      notifyError(t('user.errors.updateGuestTheme'), err, {
+        logLabel: 'Failed to update guest theme'
+      });
     } finally {
       setUpdatingGuestTheme(false);
     }
@@ -112,7 +123,9 @@ const UserTab: React.FC = () => {
       setDefaultGuestRefreshRate(data.refreshRate || 'STANDARD');
       setGuestRefreshRateLocked(data.locked);
     } catch (err) {
-      showToast('error', getErrorMessage(err) || t('user.errors.loadGuestRefreshRate'));
+      notifyError(t('user.errors.loadGuestRefreshRate'), err, {
+        logLabel: 'Failed to load guest refresh rate'
+      });
     }
   };
 
@@ -123,7 +136,9 @@ const UserTab: React.FC = () => {
       setDefaultGuestRefreshRate(newRate);
       showToast('success', t('user.refreshRateUpdated'));
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('user.errors.updateGuestRefreshRate'));
+      notifyError(t('user.errors.updateGuestRefreshRate'), err, {
+        logLabel: 'Failed to update guest refresh rate'
+      });
     } finally {
       setUpdatingGuestRefreshRate(false);
     }
@@ -135,7 +150,9 @@ const UserTab: React.FC = () => {
       await ApiService.setGuestRefreshRateLock(locked);
       setGuestRefreshRateLocked(locked);
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || 'Failed to update refresh rate lock');
+      notifyError(t('user.errors.updateGuestRefreshRateLock'), err, {
+        logLabel: 'Failed to update guest refresh rate lock'
+      });
     } finally {
       setUpdatingGuestRefreshRateLock(false);
     }

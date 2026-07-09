@@ -93,7 +93,10 @@ fn write_progress(
     match status {
         "starting" => reporter.emit_started(stage_key, emit_context),
         "completed" => reporter.emit_complete(stage_key, emit_context),
-        "failed" => reporter.emit_failed(stage_key, emit_context),
+        "failed" => {
+            let error_detail = emit_context.get("errorDetail").and_then(|v| v.as_str()).map(|s| s.to_string());
+            reporter.emit_failed(stage_key, emit_context, error_detail);
+        }
         _ => reporter.emit_progress(percent_complete, stage_key, emit_context),
     }
 
@@ -288,6 +291,10 @@ async fn main() -> Result<()> {
     let progress_path = PathBuf::from(&args.progress_json);
     let reporter = ProgressReporter::new(args.progress);
 
+    // Whole removal routed through the single failure funnel; the permission-error abort
+    // below now just `bail!`s with context instead of hand-emitting `failed` +
+    // `process::exit(1)`, so finish_or_exit is the ONE place this bin's failures get emitted.
+    let result: Result<()> = async {
     eprintln!("Service Cache Removal");
     eprintln!("  Log directory: {}", log_dir.display());
     eprintln!("  Cache directory: {}", cache_dir.display());
@@ -347,8 +354,7 @@ async fn main() -> Result<()> {
             total_permission_errors, puid, pgid, cache_permission_errors, log_permission_errors
         );
         eprintln!("\n{}", error_msg);
-        write_progress(&progress_path, &reporter, "failed", "signalr.serviceRemove.error.fatal", json!({ "errorDetail": error_msg }), 70.0, cache_files_deleted, url_count)?;
-        std::process::exit(1);
+        anyhow::bail!("{}", error_msg);
     }
 
     // Step 4: Delete database records (only if no permission errors)
@@ -365,5 +371,8 @@ async fn main() -> Result<()> {
     eprintln!("Database entries deleted: {}", database_entries_deleted);
     eprintln!("Removal completed successfully");
 
+    Ok(())
+    }.await;
+    progress_events::finish_or_exit(&reporter, "signalr.serviceRemove.error.fatal", result);
     Ok(())
 }

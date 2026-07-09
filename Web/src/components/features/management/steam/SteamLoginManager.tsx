@@ -13,6 +13,7 @@ import { useSteamAuth } from '@contexts/useSteamAuth';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { storage } from '@utils/storage';
+import { getErrorMessage } from '@utils/error';
 
 interface SteamLoginManagerProps {
   authMode: AuthMode;
@@ -97,14 +98,11 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
         setContextUsername('');
         onSuccess?.('Switched to anonymous Steam mode. Depot mappings preserved.');
       } else {
-        const error = await response.json();
-        onError?.(error.message || t('modals.steamAuth.errors.failedToSwitchToAnonymous'));
+        const errorBody = await response.json();
+        onError?.(errorBody?.message || t('modals.steamAuth.errors.failedToSwitchToAnonymous'));
       }
     } catch (err: unknown) {
-      onError?.(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('modals.steamAuth.errors.failedToSwitchToAnonymous')
-      );
+      onError?.(getErrorMessage(err) || t('modals.steamAuth.errors.failedToSwitchToAnonymous'));
     } finally {
       setLoading(false);
     }

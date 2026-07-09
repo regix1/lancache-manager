@@ -10,6 +10,7 @@ import { Checkbox } from '@components/ui/Checkbox';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { type AuthMode } from '@services/auth.service';
 import ApiService from '@services/api.service';
+import { getErrorMessage } from '@utils/error';
 import DepotMappingManager from '../depot/DepotMappingManager';
 import DataImporter from '../data/DataImporter';
 interface DataSectionProps {
@@ -263,10 +264,7 @@ const DataSection: React.FC<DataSectionProps> = ({
         }
       }
     } catch (err: unknown) {
-      onError(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('management.database.errors.failedToClear')
-      );
+      onError(getErrorMessage(err) || t('management.database.errors.failedToClear'));
     } finally {
       setLoading(false);
       clearInProgressRef.current = false;

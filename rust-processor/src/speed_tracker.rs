@@ -902,7 +902,11 @@ async fn main() -> Result<()> {
         eprintln!("Database connection is configured via DATABASE_URL environment variable.");
         eprintln!("Outputs JSON speed snapshots to stdout every {}ms", BROADCAST_INTERVAL_MS);
         eprintln!("Uses a {}-second rolling window", WINDOW_SECONDS);
-        std::process::exit(1);
+        // No ProgressReporter/envelope here by design (this bin is a continuous snapshot
+        // stream, not a discrete lifecycle operation - see emit_json_line docs). Returning
+        // Err (instead of process::exit(1)) still surfaces the fatal reason: anyhow's
+        // default main Termination prints "Error: {:#}" to stderr and exits 1.
+        anyhow::bail!("missing required <log_path> argument(s)");
     }
 
     // Build log paths from all provided directories

@@ -352,6 +352,13 @@ impl Processor {
             self.current_file_bytes.store(0, Ordering::Relaxed);
             self.current_file_size.store(0, Ordering::Relaxed);
 
+            // Cooperative cancel: process_single_file already wrote/emitted the "cancelled"
+            // progress event before returning early; stop the file loop here instead of
+            // silently moving on to process the next file.
+            if cancel::is_cancelled() {
+                return Ok(());
+            }
+
             if let Err(e) = file_result {
                 let error_str = format!("{}", e);
                 // Classify the error: IO/decompression errors are "corrupted file",
@@ -514,7 +521,10 @@ impl Processor {
                             "cancelled",
                             &format!("Cancelled: {} lines parsed, {} entries saved", parsed, saved),
                         )?;
-                        std::process::exit(0);
+                        // Return cleanly instead of force-exiting the whole process from
+                        // mid-stack; the caller's file loop (see `process()`) checks
+                        // cancel::is_cancelled() right after this call returns and stops there.
+                        return Ok(());
                     }
                 }
             }
@@ -1227,7 +1237,9 @@ impl Processor {
                 // waiting for a later back-fill). A genuinely-unknown earlier host would
                 // have used the _riot:<host> key + the GameName-IS-NULL branch below, so
                 // it won't be wrongly adopted here. Prefer the exact-name match first.
-                let resolved_name = game_name.as_deref().unwrap();
+                let resolved_name = game_name
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("riot game_name expected but was None"))?;
                 sqlx::query(
                     "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND (\"GameName\" = $3 OR \"GameName\" IS NULL) ORDER BY (\"GameName\" = $3) DESC, \"StartTimeUtc\" DESC LIMIT 1"
                 )
@@ -1544,7 +1556,11 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Err(e) => {
-            reporter.emit_failed("signalr.logProcessor.error.fatal", serde_json::json!({ "errorDetail": format!("{}", e) }));
+            reporter.emit_failed(
+                "signalr.logProcessor.error.fatal",
+                serde_json::json!({}),
+                Some(format!("{e:#}")),
+            );
             Err(e)
         }
     }

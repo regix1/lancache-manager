@@ -1,3 +1,5 @@
+using LancacheManager.Models;
+
 namespace LancacheManager.Infrastructure.Utilities;
 
 /// <summary>
@@ -58,8 +60,17 @@ public static class SignalRNotifications
         int FilesDeleted = 0,
         long BytesFreed = 0,
         ulong LogEntriesRemoved = 0,
-        Dictionary<string, object?>? Context = null
-    ) : ICompletionNotification;
+        Dictionary<string, object?>? Context = null,
+        // Additive terminal fields (appended so positional callers are unaffected) — guarantee the
+        // shared IOperationComplete contract on the failure/cancel paths.
+        string? Error = null,
+        bool Cancelled = false
+    ) : ICompletionNotification, IOperationComplete
+    {
+        Guid? IOperationComplete.OperationId => OperationId;
+        OperationStatus IOperationComplete.Status =>
+            Cancelled ? OperationStatus.Cancelled : Success ? OperationStatus.Completed : OperationStatus.Failed;
+    }
 
     /// <summary>
     /// Notification when service removal starts.
@@ -96,8 +107,17 @@ public static class SignalRNotifications
         int FilesDeleted = 0,
         long BytesFreed = 0,
         ulong LogEntriesRemoved = 0,
-        Dictionary<string, object?>? Context = null
-    ) : ICompletionNotification;
+        Dictionary<string, object?>? Context = null,
+        // Additive terminal fields (appended so positional callers are unaffected) — guarantee the
+        // shared IOperationComplete contract on the failure/cancel paths.
+        string? Error = null,
+        bool Cancelled = false
+    ) : ICompletionNotification, IOperationComplete
+    {
+        Guid? IOperationComplete.OperationId => OperationId;
+        OperationStatus IOperationComplete.Status =>
+            Cancelled ? OperationStatus.Cancelled : Success ? OperationStatus.Completed : OperationStatus.Failed;
+    }
 
     /// <summary>
     /// Notification for corruption removal started.
@@ -136,7 +156,11 @@ public static class SignalRNotifications
         string? Error = null,
         DateTime? Timestamp = null,
         Dictionary<string, object?>? Context = null
-    ) : ICompletionNotification;
+    ) : ICompletionNotification, IOperationComplete
+    {
+        OperationStatus IOperationComplete.Status => Success ? OperationStatus.Completed : OperationStatus.Failed;
+        bool IOperationComplete.Cancelled => false;
+    }
 
     #endregion
 
@@ -160,7 +184,11 @@ public static class SignalRNotifications
         double? Elapsed = null,
         string? StageKey = null,
         Dictionary<string, object?>? Context = null
-    );
+    ) : IOperationComplete
+    {
+        // No dedicated Error field: on failure the human-readable reason rides in Message.
+        string? IOperationComplete.Error => Success ? null : Message;
+    }
 
     /// <summary>
     /// Notification when log removal completes (success, failure, or cancellation).
@@ -184,7 +212,11 @@ public static class SignalRNotifications
         string? Datasource = null,
         string? StageKey = null,
         Dictionary<string, object?>? Context = null
-    );
+    ) : IOperationComplete
+    {
+        // No dedicated Error field: on failure the human-readable reason rides in Message.
+        string? IOperationComplete.Error => Success ? null : Message;
+    }
 
     #endregion
 
@@ -220,8 +252,14 @@ public static class SignalRNotifications
         int? TotalServicesDetected = null,
         int? NewGamesCount = null,
         DateTime? Timestamp = null,
-        Dictionary<string, object?>? Context = null
-    ) : ICompletionNotification;
+        Dictionary<string, object?>? Context = null,
+        // Additive terminal field (appended so positional callers are unaffected) — guarantees the
+        // shared IOperationComplete contract on the failure path.
+        string? Error = null
+    ) : ICompletionNotification, IOperationComplete
+    {
+        Guid? IOperationComplete.OperationId => OperationId;
+    }
 
     /// <summary>
     /// Notification for corruption detection progress.
@@ -266,7 +304,10 @@ public static class SignalRNotifications
         int TotalServicesWithCorruption = 0,
         int TotalCorruptedChunks = 0,
         Dictionary<string, object?>? Context = null
-    ) : ICompletionNotification;
+    ) : ICompletionNotification, IOperationComplete
+    {
+        Guid? IOperationComplete.OperationId => OperationId;
+    }
 
     #endregion
 
@@ -307,7 +348,7 @@ public static class SignalRNotifications
         string? Error = null,
         string? StageKey = null,
         Dictionary<string, object?>? Context = null
-    );
+    ) : IOperationComplete;
 
     /// <summary>
     /// Notification when a cache size scan completes. Replaces the prior <c>new { success = true }</c>
@@ -316,8 +357,16 @@ public static class SignalRNotifications
     /// </summary>
     public record CacheScanComplete(
         bool Success,
-        Guid? OperationId = null
-    );
+        Guid? OperationId = null,
+        // Additive terminal fields (appended so positional callers are unaffected) — guarantee the
+        // shared IOperationComplete contract on the failure path.
+        string? Error = null,
+        bool Cancelled = false
+    ) : IOperationComplete
+    {
+        OperationStatus IOperationComplete.Status =>
+            Cancelled ? OperationStatus.Cancelled : Success ? OperationStatus.Completed : OperationStatus.Failed;
+    }
 
     /// <summary>
     /// Notification when a database reset completes on the NORMAL path (success or failure) or via
@@ -334,7 +383,7 @@ public static class SignalRNotifications
         bool Cancelled = false,
         string? Error = null,
         Dictionary<string, object?>? Context = null
-    ) : ICompletionNotification;
+    ) : ICompletionNotification, IOperationComplete;
 
     #endregion
 
@@ -362,7 +411,11 @@ public static class SignalRNotifications
         bool IsLoggedOn = false,
         string? Error = null,
         DateTime? Timestamp = null
-    );
+    ) : IOperationComplete
+    {
+        OperationStatus IOperationComplete.Status =>
+            Cancelled ? OperationStatus.Cancelled : Success ? OperationStatus.Completed : OperationStatus.Failed;
+    }
 
     /// <summary>
     /// Notification when the Epic catalog mapping / auth-login terminal state is reached (success,
@@ -385,7 +438,7 @@ public static class SignalRNotifications
         string? Error = null,
         Dictionary<string, object?>? Context = null,
         string? Message = null
-    );
+    ) : IOperationComplete;
 
     /// <summary>
     /// Notification when a data import completes (success, failure, or cancellation). Property
@@ -403,7 +456,14 @@ public static class SignalRNotifications
         ulong? RecordsSkipped = null,
         ulong? RecordsErrors = null,
         ulong? TotalRecords = null
-    );
+    ) : IOperationComplete
+    {
+        Guid? IOperationComplete.OperationId => OperationId;
+        OperationStatus IOperationComplete.Status =>
+            Cancelled ? OperationStatus.Cancelled : Success ? OperationStatus.Completed : OperationStatus.Failed;
+        // No dedicated Error field: on failure the human-readable reason rides in Message.
+        string? IOperationComplete.Error => Success ? null : Message;
+    }
 
     #endregion
 

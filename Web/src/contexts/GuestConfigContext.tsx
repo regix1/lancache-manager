@@ -27,6 +27,8 @@ export const GuestConfigProvider: React.FC<{ children: ReactNode }> = ({ childre
           }
         }
       } catch (err) {
+        // Background fetch on mount (public endpoint, no auth). Guest defaults (locked=false,
+        // 6h duration) already apply as safe fallbacks. Deliberately silent.
         console.error('[GuestConfig] Failed to fetch guest config:', err);
       } finally {
         setIsLoading(false);

@@ -19,6 +19,7 @@ using LancacheManager.Security;
 using LancacheManager.Validators;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.SignalR; // HubOptions.AddFilter<T>() extension for the HubExceptionFilter
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Routing.Constraints;
@@ -87,6 +88,12 @@ builder.Services.AddSignalR(options =>
     options.KeepAliveInterval = TimeSpan.FromSeconds(10); // Send keepalive every 10 seconds (default: 15)
     options.ClientTimeoutInterval = TimeSpan.FromMinutes(10); // Client timeout after 10 minutes (default: 30s) - generous for slow Steam API responses
     options.HandshakeTimeout = TimeSpan.FromSeconds(30); // Handshake timeout (default: 15)
+
+    // Hub-side parallel to the HTTP GlobalExceptionMiddleware: convert any uncaught (non-HubException)
+    // hub exception into a logged, generic HubException so clients get a consistent, non-leaking message.
+    options.AddFilter<HubExceptionFilter>();
+    // Explicit: never leak internal exception detail to hub clients (the filter provides the message).
+    options.EnableDetailedErrors = false;
 }).AddJsonProtocol(options =>
 {
     // Use camelCase for SignalR JSON serialization to match frontend expectations

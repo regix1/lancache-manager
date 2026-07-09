@@ -435,8 +435,8 @@ public class ThemeController : ControllerBase
         }
         catch (IOException ex)
         {
-            _logger.LogError(ex, $"IO error when deleting theme {id}");
-            return StatusCode(500, new ErrorResponse { Error = $"IO error: {ex.Message}" });
+            _logger.LogError(ex, "IO error when deleting theme {ThemeId}", id);
+            throw; // -> GlobalExceptionMiddleware -> 500 safe { error, details?, statusCode, traceId }
         }
     }
 

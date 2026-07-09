@@ -84,7 +84,10 @@ pub fn write_progress(
     match status {
         "starting" => reporter.emit_started(stage_key, emit_context),
         "completed" => reporter.emit_complete(stage_key, emit_context),
-        "failed" => reporter.emit_failed(stage_key, emit_context),
+        "failed" => {
+            let error_detail = emit_context.get("errorDetail").and_then(|v| v.as_str()).map(|s| s.to_string());
+            reporter.emit_failed(stage_key, emit_context, error_detail);
+        }
         _ => reporter.emit_progress(percent_complete, stage_key, emit_context),
     }
 

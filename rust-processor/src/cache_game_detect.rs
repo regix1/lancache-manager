@@ -215,6 +215,11 @@ async fn main() -> Result<()> {
     let incremental_mode = args.incremental;
     let progress_path = args.progress_file.map(PathBuf::from);
 
+    // Whole scan routed through the single failure funnel: this bin previously had ZERO
+    // structured `failed` events (every `?` reached the host as stderr + bare exit 1).
+    // finish_or_exit is now the ONE place a scan failure gets emitted.
+    let result: Result<()> = async {
+
     // Read excluded game IDs if provided (for incremental scanning)
     let excluded_game_ids: Vec<u32> = if let Some(ref excluded_path_str) = args.excluded_game_ids_json {
         let excluded_path = PathBuf::from(excluded_path_str);
@@ -847,5 +852,8 @@ async fn main() -> Result<()> {
     )?;
     reporter.emit_complete("signalr.gameDetect.complete.default", json!({ "totalGames": report.total_games_detected, "totalServices": report.total_services_detected }));
 
+    Ok(())
+    }.await;
+    progress_events::finish_or_exit(&reporter, "signalr.gameDetect.error.fatal", result);
     Ok(())
 }

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
+import { useErrorHandler } from './useErrorHandler';
 
 interface DefaultGuestPreferences {
   useLocalTimezone: boolean;
@@ -39,6 +40,7 @@ const notifyListeners = () => {
 export const useDefaultGuestPreferences = () => {
   const { on, off } = useSignalR();
   const { hasSession, isLoading: authLoading } = useAuth();
+  const { notifyError } = useErrorHandler();
   const [prefs, setPrefs] = useState<DefaultGuestPreferences>(cachedPrefs);
   const [loading, setLoading] = useState(!loaded);
 
@@ -69,11 +71,15 @@ export const useDefaultGuestPreferences = () => {
         notifyListeners();
       }
     } catch (err) {
-      console.error('Failed to load default guest preferences:', err);
+      // Background load: cachedPrefs already holds a sane default, so this fails quietly.
+      notifyError('Failed to load default guest preferences', err, {
+        silent: true,
+        logLabel: 'useDefaultGuestPreferences loadPreferences'
+      });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [notifyError]);
 
   // Listen for SignalR updates to default guest preferences
   const handleDefaultGuestPreferencesChanged = useCallback(

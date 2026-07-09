@@ -9,6 +9,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { formatBytes, formatPercent, formatSpeedWithSeparatedUnit } from '@utils/formatters';
 import ApiService from '@services/api.service';
+import { getErrorMessage } from '@utils/error';
 import type { SpeedHistorySnapshot } from '../../../types';
 
 interface DownloadsHeaderProps {
@@ -39,7 +40,9 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
       const data = await ApiService.getSpeedHistory(1440); // 24 hours
       setHistorySnapshot(data);
     } catch (err) {
-      console.error('Failed to fetch history:', err);
+      // Background refresh - retried on the next SignalR refresh event; the header's speed/count
+      // stats still come from the live SpeedContext, so this only affects the 24h history figures.
+      console.error('Failed to fetch history:', getErrorMessage(err));
     }
   }, []);
 

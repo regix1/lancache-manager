@@ -141,6 +141,9 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         setPreferences((prev) => ({ ...prev, [sessionId]: normalizedPrefs }));
         loadedIds.current.add(sessionId);
       } catch (err) {
+        // Background per-session load (also used to load OTHER users' preferences for admin
+        // views) - a toast per failed session load would be noisy. Deliberately silent; marking
+        // as loaded below prevents an infinite retry loop.
         console.error('[SessionPreferencesContext] Failed to load session preferences:', err);
         // Mark as loaded to prevent infinite retries on network errors
         loadedIds.current.add(sessionId);

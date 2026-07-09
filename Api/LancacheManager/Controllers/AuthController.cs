@@ -171,7 +171,7 @@ public class AuthController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(request.ApiKey))
         {
-            return BadRequest(new { error = "API key is required" });
+            return BadRequest(ApiResponse.Required("API key"));
         }
 
         // If this browser has an existing guest session, revoke it before upgrading
@@ -190,7 +190,7 @@ public class AuthController : ControllerBase
         if (result == null)
         {
             _logger.LogWarning("Failed login attempt from {IP}", HttpContext.Connection.RemoteIpAddress);
-            return Unauthorized(new { error = "Invalid API key" });
+            return Unauthorized(ApiResponse.Error("Invalid API key"));
         }
 
         var (rawToken, session) = result.Value;
@@ -218,13 +218,13 @@ public class AuthController : ControllerBase
     {
         if (!_sessionService.IsGuestAccessEnabled())
         {
-            return StatusCode(403, new { error = "Guest access is disabled" });
+            throw new ForbiddenException("Guest access is disabled");
         }
 
         var result = await _sessionService.CreateGuestSessionAsync(HttpContext);
         if (result == null)
         {
-            return StatusCode(500, new { error = "Failed to create guest session" });
+            return StatusCode(500, ApiResponse.Error("Failed to create guest session"));
         }
 
         var (rawToken, session) = result.Value;
@@ -355,7 +355,7 @@ public class AuthController : ControllerBase
     {
         if (request.DurationHours.HasValue && (request.DurationHours.Value < 1 || request.DurationHours.Value > 720))
         {
-            return BadRequest(new { error = "Duration must be between 1 and 720 hours" });
+            return BadRequest(ApiResponse.Invalid("Duration must be between 1 and 720 hours"));
         }
 
         try
@@ -374,7 +374,7 @@ public class AuthController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to persist guest duration setting");
-            return StatusCode(503, new { error = "state_persistence_disabled" });
+            return StatusCode(503, ApiResponse.Error("state_persistence_disabled"));
         }
 
         // Broadcast the effective (post-merge) value, not the raw request value, so clients
@@ -433,7 +433,7 @@ public class AuthController : ControllerBase
     {
         if (!GuestPrefillValidation.TryValidateDurationHours(request.DurationHours, out var durationError))
         {
-            return BadRequest(new { error = durationError });
+            return BadRequest(ApiResponse.Invalid(durationError));
         }
 
         var wasSteamEnabled = _sessionService.IsSteamPrefillEnabled();
@@ -536,7 +536,7 @@ public class AuthController : ControllerBase
     {
         if (!GuestPrefillValidation.TryValidateDurationHours(request.DurationHours, out var durationError))
         {
-            return BadRequest(new { error = durationError });
+            return BadRequest(ApiResponse.Invalid(durationError));
         }
 
         var wasEnabled = _stateService.GetEpicGuestPrefillEnabledByDefault();
@@ -601,7 +601,7 @@ public class AuthController : ControllerBase
     {
         if (!GuestPrefillValidation.TryValidateDurationHours(request.DurationHours, out var durationError))
         {
-            return BadRequest(new { error = durationError });
+            return BadRequest(ApiResponse.Invalid(durationError));
         }
 
         var wasEnabled = _stateService.GetBattleNetGuestPrefillEnabledByDefault();
@@ -663,7 +663,7 @@ public class AuthController : ControllerBase
     {
         if (!GuestPrefillValidation.TryValidateDurationHours(request.DurationHours, out var durationError))
         {
-            return BadRequest(new { error = durationError });
+            return BadRequest(ApiResponse.Invalid(durationError));
         }
 
         var wasEnabled = _stateService.GetRiotGuestPrefillEnabledByDefault();
@@ -726,7 +726,7 @@ public class AuthController : ControllerBase
     {
         if (!GuestPrefillValidation.TryValidateDurationHours(request.DurationHours, out var durationError))
         {
-            return BadRequest(new { error = durationError });
+            return BadRequest(ApiResponse.Invalid(durationError));
         }
 
         var wasEnabled = _stateService.GetXboxGuestPrefillEnabledByDefault();

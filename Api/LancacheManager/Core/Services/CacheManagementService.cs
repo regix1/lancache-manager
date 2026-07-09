@@ -621,10 +621,7 @@ public partial class CacheManagementService
 
             var result = await _rustProcessHelper.ExecuteProcessAsync(startInfo, cancellationToken);
 
-            if (result.ExitCode != 0)
-            {
-                throw new Exception($"Rust log_manager failed for datasource '{datasourceName}' with exit code {result.ExitCode}: {result.Error}");
-            }
+            result.EnsureSuccess("log_manager", datasourceName);
 
             // Read results from progress file
             var progressData = await _rustProcessHelper.ReadProgressFileAsync<LogCountProgressData>(progressFile);
@@ -634,15 +631,16 @@ public partial class CacheManagementService
                 counts = progressData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
             }
         }
-        catch (Exception ex)
+        catch (RustProcessException ex) when (
+            (ex.Stderr?.Contains("No such file or directory") == true) ||
+            (ex.Stderr?.Contains("os error 2") == true))
         {
             // If the log file doesn't exist, return empty counts instead of throwing
-            if (ex.Message.Contains("No such file or directory") || ex.Message.Contains("os error 2"))
-            {
-                LogThrottledWarning($"Log file not accessible for datasource '{datasourceName}': {logDir}. Returning empty counts.");
-                return counts;
-            }
-
+            LogThrottledWarning($"Log file not accessible for datasource '{datasourceName}': {logDir}. Returning empty counts.");
+            return counts;
+        }
+        catch (Exception ex)
+        {
             _logger.LogError(ex, "Error counting service logs for datasource '{DatasourceName}'", datasourceName);
             throw;
         }
@@ -788,8 +786,9 @@ public partial class CacheManagementService
                 {
                     _logger.LogError("[CorruptionDetection] Detect failed with exit code {Code}: {Error}",
                         result.ExitCode, result.Error);
-                    throw new Exception($"corruption_manager detect failed with exit code {result.ExitCode}: {result.Error}");
                 }
+
+                result.EnsureSuccess("corruption_manager_detect", service);
 
                 // Read the generated JSON file (keep for operation history)
                 var report = await _rustProcessHelper.ReadOutputJsonAsync<CorruptionReport>(outputJson, "CorruptionDetection");
@@ -1102,9 +1101,9 @@ public partial class CacheManagementService
                 execution.Datasource.Name,
                 result.ExitCode,
                 result.Error);
-            throw new Exception(
-                $"{failedProcessDescription} failed for datasource '{execution.Datasource.Name}' with exit code {result.ExitCode}: {result.Error}");
         }
+
+        result.EnsureSuccess(failedProcessDescription, execution.Datasource.Name);
 
         return await buildReportAsync(new RustRemovalProcessResult(
             execution.Datasource,

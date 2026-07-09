@@ -17,7 +17,10 @@ interface PrefillProviderProps {
   children: ReactNode;
 }
 
-// Helper to restore logs from sessionStorage
+// Helper to restore logs from sessionStorage. Called from a useState lazy initializer (render
+// phase, before any provider - including NotificationsProvider - has mounted), so there is no
+// notification channel reachable here even in principle. A corrupt/missing cache degrades
+// gracefully to an empty log, which is harmless. Deliberately silent.
 const restoreLogsFromStorage = (): LogEntry[] => {
   try {
     const saved = sessionStorage.getItem(STORAGE_KEY);
@@ -35,7 +38,9 @@ const restoreLogsFromStorage = (): LogEntry[] => {
   return [];
 };
 
-// Helper to save logs to sessionStorage
+// Helper to save logs to sessionStorage. Best-effort local persistence only (in-memory
+// logEntries state still works this session even if the write fails); a full storage quota is
+// the only realistic cause. Deliberately silent.
 const saveLogsToStorage = (entries: LogEntry[]) => {
   try {
     // Keep only the most recent entries to prevent storage bloat
@@ -46,7 +51,8 @@ const saveLogsToStorage = (entries: LogEntry[]) => {
   }
 };
 
-// Helper to restore background completion from sessionStorage
+// Helper to restore background completion from sessionStorage. Same render-phase constraint as
+// restoreLogsFromStorage above - no notification channel is reachable here. Deliberately silent.
 const restoreBackgroundCompletion = (): BackgroundCompletion | null => {
   try {
     const saved = sessionStorage.getItem(BACKGROUND_COMPLETION_KEY);
@@ -189,6 +195,8 @@ export const PrefillProvider: React.FC<PrefillProviderProps> = ({ children }) =>
       setLogEntries([]);
       setBackgroundCompletionState(null);
     } catch (error) {
+      // Best-effort storage cleanup (session end); a failure here only leaves stale cached
+      // entries behind, it does not affect the active session. Deliberately silent.
       console.error('[PrefillContext] Failed to clear prefill storage:', error);
     }
   }, []);

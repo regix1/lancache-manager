@@ -32,7 +32,9 @@ import { useDockerSocket } from '@contexts/useDockerSocket';
 import { ImageCacheContext, ImageInvalidateContext } from '@components/common/ImageCacheContext';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
+import { getErrorMessage } from '@utils/error';
 import { useNotifications } from '@contexts/notifications';
+import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
@@ -159,6 +161,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     evictionMode !== savedEvictionMode || pruneOrphanedDownloads !== savedPruneOrphanedDownloads;
 
   const { notifications, addNotification, updateNotification } = useNotifications();
+  const { notifyError } = useErrorHandler();
 
   // Local state for evicted items - same pattern as GameCacheDetector's games/services.
   // Items only disappear when explicitly filtered by notification completion.
@@ -183,9 +186,18 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       setEvictedGames(games);
       setEvictedServices(services);
     } catch (err) {
-      console.error('Failed to fetch evicted items:', err);
+      // Background refresh (mount + post-removal/scan); the section already renders an empty
+      // evicted-items state, so a transient failure here is explicit background noise.
+      notifyError(
+        t('management.storage.errors.fetchEvictedItems', 'Failed to fetch evicted items'),
+        err,
+        {
+          silent: true,
+          logLabel: 'Failed to fetch evicted items'
+        }
+      );
     }
-  }, []);
+  }, [notifyError, t]);
 
   // Sync from API when refresh key changes - but NOT during active removal
   useEffect(() => {
@@ -301,7 +313,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         );
       }
     } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
+      const errorMsg = getErrorMessage(err);
       console.error('Bulk evicted removal failed to start:', errorMsg);
       addNotification({
         type: 'generic',
@@ -330,9 +342,9 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         scheduleRemovalRefresh(onDataRefresh);
       } catch (err: unknown) {
         const errorMsg =
-          (err instanceof Error ? err.message : String(err)) ||
-          t('management.gameDetection.failedToRemoveService');
+          getErrorMessage(err) || t('management.gameDetection.failedToRemoveService');
         console.error('Partial evicted service removal error:', errorMsg);
+        onError(errorMsg);
       }
     } else {
       const game = partialEvictedTarget as GameCacheInfo;
@@ -367,10 +379,9 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         }
         scheduleRemovalRefresh(onDataRefresh);
       } catch (err: unknown) {
-        const errorMsg =
-          (err instanceof Error ? err.message : String(err)) ||
-          t('management.gameDetection.failedToRemoveGame');
+        const errorMsg = getErrorMessage(err) || t('management.gameDetection.failedToRemoveGame');
         console.error('Partial evicted game removal error:', errorMsg);
+        onError(errorMsg);
       }
     }
   };
@@ -588,10 +599,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       onSuccess(t('management.sections.data.evictionSaveSuccess'));
       onDataRefresh();
     } catch (err: unknown) {
-      onError(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('management.sections.data.evictionSaveError')
-      );
+      onError(getErrorMessage(err) || t('management.sections.data.evictionSaveError'));
     } finally {
       setEvictionSaving(false);
     }
@@ -651,7 +659,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     try {
       await attemptScan();
     } catch (err: unknown) {
-      onError(err instanceof Error ? err.message : String(err));
+      onError(getErrorMessage(err));
     } finally {
       if (isMountedRef.current) {
         setIsStartingEvictionScan(false);
@@ -671,10 +679,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       );
       onDataRefresh();
     } catch (err: unknown) {
-      onError(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('management.sections.data.resetEvictionsError')
-      );
+      onError(getErrorMessage(err) || t('management.sections.data.resetEvictionsError'));
     } finally {
       setResettingEvictions(false);
     }

@@ -177,6 +177,8 @@
       "cancelBulkRemoval": "Cancel bulk removal",
       "cancelOperationAria": "Cancel operation",
       "forceKillOperation": "Click again to force kill",
+      "cancelOperationFailed": "Failed to cancel operation",
+      "forceKillOperationFailed": "Failed to force kill operation",
       "cancelling": "Cancelling...",
       "operationWaiting": "Waiting for another process to complete...",
       "operationWaitingNamed": "{{name}} — waiting for another process to complete...",
@@ -305,6 +307,9 @@
     "timezoneSelector": {
       "am": "AM",
       "defaultLabel": "Default",
+      "errors": {
+        "updateFailed": "Failed to update time settings"
+      },
       "title": "Time",
       "options": {
         "local12": {
@@ -847,10 +852,16 @@
     "unlocked": "Guest mode unlocked. Guests can now log in.",
     "refreshRateUpdated": "Default guest refresh rate updated",
     "errors": {
+      "loadGuestDuration": "Failed to load guest session duration",
       "updateGuestDuration": "Failed to update guest session duration",
       "updateGuestLock": "Failed to update guest mode lock",
+      "loadThemes": "Failed to load themes",
+      "loadGuestTheme": "Failed to load default guest theme",
       "updateGuestTheme": "Failed to update default guest theme",
-      "updateGuestRefreshRate": "Failed to update default guest refresh rate"
+      "loadGuestRefreshRate": "Failed to load default guest refresh rate",
+      "updateGuestRefreshRate": "Failed to update default guest refresh rate",
+      "updateGuestRefreshRateLock": "Failed to update guest refresh rate lock",
+      "loadThreadConfig": "Failed to load default thread configuration"
     },
     "guest": {
       "title": "Guest Configuration",
@@ -869,7 +880,7 @@
       },
       "guestDurationToggle": {
         "adminRequired": "Sign in as admin to change this setting",
-        "error": "Failed to update guest session duration: {{status}}",
+        "error": "Failed to update guest session duration",
         "resetToDefault": "Reset to default",
         "source": {
           "ui": "Source: UI override",
@@ -959,6 +970,7 @@
           "description": "How long prefill access lasts after being granted. This also caps how long that service's guest containers can run before being stopped; a change here does not affect containers that are already running."
         },
         "errors": {
+          "loadConfig": "Failed to load prefill configuration",
           "update": "Failed to update prefill configuration"
         },
         "maxThreads": {
@@ -971,8 +983,10 @@
         }
       },
       "errors": {
+        "loadPreferences": "Failed to load default guest preferences",
         "updateDefault": "Failed to update default {{label}}",
-        "updateAllowedTimeFormats": "Failed to update allowed time formats"
+        "updateAllowedTimeFormats": "Failed to update allowed time formats",
+        "loadSessionDuration": "Failed to load guest session duration"
       }
     },
     "bulkActions": {
@@ -1250,6 +1264,10 @@
       "emptyRecorded": "No downloads recorded yet. Downloads will appear here as clients request content.",
       "searchPlaceholder": "Search games, clients, depots...",
       "updating": "Updating...",
+      "errors": {
+        "exportFailed": "Failed to export downloads",
+        "clearImageCacheFailed": "Failed to clear image cache"
+      },
       "tooltips": {
         "settings": "Settings",
         "export": "Export Data",
@@ -3813,6 +3831,9 @@
       },
       "loadingDownloads": "Loading downloads...",
       "emptyDownloads": "No downloads recorded during this event",
+      "errors": {
+        "loadDownloadsFailed": "Failed to load downloads for this event"
+      },
       "gamesDuringEvent": "Games downloaded during event",
       "gameCount": "{{count}} game",
       "gameCount_plural": "{{count}} games",
@@ -4183,7 +4204,8 @@
       "httpStatus": "HTTP {{status}}",
       "requestFailed": "Prefill request failed",
       "sessionExpired": "Session expired",
-      "unableEstimateSize": "Unable to estimate size"
+      "unableEstimateSize": "Unable to estimate size",
+      "saveSelectionFailed": "Failed to save game selection"
     },
     "sessionExpired": {
       "title": "Session expired",
@@ -5986,6 +6008,11 @@
         "depotMapping": "Depot Mapping",
         "platformSetup": "Platform Setup",
         "epicAuthentication": "Epic Authentication"
+      },
+      "errors": {
+        "picsStatusCheckFailed": "Couldn't check Steam depot data status. You can continue, but progress may not display correctly.",
+        "markCompletedFailed": "Couldn't finish setup. Please try again.",
+        "setupStatusCheckFailed": "Couldn't load your saved setup progress. Starting from the beginning."
       }
     }
   },
@@ -6361,6 +6388,9 @@
       "loaded": {
         "gamesAndServices": "Loaded {{gamesCount}} games and {{servicesCount}} services from cache",
         "gamesOnly": "Loaded {{gamesCount}} games from cache"
+      },
+      "error": {
+        "fatal": "Game cache detection failed: {{errorDetail}}"
       }
     },
     "gameRemove": {

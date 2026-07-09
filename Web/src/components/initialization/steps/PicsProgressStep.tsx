@@ -5,6 +5,7 @@ import { Button } from '@components/ui/Button';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { usePicsProgress } from '@contexts/usePicsProgress';
 import ApiService from '@services/api.service';
+import { getErrorMessage } from '@utils/error';
 
 interface PicsProgressStepProps {
   onComplete: () => void;
@@ -43,7 +44,10 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
       await ApiService.cancelSteamKitRebuild();
       onCancel?.();
     } catch (error: unknown) {
-      console.error('Failed to cancel PICS rebuild:', error);
+      // UniversalNotificationBar is not mounted during onboarding (see class comment above), so
+      // there is no notification surface to route this through - proceed optimistically like the
+      // success path; the technical detail still goes to the console for diagnosis.
+      console.error('Failed to cancel PICS rebuild:', getErrorMessage(error));
       onCancel?.();
     } finally {
       setCancelInFlight(false);

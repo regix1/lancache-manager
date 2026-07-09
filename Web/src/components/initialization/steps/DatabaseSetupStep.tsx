@@ -3,6 +3,7 @@ import { Database, Eye, EyeOff, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import ApiService from '@services/api.service';
 import { API_BASE } from '@utils/constants';
+import { getErrorMessage } from '@utils/error';
 
 interface DatabaseSetupStepProps {
   onSetupComplete: () => void;
@@ -148,9 +149,7 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
         );
       }
     } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : 'Network error. Please check your connection.';
-      setSubmitError(message);
+      setSubmitError(getErrorMessage(error) || 'Network error. Please check your connection.');
     } finally {
       setIsSubmitting(false);
     }

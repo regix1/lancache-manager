@@ -224,6 +224,8 @@ public class DatasourceService
     /// <summary>
     /// Check if there's a log file at the root level of the logs directory.
     /// Looks for common log file patterns: access.log, *.log, etc.
+    /// Returns false both when no matching file exists AND when the directory scan fails
+    /// (logged as a warning) - the two cases are indistinguishable to the caller by design.
     /// </summary>
     private bool HasRootLevelLogFile(string logsPath)
     {
@@ -255,6 +257,8 @@ public class DatasourceService
     /// <summary>
     /// Check if the cache directory has actual cache content (not just subdirectories).
     /// LANCache creates hash-named directories (2 character hex names like 00, 01, a1, etc.)
+    /// Returns false both when no cache content exists AND when the directory scan fails
+    /// (logged as a warning) - the two cases are indistinguishable to the caller by design.
     /// </summary>
     private bool HasCacheContent(string cachePath)
     {
@@ -301,6 +305,8 @@ public class DatasourceService
     /// <summary>
     /// Find a matching logs directory for a given cache subdirectory name.
     /// Uses case-insensitive matching and normalized name comparison.
+    /// Returns null both when no match is found AND when the directory scan fails (logged as a
+    /// warning) - the two cases are indistinguishable to the caller by design.
     /// </summary>
     private string? FindMatchingLogsDirectory(string baseLogsPath, string cacheSubdirName)
     {
@@ -371,6 +377,8 @@ public class DatasourceService
 
     /// <summary>
     /// Resolve paths and validate a datasource configuration.
+    /// Returns null when resolution fails; the failure is always logged as an error before
+    /// returning, so callers that skip a null result are not silently swallowing it.
     /// </summary>
     private ResolvedDatasource? ResolveDatasource(DatasourceConfig config)
     {

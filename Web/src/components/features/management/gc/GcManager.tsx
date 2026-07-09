@@ -9,6 +9,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useNotifications } from '@contexts/notifications';
 import { API_BASE } from '@utils/constants';
 import ApiService from '@services/api.service';
+import { getErrorMessage } from '@utils/error';
 
 interface GcSettings {
   enabled: boolean;
@@ -48,6 +49,8 @@ const fetchGcSettings = async (): Promise<GcSettings> => {
       throw new Error('Failed to load GC settings');
     }
   } catch (err) {
+    // Documented soft-fallback: a failed settings load degrades to the disabled default rather
+    // than blocking the section - the load is silent on purpose, mirroring the 404 "disabled" case.
     console.error('[GcManager] Failed to load settings:', err);
     return fallback;
   }
@@ -172,7 +175,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
       addNotification({
         type: 'generic',
         status: 'failed',
-        message: err instanceof Error ? err.message : t('management.gc.saveFailed'),
+        message: getErrorMessage(err) || t('management.gc.saveFailed'),
         details: { notificationType: 'error' }
       });
     } finally {
@@ -214,7 +217,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
       addNotification({
         type: 'generic',
         status: 'failed',
-        message: err instanceof Error ? err.message : t('management.gc.triggerFailed'),
+        message: getErrorMessage(err) || t('management.gc.triggerFailed'),
         details: { notificationType: 'error' }
       });
     } finally {

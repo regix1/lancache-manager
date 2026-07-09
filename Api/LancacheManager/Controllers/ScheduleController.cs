@@ -38,7 +38,7 @@ public class ScheduleController : ControllerBase
         var info = _registry.Get(serviceKey);
         if (info == null)
         {
-            return NotFound();
+            return NotFound(ApiResponse.NotFound("Schedule"));
         }
         return Ok(info);
     }
@@ -52,7 +52,7 @@ public class ScheduleController : ControllerBase
         var info = _registry.Get(serviceKey);
         if (info == null)
         {
-            return NotFound();
+            return NotFound(ApiResponse.NotFound("Schedule"));
         }
 
         _registry.SetInterval(serviceKey, request.IntervalHours);
@@ -69,7 +69,7 @@ public class ScheduleController : ControllerBase
         var info = _registry.Get(serviceKey);
         if (info == null)
         {
-            return NotFound();
+            return NotFound(ApiResponse.NotFound("Schedule"));
         }
 
         _registry.SetRunOnStartup(serviceKey, request.RunOnStartup);
@@ -86,7 +86,7 @@ public class ScheduleController : ControllerBase
         var info = _registry.Get(serviceKey);
         if (info == null)
         {
-            return NotFound();
+            return NotFound(ApiResponse.NotFound("Schedule"));
         }
 
         await _registry.TriggerRunAsync(serviceKey);

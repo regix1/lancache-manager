@@ -5,6 +5,7 @@ import { formatDurationFromSeconds, formatTimeRemaining, type PrefillSessionDto 
 import type { DaemonAuthState } from '@/types/operations';
 import type { LogEntryType } from '../ActivityLog.utils';
 import i18n from '../../../../i18n';
+import { getErrorMessage } from '@utils/error';
 import { usePrefillAnimation } from './usePrefillAnimation';
 import { registerPrefillEventHandlers } from './usePrefillEventHandlers';
 import {
@@ -538,15 +539,15 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         }
       }
     } catch (err) {
-      // Check if this is a normal access-denied/connection closed scenario
+      // Background session-reconciliation on mount/reconnect - intentionally silent to the user
+      // either way (a hub-closed/access-denied scenario is expected, and a genuine failure here
+      // just means the session starts fresh via createSession). Still logged for diagnosis.
       const errorMessage = err instanceof Error ? err.message : String(err);
-      if (
+      const isExpectedHubClose =
         errorMessage.includes('connection being closed') ||
-        errorMessage.includes('Invocation canceled')
-      ) {
-        // Hub connection closed - access denied or hub unavailable
-      } else {
-        // Failed to initialize session
+        errorMessage.includes('Invocation canceled');
+      if (!isExpectedHubClose) {
+        console.error('[usePrefillSignalR] Failed to initialize session:', getErrorMessage(err));
       }
     } finally {
       setIsInitializing(false);
@@ -632,8 +633,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         await connection.invoke('SubscribeToSessionAsync', sessionDto.id);
         setIsCreating(false);
       } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : t('prefill.errors.failedCreateSession');
+        const errorMessage = getErrorMessage(err) || t('prefill.errors.failedCreateSession');
         setError(errorMessage);
         addLog('error', errorMessage);
         setIsCreating(false);

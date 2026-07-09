@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
+import { getErrorMessage } from '@utils/error';
 
 export interface SteamWebApiStatus {
   version: string;
@@ -52,8 +53,7 @@ export const useSteamWebApiStatus = () => {
       const data = await response.json();
       setStatus(data);
     } catch (err: unknown) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Failed to fetch Steam Web API status';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       console.error('[SteamWebApiStatus] Error:', err);
     } finally {

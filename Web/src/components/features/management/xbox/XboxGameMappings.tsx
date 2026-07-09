@@ -3,9 +3,11 @@ import { useTranslation } from 'react-i18next';
 import { Gamepad2, Search } from 'lucide-react';
 import { DataTable, type DataTableColumn } from '@components/ui/DataTable';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { Alert } from '@components/ui/Alert';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import ApiService from '@services/api.service';
+import { getErrorMessage } from '@utils/error';
 import type { XboxGameMappingDto, XboxMappingStats } from '../../../../types';
 
 /** Wrapper component so useFormattedDateTime hook can be called per-row */
@@ -45,7 +47,7 @@ const XboxGameMappings: React.FC = () => {
       setMappings(mappingsData);
       setStats(statsData);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load Xbox game mappings');
+      setError(getErrorMessage(err) || 'Failed to load Xbox game mappings');
     }
   }, []);
 
@@ -188,7 +190,7 @@ const XboxGameMappings: React.FC = () => {
         </p>
 
         {/* Error Message */}
-        {error && <div className="p-4 text-center text-[var(--theme-error)]">{error}</div>}
+        {error && <Alert color="red">{error}</Alert>}
 
         {/* Empty State */}
         {mappings.length === 0 && !searchQuery && (

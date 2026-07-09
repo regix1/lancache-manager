@@ -1,6 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { HubConnection } from '@microsoft/signalr';
 import { useNotifications } from '@contexts/notifications';
+import { useErrorHandler } from './useErrorHandler';
+import { getErrorMessage } from '@utils/error';
 import { type SteamLoginFlowState, type SteamAuthActions } from './useSteamAuthentication';
 import { getEventName } from '@components/features/prefill/hooks/prefillConstants';
 
@@ -50,6 +52,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     serviceId = 'steam'
   } = options;
   const { addNotification } = useNotifications();
+  const { notifyError } = useErrorHandler();
 
   const [loading, setLoading] = useState(false);
   const [needsTwoFactor, setNeedsTwoFactor] = useState(false);
@@ -241,7 +244,12 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
             try {
               await hubConnection.invoke('ProvideCredentialAsync', sessionId, challenge, 'confirm');
             } catch (err) {
-              console.error('Failed to send device confirmation acknowledgement:', err);
+              // Best-effort ack: a persistent failure here still resolves through the device-
+              // confirmation timeout effect below, which surfaces its own user-facing notification.
+              notifyError('Failed to send device confirmation acknowledgement', err, {
+                silent: true,
+                logLabel: 'usePrefillSteamAuth device confirmation ack'
+              });
             }
           }
           break;
@@ -268,7 +276,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     return () => {
       hubConnection.off(eventName, handleCredentialChallenge);
     };
-  }, [hubConnection, sessionId, serviceId, addNotification]);
+  }, [hubConnection, sessionId, serviceId, addNotification, notifyError]);
 
   // Timeout for device confirmation - cancel daemon login and reset state
   useEffect(() => {
@@ -278,7 +286,12 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         try {
           await hubConnection.invoke('CancelLoginAsync', sessionId);
         } catch (err) {
-          console.error('[usePrefillSteamAuth] Failed to cancel login on daemon:', err);
+          // Best-effort: the "Device confirmation timed out" notification below fires
+          // unconditionally right after, so the user is told regardless of this outcome.
+          notifyError('Failed to cancel login on daemon', err, {
+            silent: true,
+            logLabel: 'usePrefillSteamAuth device confirmation timeout cancel'
+          });
         }
 
         // Reset all auth state
@@ -316,7 +329,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     hubConnection,
     sessionId,
     addNotification,
-    onDeviceConfirmationTimeout
+    onDeviceConfirmationTimeout,
+    notifyError
   ]);
 
   // Timeout for the Xbox device-code flow. Unlike Steam's device-confirmation, Xbox sets
@@ -340,10 +354,12 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       try {
         await hubConnection.invoke('CancelLoginAsync', sessionId);
       } catch (err) {
-        console.error(
-          '[usePrefillSteamAuth] Failed to cancel Xbox device-code login on daemon:',
-          err
-        );
+        // Best-effort: the "Xbox sign-in code expired" notification below fires unconditionally
+        // right after, so the user is told regardless of this outcome.
+        notifyError('Failed to cancel Xbox device-code login on daemon', err, {
+          silent: true,
+          logLabel: 'usePrefillSteamAuth Xbox device-code timeout cancel'
+        });
       }
 
       setNeedsDeviceCode(false);
@@ -375,7 +391,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     sessionId,
     pendingChallenge,
     addNotification,
-    onDeviceConfirmationTimeout
+    onDeviceConfirmationTimeout,
+    notifyError
   ]);
 
   const cancelPendingRequest = useCallback(() => {
@@ -478,7 +495,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         setLoading(false);
         return true;
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Failed to send 2FA code';
+        const errorMessage = getErrorMessage(err);
         addNotification({
           type: 'generic',
           status: 'failed',
@@ -535,7 +552,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         setLoading(false);
         return true;
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Failed to send email code';
+        const errorMessage = getErrorMessage(err);
         addNotification({
           type: 'generic',
           status: 'failed',
@@ -587,8 +604,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         // Return false so the modal stays open while we wait for the event
         return false;
       } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : 'Failed to send authorization code';
+        const errorMessage = getErrorMessage(err);
         addNotification({
           type: 'generic',
           status: 'failed',
@@ -650,7 +666,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         setLoading(false);
         return false;
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Failed to start Epic login';
+        const errorMessage = getErrorMessage(err);
         addNotification({
           type: 'generic',
           status: 'failed',
@@ -709,7 +725,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         setLoading(false);
         return false;
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Failed to start Xbox login';
+        const errorMessage = getErrorMessage(err);
         addNotification({
           type: 'generic',
           status: 'failed',
@@ -830,7 +846,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       setLoading(false);
       return false;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to authenticate';
+      const errorMessage = getErrorMessage(err);
       addNotification({
         type: 'generic',
         status: 'failed',

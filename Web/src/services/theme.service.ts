@@ -4,6 +4,7 @@ import preferencesService from './preferences.service';
 import * as TOML from 'toml';
 import { storage } from '@utils/storage';
 import { parseThemeColors, hexToRgba as schemaHexToRgba } from './themeSchema';
+import { assertOk } from './apiError';
 
 interface ThemeMeta {
   id: string;
@@ -540,16 +541,15 @@ class ThemeService {
     const builtIn = this.getBuiltInThemes().find((t) => t.meta.id === themeId);
     if (builtIn) return builtIn;
 
-    try {
-      const response = await fetch(`${API_BASE}/themes/${themeId}`);
-      if (!response.ok) return null;
+    const response = await fetch(`${API_BASE}/themes/${themeId}`);
+    // 404 is an explicit, documented "theme does not exist" result - a legitimate null, not an
+    // error. Any other failure is surfaced via the shared ApiError instead of being masked as "no
+    // theme" (which previously hid 5xx/network faults behind the same null).
+    if (response.status === 404) return null;
+    await assertOk(response);
 
-      const tomlText = await response.text();
-      return this.parseTomlTheme(tomlText);
-    } catch (error) {
-      console.error('Error loading theme:', error);
-      return null;
-    }
+    const tomlText = await response.text();
+    return this.parseTomlTheme(tomlText);
   }
 
   parseTomlTheme(tomlText: string): Theme | null {

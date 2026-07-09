@@ -5,6 +5,7 @@ import ApiService from '../services/api.service';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import { Button } from '@components/ui/Button';
 import { API_BASE } from '../utils/constants';
+import { getErrorMessage } from '../utils/error';
 
 interface ConfigProviderProps {
   children: ReactNode;
@@ -43,6 +44,8 @@ export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
       setConfig(data);
     } catch (err: unknown) {
       if (isRefresh && configRef.current) {
+        // Background refresh - keep serving the last-good cached config. Deliberately silent;
+        // not user-actionable and the app already has working config to render.
         console.warn('[ConfigProvider] Config refresh failed, keeping cached config:', err);
         return;
       }
@@ -56,10 +59,11 @@ export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
         });
       } else {
         console.error('[ConfigProvider] Failed to load config:', err);
+        // Never render the raw error message - extract via the shared helper so an ApiError's
+        // parsed backend body wins over a generic Error/TypeError string.
         const message =
-          err instanceof Error
-            ? err.message
-            : 'Failed to load configuration. Please check your connection and try again.';
+          getErrorMessage(err) ||
+          'Failed to load configuration. Please check your connection and try again.';
         setError({ message, isTimeout: false });
       }
     } finally {

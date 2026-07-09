@@ -453,7 +453,11 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     let cache_dir = Path::new(cache_path);
     if !cache_dir.exists() {
         let msg = format!("Cache directory does not exist: {}", cache_path);
-        reporter.emit_failed("signalr.cacheClear.error.dirNotFound", json!({ "cachePath": cache_path }));
+        reporter.emit_failed(
+            "signalr.cacheClear.error.dirNotFound",
+            json!({ "cachePath": cache_path }),
+            Some(msg.clone()),
+        );
         anyhow::bail!("{}", msg);
     }
 
@@ -748,7 +752,7 @@ fn get_optimal_thread_count(delete_mode: &str, fs_type: FilesystemType) -> usize
     }
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     cancel::install();
     let args = Args::parse();
 
@@ -805,12 +809,16 @@ fn main() {
             // Same final counts the last write_progress call persisted to the file -
             // no more hardcoded zeros on the stdout complete event.
             reporter.emit_complete("signalr.cacheClear.progress", json!({ "processed": final_dirs, "totalDirs": total_dirs, "activeCount": 0usize }));
-            std::process::exit(0);
+            Ok(())
         }
         Err(e) => {
             eprintln!("Error: {:?}", e);
-            let error_detail = format!("{}", e);
-            reporter.emit_failed("signalr.cacheClear.error.fatal", json!({ "errorDetail": error_detail }));
+            let error_detail = format!("{e:#}");
+            reporter.emit_failed(
+                "signalr.cacheClear.error.fatal",
+                json!({ "errorDetail": error_detail }),
+                Some(error_detail.clone()),
+            );
             let error_progress = ProgressData::new(
                 false,
                 0.0,
@@ -824,7 +832,7 @@ fn main() {
                 Vec::new(),
             );
             let _ = write_progress(progress_path, &error_progress);
-            std::process::exit(1);
+            Err(e)
         }
     }
 }

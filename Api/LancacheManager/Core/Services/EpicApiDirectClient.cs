@@ -443,6 +443,9 @@ public class EpicApiDirectClient
     /// Fetches currently free games from Epic's public free games promotions API.
     /// This endpoint does NOT require authentication. Returns OwnedGame DTOs
     /// so results can be merged into the mapping DB alongside owned games.
+    /// Returns an empty list both when there are genuinely no active promotions AND when the
+    /// fetch fails (logged as a warning) - this is a best-effort supplemental source, not a
+    /// required value, so callers proceed with whatever owned-games data they already have.
     /// </summary>
     public async Task<List<OwnedGame>> GetFreeGamesAsync(CancellationToken ct = default)
     {

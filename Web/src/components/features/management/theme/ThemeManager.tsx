@@ -20,6 +20,8 @@ import preferencesService from '@services/preferences.service';
 import authService from '@services/auth.service';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import ApiService from '@services/api.service';
+import { getErrorMessage } from '@utils/error';
+import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -41,6 +43,7 @@ import { useNotifications } from '@contexts/notifications';
 const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   const { t } = useTranslation();
   const { addNotification } = useNotifications();
+  const { notifyError } = useErrorHandler();
 
   // State Management
   const [themes, setThemes] = useState<Theme[]>([]);
@@ -264,7 +267,13 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         window.location.reload();
       }
     } catch (error) {
-      console.error('Error updating theme:', error);
+      notifyError(
+        t('management.themes.notifications.updateFailed', 'Failed to update theme'),
+        error,
+        {
+          logLabel: 'Error updating theme'
+        }
+      );
     } finally {
       setLoading(false);
     }
@@ -330,7 +339,13 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         customCSS: ''
       });
     } catch (error) {
-      console.error('Error creating theme:', error);
+      notifyError(
+        t('management.themes.notifications.createFailed', 'Failed to create theme'),
+        error,
+        {
+          logLabel: 'Error creating theme'
+        }
+      );
     } finally {
       setLoading(false);
     }
@@ -409,7 +424,13 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
       setShowCleanupModal(false);
       window.location.reload();
     } catch (error) {
-      console.error('Error cleaning up themes:', error);
+      notifyError(
+        t('management.themes.notifications.cleanupFailed', 'Failed to clean up themes'),
+        error,
+        {
+          logLabel: 'Error cleaning up themes'
+        }
+      );
     } finally {
       setLoading(false);
     }
@@ -485,9 +506,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
       addNotification({
         type: 'generic',
         status: 'failed',
-        message:
-          (error instanceof Error ? error.message : String(error)) ||
-          t('management.themes.notifications.uploadFailed'),
+        message: getErrorMessage(error) || t('management.themes.notifications.uploadFailed'),
         details: { notificationType: 'error' }
       });
     } finally {

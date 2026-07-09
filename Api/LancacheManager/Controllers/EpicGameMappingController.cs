@@ -87,7 +87,7 @@ public class EpicGameMappingController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to generate Epic authorization URL");
-            return StatusCode(500, ApiResponse.Error(ex.Message));
+            throw; // -> GlobalExceptionMiddleware -> 500 safe { error, details?, statusCode, traceId }
         }
     }
 
@@ -132,7 +132,7 @@ public class EpicGameMappingController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to complete Epic mapping auth");
-            return StatusCode(500, ApiResponse.Error("Failed to collect games: " + ex.Message));
+            throw; // -> GlobalExceptionMiddleware -> 500 safe { error, details?, statusCode, traceId }
         }
     }
 
@@ -157,7 +157,7 @@ public class EpicGameMappingController : ControllerBase
         {
             return Ok(new { cancelled = true, message = "Epic catalog refresh cancelled" });
         }
-        return NotFound(new { cancelled = false, message = "No active refresh to cancel" });
+        return NotFound(new NotFoundResponse { Error = "No active refresh to cancel" });
     }
 
     /// <summary>

@@ -3,6 +3,7 @@ import { Database, Eye, EyeOff, CheckCircle, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import ApiService from '@services/api.service';
+import { getErrorMessage } from '@utils/error';
 
 interface ExternalDatabaseSetupStepProps {
   onSetupComplete: () => void;
@@ -99,9 +100,7 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
         setSubmitError(result.error || result.message || 'Failed to save credentials.');
       }
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Network error. Please check your connection.';
-      setSubmitError(message);
+      setSubmitError(getErrorMessage(err) || 'Network error. Please check your connection.');
     } finally {
       setIsSubmitting(false);
     }

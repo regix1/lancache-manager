@@ -12,7 +12,7 @@ import { usePicsProgress } from '@contexts/usePicsProgress';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 import { toTotalSeconds } from '@utils/timeFormatters';
 import { storage } from '@utils/storage';
-import { isAbortError } from '@utils/error';
+import { getErrorMessage, isAbortError } from '@utils/error';
 import { ManagerCardHeader } from '@components/ui/ManagerCard';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 
@@ -480,8 +480,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       // Don't show error for user-initiated cancellation
       if (!isAbortError(err)) {
         onError?.(
-          (err instanceof Error ? err.message : String(err)) ||
-            t('management.depotMapping.errors.failedToDownloadFromGitHub')
+          getErrorMessage(err) || t('management.depotMapping.errors.failedToDownloadFromGitHub')
         );
       }
       setGithubDownloadComplete(false);
@@ -586,8 +585,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       // Keep operation type active - it will be cleared when scan completes
     } catch (err: unknown) {
       onError?.(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('management.depotMapping.errors.failedToProcessDepotMappings')
+        getErrorMessage(err) || t('management.depotMapping.errors.failedToProcessDepotMappings')
       );
       setOperationType(null);
     } finally {
@@ -853,8 +851,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               // Note: NotificationsContext will create a notification via SignalR (DepotMappingStarted event)
             } catch (err: unknown) {
               onError?.(
-                (err instanceof Error ? err.message : String(err)) ||
-                  t('management.depotMapping.errors.failedToStartFullScan')
+                getErrorMessage(err) || t('management.depotMapping.errors.failedToStartFullScan')
               );
               setOperationType(null);
             } finally {

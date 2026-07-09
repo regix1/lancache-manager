@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
+import { useErrorHandler } from './useErrorHandler';
 
 /**
  * Shape of the finalize callback invoked once the queue settles. The caller
@@ -124,6 +125,7 @@ export function useCancellableQueue<TItem>(
   options?: UseCancellableQueueOptions
 ): UseCancellableQueueResult<TItem> {
   const { notifications, scheduleAutoDismiss } = useNotifications();
+  const { notifyError } = useErrorHandler();
   const onSettled = options?.onSettled;
 
   const bulkNotifIdRef = useRef<string | null>(null);
@@ -154,11 +156,15 @@ export function useCancellableQueue<TItem>(
     const currentOp = currentItemOperationIdRef.current;
     if (currentOp) {
       currentItemOperationIdRef.current = null;
-      ApiService.cancelOperation(currentOp).catch(() => {
-        /* best-effort - current item may already be past the point of cancel */
+      ApiService.cancelOperation(currentOp).catch((err: unknown) => {
+        // Best-effort - current item may already be past the point of cancel.
+        notifyError('Failed to cancel in-flight queue item', err, {
+          silent: true,
+          logLabel: 'useCancellableQueue triggerCancel'
+        });
       });
     }
-  }, []);
+  }, [notifyError]);
 
   // Cascade effect: watch the bulk notification for `details.cancelling` (set
   // by UniversalNotificationBar.handleCancel's bulk_removal branch).

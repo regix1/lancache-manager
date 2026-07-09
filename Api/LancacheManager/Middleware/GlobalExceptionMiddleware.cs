@@ -20,6 +20,25 @@ public class ValidationException : Exception
 }
 
 /// <summary>
+/// Custom exception for 409 Conflict responses (e.g. a resource already exists or an operation
+/// is already running and cannot be started again). The message is developer-authored and safe to
+/// surface to the client.
+/// </summary>
+public class ConflictException : Exception
+{
+    public ConflictException(string message) : base(message) { }
+}
+
+/// <summary>
+/// Custom exception for 403 Forbidden responses (the caller is authenticated but not permitted).
+/// The message is developer-authored and safe to surface to the client.
+/// </summary>
+public class ForbiddenException : Exception
+{
+    public ForbiddenException(string message) : base(message) { }
+}
+
+/// <summary>
 /// Global exception handling middleware to eliminate duplicate try-catch blocks across controllers
 /// Sanitizes error messages in production to prevent information disclosure
 /// </summary>
@@ -50,6 +69,15 @@ public class GlobalExceptionMiddleware
         {
             await WriteErrorAsync(context, ex, HttpStatusCode.BadRequest, ex.Message);
         }
+        catch (ConflictException ex)
+        {
+            await WriteErrorAsync(context, ex, HttpStatusCode.Conflict, ex.Message);
+        }
+        catch (ForbiddenException ex)
+        {
+            _logger.LogWarning(ex, "Forbidden operation attempt");
+            await WriteErrorAsync(context, ex, HttpStatusCode.Forbidden, ex.Message);
+        }
         catch (UnauthorizedAccessException ex)
         {
             _logger.LogWarning(ex, "Unauthorized access attempt");
@@ -62,8 +90,12 @@ public class GlobalExceptionMiddleware
         }
         catch (InvalidOperationException ex)
         {
+            // Reclassified to 500 (was 400) per approved decision §6.2: most InvalidOperationExceptions
+            // are server-state faults, not client mistakes. Controllers that need a genuine client 4xx
+            // now throw ValidationException (400), ConflictException (409), or ForbiddenException (403)
+            // instead (Wave 2 migrates the affected call sites).
             _logger.LogError(ex, "Invalid operation");
-            await WriteErrorAsync(context, ex, HttpStatusCode.BadRequest, "Invalid operation");
+            await WriteErrorAsync(context, ex, HttpStatusCode.InternalServerError, "An unexpected error occurred");
         }
         catch (IOException ex)
         {
@@ -104,7 +136,8 @@ public class GlobalExceptionMiddleware
         {
             error = isDevelopment ? exception.Message : safeMessage,
             details = isDevelopment ? exception.Message : (string?)null,
-            statusCode = (int)statusCode
+            statusCode = (int)statusCode,
+            traceId = context.TraceIdentifier
         };
 
         var options = new JsonSerializerOptions

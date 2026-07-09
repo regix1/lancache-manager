@@ -5,6 +5,7 @@ import { Button } from '../../ui/Button';
 import { CustomScrollbar } from '../../ui/CustomScrollbar';
 import { Search, Check, Gamepad2, Import, Database, EyeOff, Eye } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { useErrorHandler } from '@hooks/useErrorHandler';
 
 export interface OwnedGame {
   appId: string;
@@ -35,6 +36,7 @@ export function GameSelectionModal({
   onRescan
 }: GameSelectionModalProps) {
   const { t } = useTranslation();
+  const { notifyError } = useErrorHandler();
   const [search, setSearch] = useState('');
   const [localSelected, setLocalSelected] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
@@ -187,11 +189,13 @@ export function GameSelectionModal({
       await onSave(Array.from(localSelected));
       onClose();
     } catch (err) {
-      console.error('Failed to save selection:', err);
+      notifyError(t('prefill.errors.saveSelectionFailed'), err, {
+        logLabel: 'Failed to save selection'
+      });
     } finally {
       setIsSaving(false);
     }
-  }, [localSelected, onSave, onClose]);
+  }, [localSelected, onSave, onClose, notifyError, t]);
 
   return (
     <Modal opened={opened} onClose={onClose} title={t('prefill.gameSelection.title')} size="lg">

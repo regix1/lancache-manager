@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
+using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services;
 
@@ -78,6 +79,19 @@ public class SignalRNotificationService : ISignalRNotificationService
                 _logger.LogError(ex, "Failed to send SignalR fire-and-forget notification: {EventName}", eventName);
             }
         });
+    }
+
+    public Task NotifyOperationFailedAsync(string eventName, IOperationComplete failedEvent)
+    {
+        // Central visibility for every operation failure that reaches the notification registry.
+        // LogWarning (not LogError): a surfaced, tolerated operation failure — the real exception,
+        // where one exists, is logged at its origin. Routes through NotifyAllAsync so the send itself
+        // is subject to the same swallow+log resilience as every other broadcast.
+        _logger.LogWarning(
+            "Operation failed broadcast: {EventName} (operationId={OperationId}): {Error}",
+            eventName, failedEvent.OperationId, failedEvent.Error);
+
+        return NotifyAllAsync(eventName, failedEvent);
     }
 
     // ===== Steam Prefill Hub Methods =====

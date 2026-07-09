@@ -17,6 +17,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import themeService from '@services/theme.service';
 import ApiService from '@services/api.service';
 import { API_BASE } from '@utils/constants';
+import { useErrorHandler } from '@/hooks/useErrorHandler';
 
 interface ColorPreview {
   primaryColor?: string;
@@ -81,6 +82,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   autoCheckUpdates = true
 }) => {
   const { t } = useTranslation();
+  const { notifyError } = useErrorHandler();
   const [communityThemes, setCommunityThemes] = useState<CommunityTheme[]>([]);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState<string | null>(null);
@@ -202,12 +204,9 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         await checkAndUpdateThemes(themes);
       }
     } catch (err: unknown) {
-      showToast(
-        'error',
-        (err instanceof Error ? err.message : String(err)) ||
-          t('management.themes.errors.failedToLoadCommunity')
-      );
-      console.error('Error loading community themes:', err);
+      notifyError(t('management.themes.errors.failedToLoadCommunity'), err, {
+        logLabel: 'Error loading community themes'
+      });
     } finally {
       setLoading(false);
       loadingInProgressRef.current = false;
@@ -240,7 +239,12 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
           }
           return null;
         } catch (err) {
-          console.error(`Failed to load theme ${file.name}:`, err);
+          // Per-file parse tolerance inside a Promise.all - a single bad theme file must not
+          // block the rest of the community list from loading, so this stays explicit noise.
+          notifyError(t('management.themes.errors.failedToLoadCommunity'), err, {
+            silent: true,
+            logLabel: `Failed to load theme ${file.name}`
+          });
           return null;
         }
       })
@@ -256,7 +260,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
     }
 
     if (!isAdmin) {
-      showToast('error', t('management.themes.community.authRequired'));
+      notifyError(t('management.themes.community.authRequired'));
       return;
     }
 
@@ -300,11 +304,9 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         onThemeImported();
       }
     } catch (err: unknown) {
-      showToast(
-        'error',
-        (err instanceof Error ? err.message : String(err)) ||
-          t('management.themes.community.importError')
-      );
+      notifyError(t('management.themes.community.importError'), err, {
+        logLabel: 'Error importing community theme'
+      });
     } finally {
       setImporting(null);
       importingThemeRef.current = null;
@@ -396,7 +398,12 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
       return true;
     } catch (err: unknown) {
-      console.error(`Failed to auto-update theme ${theme.meta?.name || theme.name}:`, err);
+      // Silent auto-update sweep by design (see successCount toast above); a single theme's
+      // update failure must not interrupt the others or surface as a hard error.
+      notifyError(t('management.themes.errors.failedToUpdate'), err, {
+        silent: true,
+        logLabel: `Failed to auto-update theme ${theme.meta?.name || theme.name}`
+      });
       return false;
     } finally {
       setUpdatingThemes((prev) => {

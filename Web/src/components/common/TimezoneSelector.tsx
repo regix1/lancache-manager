@@ -7,6 +7,7 @@ import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import { useTimezone } from '@contexts/useTimezone';
 import { useAuth } from '@contexts/useAuth';
 import { useDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
+import { useErrorHandler } from '@hooks/useErrorHandler';
 import { getEffectiveTimezone, getTimeInTimezone } from '@utils/timezone';
 import type { TimeSettingValue } from '@contexts/TimezoneContext.types';
 
@@ -20,6 +21,7 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
   const { useLocalTimezone, use24HourFormat, setPendingTimeSetting } = useTimezone();
   const { authMode } = useAuth();
   const { prefs: guestDefaults, loading: loadingDefaults } = useDefaultGuestPreferences();
+  const { notifyError } = useErrorHandler();
   const [tick, setTick] = useState(0);
   const hasAutoSwitched = useRef(false);
 
@@ -122,7 +124,9 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
         preferencesService.setPreference('use24HourFormat', newUse24Hour)
       ]);
     } catch (error) {
-      console.error('Failed to update time settings:', error);
+      notifyError(t('common.timezoneSelector.errors.updateFailed'), error, {
+        logLabel: 'Failed to update time settings'
+      });
       setPendingTimeSetting(null);
     }
   };

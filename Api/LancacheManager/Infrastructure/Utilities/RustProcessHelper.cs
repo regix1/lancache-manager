@@ -938,6 +938,24 @@ public class ProcessExecutionResult
     public int ExitCode { get; set; }
     public string Output { get; set; } = string.Empty;
     public string Error { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Central Rust-failure gate: no-op when <see cref="ExitCode"/> is 0, otherwise throws a typed
+    /// <see cref="RustProcessException"/> carrying the exit code and stderr (<see cref="Error"/>).
+    /// Replaces the scattered <c>if (result.ExitCode != 0) throw new Exception($"... exit code ...")</c>
+    /// checks so every Rust wrapper fails the same way and callers can <c>catch (RustProcessException)</c>.
+    /// </summary>
+    /// <param name="tool">The Rust binary/tool name for the message (e.g. "cache_cleaner").</param>
+    /// <param name="context">Optional user-safe descriptor (e.g. datasource/service name); never stderr.</param>
+    public void EnsureSuccess(string tool, string? context = null)
+    {
+        if (ExitCode == 0)
+        {
+            return;
+        }
+
+        throw new RustProcessException(tool, ExitCode, Error, context);
+    }
 }
 
 /// <summary>
@@ -975,6 +993,15 @@ public class RustProgressEvent
 
     [System.Text.Json.Serialization.JsonPropertyName("cancelled")]
     public bool? Cancelled { get; set; }
+
+    /// <summary>
+    /// The full failure reason for "failed"/"complete" events that carry one — Rust's
+    /// progress_events.rs emits the whole anyhow chain (<c>format!("{e:#}")</c>) here. Null on
+    /// success and on any envelope emitted before the errorDetail field was added, so parsing must
+    /// tolerate its absence (it does — nullable + case-insensitive deserialization).
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("errorDetail")]
+    public string? ErrorDetail { get; set; }
 }
 
 /// <summary>

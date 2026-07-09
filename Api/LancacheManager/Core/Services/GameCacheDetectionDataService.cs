@@ -1092,7 +1092,13 @@ public sealed partial class GameCacheDetectionDataService
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
-    private static List<string> DeserializeStringList(string? json)
+    /// <summary>
+    /// Deserializes a persisted JSON string-array column. Returns an empty list both when the
+    /// column is genuinely empty AND when the JSON fails to parse (logged as a warning) - the two
+    /// cases are indistinguishable to callers by design: this backs best-effort display fields
+    /// (sample URLs, cache file paths, datasources), not a required value.
+    /// </summary>
+    private List<string> DeserializeStringList(string? json)
     {
         if (string.IsNullOrEmpty(json))
         {
@@ -1103,8 +1109,9 @@ public sealed partial class GameCacheDetectionDataService
         {
             return JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "[GameDetection] Failed to deserialize JSON string list, treating as empty: {Json}", json);
             return new List<string>();
         }
     }
@@ -1206,7 +1213,7 @@ public sealed partial class GameCacheDetectionDataService
         }).ToList();
     }
 
-    private static GameCacheInfo ToGameCacheInfo(CachedGameDetection cached)
+    private GameCacheInfo ToGameCacheInfo(CachedGameDetection cached)
     {
         var datasourcesJson = string.IsNullOrWhiteSpace(cached.DatasourcesJson)
             ? "[]"
@@ -1227,7 +1234,7 @@ public sealed partial class GameCacheDetectionDataService
         };
     }
 
-    private static ServiceCacheInfo ToServiceCacheInfo(CachedServiceDetection cached)
+    private ServiceCacheInfo ToServiceCacheInfo(CachedServiceDetection cached)
     {
         var datasourcesJson = string.IsNullOrWhiteSpace(cached.DatasourcesJson)
             ? "[]"

@@ -231,8 +231,11 @@ public abstract class ScheduledBackgroundService : BackgroundService
                     LastRunUtc = DateTime.UtcNow;
                     ServiceWorkCompleted?.Invoke(ServiceKey);
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
+                    // Shutdown - end the loop cleanly. A non-shutdown OCE (e.g. an inner
+                    // per-iteration timeout) falls through to the Exception handler below
+                    // instead of silently ending the service loop.
                     break;
                 }
                 catch (Exception ex)

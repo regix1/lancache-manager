@@ -20,17 +20,20 @@ public class MetricsController : ControllerBase
     private readonly LancacheMetricsService _metricsService;
     private readonly IStateService _stateRepository;
     private readonly ISignalRNotificationService _notifications;
+    private readonly ILogger<MetricsController> _logger;
 
     public MetricsController(
         IConfiguration configuration,
         LancacheMetricsService metricsService,
         IStateService stateRepository,
-        ISignalRNotificationService notifications)
+        ISignalRNotificationService notifications,
+        ILogger<MetricsController> logger)
     {
         _configuration = configuration;
         _metricsService = metricsService;
         _stateRepository = stateRepository;
         _notifications = notifications;
+        _logger = logger;
     }
 
     /// <summary>
@@ -95,9 +98,10 @@ public class MetricsController : ControllerBase
         {
             _stateRepository.SetRequireAuthForMetrics(request.Enabled);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            return StatusCode(503, new { error = "state_persistence_disabled", message = "Failed to persist the metrics security setting. Your change was not saved." });
+            _logger.LogError(ex, "Failed to persist metrics security setting");
+            return StatusCode(503, ApiResponse.Error("state_persistence_disabled", "Failed to persist the metrics security setting. Your change was not saved."));
         }
 
         // Broadcast updated state to all connected clients

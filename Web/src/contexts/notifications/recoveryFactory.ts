@@ -582,6 +582,12 @@ export function createRecoveryRunner(
 
   return async (): Promise<void> => {
     try {
+      // Promise.allSettled never rejects - every per-type recovery function above already
+      // catches its own failure (best-effort per the comments on each). This is a defensive net
+      // for a truly unexpected synchronous throw, not a realistic per-recovery failure path. A
+      // toast wouldn't be actionable here either (recovery isn't a user-initiated action) - this
+      // is also a non-component module (createRecoveryRunner runs outside React), so the
+      // useErrorHandler hook isn't reachable from it anyway. Deliberately silent.
       await Promise.allSettled(recoveryFns.map((fn) => fn()));
     } catch (err) {
       console.error('[NotificationsContext] Failed to recover operations:', err);

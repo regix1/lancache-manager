@@ -22,6 +22,8 @@ import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@compon
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { useNotifications } from '@contexts/notifications';
+import { useErrorHandler } from '@/hooks/useErrorHandler';
+import { getErrorMessage } from '@utils/error';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useBulkRemoval, type BulkQueueEntry } from '@contexts/BulkRemovalContext';
@@ -73,6 +75,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 }) => {
   const { t } = useTranslation();
   const { addNotification, updateNotification, notifications } = useNotifications();
+  const { notifyError } = useErrorHandler();
   const { on, off } = useSignalR();
   const { config } = useConfig();
   const { isDockerAvailable } = useDockerSocket();
@@ -229,11 +232,27 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
         return snapshot;
       } catch (err) {
-        console.error(`[GameCacheDetector] ${errorContext}:`, err);
+        // Shared background-resync helper (initial load + post-removal/scan auto-refresh); every
+        // caller already has a working fallback (empty state or stale list), so a failure here is
+        // explicit background noise rather than a blocking error.
+        notifyError(
+          t('management.gameDetection.errors.syncFailed', 'Failed to refresh cached results'),
+          err,
+          {
+            silent: true,
+            logLabel: `[GameCacheDetector] ${errorContext}`
+          }
+        );
         return null;
       }
     },
-    [applyCachedDetectionSnapshot, clearCachedDetectionSnapshot, invalidateImageCache]
+    [
+      applyCachedDetectionSnapshot,
+      clearCachedDetectionSnapshot,
+      invalidateImageCache,
+      notifyError,
+      t
+    ]
   );
   const scheduleCachedDetectionReload = useTimeoutCallback(CACHED_DETECTION_RELOAD_DELAY_MS);
   const scheduleRemovalRefresh = useScheduledRemovalRefresh();
@@ -438,8 +457,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         }
       } catch (err: unknown) {
         const errorMsg =
-          (err instanceof Error ? err.message : String(err)) ||
-          t('management.gameDetection.failedToStartDetection');
+          getErrorMessage(err) || t('management.gameDetection.failedToStartDetection');
         addNotification({
           type: 'generic',
           status: 'failed',

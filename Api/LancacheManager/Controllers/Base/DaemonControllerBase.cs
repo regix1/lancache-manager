@@ -319,10 +319,12 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
         catch (PrefillAlreadyRunningException ex)
         {
             // A prefill is already in flight for this session (local start guard OR the daemon's
-            // "already in progress" rejection). Surface as 409 Conflict, not a 500.
+            // "already in progress" rejection). Surface as 409 Conflict, not a 500. ex.Message is
+            // developer-authored on this exception type (never raw framework/internal text), so
+            // it is safe to surface via the canonical ApiResponse factory.
             _logger.LogInformation("{Platform} prefill rejected for session {SessionId}: {Message}",
                 _platformName, sessionId, ex.Message);
-            return Conflict(new { error = ex.Message });
+            throw new ConflictException(ex.Message);
         }
     }
 
@@ -373,7 +375,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
         {
-            return NotFound();
+            return NotFound(ApiResponse.NotFound("Session"));
         }
 
         if (session.UserId != currentSessionId)

@@ -18,6 +18,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes } from '@utils/formatters';
 import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';
 import ApiService from '@services/api.service';
+import { useErrorHandler } from '@hooks/useErrorHandler';
 import type { Event, Download } from '../../../types';
 
 type EventDownloadsCache = Record<
@@ -275,6 +276,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
   const { t } = useTranslation();
   const { use24HourFormat } = useTimezone();
   const { setTimeRange, setSelectedEventIds } = useTimeFilter();
+  const { notifyError } = useErrorHandler();
   const [expandedEventId, setExpandedEventId] = useState<number | null>(null);
   const [downloadsCache, setDownloadsCache] = useState<EventDownloadsCache>({});
   const fetchingRef = useRef<Set<number>>(new Set());
@@ -344,38 +346,43 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
     [t]
   );
 
-  const fetchEventDownloads = useCallback(async (eventId: number) => {
-    // Already fetching or fetched
-    if (fetchingRef.current.has(eventId)) {
-      return;
-    }
-    fetchingRef.current.add(eventId);
+  const fetchEventDownloads = useCallback(
+    async (eventId: number) => {
+      // Already fetching or fetched
+      if (fetchingRef.current.has(eventId)) {
+        return;
+      }
+      fetchingRef.current.add(eventId);
 
-    setDownloadsCache((prev) => ({
-      ...prev,
-      [eventId]: { downloads: [], loading: true, loaded: false }
-    }));
-
-    try {
-      // Use taggedOnly=true to show only downloads explicitly tagged to this event
-      const downloads = await ApiService.getEventDownloads<Download[]>(eventId);
       setDownloadsCache((prev) => ({
         ...prev,
-        [eventId]: {
-          downloads: Array.isArray(downloads) ? downloads : [],
-          loading: false,
-          loaded: true
-        }
+        [eventId]: { downloads: [], loading: true, loaded: false }
       }));
-    } catch (error) {
-      console.error('Failed to fetch event downloads:', error);
-      fetchingRef.current.delete(eventId); // Allow retry on error
-      setDownloadsCache((prev) => ({
-        ...prev,
-        [eventId]: { downloads: [], loading: false, loaded: true }
-      }));
-    }
-  }, []);
+
+      try {
+        // Use taggedOnly=true to show only downloads explicitly tagged to this event
+        const downloads = await ApiService.getEventDownloads<Download[]>(eventId);
+        setDownloadsCache((prev) => ({
+          ...prev,
+          [eventId]: {
+            downloads: Array.isArray(downloads) ? downloads : [],
+            loading: false,
+            loaded: true
+          }
+        }));
+      } catch (error) {
+        notifyError(t('events.list.errors.loadDownloadsFailed'), error, {
+          logLabel: 'Failed to fetch event downloads'
+        });
+        fetchingRef.current.delete(eventId); // Allow retry on error
+        setDownloadsCache((prev) => ({
+          ...prev,
+          [eventId]: { downloads: [], loading: false, loaded: true }
+        }));
+      }
+    },
+    [t, notifyError]
+  );
 
   const handleExpandClick = useCallback(
     (eventId: number) => {

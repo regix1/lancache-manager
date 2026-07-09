@@ -80,7 +80,7 @@ public class OperationsController : ControllerBase
         var operation = _operationTracker.GetOperation(id);
         if (operation == null)
         {
-            return NotFound(new { error = "Operation not found", operationId = id });
+            return NotFound(ApiResponse.NotFound("Operation", id));
         }
 
         try
@@ -96,7 +96,7 @@ public class OperationsController : ControllerBase
                 });
             }
 
-            return BadRequest(new { error = "Operation cannot be cancelled", operationId = id });
+            return BadRequest(ApiResponse.Invalid("Operation cannot be cancelled"));
         }
         catch (Exception ex) when (ex is ObjectDisposedException or NullReferenceException)
         {
@@ -125,7 +125,7 @@ public class OperationsController : ControllerBase
             var killed = await _cancellationService.ForceKillAsync(id);
             if (!killed)
             {
-                return NotFound(new { error = "Operation not found or already completed", operationId = id });
+                return NotFound(ApiResponse.Error("Operation not found or already completed"));
             }
 
             return Ok(new { message = "Operation force killed", operationId = id });

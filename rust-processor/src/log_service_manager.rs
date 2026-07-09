@@ -117,7 +117,7 @@ fn write_progress(progress_path: &Path, reporter: &ProgressReporter, progress: &
     match progress.status.as_str() {
         "completed" => reporter.emit_complete(stage_key, context),
         "cancelled" => reporter.emit_cancelled(stage_key, context),
-        "failed" | "error" => reporter.emit_failed(stage_key, context),
+        "failed" | "error" => reporter.emit_failed(stage_key, context, Some(progress.message.clone())),
         _ => reporter.emit_progress(progress.percent_complete, stage_key, context),
     }
 
@@ -745,7 +745,7 @@ fn check_cache_validity(log_path: &str, progress_path: &Path) -> Result<HashMap<
     }
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     cancel::install();
 
     let mut args: Vec<String> = env::args().collect();
@@ -770,7 +770,7 @@ fn main() {
         eprintln!("  log_manager remove ./logs steam ./data/log_remove_progress.json");
         eprintln!("  log_manager remove ./logs steam ./data/log_remove_progress.json my-lancache");
         eprintln!("\nNote: Will automatically discover and process all log files (access.log, access.log.1, .gz, .zst)");
-        std::process::exit(1);
+        anyhow::bail!("invalid arguments");
     }
 
     let command = &args[1];
@@ -780,7 +780,7 @@ fn main() {
         "count" => {
             if args.len() < 4 || args.len() > 5 {
                 eprintln!("Usage: log_manager count <log_path_or_directory> <progress_json_path> [datasource_name]");
-                std::process::exit(1);
+                anyhow::bail!("invalid arguments for count");
             }
             let progress_path = Path::new(&args[3]);
             let datasource_name = args.get(4).map(|s| s.as_str());
@@ -792,7 +792,7 @@ fn main() {
             // Check if cached progress is still valid
             if let Ok(_cached_counts) = check_cache_validity(log_path, progress_path) {
                 eprintln!("Using cached service counts (progress file is newer than all log files)");
-                std::process::exit(0);
+                return Ok(());
             }
 
             // File-write-before-stdout-emit invariant: seed the progress file before the
@@ -817,9 +817,7 @@ fn main() {
             reporter.emit_started("signalr.logService.count.starting", serde_json::json!({}));
 
             match count_services(log_path, progress_path, &reporter, datasource_name) {
-                Ok(_) => {
-                    std::process::exit(0);
-                }
+                Ok(_) => Ok(()),
                 Err(e) => {
                     eprintln!("Error: {:?}", e);
                     let error_progress = ProgressData::new(
@@ -834,14 +832,14 @@ fn main() {
                         datasource_name.map(|s| s.to_string()),
                     );
                     let _ = write_progress(progress_path, &reporter, &error_progress);
-                    std::process::exit(1);
+                    Err(e)
                 }
             }
         }
         "remove" => {
             if args.len() < 5 || args.len() > 6 {
                 eprintln!("Usage: log_manager remove <log_path_or_directory> <service_name> <progress_json_path> [datasource_name]");
-                std::process::exit(1);
+                anyhow::bail!("invalid arguments for remove");
             }
             let service_name = &args[3];
             let progress_path = Path::new(&args[4]);
@@ -873,9 +871,7 @@ fn main() {
             reporter.emit_started("signalr.logRemoval.starting.single", serde_json::json!({ "service": service_name }));
 
             match remove_service_from_logs(log_path, service_name, progress_path, &reporter, datasource_name) {
-                Ok(_) => {
-                    std::process::exit(0);
-                }
+                Ok(_) => Ok(()),
                 Err(e) => {
                     eprintln!("Error: {:?}", e);
                     let error_progress = ProgressData::new(
@@ -890,14 +886,14 @@ fn main() {
                         datasource_name.map(|s| s.to_string()),
                     );
                     let _ = write_progress(progress_path, &reporter, &error_progress);
-                    std::process::exit(1);
+                    Err(e)
                 }
             }
         }
         _ => {
             eprintln!("Unknown command: {}", command);
             eprintln!("Valid commands: count, remove");
-            std::process::exit(1);
+            anyhow::bail!("unknown command: {}", command);
         }
     }
 }

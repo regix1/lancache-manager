@@ -177,6 +177,8 @@
       "cancelBulkRemoval": "取消批量移除",
       "cancelOperationAria": "取消操作",
       "forceKillOperation": "再次点击以强制终止",
+      "cancelOperationFailed": "取消操作失败",
+      "forceKillOperationFailed": "强制终止操作失败",
       "cancelling": "取消中...",
       "operationWaiting": "正在等待其他进程完成...",
       "operationWaitingNamed": "{{name}}：正在等待其他进程完成...",
@@ -305,6 +307,9 @@
     "timezoneSelector": {
       "am": "上午",
       "defaultLabel": "默认",
+      "errors": {
+        "updateFailed": "更新时间设置失败"
+      },
       "title": "时间",
       "options": {
         "local12": {
@@ -847,10 +852,16 @@
     "unlocked": "访客模式已解锁。访客现在可以登录。",
     "refreshRateUpdated": "默认访客刷新率已更新",
     "errors": {
+      "loadGuestDuration": "加载访客会话时长失败",
       "updateGuestDuration": "更新访客会话时长失败",
       "updateGuestLock": "更新访客模式锁定失败",
+      "loadThemes": "加载主题失败",
+      "loadGuestTheme": "加载默认访客主题失败",
       "updateGuestTheme": "更新默认访客主题失败",
-      "updateGuestRefreshRate": "更新默认访客刷新率失败"
+      "loadGuestRefreshRate": "加载默认访客刷新率失败",
+      "updateGuestRefreshRate": "更新默认访客刷新率失败",
+      "updateGuestRefreshRateLock": "更新访客刷新率锁定失败",
+      "loadThreadConfig": "加载默认线程配置失败"
     },
     "guest": {
       "title": "访客配置",
@@ -869,7 +880,7 @@
       },
       "guestDurationToggle": {
         "adminRequired": "请以管理员身份登录以更改此设置",
-        "error": "更新访客会话时长失败：{{status}}",
+        "error": "更新访客会话时长失败",
         "resetToDefault": "重置为默认值",
         "source": {
           "ui": "来源：界面覆盖",
@@ -959,6 +970,7 @@
           "description": "预填充权限授予后的持续时间。此设置同时决定该服务访客容器的最长运行时间，超时后会自动停止；更改此设置不会影响已在运行的容器。"
         },
         "errors": {
+          "loadConfig": "加载预填充配置失败",
           "update": "更新预填充配置失败"
         },
         "maxThreads": {
@@ -971,8 +983,10 @@
         }
       },
       "errors": {
+        "loadPreferences": "加载默认访客偏好设置失败",
         "updateDefault": "更新默认 {{label}} 失败",
-        "updateAllowedTimeFormats": "更新允许的时间格式失败"
+        "updateAllowedTimeFormats": "更新允许的时间格式失败",
+        "loadSessionDuration": "加载访客会话时长失败"
       }
     },
     "bulkActions": {
@@ -1250,6 +1264,10 @@
       "emptyRecorded": "暂无下载记录。当客户端请求内容时，下载将显示在此处。",
       "searchPlaceholder": "搜索游戏、客户端、仓库...",
       "updating": "更新中...",
+      "errors": {
+        "exportFailed": "导出下载失败",
+        "clearImageCacheFailed": "清除图像缓存失败"
+      },
       "tooltips": {
         "settings": "设置",
         "export": "导出数据",
@@ -3813,6 +3831,9 @@
       },
       "loadingDownloads": "加载下载中...",
       "emptyDownloads": "此事件期间没有下载记录",
+      "errors": {
+        "loadDownloadsFailed": "加载此事件的下载失败"
+      },
       "gamesDuringEvent": "事件期间下载的游戏",
       "gameCount": "{{count}} 个游戏",
       "gameCount_plural": "{{count}} 个游戏",
@@ -4183,7 +4204,8 @@
       "httpStatus": "HTTP {{status}}",
       "requestFailed": "预填充请求失败",
       "sessionExpired": "会话已过期",
-      "unableEstimateSize": "无法估算大小"
+      "unableEstimateSize": "无法估算大小",
+      "saveSelectionFailed": "保存游戏选择失败"
     },
     "sessionExpired": {
       "title": "会话已过期",
@@ -5956,6 +5978,11 @@
         "depotMapping": "仓库映射",
         "platformSetup": "平台设置",
         "epicAuthentication": "Epic 认证"
+      },
+      "errors": {
+        "picsStatusCheckFailed": "无法检查 Steam 仓库数据状态。您可以继续,但进度可能无法正确显示。",
+        "markCompletedFailed": "无法完成设置。请重试。",
+        "setupStatusCheckFailed": "无法加载已保存的设置进度。将从头开始。"
       }
     }
   },
@@ -6331,6 +6358,9 @@
       "loaded": {
         "gamesAndServices": "从缓存加载了 {{gamesCount}} 个游戏和 {{servicesCount}} 个服务",
         "gamesOnly": "从缓存加载了 {{gamesCount}} 个游戏"
+      },
+      "error": {
+        "fatal": "游戏缓存检测失败: {{errorDetail}}"
       }
     },
     "gameRemove": {

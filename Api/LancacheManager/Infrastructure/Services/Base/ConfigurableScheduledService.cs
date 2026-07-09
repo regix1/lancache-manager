@@ -52,6 +52,13 @@ public abstract class ConfigurableScheduledService : BackgroundService
     protected virtual TimeSpan StartupDelay => TimeSpan.FromSeconds(5);
 
     /// <summary>
+    /// Delay before retrying after a loop error. Mirrors ScheduledBackgroundService's
+    /// ErrorRetryDelay so both scheduled-service base classes back off identically instead of
+    /// tight-looping on a persistent error.
+    /// </summary>
+    protected virtual TimeSpan ErrorRetryDelay => TimeSpan.FromMinutes(1);
+
+    /// <summary>
     /// Hardcoded default for whether the loop runs work on its very first iteration
     /// (i.e., at app startup). Subclasses override this to express their *intended* default.
     /// The user can override this at runtime via SetRunOnStartup() - typically loaded from
@@ -215,11 +222,16 @@ public abstract class ConfigurableScheduledService : BackgroundService
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
+                    // Shutdown - end the loop cleanly. A non-shutdown OCE (e.g. an inner
+                    // per-iteration timeout) falls through to the Exception handler below
+                    // instead of silently ending the service loop.
                     break;
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "{ServiceName} error in scheduled work", ServiceName);
+                    await SafeDelayAsync(ErrorRetryDelay, stoppingToken);
+                    continue;
                 }
                 finally
                 {
