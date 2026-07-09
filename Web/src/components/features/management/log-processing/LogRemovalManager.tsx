@@ -267,7 +267,13 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
 
     try {
       const result = await ApiService.removeServiceFromDatasourceLogs(datasourceName, serviceName);
-      if (result?.status === 'running' && result.operationId) {
+      if (result?.queued || result?.alreadyRunning || result?.status === 'waiting') {
+        // Wait-queue model: a queued/deduplicated response is a SUCCESS, not an error - the
+        // OperationWaiting purple card owns the UI until promotion. Release the button's
+        // optimistic pending now: the waiting card carries no per-service details, so the
+        // running-notification matcher would never clear it.
+        clearServiceRemovalPending(key);
+      } else if (result?.status === 'running' && result.operationId) {
         addNotification(
           buildSeededRunningNotification(
             'log_removal',
@@ -281,8 +287,9 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
             }
           )
         );
-      } else if (result && result.status === 'running') {
-        // SignalR will attach operationId; seeded notification may already exist from Started event
+      } else if (result && (result.status === 'running' || result.operationId)) {
+        // Accepted without a seedable shape (e.g. the queue's immediate-start path):
+        // SignalR Started/progress events own the card from here.
       } else {
         onError?.(
           t('management.logRemoval.errors.unexpectedResponse', {

@@ -188,10 +188,10 @@ public class OperationConflictCheckerTests
     }
 
     [Fact]
-    public async Task Allows_ServiceRemoval_When_SameServiceLogRemoval_IsActiveAsync()
+    public async Task Blocks_ServiceRemoval_When_LogRemoval_IsActiveAsync()
     {
-        // A log-pipeline op (touches nginx logs) must NOT block a cache ServiceRemoval
-        // for the same service - they operate on different resources.
+        // Service removal rewrites access.log to prune the service's log lines - the same
+        // file the active log removal is rewriting - so it queues instead of racing it.
         using var tracker = new TrackerHarness();
         RegisterLogRemoval(tracker.Tracker, serviceName: "steam");
 
@@ -200,7 +200,44 @@ public class OperationConflictCheckerTests
             ConflictScope.Service("steam"),
             CancellationToken.None);
 
-        Assert.Null(response);
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.heavyOperationActive", response!.StageKey);
+        Assert.Equal(nameof(OperationType.LogRemoval), response.ActiveOperationType);
+    }
+
+    [Fact]
+    public async Task Blocks_LogRemoval_When_GameRemoval_IsActiveAsync()
+    {
+        // The game removal's Rust worker rewrites access.log too (prunes the game's lines),
+        // so a new log removal must queue behind it, not silently stall on the internal lock.
+        using var tracker = new TrackerHarness();
+        RegisterNamedGameRemoval(tracker.Tracker, service: "blizzard", gameName: "Diablo IV");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.LogRemoval,
+            ConflictScope.Service("teso"),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.heavyOperationActive", response!.StageKey);
+        Assert.Equal(nameof(OperationType.GameRemoval), response.ActiveOperationType);
+    }
+
+    [Fact]
+    public async Task Blocks_GameRemoval_When_LogProcessing_IsActiveAsync()
+    {
+        // Log processing reads access.log from a saved position; a removal shrinking the file
+        // underneath it corrupts the position, so the removal queues.
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(tracker.Tracker, OperationType.LogProcessing, "Log Processing");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.GameRemoval,
+            ConflictScope.NamedGame("blizzard", "Diablo IV"),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.heavyOperationActive", response!.StageKey);
     }
 
     [Fact]

@@ -132,22 +132,46 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
                 });
         }
 
-        // ---- 1b. Log-pipeline ops (LogRemoval / LogProcessing) ----
-        // These touch nginx log files, NOT the cache. Heavy×heavy pairings (including duplicates)
-        // are already handled by section 1a above, so a log op reaching this point faces only the
-        // non-heavy cache ops (removals / per-service corruption details), which it never
-        // conflicts with. Handled explicitly here so log ops never fall into the cache-removal
-        // section below (which would otherwise block a LogRemoval against an unrelated
-        // same-service cache ServiceRemoval).
+        // ---- 1b. Log-pipeline ops (LogRemoval / LogProcessing) vs removals ----
+        // Heavy×heavy pairings (including duplicates) are already handled by section 1a above, so
+        // a log op reaching this point faces only the non-heavy ops. Of those, every REMOVAL type
+        // (game/service/corruption/eviction) also rewrites access.log to prune the removed
+        // entity's lines - the same file the log pipeline reads/rewrites. They used to run
+        // "concurrently" here but in reality serialized on an internal lock, leaving the second
+        // op stuck at 0% with a running card and no explanation. Conflicting them instead sends
+        // the second op through the wait queue (purple waiting card). Read-only ops (detections,
+        // per-service corruption details) still never conflict with the log pipeline.
         if (newType == OperationType.LogRemoval || newType == OperationType.LogProcessing)
         {
+            if (RewritesAccessLog(activeOp.Type))
+            {
+                return BuildResponse(activeOp, activeScope,
+                    stageKey: "errors.conflict.heavyOperationActive",
+                    englishError: $"Cannot start {newType}: an active {activeOp.Type} is rewriting the access log.",
+                    context: new Dictionary<string, object?>
+                    {
+                        ["activeType"] = activeOp.Type.ToString()
+                    });
+            }
+
             return null;
         }
 
-        // A log-pipeline op is active and the NEW op is something else (a cache removal/scan).
-        // The new op does not touch nginx logs, so it never conflicts with an active log op → ALLOW.
+        // Mirror: a log-pipeline op is active and the NEW op is a removal that would rewrite
+        // access.log underneath it → BLOCK (queued). Anything else (scans/detections) → ALLOW.
         if (activeOp.Type == OperationType.LogRemoval || activeOp.Type == OperationType.LogProcessing)
         {
+            if (RewritesAccessLog(newType))
+            {
+                return BuildResponse(activeOp, activeScope,
+                    stageKey: "errors.conflict.heavyOperationActive",
+                    englishError: $"Cannot start {newType}: an active {activeOp.Type} is using the access log.",
+                    context: new Dictionary<string, object?>
+                    {
+                        ["activeType"] = activeOp.Type.ToString()
+                    });
+            }
+
             return null;
         }
 
@@ -494,6 +518,17 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
 
     private static bool IsEntityScoped(ConflictScope scope) =>
         scope.Kind == "steam" || scope.Kind == "epic" || scope.Kind == "named";
+
+    /// <summary>
+    /// Removal types whose Rust workers ALSO rewrite access.log (pruning the removed entity's
+    /// log lines), so they may not overlap the log pipeline (section 1b). Kept separate from
+    /// IsHeavyDataOp: these stay concurrent with each other per the entity/service scope rules.
+    /// </summary>
+    private static bool RewritesAccessLog(OperationType type) =>
+        type is OperationType.GameRemoval
+            or OperationType.ServiceRemoval
+            or OperationType.CorruptionRemoval
+            or OperationType.EvictionRemoval;
 
     /// <summary>
     /// Full-sweep data operations that must run one at a time (section 1a). Each spawns a

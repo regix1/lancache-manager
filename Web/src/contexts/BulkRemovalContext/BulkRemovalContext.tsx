@@ -388,6 +388,49 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
         },
         processItem: async (entry, ctx) => {
           let operationId: string | null = null;
+
+          // Entity identity as the backend encodes it in the EvictionRemovalStarted context
+          // ({scope, key}). Needed because a QUEUED item is promoted under a NEW operationId:
+          // the id in the DELETE response is the waiting op's id and the completion event
+          // would never match it. Re-capturing the promoted id from the Started event keeps
+          // the opId-based match (and cancel) correct across promotion.
+          const evictedGame = entry.kind === 'game' ? entry.game : null;
+          const evictedIsEpic = evictedGame?.service === 'epicgames';
+          const evictedIsNamed =
+            !!evictedGame &&
+            !evictedIsEpic &&
+            evictedGame.game_app_id === 0 &&
+            !!evictedGame.service &&
+            evictedGame.service !== 'steam';
+          const expectedScope =
+            entry.kind === 'service'
+              ? 'service'
+              : evictedIsEpic
+                ? 'epic'
+                : evictedIsNamed
+                  ? 'named'
+                  : 'steam';
+          const expectedKey =
+            entry.kind === 'service'
+              ? entry.service.service_name
+              : evictedIsEpic
+                ? (evictedGame?.epic_app_id ?? '')
+                : evictedIsNamed
+                  ? `${evictedGame?.service}:${evictedGame?.game_name}`
+                  : String(evictedGame?.game_app_id ?? '');
+          const matchesEntryIdentity = (
+            contextBag?: Record<string, string | number | boolean>
+          ): boolean => {
+            const scope = contextBag?.scope;
+            const key = contextBag?.key;
+            return (
+              typeof scope === 'string' &&
+              typeof key === 'string' &&
+              scope.toLowerCase() === expectedScope &&
+              key.toLowerCase() === expectedKey.toLowerCase()
+            );
+          };
+
           const waitPromise = waitForSignalRCompletion<
             EvictionRemovalStartedEvent,
             EvictionRemovalCompleteEvent,
@@ -396,6 +439,15 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             signalR: { on, off },
             completeEvent: 'EvictionRemovalComplete',
             match: (payload) => operationId !== null && payload?.operationId === operationId,
+            startedEvent: 'EvictionRemovalStarted',
+            onStartedCapture: (payload) =>
+              matchesEntryIdentity(payload?.context) && typeof payload.operationId === 'string'
+                ? { opId: payload.operationId }
+                : null,
+            onOperationIdCaptured: (opId) => {
+              operationId = opId;
+              ctx.setOperationId(opId);
+            },
             progressEvent: 'EvictionRemovalProgress',
             onProgress: (payload) => {
               if (!operationId || payload?.operationId !== operationId) return;
