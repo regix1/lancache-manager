@@ -27,6 +27,15 @@ public partial class RustProcessHelper
     /// </summary>
     public const int DefaultProgressPollMs = 500;
 
+    /// <summary>
+    /// Minimum interval (ms) between SignalR progress broadcasts for stdout-tick-driven Rust
+    /// operations (game detection, cache size scan, eviction scan, cache clearing). Rust can tick
+    /// many times per second and every broadcast is a re-render on every connected client (mobile
+    /// browsers crash under the flood), so emitters gate on this unless the stage key changed.
+    /// Terminal state always travels on the operation's *Complete event, never a gated progress tick.
+    /// </summary>
+    public const int ProgressEmitMinIntervalMs = 250;
+
     // Matches characters that could be used for argument injection or shell escaping
     [GeneratedRegex(@"[""'`$\\!;|&<>(){}\[\]\r\n\0]")]
     private static partial Regex DangerousArgumentCharsRegex();

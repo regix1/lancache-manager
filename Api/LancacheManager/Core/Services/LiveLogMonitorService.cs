@@ -1,5 +1,6 @@
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Base;
+using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
 
@@ -15,6 +16,7 @@ public class LiveLogMonitorService : ScheduledBackgroundService
     private readonly RustLogRemovalService _rustLogRemovalService;
     private readonly StateService _stateService;
     private readonly DatasourceService _datasourceService;
+    private readonly IOperationConflictChecker _conflictChecker;
     private readonly Dictionary<string, long> _lastFileSizes = new(); // Per-datasource file sizes
     private bool _isProcessing = false;
 
@@ -74,13 +76,15 @@ public class LiveLogMonitorService : ScheduledBackgroundService
         RustLogProcessorService rustLogProcessorService,
         RustLogRemovalService rustLogRemovalService,
         StateService stateService,
-        DatasourceService datasourceService)
+        DatasourceService datasourceService,
+        IOperationConflictChecker conflictChecker)
         : base(logger, configuration)
     {
         _rustLogProcessorService = rustLogProcessorService;
         _rustLogRemovalService = rustLogRemovalService;
         _stateService = stateService;
         _datasourceService = datasourceService;
+        _conflictChecker = conflictChecker;
     }
 
     /// <summary>
@@ -287,6 +291,20 @@ public class LiveLogMonitorService : ScheduledBackgroundService
                 if (_rustLogRemovalService.IsProcessing)
                 {
                     _logger.LogDebug("Log removal is in progress for {Service}, skipping live update for '{Name}'", _rustLogRemovalService.CurrentService, datasource.Name);
+                    return;
+                }
+
+                // Heavy data ops run one at a time (OperationConflictChecker section 1a). The two
+                // IsProcessing guards above only cover the log pipeline's own flags; this covers
+                // every other heavy op (detections, scans). Skipping is cheap - the monitor ticks
+                // every second and simply picks the new lines up on the next free tick.
+                var conflict = await _conflictChecker.CheckAsync(
+                    OperationType.LogProcessing, ConflictScope.Bulk(), CancellationToken.None);
+                if (conflict != null)
+                {
+                    _logger.LogDebug(
+                        "Active {ActiveType} operation holds the heavy-op slot, skipping live update for '{Name}'",
+                        conflict.ActiveOperationType, datasource.Name);
                     return;
                 }
 

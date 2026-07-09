@@ -6494,7 +6494,8 @@
       "serviceWideActive": "A service-wide operation is running. Per-entity operations are blocked until it completes.",
       "bulkActive": "A bulk operation is in flight. Wait for it to complete.",
       "globalOperationActive": "A global operation (cache clear or database reset) is in progress. All other operations are blocked.",
-      "cacheFileScanActive": "A cache file scan is in progress. Wait for it to finish before starting cache operations."
+      "cacheFileScanActive": "A cache file scan is in progress. Wait for it to finish before starting cache operations.",
+      "heavyOperationActive": "Another data operation is running. This one has been queued and will start when it finishes."
     }
   }
 }

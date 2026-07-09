@@ -6464,7 +6464,8 @@
       "serviceWideActive": "正在进行全服务范围的操作。在完成之前，每个实体的操作将被阻止。",
       "bulkActive": "正在进行批量操作。请等待其完成。",
       "globalOperationActive": "正在进行全局操作（缓存清除或数据库重置）。所有其他操作将被阻止。",
-      "cacheFileScanActive": "正在进行缓存文件扫描。请等待其完成后再开始缓存操作。"
+      "cacheFileScanActive": "正在进行缓存文件扫描。请等待其完成后再开始缓存操作。",
+      "heavyOperationActive": "另一个数据操作正在运行。此操作已加入队列，将在其完成后开始。"
     }
   }
 }

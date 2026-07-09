@@ -26,6 +26,7 @@ public partial class CacheManagementService
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly ISignalRNotificationService _notifications;
     private readonly ILancacheEnvFileReader _envFileReader;
+    private readonly IOperationConflictChecker _conflictChecker;
     private readonly DockerClient? _dockerClient;
 
     // Legacy single-path fields (for backward compatibility)
@@ -86,7 +87,8 @@ public partial class CacheManagementService
         GameCacheDetectionService gameCacheDetectionService,
         IUnifiedOperationTracker operationTracker,
         ISignalRNotificationService notifications,
-        ILancacheEnvFileReader envFileReader)
+        ILancacheEnvFileReader envFileReader,
+        IOperationConflictChecker conflictChecker)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -98,6 +100,7 @@ public partial class CacheManagementService
         _operationTracker = operationTracker;
         _notifications = notifications;
         _envFileReader = envFileReader;
+        _conflictChecker = conflictChecker;
 
         // Use DatasourceService for paths (with backward compatibility)
         var defaultDatasource = _datasourceService.GetDefaultDatasource();
@@ -1356,6 +1359,11 @@ public partial class CacheManagementService
         }
     }
 
+    // Broadcast gate for RelayProgressAsync. Safe as instance fields: callers hold the scan
+    // locks so at most one cache size scan relays progress at a time.
+    private long _cacheSizeScanLastEmitTicks = long.MinValue;
+    private string? _cacheSizeScanLastEmitStageKey;
+
     /// <summary>
     /// Relays one Rust progress tick to the tracker + SignalR. Ticks without a stageKey are
     /// skipped: the Rust binary overwrites the progress file with the final result JSON (no
@@ -1379,6 +1387,19 @@ public partial class CacheManagementService
         CurrentCacheSizeScanProgressContext = context;
 
         _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.StageKey);
+
+        // Gate the broadcast (tracker update above stays per-tick for recovery accuracy):
+        // rust ticks can arrive many times per second and every emit re-renders every client.
+        // Emit on stage change or at most every 250ms; CacheSizeScanComplete carries final state.
+        var nowTicks = Environment.TickCount64;
+        if (progress.StageKey == _cacheSizeScanLastEmitStageKey &&
+            nowTicks - _cacheSizeScanLastEmitTicks < RustProcessHelper.ProgressEmitMinIntervalMs)
+        {
+            return;
+        }
+        _cacheSizeScanLastEmitStageKey = progress.StageKey;
+        _cacheSizeScanLastEmitTicks = nowTicks;
+
         await _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanProgress, new CacheSizeScanProgress(
             OperationId: operationId,
             Status: OperationStatus.Running.ToWireString(),
@@ -1403,6 +1424,20 @@ public partial class CacheManagementService
     /// </summary>
     private async Task<CacheSizeResponse?> RunFullScanAsync(string cachePath, CancellationToken callerToken)
     {
+        // Heavy data ops run one at a time (OperationConflictChecker section 1a). Every caller
+        // funnels through here before the rust walker spawns (controller GET force-rescan,
+        // fresh-install auto-scan, CacheSnapshotService pre-warm, scheduled scan), so this single
+        // guard covers them all. Returning null lets GetCacheSizeAsync's callers fall back to
+        // the stale cached result / scanning response instead of racing the active operation.
+        var scanConflict = await _conflictChecker.CheckAsync(OperationType.CacheSizeScan, ConflictScope.Bulk(), callerToken);
+        if (scanConflict != null)
+        {
+            _logger.LogInformation(
+                "Cache size scan skipped: active {ActiveType} operation ({ActiveId}) holds the heavy-op slot",
+                scanConflict.ActiveOperationType, scanConflict.ActiveOperationId);
+            return null;
+        }
+
         var terminalFiles = 0L;
         var terminalBytes = 0L;
         string? terminalFormattedSize = null;

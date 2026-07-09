@@ -375,9 +375,32 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("corruption/detect")]
-    public async Task<IActionResult> StartCorruptionDetectionAsync([FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
+    public async Task<IActionResult> StartCorruptionDetectionAsync(
+        [FromQuery] int threshold = 3,
+        [FromQuery] bool compareToCacheLogs = true,
+        [FromQuery] string detectionMode = "miss_count",
+        CancellationToken cancellationToken = default)
     {
-        var operationId = await _corruptionDetectionService.StartDetectionAsync(threshold, compareToCacheLogs, detectionMode);
+        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        // The bulk corruption scan is a heavy data op (OperationConflictChecker section 1a), so
+        // it queues behind any other active heavy operation instead of running alongside it.
+        // Deliberately no request token in the delegate: it may run at queue promotion, long
+        // after this HTTP request completed (the operation owns its own CTS via the tracker).
+        async Task<Guid?> StartDetectionAsync() =>
+            await _corruptionDetectionService.StartDetectionAsync(threshold, compareToCacheLogs, detectionMode);
+
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.CorruptionDetection,
+            ConflictScope.Bulk(),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.CorruptionDetection, ConflictScope.Bulk(), "Corruption Detection",
+                StartDetectionAsync, cancellationToken));
+        }
+
+        var operationId = await StartDetectionAsync();
         return Accepted(new { operationId, message = "Corruption detection started", status = OperationStatus.Running });
     }
 

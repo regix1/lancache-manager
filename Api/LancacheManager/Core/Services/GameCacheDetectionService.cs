@@ -439,6 +439,8 @@ public partial class GameCacheDetectionService : IDisposable
                 // triggers exactly one authoritative progress-file read in place of the old
                 // Task.Delay(500)-based poll loop. The callback body below (tracker update +
                 // SignalR notify) is unchanged from the previous poll-loop version.
+                var lastProgressEmitTicks = long.MinValue;
+                string? lastProgressStageKey = null;
                 var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
                     startInfo,
                     operationId,
@@ -462,6 +464,19 @@ public partial class GameCacheDetectionService : IDisposable
                             var metrics = (GameDetectionMetrics)meta;
                             metrics.CurrentContext = progress.Context;
                         });
+
+                        // Gate the broadcast (the tracker updates above stay per-tick for recovery
+                        // accuracy): rust can tick many times per second and every emit re-renders
+                        // every connected client. Emit on stage change or at most every 250ms; the
+                        // GameDetectionComplete event carries the final state, never a gated tick.
+                        var nowTicks = Environment.TickCount64;
+                        if (progress.StageKey == lastProgressStageKey &&
+                            nowTicks - lastProgressEmitTicks < RustProcessHelper.ProgressEmitMinIntervalMs)
+                        {
+                            return;
+                        }
+                        lastProgressStageKey = progress.StageKey;
+                        lastProgressEmitTicks = nowTicks;
 
                         // Send SignalR notification for live updates.
                         // gamesDetected/servicesDetected mirror the cross-datasource running totals
@@ -527,7 +542,7 @@ public partial class GameCacheDetectionService : IDisposable
                 // Progress range for game aggregation: from current progress to next datasource's base
                 var totalGamesInResult = detectionResult.Games.Count;
                 var gameIndex = 0;
-                var lastProgressUpdate = 0;
+                var lastMatchProgressEmitTicks = long.MinValue;
 
                 // Calculate progress range for this datasource's game processing
                 // Games processing takes 30% of the datasource's share (from base to base + 30% of share)
@@ -553,10 +568,14 @@ public partial class GameCacheDetectionService : IDisposable
 
                     gameIndex++;
 
-                    // Send progress updates every 3 games or at the end (loop is in-memory, so frequent updates are cheap)
-                    if (gameIndex - lastProgressUpdate >= 3 || gameIndex == totalGamesInResult)
+                    // Send progress updates at most every 250ms, plus always the final game.
+                    // The loop is in-memory and can spin through thousands of games in a second;
+                    // emitting every few games broadcast-storms every connected client.
+                    var matchEmitNowTicks = Environment.TickCount64;
+                    if (gameIndex == totalGamesInResult ||
+                        matchEmitNowTicks - lastMatchProgressEmitTicks >= RustProcessHelper.ProgressEmitMinIntervalMs)
                     {
-                        lastProgressUpdate = gameIndex;
+                        lastMatchProgressEmitTicks = matchEmitNowTicks;
                         var gameProgress = gameProcessingStart + ((gameProcessingEnd - gameProcessingStart) * gameIndex / totalGamesInResult);
                         await SendProgressAsync(
                             "scanning",

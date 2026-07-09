@@ -74,14 +74,114 @@ public class OperationConflictCheckerTests
     }
 
     [Fact]
-    public async Task Allows_LogRemoval_When_DifferentServiceLogRemoval_IsActiveAsync()
+    public async Task Blocks_LogRemoval_When_DifferentServiceLogRemoval_IsActiveAsync()
     {
+        // Heavy data ops run one at a time: both log removals rewrite the same access.log,
+        // so the second one queues instead of running concurrently.
         using var tracker = new TrackerHarness();
         RegisterLogRemoval(tracker.Tracker, serviceName: "steam");
 
         var response = await tracker.Checker.CheckAsync(
             OperationType.LogRemoval,
             ConflictScope.Service("epicgames"),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.heavyOperationActive", response!.StageKey);
+        Assert.Equal(nameof(OperationType.LogRemoval), response.ActiveOperationType);
+    }
+
+    [Fact]
+    public async Task Blocks_LogProcessing_When_BulkCorruptionScan_IsActiveAsync()
+    {
+        using var tracker = new TrackerHarness();
+        RegisterBulkCorruptionDetection(tracker.Tracker);
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.LogProcessing,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.heavyOperationActive", response!.StageKey);
+        Assert.Equal(nameof(OperationType.CorruptionDetection), response.ActiveOperationType);
+    }
+
+    [Fact]
+    public async Task Blocks_GameDetection_When_LogProcessing_IsActiveAsync()
+    {
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(tracker.Tracker, OperationType.LogProcessing, "Log Processing");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.GameDetection,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.heavyOperationActive", response!.StageKey);
+        Assert.Equal(nameof(OperationType.LogProcessing), response.ActiveOperationType);
+    }
+
+    [Fact]
+    public async Task Blocks_LogRemoval_When_LogProcessing_IsActiveAsync()
+    {
+        // Log removal rewrites access.log while log processing reads it - never concurrent.
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(tracker.Tracker, OperationType.LogProcessing, "Log Processing");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.LogRemoval,
+            ConflictScope.Service("steam"),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.heavyOperationActive", response!.StageKey);
+    }
+
+    [Fact]
+    public async Task Blocks_CacheSizeScan_When_EvictionScan_IsActiveAsync()
+    {
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(tracker.Tracker, OperationType.EvictionScan, "Eviction Scan");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.CacheSizeScan,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.heavyOperationActive", response!.StageKey);
+    }
+
+    [Fact]
+    public async Task Duplicate_LogProcessing_Reports_Duplicate_Not_HeavyAsync()
+    {
+        // The queue relies on the "duplicate" stage key to idempotently return the active op
+        // instead of parking a second copy - the heavy section must preserve it.
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(tracker.Tracker, OperationType.LogProcessing, "Log Processing");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.LogProcessing,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.duplicate", response!.StageKey);
+    }
+
+    [Fact]
+    public async Task Allows_CorruptionDetectionDetails_When_LogProcessing_IsActiveAsync()
+    {
+        // Per-service "view details" fetches are interactive reads, NOT heavy sweeps -
+        // they must stay usable while a long log processing run is active.
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(tracker.Tracker, OperationType.LogProcessing, "Log Processing");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.CorruptionDetection,
+            ConflictScope.Service("steam"),
             CancellationToken.None);
 
         Assert.Null(response);
@@ -218,6 +318,13 @@ public class OperationConflictCheckerTests
             $"Corruption Details ({serviceName})",
             new CancellationTokenSource(),
             new CorruptionDetectionMetrics { ServiceName = serviceName });
+    }
+
+    private static void RegisterBulkOperation(IUnifiedOperationTracker tracker, OperationType type, string name)
+    {
+        // Bulk-scope heavy ops (LogProcessing / GameDetection / EvictionScan / CacheSizeScan)
+        // register without metadata, so DeriveScope falls back to Bulk().
+        tracker.RegisterOperation(type, name, new CancellationTokenSource());
     }
 
     private static void RegisterBulkCorruptionDetection(IUnifiedOperationTracker tracker)

@@ -395,6 +395,8 @@ public class CacheClearingService : ScheduledBackgroundService
 
                 var lastLoggedDirs = 0;
                 var lastLogTime = DateTime.UtcNow;
+                var lastProgressEmitTicks = long.MinValue;
+                string? lastProgressEmitStageKey = null;
 
                 var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
                     startInfo,
@@ -434,7 +436,20 @@ public class CacheClearingService : ScheduledBackgroundService
                         });
 
                         _operationTracker.UpdateProgress(operationId, percentComplete, progressData.StageKey ?? string.Empty);
-                        await NotifyProgressAsync(operationId);
+
+                        // Gate the per-tick broadcast (tracker/metadata updates above stay
+                        // per-tick for recovery accuracy): rust can tick many times per second
+                        // and every emit re-renders every client. Emit on stage change or at
+                        // most every 250ms; milestone and terminal notifications elsewhere in
+                        // this method are never gated.
+                        var nowTicks = Environment.TickCount64;
+                        if (progressData.StageKey != lastProgressEmitStageKey ||
+                            nowTicks - lastProgressEmitTicks >= RustProcessHelper.ProgressEmitMinIntervalMs)
+                        {
+                            lastProgressEmitStageKey = progressData.StageKey;
+                            lastProgressEmitTicks = nowTicks;
+                            await NotifyProgressAsync(operationId);
+                        }
 
                         var timeSinceLastLog = DateTime.UtcNow - lastLogTime;
                         var dirsChanged = progressData.DirectoriesProcessed != lastLoggedDirs;

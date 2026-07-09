@@ -29,8 +29,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     private readonly GameCacheDetectionDataService _gameCacheDetectionDataService;
     private readonly GameCacheDetectionService _gameCacheDetectionService;
     private readonly EvictedDetectionPreservationService _evictedDetectionPreservationService;
+    private readonly IOperationConflictChecker _conflictChecker;
     private int _isRunning;
     private bool _currentScanIsSilent = true;
+    // Broadcast gate shared by the rust stdout-tick callback and NotifyScanProgressAsync.
+    // Safe as instance fields: TryBeginRun guarantees at most one scan emits at a time.
+    private long _scanProgressLastEmitTicks = long.MinValue;
+    private string? _scanProgressLastEmitStageKey;
     /// <summary>
     /// Context dictionary of the most recent eviction-scan progress tick (same shape as the
     /// EvictionScanProgress SignalR payload's Context). The unified tracker only stores the stage
@@ -131,7 +136,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         IPathResolver pathResolver,
         GameCacheDetectionDataService gameCacheDetectionDataService,
         GameCacheDetectionService gameCacheDetectionService,
-        EvictedDetectionPreservationService evictedDetectionPreservationService)
+        EvictedDetectionPreservationService evictedDetectionPreservationService,
+        IOperationConflictChecker conflictChecker)
         : base(serviceProvider, logger, configuration)
     {
         _datasourceService = datasourceService;
@@ -143,6 +149,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         _gameCacheDetectionDataService = gameCacheDetectionDataService;
         _gameCacheDetectionService = gameCacheDetectionService;
         _evictedDetectionPreservationService = evictedDetectionPreservationService;
+        _conflictChecker = conflictChecker;
 
         LoadStateOverrides(stateService);
     }
@@ -176,12 +183,39 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         return !_stateService.GetEvictionScanNotifications();
     }
 
+    /// <summary>
+    /// Automatic (startup/scheduled) scans defer to any active heavy operation: heavy data ops
+    /// run one at a time (OperationConflictChecker section 1a), and an automatic scan must not
+    /// jump ahead of a user-started operation the way a queued controller request never could.
+    /// Skip-if-busy (the next scheduled tick retries) mirrors CacheSizeScanScheduledService;
+    /// manual scans keep going through the controller's conflict-check + queue path instead.
+    /// </summary>
+    private async Task<bool> IsBlockedByActiveOperationAsync(string runKind, CancellationToken ct)
+    {
+        var conflict = await _conflictChecker.CheckAsync(OperationType.EvictionScan, ConflictScope.Bulk(), ct);
+        if (conflict == null)
+        {
+            return false;
+        }
+
+        _logger.LogInformation(
+            "[EvictionScan] {RunKind} scan skipped: active {ActiveType} operation ({ActiveId}) holds the heavy-op slot",
+            runKind, conflict.ActiveOperationType, conflict.ActiveOperationId);
+        return true;
+    }
+
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
         // Wait for setup to complete so datasources and database are configured
         await _stateService.WaitForSetupCompletedAsync(stoppingToken);
 
         var silent = IsSilentAutomaticScan();
+
+        if (await IsBlockedByActiveOperationAsync("Startup", stoppingToken))
+        {
+            _firstStartupScanComplete.TrySetResult(true);
+            return;
+        }
 
         if (!TryBeginRun())
         {
@@ -223,6 +257,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     {
         var silent = IsSilentAutomaticScan();
         var context = scopedServices.GetRequiredService<AppDbContext>();
+
+        if (await IsBlockedByActiveOperationAsync("Scheduled", stoppingToken))
+        {
+            return;
+        }
 
         if (!TryBeginRun())
         {
@@ -326,6 +365,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     var scaledPercent = progress.PercentComplete * 0.85;
 
                     _operationTracker.UpdateProgress(operationId, scaledPercent, stageKey);
+
+                    // Gate the broadcast (tracker + recovery context above stay per-tick): rust
+                    // ticks can arrive many times per second and every emit re-renders every
+                    // client. Emit on stage change or at most every 250ms; the terminal state
+                    // travels on EvictionScanComplete, never a gated tick.
+                    if (!ShouldEmitScanProgress(stageKey))
+                    {
+                        return;
+                    }
+
                     await _notifications.NotifyAllAsync(SignalREvents.EvictionScanProgress, new EvictionScanProgress(
                         OperationId: operationId,
                         Status: progress.Status.ToWireString(),
@@ -703,6 +752,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
 
         _operationTracker.UpdateProgress(operationId, percentComplete, stageKey);
+
+        // Same broadcast gate as the rust-tick callback: the post-scan phases (detection updates,
+        // disk-summary refresh) can call this per batch. Stage transitions always emit.
+        if (!ShouldEmitScanProgress(stageKey))
+        {
+            return;
+        }
+
         await _notifications.NotifyAllAsync(SignalREvents.EvictionScanProgress, new EvictionScanProgress(
             OperationId: operationId,
             Status: OperationStatus.Running.ToWireString(),
@@ -713,6 +770,24 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             Evicted: scanResult.Evicted,
             UnEvicted: scanResult.UnEvicted,
             Context: context));
+    }
+
+    /// <summary>
+    /// Broadcast gate for EvictionScanProgress: pass on stage-key change or when at least
+    /// <see cref="RustProcessHelper.ProgressEmitMinIntervalMs"/> has elapsed since the last emit.
+    /// </summary>
+    private bool ShouldEmitScanProgress(string stageKey)
+    {
+        var nowTicks = Environment.TickCount64;
+        if (stageKey == _scanProgressLastEmitStageKey &&
+            nowTicks - _scanProgressLastEmitTicks < RustProcessHelper.ProgressEmitMinIntervalMs)
+        {
+            return false;
+        }
+
+        _scanProgressLastEmitStageKey = stageKey;
+        _scanProgressLastEmitTicks = nowTicks;
+        return true;
     }
 
     private static EvictionScanResult ParseScanResult(RustExecutionResult result)
