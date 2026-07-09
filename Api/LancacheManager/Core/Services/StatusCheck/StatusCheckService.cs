@@ -139,12 +139,17 @@ public sealed class StatusCheckService : IStatusCheckService
 
         // The upstream HTTPS-redirect probe only runs for curated cache-domains entries. An
         // arbitrary user-typed hostname must never be probed upstream, or this endpoint becomes
-        // a generic server-side request proxy. Same evidence gate as the sweep: recent cache HITs
-        // for the owning service already prove downloads route through the cache.
+        // a generic server-side request proxy. Same evidence gate as the sweep: recent cache
+        // traffic for the owning service already proves downloads route through the cache.
         var domains = await _domainsService.GetDomainsAsync(forceRefresh: false, cancellationToken);
         var owningService = TryGetOwningService(domain, domains);
         var probeRedirect = owningService != null &&
-            !(await GetServicesWithRecentCacheHitsAsync(cancellationToken)).Contains(owningService);
+            !(await GetServicesWithRecentCacheTrafficAsync(cancellationToken)).Contains(owningService);
+        _logger.LogInformation(
+            "Status Check: test domain {Domain} - owning service {Service}; HTTPS-redirect probe {Decision}",
+            domain,
+            owningService ?? "(none, not in the cache-domains list)",
+            owningService == null ? "skipped (uncurated domain)" : probeRedirect ? "will run" : "skipped (recent cache traffic)");
         (LookupClient? Client, string? Server) upstream = probeRedirect
             ? await CreateUpstreamDnsClientAsync(cancellationToken)
             : (null, null);
@@ -211,12 +216,35 @@ public sealed class StatusCheckService : IStatusCheckService
             // and exclude it from the progress denominator so the ribbon still reaches 100%.
             var disabledServices = await DetermineDisabledServicesAsync(domains.Services, token);
 
-            // A recent cache HIT is direct proof the service's downloads route through the cache
-            // over plain HTTP, and it outranks anything the redirect probe can see: many CDN edges
-            // (TESO's Akamai, Cloudflare fronts) blanket-redirect every outside HTTP request while
-            // the cache's own miss fetches sail through. Don't probe - and never warn - where the
-            // user's own traffic already answered the question.
-            var servicesWithRecentHits = await GetServicesWithRecentCacheHitsAsync(token);
+            // Recent cache traffic (hit OR miss - both route through the cache over plain HTTP)
+            // is direct proof the service isn't bypassed, and it outranks anything the redirect
+            // probe can see: many CDN edges (TESO's Akamai, Cloudflare fronts) blanket-redirect
+            // every outside HTTP request while the cache's own fetches sail through. Don't probe -
+            // and never warn - where the user's own traffic already answered the question.
+            var servicesWithRecentTraffic = await GetServicesWithRecentCacheTrafficAsync(token);
+            if (servicesWithRecentTraffic.Count == 0)
+            {
+                _logger.LogInformation(
+                    "Status Check: no service recorded cache traffic in the last {Days} days - every heartbeat-verified domain will be HTTPS-redirect probed",
+                    (int)_recentTrafficEvidenceWindow.TotalDays);
+            }
+            else
+            {
+                // Both lists on purpose: the first shows the service names exactly as the DB logged
+                // them, the second which listed services they matched - a name mismatch (e.g. a
+                // download tagged differently than the cache_domains name) is visible as a service
+                // appearing in the first list but not the second.
+                var suppressedServices = domains.Services
+                    .Where(s => servicesWithRecentTraffic.Contains(s.Name))
+                    .Select(s => s.Name)
+                    .ToList();
+                _logger.LogInformation(
+                    "Status Check: cache traffic in the last {Days} days for [{TrafficServices}] - skipping HTTPS-redirect probes for {SuppressedCount} listed service(s) [{SuppressedServices}]",
+                    (int)_recentTrafficEvidenceWindow.TotalDays,
+                    string.Join(", ", servicesWithRecentTraffic.OrderBy(s => s, StringComparer.OrdinalIgnoreCase)),
+                    suppressedServices.Count,
+                    string.Join(", ", suppressedServices));
+            }
 
             var totalDomains = domains.Services
                 .Where(s => !disabledServices.Contains(s.Name))
@@ -257,7 +285,7 @@ public sealed class StatusCheckService : IStatusCheckService
                     continue;
                 }
 
-                var probeRedirectForService = !servicesWithRecentHits.Contains(service.Name);
+                var probeRedirectForService = !servicesWithRecentTraffic.Contains(service.Name);
 
                 using var semaphore = new SemaphoreSlim(MaxConcurrency);
                 var tasks = service.Domains.Select(async originalEntry =>
@@ -341,6 +369,21 @@ public sealed class StatusCheckService : IStatusCheckService
                     operationId, totalDomains);
             }
 
+            if (upstreamDnsClient != null)
+            {
+                // One aggregate line per sweep so the state of the HTTPS-redirect check is always
+                // visible in the log: how many domains were even eligible, and how each came out.
+                var probedDomains = serviceResults
+                    .Where(s => !servicesWithRecentTraffic.Contains(s.Service))
+                    .SelectMany(s => s.Domains)
+                    .Count(d => d.HeartbeatVerified);
+                var flaggedDomains = serviceResults.SelectMany(s => s.Domains).Count(d => d.HttpsRedirect == true);
+                var plainHttpDomains = serviceResults.SelectMany(s => s.Domains).Count(d => d.HttpsRedirect == false);
+                _logger.LogInformation(
+                    "Status Check: HTTPS-redirect probes - {Probed} heartbeat-verified domain(s) probed, {Flagged} prefer HTTPS, {PlainHttp} confirmed plain HTTP, {Inconclusive} inconclusive",
+                    probedDomains, flaggedDomains, plainHttpDomains, probedDomains - flaggedDomains - plainHttpDomains);
+            }
+
             var heartbeat = await BuildHeartbeatResultAsync(location, token);
 
             var result = new StatusCheckResult
@@ -419,22 +462,29 @@ public sealed class StatusCheckService : IStatusCheckService
         }
     }
 
-    // How far back a cache HIT still counts as proof that a service's downloads route through
+    // How far back cache traffic still counts as proof that a service's downloads route through
     // the cache. Beyond this, the upstream may have flipped to HTTPS since - warn again.
-    private static readonly TimeSpan _recentHitEvidenceWindow = TimeSpan.FromDays(30);
+    private static readonly TimeSpan _recentTrafficEvidenceWindow = TimeSpan.FromDays(30);
 
-    /// <summary>Service names (as logged by lancache, matching the cache_domains names) that
-    /// recorded at least one cache HIT inside <see cref="_recentHitEvidenceWindow"/>. A DB
+    // A MISS is proof too: it means the client asked the cache over plain HTTP and the cache
+    // fetched upstream - a first-time download is all misses and still refutes "bypasses the
+    // cache". The floor exists solely to ignore junk rows (the v1 probe incident left tiny
+    // synthetic downloads per service); a real download chunk clears 1 MB trivially.
+    private const long MinTrafficEvidenceBytes = 1024 * 1024;
+
+    /// <summary>Service names (as logged by lancache, matching the cache_domains names) with a
+    /// download of at least <see cref="MinTrafficEvidenceBytes"/> (hit or miss - both route
+    /// through the cache over plain HTTP) inside <see cref="_recentTrafficEvidenceWindow"/>. A DB
     /// hiccup yields an empty set (warnings stay probe-driven) rather than failing the sweep.</summary>
-    private async Task<HashSet<string>> GetServicesWithRecentCacheHitsAsync(CancellationToken ct)
+    private async Task<HashSet<string>> GetServicesWithRecentCacheTrafficAsync(CancellationToken ct)
     {
         try
         {
-            var cutoff = DateTime.UtcNow - _recentHitEvidenceWindow;
+            var cutoff = DateTime.UtcNow - _recentTrafficEvidenceWindow;
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync(ct);
             var services = await dbContext.Downloads
                 .AsNoTracking()
-                .Where(d => d.CacheHitBytes > 0 && d.EndTimeUtc >= cutoff)
+                .Where(d => d.EndTimeUtc >= cutoff && d.CacheHitBytes + d.CacheMissBytes >= MinTrafficEvidenceBytes)
                 .Select(d => d.Service)
                 .Distinct()
                 .ToListAsync(ct);
@@ -446,7 +496,7 @@ public sealed class StatusCheckService : IStatusCheckService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Status Check: could not read recent cache-hit evidence; HTTPS-redirect warnings will not be suppressed this sweep");
+            _logger.LogWarning(ex, "Status Check: could not read recent cache-traffic evidence; HTTPS-redirect warnings will not be suppressed this sweep");
             return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
     }
@@ -681,28 +731,51 @@ public sealed class StatusCheckService : IStatusCheckService
             if (upstreamIps.Count == 0)
             {
                 // NXDOMAIN (e.g. a wildcard probe label) or private answers - nothing public to ask.
+                _logger.LogDebug(
+                    "Status Check: redirect probe for {Domain} skipped - upstream resolver returned no public address",
+                    queryDomain);
                 return (null, null);
             }
 
-            var verdicts = new List<bool?>(upstreamIps.Count);
-            string? location = null;
+            var edges = new List<(string Ip, bool? Redirected, string? Location)>(upstreamIps.Count);
             foreach (var ip in upstreamIps)
             {
                 var probe = await _serverLocator.ProbeHttpsRedirectAsync(ip, queryDomain, ct);
-                verdicts.Add(probe.Redirected);
-                location ??= probe.Location;
+                edges.Add((ip, probe.Redirected, probe.Location));
             }
 
-            var combined = CombineEdgeVerdicts(verdicts);
-            return (combined, combined == true ? location : null);
+            var combined = CombineEdgeVerdicts(edges.Select(e => e.Redirected).ToList());
+            var location = combined == true ? edges.FirstOrDefault(e => e.Location != null).Location : null;
+
+            // The flagged case explains itself at Information (it drives a visible warning); the
+            // clean/inconclusive cases stay at Debug so a healthy sweep doesn't print a line per domain.
+            var edgeSummary = string.Join("; ", edges.Select(e =>
+                e.Redirected == true ? $"{e.Ip} redirects to {e.Location}"
+                : e.Redirected == false ? $"{e.Ip} serves plain HTTP"
+                : $"{e.Ip} no definitive answer"));
+            if (combined == true)
+            {
+                _logger.LogInformation(
+                    "Status Check: {Domain} flagged as preferring HTTPS - every public edge redirected the probe: {Edges}",
+                    queryDomain, edgeSummary);
+            }
+            else
+            {
+                _logger.LogDebug(
+                    "Status Check: redirect probe for {Domain} verdict {Verdict}: {Edges}",
+                    queryDomain, combined?.ToString() ?? "inconclusive", edgeSummary);
+            }
+
+            return (combined, location);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             throw;
         }
-        catch
+        catch (Exception ex)
         {
             // Upstream resolver unreachable / timed out - "couldn't determine", never "no redirect".
+            _logger.LogDebug(ex, "Status Check: redirect probe for {Domain} failed", queryDomain);
             return (null, null);
         }
     }

@@ -1590,7 +1590,7 @@
         "tagUnverified": "unverified",
         "tagNoAnswer": "no answer",
         "tagHttpsRedirect": "prefers HTTPS",
-        "httpsRedirectTooltip": "This service's public edge answers plain HTTP with a redirect to {{location}}. Your cache's own upstream fetches may still work over HTTP; recent cache hits for this service mean caching is fine.",
+        "httpsRedirectTooltip": "This service's public edge answers plain HTTP with a redirect to {{location}}, and no downloads went through the cache for it in the last 30 days, so it can't be confirmed that downloads still route through the cache. Any download for this service through the cache clears this warning automatically.",
         "reasonUnresolved": "Did not resolve: {{error}}",
         "unknownError": "unknown error",
         "testedAs": "Tested as {{domain}}.",

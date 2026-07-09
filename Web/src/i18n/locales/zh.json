@@ -1590,7 +1590,7 @@
         "tagUnverified": "未验证",
         "tagNoAnswer": "无响应",
         "tagHttpsRedirect": "偏好 HTTPS",
-        "httpsRedirectTooltip": "该服务的公网边缘节点将纯 HTTP 请求重定向到 {{location}}。缓存自身的上游抓取可能仍可通过 HTTP 工作;若该服务近期仍有缓存命中,则缓存正常。",
+        "httpsRedirectTooltip": "该服务的公网边缘节点将纯 HTTP 请求重定向到 {{location}},且最近 30 天内没有下载经过缓存,因此无法确认下载仍经过缓存。该服务一旦有下载经过缓存,此警告会自动消失。",
         "reasonUnresolved": "无法解析:{{error}}",
         "unknownError": "未知错误",
         "testedAs": "实际测试域名为 {{domain}}。",
