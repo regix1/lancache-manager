@@ -866,10 +866,70 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                       key={download.id}
                                       className={`drawer-session-row px-4 py-3 transition-colors${download.isEvicted ? ' opacity-60' : ''}`}
                                     >
-                                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                      <div className="sm:hidden">
+                                        <div className="flex items-center justify-between gap-3">
+                                          <div className="flex min-w-0 items-center gap-2">
+                                            {download.endTimeUtc ? (
+                                              <CheckCircle
+                                                size={14}
+                                                className="flex-shrink-0 text-[var(--theme-success-text)]"
+                                              />
+                                            ) : (
+                                              <AlertCircle
+                                                size={14}
+                                                className="flex-shrink-0 text-[var(--theme-info-text)]"
+                                              />
+                                            )}
+                                            <span className="truncate text-sm font-medium text-[var(--theme-text-primary)]">
+                                              <DownloadTimestamp
+                                                dateString={download.startTimeUtc}
+                                              />
+                                            </span>
+                                          </div>
+                                          <div className="flex flex-shrink-0 items-center gap-1">
+                                            {download.depotId && (
+                                              <span className="text-xs font-mono text-[var(--theme-text-muted)] bg-[var(--theme-bg-tertiary)] px-1.5 rounded">
+                                                {t('downloads.active.depotLabel', {
+                                                  depotId: download.depotId
+                                                })}
+                                              </span>
+                                            )}
+                                            {download.isEvicted && <EvictedBadge />}
+                                          </div>
+                                        </div>
+                                        <div className="mt-2 flex items-center justify-between pl-[22px] text-sm">
+                                          <span className="font-medium text-[var(--theme-text-primary)]">
+                                            <span className="sr-only">Size: </span>
+                                            {formatBytes(totalBytes)}
+                                          </span>
+                                          <span
+                                            className={
+                                              download.cacheHitBytes > 0
+                                                ? 'font-bold text-[var(--theme-success-text)]'
+                                                : 'text-[var(--theme-text-muted)]'
+                                            }
+                                          >
+                                            <span className="sr-only">Cache: </span>
+                                            {download.cacheHitBytes > 0
+                                              ? formatPercent(cachePercent)
+                                              : '—'}
+                                          </span>
+                                        </div>
+                                        {showEventBadges && associations.events.length > 0 && (
+                                          <div className="mt-2 pl-[22px]">
+                                            <DownloadBadges
+                                              events={associations.events}
+                                              maxVisible={2}
+                                              size="sm"
+                                            />
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      <div className="hidden items-center justify-between gap-3 sm:flex">
                                         {/* Time & Events */}
-                                        <div className="flex-1 min-w-0">
-                                          <div className="flex items-center gap-2 mb-1">
+                                        <div className="min-w-0 flex-1">
+                                          <div className="mb-1 flex items-center gap-2">
                                             {download.endTimeUtc ? (
                                               <CheckCircle
                                                 size={14}
@@ -888,7 +948,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                               />
                                             </span>
                                             {download.depotId && (
-                                              <span className="text-xs font-mono text-[var(--theme-text-muted)] bg-[var(--theme-bg-tertiary)] px-1.5 rounded">
+                                              <span className="rounded bg-[var(--theme-bg-tertiary)] px-1.5 font-mono text-xs text-[var(--theme-text-muted)]">
                                                 {t('downloads.active.depotLabel', {
                                                   depotId: download.depotId
                                                 })}
@@ -908,7 +968,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                         </div>
 
                                         {/* Stats */}
-                                        <div className="flex items-center gap-4 sm:gap-6 text-sm">
+                                        <div className="flex items-center gap-6 text-sm">
                                           <div className="flex flex-col items-end">
                                             <span className="text-[10px] uppercase text-[var(--theme-text-muted)] font-semibold">
                                               Size
@@ -1619,9 +1679,64 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                             key={download.id}
                             className="drawer-session-row px-4 py-3 transition-colors"
                           >
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-1">
+                            <div className="sm:hidden">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex min-w-0 items-center gap-2">
+                                  {download.endTimeUtc ? (
+                                    <CheckCircle
+                                      size={14}
+                                      className="flex-shrink-0 text-[var(--theme-success-text)]"
+                                    />
+                                  ) : (
+                                    <AlertCircle
+                                      size={14}
+                                      className="flex-shrink-0 text-[var(--theme-info-text)]"
+                                    />
+                                  )}
+                                  <span className="truncate text-sm font-medium text-[var(--theme-text-primary)]">
+                                    <DownloadTimestamp dateString={download.startTimeUtc} />
+                                  </span>
+                                </div>
+                                <div className="flex flex-shrink-0 items-center gap-1">
+                                  {download.depotId && (
+                                    <span className="text-xs font-mono text-[var(--theme-text-muted)] bg-[var(--theme-bg-tertiary)] px-1.5 rounded">
+                                      {t('downloads.active.depotLabel', {
+                                        depotId: download.depotId
+                                      })}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="mt-2 flex items-center justify-between pl-[22px] text-sm">
+                                <span className="font-medium text-[var(--theme-text-primary)]">
+                                  <span className="sr-only">Size: </span>
+                                  {formatBytes(totalBytes)}
+                                </span>
+                                <span
+                                  className={
+                                    download.cacheHitBytes > 0
+                                      ? 'font-bold text-[var(--theme-success-text)]'
+                                      : 'text-[var(--theme-text-muted)]'
+                                  }
+                                >
+                                  <span className="sr-only">Cache: </span>
+                                  {download.cacheHitBytes > 0 ? formatPercent(cachePercent) : '—'}
+                                </span>
+                              </div>
+                              {showEventBadges && associations.events.length > 0 && (
+                                <div className="mt-2 pl-[22px]">
+                                  <DownloadBadges
+                                    events={associations.events}
+                                    maxVisible={2}
+                                    size="sm"
+                                  />
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="hidden items-center justify-between gap-3 sm:flex">
+                              <div className="min-w-0 flex-1">
+                                <div className="mb-1 flex items-center gap-2">
                                   {download.endTimeUtc ? (
                                     <CheckCircle
                                       size={14}
@@ -1640,7 +1755,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                                     />
                                   </span>
                                   {download.depotId && (
-                                    <span className="text-xs font-mono text-[var(--theme-text-muted)] bg-[var(--theme-bg-tertiary)] px-1.5 rounded">
+                                    <span className="rounded bg-[var(--theme-bg-tertiary)] px-1.5 font-mono text-xs text-[var(--theme-text-muted)]">
                                       {t('downloads.active.depotLabel', {
                                         depotId: download.depotId
                                       })}

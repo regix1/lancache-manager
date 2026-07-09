@@ -322,7 +322,6 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
           </>
         )}
       </SectionActionsMenu>
-      {helpContent}
     </div>
   );
 
@@ -331,6 +330,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       <Card>
         <AccordionSection
           title={t('management.datasources.title')}
+          titleAccessory={helpContent}
           icon={Logs}
           iconColor="var(--theme-icon-purple)"
           isExpanded={isExpanded}

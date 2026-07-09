@@ -3,7 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 import './VirtualizedList.css';
 import { ChevronRight, ExternalLink, HardDrive } from 'lucide-react';
-import { formatBytes, formatPercent, formatCount } from '@utils/formatters';
+import { formatBytes, formatPercent } from '@utils/formatters';
 import { DownloadTimestamp } from './DownloadTimestamp';
 import BadgesRow from './BadgesRow';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
@@ -261,49 +261,39 @@ const GroupRow: React.FC<GroupRowProps> = ({
                       {group.name}
                     </span>
                   )}
-                  {diskSizeBytes ? (
-                    <span className="text-themed-muted text-xs ml-2">
-                      {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
-                    </span>
-                  ) : null}
                 </div>
-                <div className="flex flex-col gap-1 pl-6 text-xs">
-                  {diskSizeBytes ? (
-                    <div className="flex items-center gap-1 text-themed-muted">
-                      <HardDrive size={10} className="flex-shrink-0" />
-                      <span>
-                        {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
-                      </span>
-                      {detection?.cache_files_found ? (
-                        <span className="ml-1">
-                          · {formatCount(detection.cache_files_found)} files
+                <div className="flex items-center justify-between gap-3 pl-6 text-xs">
+                  <div className="min-w-0 text-themed-muted">
+                    {diskSizeBytes ? (
+                      <span className="flex min-w-0 items-center gap-1">
+                        <HardDrive size={10} className="flex-shrink-0" />
+                        <span className="truncate">
+                          {t('dashboard.downloadsPanel.onDisk', {
+                            size: formatBytes(diskSizeBytes)
+                          })}
                         </span>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-themed-muted">
+                      </span>
+                    ) : (
+                      <span className="truncate">
                         {t('downloads.tab.compact.counts.clients', {
                           count: group.clientsSet.size
-                        })}{' '}
-                        · {t('downloads.tab.compact.counts.requests', { count: group.count })}
+                        })}
                       </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-[var(--theme-text-primary)] font-mono">
-                        {formatBytes(group.totalBytes)}
+                    )}
+                  </div>
+                  <div className="flex flex-shrink-0 items-center gap-2">
+                    <span className="font-semibold text-[var(--theme-text-primary)] font-mono">
+                      {formatBytes(group.totalBytes)}
+                    </span>
+                    {group.cacheHitBytes > 0 ? (
+                      <span className="cache-hit font-medium font-mono">
+                        {formatPercent(hitPercent)}
                       </span>
-                      {group.cacheHitBytes > 0 ? (
-                        <span className="cache-hit font-medium font-mono">
-                          {formatPercent(hitPercent)}
-                        </span>
-                      ) : (
-                        <span className="font-medium font-mono text-[var(--theme-error-text)]">
-                          0%
-                        </span>
-                      )}
-                    </div>
+                    ) : (
+                      <span className="font-medium font-mono text-[var(--theme-error-text)]">
+                        0%
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

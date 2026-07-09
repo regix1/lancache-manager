@@ -5,6 +5,7 @@ import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 
 interface AccordionSectionProps {
   title: string;
+  titleAccessory?: React.ReactNode;
   count?: number;
   icon?: LucideIcon;
   iconColor?: string;
@@ -16,6 +17,7 @@ interface AccordionSectionProps {
 
 export const AccordionSection: React.FC<AccordionSectionProps> = ({
   title,
+  titleAccessory,
   count,
   icon: Icon,
   iconColor = 'var(--theme-accent)',
@@ -25,6 +27,15 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
   badge
 }) => {
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    const target = e.target as HTMLElement;
+    if (
+      target.closest(
+        'button, input, select, a, [role="listbox"], [role="combobox"], .ed-trigger, .ed-dropdown'
+      )
+    ) {
+      return;
+    }
+
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       onToggle();
@@ -123,6 +134,10 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
           >
             {title}
           </span>
+
+          {titleAccessory && (
+            <span className="inline-flex flex-shrink-0 items-center">{titleAccessory}</span>
+          )}
 
           {/* Count Badge */}
           {count !== undefined && (
