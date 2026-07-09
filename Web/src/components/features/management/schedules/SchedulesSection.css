@@ -1757,6 +1757,33 @@
     flex: 1 1 auto;
   }
 
+  /* Keep the destructive row compact on phones. The shared setting-action rules above
+     intentionally stretch ordinary form actions, but a single danger-zone command does
+     not need a full-width action row or desktop-sized internal spacing. */
+  .scheduled-prefill-config-modal__danger-zone {
+    gap: 0.625rem;
+    margin-top: 0.75rem;
+    padding: 0.625rem 0.75rem;
+  }
+
+  .scheduled-prefill-config-modal__danger-zone-copy {
+    flex-basis: auto;
+    gap: 0.125rem;
+  }
+
+  .scheduled-prefill-config-modal__danger-zone-help {
+    font-size: var(--font-size-xs);
+    line-height: 1.35;
+  }
+
+  .scheduled-prefill-config-modal__danger-zone-action {
+    width: auto;
+  }
+
+  .scheduled-prefill-config-modal__danger-zone-action > button {
+    flex: 0 0 auto;
+  }
+
   .scheduled-prefill-persistent-card__action-group {
     width: 100%;
   }
