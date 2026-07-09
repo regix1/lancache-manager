@@ -1522,6 +1522,7 @@
           "resolved": "已解析",
           "partial": "部分解析",
           "unresolved": "未解析",
+          "https": "偏好 HTTPS",
           "unverified": "未验证",
           "disabled": "已禁用"
         },

@@ -9,9 +9,9 @@ namespace LancacheManager.Tests;
 
 /// <summary>
 /// Coverage for the pure/static-testable logic behind the Status Check feature: the .env parser,
-/// the GitHub repo URL -> raw.githubusercontent.com conversion, the tolerant cache_domains.json
-/// parser (all 4 shapes, per the monolithic fork's Go parser design), the domain-file line parser,
-/// and the domain/service/summary verdict rules.
+/// the GitHub repo URL -> branch archive tarball conversion (and the tarball extractor), the
+/// tolerant cache_domains.json parser (all 4 shapes, per the monolithic fork's Go parser design),
+/// the domain-file line parser, and the domain/service/summary verdict rules.
 /// </summary>
 public class StatusCheckTests
 {
@@ -87,15 +87,16 @@ public class StatusCheckTests
         Assert.Empty(result);
     }
 
-    // ===== CacheDomainsService.TryConvertToRawBaseUrl =====
+    // ===== CacheDomainsService.TryConvertToArchiveUrl =====
 
     [Theory]
-    [InlineData("https://github.com/uklans/cache-domains.git", "master", "https://raw.githubusercontent.com/uklans/cache-domains/master/")]
-    [InlineData("https://github.com/uklans/cache-domains", "main", "https://raw.githubusercontent.com/uklans/cache-domains/main/")]
-    [InlineData("git@github.com:uklans/cache-domains.git", "master", "https://raw.githubusercontent.com/uklans/cache-domains/master/")]
-    public void TryConvertToRawBaseUrl_AcceptsRecognizedGitHubForms(string repoUrl, string branch, string expected)
+    [InlineData("https://github.com/uklans/cache-domains.git", "master", "https://github.com/uklans/cache-domains/archive/master.tar.gz")]
+    [InlineData("https://github.com/uklans/cache-domains", "main", "https://github.com/uklans/cache-domains/archive/main.tar.gz")]
+    [InlineData("git@github.com:uklans/cache-domains.git", "master", "https://github.com/uklans/cache-domains/archive/master.tar.gz")]
+    [InlineData("https://github.com/uklans/cache-domains.git", "v1.0.0", "https://github.com/uklans/cache-domains/archive/v1.0.0.tar.gz")]
+    public void TryConvertToArchiveUrl_AcceptsRecognizedGitHubForms(string repoUrl, string branch, string expected)
     {
-        var result = CacheDomainsService.TryConvertToRawBaseUrl(repoUrl, branch);
+        var result = CacheDomainsService.TryConvertToArchiveUrl(repoUrl, branch);
 
         Assert.Equal(expected, result);
     }
@@ -104,11 +105,45 @@ public class StatusCheckTests
     [InlineData("https://gitlab.com/uklans/cache-domains.git", "master")]
     [InlineData("not a url", "master")]
     [InlineData("", "master")]
-    public void TryConvertToRawBaseUrl_RejectsNonGitHubUrls(string repoUrl, string branch)
+    public void TryConvertToArchiveUrl_RejectsNonGitHubUrls(string repoUrl, string branch)
     {
-        var result = CacheDomainsService.TryConvertToRawBaseUrl(repoUrl, branch);
+        var result = CacheDomainsService.TryConvertToArchiveUrl(repoUrl, branch);
 
         Assert.Null(result);
+    }
+
+    // ===== CacheDomainsService.ExtractArchiveFiles =====
+
+    [Fact]
+    public void ExtractArchiveFiles_KeysManifestAndDomainFilesByBaseName_SkipsOtherEntryTypes()
+    {
+        using var tarBuffer = new MemoryStream();
+        using (var gzip = new System.IO.Compression.GZipStream(tarBuffer, System.IO.Compression.CompressionMode.Compress, leaveOpen: true))
+        using (var writer = new System.Formats.Tar.TarWriter(gzip))
+        {
+            void AddFile(string name, string content)
+            {
+                var entry = new System.Formats.Tar.PaxTarEntry(System.Formats.Tar.TarEntryType.RegularFile, name)
+                {
+                    DataStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(content))
+                };
+                writer.WriteEntry(entry);
+            }
+
+            // GitHub branch archives prefix every path with "{repo}-{branch}/".
+            writer.WriteEntry(new System.Formats.Tar.PaxTarEntry(System.Formats.Tar.TarEntryType.Directory, "cache-domains-master/"));
+            AddFile("cache-domains-master/cache_domains.json", "{\"cache_domains\":[]}");
+            AddFile("cache-domains-master/steam.txt", "lancache.steamcontent.com\n");
+            AddFile("cache-domains-master/scripts/create-dns.sh", "#!/bin/sh\n");
+        }
+
+        tarBuffer.Position = 0;
+        var files = CacheDomainsService.ExtractArchiveFiles(tarBuffer);
+
+        Assert.Equal(2, files.Count);
+        Assert.Equal("{\"cache_domains\":[]}", files["cache_domains.json"]);
+        Assert.Equal("lancache.steamcontent.com\n", files["steam.txt"]);
+        Assert.False(files.ContainsKey("create-dns.sh"));
     }
 
     // ===== CacheDomainsService.ParseBool =====

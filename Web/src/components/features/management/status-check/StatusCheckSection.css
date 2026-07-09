@@ -110,6 +110,10 @@
   border-left-color: var(--theme-error);
 }
 
+.status-check-stat--https {
+  border-left-color: var(--theme-warning);
+}
+
 .status-check-stat--unverified {
   border-left-color: var(--theme-info);
 }

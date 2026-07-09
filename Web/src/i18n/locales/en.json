@@ -1522,6 +1522,7 @@
           "resolved": "resolved",
           "partial": "partial",
           "unresolved": "unresolved",
+          "https": "prefer HTTPS",
           "unverified": "unverified",
           "disabled": "disabled"
         },

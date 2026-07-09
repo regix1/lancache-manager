@@ -1,3 +1,5 @@
+using System.Formats.Tar;
+using System.IO.Compression;
 using System.Text.Json;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
@@ -6,10 +8,12 @@ using LancacheManager.Models.Responses;
 namespace LancacheManager.Core.Services.StatusCheck;
 
 /// <summary>
-/// Acquires the uklans/cache-domains service/domain list: fetches <c>cache_domains.json</c> +
-/// per-service <c>.txt</c> files from GitHub (raw.githubusercontent.com), tolerantly parses the 4
-/// shapes the ecosystem uses (design ported from the monolithic fork's Go parser, extended to keep
-/// the actual domain strings - the fork only kept counts), and persists the fetched files under
+/// Acquires the uklans/cache-domains service/domain list: downloads the branch archive tarball
+/// from GitHub in a SINGLE request (a raw.githubusercontent.com request per file gets the burst
+/// 429-rate-limited - observed live as 15 of 26 services "none resolving" because their domain
+/// files never arrived), tolerantly parses the 4 manifest shapes the ecosystem uses (design ported
+/// from the monolithic fork's Go parser, extended to keep the actual domain strings - the fork
+/// only kept counts), and persists the extracted files under
 /// <see cref="IPathResolver.GetDataDirectory"/>/cache-domains/ so a restart or a NOFETCH deployment
 /// can still serve a domain list.
 /// </summary>
@@ -227,8 +231,8 @@ public sealed class CacheDomainsService : ICacheDomainsService
 
     private async Task<CacheDomainsList?> TryFetchFromGitHubAsync(string repoUrl, string branch, CancellationToken ct)
     {
-        var rawBaseUrl = TryConvertToRawBaseUrl(repoUrl, branch);
-        if (rawBaseUrl == null)
+        var archiveUrl = TryConvertToArchiveUrl(repoUrl, branch);
+        if (archiveUrl == null)
         {
             _logger.LogWarning("Status Check: CACHE_DOMAINS_REPO '{RepoUrl}' is not a recognizable GitHub URL; skipping fetch", repoUrl);
             return null;
@@ -239,8 +243,17 @@ public sealed class CacheDomainsService : ICacheDomainsService
             using var httpClient = _httpClientFactory.CreateClient();
             httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("LancacheManager/1.0");
             httpClient.Timeout = TimeSpan.FromSeconds(30);
+            httpClient.MaxResponseContentBufferSize = MaxArchiveBytes;
 
-            var manifestJson = await httpClient.GetStringAsync(rawBaseUrl + "cache_domains.json", ct);
+            var archiveBytes = await httpClient.GetByteArrayAsync(archiveUrl, ct);
+            var files = ExtractArchiveFiles(new MemoryStream(archiveBytes));
+
+            if (!files.TryGetValue("cache_domains.json", out var manifestJson))
+            {
+                _logger.LogWarning("Status Check: archive from {RepoUrl}@{Branch} contained no cache_domains.json", repoUrl, branch);
+                return null;
+            }
+
             var services = ParseCacheDomainsJson(manifestJson);
             if (services.Count == 0)
             {
@@ -248,24 +261,22 @@ public sealed class CacheDomainsService : ICacheDomainsService
                 return null;
             }
 
-            EnsureDomainsDirectory();
-            await File.WriteAllTextAsync(Path.Combine(_domainsDirectory, "cache_domains.json"), manifestJson, ct);
-
             var result = new CacheDomainsList();
-            foreach (var (name, description, files) in services)
+            var referencedFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (name, description, fileNames) in services)
             {
                 var domains = new List<string>();
-                foreach (var file in files)
+                foreach (var file in fileNames)
                 {
-                    try
+                    var fileName = SanitizeFileName(file);
+                    if (files.TryGetValue(fileName, out var fileContent))
                     {
-                        var fileContent = await httpClient.GetStringAsync(rawBaseUrl + file, ct);
                         domains.AddRange(ParseDomainFile(fileContent));
-                        await File.WriteAllTextAsync(Path.Combine(_domainsDirectory, SanitizeFileName(file)), fileContent, ct);
+                        referencedFiles[fileName] = fileContent;
                     }
-                    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+                    else
                     {
-                        _logger.LogDebug(ex, "Status Check: failed to fetch domain file {File} for service {Service}", file, name);
+                        _logger.LogWarning("Status Check: domain file {File} for service {Service} is missing from the {RepoUrl}@{Branch} archive", file, name, repoUrl, branch);
                     }
                 }
 
@@ -280,12 +291,36 @@ public sealed class CacheDomainsService : ICacheDomainsService
                 });
             }
 
-            _logger.LogInformation("Status Check: fetched cache-domains list from {RepoUrl}@{Branch} ({ServiceCount} services)", repoUrl, branch, result.Services.Count);
+            if (result.Services.All(s => s.Domains.Count == 0))
+            {
+                // A manifest whose files all failed to materialize is a broken fetch, not a valid
+                // list - serving it would cache an all-"none resolving" sweep for 24 hours. Fall
+                // through to the disk copy instead.
+                _logger.LogWarning("Status Check: archive from {RepoUrl}@{Branch} yielded no domains for any service; ignoring it", repoUrl, branch);
+                return null;
+            }
+
+            // Persist only after the archive proved usable, so a bad fetch can never clobber a
+            // good disk copy.
+            EnsureDomainsDirectory();
+            await File.WriteAllTextAsync(Path.Combine(_domainsDirectory, "cache_domains.json"), manifestJson, ct);
+            foreach (var (fileName, fileContent) in referencedFiles)
+            {
+                await File.WriteAllTextAsync(Path.Combine(_domainsDirectory, fileName), fileContent, ct);
+            }
+
+            _logger.LogInformation(
+                "Status Check: fetched cache-domains archive from {RepoUrl}@{Branch} ({ServiceCount} services, {DomainCount} domains)",
+                repoUrl, branch, result.Services.Count, result.Services.Sum(s => s.Domains.Count));
             return result;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        // InvalidData/EndOfStream/Format cover a corrupt or truncated tarball (GZipStream and
+        // TarReader throw all three) - a bad archive must degrade to the disk copy, never fail
+        // the sweep.
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException
+            or InvalidDataException or EndOfStreamException or FormatException)
         {
-            _logger.LogWarning(ex, "Status Check: failed to fetch cache-domains from {RepoUrl}@{Branch}", repoUrl, branch);
+            _logger.LogWarning(ex, "Status Check: failed to fetch cache-domains archive from {RepoUrl}@{Branch}", repoUrl, branch);
             return null;
         }
         catch (JsonException ex)
@@ -293,6 +328,43 @@ public sealed class CacheDomainsService : ICacheDomainsService
             _logger.LogWarning(ex, "Status Check: cache_domains.json from {RepoUrl}@{Branch} was not valid JSON", repoUrl, branch);
             return null;
         }
+    }
+
+    // The uklans archive is ~12 KB; these bounds only exist so a misconfigured CACHE_DOMAINS_REPO
+    // pointing at a huge repository can't balloon memory.
+    private const long MaxArchiveBytes = 16 * 1024 * 1024;
+    private const long MaxArchiveEntryBytes = 4 * 1024 * 1024;
+
+    /// <summary>Extracts the manifest/domain files from a gzipped GitHub branch tarball into a
+    /// base-filename -&gt; content map (archive paths carry a <c>{repo}-{branch}/</c> prefix, and
+    /// <see cref="SanitizeFileName"/> already keys the disk cache by base name). Only .json/.txt
+    /// entries are kept - the repo's scripts are irrelevant here.</summary>
+    internal static Dictionary<string, string> ExtractArchiveFiles(Stream archiveStream)
+    {
+        var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        using var gzip = new GZipStream(archiveStream, CompressionMode.Decompress);
+        using var reader = new TarReader(gzip);
+        while (reader.GetNextEntry() is { } entry)
+        {
+            if (entry.EntryType is not (TarEntryType.RegularFile or TarEntryType.V7RegularFile) ||
+                entry.DataStream == null ||
+                entry.Length > MaxArchiveEntryBytes)
+            {
+                continue;
+            }
+
+            var name = Path.GetFileName(entry.Name);
+            if (name.Length == 0 ||
+                (!name.EndsWith(".json", StringComparison.OrdinalIgnoreCase) &&
+                 !name.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            using var streamReader = new StreamReader(entry.DataStream);
+            files[name] = streamReader.ReadToEnd();
+        }
+        return files;
     }
 
     private CacheDomainsList? LoadFromDisk()
@@ -326,6 +398,14 @@ public sealed class CacheDomainsService : ICacheDomainsService
                     Description = description,
                     Domains = DedupeDomainsPreservingOrder(domains)
                 });
+            }
+
+            if (result.Services.All(s => s.Domains.Count == 0))
+            {
+                // Same guard as the fetch path: a manifest with no readable domain files would
+                // drive an all-"none resolving" sweep. Better to report no list at all.
+                _logger.LogWarning("Status Check: cached cache-domains list at {Path} has no domains for any service; ignoring it", _domainsDirectory);
+                return null;
             }
 
             return result;
@@ -365,10 +445,11 @@ public sealed class CacheDomainsService : ICacheDomainsService
 
     /// <summary>
     /// Converts a GitHub repo URL (https://github.com/owner/repo.git, https://github.com/owner/repo,
-    /// or git@github.com:owner/repo.git) into a raw.githubusercontent.com base URL for the given
-    /// branch. Returns <c>null</c> for anything that isn't a recognizable GitHub URL.
+    /// or git@github.com:owner/repo.git) into the branch archive tarball URL - ONE request for the
+    /// whole repo, where per-file raw.githubusercontent.com requests get burst-rate-limited (429).
+    /// Returns <c>null</c> for anything that isn't a recognizable GitHub URL.
     /// </summary>
-    internal static string? TryConvertToRawBaseUrl(string repoUrl, string branch)
+    internal static string? TryConvertToArchiveUrl(string repoUrl, string branch)
     {
         if (string.IsNullOrWhiteSpace(repoUrl) || string.IsNullOrWhiteSpace(branch))
         {
@@ -392,7 +473,9 @@ public sealed class CacheDomainsService : ICacheDomainsService
             return null;
         }
 
-        return $"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/";
+        // The bare-ref archive form (not refs/heads/) so CACHE_DOMAINS_BRANCH may also name a tag,
+        // a commit SHA, or a slashed branch, matching what the raw-file URLs this replaced accepted.
+        return $"https://github.com/{owner}/{repo}/archive/{branch}.tar.gz";
     }
 
     /// <summary>

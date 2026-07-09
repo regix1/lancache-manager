@@ -193,6 +193,15 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
         })
       : null;
 
+  // Upstreams forcing HTTP -> HTTPS bypass the cache even though DNS is perfect, so this signal
+  // is orthogonal to the failure buckets (it mostly hits fully "resolved" services).
+  const httpsRedirectDomains = summary?.httpsRedirectDomains ?? 0;
+  const httpsRedirectServices = lastResult
+    ? lastResult.services.filter((service) =>
+        service.domains.some((domain) => domain.httpsRedirect === true)
+      )
+    : [];
+
   // Primary at-a-glance signal: the verdict tally as prominent count pills. Zero buckets stay
   // muted so the ones that actually hold services carry the eye.
   const statPills: { id: string; value: number; label: string }[] = summary
@@ -204,6 +213,15 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
           value: summary.unresolvedServices,
           label: t(`${keys}.statLabel.unresolved`)
         },
+        ...(httpsRedirectDomains > 0
+          ? [
+              {
+                id: 'https',
+                value: httpsRedirectDomains,
+                label: t(`${keys}.statLabel.https`)
+              }
+            ]
+          : []),
         ...(summary.unverifiedServices > 0
           ? [
               {
@@ -252,15 +270,6 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
       label: t(`${keys}.breakdownPartial`, { count: partialOnlyServices.length })
     }
   ].filter((bucket) => bucket.services.length > 0);
-
-  // Upstreams forcing HTTP -> HTTPS bypass the cache even though DNS is perfect, so this signal
-  // is orthogonal to the failure buckets above (it mostly hits fully "resolved" services).
-  const httpsRedirectDomains = summary?.httpsRedirectDomains ?? 0;
-  const httpsRedirectServices = lastResult
-    ? lastResult.services.filter((service) =>
-        service.domains.some((domain) => domain.httpsRedirect === true)
-      )
-    : [];
 
   // Collapse the expected-cache-IP list to one IP + "+N more" (full list in the title tooltip).
   const expectedCacheIps = lastResult?.expectedCacheIps ?? [];
