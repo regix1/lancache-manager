@@ -1428,7 +1428,7 @@ class ApiService {
     threshold = 3,
     compareToCacheLogs = true,
     detectionMode = 'miss_count'
-  ): Promise<{ operationId: string; message: string; status: string }> {
+  ): Promise<{ operationId: string; message: string; status: string; queued?: boolean; alreadyRunning?: boolean }> {
     try {
       const res = await fetch(
         `${API_BASE}/cache/corruption/detect?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}&detectionMode=${detectionMode}`,
@@ -1437,7 +1437,7 @@ class ApiService {
           headers: { 'Content-Type': 'application/json' }
         })
       );
-      return await this.handleResponse<{ operationId: string; message: string; status: string }>(
+      return await this.handleResponse<{ operationId: string; message: string; status: string; queued?: boolean; alreadyRunning?: boolean }>(
         res
       );
     } catch (error) {
@@ -1595,6 +1595,8 @@ class ApiService {
     appId: string;
     gameName: string;
     status: string;
+    queued?: boolean;
+    alreadyRunning?: boolean;
   }> {
     try {
       const res = await fetch(
@@ -1610,6 +1612,8 @@ class ApiService {
         appId: string;
         gameName: string;
         status: string;
+        queued?: boolean;
+        alreadyRunning?: boolean;
       }>(res);
     } catch (error) {
       console.error('removeGameFromCache error:', error);
@@ -1624,6 +1628,8 @@ class ApiService {
     appId: string;
     gameName: string;
     status: string;
+    queued?: boolean;
+    alreadyRunning?: boolean;
   }> {
     try {
       const res = await fetch(
@@ -1639,6 +1645,8 @@ class ApiService {
         appId: string;
         gameName: string;
         status: string;
+        queued?: boolean;
+        alreadyRunning?: boolean;
       }>(res);
     } catch (error) {
       console.error('removeEpicGameFromCache error:', error);
@@ -1656,6 +1664,8 @@ class ApiService {
     appId: string;
     gameName: string;
     status: string;
+    queued?: boolean;
+    alreadyRunning?: boolean;
   }> {
     try {
       const res = await fetch(
@@ -1671,6 +1681,8 @@ class ApiService {
         appId: string;
         gameName: string;
         status: string;
+        queued?: boolean;
+        alreadyRunning?: boolean;
       }>(res);
     } catch (error) {
       console.error('removeNamedGameFromCache error:', error);
@@ -1681,7 +1693,14 @@ class ApiService {
   // Remove all cache files for a specific service (fire-and-forget, requires auth)
   static async removeServiceFromCache(
     serviceName: string
-  ): Promise<{ message: string; serviceName: string; status: string; operationId: string }> {
+  ): Promise<{
+    message: string;
+    serviceName: string;
+    status: string;
+    operationId: string;
+    queued?: boolean;
+    alreadyRunning?: boolean;
+  }> {
     try {
       const res = await fetch(
         `${API_BASE}/cache/services/${encodeURIComponent(serviceName)}`,
@@ -1695,6 +1714,8 @@ class ApiService {
         serviceName: string;
         status: string;
         operationId: string;
+        queued?: boolean;
+        alreadyRunning?: boolean;
       }>(res);
     } catch (error) {
       console.error('removeServiceFromCache error:', error);

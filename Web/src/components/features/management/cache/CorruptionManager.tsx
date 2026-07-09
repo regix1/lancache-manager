@@ -259,7 +259,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         compareToCacheLogs,
         detectionMode
       );
-      if (result.operationId) {
+      // Wait-queue model: queued/deduplicated responses must not seed a running card -
+      // the OperationWaiting event (purple waiting card) owns the UI until promotion.
+      if (result.operationId && !result.queued && !result.alreadyRunning) {
         addNotification(
           buildSeededRunningNotification(
             'corruption_detection',

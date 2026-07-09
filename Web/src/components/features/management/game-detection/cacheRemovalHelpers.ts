@@ -131,22 +131,26 @@ export async function runTrackedGameRemoval({
         ? await ApiService.removeNamedGameFromCache(game.service!, gameName)
         : await ApiService.removeGameFromCache(gameAppId);
 
-    addNotification({
-      type: 'game_removal',
-      status: 'running',
-      message: t('management.gameDetection.removingGame', { name: gameName }),
-      details: {
-        operationId: response.operationId,
-        gameName,
-        ...(isEpic
-          ? epicAppId
-            ? { epicAppId }
-            : {}
-          : isNamed
-            ? { service: game.service }
-            : { gameAppId })
-      }
-    });
+    // Wait-queue model: queued/deduplicated responses must not seed a running card -
+    // the OperationWaiting event (purple waiting card) owns the UI until promotion.
+    if (response.operationId && !response.queued && !response.alreadyRunning) {
+      addNotification({
+        type: 'game_removal',
+        status: 'running',
+        message: t('management.gameDetection.removingGame', { name: gameName }),
+        details: {
+          operationId: response.operationId,
+          gameName,
+          ...(isEpic
+            ? epicAppId
+              ? { epicAppId }
+              : {}
+            : isNamed
+              ? { service: game.service }
+              : { gameAppId })
+        }
+      });
+    }
 
     scheduleRemovalRefresh(onDataRefresh);
   } catch (err: unknown) {
@@ -176,7 +180,9 @@ export async function runTrackedServiceRemoval({
   try {
     const response = await ApiService.removeServiceFromCache(serviceName);
 
-    if (response.operationId) {
+    // Wait-queue model: queued/deduplicated responses must not seed a running card -
+    // the OperationWaiting event (purple waiting card) owns the UI until promotion.
+    if (response.operationId && !response.queued && !response.alreadyRunning) {
       addNotification({
         type: 'service_removal',
         status: 'running',
