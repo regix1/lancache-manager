@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Logs, PlayCircle } from 'lucide-react';
+import { Logs, PlayCircle, RotateCcw } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
+import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { ActionMenuItem } from '@components/ui/ActionMenu';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { LogProcessingCompleteEvent } from '@contexts/SignalRContext/types';
 import { useConfig } from '@contexts/useConfig';
+import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useNotifications } from '@contexts/notifications';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
@@ -40,6 +43,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 }) => {
   const { t } = useTranslation();
   const { config } = useConfig();
+  const { checkingPermissions } = useDirectoryPermissionsContext();
   const [logPositions, setLogPositions] = useState<DatasourceLogPosition[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -274,27 +278,46 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
   const headerActions = (
     <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
-      <Button
-        variant="filled"
-        color="gray"
-        size="sm"
-        onClick={() => setResetModal({ datasource: null, all: true })}
-        awaitPermissions
-        disabled={loading || actionLoading !== null || isProcessing || mockMode || !isAdmin}
-      >
-        {t('management.datasources.reposition')}
-      </Button>
-      <Button
-        variant="filled"
-        color="green"
-        size="sm"
-        onClick={handleProcessAll}
-        awaitPermissions
-        disabled={loading || actionLoading !== null || isProcessing || mockMode || !isAdmin}
-        loading={actionLoading === 'all'}
-      >
-        {t('common.processAll')}
-      </Button>
+      <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+        {(close) => (
+          <>
+            <ActionMenuItem
+              icon={<RotateCcw className="w-3.5 h-3.5" />}
+              disabled={
+                loading ||
+                actionLoading !== null ||
+                isProcessing ||
+                mockMode ||
+                !isAdmin ||
+                checkingPermissions
+              }
+              onClick={() => {
+                setResetModal({ datasource: null, all: true });
+                close();
+              }}
+            >
+              {t('management.datasources.reposition')}
+            </ActionMenuItem>
+            <ActionMenuItem
+              icon={<PlayCircle className="w-3.5 h-3.5" />}
+              disabled={
+                loading ||
+                actionLoading !== null ||
+                isProcessing ||
+                mockMode ||
+                !isAdmin ||
+                checkingPermissions
+              }
+              onClick={() => {
+                handleProcessAll();
+                close();
+              }}
+            >
+              {t('common.processAll')}
+            </ActionMenuItem>
+          </>
+        )}
+      </SectionActionsMenu>
       {helpContent}
     </div>
   );

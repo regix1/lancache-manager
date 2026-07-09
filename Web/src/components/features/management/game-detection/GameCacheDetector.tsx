@@ -1,12 +1,24 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { HardDrive, Database, Server, AlertTriangle } from 'lucide-react';
+import {
+  HardDrive,
+  Database,
+  Server,
+  AlertTriangle,
+  RefreshCw,
+  Search,
+  Zap,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Trash2
+} from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
-import { Tooltip } from '@components/ui/Tooltip';
+import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { useNotifications } from '@contexts/notifications';
@@ -30,7 +42,6 @@ import GamesList from './GamesList';
 import ServicesList from './ServicesList';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
-import LoadingSpinner from '@components/common/LoadingSpinner';
 import { getActiveGames, getActiveServices } from './cacheEntityFilters';
 import { getGameUniqueId } from './gameUtils';
 import {
@@ -65,7 +76,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const { on, off } = useSignalR();
   const { config } = useConfig();
   const { isDockerAvailable } = useDockerSocket();
-  const { cacheReadOnly } = useDirectoryPermissionsContext();
+  const { cacheReadOnly, checkingPermissions } = useDirectoryPermissionsContext();
   const invalidateImageCache = useInvalidateImages();
   const { setupStatus, refreshSetupStatus } = useSetupStatus();
   const hasProcessedLogs = setupStatus?.hasProcessedLogs ?? false;
@@ -700,111 +711,115 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Header actions - scan buttons + expand/collapse all
   const headerActions = (
     <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
-      <Button
-        variant="filled"
-        color="gray"
-        size="sm"
-        onClick={handleExpandCollapseAll}
-        disabled={actionsPending || !sectionExpanded}
-      >
-        {allExpanded
-          ? t('management.gameDetection.collapseAll')
-          : t('management.gameDetection.expandAll')}
-      </Button>
-
-      <Tooltip content={t('management.gameDetection.loadPreviousResults')}>
-        <Button
-          onClick={handleLoadData}
-          disabled={loading || mockMode}
-          variant="filled"
-          color="gray"
-          size="sm"
+      {selectedCombinedCount > 0 && (
+        <Badge
+          variant="neutral"
+          className="rounded-full min-w-[1.25rem] justify-center px-1.5 tabular-nums"
         >
-          {loading && scanType === 'load' ? <LoadingSpinner inline size="sm" /> : t('common.load')}
-        </Button>
-      </Tooltip>
-
-      <Tooltip
-        content={
-          !hasProcessedLogs
-            ? t('management.gameDetection.processLogsFirst')
-            : t('management.gameDetection.quickScan')
-        }
-      >
-        <Button
-          onClick={handleIncrementalScan}
-          disabled={loading || isDetectionQueued || mockMode || !hasProcessedLogs}
-          variant="filled"
-          color="blue"
-          size="sm"
-        >
-          {loading && scanType === 'incremental' ? (
-            <LoadingSpinner inline size="sm" />
-          ) : (
-            t('management.gameDetection.quick')
-          )}
-        </Button>
-      </Tooltip>
-
-      <Tooltip
-        content={
-          !hasProcessedLogs
-            ? t('management.gameDetection.processLogsFirst')
-            : t('management.gameDetection.fullScan')
-        }
-      >
-        <Button
-          onClick={handleFullScan}
-          disabled={loading || isDetectionQueued || mockMode || !hasProcessedLogs}
-          variant="filled"
-          color="blue"
-          size="sm"
-        >
-          {loading && scanType === 'full' ? (
-            <LoadingSpinner inline size="sm" />
-          ) : (
-            t('management.gameDetection.fullScanButton')
-          )}
-        </Button>
-      </Tooltip>
-
-      {isAdmin && (
-        <Button
-          onClick={() => setConfirmRemoveSelected(true)}
-          awaitPermissions
-          loading={isBulkRemovalRunning}
-          disabled={
-            selectedCombinedCount === 0 ||
-            loading ||
-            mockMode ||
-            cacheReadOnly ||
-            isCacheRemovalActive
-          }
-          variant="filled"
-          color="red"
-          size="sm"
-        >
-          {t('management.batchSelect.removeSelected', { count: selectedCombinedCount })}
-        </Button>
+          {selectedCombinedCount}
+        </Badge>
       )}
+      <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+        {(close) => (
+          <>
+            <ActionMenuItem
+              icon={
+                allExpanded ? (
+                  <ChevronsDownUp className="w-3.5 h-3.5" />
+                ) : (
+                  <ChevronsUpDown className="w-3.5 h-3.5" />
+                )
+              }
+              disabled={actionsPending || !sectionExpanded}
+              onClick={() => {
+                handleExpandCollapseAll();
+                close();
+              }}
+            >
+              {allExpanded
+                ? t('management.gameDetection.collapseAll')
+                : t('management.gameDetection.expandAll')}
+            </ActionMenuItem>
 
-      {isAdmin && (
-        <Tooltip content={t('management.sections.data.gameCacheRemoveAll', 'Remove All')}>
-          <Button
-            onClick={() => setShowRemoveAllConfirm(true)}
-            awaitPermissions
-            loading={removeAllRunning || isBulkRemovalRunning}
-            disabled={
-              actionsPending || loading || mockMode || cacheReadOnly || isCacheRemovalActive
-            }
-            variant="filled"
-            color="red"
-            size="sm"
-          >
-            {t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
-          </Button>
-        </Tooltip>
-      )}
+            <ActionMenuItem
+              icon={<RefreshCw className="w-3.5 h-3.5" />}
+              disabled={loading || mockMode}
+              onClick={() => {
+                handleLoadData();
+                close();
+              }}
+            >
+              {t('common.load')}
+            </ActionMenuItem>
+
+            <ActionMenuItem
+              icon={<Zap className="w-3.5 h-3.5" />}
+              disabled={loading || isDetectionQueued || mockMode || !hasProcessedLogs}
+              onClick={() => {
+                handleIncrementalScan();
+                close();
+              }}
+            >
+              {t('management.gameDetection.quick')}
+            </ActionMenuItem>
+
+            <ActionMenuItem
+              icon={<Search className="w-3.5 h-3.5" />}
+              disabled={loading || isDetectionQueued || mockMode || !hasProcessedLogs}
+              onClick={() => {
+                handleFullScan();
+                close();
+              }}
+            >
+              {t('management.gameDetection.fullScanButton')}
+            </ActionMenuItem>
+
+            {isAdmin && (
+              <>
+                <ActionMenuDivider />
+                <ActionMenuDangerItem
+                  icon={<Trash2 className="w-3.5 h-3.5" />}
+                  disabled={
+                    selectedCombinedCount === 0 ||
+                    loading ||
+                    mockMode ||
+                    cacheReadOnly ||
+                    checkingPermissions ||
+                    isCacheRemovalActive ||
+                    isBulkRemovalRunning
+                  }
+                  onClick={() => {
+                    setConfirmRemoveSelected(true);
+                    close();
+                  }}
+                >
+                  {t('management.batchSelect.removeSelectedLabel', 'Remove Selected')}
+                </ActionMenuDangerItem>
+
+                <ActionMenuDangerItem
+                  icon={<Trash2 className="w-3.5 h-3.5" />}
+                  disabled={
+                    actionsPending ||
+                    loading ||
+                    mockMode ||
+                    cacheReadOnly ||
+                    checkingPermissions ||
+                    isCacheRemovalActive ||
+                    removeAllRunning ||
+                    isBulkRemovalRunning
+                  }
+                  onClick={() => {
+                    setShowRemoveAllConfirm(true);
+                    close();
+                  }}
+                >
+                  {t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
+                </ActionMenuDangerItem>
+              </>
+            )}
+          </>
+        )}
+      </SectionActionsMenu>
     </div>
   );
 

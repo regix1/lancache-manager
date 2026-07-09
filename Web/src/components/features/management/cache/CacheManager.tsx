@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Server, AlertTriangle, FolderOpen, RefreshCw } from 'lucide-react';
+import { Server, AlertTriangle, FolderOpen, RefreshCw, Trash2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -20,6 +20,8 @@ import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ReadOnlyBadge } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes, formatCount } from '@utils/formatters';
 import type { DatasourceInfo } from '../../../../types';
@@ -299,43 +301,45 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   // Header actions
   const headerActions = (
     <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
-      <Tooltip content={t('management.cache.refreshCacheSize')} position="top">
-        <Button
-          onClick={handleRefreshCacheSize}
-          disabled={cacheSizeLoading || isAnyRemovalRunning || isCacheSizeScanRunning}
-          variant="filled"
-          color="gray"
-          size="sm"
-        >
-          {cacheSizeLoading ? <LoadingSpinner inline size="sm" /> : t('common.refresh')}
-        </Button>
-      </Tooltip>
-      {hasMultipleDatasources && (
-        <Button
-          variant="filled"
-          color="red"
-          size="sm"
-          onClick={() => handleClearCache(null)}
-          awaitPermissions
-          loading={(actionLoading && !clearingDatasource) || isClearAllRunning}
-          disabled={
-            actionLoading ||
-            isCacheClearActive ||
-            mockMode ||
-            authMode !== 'authenticated' ||
-            cacheReadOnly
-          }
-          title={
-            cacheReadOnly
-              ? t('management.cache.alerts.readOnly.title')
-              : !isCacheClearActive && (isAnyRemovalRunning || isCacheSizeScanRunning)
-                ? t('common.notifications.willQueueBehindCurrent')
-                : undefined
-          }
-        >
-          {isClearAllRunning ? t('common.clearing') : t('common.clearAll')}
-        </Button>
-      )}
+      <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+        {(close) => (
+          <>
+            <ActionMenuItem
+              icon={<RefreshCw className="w-3.5 h-3.5" />}
+              disabled={cacheSizeLoading || isAnyRemovalRunning || isCacheSizeScanRunning}
+              onClick={() => {
+                handleRefreshCacheSize();
+                close();
+              }}
+            >
+              {t('common.refresh')}
+            </ActionMenuItem>
+            {hasMultipleDatasources && (
+              <>
+                <ActionMenuDivider />
+                <ActionMenuDangerItem
+                  icon={<Trash2 className="w-3.5 h-3.5" />}
+                  disabled={
+                    actionLoading ||
+                    isCacheClearActive ||
+                    mockMode ||
+                    authMode !== 'authenticated' ||
+                    cacheReadOnly ||
+                    isClearAllRunning ||
+                    checkingPermissions
+                  }
+                  onClick={() => {
+                    handleClearCache(null);
+                    close();
+                  }}
+                >
+                  {isClearAllRunning ? t('common.clearing') : t('common.clearAll')}
+                </ActionMenuDangerItem>
+              </>
+            )}
+          </>
+        )}
+      </SectionActionsMenu>
     </div>
   );
 

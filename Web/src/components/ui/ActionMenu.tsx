@@ -22,7 +22,18 @@ interface ActionMenuDangerItemProps {
   onClick: () => void;
   icon?: ReactNode;
   children: ReactNode;
+  disabled?: boolean;
 }
+
+const TAILWIND_UNIT_PX = 4; // 0.25rem at 16px root
+
+// Derives the pixel width of a Tailwind `w-<n>` class so the off-screen clamp
+// agrees with whatever width the caller actually rendered (falls back to the
+// component's own default of w-40 = 160px if the class doesn't match).
+const parseMenuWidthPx = (widthClass: string): number => {
+  const match = /^w-(\d+(?:\.\d+)?)$/.exec(widthClass.trim());
+  return match ? Math.round(parseFloat(match[1]) * TAILWIND_UNIT_PX) : 160;
+};
 
 export const ActionMenu: React.FC<ActionMenuProps> = ({
   isOpen,
@@ -45,7 +56,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
       if (!triggerRef.current) return null;
 
       const rect = triggerRef.current.getBoundingClientRect();
-      const menuWidth = 160; // w-40 = 10rem = 160px
+      const menuWidth = parseMenuWidthPx(width);
 
       let left: number;
       if (align === 'right') {
@@ -108,7 +119,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [isOpen, align, onClose]);
+  }, [isOpen, align, width, onClose]);
 
   // Handle click outside and escape key
   useEffect(() => {
@@ -213,12 +224,14 @@ export const ActionMenuDivider: React.FC = () => {
 export const ActionMenuDangerItem: React.FC<ActionMenuDangerItemProps> = ({
   onClick,
   icon,
-  children
+  children,
+  disabled = false
 }) => {
   return (
     <button
       onClick={onClick}
-      className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors duration-150 text-themed-error bg-transparent hover:bg-[var(--theme-error-bg)]"
+      disabled={disabled}
+      className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors duration-150 text-themed-error bg-transparent hover:bg-[var(--theme-error-bg)] disabled:opacity-50 disabled:cursor-not-allowed"
     >
       {icon}
       {children}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useOptimisticPending } from '@/hooks/useOptimisticPending';
 import { useSelectionSet } from '@/hooks/useSelectionSet';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Search, Trash2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useDockerSocket } from '@contexts/useDockerSocket';
@@ -26,7 +26,8 @@ import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
-import LoadingSpinner from '@components/common/LoadingSpinner';
+import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { formatCount } from '@utils/formatters';
 import { LoadingState, ReadOnlyBadge } from '@components/ui/ManagerCard';
 import Badge from '@components/ui/Badge';
@@ -674,75 +675,82 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     </div>
   );
 
-  // Header action row (AccordionSection badge): actions stay reachable while the
-  // section is collapsed, matching every other Storage section's idiom. The count
-  // badge rides outside the grid so it never disrupts column flow.
+  // Header action row (AccordionSection badge): the warning count badge stays
+  // visible outside the menu (a status readout, not an action); every action
+  // button now lives in one overflow menu, reachable while the section is
+  // collapsed like every other Storage section.
   const headerActions = (
     <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
       {corruptionList.length > 0 && (
         <Badge variant="warning">{corruptionList.reduce((sum, [, count]) => sum + count, 0)}</Badge>
       )}
-      <Tooltip content={t('management.corruption.loadPreviousResults')} position="top">
-        <Button
-          onClick={() => loadCachedData(true)}
-          disabled={isRefreshing || isScanning || isAnyRemovalRunning}
-          variant="filled"
-          color="gray"
-          size="sm"
+      {selection.count > 0 && (
+        <Badge
+          variant="neutral"
+          className="rounded-full min-w-[1.25rem] justify-center px-1.5 tabular-nums"
         >
-          {isRefreshing ? <LoadingSpinner inline size="sm" /> : t('common.load')}
-        </Button>
-      </Tooltip>
-      <Tooltip content={t('management.corruption.scanForCorrupted')} position="top">
-        <Button
-          onClick={() => startScan()}
-          disabled={isLoading || isScanning || isAnyRemovalRunning}
-          variant="filled"
-          color="blue"
-          size="sm"
-        >
-          {isScanning ? <LoadingSpinner inline size="sm" /> : t('common.scan')}
-        </Button>
-      </Tooltip>
-      <Button
-        onClick={handleRemoveSelected}
-        awaitPermissions
-        loading={startingRemoveSelected}
-        disabled={batchGateActive || selection.count === 0}
-        variant="filled"
-        color="red"
-        size="sm"
-      >
-        {t('management.batchSelect.removeSelected', { count: selection.count })}
-      </Button>
-      <Button
-        onClick={handleRemoveAll}
-        awaitPermissions
-        loading={startingRemoveAll}
-        disabled={
-          (isLoading && !hasInitiallyLoaded) ||
-          corruptionList.length === 0 ||
-          mockMode ||
-          anyCorruptionRemovalPending ||
-          isCorruptionRemovalActive ||
-          authMode !== 'authenticated' ||
-          logsReadOnly ||
-          cacheReadOnly ||
-          !isDockerAvailable
-        }
-        title={
-          isAnyRemovalRunning && !isCorruptionRemovalActive
-            ? t('common.notifications.willQueueBehindCurrent')
-            : undefined
-        }
-        variant="filled"
-        color="red"
-        size="sm"
-      >
-        {startingRemoveAll
-          ? t('management.corruption.removing')
-          : t('management.corruption.removeAllServices')}
-      </Button>
+          {selection.count}
+        </Badge>
+      )}
+      <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+        {(close) => (
+          <>
+            <ActionMenuItem
+              icon={<RefreshCw className="w-3.5 h-3.5" />}
+              disabled={isRefreshing || isScanning || isAnyRemovalRunning}
+              onClick={() => {
+                loadCachedData(true);
+                close();
+              }}
+            >
+              {t('common.load')}
+            </ActionMenuItem>
+            <ActionMenuItem
+              icon={<Search className="w-3.5 h-3.5" />}
+              disabled={isLoading || isScanning || isAnyRemovalRunning}
+              onClick={() => {
+                startScan();
+                close();
+              }}
+            >
+              {t('common.scan')}
+            </ActionMenuItem>
+            <ActionMenuDivider />
+            <ActionMenuDangerItem
+              icon={<Trash2 className="w-3.5 h-3.5" />}
+              disabled={batchGateActive || selection.count === 0}
+              onClick={() => {
+                handleRemoveSelected();
+                close();
+              }}
+            >
+              {t('management.batchSelect.removeSelectedLabel', 'Remove Selected')}
+            </ActionMenuDangerItem>
+            <ActionMenuDangerItem
+              icon={<Trash2 className="w-3.5 h-3.5" />}
+              disabled={
+                (isLoading && !hasInitiallyLoaded) ||
+                corruptionList.length === 0 ||
+                mockMode ||
+                anyCorruptionRemovalPending ||
+                isCorruptionRemovalActive ||
+                authMode !== 'authenticated' ||
+                logsReadOnly ||
+                cacheReadOnly ||
+                !isDockerAvailable
+              }
+              onClick={() => {
+                handleRemoveAll();
+                close();
+              }}
+            >
+              {startingRemoveAll
+                ? t('management.corruption.removing')
+                : t('management.corruption.removeAllServices')}
+            </ActionMenuDangerItem>
+          </>
+        )}
+      </SectionActionsMenu>
     </div>
   );
 

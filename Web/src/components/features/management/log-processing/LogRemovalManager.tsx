@@ -4,7 +4,7 @@ import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useSelectionSet } from '@/hooks/useSelectionSet';
 import { useCancellableQueue } from '@/hooks/useCancellableQueue';
 import { useTranslation } from 'react-i18next';
-import { FileText, AlertTriangle, Trash2 } from 'lucide-react';
+import { FileText, AlertTriangle, RefreshCw, Trash2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
@@ -24,13 +24,14 @@ import { finalizeBulkRemovalNotification } from '@components/features/management
 import { Card } from '@components/ui/Card';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { Button } from '@components/ui/Button';
+import Badge from '@components/ui/Badge';
 import { Checkbox } from '@components/ui/Checkbox';
 import { showPermissionBlock } from '@utils/permissionUi';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
-import { Tooltip } from '@components/ui/Tooltip';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
-import LoadingSpinner from '@components/common/LoadingSpinner';
+import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { formatCount } from '@utils/formatters';
 import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
 import type { DatasourceServiceCounts } from '@/types';
@@ -559,39 +560,54 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     hasPermissionIssue || !isDockerAvailable
   );
 
-  // Header action cluster: Refresh + Remove Selected. Mirrors the other Storage
-  // sections so Remove Selected stays reachable in the header (disabled until a
-  // selection exists). flex-wrap keeps both buttons from overflowing at 390px.
+  // Header action cluster: everything lives in one overflow menu now (the count
+  // still shows on the "Remove Selected" item's own label). flex-wrap keeps the
+  // trigger from overflowing at 390px.
   const headerBadge = (
     <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
-      <Tooltip content={t('management.logRemoval.refreshServiceCounts')} position="top">
-        <Button
-          onClick={() => loadData(true)}
-          disabled={isRefreshing || isAnyRemovalRunning}
-          variant="filled"
-          color="gray"
-          size="sm"
+      {selection.count > 0 && (
+        <Badge
+          variant="neutral"
+          className="rounded-full min-w-[1.25rem] justify-center px-1.5 tabular-nums"
         >
-          {isRefreshing ? <LoadingSpinner inline size="sm" /> : t('common.refresh')}
-        </Button>
-      </Tooltip>
-      <Button
-        variant="filled"
-        color="red"
-        size="sm"
-        onClick={() => setShowBatchConfirm(true)}
-        disabled={
-          selection.count === 0 ||
-          mockMode ||
-          authMode !== 'authenticated' ||
-          !isDockerAvailable ||
-          isLogRemovalActive ||
-          anyServiceRemovalPending ||
-          isBatchRunning
-        }
-      >
-        {t('management.batchSelect.removeSelected', { count: selection.count })}
-      </Button>
+          {selection.count}
+        </Badge>
+      )}
+      <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+        {(close) => (
+          <>
+            <ActionMenuItem
+              icon={<RefreshCw className="w-3.5 h-3.5" />}
+              disabled={isRefreshing || isAnyRemovalRunning}
+              onClick={() => {
+                loadData(true);
+                close();
+              }}
+            >
+              {t('common.refresh')}
+            </ActionMenuItem>
+            <ActionMenuDivider />
+            <ActionMenuDangerItem
+              icon={<Trash2 className="w-3.5 h-3.5" />}
+              disabled={
+                selection.count === 0 ||
+                mockMode ||
+                authMode !== 'authenticated' ||
+                !isDockerAvailable ||
+                isLogRemovalActive ||
+                anyServiceRemovalPending ||
+                isBatchRunning
+              }
+              onClick={() => {
+                setShowBatchConfirm(true);
+                close();
+              }}
+            >
+              {t('management.batchSelect.removeSelectedLabel', 'Remove Selected')}
+            </ActionMenuDangerItem>
+          </>
+        )}
+      </SectionActionsMenu>
     </div>
   );
 

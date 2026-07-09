@@ -1,7 +1,18 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import './StorageSection.css';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, AlertTriangle, Archive, Sliders, Database } from 'lucide-react';
+import {
+  RefreshCw,
+  AlertTriangle,
+  Archive,
+  Sliders,
+  Database,
+  Search,
+  RotateCcw,
+  Trash2,
+  ChevronsDownUp,
+  ChevronsUpDown
+} from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -9,6 +20,9 @@ import { Modal } from '@components/ui/Modal';
 import { Checkbox } from '@components/ui/Checkbox';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import Badge from '@components/ui/Badge';
+import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
+import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import HighlightGlow from '@components/ui/HighlightGlow';
 import { type AuthMode } from '@services/auth.service';
 import { DirectoryPermissionsProvider } from '@contexts/DirectoryPermissionsProvider';
@@ -94,6 +108,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const {
     logsReadOnly,
     cacheReadOnly,
+    checkingPermissions,
     reload: reloadPermissions
   } = useDirectoryPermissionsContext();
   const { isDockerAvailable } = useDockerSocket();
@@ -143,8 +158,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const isEvictionDirty =
     evictionMode !== savedEvictionMode || pruneOrphanedDownloads !== savedPruneOrphanedDownloads;
 
-  const { notifications, addNotification, updateNotification, isAnyRemovalRunning } =
-    useNotifications();
+  const { notifications, addNotification, updateNotification } = useNotifications();
 
   // Local state for evicted items - same pattern as GameCacheDetector's games/services.
   // Items only disappear when explicitly filtered by notification completion.
@@ -786,87 +800,111 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                   onToggle={() => setEvictedDataExpanded((prev) => !prev)}
                   badge={
                     <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
-                      <Button
-                        variant="filled"
-                        color="gray"
-                        size="sm"
-                        onClick={handleEvictionExpandCollapseAll}
-                        disabled={!evictedDataExpanded}
-                      >
-                        {evictionAllExpanded
-                          ? t('management.gameDetection.collapseAll')
-                          : t('management.gameDetection.expandAll')}
-                      </Button>
-                      <Button
-                        onClick={handleStartEvictionScan}
-                        disabled={isEvictionScanRunning || resettingEvictions}
-                        variant="filled"
-                        color="blue"
-                        size="sm"
-                      >
-                        {isEvictionScanRunning ? (
-                          <LoadingSpinner inline size="sm" />
-                        ) : (
-                          t('management.sections.data.runEvictionScan')
+                      {selectedEvictedCount > 0 && (
+                        <Badge
+                          variant="neutral"
+                          className="rounded-full min-w-[1.25rem] justify-center px-1.5 tabular-nums"
+                        >
+                          {selectedEvictedCount}
+                        </Badge>
+                      )}
+                      <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+                        {(close) => (
+                          <>
+                            <ActionMenuItem
+                              icon={
+                                evictionAllExpanded ? (
+                                  <ChevronsDownUp className="w-3.5 h-3.5" />
+                                ) : (
+                                  <ChevronsUpDown className="w-3.5 h-3.5" />
+                                )
+                              }
+                              disabled={!evictedDataExpanded}
+                              onClick={() => {
+                                handleEvictionExpandCollapseAll();
+                                close();
+                              }}
+                            >
+                              {evictionAllExpanded
+                                ? t('management.gameDetection.collapseAll')
+                                : t('management.gameDetection.expandAll')}
+                            </ActionMenuItem>
+
+                            <ActionMenuItem
+                              icon={<Search className="w-3.5 h-3.5" />}
+                              disabled={isEvictionScanRunning || resettingEvictions}
+                              onClick={() => {
+                                handleStartEvictionScan();
+                                close();
+                              }}
+                            >
+                              {t('management.sections.data.runEvictionScan')}
+                            </ActionMenuItem>
+
+                            <ActionMenuDivider />
+
+                            <ActionMenuDangerItem
+                              icon={<RotateCcw className="w-3.5 h-3.5" />}
+                              disabled={
+                                resettingEvictions ||
+                                isEvictionScanRunning ||
+                                isEvictionRemovalRunning
+                              }
+                              onClick={() => {
+                                handleResetEvictions();
+                                close();
+                              }}
+                            >
+                              {t('management.sections.data.resetEvictions')}
+                            </ActionMenuDangerItem>
+
+                            {isAdmin && (
+                              <>
+                                <ActionMenuDangerItem
+                                  icon={<Trash2 className="w-3.5 h-3.5" />}
+                                  disabled={
+                                    selectedEvictedCount === 0 ||
+                                    removeAllRunning ||
+                                    removeSelectedEvictedRunning ||
+                                    isEvictedRemovalRunning ||
+                                    isAnyEvictedRemovalRunning ||
+                                    cacheReadOnly ||
+                                    checkingPermissions
+                                  }
+                                  onClick={() => {
+                                    setConfirmRemoveSelectedEvicted(true);
+                                    close();
+                                  }}
+                                >
+                                  {t(
+                                    'management.batchSelect.removeSelectedLabel',
+                                    'Remove Selected'
+                                  )}
+                                </ActionMenuDangerItem>
+
+                                <ActionMenuDangerItem
+                                  icon={<Trash2 className="w-3.5 h-3.5" />}
+                                  disabled={
+                                    evictedGames.length + evictedServices.length === 0 ||
+                                    removeAllRunning ||
+                                    removeSelectedEvictedRunning ||
+                                    isEvictionRemovalRunning ||
+                                    isAnyEvictedRemovalRunning ||
+                                    cacheReadOnly ||
+                                    checkingPermissions
+                                  }
+                                  onClick={() => {
+                                    setShowRemoveAllConfirm(true);
+                                    close();
+                                  }}
+                                >
+                                  {t('management.sections.data.evictionRemoveAll', 'Remove All')}
+                                </ActionMenuDangerItem>
+                              </>
+                            )}
+                          </>
                         )}
-                      </Button>
-                      <Button
-                        onClick={handleResetEvictions}
-                        disabled={
-                          resettingEvictions || isEvictionScanRunning || isEvictionRemovalRunning
-                        }
-                        loading={resettingEvictions}
-                        variant="filled"
-                        color="red"
-                        size="sm"
-                      >
-                        {t('management.sections.data.resetEvictions')}
-                      </Button>
-                      {isAdmin && (
-                        <Button
-                          variant="filled"
-                          color="red"
-                          size="sm"
-                          onClick={() => setConfirmRemoveSelectedEvicted(true)}
-                          awaitPermissions
-                          loading={isEvictedRemovalRunning || removeSelectedEvictedRunning}
-                          disabled={
-                            selectedEvictedCount === 0 ||
-                            removeAllRunning ||
-                            removeSelectedEvictedRunning ||
-                            isAnyEvictedRemovalRunning ||
-                            cacheReadOnly
-                          }
-                        >
-                          {t('management.batchSelect.removeSelected', {
-                            count: selectedEvictedCount
-                          })}
-                        </Button>
-                      )}
-                      {isAdmin && (
-                        <Button
-                          variant="filled"
-                          color="red"
-                          size="sm"
-                          onClick={() => setShowRemoveAllConfirm(true)}
-                          awaitPermissions
-                          loading={removeAllRunning || isEvictionRemovalRunning}
-                          disabled={
-                            evictedGames.length + evictedServices.length === 0 ||
-                            removeAllRunning ||
-                            removeSelectedEvictedRunning ||
-                            isAnyEvictedRemovalRunning ||
-                            cacheReadOnly
-                          }
-                          title={
-                            isAnyRemovalRunning && !isAnyEvictedRemovalRunning
-                              ? t('common.notifications.willQueueBehindCurrent')
-                              : undefined
-                          }
-                        >
-                          {t('management.sections.data.evictionRemoveAll', 'Remove All')}
-                        </Button>
-                      )}
+                      </SectionActionsMenu>
                     </div>
                   }
                 >
