@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -190,7 +190,16 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
                   : undefined
             }
           >
-            {isRemoving ? t('management.gameDetection.removing') : t('common.remove')}
+            {isRemoving ? (
+              // Hide the label on mobile so the button stays compact next to the
+              // spinner; the spinner (from `loading`) is the mobile removing signal.
+              <span className="hidden sm:inline">{t('management.gameDetection.removing')}</span>
+            ) : (
+              <>
+                <Trash2 className="w-4 h-4 sm:hidden" />
+                <span className="hidden sm:inline">{t('common.remove')}</span>
+              </>
+            )}
           </Button>
         </Tooltip>
       </div>

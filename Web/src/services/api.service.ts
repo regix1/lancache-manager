@@ -1285,7 +1285,8 @@ class ApiService {
   // running elsewhere - callers must check for the `scanning` flag before using the result.
   static async getCacheSize(
     datasource?: string,
-    force?: boolean
+    force?: boolean,
+    signal?: AbortSignal
   ): Promise<CacheSizeInfo | CacheSizeScanningInfo> {
     try {
       const params = new URLSearchParams();
@@ -1293,11 +1294,16 @@ class ApiService {
       if (force) params.set('force', 'true');
       const queryString = params.toString();
       const url = queryString ? `${API_BASE}/cache/size?${queryString}` : `${API_BASE}/cache/size`;
-      // No timeout - cache size calculation can take a very long time for large caches
-      const res = await fetch(url, this.getFetchOptions());
+      // No timeout - cache size calculation can take a very long time for large caches. The
+      // optional signal lets a caller abort an in-flight request (e.g. superseded by a newer one).
+      const res = await fetch(url, this.getFetchOptions(signal ? { signal } : {}));
       return await this.handleResponse<CacheSizeInfo | CacheSizeScanningInfo>(res);
     } catch (error: unknown) {
-      console.error('getCacheSize error:', error);
+      // A cancelled request (aborted via signal) is a distinct terminal outcome, not a failure -
+      // don't log it as an error; the caller filters it via isAbortError.
+      if (!isAbortError(error)) {
+        console.error('getCacheSize error:', error);
+      }
       throw error;
     }
   }

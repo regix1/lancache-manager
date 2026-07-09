@@ -739,15 +739,9 @@
   "auth": {
     "header": {
       "title": "Upgrade to Full Access",
-      "subtitle": "Enter your API key to unlock management features"
+      "subtitle": "You're in Guest Mode with view-only access. Enter your API key to unlock full management."
     },
     "form": {
-      "title": "Enter API Key",
-      "subtitle": {
-        "before": "You are currently in ",
-        "emphasis": "Guest Mode",
-        "after": " with view-only access. Enter your API key to gain full management capabilities."
-      },
       "label": "API Key",
       "placeholder": "lm_xxxxxxxxxxxxxxxxxxxxx",
       "submit": "Authenticate"
@@ -761,26 +755,7 @@
       },
       "step3": {
         "before": "Or check container logs: ",
-        "code": "docker logs lancache-manager-api"
-      }
-    },
-    "features": {
-      "title": "What You'll Get with Full Access",
-      "userManagement": {
-        "title": "User Management",
-        "description": "View and manage all authenticated users and guest sessions"
-      },
-      "cacheManagement": {
-        "title": "Cache Management",
-        "description": "Clear cache, remove games, and manage cache operations"
-      },
-      "databaseOperations": {
-        "title": "Database Operations",
-        "description": "Reset database, process logs, and manage data"
-      },
-      "themeCustomization": {
-        "title": "Theme Customization",
-        "description": "Create and apply custom themes to personalize your experience"
+        "code": "docker logs lancache-manager"
       }
     },
     "success": "Authentication successful! Upgrading to full access...",

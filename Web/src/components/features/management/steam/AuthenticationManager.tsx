@@ -409,7 +409,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
                 <li>
                   {t('management.auth.modal.step3Before')}{' '}
                   <code className="bg-themed-tertiary px-1 rounded">
-                    docker logs lancache-manager-api
+                    docker logs lancache-manager
                   </code>
                 </li>
               </ol>

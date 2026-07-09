@@ -257,7 +257,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     (d: Download) =>
                       d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
                   ) && (
-                    <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate flex-1">
+                    <span className="text-sm font-medium text-[var(--theme-text-primary)] line-clamp-2 sm:line-clamp-none sm:truncate flex-1">
                       {group.name}
                     </span>
                   )}
@@ -328,7 +328,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     (d: Download) =>
                       d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
                   ) && (
-                    <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
+                    <span className="text-sm font-medium text-[var(--theme-text-primary)] line-clamp-2 sm:line-clamp-none sm:truncate">
                       {group.name}
                     </span>
                   )}

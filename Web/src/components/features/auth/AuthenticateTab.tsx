@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Key, Lock, AlertCircle } from 'lucide-react';
+import { Key, Lock } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Alert } from '@components/ui/Alert';
@@ -59,33 +59,24 @@ const AuthenticateTab: React.FC = () => {
   };
 
   return (
-    <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="p-2 rounded-lg flex-shrink-0 bg-themed-accent-subtle">
-          <Key className="w-6 h-6 text-themed-accent" />
+    <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6">
+      <div className="max-w-lg mx-auto space-y-4 sm:space-y-6">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg flex-shrink-0 bg-themed-accent-subtle">
+            <Key className="w-6 h-6 text-themed-accent" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold text-themed-primary">
+              {t('auth.header.title')}
+            </h1>
+            <p className="text-xs sm:text-sm text-themed-secondary">{t('auth.header.subtitle')}</p>
+          </div>
         </div>
-        <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl font-bold text-themed-primary">
-            {t('auth.header.title')}
-          </h1>
-          <p className="text-xs sm:text-sm text-themed-secondary">{t('auth.header.subtitle')}</p>
-        </div>
-      </div>
 
-      {/* Authentication Card */}
-      <Card>
-        <div className="p-6 space-y-6">
-          <div>
-            <h2 className="text-lg font-semibold mb-4 text-themed-primary">
-              {t('auth.form.title')}
-            </h2>
-            <p className="text-sm mb-4 text-themed-secondary">
-              {t('auth.form.subtitle.before')}
-              <strong>{t('auth.form.subtitle.emphasis')}</strong>
-              {t('auth.form.subtitle.after')}
-            </p>
-
+        {/* Authentication Card */}
+        <Card>
+          <div className="p-6 space-y-6">
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-2 text-themed-secondary">
@@ -115,96 +106,30 @@ const AuthenticateTab: React.FC = () => {
                 {t('auth.form.submit')}
               </Button>
             </div>
+
+            <Alert color="blue">
+              <div>
+                <p className="font-medium mb-2">{t('auth.help.title')}</p>
+                <ol className="list-decimal list-inside text-sm space-y-1 ml-2">
+                  <li>{t('auth.help.step1')}</li>
+                  <li>
+                    {t('auth.help.step2.before')}
+                    <code className="bg-themed-tertiary px-1 rounded">
+                      {t('auth.help.step2.code')}
+                    </code>
+                  </li>
+                  <li>
+                    {t('auth.help.step3.before')}
+                    <code className="bg-themed-tertiary px-1 rounded">
+                      {t('auth.help.step3.code')}
+                    </code>
+                  </li>
+                </ol>
+              </div>
+            </Alert>
           </div>
-
-          <Alert color="blue">
-            <div>
-              <p className="font-medium mb-2">{t('auth.help.title')}</p>
-              <ol className="list-decimal list-inside text-sm space-y-1 ml-2">
-                <li>{t('auth.help.step1')}</li>
-                <li>
-                  {t('auth.help.step2.before')}
-                  <code className="bg-themed-tertiary px-1 rounded">
-                    {t('auth.help.step2.code')}
-                  </code>
-                </li>
-                <li>
-                  {t('auth.help.step3.before')}
-                  <code className="bg-themed-tertiary px-1 rounded">
-                    {t('auth.help.step3.code')}
-                  </code>
-                </li>
-              </ol>
-            </div>
-          </Alert>
-        </div>
-      </Card>
-
-      {/* Features Card */}
-      <Card>
-        <div className="p-6">
-          <h2 className="text-lg font-semibold mb-4 text-themed-primary">
-            {t('auth.features.title')}
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="flex items-start gap-3">
-              <div className="p-2 rounded-lg flex-shrink-0 bg-themed-success">
-                <AlertCircle className="w-5 h-5 text-themed-success" />
-              </div>
-              <div>
-                <h3 className="font-semibold mb-1 text-themed-primary">
-                  {t('auth.features.userManagement.title')}
-                </h3>
-                <p className="text-sm text-themed-secondary">
-                  {t('auth.features.userManagement.description')}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3">
-              <div className="p-2 rounded-lg flex-shrink-0 bg-themed-success">
-                <AlertCircle className="w-5 h-5 text-themed-success" />
-              </div>
-              <div>
-                <h3 className="font-semibold mb-1 text-themed-primary">
-                  {t('auth.features.cacheManagement.title')}
-                </h3>
-                <p className="text-sm text-themed-secondary">
-                  {t('auth.features.cacheManagement.description')}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3">
-              <div className="p-2 rounded-lg flex-shrink-0 bg-themed-success">
-                <AlertCircle className="w-5 h-5 text-themed-success" />
-              </div>
-              <div>
-                <h3 className="font-semibold mb-1 text-themed-primary">
-                  {t('auth.features.databaseOperations.title')}
-                </h3>
-                <p className="text-sm text-themed-secondary">
-                  {t('auth.features.databaseOperations.description')}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3">
-              <div className="p-2 rounded-lg flex-shrink-0 bg-themed-success">
-                <AlertCircle className="w-5 h-5 text-themed-success" />
-              </div>
-              <div>
-                <h3 className="font-semibold mb-1 text-themed-primary">
-                  {t('auth.features.themeCustomization.title')}
-                </h3>
-                <p className="text-sm text-themed-secondary">
-                  {t('auth.features.themeCustomization.description')}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </Card>
+        </Card>
+      </div>
     </div>
   );
 };

@@ -76,6 +76,13 @@
   border-radius: var(--theme-border-radius-lg, 0.75rem);
   background-color: var(--theme-card-bg);
   border: 1px solid var(--theme-card-border);
+  transition:
+    transform 0.15s ease-out,
+    box-shadow 0.15s ease-out;
+}
+
+.prefill-stat-card:hover {
+  transform: translateY(-1px);
 }
 
 .prefill-stat-icon {
@@ -546,6 +553,13 @@
   border-radius: var(--theme-border-radius, 0.5rem);
   background-color: var(--theme-bg-secondary);
   border: 1px solid var(--theme-border-secondary);
+  transition:
+    transform 0.15s ease-out,
+    box-shadow 0.15s ease-out;
+}
+
+.prefill-ban-card:hover {
+  transform: translateY(-1px);
 }
 
 @media (min-width: 640px) {

@@ -91,9 +91,9 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         onClick={handleHeaderClick}
         onKeyDown={handleKeyDown}
         onTouchEnd={handleTouchEnd}
-        className="w-full px-4 py-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 text-left transition duration-200 group/header bg-transparent cursor-pointer"
+        className="w-full px-4 py-3 flex flex-wrap items-center gap-2 justify-between sm:gap-3 text-left transition duration-200 group/header bg-transparent cursor-pointer"
       >
-        <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto sm:flex-1">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           {/* Icon with animated background */}
           {Icon && (
             <div
@@ -142,22 +142,14 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
               {formatCount(count)}
             </span>
           )}
-
-          {/* Mobile-only chevron, pinned to the right of the title row */}
-          <span className="ml-auto sm:hidden flex-shrink-0">{chevronButton}</span>
         </div>
 
-        {/* Action badge — on mobile this is its own full-width row below the title.
-            The chevron lives here only on desktop. */}
-        <div
-          className={`items-center gap-3 sm:w-auto sm:justify-end ${
-            badge ? 'flex w-full justify-end' : 'hidden sm:flex'
-          }`}
-        >
+        {/* Action badge + chevron cluster — stays inline on the title row at every
+            width so the count/actions never wrap to a full-width second row. */}
+        <div className="flex items-center gap-2 flex-shrink-0 sm:gap-3 sm:justify-end">
           {badge}
 
-          {/* Desktop-only chevron */}
-          <span className="hidden sm:flex flex-shrink-0">{chevronButton}</span>
+          <span className="flex flex-shrink-0">{chevronButton}</span>
         </div>
       </div>
 

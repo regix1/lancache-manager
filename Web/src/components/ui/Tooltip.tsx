@@ -163,10 +163,12 @@ export const Tooltip: React.FC<TooltipProps> = ({
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         onClick={(e) => {
-          // On mobile, toggle tooltip on tap
+          // On mobile, toggle tooltip on tap. Do NOT stopPropagation: the tap must
+          // still bubble to a clickable parent (e.g. a Downloads card whose onClick
+          // opens the details Drawer). Keep preventDefault to cancel the wrapped
+          // element's default action without blocking the parent's click handler.
           if (isMobile && !tooltipsDisabled) {
             e.preventDefault();
-            e.stopPropagation();
             if (!show) {
               const rect = triggerRef.current?.getBoundingClientRect();
               if (rect) {

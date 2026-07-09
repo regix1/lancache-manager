@@ -239,7 +239,9 @@ interface ContentRendererProps {
 const renderGameRemovalTitle = ({ notification }: ContentRendererProps) => (
   <div className="flex items-center gap-2">
     <Trash2 className="w-3 h-3 text-themed-muted flex-shrink-0" />
-    <span className="text-sm font-medium text-themed-primary truncate">{notification.message}</span>
+    <span className="text-sm font-medium text-themed-primary break-words sm:truncate">
+      {notification.message}
+    </span>
   </div>
 );
 
@@ -281,7 +283,9 @@ const renderDepotMappingTitle = ({ notification, t, webApiStatus }: ContentRende
  * Renders the default title/message area.
  */
 const renderDefaultTitle = ({ notification }: ContentRendererProps) => (
-  <div className="text-sm font-medium text-themed-primary truncate">{notification.message}</div>
+  <div className="text-sm font-medium text-themed-primary break-words sm:truncate">
+    {notification.message}
+  </div>
 );
 
 /**
@@ -440,7 +444,7 @@ const UnifiedNotificationItem = ({
 
   return (
     <div
-      className="flex items-center gap-3 p-2 rounded-lg bg-[var(--theme-bg-secondary)] transition-opacity duration-300 ease-out"
+      className="flex items-start sm:items-center gap-3 p-2 rounded-lg bg-[var(--theme-bg-secondary)] transition-opacity duration-300 ease-out"
       style={{
         borderLeft: `3px solid ${color}`,
         opacity: isAnimatingOut ? 0 : 1

@@ -367,7 +367,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   (d: Download) =>
                     d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
                 ) && (
-                  <h3 className="text-sm font-bold text-[var(--theme-text-primary)] truncate flex-1 min-w-0">
+                  <h3 className="text-sm font-bold text-[var(--theme-text-primary)] line-clamp-2 sm:line-clamp-none sm:truncate flex-1 min-w-0">
                     {group.name}
                   </h3>
                 )}
@@ -455,7 +455,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
                 ) && (
                   <h3
-                    className={`${fullHeightBanners ? 'text-lg' : 'text-xl'} font-bold text-[var(--theme-text-primary)] truncate`}
+                    className={`${fullHeightBanners ? 'text-lg' : 'text-xl'} font-bold text-[var(--theme-text-primary)] line-clamp-2 sm:line-clamp-none sm:truncate`}
                   >
                     {group.name}
                   </h3>

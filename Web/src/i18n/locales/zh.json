@@ -739,15 +739,9 @@
   "auth": {
     "header": {
       "title": "升级到完全访问",
-      "subtitle": "输入您的 API 密钥以解锁管理功能"
+      "subtitle": "您当前处于访客模式，仅具有查看权限。输入您的 API 密钥以解锁完整管理功能。"
     },
     "form": {
-      "title": "输入 API 密钥",
-      "subtitle": {
-        "before": "您当前处于 ",
-        "emphasis": "访客模式",
-        "after": "，仅具有查看权限。输入您的 API 密钥以获得完整管理功能。"
-      },
       "label": "API 密钥",
       "placeholder": "lm_xxxxxxxxxxxxxxxxxxxxx",
       "submit": "验证身份"
@@ -761,26 +755,7 @@
       },
       "step3": {
         "before": "或检查容器日志：",
-        "code": "docker logs lancache-manager-api"
-      }
-    },
-    "features": {
-      "title": "完全访问后您将获得的功能",
-      "userManagement": {
-        "title": "用户管理",
-        "description": "查看和管理所有已验证用户及访客会话"
-      },
-      "cacheManagement": {
-        "title": "缓存管理",
-        "description": "清除缓存、删除游戏和管理缓存操作"
-      },
-      "databaseOperations": {
-        "title": "数据库操作",
-        "description": "重置数据库、处理日志和管理数据"
-      },
-      "themeCustomization": {
-        "title": "主题定制",
-        "description": "创建和应用自定义主题以个性化您的体验"
+        "code": "docker logs lancache-manager"
       }
     },
     "success": "认证成功！正在升级到完全访问...",
