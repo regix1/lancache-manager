@@ -604,11 +604,16 @@ public sealed class StatusCheckService : IStatusCheckService
         return (null, null);
     }
 
-    /// <summary>Resolves the domain's real public address via the upstream resolver and asks the
-    /// upstream CDN itself whether plain HTTP gets bounced to https. Never routed through the
-    /// cache - synthetic through-cache requests pollute access.log and manufacture phantom
-    /// downloads in every tool reading it. (null, null) whenever anything short of a definitive
-    /// answer happens.</summary>
+    // CDN edges can answer differently per IP and rotate over time (observed live: the same
+    // domain 301ing on one Akamai edge and 404ing on another), so a single edge is never proof.
+    private const int MaxRedirectProbeEdges = 3;
+
+    /// <summary>Resolves the domain's real public addresses via the upstream resolver and asks the
+    /// upstream CDN itself whether plain HTTP gets bounced to https, corroborated across up to
+    /// <see cref="MaxRedirectProbeEdges"/> edges (see <see cref="CombineEdgeVerdicts"/>). Never
+    /// routed through the cache - synthetic through-cache requests pollute access.log and
+    /// manufacture phantom downloads in every tool reading it. (null, null) whenever anything
+    /// short of a definitive unanimous answer happens.</summary>
     private async Task<(bool? Redirected, string? Location)> ProbeUpstreamHttpsRedirectAsync(
         string queryDomain, LookupClient upstreamDnsClient, CancellationToken ct)
     {
@@ -617,17 +622,30 @@ public sealed class StatusCheckService : IStatusCheckService
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeoutCts.CancelAfter(_perDomainTimeout);
             var response = await upstreamDnsClient.QueryAsync(queryDomain, QueryType.A, cancellationToken: timeoutCts.Token);
-            var upstreamIp = response.Answers.ARecords()
+            var upstreamIps = response.Answers.ARecords()
                 .Select(r => r.Address)
-                .FirstOrDefault(a => !LancacheServerLocator.IsPrivateIp(a.ToString()) && !IPAddress.IsLoopback(a));
-            if (upstreamIp == null)
+                .Where(a => !LancacheServerLocator.IsPrivateIp(a.ToString()) && !IPAddress.IsLoopback(a))
+                .Select(a => a.ToString())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(MaxRedirectProbeEdges)
+                .ToList();
+            if (upstreamIps.Count == 0)
             {
-                // NXDOMAIN (e.g. a wildcard probe label) or a private answer - nothing public to ask.
+                // NXDOMAIN (e.g. a wildcard probe label) or private answers - nothing public to ask.
                 return (null, null);
             }
 
-            var probe = await _serverLocator.ProbeHttpsRedirectAsync(upstreamIp.ToString(), queryDomain, ct);
-            return (probe.Redirected, probe.Location);
+            var verdicts = new List<bool?>(upstreamIps.Count);
+            string? location = null;
+            foreach (var ip in upstreamIps)
+            {
+                var probe = await _serverLocator.ProbeHttpsRedirectAsync(ip, queryDomain, ct);
+                verdicts.Add(probe.Redirected);
+                location ??= probe.Location;
+            }
+
+            var combined = CombineEdgeVerdicts(verdicts);
+            return (combined, combined == true ? location : null);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -638,6 +656,24 @@ public sealed class StatusCheckService : IStatusCheckService
             // Upstream resolver unreachable / timed out - "couldn't determine", never "no redirect".
             return (null, null);
         }
+    }
+
+    /// <summary>Combines per-edge HTTPS-redirect verdicts. Unanimous definitive answers decide;
+    /// anything mixed, or no definitive answer at all, stays undeterminable - this warning must
+    /// under-claim, never over-claim, because it only sees the upstream's PUBLIC edges, not the
+    /// path the cache's own miss fetches take.</summary>
+    internal static bool? CombineEdgeVerdicts(IReadOnlyList<bool?> verdicts)
+    {
+        var definitive = verdicts.Where(v => v.HasValue).Select(v => v!.Value).ToList();
+        if (definitive.Count == 0)
+        {
+            return null;
+        }
+        if (definitive.All(v => v))
+        {
+            return true;
+        }
+        return definitive.All(v => !v) ? false : null;
     }
 
     /// <summary>True when <paramref name="domain"/> appears in the loaded cache-domains list -

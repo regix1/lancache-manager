@@ -483,6 +483,20 @@ public class StatusCheckTests
     }
 
     [Fact]
+    public void CombineEdgeVerdicts_RequiresUnanimousDefinitiveAnswers()
+    {
+        // Unanimous definitive answers decide; mixed or unknown must stay null (under-claim).
+        Assert.True(StatusCheckService.CombineEdgeVerdicts(new bool?[] { true, true, true }));
+        Assert.False(StatusCheckService.CombineEdgeVerdicts(new bool?[] { false, false }));
+        Assert.Null(StatusCheckService.CombineEdgeVerdicts(new bool?[] { true, false, true }));
+        Assert.Null(StatusCheckService.CombineEdgeVerdicts(new bool?[] { null, null }));
+        Assert.Null(StatusCheckService.CombineEdgeVerdicts(Array.Empty<bool?>()));
+        // Unknown edges do not veto a unanimous definitive rest.
+        Assert.True(StatusCheckService.CombineEdgeVerdicts(new bool?[] { null, true }));
+        Assert.False(StatusCheckService.CombineEdgeVerdicts(new bool?[] { false, null }));
+    }
+
+    [Fact]
     public void IsKnownCacheDomain_MatchesExactAndWildcardEntriesOnly()
     {
         var domains = new CacheDomainsList

@@ -34,6 +34,12 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
     /// MANAGER_PROBE_USER_AGENT in rust-processor's service_utils.rs.</summary>
     internal const string ProbeUserAgent = "lancache-manager-status-check/1.0";
 
+    /// <summary>Path used by the HTTPS-redirect probe. Deliberately a synthetic deep path, never
+    /// the bare vhost root: many origins bounce "/" to an https marketing page while serving real
+    /// download paths over plain HTTP, and only a server that blanket-forces HTTPS redirects a
+    /// path that cannot exist.</summary>
+    internal const string HttpsRedirectProbePath = "/lancache-manager-status-check-probe";
+
     // Short timeouts, shared/static to avoid per-call socket churn during Docker-detect candidate
     // probing.
     private static readonly HttpClient _heartbeatProbeClient = CreateProbeClient(TimeSpan.FromSeconds(2));
@@ -529,7 +535,7 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"http://{upstreamIp}/");
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"http://{upstreamIp}{HttpsRedirectProbePath}");
             request.Headers.Host = domain;
             using var response = await _httpsRedirectProbeClient.SendAsync(
                 request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
