@@ -167,7 +167,7 @@ public class ScheduledPrefillRunGatesTests
         // between the no-container gate and the live logged-out check.
         ScheduledPrefillRunGates.TryGetRunnablePersistentSession(null, out _, out var noContainerReason);
 
-        Assert.NotEqual(noContainerReason, ScheduledPrefillRunGates.LoggedOutNeedsLoginReason);
+        Assert.NotEqual(ScheduledPrefillRunGates.LoggedOutNeedsLoginReason, noContainerReason);
         Assert.False(string.IsNullOrWhiteSpace(ScheduledPrefillRunGates.LoggedOutNeedsLoginReason));
     }
 

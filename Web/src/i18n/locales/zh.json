@@ -6422,12 +6422,19 @@
         "single": "开始从 {{datasourceName}} 移除 {{service}} 条目..."
       },
       "processingDatasource": "正在从数据源 '{{datasourceName}}' 移除 {{service}} 条目...",
-      "cleaningDatabase": "正在清理 {{service}} 的数据库记录..."
+      "cleaningDatabase": "正在清理 {{service}} 的数据库记录...",
+      "error": {
+        "fatal": "日志移除失败: {{errorDetail}}"
+      }
     },
     "logService": {
       "count": {
         "starting": "开始统计服务数量...",
         "counting": "正在按服务统计日志条目..."
+      },
+      "delete": {
+        "deleting": "正在删除日志文件...",
+        "failed": "日志文件删除失败: {{errorDetail}}"
       },
       "progress": "正在统计日志条目...",
       "complete": "服务统计完成",

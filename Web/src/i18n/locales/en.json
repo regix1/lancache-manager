@@ -6452,12 +6452,19 @@
         "single": "Starting removal of {{service}} entries from {{datasourceName}}..."
       },
       "processingDatasource": "Removing {{service}} entries from datasource '{{datasourceName}}'...",
-      "cleaningDatabase": "Cleaning up database records for {{service}}..."
+      "cleaningDatabase": "Cleaning up database records for {{service}}...",
+      "error": {
+        "fatal": "Log removal failed: {{errorDetail}}"
+      }
     },
     "logService": {
       "count": {
         "starting": "Starting service count...",
         "counting": "Counting log entries by service..."
+      },
+      "delete": {
+        "deleting": "Deleting log file...",
+        "failed": "Log file deletion failed: {{errorDetail}}"
       },
       "progress": "Counting log entries...",
       "complete": "Service count complete",
