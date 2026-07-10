@@ -89,7 +89,7 @@
     },
     "dateRangePicker": {
       "daysSelected": "已选 {{count}} 天",
-      "daysSelected_plural": "已选 {{count}} 天",
+      "daysSelected_other": "已选 {{count}} 天",
       "endLabel": "结束：",
       "eventDateRanges": "事件日期范围：",
       "eventRangeHint": "点击事件以使用其日期范围",
@@ -156,7 +156,7 @@
     },
     "notifications": {
       "cacheFilesDeleted": "已删除 {{formattedCount}} 个缓存文件",
-      "cacheFilesDeleted_plural": "已删除 {{formattedCount}} 个缓存文件",
+      "cacheFilesDeleted_other": "已删除 {{formattedCount}} 个缓存文件",
       "cancelCacheClearing": "取消缓存清理",
       "cancelCorruptionRemoval": "取消损坏移除",
       "cancelCorruptionDetection": "取消损坏检测",
@@ -186,10 +186,10 @@
       "willQueueBehindCurrent": "将在当前操作完成后开始",
       "corruptedChunksRemoved": "损坏块已成功移除",
       "filesDeleted": "已删除 {{formattedCount}} 个文件",
-      "filesDeleted_plural": "已删除 {{formattedCount}} 个文件",
+      "filesDeleted_other": "已删除 {{formattedCount}} 个文件",
       "freed": "已释放 {{value}}",
       "logEntriesRemoved": "已移除 {{formattedCount}} 条日志条目",
-      "logEntriesRemoved_plural": "已移除 {{formattedCount}} 条日志条目",
+      "logEntriesRemoved_other": "已移除 {{formattedCount}} 条日志条目",
       "progressComplete": "已完成 {{value}}%",
       "remaining": "剩余 {{value}}",
       "steamAnonymous": "Steam 匿名",
@@ -241,7 +241,7 @@
     },
     "statCard": {
       "sparklineAria": "{{title}} 在过去 {{count}} 个数据点的趋势",
-      "sparklineAria_plural": "{{title}} 在过去 {{count}} 个数据点的趋势"
+      "sparklineAria_other": "{{title}} 在过去 {{count}} 个数据点的趋势"
     },
     "timeFilter": {
       "filterByEvents": "按事件筛选",
@@ -412,9 +412,9 @@
     "edit": "编辑",
     "hidden": "已隐藏",
     "hiddenCount": "{{count}} 张隐藏卡片",
-    "hiddenCount_plural": "{{count}} 张隐藏卡片",
+    "hiddenCount_other": "{{count}} 张隐藏卡片",
     "hiddenCardsTooltip": "{{count}} 张隐藏卡片 - 点击恢复",
-    "hiddenCardsTooltip_plural": "{{count}} 张隐藏卡片 - 点击恢复",
+    "hiddenCardsTooltip_other": "{{count}} 张隐藏卡片 - 点击恢复",
     "showAllCards": "显示所有卡片",
     "searchHiddenCards": "搜索隐藏卡片...",
     "noCardsMatch": "没有卡片匹配 \"{{query}}\"",
@@ -455,7 +455,7 @@
       "uniqueInPeriod": "期间内唯一",
       "startedAt": "开始于 {{size}}",
       "snapshots": "{{count}} 个快照",
-      "snapshots_plural": "{{count}} 个快照",
+      "snapshots_other": "{{count}} 个快照",
       "noSnapshotsYet": "暂无快照",
       "filesOnDisk": "磁盘上的文件",
       "fullDiskLimit": "使用整个磁盘",
@@ -528,9 +528,9 @@
       "live": "实时",
       "req": "请求",
       "game": "个游戏",
-      "game_plural": "个游戏",
+      "game_other": "个游戏",
       "client": "个客户端",
-      "client_plural": "个客户端",
+      "client_other": "个客户端",
       "onDisk": "磁盘 {{size}}",
       "transferred": "已下载",
       "hitLabel": "命中",
@@ -680,7 +680,7 @@
       "mostActive": "最活跃：",
       "days": "{{count}} 天",
       "daysOnly": "{{count}} 天",
-      "daysOnly_plural": "{{count}} 天",
+      "daysOnly_other": "{{count}} 天",
       "selectedPeriod": "所选周期",
       "downloads": "下载",
       "busiestHour": "最忙时段",
@@ -1189,9 +1189,9 @@
       "transferSpeed": "传输速度",
       "idle": "空闲",
       "activeGames": "{{count}} 个游戏",
-      "activeGames_plural": "{{count}} 个游戏",
+      "activeGames_other": "{{count}} 个游戏",
       "activeClients": "{{count}} 个客户端",
-      "activeClients_plural": "{{count}} 个客户端",
+      "activeClients_other": "{{count}} 个客户端",
       "noActive": "没有活跃下载",
       "activeTooltip": "活跃下载仅在实时模式下可用",
       "activeTab": "活跃",
@@ -1223,16 +1223,16 @@
       "depotLabel": "仓库 {{depotId}}",
       "hitRate": "{{percent}}% 命中",
       "requests": "{{count}} 个请求",
-      "requests_plural": "{{count}} 个请求",
+      "requests_other": "{{count}} 个请求",
       "excluded": "已排除",
       "speed": "速度",
       "gamesCount": "{{count}} 个游戏",
-      "gamesCount_plural": "{{count}} 个游戏",
+      "gamesCount_other": "{{count}} 个游戏",
       "summary": {
         "gamesLabel": "个游戏",
-        "gamesLabel_plural": "个游戏",
+        "gamesLabel_other": "个游戏",
         "clientsLabel": "个客户端",
-        "clientsLabel_plural": "个客户端",
+        "clientsLabel_other": "个客户端",
         "totalLabel": "总计",
         "requestsWindowLabel": "请求/2秒"
       }
@@ -1326,9 +1326,9 @@
         "showingDepotGroups": "显示 {{total}} 个仓库组中的 {{count}} 个",
         "showingGroups": "显示 {{total}} 组中的 {{count}} 组",
         "downloadCount": "（{{count}} 个下载）",
-        "downloadCount_plural": "（{{count}} 个下载）",
+        "downloadCount_other": "（{{count}} 个下载）",
         "downloadCountTotal": "（共 {{total}} 个下载中的 {{count}} 个）",
-        "downloadCountTotal_plural": "（共 {{total}} 个下载中的 {{count}} 个）"
+        "downloadCountTotal_other": "（共 {{total}} 个下载中的 {{count}} 个）"
       },
       "emptyRange": {
         "title": "所选时间范围内未找到下载",
@@ -1344,9 +1344,9 @@
         },
         "counts": {
           "clients": "{{count}} 个客户端",
-          "clients_plural": "{{count}} 个客户端",
+          "clients_other": "{{count}} 个客户端",
           "requests": "{{count}} 个请求",
-          "requests_plural": "{{count}} 个请求"
+          "requests_other": "{{count}} 个请求"
         },
         "labels": {
           "hit": "命中：",
@@ -1374,9 +1374,9 @@
         },
         "counts": {
           "clients": "{{count}} 个客户端",
-          "clients_plural": "{{count}} 个客户端",
+          "clients_other": "{{count}} 个客户端",
           "requests": "{{count}} 个请求",
-          "requests_plural": "{{count}} 个请求"
+          "requests_other": "{{count}} 个请求"
         },
         "stats": {
           "title": "分析概览",
@@ -1403,7 +1403,7 @@
         "sessions": {
           "title": "下载会话",
           "count": "{{count}} 个会话",
-          "count_plural": "{{count}} 个会话",
+          "count_other": "{{count}} 个会话",
           "excluded": "{{count}} 个已排除",
           "page": "第 {{current}}/{{total}} 页"
         },
@@ -1438,11 +1438,11 @@
         "notAvailable": "N/A",
         "gameFallback": "游戏",
         "clientCount": "{{count}} 个客户端",
-        "clientCount_plural": "{{count}} 个客户端",
+        "clientCount_other": "{{count}} 个客户端",
         "requestCount": "{{count}} 个请求",
-        "requestCount_plural": "{{count}} 个请求",
+        "requestCount_other": "{{count}} 个请求",
         "depotCount": "{{count}} 个仓库",
-        "depotCount_plural": "{{count}} 个仓库",
+        "depotCount_other": "{{count}} 个仓库",
         "datasourceTooltip": "数据源：{{datasource}}",
         "loadError": "无法从服务器加载下载数据，下方列表可能已过期。",
         "gauge": {
@@ -1457,7 +1457,7 @@
       },
       "badges": {
         "more": "还有 {{count}} 个徽章",
-        "more_plural": "还有 {{count}} 个徽章"
+        "more_other": "还有 {{count}} 个徽章"
       }
     }
   },
@@ -1725,7 +1725,7 @@
           "xboxCdnPatterns": "在重新获取 CDN 模式之前，Xbox 游戏检测可能无法工作"
         },
         "clearTables": "清除 {{count}} 个表",
-        "clearTables_plural": "清除 {{count}} 个表",
+        "clearTables_other": "清除 {{count}} 个表",
         "tables": {
           "logEntries": {
             "label": "日志条目",
@@ -1940,7 +1940,7 @@
           "loadError": "加载 Epic 状态失败。显示默认值。",
           "noActiveSessions": "没有活跃会话",
           "activeSessions": "{{count}} 个活跃会话",
-          "activeSessions_plural": "{{count}} 个活跃会话",
+          "activeSessions_other": "{{count}} 个活跃会话",
           "help": {
             "authentication": {
               "title": "Epic Games 认证",
@@ -1975,7 +1975,7 @@
           "loadError": "加载 Battle.net 状态失败。显示默认值。",
           "noActiveSessions": "没有活跃会话",
           "activeSessions": "{{count}} 个活跃会话",
-          "activeSessions_plural": "{{count}} 个活跃会话",
+          "activeSessions_other": "{{count}} 个活跃会话",
           "help": {
             "authentication": {
               "title": "Battle.net 预填充",
@@ -2003,7 +2003,7 @@
           "loadError": "无法加载 Riot 状态。显示默认值。",
           "noActiveSessions": "无活动会话",
           "activeSessions": "{{count}} 个活动会话",
-          "activeSessions_plural": "{{count}} 个活动会话",
+          "activeSessions_other": "{{count}} 个活动会话",
           "help": {
             "anonymous": {
               "title": "匿名预填充",
@@ -2038,7 +2038,7 @@
           "loadError": "加载 Xbox 状态失败。显示默认值。",
           "noActiveSessions": "没有活跃会话",
           "activeSessions": "{{count}} 个活跃会话",
-          "activeSessions_plural": "{{count}} 个活跃会话",
+          "activeSessions_other": "{{count}} 个活跃会话",
           "help": {
             "authentication": {
               "title": "Xbox 认证",
@@ -2244,7 +2244,7 @@
       "loadingCachedData": "正在加载缓存数据...",
       "loadingDetails": "正在加载损坏详情...",
       "corruptedChunks": "{{count}} 个损坏块",
-      "corruptedChunks_plural": "{{count}} 个损坏块",
+      "corruptedChunks_other": "{{count}} 个损坏块",
       "removeAll": "全部移除",
       "removeAllServices": "全部移除",
       "removing": "正在移除...",
@@ -2371,7 +2371,7 @@
       "removing": "正在移除...",
       "files": "个文件",
       "depot": "个仓库",
-      "depot_plural": "个仓库",
+      "depot_other": "个仓库",
       "depotIds": "仓库 ID：",
       "loadingDetails": "正在加载详情...",
       "sampleUrls": "示例 URL（{{count}}）：",
@@ -2789,7 +2789,7 @@
         "30min": "30 分钟",
         "every30Min": "每 30 分钟",
         "hours": "{{count}} 小时",
-        "hours_plural": "{{count}} 小时",
+        "hours_other": "{{count}} 小时",
         "disabled": "已禁用",
         "everyHour": "每小时",
         "every6Hours": "每 6 小时",
@@ -2953,7 +2953,7 @@
         "available": "可用",
         "installed": "已安装",
         "autoUpdating": "自动更新 {{count}} 个主题",
-        "autoUpdating_plural": "自动更新 {{count}} 个主题",
+        "autoUpdating_other": "自动更新 {{count}} 个主题",
         "loading": "正在加载社区主题...",
         "noThemes": "没有可用的社区主题",
         "allImported": {
@@ -2970,7 +2970,7 @@
         "importError": "导入主题失败",
         "authRequired": "导入主题需要身份验证",
         "autoUpdateSuccess": "已将 {{count}} 个主题自动更新到最新版本！",
-        "autoUpdateSuccess_plural": "已将 {{count}} 个主题自动更新到最新版本！"
+        "autoUpdateSuccess_other": "已将 {{count}} 个主题自动更新到最新版本！"
       },
       "help": {
         "themeTypes": {
@@ -3614,7 +3614,7 @@
         "noPrefillHistoryYet": "暂无预填充历史",
         "noPrefillHistoryRecorded": "没有记录的预填充历史",
         "gamesPrefilled": "已预填充 {{count}} 个游戏",
-        "gamesPrefilled_plural": "已预填充 {{count}} 个游戏",
+        "gamesPrefilled_other": "已预填充 {{count}} 个游戏",
         "total": "总计：{{bytes}}",
         "started": "开始：{{time}}",
         "completed": "完成：{{time}}",
@@ -3644,7 +3644,7 @@
         "sessionActive": "会话当前在内存中活跃",
         "steamAuthenticated": "Steam 已验证",
         "gamesPrefilled": "已预填充 {{count}} 个游戏",
-        "gamesPrefilled_plural": "已预填充 {{count}} 个游戏",
+        "gamesPrefilled_other": "已预填充 {{count}} 个游戏",
         "totalDataDownloaded": "总下载数据量",
         "banUser": "封禁此用户",
         "terminateSession": "终止会话",
@@ -3762,9 +3762,9 @@
         "sat": "周六"
       },
       "eventCount": "{{count}} 个事件",
-      "eventCount_plural": "{{count}} 个事件",
+      "eventCount_other": "{{count}} 个事件",
       "eventCountTooltip": "{{count}} 个事件",
-      "eventCountTooltip_plural": "{{count}} 个事件",
+      "eventCountTooltip_other": "{{count}} 个事件",
       "eventEnded": "{{name}}（已结束）",
       "emptyMonth": "{{month}} 没有事件",
       "emptyMonthHint": "点击某天创建事件。",
@@ -3831,15 +3831,15 @@
       },
       "gamesDuringEvent": "事件期间下载的游戏",
       "gameCount": "{{count}} 个游戏",
-      "gameCount_plural": "{{count}} 个游戏",
+      "gameCount_other": "{{count}} 个游戏",
       "moreGames": "+{{count}} 个更多游戏",
-      "moreGames_plural": "+{{count}} 个更多游戏",
+      "moreGames_other": "+{{count}} 个更多游戏",
       "duration": {
         "daysHours": "{{days}}天 {{hours}}小时",
         "days": "{{count}} 天",
-        "days_plural": "{{count}} 天",
+        "days_other": "{{count}} 天",
         "hours": "{{count}} 小时",
-        "hours_plural": "{{count}} 小时"
+        "hours_other": "{{count}} 小时"
       },
       "empty": {
         "title": "没有事件",
@@ -4160,7 +4160,7 @@
       "prefillSelectedCount": "预填充已选 ({{count}})",
       "selectGamesFirst": "请先选择游戏",
       "gamesReady": "{{count}} 个游戏已就绪",
-      "gamesReady_plural": "{{count}} 个游戏已就绪"
+      "gamesReady_other": "{{count}} 个游戏已就绪"
     },
     "loginNotice": {
       "title": "需要登录才能使用命令",
@@ -4169,7 +4169,7 @@
     "confirm": {
       "downloadTitle": "确认下载",
       "downloadMessage": "您即将下载 {{count}} 个游戏。这可能需要一些时间并消耗大量带宽。",
-      "downloadMessage_plural": "您即将下载 {{count}} 个游戏。这可能需要一些时间并消耗大量带宽。",
+      "downloadMessage_other": "您即将下载 {{count}} 个游戏。这可能需要一些时间并消耗大量带宽。",
       "downloadAllTitle": "下载所有游戏",
       "downloadAllMessage": "这将下载您 Steam 库中的所有游戏。可能有数百 GB 并需要数小时。",
       "recentTitle": "下载最近游玩",
@@ -4186,7 +4186,7 @@
       "calculatingSize": "正在计算下载大小...",
       "totalEstimated": "预计下载总量：",
       "breakdown": "明细（{{count}} 个游戏）",
-      "breakdown_plural": "明细（{{count}} 个游戏）",
+      "breakdown_other": "明细（{{count}} 个游戏）",
       "unsupportedOs": "不支持的操作系统",
       "startDownload": "开始下载",
       "yesContinue": "是的，继续"
@@ -4216,13 +4216,13 @@
       "authorizationUrlRequired": "需要 Epic Games 授权",
       "loadingGameLibrary": "加载游戏库中...",
       "foundGames": "找到 {{count}} 个拥有的游戏",
-      "foundGames_plural": "找到 {{count}} 个拥有的游戏",
+      "foundGames_other": "找到 {{count}} 个拥有的游戏",
       "gamesCached": "{{count}} 个游戏已在 lancache 中缓存",
-      "gamesCached_plural": "{{count}} 个游戏已在 lancache 中缓存",
+      "gamesCached_other": "{{count}} 个游戏已在 lancache 中缓存",
       "failedLoadLibrary": "加载游戏库失败",
       "noGamesSelected": "未选择游戏。请先使用\"选择应用\"选择要预填充的游戏。",
       "startingPrefillSelected": "正在开始预填充 {{count}} 个选定应用...",
-      "startingPrefillSelected_plural": "正在开始预填充 {{count}} 个选定应用...",
+      "startingPrefillSelected_other": "正在开始预填充 {{count}} 个选定应用...",
       "startingPrefillAll": "正在开始预填充所有拥有的游戏...",
       "startingPrefillRecent": "正在开始预填充最近玩过的游戏...",
       "startingPrefillRecentPurchased": "正在开始预填充最近购买的游戏...",
@@ -4240,7 +4240,7 @@
       "cancellingPrefill": "正在取消预填充操作...",
       "failedCancelPrefill": "取消预填充失败",
       "selectedGames": "已选择 {{count}} 个游戏进行预填充",
-      "selectedGames_plural": "已选择 {{count}} 个游戏进行预填充",
+      "selectedGames_other": "已选择 {{count}} 个游戏进行预填充",
       "failedSaveSelection": "保存游戏选择失败",
       "sessionEnded": "会话已结束：{{reason}}",
       "sessionTerminated": "会话已终止：{{reason}}",
@@ -4282,7 +4282,7 @@
       "importNotInLibrary": "{{count}} 不在库中",
       "noValidAppIds": "未找到有效的应用 ID",
       "ofGamesSelected": "/ {{total}} 个游戏已选择",
-      "ofGamesSelected_plural": "/ {{total}} 个游戏已选择",
+      "ofGamesSelected_other": "/ {{total}} 个游戏已选择",
       "cached": "{{count}} 已缓存",
       "showing": "显示 {{count}}",
       "matching": "匹配 \"{{query}}\"",
@@ -4341,7 +4341,7 @@
       },
       "messages": {
         "andAddedIps": " 并添加了 {{count}} 个 IP",
-        "andAddedIps_plural": " 并添加了 {{count}} 个 IP",
+        "andAddedIps_other": " 并添加了 {{count}} 个 IP",
         "updatedNickname": "已更新昵称 \"{{nickname}}\"{{ipsAdded}}",
         "addedNickname": "已添加昵称 \"{{nickname}}\""
       },
@@ -4370,15 +4370,15 @@
       "guestMode": {
         "disabled": "访客模式当前已被管理员禁用。",
         "available": "或以访客身份继续查看 {{count}} 小时的数据。",
-        "available_plural": "或以访客身份继续查看 {{count}} 小时的数据。",
+        "available_other": "或以访客身份继续查看 {{count}} 小时的数据。",
         "disabledTitle": "访客模式已被管理员禁用",
         "noDataTitle": "无可用数据。请先完成设置。",
         "viewDataTitle": "查看 {{count}} 小时的数据",
-        "viewDataTitle_plural": "查看 {{count}} 小时的数据",
+        "viewDataTitle_other": "查看 {{count}} 小时的数据",
         "disabledButton": "访客模式（已禁用）",
         "noDataButton": "访客模式（无可用数据）",
         "continueButton": "以访客身份继续（{{count}} 小时）",
-        "continueButton_plural": "以访客身份继续（{{count}} 小时）"
+        "continueButton_other": "以访客身份继续（{{count}} 小时）"
       },
       "databaseReset": {
         "complete": "数据库重置完成",
@@ -4503,7 +4503,7 @@
         "deleteFiles": "删除约 {{formattedCount}} 个缓存文件",
         "freeSpace": "释放约 {{size}} 空间",
         "removeDepots": "移除 {{count}} 个仓库的缓存",
-        "removeDepots_plural": "移除 {{count}} 个仓库的缓存",
+        "removeDepots_other": "移除 {{count}} 个仓库的缓存",
         "removeLogEntries": "从数据库中删除此服务的所有日志条目",
         "removeDownloadRecords": "从数据库中删除此服务的所有下载记录",
         "showProgress": "进度将显示在顶部的通知栏中",
@@ -6066,7 +6066,7 @@
       "goToLastPage": "前往最后一页",
       "jumpTo": "跳转到...",
       "downloadCount": "（{{count}} 个下载）",
-      "downloadCount_plural": "（{{count}} 个下载）"
+      "downloadCount_other": "（{{count}} 个下载）"
     },
     "dropdown": {
       "selectOption": "选择选项"
@@ -6076,7 +6076,7 @@
       "allSelected": "全选",
       "selected": "已选择",
       "minimumSelections": "至少需要选择 {{count}} 项",
-      "minimumSelections_plural": "至少需要选择 {{count}} 项"
+      "minimumSelections_other": "至少需要选择 {{count}} 项"
     },
     "managerCard": {
       "logsReadOnly": "日志为只读",

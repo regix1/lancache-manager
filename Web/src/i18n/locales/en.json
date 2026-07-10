@@ -89,7 +89,7 @@
     },
     "dateRangePicker": {
       "daysSelected": "{{count}} day selected",
-      "daysSelected_plural": "{{count}} days selected",
+      "daysSelected_other": "{{count}} days selected",
       "endLabel": "End:",
       "eventDateRanges": "Event Date Ranges:",
       "eventRangeHint": "Click an event to use its date range",
@@ -156,7 +156,7 @@
     },
     "notifications": {
       "cacheFilesDeleted": "{{formattedCount}} cache file deleted",
-      "cacheFilesDeleted_plural": "{{formattedCount}} cache files deleted",
+      "cacheFilesDeleted_other": "{{formattedCount}} cache files deleted",
       "cancelCacheClearing": "Cancel cache clearing",
       "cancelCorruptionRemoval": "Cancel corruption removal",
       "cancelCorruptionDetection": "Cancel corruption detection",
@@ -186,10 +186,10 @@
       "willQueueBehindCurrent": "Will start after the current operation finishes",
       "corruptedChunksRemoved": "Corrupted chunks successfully removed",
       "filesDeleted": "{{formattedCount}} file deleted",
-      "filesDeleted_plural": "{{formattedCount}} files deleted",
+      "filesDeleted_other": "{{formattedCount}} files deleted",
       "freed": "{{value}} freed",
       "logEntriesRemoved": "{{formattedCount}} log entry removed",
-      "logEntriesRemoved_plural": "{{formattedCount}} log entries removed",
+      "logEntriesRemoved_other": "{{formattedCount}} log entries removed",
       "progressComplete": "{{value}}% complete",
       "remaining": "{{value}} remaining",
       "steamAnonymous": "Steam Anonymous",
@@ -241,7 +241,7 @@
     },
     "statCard": {
       "sparklineAria": "{{title}} trend over the last {{count}} data point",
-      "sparklineAria_plural": "{{title}} trend over the last {{count}} data points"
+      "sparklineAria_other": "{{title}} trend over the last {{count}} data points"
     },
     "timeFilter": {
       "filterByEvents": "Filter by Events",
@@ -412,9 +412,9 @@
     "edit": "Edit",
     "hidden": "Hidden",
     "hiddenCount": "{{count}} hidden card",
-    "hiddenCount_plural": "{{count}} hidden cards",
+    "hiddenCount_other": "{{count}} hidden cards",
     "hiddenCardsTooltip": "{{count}} hidden card - click to restore",
-    "hiddenCardsTooltip_plural": "{{count}} hidden cards - click to restore",
+    "hiddenCardsTooltip_other": "{{count}} hidden cards - click to restore",
     "showAllCards": "Show all cards",
     "searchHiddenCards": "Search hidden cards...",
     "noCardsMatch": "No cards match \"{{query}}\"",
@@ -455,7 +455,7 @@
       "uniqueInPeriod": "unique in period",
       "startedAt": "started at {{size}}",
       "snapshots": "{{count}} snapshot",
-      "snapshots_plural": "{{count}} snapshots",
+      "snapshots_other": "{{count}} snapshots",
       "noSnapshotsYet": "No snapshots yet",
       "filesOnDisk": "files on disk",
       "fullDiskLimit": "Using full disk",
@@ -528,9 +528,9 @@
       "live": "Live",
       "req": "req",
       "game": "game",
-      "game_plural": "games",
+      "game_other": "games",
       "client": "client",
-      "client_plural": "clients",
+      "client_other": "clients",
       "onDisk": "{{size}} on disk",
       "transferred": "downloaded",
       "hitLabel": "hit",
@@ -680,7 +680,7 @@
       "mostActive": "Most active:",
       "days": "{{count}} days",
       "daysOnly": "{{count}} day",
-      "daysOnly_plural": "{{count}} days",
+      "daysOnly_other": "{{count}} days",
       "selectedPeriod": "Selected Period",
       "downloads": "downloads",
       "busiestHour": "Busiest Hour",
@@ -1189,9 +1189,9 @@
       "transferSpeed": "Transfer Speed",
       "idle": "Idle",
       "activeGames": "{{count}} game",
-      "activeGames_plural": "{{count}} games",
+      "activeGames_other": "{{count}} games",
       "activeClients": "{{count}} client",
-      "activeClients_plural": "{{count}} clients",
+      "activeClients_other": "{{count}} clients",
       "noActive": "No active downloads",
       "activeTooltip": "Active downloads only available in Live mode",
       "activeTab": "Active",
@@ -1223,16 +1223,16 @@
       "depotLabel": "Depot {{depotId}}",
       "hitRate": "{{percent}}% hit",
       "requests": "{{count}} request",
-      "requests_plural": "{{count}} requests",
+      "requests_other": "{{count}} requests",
       "excluded": "Excluded",
       "speed": "Speed",
       "gamesCount": "{{count}} game",
-      "gamesCount_plural": "{{count}} games",
+      "gamesCount_other": "{{count}} games",
       "summary": {
         "gamesLabel": "game",
-        "gamesLabel_plural": "games",
+        "gamesLabel_other": "games",
         "clientsLabel": "client",
-        "clientsLabel_plural": "clients",
+        "clientsLabel_other": "clients",
         "totalLabel": "total",
         "requestsWindowLabel": "requests/2s"
       }
@@ -1326,9 +1326,9 @@
         "showingDepotGroups": "Showing {{count}} of {{total}} depot groups",
         "showingGroups": "Showing {{count}} of {{total}} groups",
         "downloadCount": "({{count}} download)",
-        "downloadCount_plural": "({{count}} downloads)",
+        "downloadCount_other": "({{count}} downloads)",
         "downloadCountTotal": "({{count}} download of {{total}} total)",
-        "downloadCountTotal_plural": "({{count}} downloads of {{total}} total)"
+        "downloadCountTotal_other": "({{count}} downloads of {{total}} total)"
       },
       "emptyRange": {
         "title": "No downloads found in selected time range",
@@ -1344,9 +1344,9 @@
         },
         "counts": {
           "clients": "{{count}} client",
-          "clients_plural": "{{count}} clients",
+          "clients_other": "{{count}} clients",
           "requests": "{{count}} request",
-          "requests_plural": "{{count}} requests"
+          "requests_other": "{{count}} requests"
         },
         "labels": {
           "hit": "Hit:",
@@ -1374,9 +1374,9 @@
         },
         "counts": {
           "clients": "{{count}} client",
-          "clients_plural": "{{count}} clients",
+          "clients_other": "{{count}} clients",
           "requests": "{{count}} request",
-          "requests_plural": "{{count}} requests"
+          "requests_other": "{{count}} requests"
         },
         "stats": {
           "title": "Analytics Overview",
@@ -1403,7 +1403,7 @@
         "sessions": {
           "title": "Download Sessions",
           "count": "{{count}} session",
-          "count_plural": "{{count}} sessions",
+          "count_other": "{{count}} sessions",
           "excluded": "{{count}} excluded",
           "page": "Page {{current}}/{{total}}"
         },
@@ -1438,11 +1438,11 @@
         "notAvailable": "N/A",
         "gameFallback": "Game",
         "clientCount": "{{count}} client",
-        "clientCount_plural": "{{count}} clients",
+        "clientCount_other": "{{count}} clients",
         "requestCount": "{{count}} request",
-        "requestCount_plural": "{{count}} requests",
+        "requestCount_other": "{{count}} requests",
         "depotCount": "{{count}} depot",
-        "depotCount_plural": "{{count}} depots",
+        "depotCount_other": "{{count}} depots",
         "datasourceTooltip": "Datasource: {{datasource}}",
         "loadError": "Failed to load downloads from the server. The list below may be out of date.",
         "gauge": {
@@ -1457,7 +1457,7 @@
       },
       "badges": {
         "more": "{{count}} more badge",
-        "more_plural": "{{count}} more badges"
+        "more_other": "{{count}} more badges"
       }
     }
   },
@@ -1725,7 +1725,7 @@
           "xboxCdnPatterns": "Xbox game detection may not work until CDN patterns are re-fetched"
         },
         "clearTables": "Clear {{count}} Table",
-        "clearTables_plural": "Clear {{count}} Tables",
+        "clearTables_other": "Clear {{count}} Tables",
         "tables": {
           "logEntries": {
             "label": "Log Entries",
@@ -1940,7 +1940,7 @@
           "loadError": "Failed to load Epic status. Displaying default values.",
           "noActiveSessions": "No active sessions",
           "activeSessions": "{{count}} active session",
-          "activeSessions_plural": "{{count}} active sessions",
+          "activeSessions_other": "{{count}} active sessions",
           "help": {
             "authentication": {
               "title": "Epic Games Authentication",
@@ -1975,7 +1975,7 @@
           "loadError": "Failed to load Battle.net status. Displaying default values.",
           "noActiveSessions": "No active sessions",
           "activeSessions": "{{count}} active session",
-          "activeSessions_plural": "{{count}} active sessions",
+          "activeSessions_other": "{{count}} active sessions",
           "help": {
             "authentication": {
               "title": "Battle.net Prefill",
@@ -2003,7 +2003,7 @@
           "loadError": "Failed to load Riot status. Displaying default values.",
           "noActiveSessions": "No active sessions",
           "activeSessions": "{{count}} active session",
-          "activeSessions_plural": "{{count}} active sessions",
+          "activeSessions_other": "{{count}} active sessions",
           "help": {
             "anonymous": {
               "title": "Anonymous Prefill",
@@ -2038,7 +2038,7 @@
           "loadError": "Failed to load Xbox status. Displaying default values.",
           "noActiveSessions": "No active sessions",
           "activeSessions": "{{count}} active session",
-          "activeSessions_plural": "{{count}} active sessions",
+          "activeSessions_other": "{{count}} active sessions",
           "help": {
             "authentication": {
               "title": "Xbox Authentication",
@@ -2244,7 +2244,7 @@
       "loadingCachedData": "Loading cached data...",
       "loadingDetails": "Loading corruption details...",
       "corruptedChunks": "{{count}} corrupted chunk",
-      "corruptedChunks_plural": "{{count}} corrupted chunks",
+      "corruptedChunks_other": "{{count}} corrupted chunks",
       "removeAll": "Remove All",
       "removeAllServices": "Remove All",
       "removing": "Removing...",
@@ -2371,7 +2371,7 @@
       "removing": "Removing...",
       "files": "files",
       "depot": "depot",
-      "depot_plural": "depots",
+      "depot_other": "depots",
       "depotIds": "Depot IDs:",
       "loadingDetails": "Loading details...",
       "sampleUrls": "Sample URLs ({{count}}):",
@@ -2789,7 +2789,7 @@
         "30min": "30 minutes",
         "every30Min": "Every 30 minutes",
         "hours": "{{count}} hour",
-        "hours_plural": "{{count}} hours",
+        "hours_other": "{{count}} hours",
         "disabled": "Disabled",
         "everyHour": "Every hour",
         "every6Hours": "Every 6 hours",
@@ -2953,7 +2953,7 @@
         "available": "available",
         "installed": "installed",
         "autoUpdating": "Auto-updating {{count}} theme",
-        "autoUpdating_plural": "Auto-updating {{count}} themes",
+        "autoUpdating_other": "Auto-updating {{count}} themes",
         "loading": "Loading community themes...",
         "noThemes": "No community themes available",
         "allImported": {
@@ -2970,7 +2970,7 @@
         "importError": "Failed to import theme",
         "authRequired": "Authentication required to import themes",
         "autoUpdateSuccess": "Auto-updated {{count}} theme to latest version!",
-        "autoUpdateSuccess_plural": "Auto-updated {{count}} themes to latest version!"
+        "autoUpdateSuccess_other": "Auto-updated {{count}} themes to latest version!"
       },
       "help": {
         "themeTypes": {
@@ -3614,7 +3614,7 @@
         "noPrefillHistoryYet": "No prefill history yet",
         "noPrefillHistoryRecorded": "No prefill history recorded",
         "gamesPrefilled": "{{count}} game prefilled",
-        "gamesPrefilled_plural": "{{count}} games prefilled",
+        "gamesPrefilled_other": "{{count}} games prefilled",
         "total": "Total: {{bytes}}",
         "started": "Started: {{time}}",
         "completed": "Completed: {{time}}",
@@ -3644,7 +3644,7 @@
         "sessionActive": "Session is currently active in memory",
         "steamAuthenticated": "Steam authenticated",
         "gamesPrefilled": "{{count}} game prefilled",
-        "gamesPrefilled_plural": "{{count}} games prefilled",
+        "gamesPrefilled_other": "{{count}} games prefilled",
         "totalDataDownloaded": "Total data downloaded",
         "banUser": "Ban this user",
         "terminateSession": "Terminate session",
@@ -3762,9 +3762,9 @@
         "sat": "Sat"
       },
       "eventCount": "{{count}} event",
-      "eventCount_plural": "{{count}} events",
+      "eventCount_other": "{{count}} events",
       "eventCountTooltip": "{{count}} event",
-      "eventCountTooltip_plural": "{{count}} events",
+      "eventCountTooltip_other": "{{count}} events",
       "eventEnded": "{{name}} (ended)",
       "emptyMonth": "No events in {{month}}",
       "emptyMonthHint": "Click a day to create an event.",
@@ -3831,15 +3831,15 @@
       },
       "gamesDuringEvent": "Games downloaded during event",
       "gameCount": "{{count}} game",
-      "gameCount_plural": "{{count}} games",
+      "gameCount_other": "{{count}} games",
       "moreGames": "+{{count}} more game",
-      "moreGames_plural": "+{{count}} more games",
+      "moreGames_other": "+{{count}} more games",
       "duration": {
         "daysHours": "{{days}}d {{hours}}h",
         "days": "{{count}} day",
-        "days_plural": "{{count}} days",
+        "days_other": "{{count}} days",
         "hours": "{{count}} hour",
-        "hours_plural": "{{count}} hours"
+        "hours_other": "{{count}} hours"
       },
       "empty": {
         "title": "No Events",
@@ -4160,7 +4160,7 @@
       "prefillSelectedCount": "Prefill Selected ({{count}})",
       "selectGamesFirst": "Select games first",
       "gamesReady": "{{count}} game ready",
-      "gamesReady_plural": "{{count}} games ready"
+      "gamesReady_other": "{{count}} games ready"
     },
     "loginNotice": {
       "title": "Login Required to Use Commands",
@@ -4169,7 +4169,7 @@
     "confirm": {
       "downloadTitle": "Confirm Download",
       "downloadMessage": "You are about to download {{count}} game. This may take a while and use significant bandwidth.",
-      "downloadMessage_plural": "You are about to download {{count}} games. This may take a while and use significant bandwidth.",
+      "downloadMessage_other": "You are about to download {{count}} games. This may take a while and use significant bandwidth.",
       "downloadAllTitle": "Download All Games",
       "downloadAllMessage": "This will download ALL games in your Steam library. This could be hundreds of gigabytes and take many hours.",
       "recentTitle": "Download Recent Played",
@@ -4186,7 +4186,7 @@
       "calculatingSize": "Calculating download size...",
       "totalEstimated": "Total estimated download:",
       "breakdown": "Breakdown ({{count}} game)",
-      "breakdown_plural": "Breakdown ({{count}} games)",
+      "breakdown_other": "Breakdown ({{count}} games)",
       "unsupportedOs": "Unsupported OS",
       "startDownload": "Start Download",
       "yesContinue": "Yes, Continue"
@@ -4216,13 +4216,13 @@
       "authorizationUrlRequired": "Epic Games authorization required",
       "loadingGameLibrary": "Loading game library...",
       "foundGames": "Found {{count}} owned game",
-      "foundGames_plural": "Found {{count}} owned games",
+      "foundGames_other": "Found {{count}} owned games",
       "gamesCached": "{{count}} game already cached in lancache",
-      "gamesCached_plural": "{{count}} games already cached in lancache",
+      "gamesCached_other": "{{count}} games already cached in lancache",
       "failedLoadLibrary": "Failed to load game library",
       "noGamesSelected": "No games selected. Use \"Select Apps\" to choose games for prefill first.",
       "startingPrefillSelected": "Starting prefill of {{count}} selected app...",
-      "startingPrefillSelected_plural": "Starting prefill of {{count}} selected apps...",
+      "startingPrefillSelected_other": "Starting prefill of {{count}} selected apps...",
       "startingPrefillAll": "Starting prefill of all owned games...",
       "startingPrefillRecent": "Starting prefill of recently played games...",
       "startingPrefillRecentPurchased": "Starting prefill of recently purchased games...",
@@ -4240,7 +4240,7 @@
       "cancellingPrefill": "Cancelling prefill operation...",
       "failedCancelPrefill": "Failed to cancel prefill",
       "selectedGames": "Selected {{count}} game for prefill",
-      "selectedGames_plural": "Selected {{count}} games for prefill",
+      "selectedGames_other": "Selected {{count}} games for prefill",
       "failedSaveSelection": "Failed to save game selection",
       "sessionEnded": "Session ended: {{reason}}",
       "sessionTerminated": "Session terminated: {{reason}}",
@@ -4282,7 +4282,7 @@
       "importNotInLibrary": "{{count}} not in library",
       "noValidAppIds": "No valid App IDs found",
       "ofGamesSelected": "of {{total}} game selected",
-      "ofGamesSelected_plural": "of {{total}} games selected",
+      "ofGamesSelected_other": "of {{total}} games selected",
       "cached": "{{count}} cached",
       "showing": "showing {{count}}",
       "matching": "matching \"{{query}}\"",
@@ -4341,7 +4341,7 @@
       },
       "messages": {
         "andAddedIps": " and added {{count}} IP",
-        "andAddedIps_plural": " and added {{count}} IPs",
+        "andAddedIps_other": " and added {{count}} IPs",
         "updatedNickname": "Updated nickname \"{{nickname}}\"{{ipsAdded}}",
         "addedNickname": "Added nickname \"{{nickname}}\""
       },
@@ -4370,15 +4370,15 @@
       "guestMode": {
         "disabled": "Guest mode is currently disabled by the administrator.",
         "available": "Or continue as guest to view data for {{count}} hour.",
-        "available_plural": "Or continue as guest to view data for {{count}} hours.",
+        "available_other": "Or continue as guest to view data for {{count}} hours.",
         "disabledTitle": "Guest mode is disabled by the administrator",
         "noDataTitle": "No data available. Complete setup first.",
         "viewDataTitle": "View data for {{count}} hour",
-        "viewDataTitle_plural": "View data for {{count}} hours",
+        "viewDataTitle_other": "View data for {{count}} hours",
         "disabledButton": "Guest Mode (Disabled)",
         "noDataButton": "Guest Mode (No Data Available)",
         "continueButton": "Continue as Guest ({{count}} hour)",
-        "continueButton_plural": "Continue as Guest ({{count}} hours)"
+        "continueButton_other": "Continue as Guest ({{count}} hours)"
       },
       "databaseReset": {
         "complete": "Database Reset Complete",
@@ -4503,7 +4503,7 @@
         "deleteFiles": "Delete approximately {{formattedCount}} cache files",
         "freeSpace": "Free up approximately {{size}}",
         "removeDepots": "Remove cache for {{count}} depot",
-        "removeDepots_plural": "Remove cache for {{count}} depots",
+        "removeDepots_other": "Remove cache for {{count}} depots",
         "removeLogEntries": "Remove ALL log entries for this service from the database",
         "removeDownloadRecords": "Remove ALL download records for this service from the database",
         "showProgress": "Progress will be shown in the notification bar at the top",
@@ -6096,7 +6096,7 @@
       "goToLastPage": "Go to last page",
       "jumpTo": "Jump to...",
       "downloadCount": "({{count}} download)",
-      "downloadCount_plural": "({{count}} downloads)"
+      "downloadCount_other": "({{count}} downloads)"
     },
     "dropdown": {
       "selectOption": "Select option"
@@ -6106,7 +6106,7 @@
       "allSelected": "All selected",
       "selected": "selected",
       "minimumSelections": "Minimum {{count}} selection required",
-      "minimumSelections_plural": "Minimum {{count}} selections required"
+      "minimumSelections_other": "Minimum {{count}} selections required"
     },
     "managerCard": {
       "logsReadOnly": "Logs are read-only",
