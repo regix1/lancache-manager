@@ -793,6 +793,19 @@ export function ScheduledPrefillConfigModal({
     baseKey
   ]);
 
+  // The banner is the only surface for several one-shot errors (e.g. a failed selection sync),
+  // so it must be dismissible: clear every source it can display, whichever one is showing.
+  const dismissBanner = () => {
+    setLoadError(null);
+    setGlobalSettingsError(null);
+    setSaveError(null);
+    setPersistentError(null);
+    setGameSelectionError(null);
+    setValidationError(null);
+    setGlobalSettingsSaved(false);
+    setClearLoginsSuccessNote(null);
+  };
+
   const handleServiceChange = (
     serviceKey: ScheduledPrefillServiceKey,
     serviceConfig: ScheduledPrefillServiceConfigDto
@@ -1403,6 +1416,8 @@ export function ScheduledPrefillConfigModal({
                         <Alert
                           color={banner.color}
                           className="scheduled-prefill-config-modal__alert"
+                          withCloseButton
+                          onClose={dismissBanner}
                         >
                           {banner.message}
                         </Alert>
