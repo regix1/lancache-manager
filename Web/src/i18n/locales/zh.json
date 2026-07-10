@@ -1309,7 +1309,7 @@
       },
       "display": {
         "minimalMode": "简约模式",
-        "fullHeightBanners": "全高横幅",
+        "fullHeightBanners": "大横幅",
         "groupByGameRetro": "按游戏分组",
         "groupByServiceRetro": "按服务分组"
       },
@@ -1369,9 +1369,17 @@
           "individual": "未分类下载",
           "individualDescription": "无法按游戏名称分组的下载"
         },
+        "counts": {
+          "clients": "{{count}} 个客户端",
+          "clients_plural": "{{count}} 个客户端",
+          "requests": "{{count}} 个请求",
+          "requests_plural": "{{count}} 个请求"
+        },
         "stats": {
           "title": "分析概览",
           "totalDownloaded": "总下载量",
+          "downloaded": "已下载",
+          "onDisk": "磁盘占用",
           "cacheSaved": "缓存节省",
           "efficiency": "效率",
           "downloads": "下载",

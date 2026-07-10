@@ -1309,7 +1309,7 @@
       },
       "display": {
         "minimalMode": "Minimal mode",
-        "fullHeightBanners": "Full-height banners",
+        "fullHeightBanners": "Large banners",
         "groupByGameRetro": "Group by game",
         "groupByServiceRetro": "Group by service"
       },
@@ -1369,9 +1369,17 @@
           "individual": "Uncategorized Downloads",
           "individualDescription": "Downloads that couldn't be grouped by game name"
         },
+        "counts": {
+          "clients": "{{count}} client",
+          "clients_plural": "{{count}} clients",
+          "requests": "{{count}} request",
+          "requests_plural": "{{count}} requests"
+        },
         "stats": {
           "title": "Analytics Overview",
           "totalDownloaded": "Total Downloaded",
+          "downloaded": "Downloaded",
+          "onDisk": "On disk",
           "cacheSaved": "Cache Saved",
           "efficiency": "Efficiency",
           "downloads": "Downloads",

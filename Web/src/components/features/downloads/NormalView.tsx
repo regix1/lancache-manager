@@ -3,15 +3,8 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 import './VirtualizedList.css';
 import Drawer from '@components/ui/Drawer';
-import {
-  ChevronRight,
-  ChevronDown,
-  ExternalLink,
-  CheckCircle,
-  AlertCircle,
-  HardDrive
-} from 'lucide-react';
-import { formatBytes, formatCount, formatPercent } from '@utils/formatters';
+import { ChevronDown, ExternalLink, CheckCircle, AlertCircle } from 'lucide-react';
+import { formatBytes, formatCount, formatPercent, formatRelativeTime } from '@utils/formatters';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
 import EvictedBadge from '@components/common/EvictedBadge';
 import BadgesRow from './BadgesRow';
@@ -137,21 +130,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const isExpanded = expandedItem === group.id;
   const cardRef = React.useRef<HTMLDivElement>(null);
   const prevExpandedRef = React.useRef<boolean>(false);
-  // The collapsed max-height clamp must stay OFF while the details region is
-  // still animating closed, or the card clips to 160px in one frame and the
-  // collapse looks like a snap. Adjusted during render so the clamp class is
-  // correct in the same pass where isExpanded flips false.
-  const [isCollapsing, setIsCollapsing] = React.useState(false);
-  const [wasExpanded, setWasExpanded] = React.useState(isExpanded);
-  if (wasExpanded !== isExpanded) {
-    setWasExpanded(isExpanded);
-    if (!isExpanded) {
-      setIsCollapsing(true);
-    }
-  }
-  const handleDetailsExitComplete = React.useCallback((): void => {
-    setIsCollapsing(false);
-  }, []);
   const {
     filters,
     updateFilter,
@@ -224,12 +202,10 @@ const GroupCard: React.FC<GroupCardProps> = ({
         ? `${nameKeyed!.service}-${nameKeyed!.slug}`
         : null;
   const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
-  // Full-height: banner at natural aspect ratio, each row height varies
-  // Fit-to-row: fixed height, banner centered with overflow hidden, uniform rows
-  const placeholderIconSize = fullHeightBanners ? 80 : 72;
-  const bannerWrapperClasses = fullHeightBanners
-    ? 'download-banner-mobile sm:w-[280px] sm:self-start'
-    : 'download-banner-mobile sm:w-[340px] sm:self-stretch';
+  const placeholderIconSize = 64;
+  const hasRealGameName = group.downloads.some(
+    (d: Download) => d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
+  );
 
   React.useEffect(() => {
     if (!enableScrollIntoView) return;
@@ -287,8 +263,12 @@ const GroupCard: React.FC<GroupCardProps> = ({
           nameKeyedService={showNameKeyedImage ? nameKeyed!.service : undefined}
           nameKeyedSlug={showNameKeyedImage ? nameKeyed!.slug : undefined}
           alt={primaryName || group.name}
-          className={fullHeightBanners ? 'download-banner-image-natural' : 'download-banner-image'}
-          sizes="(max-width: 639px) 100vw, 280px"
+          className="dl-card-banner-img"
+          sizes={
+            fullHeightBanners
+              ? '(max-width: 639px) 100vw, 340px'
+              : '(max-width: 639px) 100vw, 280px'
+          }
           onError={handleImageError}
         />
       );
@@ -326,265 +306,94 @@ const GroupCard: React.FC<GroupCardProps> = ({
     }
   }
 
+  const metaSummary =
+    group.count > 1
+      ? `${t('downloads.tab.normal.counts.clients', { count: group.clientsSet.size })} · ${t(
+          'downloads.tab.normal.counts.requests',
+          { count: group.count }
+        )}`
+      : null;
+
   const cardContent = (
-    <div
-      className={`flex flex-col sm:flex-row ${fullHeightBanners ? 'download-card-fullheight' : 'sm:min-h-[160px]'}`}
-    >
-      {bannerContent && (
-        <>
-          <div className={`flex-shrink-0 overflow-hidden ${bannerWrapperClasses}`}>
-            {bannerContent}
-          </div>
-          <div className="hidden sm:block w-px flex-shrink-0 self-stretch bg-[var(--theme-border-secondary)]" />
-        </>
-      )}
-      <div
-        className={`flex-1 ${
-          fullHeightBanners
-            ? 'download-card-content px-3 py-3 sm:px-4 sm:py-3'
-            : 'px-3 py-3 sm:px-5 sm:py-4 sm:overflow-hidden'
-        }`}
-      >
-        {/* Mobile Layout - Clean and Spacious */}
-        <div className="sm:hidden">
-          <div className="flex items-start gap-2.5">
-            <ChevronRight
-              size={16}
-              className={`mt-1 text-[var(--theme-primary)] transition-transform duration-200 flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
-              style={{ opacity: isExpanded ? 1 : 0.6 }}
-            />
-            <div className="flex-1 min-w-0">
-              {/* Title Row - Service badge and game name */}
-              <div className="flex items-center gap-2 mb-2 flex-wrap">
-                <BadgesRow
-                  service={group.service}
-                  datasource={group.downloads[0]?.datasource}
-                  showDatasource={hasMultipleDatasources && showDatasourceLabels}
-                  isEvicted={isEvicted}
-                  isPartiallyEvicted={isPartiallyEvicted}
-                />
-                {group.downloads.some(
-                  (d: Download) =>
-                    d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
-                ) && (
-                  <h3 className="text-sm font-bold text-[var(--theme-text-primary)] line-clamp-2 sm:line-clamp-none sm:truncate flex-1 min-w-0">
-                    {group.name}
-                  </h3>
-                )}
-                {diskSizeBytes ? (
-                  <span className="text-themed-muted text-xs">
-                    {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
-                  </span>
-                ) : null}
-              </div>
-
-              {/* Mobile Stats - Stacked layout for better spacing */}
-              <div className="flex flex-col gap-1.5 text-xs">
-                {/* Primary stats row */}
-                <div className="flex items-center gap-3">
-                  <span className="font-semibold text-[var(--theme-text-primary)]">
-                    {formatBytes(group.totalBytes)}
-                  </span>
-                  {showCacheHitBar &&
-                    (hitPercent > 0 ? (
-                      <span className="cache-hit font-semibold">{formatPercent(hitPercent)}</span>
-                    ) : (
-                      <span className="text-[var(--theme-text-muted)]">0%</span>
-                    ))}
-                  {group.count > 1 && (
-                    <span className="text-[var(--theme-text-muted)]">{group.count} req</span>
-                  )}
-                </div>
-                {/* Disk usage row */}
-                {diskSizeBytes ? (
-                  <div className="flex items-center gap-1 text-[var(--theme-text-muted)]">
-                    <HardDrive size={10} className="flex-shrink-0" />
-                    <span>
-                      {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
-                    </span>
-                    {detection?.cache_files_found ? (
-                      <span>· {formatCount(detection.cache_files_found)} files</span>
-                    ) : null}
-                  </div>
-                ) : null}
-                {/* Secondary stats row */}
-                <div className="flex items-center gap-1 text-[var(--theme-text-muted)]">
-                  <DownloadTimestamp
-                    dateString={group.lastSeen}
-                    showAbsoluteInline
-                    showIcon
-                    iconSize={10}
-                  />
-                </div>
-              </div>
-
-              {/* Event badges - only show if present */}
-              {showEventBadges && groupEvents.length > 0 && (
-                <div className="mt-2">
-                  <DownloadBadges events={groupEvents} maxVisible={2} size="sm" />
-                </div>
-              )}
-            </div>
-          </div>
+    <>
+      {bannerContent && <div className="dl-card-banner">{bannerContent}</div>}
+      <div className="dl-card-body">
+        {/* Title row: badges, game name, meta summary, expand chevron */}
+        <div className="dl-card-title-row">
+          <BadgesRow
+            service={group.service}
+            datasource={group.downloads[0]?.datasource}
+            showDatasource={hasMultipleDatasources && showDatasourceLabels}
+            isEvicted={isEvicted}
+            isPartiallyEvicted={isPartiallyEvicted}
+          />
+          {hasRealGameName && <h3 className="dl-card-name">{group.name}</h3>}
+          {showEventBadges && groupEvents.length > 0 && (
+            <DownloadBadges events={groupEvents} maxVisible={2} size="sm" />
+          )}
+          <span className="dl-card-title-end">
+            {metaSummary && <span className="dl-card-meta">{metaSummary}</span>}
+            <ChevronDown size={18} className="dl-card-chevron" />
+          </span>
         </div>
 
-        {/* Desktop Layout - Full stats */}
-        <div className="hidden sm:block">
-          <div className="flex items-start gap-4">
-            <ChevronRight
-              size={18}
-              className={`mt-1 text-[var(--theme-primary)] transition-transform duration-200 flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
-              style={{ opacity: isExpanded ? 1 : 0.6 }}
-            />
-            <div className="flex-1 min-w-0">
-              {/* Title Row */}
-              <div
-                className={`flex flex-row items-center gap-3 ${fullHeightBanners ? 'mb-2' : 'mb-3'}`}
+        {/* Labeled readout: the at-a-glance numbers for this game */}
+        <div className="dl-card-stats">
+          <div className="dl-stat">
+            <span className="dl-stat-value">{formatBytes(group.totalBytes)}</span>
+            <span className="dl-stat-label">{t('downloads.tab.normal.stats.downloaded')}</span>
+          </div>
+          {showCacheHitBar && (
+            <div className="dl-stat">
+              <span
+                className={`dl-stat-value${hitPercent > 0 ? ' cache-hit' : ' dl-stat-value-muted'}`}
               >
-                <BadgesRow
-                  service={group.service}
-                  datasource={group.downloads[0]?.datasource}
-                  showDatasource={hasMultipleDatasources && showDatasourceLabels}
-                  isEvicted={isEvicted}
-                  isPartiallyEvicted={isPartiallyEvicted}
-                />
-                {group.downloads.some(
-                  (d: Download) =>
-                    d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
-                ) && (
-                  <h3
-                    className={`${fullHeightBanners ? 'text-lg' : 'text-xl'} font-bold text-[var(--theme-text-primary)] line-clamp-2 sm:line-clamp-none sm:truncate`}
-                  >
-                    {group.name}
-                  </h3>
-                )}
-                {diskSizeBytes ? (
-                  <span className="text-themed-muted text-xs">
-                    {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
-                  </span>
-                ) : null}
-                {showEventBadges && groupEvents.length > 0 && (
-                  <DownloadBadges events={groupEvents} maxVisible={2} size="sm" />
-                )}
-                {group.count > 1 && (
-                  <span className="themed-badge status-badge-neutral">
-                    {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''} ·{' '}
-                    {group.count} request{group.count !== 1 ? 's' : ''}
-                  </span>
-                )}
-              </div>
-
-              {/* Stats list — one row per stat spanning the full content width, label on
-                  the left and value right-aligned (justify-between), so the card reads as an
-                  aligned list instead of a left-packed two-column block with empty space. */}
-              <div className={`flex flex-col ${fullHeightBanners ? 'gap-y-0.5' : 'gap-y-1.5'}`}>
-                <div className="flex items-baseline justify-between gap-2">
-                  <span
-                    className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
-                  >
-                    {t('downloads.tab.normal.stats.totalDownloaded')}
-                  </span>
-                  <span
-                    className={`${fullHeightBanners ? 'text-sm' : 'text-base'} font-bold text-[var(--theme-text-primary)]`}
-                  >
-                    {formatBytes(group.totalBytes)}
-                  </span>
-                </div>
-                <div className="flex items-baseline justify-between gap-2">
-                  <span
-                    className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
-                  >
-                    Clients
-                  </span>
-                  <span
-                    className={`${fullHeightBanners ? 'text-sm' : 'text-base'} font-bold text-[var(--theme-text-primary)]`}
-                  >
-                    {group.clientsSet.size}
-                  </span>
-                </div>
-                {showCacheHitBar && (
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span
-                      className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
-                    >
-                      {t('downloads.tab.normal.stats.cacheSaved')}
-                    </span>
-                    <span
-                      className={`${fullHeightBanners ? 'text-sm' : 'text-base'} font-bold text-[var(--theme-success-text)]`}
-                    >
-                      {formatBytes(group.cacheHitBytes)}
-                    </span>
-                  </div>
-                )}
-                <div className="flex items-baseline justify-between gap-2">
-                  <span
-                    className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
-                  >
-                    Last Active
-                  </span>
-                  <span
-                    className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} font-medium text-[var(--theme-text-secondary)] inline-flex items-center gap-1.5`}
-                  >
-                    <DownloadTimestamp
-                      dateString={group.lastSeen}
-                      showAbsoluteInline
-                      showIcon
-                      iconSize={14}
-                    />
-                  </span>
-                </div>
-                {showCacheHitBar && (
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span
-                      className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
-                    >
-                      {t('downloads.tab.normal.stats.efficiency')}
-                    </span>
-                    <span
-                      className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} font-bold inline-flex items-center gap-1.5 ${
-                        hitPercent > 0 ? 'cache-hit' : 'text-[var(--theme-text-secondary)]'
-                      }`}
-                    >
-                      {hitPercent > 0
-                        ? formatPercent(hitPercent)
-                        : t('downloads.tab.normal.stats.notAvailable')}
-                    </span>
-                  </div>
-                )}
-              </div>
+                {hitPercent > 0 ? formatPercent(hitPercent) : '—'}
+              </span>
+              <span className="dl-stat-label">{t('downloads.tab.normal.stats.cacheHit')}</span>
             </div>
+          )}
+          {diskSizeBytes ? (
+            <div className="dl-stat">
+              <span className="dl-stat-value">{formatBytes(diskSizeBytes)}</span>
+              <span className="dl-stat-label">{t('downloads.tab.normal.stats.onDisk')}</span>
+            </div>
+          ) : null}
+          <div className="dl-stat">
+            <span className="dl-stat-value dl-stat-value-muted">
+              {formatRelativeTime(group.lastSeen)}
+            </span>
+            <span className="dl-stat-label">{t('downloads.tab.normal.stats.lastActivity')}</span>
           </div>
         </div>
+
+        {showCacheHitBar && (
+          <div className="dl-card-cache-bar">
+            <div className="dl-card-cache-bar-fill" style={{ width: `${hitPercent}%` }} />
+          </div>
+        )}
       </div>
-    </div>
+    </>
   );
 
   return (
     <div
       ref={cardRef}
-      className={`rounded-lg border overflow-hidden shadow-sm bg-[var(--theme-bg-secondary)] ${
-        isExpanded ? 'ring-2 border-[var(--theme-primary)]' : 'border-[var(--theme-border-primary)]'
-      } ${!fullHeightBanners && !isExpanded && !isCollapsing ? 'sm:max-h-[160px]' : ''}${isEvicted ? ' opacity-60' : ''}`}
+      className={`dl-card${isExpanded ? ' dl-card-expanded' : ''}${
+        fullHeightBanners ? ' dl-card-banner-lg' : ''
+      }${isEvicted ? ' dl-card-evicted' : ''}`}
     >
-      {fullHeightBanners ? (
-        <div
-          onClick={() => onItemClick(group.id)}
-          className="w-full text-left cursor-pointer bg-[var(--theme-bg-secondary)] hover:bg-[var(--theme-bg-tertiary)]"
-        >
-          {cardContent}
-        </div>
-      ) : (
-        <button
-          onClick={() => onItemClick(group.id)}
-          className="w-full text-left hover:bg-[var(--theme-bg-tertiary)] bg-[var(--theme-bg-secondary)]"
-        >
-          {cardContent}
-        </button>
-      )}
+      <button
+        type="button"
+        aria-expanded={isExpanded}
+        onClick={() => onItemClick(group.id)}
+        className="dl-card-header"
+      >
+        {cardContent}
+      </button>
 
       <CollapsibleRegion
         open={isExpanded}
-        onExitComplete={handleDetailsExitComplete}
         contentClassName="border-t border-[var(--theme-primary)] bg-[var(--theme-bg-secondary)] px-4 pb-4 pt-4 sm:px-6 sm:pb-6 sm:pt-5"
       >
         <div onClick={(event: React.MouseEvent<HTMLDivElement>) => event.stopPropagation()}>
