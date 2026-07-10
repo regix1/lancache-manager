@@ -74,8 +74,11 @@
   gap: 0.75rem;
   padding: 0.875rem;
   border-radius: var(--theme-border-radius-lg, 0.75rem);
-  background-color: var(--theme-card-bg);
-  border: 1px solid var(--theme-card-border);
+  /* Recessed well, not a card: these tiles sit INSIDE the AccordionSection card
+     shell (--theme-card-bg), so painting them card-bg made them vanish into it.
+     The app-wide well surface separates them. */
+  background-color: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-well);
   transition:
     transform 0.15s ease-out,
     box-shadow 0.15s ease-out;
@@ -128,9 +131,17 @@
   text-overflow: ellipsis;
 }
 
-/* Session Card */
+/* Session Card — a recessed well inside the AccordionSection card shell. The
+   shell is now --theme-card-bg, so a card-bg inner surface blends into it; the
+   compound selector overrides .themed-card (a single-class rule) to give these
+   list items the app-wide recessed-well surface instead. */
 .prefill-session-card {
   overflow: hidden;
+}
+
+.themed-card.prefill-session-card {
+  background-color: var(--theme-bg-tertiary);
+  border-color: var(--theme-border-well);
 }
 
 .prefill-session-content {
@@ -477,7 +488,11 @@
 .prefill-history-entry {
   padding: 0.5rem;
   border-radius: var(--theme-border-radius, 0.5rem);
-  background-color: var(--theme-bg-tertiary);
+  /* The parent session-card is now a recessed well (bg-tertiary); raise the
+     per-game rows to card-bg + a well hairline so they stay legible instead of
+     blending into it. */
+  background-color: var(--theme-card-bg);
+  border: 1px solid var(--theme-border-well);
 }
 
 .prefill-history-entry-main {
@@ -551,8 +566,9 @@
   gap: 0.75rem;
   padding: 0.75rem;
   border-radius: var(--theme-border-radius, 0.5rem);
-  background-color: var(--theme-card-bg);
-  border: 1px solid var(--theme-card-border);
+  /* Recessed well inside the AccordionSection card shell (see .prefill-session-card). */
+  background-color: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-well);
   transition:
     transform 0.15s ease-out,
     box-shadow 0.15s ease-out;
@@ -787,6 +803,12 @@
   .prefill-persistent-list {
     grid-template-columns: repeat(3, 1fr);
   }
+}
+
+/* Recessed well inside the AccordionSection card shell (see .prefill-session-card). */
+.themed-card.prefill-persistent-card {
+  background-color: var(--theme-bg-tertiary);
+  border-color: var(--theme-border-well);
 }
 
 .prefill-persistent-card__body {

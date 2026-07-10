@@ -1020,51 +1020,6 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
         <CollapsibleRegion open={isExpanded} contentClassName="mgmt-row-detail">
           <div className="session-detail">
-            <div className="dash-readout">
-              <div className="dash-readout-item">
-                <span className="dash-readout-value">
-                  <FormattedTimestamp timestamp={session.createdAt} />
-                </span>
-                <span className="dash-readout-label">
-                  {t('activeSessions.labels.createdShort', 'Created')}
-                </span>
-              </div>
-              <div className="dash-readout-item">
-                <span className="dash-readout-value">
-                  {session.lastSeenAt ? (
-                    <FormattedTimestamp timestamp={session.lastSeenAt} />
-                  ) : (
-                    t('activeSessions.labels.never', 'Never')
-                  )}
-                </span>
-                <span className="dash-readout-label">
-                  {t('activeSessions.labels.lastSeenShort', 'Last Seen')}
-                </span>
-              </div>
-              <div className="dash-readout-item">
-                <span className="dash-readout-value">
-                  {admin ? (
-                    t('activeSessions.labels.never', 'Never')
-                  ) : (
-                    <FormattedTimestamp timestamp={session.expiresAt} />
-                  )}
-                </span>
-                <span className="dash-readout-label">
-                  {t('activeSessions.labels.expires', 'Expires')}
-                </span>
-              </div>
-              {session.revokedAt && (
-                <div className="dash-readout-item">
-                  <span className="dash-readout-value is-error">
-                    <FormattedTimestamp timestamp={session.revokedAt} />
-                  </span>
-                  <span className="dash-readout-label">
-                    {t('activeSessions.labels.revokedShort', 'Revoked')}
-                  </span>
-                </div>
-              )}
-            </div>
-
             {hasClientInfo && (
               <div className="mgmt-stat-grid">
                 {session.publicIpAddress && (
@@ -1213,6 +1168,53 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             <p className="mgmt-scanmeta session-detail__id">
               {t('activeSessions.labels.sessionIdWithValue', { id: session.id })}
             </p>
+
+            {/* Lifecycle status pinned to the bottom as a footer strip (divider
+                above), matching the app-wide .dash-readout--footer convention. */}
+            <div className="dash-readout dash-readout--footer">
+              <div className="dash-readout-item">
+                <span className="dash-readout-value">
+                  <FormattedTimestamp timestamp={session.createdAt} />
+                </span>
+                <span className="dash-readout-label">
+                  {t('activeSessions.labels.createdShort', 'Created')}
+                </span>
+              </div>
+              <div className="dash-readout-item">
+                <span className="dash-readout-value">
+                  {session.lastSeenAt ? (
+                    <FormattedTimestamp timestamp={session.lastSeenAt} />
+                  ) : (
+                    t('activeSessions.labels.never', 'Never')
+                  )}
+                </span>
+                <span className="dash-readout-label">
+                  {t('activeSessions.labels.lastSeenShort', 'Last Seen')}
+                </span>
+              </div>
+              <div className="dash-readout-item">
+                <span className="dash-readout-value">
+                  {admin ? (
+                    t('activeSessions.labels.never', 'Never')
+                  ) : (
+                    <FormattedTimestamp timestamp={session.expiresAt} />
+                  )}
+                </span>
+                <span className="dash-readout-label">
+                  {t('activeSessions.labels.expires', 'Expires')}
+                </span>
+              </div>
+              {session.revokedAt && (
+                <div className="dash-readout-item">
+                  <span className="dash-readout-value is-error">
+                    <FormattedTimestamp timestamp={session.revokedAt} />
+                  </span>
+                  <span className="dash-readout-label">
+                    {t('activeSessions.labels.revokedShort', 'Revoked')}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
         </CollapsibleRegion>
       </div>
