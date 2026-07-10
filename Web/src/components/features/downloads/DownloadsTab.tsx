@@ -163,7 +163,7 @@ const PRESETS = {
     showEventBadges: true,
     showTimestamps: true,
     showBannerColumn: true,
-    bannerOnly: false,
+    bannerOnly: true,
     groupByGameRetro: false,
     groupByServiceRetro: false
   },
@@ -183,7 +183,7 @@ const PRESETS = {
     showEventBadges: false,
     showTimestamps: false,
     showBannerColumn: false,
-    bannerOnly: false,
+    bannerOnly: true,
     groupByGameRetro: false,
     groupByServiceRetro: false
   },
@@ -203,7 +203,7 @@ const PRESETS = {
     showEventBadges: true,
     showTimestamps: true,
     showBannerColumn: true,
-    bannerOnly: false,
+    bannerOnly: true,
     groupByGameRetro: false,
     groupByServiceRetro: false
   },
@@ -223,7 +223,7 @@ const PRESETS = {
     showEventBadges: true,
     showTimestamps: true,
     showBannerColumn: true,
-    bannerOnly: false,
+    bannerOnly: true,
     groupByGameRetro: false,
     groupByServiceRetro: false
   }
@@ -565,7 +565,7 @@ const DownloadsTab: React.FC = () => {
       showEventBadges: storage.getItem(STORAGE_KEYS.SHOW_EVENT_BADGES) !== 'false',
       showTimestamps: storage.getItem(STORAGE_KEYS.SHOW_TIMESTAMPS) !== 'false',
       showBannerColumn: storage.getItem(STORAGE_KEYS.SHOW_BANNER_COLUMN) !== 'false',
-      bannerOnly: storage.getItem(STORAGE_KEYS.BANNER_ONLY) === 'true',
+      bannerOnly: storage.getItem(STORAGE_KEYS.BANNER_ONLY) !== 'false',
       groupByGameRetro: storage.getItem(STORAGE_KEYS.GROUP_BY_GAME_RETRO) === 'true',
       groupByServiceRetro: storage.getItem(STORAGE_KEYS.GROUP_BY_SERVICE_RETRO) === 'true'
     };
