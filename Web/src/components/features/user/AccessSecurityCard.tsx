@@ -134,47 +134,45 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
       </div>
 
       <div className="p-4 sm:p-5">
-        <div className="settings-group settings-group--access">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-            <div className="toggle-row-label whitespace-nowrap">
-              {t('user.guest.sections.sessionDuration')}
+        <div className="mgmt-list user-settings-list">
+          <div className="mgmt-row">
+            <div className="mgmt-row__body">
+              <p className="mgmt-row__title">{t('user.guest.sections.sessionDuration')}</p>
+              {state && <p className="mgmt-row__meta">{getSourceLabel(state)}</p>}
             </div>
 
-            {state === null ? (
-              <LoadingSpinner inline size="sm" />
-            ) : (
-              <div className="access-security-card__toggle-row">
-                <div className="access-security-card__dropdown-wrapper" title={dropdownTitle}>
-                  <EnhancedDropdown
-                    options={durationOptions}
-                    value={state.durationHours.toString()}
-                    onChange={handleDurationChange}
-                    disabled={dropdownDisabled}
-                    className="w-48"
-                  />
-                  {isSaving && (
-                    <LoadingSpinner
-                      inline
-                      size="sm"
-                      className="absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent"
+            <div className="mgmt-row__actions">
+              {state === null ? (
+                <LoadingSpinner inline size="sm" />
+              ) : (
+                <>
+                  <span className="user-settings-dropdown" title={dropdownTitle}>
+                    <EnhancedDropdown
+                      options={durationOptions}
+                      value={state.durationHours.toString()}
+                      onChange={handleDurationChange}
+                      disabled={dropdownDisabled}
+                      size="md"
+                      className="w-40"
                     />
+                    {isSaving && (
+                      <LoadingSpinner inline size="sm" className="user-settings-inline-spinner" />
+                    )}
+                  </span>
+                  {isAdmin && (
+                    <Button
+                      variant="filled"
+                      color="gray"
+                      size="md"
+                      disabled={state.source !== 'ui' || isSaving}
+                      onClick={handleResetToDefault}
+                    >
+                      {t('user.guest.guestDurationToggle.resetToDefault')}
+                    </Button>
                   )}
-                </div>
-                <span className="access-security-card__source-label">{getSourceLabel(state)}</span>
-                {isAdmin && (
-                  <Button
-                    variant="filled"
-                    color="gray"
-                    size="xs"
-                    disabled={state.source !== 'ui' || isSaving}
-                    onClick={handleResetToDefault}
-                    className="access-security-card__reset-button"
-                  >
-                    {t('user.guest.guestDurationToggle.resetToDefault')}
-                  </Button>
-                )}
-              </div>
-            )}
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>

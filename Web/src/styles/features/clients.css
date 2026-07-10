@@ -1,0 +1,57 @@
+/* Clients page — layers onto the shared .mgmt-toolbar / .mgmt-list / .dash-readout
+   family (managementSectionContent.css + dashboard.css, both imported explicitly by
+   ClientsTab.tsx). Only the page-specific rules those shared sheets don't cover
+   live here. */
+
+/* Sort cluster: both EnhancedDropdowns are full-width on the narrowest screens so
+   the toolbar wraps instead of overflowing, then take fixed widths from `sm` up. */
+.clients-sort-field,
+.clients-sort-direction {
+  width: 100%;
+}
+
+@media (min-width: 640px) {
+  .clients-sort-field {
+    width: 11rem;
+  }
+
+  .clients-sort-direction {
+    width: 9rem;
+  }
+}
+
+/* Loading skeleton — mirrors the .mgmt-row shape (leading icon slot skipped,
+   title/meta stack + trailing value) so the list doesn't jump when data arrives. */
+.clients-skeleton-line {
+  height: 0.875rem;
+  border-radius: 0.25rem;
+  background: linear-gradient(
+    90deg,
+    var(--theme-skeleton-base, rgba(255, 255, 255, 0.06)) 25%,
+    var(--theme-skeleton-highlight, rgba(255, 255, 255, 0.12)) 50%,
+    var(--theme-skeleton-base, rgba(255, 255, 255, 0.06)) 75%
+  );
+  background-size: 200% 100%;
+  animation: stat-card-shimmer 1.5s ease-in-out infinite;
+}
+
+.clients-skeleton-line--title {
+  width: 40%;
+}
+
+.clients-skeleton-line--meta {
+  width: 60%;
+  height: 0.7rem;
+  margin-top: 0.4rem;
+}
+
+.clients-skeleton-line--value {
+  width: 3rem;
+  flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clients-skeleton-line {
+    animation: none;
+  }
+}

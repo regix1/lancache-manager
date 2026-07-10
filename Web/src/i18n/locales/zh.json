@@ -83,6 +83,8 @@
     "noData": "无数据",
     "evicted": "已淘汰",
     "partiallyEvicted": "部分已淘汰",
+    "on": "开",
+    "off": "关",
     "bytes": {
       "units": ["B", "KB", "MB", "GB", "TB"],
       "zero": "0 {{unit}}"
@@ -845,6 +847,10 @@
   "user": {
     "title": "用户管理",
     "subtitle": "会话与访客控制",
+    "tabs": {
+      "sessions": "会话",
+      "guestDefaults": "访客默认设置"
+    },
     "stats": {
       "total": "总计",
       "users": "用户",
@@ -960,6 +966,8 @@
       "prefill": {
         "title": "预填充权限",
         "subtitle": "控制访客对预填充标签的访问。权限有时间限制，可按会话授予。",
+        "sectionTitle": "预填充服务",
+        "sectionSubtitle": "按服务控制访客预填充权限",
         "updated": "预填充配置已更新",
         "existingGuestsNote": "这些默认设置仅适用于新的访客会话。对于已登录的访客，请使用“活动会话”修改预填充权限。",
         "warning": "安全风险：所有新访客都将能够触发预填充。建议保持关闭，改为按会话授予访问权限。",
@@ -981,7 +989,9 @@
           "noLimit": "无限制",
           "usingDefault": "使用默认值",
           "overridden": "此用户的自定义限制",
-          "updated": "最大线程限制已更新"
+          "updated": "最大线程限制已更新",
+          "threadsCount": "{{count}} 个线程",
+          "threadsCount_other": "{{count}} 个线程"
         }
       },
       "errors": {
@@ -1039,6 +1049,8 @@
     "title": "活跃会话",
     "loading": "加载会话中...",
     "paginationLabel": "个会话",
+    "resultCount": "{{count}} 个会话",
+    "resultCount_other": "{{count}} 个会话",
     "history": {
       "title": "会话历史"
     },
@@ -1069,14 +1081,33 @@
       "isp": "ISP",
       "timezoneHeading": "时区",
       "language": "语言",
-      "screen": "屏幕"
+      "screen": "屏幕",
+      "preferences": "偏好设置",
+      "theme": "主题",
+      "never": "从不",
+      "expires": "过期时间"
     },
     "unknownDeviceLower": "未知设备",
     "thisDevice": "此设备",
     "currentSession": "当前会话",
+    "currentSessionShort": "你",
     "empty": {
       "title": "没有活跃会话",
-      "subtitle": "当用户连接时会话将显示在此处"
+      "subtitle": "当用户连接时会话将显示在此处",
+      "filteredTitle": "没有匹配的会话",
+      "filtered": "没有符合所选筛选条件的会话。"
+    },
+    "filters": {
+      "all": "全部",
+      "admin": "管理员",
+      "guest": "访客"
+    },
+    "relative": {
+      "never": "从不",
+      "justNow": "刚刚",
+      "minutesAgo": "{{count}} 分钟前",
+      "hoursAgo": "{{count}} 小时前",
+      "daysAgo": "{{count}} 天前"
     },
     "sessionTypes": {
       "authenticatedUser": "已验证用户",
@@ -1170,7 +1201,13 @@
       "customFormats": "此用户的自定义格式",
       "defaultFormats": "使用默认（{{formats}}）",
       "allFormats": "所有格式",
-      "save": "保存首选项"
+      "save": "保存首选项",
+      "refreshLock": {
+        "allow": "允许访客更改刷新频率",
+        "usingDefault": "使用全局默认值",
+        "locked": "已为此访客锁定",
+        "unlocked": "已为此访客解锁"
+      }
     },
     "prefill": {
       "title": "预填充访问权限",
@@ -1179,7 +1216,9 @@
         "enabled": "已启用",
         "expired": "已过期",
         "disabled": "已禁用",
-        "expires": "过期时间：{{time}}"
+        "expires": "过期时间：{{time}}",
+        "hoursMinutesRemaining": "剩余 {{hours}} 小时 {{minutes}} 分钟",
+        "minutesRemaining": "剩余 {{minutes}} 分钟"
       },
       "actions": {
         "grant": "授予权限",

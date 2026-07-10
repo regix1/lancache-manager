@@ -233,8 +233,12 @@ const UserTab: React.FC = () => {
       {/* Tab Bar */}
       <SegmentedControl
         options={[
-          { value: 'sessions', label: 'Sessions', icon: <Users /> },
-          { value: 'defaults', label: 'Guest Defaults', icon: <Settings2 /> }
+          { value: 'sessions', label: t('user.tabs.sessions', 'Sessions'), icon: <Users /> },
+          {
+            value: 'defaults',
+            label: t('user.tabs.guestDefaults', 'Guest Defaults'),
+            icon: <Settings2 />
+          }
         ]}
         value={activeTab}
         onChange={(value: string) => setActiveTab(value as 'sessions' | 'defaults')}

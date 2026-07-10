@@ -1,0 +1,75 @@
+/* Shared visual language for the Users -> Guest Defaults tab (Access & Security,
+   Prefill Services, Appearance & Display). Rows use the shared .mgmt-row/.mgmt-list
+   family from managementSectionContent.css (imported by GuestConfiguration.tsx);
+   the rules below cover only the settings-specific composition that family doesn't
+   already provide: a labelled column wrapper, the field-label + control pairing,
+   and the inline-spinner position over a dropdown. */
+
+.user-settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.user-settings-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.user-settings-inline-spinner {
+  position: absolute;
+  right: 2.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--theme-accent);
+  pointer-events: none;
+}
+
+.user-settings-service-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.user-settings-detail-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.user-settings-field-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.user-settings-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--theme-text-muted);
+  white-space: nowrap;
+}
+
+/* Narrow screens: let a settings row wrap its trailing controls onto their own
+   line instead of overflowing. Scoped to markup that carries both classes so it
+   never touches other .mgmt-row consumers elsewhere in the app. */
+@media (max-width: 480px) {
+  .user-settings-list .mgmt-row {
+    flex-wrap: wrap;
+  }
+
+  .user-settings-list .mgmt-row__actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}

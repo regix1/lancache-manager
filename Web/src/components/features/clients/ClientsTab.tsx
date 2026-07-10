@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { formatBytes, formatPercent } from '@utils/formatters';
@@ -6,167 +6,103 @@ import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { Card } from '@components/ui/Card';
 import { CacheInfoTooltip, Tooltip } from '@components/ui/Tooltip';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
-import { ArrowUpDown, Users } from 'lucide-react';
+import { EmptyState } from '@components/ui/ManagerCard';
+import { Users } from 'lucide-react';
+import type { ClientStat, SortOption, SortDirection } from './types';
+import '@components/features/management/managementSectionContent.css';
+import '@/styles/features/clients.css';
 
-type SortOption = 'ip' | 'downloads' | 'totalData' | 'hits' | 'misses' | 'hitRate' | 'lastActivity';
-type SortDirection = 'asc' | 'desc';
-
-interface ClientData {
-  clientIp: string;
-  displayName?: string;
-  isGrouped?: boolean;
-  groupMemberIps?: string[];
-  totalDownloads: number;
-  totalBytes: number;
-  totalCacheHitBytes: number;
-  totalCacheMissBytes: number;
-  cacheHitPercent: number;
-  lastActivityUtc: string;
+interface ClientListItemProps {
+  client: ClientStat;
 }
 
-interface ClientRowProps {
-  client: ClientData;
-}
-
-const ClientRow: React.FC<ClientRowProps> = ({ client }) => {
+/**
+ * One client row: identity + last activity, hit rate readout, and an expanded
+ * detail strip of downloads/data/hits/misses. Replaces the old ClientRow/ClientCard
+ * pair with a single responsive item (CSS reflows it, no forked component tree).
+ */
+const ClientListItem: React.FC<ClientListItemProps> = ({ client }) => {
   const { t } = useTranslation();
   const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
   const displayLabel = client.displayName || client.clientIp;
+  const showGroupCount = !!(client.isGrouped && (client.groupMemberIps?.length ?? 0) > 1);
   const ipTooltip =
     client.isGrouped && client.groupMemberIps
       ? t('clients.tooltips.groupIps', { ips: client.groupMemberIps.join(', ') })
       : client.displayName
         ? t('clients.tooltips.singleIp', { ip: client.clientIp })
         : undefined;
+  const hitRateTone = client.cacheHitPercent > 50 ? 'is-success' : 'is-warning';
 
   return (
-    <tr className="hover:bg-themed-hover transition-colors">
-      <td className="py-3 text-themed-primary font-medium text-sm whitespace-nowrap">
-        <div className="flex items-center gap-2">
-          {client.isGrouped && <Users className="w-4 h-4 text-themed-muted flex-shrink-0" />}
-          {ipTooltip ? (
-            <Tooltip content={ipTooltip}>
-              <span className="cursor-help border-b border-dashed border-themed-muted">
-                {displayLabel}
+    <div>
+      <div className="mgmt-row mgmt-row--interactive">
+        {client.isGrouped && <Users className="w-4 h-4 text-themed-muted flex-shrink-0" />}
+        <div className="mgmt-row__body">
+          <p className="mgmt-row__title flex items-center gap-2">
+            {ipTooltip ? (
+              <Tooltip content={ipTooltip}>
+                <span className="cursor-help border-b border-dashed border-themed-muted">
+                  {displayLabel}
+                </span>
+              </Tooltip>
+            ) : (
+              <span>{displayLabel}</span>
+            )}
+            {showGroupCount && (
+              <span
+                className="themed-badge status-badge-neutral badge-count"
+                aria-label={t('clients.groupCount', { count: client.groupMemberIps!.length })}
+              >
+                {client.groupMemberIps!.length}
               </span>
-            </Tooltip>
-          ) : (
-            <span>{displayLabel}</span>
-          )}
-          {client.isGrouped && client.groupMemberIps && client.groupMemberIps.length > 1 && (
-            <span className="text-xs text-themed-muted">
-              {t('clients.groupCount', { count: client.groupMemberIps.length })}
+            )}
+          </p>
+          <p className="mgmt-row__meta">
+            {t('clients.labels.lastActivity', { time: formattedLastActivity })}
+          </p>
+        </div>
+        <div className="mgmt-row__actions">
+          <div className="flex flex-col items-end">
+            <span className={`dash-readout-value ${hitRateTone}`}>
+              {formatPercent(client.cacheHitPercent)}
             </span>
-          )}
-        </div>
-      </td>
-      <td className="py-3 text-themed-secondary hidden sm:table-cell whitespace-nowrap">
-        {client.totalDownloads}
-      </td>
-      <td className="py-3 text-themed-secondary text-sm whitespace-nowrap">
-        {formatBytes(client.totalBytes)}
-      </td>
-      <td className="py-3 cache-hit hidden md:table-cell text-sm whitespace-nowrap">
-        {formatBytes(client.totalCacheHitBytes)}
-      </td>
-      <td className="py-3 cache-miss hidden md:table-cell text-sm whitespace-nowrap">
-        {formatBytes(client.totalCacheMissBytes)}
-      </td>
-      <td className="py-3">
-        <div className="flex flex-col sm:flex-row sm:items-center space-y-1 sm:space-y-0 sm:space-x-2">
-          <div className="w-full sm:w-16 lg:w-24 progress-track rounded-full h-2">
-            <div
-              className="progress-bar-high h-2 rounded-full"
-              style={{ width: `${client.cacheHitPercent}%` }}
-            />
+            <span className="dash-readout-label">{t('clients.table.hitRate')}</span>
           </div>
-          <span className="text-xs text-themed-secondary">
-            {formatPercent(client.cacheHitPercent)}
-          </span>
-        </div>
-      </td>
-      <td className="py-3 text-themed-muted text-xs hidden lg:table-cell whitespace-nowrap">
-        {formattedLastActivity}
-      </td>
-    </tr>
-  );
-};
-
-// Mobile card layout for each client
-const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
-  const { t } = useTranslation();
-  const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
-  const displayLabel = client.displayName || client.clientIp;
-  const ipTooltip =
-    client.isGrouped && client.groupMemberIps
-      ? t('clients.tooltips.groupIps', { ips: client.groupMemberIps.join(', ') })
-      : client.displayName
-        ? t('clients.tooltips.singleIp', { ip: client.clientIp })
-        : undefined;
-
-  return (
-    <div className="p-4 rounded-lg border bg-themed-secondary border-themed-primary">
-      {/* Header: IP/Name and Hit Rate */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          {client.isGrouped && <Users className="w-4 h-4 text-themed-muted flex-shrink-0" />}
-          {ipTooltip ? (
-            <Tooltip content={ipTooltip}>
-              <span className="text-themed-primary font-medium cursor-help border-b border-dashed border-themed-muted">
-                {displayLabel}
-              </span>
-            </Tooltip>
-          ) : (
-            <span className="text-themed-primary font-medium">{displayLabel}</span>
-          )}
-          {client.isGrouped && client.groupMemberIps && client.groupMemberIps.length > 1 && (
-            <span className="text-xs text-themed-muted">
-              {t('clients.groupCount', { count: client.groupMemberIps.length })}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-16 progress-track rounded-full h-2">
-            <div
-              className="progress-bar-high h-2 rounded-full"
-              style={{ width: `${client.cacheHitPercent}%` }}
-            />
-          </div>
-          <span className="text-xs text-themed-secondary font-medium">
-            {formatPercent(client.cacheHitPercent)}
-          </span>
         </div>
       </div>
-
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 gap-2 text-sm">
-        <div>
-          <span className="text-themed-muted text-xs">{t('clients.labels.totalData')}</span>
-          <p className="text-themed-secondary">{formatBytes(client.totalBytes)}</p>
+      <div className="mgmt-row-detail">
+        <div className="dash-readout">
+          <div className="dash-readout-item">
+            <span className="dash-readout-value">{client.totalDownloads}</span>
+            <span className="dash-readout-label">{t('clients.labels.downloads')}</span>
+          </div>
+          <div className="dash-readout-item">
+            <span className="dash-readout-value">{formatBytes(client.totalBytes)}</span>
+            <span className="dash-readout-label">{t('clients.labels.totalData')}</span>
+          </div>
+          <div className="dash-readout-item">
+            <span className="dash-readout-value is-success">
+              {formatBytes(client.totalCacheHitBytes)}
+            </span>
+            <span className="dash-readout-label">{t('clients.labels.cacheHits')}</span>
+          </div>
+          <div className="dash-readout-item">
+            <span className="dash-readout-value is-warning">
+              {formatBytes(client.totalCacheMissBytes)}
+            </span>
+            <span className="dash-readout-label">{t('clients.labels.cacheMisses')}</span>
+          </div>
         </div>
-        <div>
-          <span className="text-themed-muted text-xs">{t('clients.labels.downloads')}</span>
-          <p className="text-themed-secondary">{client.totalDownloads}</p>
-        </div>
-        <div>
-          <span className="text-themed-muted text-xs">{t('clients.labels.cacheHits')}</span>
-          <p className="cache-hit">{formatBytes(client.totalCacheHitBytes)}</p>
-        </div>
-        <div>
-          <span className="text-themed-muted text-xs">{t('clients.labels.cacheMisses')}</span>
-          <p className="cache-miss">{formatBytes(client.totalCacheMissBytes)}</p>
-        </div>
-      </div>
-
-      {/* Footer: Last Activity */}
-      <div className="mt-3 pt-2 border-t border-themed-primary">
-        <span className="text-themed-muted text-xs">
-          {t('clients.labels.lastActivity', { time: formattedLastActivity })}
-        </span>
       </div>
     </div>
   );
 };
+
+/** Stable identity for a sorted row: the group as a whole when grouped (survives
+ *  re-sorting), otherwise the client's own IP. */
+const getClientKey = (client: ClientStat): string =>
+  client.isGrouped ? `group-${client.groupId ?? client.clientIp}` : client.clientIp;
 
 const ClientsTab: React.FC = () => {
   const { t } = useTranslation();
@@ -230,100 +166,54 @@ const ClientsTab: React.FC = () => {
       </h2>
 
       <Card>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+        <div className="mgmt-toolbar mb-4">
           <h3 className="text-lg font-semibold flex items-center gap-2 text-themed-primary">
             {t('clients.subtitle')}
             <CacheInfoTooltip />
           </h3>
-          <div className="flex items-center gap-2">
-            <ArrowUpDown size={14} className="text-themed-muted hidden sm:block" />
+          <div className="flex items-center gap-2 flex-wrap">
             <EnhancedDropdown
               options={sortOptions}
               value={sortBy}
               onChange={(value) => setSortBy(value as SortOption)}
               prefix={t('clients.sort.prefix')}
-              className="w-40 sm:w-44"
+              className="clients-sort-field"
+              size="md"
               cleanStyle
             />
             <EnhancedDropdown
               options={directionOptions}
               value={sortDirection}
               onChange={(value) => setSortDirection(value as SortDirection)}
-              className="w-32 sm:w-36"
+              className="clients-sort-direction"
+              size="md"
               cleanStyle
             />
           </div>
         </div>
 
         {loading ? (
-          <>
-            {/* Mobile skeleton */}
-            <div className="md:hidden space-y-3">
-              {Array.from({ length: 4 }, (_, i) => (
-                <div
-                  key={i}
-                  className="p-4 rounded-lg border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] space-y-2"
-                >
-                  <div className="h-4 w-32 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
-                  <div className="h-3 w-48 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
-                  <div className="h-3 w-40 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
+          <div className="mgmt-list" aria-hidden="true">
+            {Array.from({ length: 5 }, (_, i) => (
+              <div key={i} className="mgmt-row">
+                <div className="mgmt-row__body">
+                  <div className="clients-skeleton-line clients-skeleton-line--title" />
+                  <div className="clients-skeleton-line clients-skeleton-line--meta" />
                 </div>
-              ))}
-            </div>
-            {/* Desktop skeleton */}
-            <div className="hidden md:block space-y-3">
-              {Array.from({ length: 6 }, (_, i) => (
-                <div key={i} className="flex items-center gap-4">
-                  <div className="h-4 w-28 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
-                  <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
-                  <div className="h-4 w-20 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
-                  <div className="h-4 w-20 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
-                  <div className="h-4 w-20 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
-                  <div className="h-4 w-14 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
-                  <div className="h-4 w-24 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse hidden lg:block" />
-                </div>
-              ))}
-            </div>
-          </>
+                <div className="clients-skeleton-line clients-skeleton-line--value" />
+              </div>
+            ))}
+          </div>
+        ) : sortedClients.length > 0 ? (
+          <div className="mgmt-list">
+            {sortedClients.map((client) => (
+              <ClientListItem key={getClientKey(client)} client={client} />
+            ))}
+          </div>
         ) : (
-          <>
-            {/* Mobile: Card Layout */}
-            <div className="md:hidden space-y-3">
-              {sortedClients.length > 0 ? (
-                sortedClients.map((client, idx) => <ClientCard key={idx} client={client} />)
-              ) : (
-                <p className="py-8 text-center text-themed-muted">{t('clients.empty')}</p>
-              )}
-            </div>
-
-            {/* Desktop: Table Layout */}
-            <div className="hidden md:block overflow-x-auto -mx-2 px-2">
-              <table className="w-full">
-                <thead>
-                  <tr className="text-left text-xs text-themed-muted uppercase tracking-wider">
-                    <th className="pb-3">{t('clients.table.client')}</th>
-                    <th className="pb-3">{t('clients.table.totalDownloads')}</th>
-                    <th className="pb-3">{t('clients.table.totalData')}</th>
-                    <th className="pb-3">{t('clients.table.cacheHits')}</th>
-                    <th className="pb-3">{t('clients.table.cacheMisses')}</th>
-                    <th className="pb-3">{t('clients.table.hitRate')}</th>
-                    <th className="pb-3 hidden lg:table-cell">{t('clients.table.lastActivity')}</th>
-                  </tr>
-                </thead>
-                <tbody className="text-sm">
-                  {sortedClients.length > 0 ? (
-                    sortedClients.map((client, idx) => <ClientRow key={idx} client={client} />)
-                  ) : (
-                    <tr>
-                      <td colSpan={7} className="py-8 text-center text-themed-muted">
-                        {t('clients.empty')}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </>
+          <div className="dash-well p-3">
+            <EmptyState variant="panel" icon={Users} title={t('clients.empty')} />
+          </div>
         )}
       </Card>
     </div>

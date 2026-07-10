@@ -1,56 +1,21 @@
 /* ==============================================
  * USER - Sessions, Status, Config, Settings Groups
- * ============================================== */
+ * ==============================================
+ *
+ * Session surfaces now use the shared divided-list / labeled-readout / well
+ * family (`.mgmt-list`, `.mgmt-row`, `.dash-readout`, `.mgmt-stat-grid`,
+ * `.badge-count`) imported via managementSectionContent.css + dashboard.css.
+ * This sheet keeps only: the status dot, the small session-row layout helpers
+ * that sit on top of `.mgmt-row`, the settings-group / toggle-row / tooltip
+ * blocks (owned by the Settings lane + shared Tooltip), and the tab-content
+ * fade.
+ */
 
-/* ===== STAT PILL ===== */
-
-.stat-pill {
-  @apply inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium;
-  border-radius: var(--theme-border-radius-xl);
-  background: var(--theme-bg-secondary);
-  border: 1px solid var(--theme-border-secondary);
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease;
-  cursor: pointer;
-}
-
-.stat-pill:hover {
-  background: var(--theme-bg-surface-hover);
-  border-color: var(--theme-border);
-}
-
-.stat-pill--active {
-  background: var(--theme-accent-subtle);
-  border-color: var(--theme-accent);
-}
-
-.stat-pill--active:hover {
-  background: var(--theme-accent-muted);
-  border-color: var(--theme-accent);
-}
-
-.stat-pill .stat-value {
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-/* ===== SESSION AVATAR ===== */
-
-.session-avatar {
-  @apply w-10 h-10 flex items-center justify-center flex-shrink-0;
-  border-radius: var(--theme-border-radius-lg);
-  transition: transform 0.2s ease;
-}
-
-.session-card:hover .session-avatar {
-  transform: scale(1.05);
-}
-
-/* ===== STATUS DOT WITH PULSE ===== */
+/* ===== STATUS DOT (quiet activity marker in the row's leading slot) ===== */
 
 .status-dot {
   @apply w-2 h-2 rounded-full;
+  flex-shrink: 0;
   box-shadow: 0 0 0 2px var(--theme-bg-secondary);
 }
 
@@ -96,21 +61,14 @@
   }
 }
 
-/* ===== CONFIG SECTION ===== */
-
-.config-section {
-  @apply p-4;
-  border-radius: var(--theme-border-radius-lg);
-  background: var(--theme-bg-tertiary);
-  border: 1px solid var(--theme-border-secondary);
-}
+/* ===== CONFIG SECTION TITLE (owned by the Settings lane - leave in place) ===== */
 
 .config-section-title {
   @apply text-xs font-semibold uppercase tracking-wider mb-3;
   color: var(--theme-text-muted);
 }
 
-/* ===== TOGGLE ROW ===== */
+/* ===== TOGGLE ROW (owned by the Settings lane - leave in place) ===== */
 
 .toggle-row {
   @apply flex items-center justify-between py-2.5 px-3 -mx-3;
@@ -132,55 +90,7 @@
   color: var(--theme-text-muted);
 }
 
-/* ===== PREFERENCE BADGE ===== */
-
-.pref-badge {
-  @apply inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium;
-  border-radius: var(--theme-border-radius);
-  background: var(--theme-bg-tertiary);
-  color: var(--theme-text-muted);
-  border: 1px solid var(--theme-border-secondary);
-}
-
-/* ===== PREFILL ACCESS SECTION (edit modal) ===== */
-
-.prefill-access-section {
-  @apply flex flex-col gap-3 p-4;
-  border-radius: var(--theme-border-radius-lg);
-  background: var(--theme-bg-tertiary);
-  border: 1px solid var(--theme-border-secondary);
-}
-
-.prefill-access-header {
-  @apply flex items-center gap-2;
-}
-
-.prefill-access-subtitle {
-  @apply m-0;
-}
-
-.prefill-service-row {
-  @apply flex items-center justify-between gap-3;
-  padding: 0.625rem 0.75rem;
-  border-radius: var(--theme-border-radius);
-  background: var(--theme-bg-secondary);
-  border: 1px solid var(--theme-border-secondary);
-}
-
-.prefill-service-row-label {
-  @apply flex items-center gap-2 flex-1 min-w-0;
-}
-
-.prefill-service-row-icon {
-  @apply flex-shrink-0;
-  color: var(--theme-text-muted);
-}
-
-.prefill-service-row-controls {
-  @apply flex items-center gap-2 flex-shrink-0;
-}
-
-/* ===== TOOLTIP ===== */
+/* ===== TOOLTIP (shared Tooltip + dashboard charts - global, do not remove) ===== */
 
 .tooltip-overlay {
   @apply fixed max-w-xs px-2.5 py-1.5 text-xs pointer-events-none;
@@ -199,230 +109,9 @@
 }
 
 /* ==============================================
- * SESSION DATA TABLE (desktop view)
- * ============================================== */
-
-.session-table {
-  @apply w-full;
-  border-collapse: separate;
-  border-spacing: 0 0.375rem;
-}
-
-.session-table-header {
-  @apply sticky top-0;
-  z-index: 5;
-}
-
-.session-table-header th {
-  @apply py-2.5 px-4 text-xs font-semibold uppercase tracking-wider text-left;
-  color: var(--theme-text-muted);
-}
-
-/* Rounded row "cards" */
-.session-table-row {
-  transition: background-color 0.15s ease;
-}
-
-.session-table-row td {
-  @apply py-3.5 px-4 text-sm;
-  vertical-align: middle;
-  color: var(--theme-text-primary);
-  border-top: 1px solid var(--theme-border-secondary);
-  border-bottom: 1px solid var(--theme-border-secondary);
-  background: var(--theme-bg-secondary);
-}
-
-.session-table-row td:first-child {
-  border-left: 1px solid var(--theme-border-secondary);
-  border-top-left-radius: var(--theme-border-radius-lg);
-  border-bottom-left-radius: var(--theme-border-radius-lg);
-}
-
-.session-table-row td:last-child {
-  border-right: 1px solid var(--theme-border-secondary);
-  border-top-right-radius: var(--theme-border-radius-lg);
-  border-bottom-right-radius: var(--theme-border-radius-lg);
-}
-
-.session-table-row:hover td {
-  background: var(--theme-bg-hover);
-}
-
-/* Left accent color matches user type */
-.session-table-row--admin td:first-child {
-  border-left-color: var(--theme-user-session);
-}
-
-.session-table-row--guest td:first-child {
-  border-left-color: var(--theme-guest-session);
-}
-
-/* ==============================================
- * HOVER-TO-REVEAL ACTIONS
- * ============================================== */
-
-.session-row-actions {
-  @apply flex items-center gap-1;
-  opacity: 0;
-  transition: opacity 150ms ease;
-  flex-wrap: nowrap;
-  white-space: nowrap;
-}
-
-.session-table-row:hover .session-row-actions {
-  opacity: 1;
-}
-
-.session-row-actions button {
-  white-space: nowrap;
-}
-
-.session-table-header th:last-child,
-.session-table-row td:last-child {
-  width: 1%;
-  white-space: nowrap;
-}
-
-/* Always show actions on touch devices */
-@media (hover: none) {
-  .session-row-actions {
-    opacity: 1;
-  }
-}
-
-/* ==============================================
- * ROW EXPANSION PANEL
- * ============================================== */
-
-.session-expansion-content {
-  @apply px-6 py-5;
-  margin: 0.5rem 1rem 1rem;
-  border-radius: var(--theme-border-radius-lg);
-  background: var(--theme-bg-tertiary);
-  border: 1px solid var(--theme-border-secondary);
-}
-
-.session-expansion-content > * + * {
-  margin-top: 1rem;
-}
-
-.session-expansion-dates {
-  @apply grid grid-cols-2 gap-4;
-}
-
-@media (min-width: 1024px) {
-  .session-expansion-dates {
-    @apply grid-cols-4;
-  }
-}
-
-.session-expansion-date-label {
-  @apply text-[10px] uppercase tracking-wider mb-1;
-  color: var(--theme-text-muted);
-}
-
-.session-expansion-date-label--error {
-  color: var(--theme-text-error);
-}
-
-.session-expansion-date-value {
-  @apply text-sm;
-  color: var(--theme-text-primary);
-}
-
-.session-expansion-date-value--error {
-  color: var(--theme-text-error);
-}
-
-.session-expansion-session-id {
-  @apply text-[11px] font-mono;
-  color: var(--theme-text-muted);
-  opacity: 0.7;
-  word-break: break-all;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--theme-border-secondary);
-}
-
-.session-expansion-client-info {
-  @apply grid grid-cols-2 gap-4;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--theme-border-secondary);
-}
-
-@media (min-width: 1024px) {
-  .session-expansion-client-info {
-    @apply grid-cols-4;
-  }
-}
-
-.session-expansion-client-info-value {
-  @apply text-sm flex items-center gap-1.5;
-  color: var(--theme-text-primary);
-  word-break: break-all;
-}
-
-.session-expansion-client-info-flag {
-  @apply text-base leading-none;
-}
-
-.session-expansion-badges {
-  @apply flex flex-wrap items-center gap-2;
-}
-
-.session-expansion-prefill {
-  @apply flex items-center flex-wrap gap-2;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--theme-border-secondary);
-}
-
-.session-expansion-prefill-label {
-  @apply text-xs;
-  color: var(--theme-text-muted);
-}
-
-/* ==============================================
- * FILTER CHIPS
- * ============================================== */
-
-.filter-chip {
-  @apply inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium cursor-pointer;
-  padding-top: 6px;
-  padding-bottom: 6px;
-  border-radius: var(--theme-border-radius-xl);
-  background: transparent;
-  border: 1px solid var(--theme-border-secondary);
-  color: var(--theme-text-muted);
-  transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease;
-  user-select: none;
-}
-
-.filter-chip:hover {
-  border-color: var(--theme-border);
-  color: var(--theme-text-primary);
-}
-
-.filter-chip--active {
-  background: var(--theme-accent-subtle);
-  border-color: var(--theme-accent);
-  color: var(--theme-accent);
-}
-
-.filter-chip--active:hover {
-  background: var(--theme-accent-muted);
-  border-color: var(--theme-accent);
-  color: var(--theme-accent);
-}
-
-.filter-chip-count {
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-/* ==============================================
  * SETTINGS GROUP WITH ACCENT LINES
+ * (owned by the Settings lane - leave in place; verifier removes once the
+ * Settings markup has finished migrating off these classes)
  * ============================================== */
 
 .settings-group {
@@ -466,32 +155,179 @@
 }
 
 /* ==============================================
- * TAB BAR & TAB CONTENT
+ * TAB CONTENT
  * ============================================== */
-
-.user-tab-bar {
-  @apply flex items-center;
-}
 
 .user-tab-content {
   animation: settingsContentFadeIn 200ms ease forwards;
 }
 
-.active-sessions-layout {
-  @apply space-y-4 sm:space-y-5;
+/* Stacked page sections (sessions card, history card). */
+.session-console {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
 }
 
 /* ==============================================
- * GUEST DEFAULTS GRID
+ * SESSION ROW (built on top of the shared .mgmt-row)
  * ============================================== */
 
-.guest-defaults-grid {
-  @apply grid gap-4;
-  grid-template-columns: repeat(2, 1fr);
+/* The whole row is the expand/collapse control, so it needs a pointer + a
+   visible keyboard focus ring (inset so the .mgmt-list overflow clip keeps it). */
+.session-row {
+  flex-wrap: wrap;
+  cursor: pointer;
 }
 
-.guest-defaults-grid > :last-child {
-  grid-column: 1 / -1;
+.session-row:focus-visible {
+  outline: 2px solid var(--theme-accent);
+  outline-offset: -2px;
+}
+
+.session-row__titleline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* Compact categorical type chip (User / Guest). Colour comes from the shared
+   .session-badge-user / .session-badge-guest classes in badges.css. */
+.session-type-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.05rem 0.4rem;
+  font-size: var(--font-size-2xs);
+  font-weight: 500;
+  line-height: 1.4;
+  border-radius: 999px;
+}
+
+.session-you {
+  font-size: var(--font-size-2xs);
+  font-weight: 500;
+  color: var(--theme-success);
+}
+
+/* Quiet secondary line: IP, last-seen, and inline status text. Tones carry the
+   only colour (revoked / expired / remaining) - no filled pills. */
+.session-row__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.6rem;
+}
+
+.session-row__meta .is-error {
+  color: var(--theme-error);
+}
+
+.session-row__meta .is-warning {
+  color: var(--theme-warning);
+}
+
+.session-row__chevron {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex-shrink: 0;
+  color: var(--theme-text-muted);
+  transition: transform 0.2s ease;
+}
+
+.session-row__chevron.is-open {
+  transform: rotate(180deg);
+}
+
+/* Actions stay out of the way until the row is hovered or focused (keyboard
+   reachable via :focus-within), and are always visible on touch. */
+.session-row__actions {
+  opacity: 0;
+  transition: opacity 150ms ease;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.session-row:hover .session-row__actions,
+.session-row:focus-within .session-row__actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .session-row__actions {
+    opacity: 1;
+  }
+}
+
+/* ==============================================
+ * SESSION EXPANSION DETAIL (inside .mgmt-row-detail)
+ * ============================================== */
+
+.session-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.session-detail__id {
+  word-break: break-all;
+}
+
+/* Per-service prefill access readout (guest rows + edit modal summary). */
+.session-prefill-readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.85rem;
+}
+
+.session-prefill-svc {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.session-prefill-svc.is-enabled {
+  color: var(--theme-success);
+}
+
+.session-prefill-svc.is-disabled {
+  color: var(--theme-text-muted);
+}
+
+/* Edit-modal per-service prefill row (inside a .mgmt-list): icon + name on the
+   left, status badge + grant/revoke button in the trailing action cluster. */
+.session-prefill-edit__label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1 1 0%;
+  min-width: 0;
+}
+
+.session-prefill-edit__icon {
+  flex-shrink: 0;
+  color: var(--theme-text-muted);
+}
+
+/* ==============================================
+ * SESSION TOOLBAR (filter cluster + result meta + bulk actions)
+ * ============================================== */
+
+.session-filter-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.session-toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 /* ==============================================
@@ -510,58 +346,37 @@
 }
 
 /* ==============================================
- * RESPONSIVE BREAKPOINTS
+ * RESPONSIVE + REDUCED MOTION
  * ============================================== */
 
-/* Tablet: hide less important columns, keep grid 2-col */
-@media (max-width: 1023px) {
-  .session-table-header th:nth-child(n + 4),
-  .session-table-row td:nth-child(n + 4) {
-    display: none;
+/* Phones: actions drop to a full-width second line and always show. */
+@media (max-width: 639px) {
+  .session-row__actions {
+    opacity: 1;
+    order: 2;
+    flex: 1 1 100%;
   }
 
-  .guest-defaults-grid {
-    grid-template-columns: 1fr 1fr;
+  .session-row__chevron {
+    order: 1;
+  }
+
+  .session-row__actions > button {
+    flex: 1 1 auto;
   }
 }
 
-/* Mobile: single column everything */
-@media (max-width: 767px) {
-  .guest-defaults-grid {
-    grid-template-columns: 1fr;
+@media (prefers-reduced-motion: reduce) {
+  .status-dot.active,
+  .status-dot.away {
+    animation: none;
   }
 
-  .guest-defaults-grid > :last-child {
-    grid-column: auto;
+  .user-tab-content {
+    animation: none;
   }
 
-  .session-table-header th:nth-child(n + 3),
-  .session-table-row td:nth-child(n + 3) {
-    display: none;
-  }
-
-  .session-table-row td {
-    @apply py-2 px-2 text-xs;
-  }
-
-  .session-table-header th {
-    @apply py-2 px-2;
-  }
-
-  .stat-pill {
-    @apply px-2 py-1 text-xs;
-  }
-
-  .filter-chip {
-    @apply px-2 py-0.5;
-    font-size: var(--font-size-xs);
-  }
-
-  .settings-group {
-    @apply p-3;
-  }
-
-  .session-expansion-content {
-    @apply p-3;
+  .session-row__chevron {
+    transition: none;
   }
 }

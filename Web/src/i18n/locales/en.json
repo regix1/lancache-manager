@@ -83,6 +83,8 @@
     "noData": "No data",
     "evicted": "Evicted",
     "partiallyEvicted": "Partially Evicted",
+    "on": "On",
+    "off": "Off",
     "bytes": {
       "units": ["B", "KB", "MB", "GB", "TB"],
       "zero": "0 {{unit}}"
@@ -845,6 +847,10 @@
   "user": {
     "title": "User Management",
     "subtitle": "Sessions & guest controls",
+    "tabs": {
+      "sessions": "Sessions",
+      "guestDefaults": "Guest Defaults"
+    },
     "stats": {
       "total": "total",
       "users": "users",
@@ -960,6 +966,8 @@
       "prefill": {
         "title": "Prefill Permissions",
         "subtitle": "Control guest access to the Prefill tab. Permissions are time-limited and can be granted per-session.",
+        "sectionTitle": "Prefill Services",
+        "sectionSubtitle": "Control guest prefill permissions per service",
         "updated": "Prefill configuration updated",
         "existingGuestsNote": "These defaults apply to new guest sessions only. Use Active Sessions to change prefill permissions for guests who are already logged in.",
         "warning": "Security risk: All new guests will be able to trigger prefills. Consider keeping this off and granting access per-session instead.",
@@ -981,7 +989,9 @@
           "noLimit": "No Limit",
           "usingDefault": "Using default",
           "overridden": "Custom limit for this user",
-          "updated": "Max thread limit updated"
+          "updated": "Max thread limit updated",
+          "threadsCount": "{{count}} thread",
+          "threadsCount_other": "{{count}} threads"
         }
       },
       "errors": {
@@ -1039,6 +1049,8 @@
     "title": "Active Sessions",
     "loading": "Loading sessions...",
     "paginationLabel": "sessions",
+    "resultCount": "{{count}} session",
+    "resultCount_other": "{{count}} sessions",
     "history": {
       "title": "Session History"
     },
@@ -1069,14 +1081,33 @@
       "isp": "ISP",
       "timezoneHeading": "Timezone",
       "language": "Language",
-      "screen": "Screen"
+      "screen": "Screen",
+      "preferences": "Preferences",
+      "theme": "Theme",
+      "never": "Never",
+      "expires": "Expires"
     },
     "unknownDeviceLower": "Unknown device",
     "thisDevice": "This device",
     "currentSession": "Current session",
+    "currentSessionShort": "you",
     "empty": {
       "title": "No active sessions",
-      "subtitle": "Sessions will appear here when users connect"
+      "subtitle": "Sessions will appear here when users connect",
+      "filteredTitle": "No matching sessions",
+      "filtered": "No sessions match the selected filter."
+    },
+    "filters": {
+      "all": "All",
+      "admin": "Admin",
+      "guest": "Guest"
+    },
+    "relative": {
+      "never": "Never",
+      "justNow": "Just now",
+      "minutesAgo": "{{count}}m ago",
+      "hoursAgo": "{{count}}h ago",
+      "daysAgo": "{{count}}d ago"
     },
     "sessionTypes": {
       "authenticatedUser": "authenticated user",
@@ -1170,7 +1201,13 @@
       "customFormats": "Custom formats for this user",
       "defaultFormats": "Using default ({{formats}})",
       "allFormats": "All formats",
-      "save": "Save Preferences"
+      "save": "Save Preferences",
+      "refreshLock": {
+        "allow": "Allow guest to change rate",
+        "usingDefault": "Using global default",
+        "locked": "Locked for this guest",
+        "unlocked": "Unlocked for this guest"
+      }
     },
     "prefill": {
       "title": "Prefill Access",
@@ -1179,7 +1216,9 @@
         "enabled": "Enabled",
         "expired": "Expired",
         "disabled": "Disabled",
-        "expires": "Expires: {{time}}"
+        "expires": "Expires: {{time}}",
+        "hoursMinutesRemaining": "{{hours}}h {{minutes}}m remaining",
+        "minutesRemaining": "{{minutes}}m remaining"
       },
       "actions": {
         "grant": "Grant Access",

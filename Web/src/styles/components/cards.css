@@ -101,39 +101,6 @@
       inset 0 1px 0 var(--theme-text-primary-faint);
   }
 
-  /* Session card refined */
-  .session-card {
-    @apply overflow-hidden;
-    border-radius: var(--theme-border-radius-lg);
-    background: var(--theme-bg-secondary);
-    border: 1px solid var(--theme-border-secondary);
-    transition:
-      border-color 0.2s ease,
-      box-shadow 0.2s ease;
-  }
-
-  .session-card:hover {
-    border-color: var(--theme-border);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  }
-
-  .session-card.dimmed {
-    opacity: 0.6;
-    background: var(--theme-bg-tertiary);
-  }
-
-  .session-card.dimmed:hover {
-    opacity: 0.8;
-  }
-
-  .session-card--admin {
-    border-color: var(--theme-user-session);
-  }
-
-  .session-card--guest {
-    border-color: var(--theme-guest-session);
-  }
-
   /* Bulk action card */
   .bulk-action-card {
     @apply p-4;

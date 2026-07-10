@@ -21,6 +21,8 @@ import { type ThemeOption, durationOptions, refreshRateOptions, showToast } from
 import AccessSecurityCard from './AccessSecurityCard';
 import PrefillServicePanel from './PrefillServicePanel';
 import AppearanceDisplayCard from './AppearanceDisplayCard';
+import '@components/features/management/managementSectionContent.css';
+import './user-settings.css';
 
 type TimeSettingValue = 'server-24h' | 'server-12h' | 'local-24h' | 'local-12h';
 
@@ -208,7 +210,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     { value: '', label: t('user.guest.prefill.maxThreads.noLimit') },
     ...THREAD_VALUES.map((n: number) => ({
       value: String(n),
-      label: `${n} threads`
+      label: t('user.guest.prefill.maxThreads.threadsCount', { count: n })
     }))
   ];
   const preferenceLabels: Record<string, string> = {
@@ -882,112 +884,109 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         <div className="p-4 sm:p-5 border-b border-themed-secondary">
           <h3 className="text-lg font-semibold flex items-center gap-2 text-themed-primary">
             <Download className="w-5 h-5 text-themed-accent" />
-            Prefill Services
+            {t('user.guest.prefill.sectionTitle')}
           </h3>
           <p className="text-sm mt-1 text-themed-muted">
-            Control guest prefill permissions per service
+            {t('user.guest.prefill.sectionSubtitle')}
           </p>
         </div>
         <div className="p-4 sm:p-5 space-y-4">
           <p className="text-xs text-themed-muted">{t('user.guest.prefill.existingGuestsNote')}</p>
-          <PrefillServicePanel
-            serviceName="Steam"
-            serviceNameClass="text-steam"
-            serviceIcon={<SteamIcon size={14} />}
-            accentClass="settings-group--steam"
-            config={prefillConfig}
-            onToggleEnabled={handleSteamToggleEnabled}
-            onDurationChange={handleSteamDurationChange}
-            onMaxThreadsChange={handleSteamMaxThreadsChange}
-            loading={loadingPrefillConfig}
-            updating={updatingPrefillConfig}
-            warningText={t('user.guest.prefill.warning')}
-            durationLabel={t('user.guest.prefill.duration.label')}
-            durationHelpText={t('user.guest.prefill.duration.description')}
-            maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
-            enableLabel={t('user.guest.prefill.enableByDefault.label')}
-            enableDescription={t('user.guest.prefill.enableByDefault.description')}
-            prefillDurationOptions={prefillDurationOptions}
-            maxThreadOptions={maxThreadOptions}
-          />
-          <PrefillServicePanel
-            serviceName="Epic Games"
-            serviceNameClass="text-epic"
-            serviceIcon={<EpicIcon size={14} />}
-            accentClass="settings-group--epic"
-            config={epicPrefillConfig}
-            onToggleEnabled={handleEpicToggleEnabled}
-            onDurationChange={handleEpicDurationChange}
-            onMaxThreadsChange={handleEpicMaxThreadsChange}
-            loading={loadingEpicPrefillConfig}
-            updating={updatingEpicPrefillConfig}
-            warningText={t('user.guest.prefill.warning')}
-            durationLabel={t('user.guest.prefill.duration.label')}
-            durationHelpText={t('user.guest.prefill.duration.description')}
-            maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
-            enableLabel={t('user.guest.prefill.enableByDefault.label')}
-            enableDescription={t('user.guest.prefill.enableByDefault.description')}
-            prefillDurationOptions={prefillDurationOptions}
-            maxThreadOptions={maxThreadOptions}
-          />
-          <PrefillServicePanel
-            serviceName="Battle.net"
-            serviceNameClass="text-blizzard"
-            serviceIcon={<BlizzardIcon size={14} />}
-            accentClass="settings-group--battlenet"
-            config={battlenetPrefillConfig}
-            onToggleEnabled={handleBattlenetToggleEnabled}
-            onDurationChange={handleBattlenetDurationChange}
-            onMaxThreadsChange={handleBattlenetMaxThreadsNoop}
-            loading={loadingBattlenetPrefillConfig}
-            updating={updatingBattlenetPrefillConfig}
-            warningText={t('user.guest.prefill.warning')}
-            durationLabel={t('user.guest.prefill.duration.label')}
-            durationHelpText={t('user.guest.prefill.duration.description')}
-            enableLabel={t('user.guest.prefill.enableByDefault.label')}
-            enableDescription={t('user.guest.prefill.enableByDefault.description')}
-            prefillDurationOptions={prefillDurationOptions}
-            showMaxThreads={false}
-          />
-          <PrefillServicePanel
-            serviceName="Riot Games"
-            serviceNameClass="text-riot"
-            serviceIcon={<RiotIcon size={14} />}
-            accentClass="settings-group--riot"
-            config={riotPrefillConfig}
-            onToggleEnabled={handleRiotToggleEnabled}
-            onDurationChange={handleRiotDurationChange}
-            onMaxThreadsChange={handleRiotMaxThreadsNoop}
-            loading={loadingRiotPrefillConfig}
-            updating={updatingRiotPrefillConfig}
-            warningText={t('user.guest.prefill.warning')}
-            durationLabel={t('user.guest.prefill.duration.label')}
-            durationHelpText={t('user.guest.prefill.duration.description')}
-            enableLabel={t('user.guest.prefill.enableByDefault.label')}
-            enableDescription={t('user.guest.prefill.enableByDefault.description')}
-            prefillDurationOptions={prefillDurationOptions}
-            showMaxThreads={false}
-          />
-          <PrefillServicePanel
-            serviceName="Xbox"
-            serviceNameClass="text-xbox"
-            serviceIcon={<XboxIcon size={14} />}
-            accentClass="settings-group--xbox"
-            config={xboxPrefillConfig}
-            onToggleEnabled={handleXboxToggleEnabled}
-            onDurationChange={handleXboxDurationChange}
-            onMaxThreadsChange={handleXboxMaxThreadsChange}
-            loading={loadingXboxPrefillConfig}
-            updating={updatingXboxPrefillConfig}
-            warningText={t('user.guest.prefill.warning')}
-            durationLabel={t('user.guest.prefill.duration.label')}
-            durationHelpText={t('user.guest.prefill.duration.description')}
-            maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
-            enableLabel={t('user.guest.prefill.enableByDefault.label')}
-            enableDescription={t('user.guest.prefill.enableByDefault.description')}
-            prefillDurationOptions={prefillDurationOptions}
-            maxThreadOptions={maxThreadOptions}
-          />
+          <div className="mgmt-list user-settings-list">
+            <PrefillServicePanel
+              serviceName="Steam"
+              serviceNameClass="text-steam"
+              serviceIcon={<SteamIcon size={14} />}
+              config={prefillConfig}
+              onToggleEnabled={handleSteamToggleEnabled}
+              onDurationChange={handleSteamDurationChange}
+              onMaxThreadsChange={handleSteamMaxThreadsChange}
+              loading={loadingPrefillConfig}
+              updating={updatingPrefillConfig}
+              warningText={t('user.guest.prefill.warning')}
+              durationLabel={t('user.guest.prefill.duration.label')}
+              durationHelpText={t('user.guest.prefill.duration.description')}
+              maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
+              enableLabel={t('user.guest.prefill.enableByDefault.label')}
+              enableDescription={t('user.guest.prefill.enableByDefault.description')}
+              prefillDurationOptions={prefillDurationOptions}
+              maxThreadOptions={maxThreadOptions}
+            />
+            <PrefillServicePanel
+              serviceName="Epic Games"
+              serviceNameClass="text-epic"
+              serviceIcon={<EpicIcon size={14} />}
+              config={epicPrefillConfig}
+              onToggleEnabled={handleEpicToggleEnabled}
+              onDurationChange={handleEpicDurationChange}
+              onMaxThreadsChange={handleEpicMaxThreadsChange}
+              loading={loadingEpicPrefillConfig}
+              updating={updatingEpicPrefillConfig}
+              warningText={t('user.guest.prefill.warning')}
+              durationLabel={t('user.guest.prefill.duration.label')}
+              durationHelpText={t('user.guest.prefill.duration.description')}
+              maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
+              enableLabel={t('user.guest.prefill.enableByDefault.label')}
+              enableDescription={t('user.guest.prefill.enableByDefault.description')}
+              prefillDurationOptions={prefillDurationOptions}
+              maxThreadOptions={maxThreadOptions}
+            />
+            <PrefillServicePanel
+              serviceName="Battle.net"
+              serviceNameClass="text-blizzard"
+              serviceIcon={<BlizzardIcon size={14} />}
+              config={battlenetPrefillConfig}
+              onToggleEnabled={handleBattlenetToggleEnabled}
+              onDurationChange={handleBattlenetDurationChange}
+              onMaxThreadsChange={handleBattlenetMaxThreadsNoop}
+              loading={loadingBattlenetPrefillConfig}
+              updating={updatingBattlenetPrefillConfig}
+              warningText={t('user.guest.prefill.warning')}
+              durationLabel={t('user.guest.prefill.duration.label')}
+              durationHelpText={t('user.guest.prefill.duration.description')}
+              enableLabel={t('user.guest.prefill.enableByDefault.label')}
+              enableDescription={t('user.guest.prefill.enableByDefault.description')}
+              prefillDurationOptions={prefillDurationOptions}
+              showMaxThreads={false}
+            />
+            <PrefillServicePanel
+              serviceName="Riot Games"
+              serviceNameClass="text-riot"
+              serviceIcon={<RiotIcon size={14} />}
+              config={riotPrefillConfig}
+              onToggleEnabled={handleRiotToggleEnabled}
+              onDurationChange={handleRiotDurationChange}
+              onMaxThreadsChange={handleRiotMaxThreadsNoop}
+              loading={loadingRiotPrefillConfig}
+              updating={updatingRiotPrefillConfig}
+              warningText={t('user.guest.prefill.warning')}
+              durationLabel={t('user.guest.prefill.duration.label')}
+              durationHelpText={t('user.guest.prefill.duration.description')}
+              enableLabel={t('user.guest.prefill.enableByDefault.label')}
+              enableDescription={t('user.guest.prefill.enableByDefault.description')}
+              prefillDurationOptions={prefillDurationOptions}
+              showMaxThreads={false}
+            />
+            <PrefillServicePanel
+              serviceName="Xbox"
+              serviceNameClass="text-xbox"
+              serviceIcon={<XboxIcon size={14} />}
+              config={xboxPrefillConfig}
+              onToggleEnabled={handleXboxToggleEnabled}
+              onDurationChange={handleXboxDurationChange}
+              onMaxThreadsChange={handleXboxMaxThreadsChange}
+              loading={loadingXboxPrefillConfig}
+              updating={updatingXboxPrefillConfig}
+              warningText={t('user.guest.prefill.warning')}
+              durationLabel={t('user.guest.prefill.duration.label')}
+              durationHelpText={t('user.guest.prefill.duration.description')}
+              maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
+              enableLabel={t('user.guest.prefill.enableByDefault.label')}
+              enableDescription={t('user.guest.prefill.enableByDefault.description')}
+              prefillDurationOptions={prefillDurationOptions}
+              maxThreadOptions={maxThreadOptions}
+            />
+          </div>
         </div>
       </Card>
 

@@ -2,10 +2,8 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Users,
-  User,
   Trash2,
   AlertTriangle,
-  Clock,
   Network,
   Globe,
   MapPin,
@@ -14,8 +12,6 @@ import {
   Unlock,
   ChevronDown,
   Download,
-  Palette,
-  LogOut,
   History,
   MoreVertical,
   RotateCcw,
@@ -44,6 +40,8 @@ import {
   ActionMenuDivider,
   ActionMenuDangerItem
 } from '@components/ui/ActionMenu';
+import { EmptyState } from '@components/ui/ManagerCard';
+import '../management/managementSectionContent.css';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import authService from '@services/auth.service';
@@ -115,23 +113,6 @@ const isGuestSession = (session: Session): boolean => {
   return session.sessionType === 'guest';
 };
 
-const getRelativeTime = (dateString: string | null): string => {
-  if (!dateString) return 'Never';
-  const now = new Date();
-  const rawStr =
-    dateString.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(dateString) ? dateString : dateString + 'Z';
-  const date = new Date(rawStr);
-  const diffMs = now.getTime() - date.getTime();
-  const diffSecs = Math.floor(diffMs / 1000);
-  if (diffSecs < 60) return 'Just now';
-  const diffMins = Math.floor(diffSecs / 60);
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays}d ago`;
-};
-
 // ============================================================
 // Main Component
 // ============================================================
@@ -180,9 +161,6 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       setLocalFilter(filter);
     }
   };
-
-  // Responsive state
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
 
   // Bulk actions state
   const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
@@ -680,9 +658,40 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
 
     if (hours > 0) {
-      return `${hours}h ${minutes}m remaining`;
+      return t(
+        'activeSessions.prefill.status.hoursMinutesRemaining',
+        '{{hours}}h {{minutes}}m remaining',
+        {
+          hours,
+          minutes
+        }
+      );
     }
-    return `${minutes}m remaining`;
+    return t('activeSessions.prefill.status.minutesRemaining', '{{minutes}}m remaining', {
+      minutes
+    });
+  };
+
+  // i18n relative time for the row's last-seen meta (module getRelativeTime is
+  // English-only; this threads t so the copy is translatable).
+  const formatRelativeTime = (dateString: string | null): string => {
+    if (!dateString) return t('activeSessions.relative.never', 'Never');
+    const now = new Date();
+    const rawStr =
+      dateString.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(dateString)
+        ? dateString
+        : dateString + 'Z';
+    const date = new Date(rawStr);
+    const diffSecs = Math.floor((now.getTime() - date.getTime()) / 1000);
+    if (diffSecs < 60) return t('activeSessions.relative.justNow', 'Just now');
+    const diffMins = Math.floor(diffSecs / 60);
+    if (diffMins < 60)
+      return t('activeSessions.relative.minutesAgo', '{{count}}m ago', { count: diffMins });
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24)
+      return t('activeSessions.relative.hoursAgo', '{{count}}h ago', { count: diffHours });
+    const diffDays = Math.floor(diffHours / 24);
+    return t('activeSessions.relative.daysAgo', '{{count}}d ago', { count: diffDays });
   };
 
   type SessionStatus = 'active' | 'away' | 'inactive';
@@ -725,14 +734,19 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   // useEffect Hooks
   // ============================================================
 
-  // Responsive resize listener
+  // Lazy-load per-session preferences when a row is expanded (never during
+  // render). Fires once per newly-opened, still-live session; the loaded/loading
+  // guards dedupe against the periodic status tick and re-renders.
   useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 1024);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+    expandedSessions.forEach((id: string) => {
+      const s = sessions.find((x: Session) => x.id === id);
+      if (!s || s.isRevoked || s.isExpired) return;
+      if (!isPreferencesLoaded(id) && !isPreferencesLoading(id)) {
+        loadSessionPreferences(id);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedSessions, sessions]);
 
   // Periodic tick so getSessionStatus() re-evaluates against a fresh "now".
   // Without this, the status dot only changes when an unrelated render fires,
@@ -841,691 +855,338 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         : activeSessions.filter((s: Session) => isGuestSession(s));
 
   // ============================================================
-  // Render Helpers: Desktop Table
+  // Render Helpers: Session Row (one responsive item — desktop + mobile)
   // ============================================================
 
-  const renderTableRow = (session: Session) => {
+  const renderSessionItem = (session: Session) => {
     const sessionStatus = getSessionStatus(session);
     const parsedUA = parseUserAgent(session.userAgent);
     const isExpanded = expandedSessions.has(session.id);
+    const admin = isAdminSession(session);
+    const guest = isGuestSession(session);
+    const canRevoke =
+      guest && !session.isRevoked && !session.isExpired && !session.isCurrentSession;
+    const canShowRemaining = guest && !session.isRevoked && !session.isExpired;
+
+    const prefs = getSessionPreferences(session.id);
+    const isLoadingPrefs = isPreferencesLoading(session.id);
+    const themeName = prefs?.selectedTheme
+      ? availableThemes.find((th: ThemeOption) => th.id === prefs.selectedTheme)?.name ||
+        prefs.selectedTheme
+      : t('activeSessions.preferencesModal.defaultThemeShort', 'Default');
+    const timezoneLabel = prefs?.useLocalTimezone
+      ? t('activeSessions.labels.local', 'Local')
+      : t('activeSessions.labels.server', 'Server');
+
+    const flag = countryCodeToFlag(session.countryCode);
+    const location = formatLocation(session.city, session.regionName, session.countryName);
+    const hasClientInfo = Boolean(
+      session.publicIpAddress ||
+      location ||
+      session.ispName ||
+      session.timezone ||
+      session.browserLanguage ||
+      session.screenResolution
+    );
 
     return (
-      <React.Fragment key={session.id}>
-        <tr
-          className={`session-table-row session-table-row--${isAdminSession(session) ? 'admin' : 'guest'} cursor-pointer`}
+      <div key={session.id} className="session-item">
+        <div
+          className="mgmt-row mgmt-row--interactive session-row"
+          role="button"
+          tabIndex={0}
+          aria-expanded={isExpanded}
           onClick={() => toggleSessionExpanded(session.id)}
+          onKeyDown={(e: React.KeyboardEvent) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              toggleSessionExpanded(session.id);
+            }
+          }}
         >
-          {/* Status */}
-          <td>
-            <div className={`status-dot ${sessionStatus}`} />
-          </td>
-
-          {/* Device & Type */}
-          <td>
-            <div className="text-sm font-medium text-themed-primary truncate">{parsedUA.title}</div>
-            <div className="flex items-center gap-1.5 mt-0.5">
+          <span className={`status-dot ${sessionStatus}`} aria-hidden="true" />
+          <div className="mgmt-row__body">
+            <div className="session-row__titleline">
+              <span className="mgmt-row__title truncate">{parsedUA.title}</span>
               <span
-                className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium ${isAdminSession(session) ? 'session-badge-user' : 'session-badge-guest'}`}
+                className={`themed-badge session-type-badge ${admin ? 'session-badge-user' : 'session-badge-guest'}`}
               >
-                {isAdminSession(session)
+                {admin
                   ? t('activeSessions.labels.userBadge')
                   : t('activeSessions.labels.guestBadge')}
               </span>
               {session.isCurrentSession && (
-                <span className="text-[10px] font-medium text-themed-success">
+                <span className="session-you">
                   ({t('activeSessions.currentSessionShort', 'you')})
                 </span>
               )}
-              {!session.isCurrentSession &&
-                isGuestSession(session) &&
-                !session.isRevoked &&
-                !session.isExpired && (
-                  <span className="text-[10px] text-themed-muted">
-                    {formatTimeRemaining(session.expiresAt)}
-                  </span>
-                )}
             </div>
-          </td>
-
-          {/* Network - LAN IP (primary) + public IP (secondary, when resolved) */}
-          <td>
-            {session.ipAddress && (
-              <ClientIpDisplay
-                clientIp={cleanIpAddress(session.ipAddress)}
-                className="text-sm text-themed-secondary"
-              />
-            )}
-            {session.publicIpAddress && (
-              <div
-                className="text-xs text-themed-muted truncate"
-                title={t('activeSessions.labels.publicIp', 'Public IP')}
-              >
-                {session.publicIpAddress}
-              </div>
-            )}
-          </td>
-
-          {/* Last Seen */}
-          <td>
-            <span
-              className="text-sm text-themed-secondary"
-              title={
-                session.lastSeenAt
-                  ? new Date(
-                      session.lastSeenAt.endsWith('Z') ||
-                        /[+-]\d{2}:\d{2}$/.test(session.lastSeenAt)
-                        ? session.lastSeenAt
-                        : session.lastSeenAt + 'Z'
-                    ).toLocaleString()
-                  : ''
-              }
-            >
-              {getRelativeTime(session.lastSeenAt)}
-            </span>
-          </td>
-
-          {/* Actions */}
-          <td>
-            <div
-              className="session-row-actions"
-              onClick={(e: React.MouseEvent) => e.stopPropagation()}
-            >
-              <Button
-                variant="default"
-                color="blue"
-                size="sm"
-                onClick={() => handleEditSession(session)}
-              >
-                {t('actions.edit')}
-              </Button>
-              {session.isCurrentSession && (
-                <Button
-                  variant="default"
-                  color="orange"
-                  size="sm"
-                  onClick={handleLogout}
-                  disabled={loggingOut}
-                  loading={loggingOut}
-                >
-                  {t('activeSessions.actions.logout')}
-                </Button>
+            <div className="mgmt-row__meta session-row__meta">
+              {session.ipAddress && (
+                <ClientIpDisplay clientIp={cleanIpAddress(session.ipAddress)} />
               )}
-              {isGuestSession(session) &&
-                !session.isRevoked &&
-                !session.isExpired &&
-                !session.isCurrentSession && (
-                  <Button
-                    variant="default"
-                    color="orange"
-                    size="sm"
-                    onClick={() => handleRevokeSession(session)}
-                    disabled={revokingSession === session.id}
-                  >
-                    {revokingSession === session.id
-                      ? t('activeSessions.actions.revoking')
-                      : t('activeSessions.actions.revoke')}
-                  </Button>
-                )}
-              {!session.isCurrentSession && (
-                <Button
-                  variant="default"
-                  color="red"
-                  size="sm"
-                  onClick={() => handleDeleteSession(session)}
-                  disabled={deletingSession === session.id}
-                >
-                  {deletingSession === session.id
-                    ? t('activeSessions.actions.deleting')
-                    : t('activeSessions.actions.delete')}
-                </Button>
+              <span>{formatRelativeTime(session.lastSeenAt)}</span>
+              {canShowRemaining && <span>{formatTimeRemaining(session.expiresAt)}</span>}
+              {session.isRevoked && (
+                <span className="is-error">{t('activeSessions.status.revoked')}</span>
               )}
-            </div>
-          </td>
-        </tr>
-
-        {/* Expansion panel */}
-        <tr>
-          <td colSpan={5} className="p-0">
-            <CollapsibleRegion open={isExpanded}>
-              <div className="session-expansion-content">
-                <div className="session-expansion-dates">
-                  <div>
-                    <div className="session-expansion-date-label">
-                      {t('activeSessions.labels.createdShort', 'Created')}
-                    </div>
-                    <div className="session-expansion-date-value">
-                      <FormattedTimestamp timestamp={session.createdAt} />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="session-expansion-date-label">
-                      {t('activeSessions.labels.lastSeenShort', 'Last Seen')}
-                    </div>
-                    <div className="session-expansion-date-value">
-                      {session.lastSeenAt ? (
-                        <FormattedTimestamp timestamp={session.lastSeenAt} />
-                      ) : (
-                        t('activeSessions.labels.never', 'Never')
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="session-expansion-date-label">
-                      {t('activeSessions.labels.expires', 'Expires')}
-                    </div>
-                    <div className="session-expansion-date-value">
-                      {isAdminSession(session) ? (
-                        t('activeSessions.labels.never', 'Never')
-                      ) : (
-                        <FormattedTimestamp timestamp={session.expiresAt} />
-                      )}
-                    </div>
-                  </div>
-                  {session.revokedAt && (
-                    <div>
-                      <div className="session-expansion-date-label session-expansion-date-label--error">
-                        {t('activeSessions.labels.revokedShort', 'Revoked')}
-                      </div>
-                      <div className="session-expansion-date-value session-expansion-date-value--error">
-                        <FormattedTimestamp timestamp={session.revokedAt} />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {(() => {
-                  const flag = countryCodeToFlag(session.countryCode);
-                  const location = formatLocation(
-                    session.city,
-                    session.regionName,
-                    session.countryName
-                  );
-                  const hasAny =
-                    session.publicIpAddress ||
-                    location ||
-                    session.ispName ||
-                    session.timezone ||
-                    session.browserLanguage ||
-                    session.screenResolution;
-                  if (!hasAny) return null;
-                  return (
-                    <div className="session-expansion-client-info">
-                      {session.publicIpAddress && (
-                        <div>
-                          <div className="session-expansion-date-label">
-                            {t('activeSessions.labels.publicIp', 'Public IP')}
-                          </div>
-                          <div className="session-expansion-client-info-value">
-                            {session.publicIpAddress}
-                          </div>
-                        </div>
-                      )}
-                      {location && (
-                        <div>
-                          <div className="session-expansion-date-label">
-                            {t('activeSessions.labels.location', 'Location')}
-                          </div>
-                          <div className="session-expansion-client-info-value">
-                            {flag && (
-                              <span
-                                className="session-expansion-client-info-flag"
-                                aria-hidden="true"
-                              >
-                                {flag}
-                              </span>
-                            )}
-                            <span>{location}</span>
-                          </div>
-                        </div>
-                      )}
-                      {session.ispName && (
-                        <div>
-                          <div className="session-expansion-date-label">
-                            {t('activeSessions.labels.isp', 'ISP')}
-                          </div>
-                          <div className="session-expansion-client-info-value">
-                            {session.ispName}
-                          </div>
-                        </div>
-                      )}
-                      {session.timezone && (
-                        <div>
-                          <div className="session-expansion-date-label">
-                            {t('activeSessions.labels.timezoneHeading', 'Timezone')}
-                          </div>
-                          <div className="session-expansion-client-info-value">
-                            {session.timezone}
-                          </div>
-                        </div>
-                      )}
-                      {session.browserLanguage && (
-                        <div>
-                          <div className="session-expansion-date-label">
-                            {t('activeSessions.labels.language', 'Language')}
-                          </div>
-                          <div className="session-expansion-client-info-value">
-                            {session.browserLanguage}
-                          </div>
-                        </div>
-                      )}
-                      {session.screenResolution && (
-                        <div>
-                          <div className="session-expansion-date-label">
-                            {t('activeSessions.labels.screen', 'Screen')}
-                          </div>
-                          <div className="session-expansion-client-info-value">
-                            {session.screenResolution}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                {/* Session ID */}
-                <div className="session-expansion-session-id">
-                  {t('activeSessions.labels.sessionIdWithValue', { id: session.id })}
-                </div>
-
-                {/* Preferences summary badges */}
-                <div className="session-expansion-badges">
-                  {renderExpansionPreferences(session)}
-                </div>
-
-                {/* Prefill permissions per service */}
-                {isGuestSession(session) && !session.isRevoked && !session.isExpired && (
-                  <div className="session-expansion-prefill">
-                    <span className="session-expansion-prefill-label">
-                      {t('activeSessions.prefill.title', 'Prefill Access')}:
-                    </span>
-                    <span
-                      className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.steamPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
-                    >
-                      <SteamIcon size={10} />
-                      Steam
-                    </span>
-                    <span
-                      className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.epicPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
-                    >
-                      <EpicIcon size={10} />
-                      Epic
-                    </span>
-                    <span
-                      className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.battlenetPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
-                    >
-                      <BlizzardIcon size={10} />
-                      Battle.net
-                    </span>
-                    <span
-                      className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.riotPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
-                    >
-                      <RiotIcon size={10} />
-                      Riot
-                    </span>
-                    <span
-                      className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.xboxPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
-                    >
-                      <XboxIcon size={10} />
-                      Xbox
-                    </span>
-                  </div>
-                )}
-              </div>
-            </CollapsibleRegion>
-          </td>
-        </tr>
-      </React.Fragment>
-    );
-  };
-
-  const renderExpansionPreferences = (session: Session) => {
-    const prefs = getSessionPreferences(session.id);
-    const isLoadingPrefs = isPreferencesLoading(session.id);
-
-    if (
-      !prefs &&
-      !isLoadingPrefs &&
-      !isPreferencesLoaded(session.id) &&
-      !session.isRevoked &&
-      !session.isExpired
-    ) {
-      setTimeout(() => loadSessionPreferences(session.id), 0);
-    }
-
-    if (isLoadingPrefs) {
-      return (
-        <div className="flex items-center gap-2 text-xs text-themed-muted">
-          <LoadingSpinner inline size="xs" />
-          {t('activeSessions.preferencesModal.loading', 'Loading preferences...')}
-        </div>
-      );
-    }
-
-    if (!prefs) return null;
-
-    const themeName = prefs.selectedTheme
-      ? availableThemes.find((th: ThemeOption) => th.id === prefs.selectedTheme)?.name ||
-        prefs.selectedTheme
-      : t('activeSessions.preferencesModal.defaultThemeShort', 'Default');
-    const timezoneLabel = prefs.useLocalTimezone
-      ? t('activeSessions.labels.local', 'Local')
-      : t('activeSessions.labels.server', 'Server');
-
-    return (
-      <>
-        <span className="pref-badge">
-          <Palette className="w-3 h-3" />
-          {themeName}
-        </span>
-        <span className="pref-badge">
-          <Globe className="w-3 h-3" />
-          {timezoneLabel}
-        </span>
-        {prefs.sharpCorners && <span className="pref-badge">Sharp corners</span>}
-        {!prefs.showDatasourceLabels && <span className="pref-badge">Labels off</span>}
-      </>
-    );
-  };
-
-  // ============================================================
-  // Render Helpers: Mobile Card
-  // ============================================================
-
-  const renderMobileCard = (session: Session) => {
-    const isExpanded = expandedSessions.has(session.id);
-    const sessionStatus = getSessionStatus(session);
-    const isActive = sessionStatus === 'active';
-    const isAway = sessionStatus === 'away';
-    const isDimmed = session.isExpired || session.isRevoked;
-    const parsedUA = parseUserAgent(session.userAgent);
-
-    const prefs = getSessionPreferences(session.id);
-    const isLoadingPrefs = isPreferencesLoading(session.id);
-
-    if (
-      !prefs &&
-      !isLoadingPrefs &&
-      !isPreferencesLoaded(session.id) &&
-      !session.isRevoked &&
-      !session.isExpired
-    ) {
-      setTimeout(() => loadSessionPreferences(session.id), 0);
-    }
-
-    const themeName = prefs?.selectedTheme
-      ? availableThemes.find((th: ThemeOption) => th.id === prefs.selectedTheme)?.name ||
-        prefs.selectedTheme
-      : t('activeSessions.preferencesModal.defaultThemeShort');
-    const timezoneLabel = prefs?.useLocalTimezone
-      ? t('activeSessions.labels.local')
-      : t('activeSessions.labels.server');
-
-    return (
-      <div
-        key={session.id}
-        className={`session-card session-card--${isAdminSession(session) ? 'admin' : 'guest'} ${isDimmed ? 'dimmed' : ''}`}
-      >
-        {/* Header - Always visible */}
-        <div className="p-3">
-          <div className="cursor-pointer" onClick={() => toggleSessionExpanded(session.id)}>
-            <div className="flex items-start gap-3">
-              <div className="relative">
-                <div
-                  className={`session-avatar ${
-                    isAdminSession(session) ? 'session-badge-user' : 'session-badge-guest'
-                  }`}
-                >
-                  <User
-                    className={`w-5 h-5 ${
-                      isAdminSession(session) ? 'user-session-icon' : 'guest-session-icon'
-                    }`}
-                  />
-                </div>
-                {(isActive || isAway) && (
-                  <div
-                    className={`status-dot ${isActive ? 'active' : 'away'} absolute -bottom-0.5 -right-0.5`}
-                  />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <h3 className="font-semibold truncate text-sm text-themed-primary">
-                    {parsedUA.title}
-                  </h3>
-                  <span
-                    className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium flex-shrink-0 ${
-                      isAdminSession(session) ? 'session-badge-user' : 'session-badge-guest'
-                    }`}
-                  >
-                    {isAdminSession(session)
-                      ? t('activeSessions.labels.userBadge')
-                      : t('activeSessions.labels.guestBadge')}
-                  </span>
-                </div>
-                <p className="text-xs truncate text-themed-muted">
-                  {session.isCurrentSession
-                    ? t('activeSessions.currentSession')
-                    : session.ipAddress
-                      ? cleanIpAddress(session.ipAddress)
-                      : t('activeSessions.unknownDeviceLower')}
-                </p>
-                <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                  {isGuestSession(session) && !session.isRevoked && !session.isExpired && (
-                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium themed-badge status-badge-warning">
-                      {formatTimeRemaining(session.expiresAt)}
-                    </span>
-                  )}
-                  {session.isRevoked && (
-                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium themed-badge status-badge-error">
-                      {t('activeSessions.status.revoked')}
-                    </span>
-                  )}
-                  {session.isExpired && !session.isRevoked && (
-                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium themed-badge status-badge-warning">
-                      {t('activeSessions.prefill.status.expired')}
-                    </span>
-                  )}
-                  {!session.isRevoked && !session.isExpired && prefs && (
-                    <>
-                      <span className="pref-badge text-[10px]">
-                        <Palette className="w-3 h-3" />
-                        {themeName}
-                      </span>
-                      <span className="pref-badge text-[10px]">
-                        <Globe className="w-3 h-3" />
-                        {timezoneLabel}
-                      </span>
-                    </>
-                  )}
-                </div>
-              </div>
-              <ChevronDown
-                className={`w-5 h-5 flex-shrink-0 transition-transform duration-200 text-themed-muted ${isExpanded ? 'rotate-180' : ''}`}
-              />
+              {session.isExpired && !session.isRevoked && (
+                <span className="is-warning">{t('activeSessions.prefill.status.expired')}</span>
+              )}
             </div>
           </div>
+          <div
+            className="mgmt-row__actions session-row__actions"
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+          >
+            <Button
+              variant="default"
+              color="blue"
+              size="sm"
+              onClick={() => handleEditSession(session)}
+            >
+              {t('actions.edit')}
+            </Button>
+            {session.isCurrentSession && (
+              <Button
+                variant="default"
+                color="orange"
+                size="sm"
+                onClick={handleLogout}
+                disabled={loggingOut}
+                loading={loggingOut}
+              >
+                {t('activeSessions.actions.logout')}
+              </Button>
+            )}
+            {canRevoke && (
+              <Button
+                variant="default"
+                color="orange"
+                size="sm"
+                onClick={() => handleRevokeSession(session)}
+                disabled={revokingSession === session.id}
+              >
+                {revokingSession === session.id
+                  ? t('activeSessions.actions.revoking')
+                  : t('activeSessions.actions.revoke')}
+              </Button>
+            )}
+            {!session.isCurrentSession && (
+              <Button
+                variant="default"
+                color="red"
+                size="sm"
+                onClick={() => handleDeleteSession(session)}
+                disabled={deletingSession === session.id}
+              >
+                {deletingSession === session.id
+                  ? t('activeSessions.actions.deleting')
+                  : t('activeSessions.actions.delete')}
+              </Button>
+            )}
+          </div>
+          <ChevronDown
+            className={`session-row__chevron ${isExpanded ? 'is-open' : ''}`}
+            aria-hidden="true"
+          />
         </div>
 
-        {/* Mobile expanded content */}
-        <CollapsibleRegion open={isExpanded}>
-          <div
-            className={`px-3 pb-3 space-y-3 border-t border-themed-secondary ${isDimmed ? 'opacity-60' : ''}`}
-          >
-            <div className="space-y-2.5 pt-3">
-              {session.ipAddress && (
-                <div>
-                  <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-muted">
-                    <Network className="w-3 h-3" />
-                    <span>{t('activeSessions.labels.ipAddress')}</span>
-                  </div>
-                  <div className="text-sm font-medium pl-[18px] text-themed-primary">
-                    <ClientIpDisplay clientIp={cleanIpAddress(session.ipAddress)} />
-                  </div>
-                </div>
-              )}
-              {session.isCurrentSession && (
-                <div>
-                  <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-success">
-                    <User className="w-3 h-3" />
-                    <span>{t('activeSessions.currentSession')}</span>
-                  </div>
-                  <div className="text-sm font-medium pl-[18px] text-themed-success">
-                    {t('activeSessions.thisDevice')}
-                  </div>
-                </div>
-              )}
-              <div>
-                <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-muted">
-                  <Clock className="w-3 h-3" />
-                  <span>{t('activeSessions.labels.createdShort')}</span>
-                </div>
-                <div className="text-sm font-medium pl-[18px] text-themed-primary">
+        <CollapsibleRegion open={isExpanded} contentClassName="mgmt-row-detail">
+          <div className="session-detail">
+            <div className="dash-readout">
+              <div className="dash-readout-item">
+                <span className="dash-readout-value">
                   <FormattedTimestamp timestamp={session.createdAt} />
-                </div>
+                </span>
+                <span className="dash-readout-label">
+                  {t('activeSessions.labels.createdShort', 'Created')}
+                </span>
               </div>
-              {session.lastSeenAt && (
-                <div>
-                  <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-muted">
-                    <Clock className="w-3 h-3" />
-                    <span>{t('activeSessions.labels.lastSeenShort')}</span>
-                  </div>
-                  <div className="text-sm font-medium pl-[18px] text-themed-primary">
+              <div className="dash-readout-item">
+                <span className="dash-readout-value">
+                  {session.lastSeenAt ? (
                     <FormattedTimestamp timestamp={session.lastSeenAt} />
-                  </div>
-                </div>
-              )}
-              {session.revokedAt && isGuestSession(session) && (
-                <div>
-                  <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-error">
-                    <Clock className="w-3 h-3" />
-                    <span>{t('activeSessions.labels.revokedShort')}</span>
-                  </div>
-                  <div className="text-sm font-medium pl-[18px] text-themed-error">
+                  ) : (
+                    t('activeSessions.labels.never', 'Never')
+                  )}
+                </span>
+                <span className="dash-readout-label">
+                  {t('activeSessions.labels.lastSeenShort', 'Last Seen')}
+                </span>
+              </div>
+              <div className="dash-readout-item">
+                <span className="dash-readout-value">
+                  {admin ? (
+                    t('activeSessions.labels.never', 'Never')
+                  ) : (
+                    <FormattedTimestamp timestamp={session.expiresAt} />
+                  )}
+                </span>
+                <span className="dash-readout-label">
+                  {t('activeSessions.labels.expires', 'Expires')}
+                </span>
+              </div>
+              {session.revokedAt && (
+                <div className="dash-readout-item">
+                  <span className="dash-readout-value is-error">
                     <FormattedTimestamp timestamp={session.revokedAt} />
-                  </div>
+                  </span>
+                  <span className="dash-readout-label">
+                    {t('activeSessions.labels.revokedShort', 'Revoked')}
+                  </span>
                 </div>
               )}
+            </div>
 
-              {/* Prefill permissions */}
-              {isGuestSession(session) && !session.isRevoked && !session.isExpired && (
-                <div className="flex items-center gap-2 pt-1">
-                  <span className="text-xs text-themed-muted">
-                    {t('activeSessions.prefill.title', 'Prefill')}:
-                  </span>
+            {hasClientInfo && (
+              <div className="mgmt-stat-grid">
+                {session.publicIpAddress && (
+                  <div className="mgmt-stat">
+                    <span className="mgmt-stat__label">
+                      {t('activeSessions.labels.publicIp', 'Public IP')}
+                    </span>
+                    <span className="mgmt-stat__value">{session.publicIpAddress}</span>
+                  </div>
+                )}
+                {location && (
+                  <div className="mgmt-stat">
+                    <span className="mgmt-stat__label">
+                      {t('activeSessions.labels.location', 'Location')}
+                    </span>
+                    <span className="mgmt-stat__value">
+                      {flag && <span aria-hidden="true">{flag} </span>}
+                      {location}
+                    </span>
+                  </div>
+                )}
+                {session.ispName && (
+                  <div className="mgmt-stat">
+                    <span className="mgmt-stat__label">
+                      {t('activeSessions.labels.isp', 'ISP')}
+                    </span>
+                    <span className="mgmt-stat__value">{session.ispName}</span>
+                  </div>
+                )}
+                {session.timezone && (
+                  <div className="mgmt-stat">
+                    <span className="mgmt-stat__label">
+                      {t('activeSessions.labels.timezoneHeading', 'Timezone')}
+                    </span>
+                    <span className="mgmt-stat__value">{session.timezone}</span>
+                  </div>
+                )}
+                {session.browserLanguage && (
+                  <div className="mgmt-stat">
+                    <span className="mgmt-stat__label">
+                      {t('activeSessions.labels.language', 'Language')}
+                    </span>
+                    <span className="mgmt-stat__value">{session.browserLanguage}</span>
+                  </div>
+                )}
+                {session.screenResolution && (
+                  <div className="mgmt-stat">
+                    <span className="mgmt-stat__label">
+                      {t('activeSessions.labels.screen', 'Screen')}
+                    </span>
+                    <span className="mgmt-stat__value">{session.screenResolution}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!session.isRevoked && !session.isExpired && (
+              <div className="space-y-2">
+                <p className="mgmt-subhead">
+                  {t('activeSessions.labels.preferences', 'Preferences')}
+                </p>
+                {isLoadingPrefs ? (
+                  <div className="flex items-center gap-2 text-xs text-themed-muted">
+                    <LoadingSpinner inline size="xs" />
+                    {t('activeSessions.preferencesModal.loading', 'Loading preferences...')}
+                  </div>
+                ) : prefs ? (
+                  <div className="mgmt-stat-grid">
+                    <div className="mgmt-stat">
+                      <span className="mgmt-stat__label">
+                        {t('activeSessions.labels.theme', 'Theme')}
+                      </span>
+                      <span className="mgmt-stat__value">{themeName}</span>
+                    </div>
+                    <div className="mgmt-stat">
+                      <span className="mgmt-stat__label">
+                        {t('activeSessions.labels.timezoneHeading', 'Timezone')}
+                      </span>
+                      <span className="mgmt-stat__value">{timezoneLabel}</span>
+                    </div>
+                    {prefs.sharpCorners && (
+                      <div className="mgmt-stat">
+                        <span className="mgmt-stat__label">
+                          {t('user.guest.preferences.sharpCorners.label')}
+                        </span>
+                        <span className="mgmt-stat__value">
+                          {t('activeSessions.prefill.status.enabled')}
+                        </span>
+                      </div>
+                    )}
+                    {!prefs.showDatasourceLabels && (
+                      <div className="mgmt-stat">
+                        <span className="mgmt-stat__label">
+                          {t('user.guest.preferences.datasourceLabels.label')}
+                        </span>
+                        <span className="mgmt-stat__value">
+                          {t('activeSessions.prefill.status.disabled')}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            {guest && !session.isRevoked && !session.isExpired && (
+              <div className="space-y-2">
+                <p className="mgmt-subhead">
+                  {t('activeSessions.prefill.title', 'Prefill Access')}
+                </p>
+                <div className="session-prefill-readout">
                   <span
-                    className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.steamPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                    className={`session-prefill-svc ${session.steamPrefillEnabled ? 'is-enabled' : 'is-disabled'}`}
                   >
-                    <SteamIcon size={10} />
+                    <SteamIcon size={12} />
                     Steam
                   </span>
                   <span
-                    className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.epicPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                    className={`session-prefill-svc ${session.epicPrefillEnabled ? 'is-enabled' : 'is-disabled'}`}
                   >
-                    <EpicIcon size={10} />
+                    <EpicIcon size={12} />
                     Epic
                   </span>
                   <span
-                    className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.battlenetPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                    className={`session-prefill-svc ${session.battlenetPrefillEnabled ? 'is-enabled' : 'is-disabled'}`}
                   >
-                    <BlizzardIcon size={10} />
+                    <BlizzardIcon size={12} />
                     Battle.net
                   </span>
                   <span
-                    className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.riotPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                    className={`session-prefill-svc ${session.riotPrefillEnabled ? 'is-enabled' : 'is-disabled'}`}
                   >
-                    <RiotIcon size={10} />
+                    <RiotIcon size={12} />
                     Riot
                   </span>
                   <span
-                    className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.xboxPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                    className={`session-prefill-svc ${session.xboxPrefillEnabled ? 'is-enabled' : 'is-disabled'}`}
                   >
-                    <XboxIcon size={10} />
+                    <XboxIcon size={12} />
                     Xbox
                   </span>
                 </div>
-              )}
-
-              <div>
-                <div className="flex items-center gap-1.5 text-[10px] mb-0.5 text-themed-muted">
-                  <span>{t('activeSessions.labels.sessionId')}</span>
-                </div>
-                <div className="text-xs font-mono break-all text-themed-secondary">
-                  {session.id}
-                </div>
               </div>
-            </div>
+            )}
 
-            {/* Mobile action buttons */}
-            <div className="flex flex-col gap-2 pt-2">
-              {session.isCurrentSession && (
-                <Button
-                  variant="default"
-                  color="orange"
-                  size="sm"
-                  leftSection={<LogOut className="w-4 h-4" />}
-                  onClick={(e: React.MouseEvent) => {
-                    e.stopPropagation();
-                    handleLogout();
-                  }}
-                  disabled={loggingOut}
-                  loading={loggingOut}
-                  fullWidth
-                >
-                  {t('activeSessions.actions.logout')}
-                </Button>
-              )}
-              <Button
-                variant="default"
-                color="blue"
-                size="sm"
-                leftSection={<Edit className="w-4 h-4" />}
-                onClick={(e: React.MouseEvent) => {
-                  e.stopPropagation();
-                  handleEditSession(session);
-                }}
-                fullWidth
-              >
-                {t('activeSessions.actions.editPreferences')}
-              </Button>
-              {isGuestSession(session) &&
-                !session.isRevoked &&
-                !session.isExpired &&
-                !session.isCurrentSession && (
-                  <Button
-                    variant="default"
-                    color="orange"
-                    size="sm"
-                    onClick={(e: React.MouseEvent) => {
-                      e.stopPropagation();
-                      handleRevokeSession(session);
-                    }}
-                    disabled={revokingSession === session.id}
-                    fullWidth
-                  >
-                    {revokingSession === session.id
-                      ? t('activeSessions.actions.revoking')
-                      : t('activeSessions.actions.revokeSession')}
-                  </Button>
-                )}
-              {!session.isCurrentSession && (
-                <Button
-                  variant="default"
-                  color="red"
-                  size="sm"
-                  leftSection={<Trash2 className="w-4 h-4" />}
-                  onClick={(e: React.MouseEvent) => {
-                    e.stopPropagation();
-                    handleDeleteSession(session);
-                  }}
-                  disabled={deletingSession === session.id}
-                  fullWidth
-                >
-                  {deletingSession === session.id
-                    ? t('activeSessions.actions.deleting')
-                    : t('activeSessions.actions.deleteSession')}
-                </Button>
-              )}
-            </div>
+            <p className="mgmt-scanmeta session-detail__id">
+              {t('activeSessions.labels.sessionIdWithValue', { id: session.id })}
+            </p>
           </div>
         </CollapsibleRegion>
       </div>
@@ -1538,94 +1199,56 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   const renderHistoryCard = (session: Session) => {
     const parsedUA = parseUserAgent(session.userAgent);
+    const admin = isAdminSession(session);
 
     return (
-      <div
-        key={session.id}
-        className={`session-card session-card--${isAdminSession(session) ? 'admin' : 'guest'} dimmed`}
-      >
-        <div className="p-3 sm:p-4">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-start gap-3 flex-1 min-w-0">
-              <div
-                className={`session-avatar ${isAdminSession(session) ? 'session-badge-user' : 'session-badge-guest'}`}
-              >
-                <User
-                  className={`w-5 h-5 ${isAdminSession(session) ? 'user-session-icon' : 'guest-session-icon'}`}
-                />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <h3 className="font-semibold truncate text-sm text-themed-primary">
-                    {parsedUA.title}
-                  </h3>
-                  <span
-                    className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium flex-shrink-0 ${isAdminSession(session) ? 'session-badge-user' : 'session-badge-guest'}`}
-                  >
-                    {isAdminSession(session)
-                      ? t('activeSessions.labels.userBadge')
-                      : t('activeSessions.labels.guestBadge')}
-                  </span>
-                  {session.isRevoked && (
-                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium themed-badge status-badge-error">
-                      {t('activeSessions.status.revoked')}
-                    </span>
-                  )}
-                  {session.isExpired && !session.isRevoked && (
-                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium themed-badge status-badge-warning">
-                      {t('activeSessions.prefill.status.expired')}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-4 text-xs text-themed-muted">
-                  {session.ipAddress && (
-                    <span className="flex items-center gap-1">
-                      <Network className="w-3 h-3" />
-                      <ClientIpDisplay
-                        clientIp={cleanIpAddress(session.ipAddress)}
-                        className="truncate"
-                      />
-                      {session.publicIpAddress && (
-                        <span
-                          className="text-themed-muted ml-1 truncate"
-                          title={t('activeSessions.labels.publicIp', 'Public IP')}
-                        >
-                          · {session.publicIpAddress}
-                        </span>
-                      )}
-                    </span>
-                  )}
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    <FormattedTimestamp timestamp={session.createdAt} />
-                  </span>
-                  {session.revokedAt && (
-                    <span className="flex items-center gap-1 text-themed-error">
-                      <Clock className="w-3 h-3" />
-                      {t('activeSessions.labels.revokedAt')}{' '}
-                      <FormattedTimestamp timestamp={session.revokedAt} />
-                    </span>
-                  )}
-                </div>
-                <div className="text-[10px] font-mono truncate mt-1 text-themed-muted">
-                  {session.id}
-                </div>
-              </div>
-            </div>
-            <div className="flex gap-2 items-start flex-shrink-0">
-              <Button
-                variant="default"
-                color="red"
-                size="sm"
-                leftSection={<Trash2 className="w-4 h-4" />}
-                onClick={() => handleDeleteSession(session)}
-                disabled={deletingSession === session.id}
-                loading={deletingSession === session.id}
-              >
-                {t('activeSessions.actions.delete')}
-              </Button>
-            </div>
+      <div key={session.id} className="mgmt-row">
+        <span className="status-dot inactive" aria-hidden="true" />
+        <div className="mgmt-row__body">
+          <div className="session-row__titleline">
+            <span className="mgmt-row__title truncate">{parsedUA.title}</span>
+            <span
+              className={`themed-badge session-type-badge ${admin ? 'session-badge-user' : 'session-badge-guest'}`}
+            >
+              {admin ? t('activeSessions.labels.userBadge') : t('activeSessions.labels.guestBadge')}
+            </span>
+            {session.isRevoked && (
+              <span className="themed-badge status-badge-error session-type-badge">
+                {t('activeSessions.status.revoked')}
+              </span>
+            )}
+            {session.isExpired && !session.isRevoked && (
+              <span className="themed-badge status-badge-warning session-type-badge">
+                {t('activeSessions.prefill.status.expired')}
+              </span>
+            )}
           </div>
+          <div className="mgmt-row__meta session-row__meta">
+            {session.ipAddress && <ClientIpDisplay clientIp={cleanIpAddress(session.ipAddress)} />}
+            <span>
+              <FormattedTimestamp timestamp={session.createdAt} />
+            </span>
+            {session.revokedAt && (
+              <span className="is-error">
+                {t('activeSessions.labels.revokedAt')}{' '}
+                <FormattedTimestamp timestamp={session.revokedAt} />
+              </span>
+            )}
+            <span className="session-detail__id">{session.id}</span>
+          </div>
+        </div>
+        <div className="mgmt-row__actions">
+          <Button
+            variant="default"
+            color="red"
+            size="sm"
+            leftSection={<Trash2 className="w-4 h-4" />}
+            onClick={() => handleDeleteSession(session)}
+            disabled={deletingSession === session.id}
+            loading={deletingSession === session.id}
+          >
+            {t('activeSessions.actions.delete')}
+          </Button>
         </div>
       </div>
     );
@@ -1636,7 +1259,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   // ============================================================
 
   return (
-    <div className="active-sessions-layout">
+    <div className="session-console">
       <Card padding="none">
         {/* ---- Header: Title + Guest Lock ---- */}
         <div className="p-4 sm:p-5 border-b border-themed-secondary">
@@ -1707,64 +1330,82 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           </div>
         </div>
 
-        {/* ---- Sub-header: Filter Chips + Bulk Actions ---- */}
+        {/* ---- Sub-header: Filters + result meta + Bulk Actions ---- */}
         {!loading && activeSessions.length > 0 && (
           <div className="px-4 sm:px-5 py-3 border-b border-themed-secondary">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              {/* Filter Chips */}
-              <div className="flex flex-wrap items-center gap-2">
-                {(['all', 'admin', 'guest'] as const).map((filter: SessionFilter) => (
-                  <button
-                    key={filter}
-                    className={`filter-chip ${activeFilterValue === filter ? 'filter-chip--active' : ''}`}
-                    onClick={() => setActiveFilter(filter)}
-                  >
-                    {/* Plain bold count, NOT a badge box: inside a filter-chip button the
-                        chip itself (border + active accent state) is the visual container,
-                        so a nested bordered badge reads as a box-in-a-box. */}
-                    <span className="filter-chip-count">{getCountForFilter(filter)}</span>
-                    <span>{getFilterLabel(filter)}</span>
-                  </button>
-                ))}
+            <div className="mgmt-toolbar">
+              {/* Filter cluster: quiet count badges, active state via filled variant */}
+              <div className="session-filter-cluster">
+                {(['all', 'admin', 'guest'] as const).map((filter: SessionFilter) => {
+                  const isActive = activeFilterValue === filter;
+                  return (
+                    <Button
+                      key={filter}
+                      variant={isActive ? 'filled' : 'default'}
+                      color={isActive ? 'blue' : 'gray'}
+                      size="sm"
+                      aria-pressed={isActive}
+                      onClick={() => setActiveFilter(filter)}
+                      rightSection={
+                        <span
+                          className={`themed-badge badge-count ${isActive ? 'badge-count-on-color' : 'status-badge-neutral'}`}
+                        >
+                          {getCountForFilter(filter)}
+                        </span>
+                      }
+                    >
+                      {getFilterLabel(filter)}
+                    </Button>
+                  );
+                })}
               </div>
 
-              {/* Bulk Actions Dropdown */}
-              <ActionMenu
-                isOpen={bulkMenuOpen}
-                onClose={() => setBulkMenuOpen(false)}
-                trigger={
-                  <Button
-                    variant="filled"
-                    color="gray"
-                    size="sm"
-                    leftSection={<MoreVertical className="w-4 h-4" />}
-                    onClick={() => setBulkMenuOpen((prev: boolean) => !prev)}
+              <div className="session-toolbar__right">
+                <span className="mgmt-scanmeta">
+                  {t('activeSessions.resultCount', {
+                    count: filteredActiveSessions.length,
+                    defaultValue: '{{count}} sessions'
+                  })}
+                </span>
+
+                {/* Bulk Actions Dropdown */}
+                <ActionMenu
+                  isOpen={bulkMenuOpen}
+                  onClose={() => setBulkMenuOpen(false)}
+                  trigger={
+                    <Button
+                      variant="filled"
+                      color="gray"
+                      size="sm"
+                      leftSection={<MoreVertical className="w-4 h-4" />}
+                      onClick={() => setBulkMenuOpen((prev: boolean) => !prev)}
+                    >
+                      {t('user.bulkActions.title', 'Actions')}
+                    </Button>
+                  }
+                  width="w-56"
+                >
+                  <ActionMenuItem
+                    icon={<RotateCcw className="w-4 h-4" />}
+                    onClick={() => {
+                      setBulkMenuOpen(false);
+                      setShowBulkResetConfirm(true);
+                    }}
                   >
-                    {t('user.bulkActions.title', 'Actions')}
-                  </Button>
-                }
-                width="w-56"
-              >
-                <ActionMenuItem
-                  icon={<RotateCcw className="w-4 h-4" />}
-                  onClick={() => {
-                    setBulkMenuOpen(false);
-                    setShowBulkResetConfirm(true);
-                  }}
-                >
-                  {t('user.bulkActions.buttons.reset', 'Reset All to Defaults')}
-                </ActionMenuItem>
-                <ActionMenuDivider />
-                <ActionMenuDangerItem
-                  icon={<Eraser className="w-4 h-4" />}
-                  onClick={() => {
-                    setBulkMenuOpen(false);
-                    setShowClearGuestsConfirm(true);
-                  }}
-                >
-                  {t('user.bulkActions.buttons.clear', 'Clear All Guest Sessions')}
-                </ActionMenuDangerItem>
-              </ActionMenu>
+                    {t('user.bulkActions.buttons.reset', 'Reset All to Defaults')}
+                  </ActionMenuItem>
+                  <ActionMenuDivider />
+                  <ActionMenuDangerItem
+                    icon={<Eraser className="w-4 h-4" />}
+                    onClick={() => {
+                      setBulkMenuOpen(false);
+                      setShowClearGuestsConfirm(true);
+                    }}
+                  >
+                    {t('user.bulkActions.buttons.clear', 'Clear All Guest Sessions')}
+                  </ActionMenuDangerItem>
+                </ActionMenu>
+              </div>
             </div>
           </div>
         )}
@@ -1779,43 +1420,30 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           )}
 
           {!loading && activeSessions.length === 0 && (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-xl flex items-center justify-center bg-themed-tertiary">
-                <Users className="w-8 h-8 text-themed-muted" />
-              </div>
-              <p className="font-medium text-themed-secondary">{t('activeSessions.empty.title')}</p>
-              <p className="text-sm mt-1 text-themed-muted">{t('activeSessions.empty.subtitle')}</p>
-            </div>
+            <EmptyState
+              variant="panel"
+              icon={Users}
+              title={t('activeSessions.empty.title')}
+              subtitle={t('activeSessions.empty.subtitle')}
+            />
           )}
 
-          {/* Desktop: Data Table */}
-          {!loading && filteredActiveSessions.length > 0 && !isMobile && (
-            <table className="session-table">
-              <thead className="session-table-header">
-                <tr>
-                  <th className="w-8">{t('activeSessions.table.status', 'Status')}</th>
-                  <th>{t('activeSessions.table.device', 'Device & Type')}</th>
-                  <th>{t('activeSessions.table.network', 'Network')}</th>
-                  <th>{t('activeSessions.table.lastSeen', 'Last Seen')}</th>
-                  <th className="w-1">{t('activeSessions.table.actions', 'Actions')}</th>
-                </tr>
-              </thead>
-              <tbody>{filteredActiveSessions.map(renderTableRow)}</tbody>
-            </table>
-          )}
-
-          {/* Mobile: Cards */}
-          {!loading && filteredActiveSessions.length > 0 && isMobile && (
-            <div className="space-y-2">{filteredActiveSessions.map(renderMobileCard)}</div>
+          {/* One responsive divided list (reflows via CSS at every breakpoint) */}
+          {!loading && filteredActiveSessions.length > 0 && (
+            <div className="mgmt-list">{filteredActiveSessions.map(renderSessionItem)}</div>
           )}
 
           {/* Filtered but no results */}
           {!loading && activeSessions.length > 0 && filteredActiveSessions.length === 0 && (
-            <div className="text-center py-8">
-              <p className="text-sm text-themed-muted">
-                {t('activeSessions.empty.filtered', 'No sessions match the selected filter.')}
-              </p>
-            </div>
+            <EmptyState
+              variant="panel"
+              icon={Users}
+              title={t('activeSessions.empty.filteredTitle', 'No matching sessions')}
+              subtitle={t(
+                'activeSessions.empty.filtered',
+                'No sessions match the selected filter.'
+              )}
+            />
           )}
         </div>
 
@@ -1854,7 +1482,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 <h2 className="text-lg font-semibold text-themed-primary">
                   {t('activeSessions.history.title')}
                 </h2>
-                <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-themed-tertiary text-themed-muted">
+                <span className="themed-badge status-badge-neutral badge-count">
                   {historySessions.length}
                 </span>
               </div>
@@ -1864,8 +1492,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             </div>
           </div>
           {historyExpanded && (
-            <div className="px-4 sm:px-5 pb-4 sm:pb-5 space-y-2">
-              {historySessions.map(renderHistoryCard)}
+            <div className="px-4 sm:px-5 pb-4 sm:pb-5">
+              <div className="mgmt-list">{historySessions.map(renderHistoryCard)}</div>
             </div>
           )}
         </Card>
@@ -1902,7 +1530,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           </p>
 
           {pendingRevokeSession && (
-            <div className="p-3 rounded-lg bg-themed-tertiary space-y-1">
+            <div className="mgmt-panel">
               <p className="text-sm text-themed-primary font-medium">
                 {parseUserAgent(pendingRevokeSession.userAgent).title}
               </p>
@@ -1972,7 +1600,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           </p>
 
           {pendingDeleteSession && (
-            <div className="p-3 rounded-lg bg-themed-tertiary space-y-1">
+            <div className="mgmt-panel">
               <p className="text-sm text-themed-primary font-medium">
                 {parseUserAgent(pendingDeleteSession.userAgent).title}
               </p>
@@ -2145,7 +1773,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       >
         <div className="space-y-4">
           {editingSession && (
-            <div className="p-3 rounded-lg bg-themed-tertiary space-y-1">
+            <div className="mgmt-panel">
               <p className="text-sm text-themed-primary font-medium">
                 {parseUserAgent(editingSession.userAgent).title}
               </p>
@@ -2281,13 +1909,27 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         <Lock className="w-4 h-4 text-themed-muted" />
                       )}
                       <div>
-                        <p className="text-sm text-themed-primary">Allow guest to change rate</p>
+                        <p className="text-sm text-themed-primary">
+                          {t(
+                            'activeSessions.preferencesModal.refreshLock.allow',
+                            'Allow guest to change rate'
+                          )}
+                        </p>
                         <p className="text-xs text-themed-muted">
                           {editingPreferences.refreshRateLocked === null
-                            ? 'Using global default'
+                            ? t(
+                                'activeSessions.preferencesModal.refreshLock.usingDefault',
+                                'Using global default'
+                              )
                             : editingPreferences.refreshRateLocked
-                              ? 'Locked for this guest'
-                              : 'Unlocked for this guest'}
+                              ? t(
+                                  'activeSessions.preferencesModal.refreshLock.locked',
+                                  'Locked for this guest'
+                                )
+                              : t(
+                                  'activeSessions.preferencesModal.refreshLock.unlocked',
+                                  'Unlocked for this guest'
+                                )}
                         </p>
                       </div>
                     </div>
@@ -2303,7 +1945,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                           }
                           className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-secondary hover:bg-themed-hover"
                         >
-                          Use Default
+                          {t('actions.useDefault')}
                         </button>
                       )}
                       <div
@@ -2328,224 +1970,228 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 isGuestSession(editingSession) &&
                 !editingSession.isRevoked &&
                 !editingSession.isExpired && (
-                  <div className="prefill-access-section">
-                    <div className="prefill-access-header">
-                      <Download className="w-4 h-4 text-themed-accent" />
-                      <h4 className="text-sm font-medium text-themed-primary">
-                        {t('activeSessions.prefill.title')}
-                      </h4>
+                  <div className="space-y-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Download className="w-4 h-4 text-themed-accent" />
+                        <h4 className="text-sm font-medium text-themed-primary">
+                          {t('activeSessions.prefill.title')}
+                        </h4>
+                      </div>
+                      <p className="text-xs text-themed-muted mt-1">
+                        {t('activeSessions.prefill.subtitle')}
+                      </p>
                     </div>
-                    <p className="text-xs text-themed-muted prefill-access-subtitle">
-                      {t('activeSessions.prefill.subtitle')}
-                    </p>
-
-                    {/* Steam Prefill Row */}
-                    {(() => {
-                      const current = editingSession.steamPrefillEnabled;
-                      const effective =
-                        pendingSteamPrefillChange !== null ? pendingSteamPrefillChange : current;
-                      const hasChange =
-                        pendingSteamPrefillChange !== null && pendingSteamPrefillChange !== current;
-                      return (
-                        <div className="prefill-service-row">
-                          <div className="prefill-service-row-label">
-                            <SteamIcon size={16} className="prefill-service-row-icon" />
-                            <span className="text-sm text-themed-secondary">Steam</span>
-                            {hasChange && (
-                              <span className="text-xs text-themed-accent italic">
-                                ({t('common.unsaved')})
+                    <div className="mgmt-list">
+                      {/* Steam Prefill Row */}
+                      {(() => {
+                        const current = editingSession.steamPrefillEnabled;
+                        const effective =
+                          pendingSteamPrefillChange !== null ? pendingSteamPrefillChange : current;
+                        const hasChange =
+                          pendingSteamPrefillChange !== null &&
+                          pendingSteamPrefillChange !== current;
+                        return (
+                          <div className="mgmt-row">
+                            <div className="session-prefill-edit__label">
+                              <SteamIcon size={16} className="session-prefill-edit__icon" />
+                              <span className="text-sm text-themed-secondary">Steam</span>
+                              {hasChange && (
+                                <span className="text-xs text-themed-accent italic">
+                                  ({t('common.unsaved')})
+                                </span>
+                              )}
+                            </div>
+                            <div className="mgmt-row__actions">
+                              <span
+                                className={`px-2 py-0.5 text-xs rounded-full font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
+                              >
+                                {effective
+                                  ? t('activeSessions.prefill.status.enabled')
+                                  : t('activeSessions.prefill.status.disabled')}
                               </span>
-                            )}
+                              <Button
+                                variant="default"
+                                color={effective ? 'orange' : 'green'}
+                                size="sm"
+                                onClick={() => setPendingSteamPrefillChange(!effective)}
+                              >
+                                {effective
+                                  ? t('activeSessions.prefill.actions.revoke')
+                                  : t('activeSessions.prefill.actions.grant')}
+                              </Button>
+                            </div>
                           </div>
-                          <div className="prefill-service-row-controls">
-                            <span
-                              className={`px-2 py-0.5 text-xs rounded-full font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
-                            >
-                              {effective
-                                ? t('activeSessions.prefill.status.enabled')
-                                : t('activeSessions.prefill.status.disabled')}
-                            </span>
-                            <Button
-                              variant="default"
-                              color={effective ? 'orange' : 'green'}
-                              size="sm"
-                              onClick={() => setPendingSteamPrefillChange(!effective)}
-                            >
-                              {effective
-                                ? t('activeSessions.prefill.actions.revoke')
-                                : t('activeSessions.prefill.actions.grant')}
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })()}
+                        );
+                      })()}
 
-                    {/* Epic Prefill Row */}
-                    {(() => {
-                      const current = editingSession.epicPrefillEnabled;
-                      const effective =
-                        pendingEpicPrefillChange !== null ? pendingEpicPrefillChange : current;
-                      const hasChange =
-                        pendingEpicPrefillChange !== null && pendingEpicPrefillChange !== current;
-                      return (
-                        <div className="prefill-service-row">
-                          <div className="prefill-service-row-label">
-                            <EpicIcon size={16} className="prefill-service-row-icon" />
-                            <span className="text-sm text-themed-secondary">Epic Games</span>
-                            {hasChange && (
-                              <span className="text-xs text-themed-accent italic">
-                                ({t('common.unsaved')})
+                      {/* Epic Prefill Row */}
+                      {(() => {
+                        const current = editingSession.epicPrefillEnabled;
+                        const effective =
+                          pendingEpicPrefillChange !== null ? pendingEpicPrefillChange : current;
+                        const hasChange =
+                          pendingEpicPrefillChange !== null && pendingEpicPrefillChange !== current;
+                        return (
+                          <div className="mgmt-row">
+                            <div className="session-prefill-edit__label">
+                              <EpicIcon size={16} className="session-prefill-edit__icon" />
+                              <span className="text-sm text-themed-secondary">Epic Games</span>
+                              {hasChange && (
+                                <span className="text-xs text-themed-accent italic">
+                                  ({t('common.unsaved')})
+                                </span>
+                              )}
+                            </div>
+                            <div className="mgmt-row__actions">
+                              <span
+                                className={`px-2 py-0.5 text-xs rounded-full font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
+                              >
+                                {effective
+                                  ? t('activeSessions.prefill.status.enabled')
+                                  : t('activeSessions.prefill.status.disabled')}
                               </span>
-                            )}
+                              <Button
+                                variant="default"
+                                color={effective ? 'orange' : 'green'}
+                                size="sm"
+                                onClick={() => setPendingEpicPrefillChange(!effective)}
+                              >
+                                {effective
+                                  ? t('activeSessions.prefill.actions.revoke')
+                                  : t('activeSessions.prefill.actions.grant')}
+                              </Button>
+                            </div>
                           </div>
-                          <div className="prefill-service-row-controls">
-                            <span
-                              className={`px-2 py-0.5 text-xs rounded-full font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
-                            >
-                              {effective
-                                ? t('activeSessions.prefill.status.enabled')
-                                : t('activeSessions.prefill.status.disabled')}
-                            </span>
-                            <Button
-                              variant="default"
-                              color={effective ? 'orange' : 'green'}
-                              size="sm"
-                              onClick={() => setPendingEpicPrefillChange(!effective)}
-                            >
-                              {effective
-                                ? t('activeSessions.prefill.actions.revoke')
-                                : t('activeSessions.prefill.actions.grant')}
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })()}
+                        );
+                      })()}
 
-                    {/* Battle.net Prefill Row (anonymous - no account login) */}
-                    {(() => {
-                      const current = editingSession.battlenetPrefillEnabled;
-                      const effective =
-                        pendingBattlenetPrefillChange !== null
-                          ? pendingBattlenetPrefillChange
-                          : current;
-                      const hasChange =
-                        pendingBattlenetPrefillChange !== null &&
-                        pendingBattlenetPrefillChange !== current;
-                      return (
-                        <div className="prefill-service-row">
-                          <div className="prefill-service-row-label">
-                            <BlizzardIcon size={16} className="prefill-service-row-icon" />
-                            <span className="text-sm text-themed-secondary">Battle.net</span>
-                            {hasChange && (
-                              <span className="text-xs text-themed-accent italic">
-                                ({t('common.unsaved')})
+                      {/* Battle.net Prefill Row (anonymous - no account login) */}
+                      {(() => {
+                        const current = editingSession.battlenetPrefillEnabled;
+                        const effective =
+                          pendingBattlenetPrefillChange !== null
+                            ? pendingBattlenetPrefillChange
+                            : current;
+                        const hasChange =
+                          pendingBattlenetPrefillChange !== null &&
+                          pendingBattlenetPrefillChange !== current;
+                        return (
+                          <div className="mgmt-row">
+                            <div className="session-prefill-edit__label">
+                              <BlizzardIcon size={16} className="session-prefill-edit__icon" />
+                              <span className="text-sm text-themed-secondary">Battle.net</span>
+                              {hasChange && (
+                                <span className="text-xs text-themed-accent italic">
+                                  ({t('common.unsaved')})
+                                </span>
+                              )}
+                            </div>
+                            <div className="mgmt-row__actions">
+                              <span
+                                className={`px-2 py-0.5 text-xs rounded-full font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
+                              >
+                                {effective
+                                  ? t('activeSessions.prefill.status.enabled')
+                                  : t('activeSessions.prefill.status.disabled')}
                               </span>
-                            )}
+                              <Button
+                                variant="default"
+                                color={effective ? 'orange' : 'green'}
+                                size="sm"
+                                onClick={() => setPendingBattlenetPrefillChange(!effective)}
+                              >
+                                {effective
+                                  ? t('activeSessions.prefill.actions.revoke')
+                                  : t('activeSessions.prefill.actions.grant')}
+                              </Button>
+                            </div>
                           </div>
-                          <div className="prefill-service-row-controls">
-                            <span
-                              className={`px-2 py-0.5 text-xs rounded-full font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
-                            >
-                              {effective
-                                ? t('activeSessions.prefill.status.enabled')
-                                : t('activeSessions.prefill.status.disabled')}
-                            </span>
-                            <Button
-                              variant="default"
-                              color={effective ? 'orange' : 'green'}
-                              size="sm"
-                              onClick={() => setPendingBattlenetPrefillChange(!effective)}
-                            >
-                              {effective
-                                ? t('activeSessions.prefill.actions.revoke')
-                                : t('activeSessions.prefill.actions.grant')}
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })()}
+                        );
+                      })()}
 
-                    {/* Riot Prefill Row (anonymous - no account login) */}
-                    {(() => {
-                      const current = editingSession.riotPrefillEnabled;
-                      const effective =
-                        pendingRiotPrefillChange !== null ? pendingRiotPrefillChange : current;
-                      const hasChange =
-                        pendingRiotPrefillChange !== null && pendingRiotPrefillChange !== current;
-                      return (
-                        <div className="prefill-service-row">
-                          <div className="prefill-service-row-label">
-                            <RiotIcon size={16} className="prefill-service-row-icon" />
-                            <span className="text-sm text-themed-secondary">Riot Games</span>
-                            {hasChange && (
-                              <span className="text-xs text-themed-accent italic">
-                                ({t('common.unsaved')})
+                      {/* Riot Prefill Row (anonymous - no account login) */}
+                      {(() => {
+                        const current = editingSession.riotPrefillEnabled;
+                        const effective =
+                          pendingRiotPrefillChange !== null ? pendingRiotPrefillChange : current;
+                        const hasChange =
+                          pendingRiotPrefillChange !== null && pendingRiotPrefillChange !== current;
+                        return (
+                          <div className="mgmt-row">
+                            <div className="session-prefill-edit__label">
+                              <RiotIcon size={16} className="session-prefill-edit__icon" />
+                              <span className="text-sm text-themed-secondary">Riot Games</span>
+                              {hasChange && (
+                                <span className="text-xs text-themed-accent italic">
+                                  ({t('common.unsaved')})
+                                </span>
+                              )}
+                            </div>
+                            <div className="mgmt-row__actions">
+                              <span
+                                className={`px-2 py-0.5 text-xs rounded-full font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
+                              >
+                                {effective
+                                  ? t('activeSessions.prefill.status.enabled')
+                                  : t('activeSessions.prefill.status.disabled')}
                               </span>
-                            )}
+                              <Button
+                                variant="default"
+                                color={effective ? 'orange' : 'green'}
+                                size="sm"
+                                onClick={() => setPendingRiotPrefillChange(!effective)}
+                              >
+                                {effective
+                                  ? t('activeSessions.prefill.actions.revoke')
+                                  : t('activeSessions.prefill.actions.grant')}
+                              </Button>
+                            </div>
                           </div>
-                          <div className="prefill-service-row-controls">
-                            <span
-                              className={`px-2 py-0.5 text-xs rounded-full font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
-                            >
-                              {effective
-                                ? t('activeSessions.prefill.status.enabled')
-                                : t('activeSessions.prefill.status.disabled')}
-                            </span>
-                            <Button
-                              variant="default"
-                              color={effective ? 'orange' : 'green'}
-                              size="sm"
-                              onClick={() => setPendingRiotPrefillChange(!effective)}
-                            >
-                              {effective
-                                ? t('activeSessions.prefill.actions.revoke')
-                                : t('activeSessions.prefill.actions.grant')}
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })()}
+                        );
+                      })()}
 
-                    {/* Xbox Prefill Row (login-required - mirrors Epic) */}
-                    {(() => {
-                      const current = editingSession.xboxPrefillEnabled;
-                      const effective =
-                        pendingXboxPrefillChange !== null ? pendingXboxPrefillChange : current;
-                      const hasChange =
-                        pendingXboxPrefillChange !== null && pendingXboxPrefillChange !== current;
-                      return (
-                        <div className="prefill-service-row">
-                          <div className="prefill-service-row-label">
-                            <XboxIcon size={16} className="prefill-service-row-icon" />
-                            <span className="text-sm text-themed-secondary">Xbox</span>
-                            {hasChange && (
-                              <span className="text-xs text-themed-accent italic">
-                                ({t('common.unsaved')})
+                      {/* Xbox Prefill Row (login-required - mirrors Epic) */}
+                      {(() => {
+                        const current = editingSession.xboxPrefillEnabled;
+                        const effective =
+                          pendingXboxPrefillChange !== null ? pendingXboxPrefillChange : current;
+                        const hasChange =
+                          pendingXboxPrefillChange !== null && pendingXboxPrefillChange !== current;
+                        return (
+                          <div className="mgmt-row">
+                            <div className="session-prefill-edit__label">
+                              <XboxIcon size={16} className="session-prefill-edit__icon" />
+                              <span className="text-sm text-themed-secondary">Xbox</span>
+                              {hasChange && (
+                                <span className="text-xs text-themed-accent italic">
+                                  ({t('common.unsaved')})
+                                </span>
+                              )}
+                            </div>
+                            <div className="mgmt-row__actions">
+                              <span
+                                className={`px-2 py-0.5 text-xs rounded-full font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
+                              >
+                                {effective
+                                  ? t('activeSessions.prefill.status.enabled')
+                                  : t('activeSessions.prefill.status.disabled')}
                               </span>
-                            )}
+                              <Button
+                                variant="default"
+                                color={effective ? 'orange' : 'green'}
+                                size="sm"
+                                onClick={() => setPendingXboxPrefillChange(!effective)}
+                              >
+                                {effective
+                                  ? t('activeSessions.prefill.actions.revoke')
+                                  : t('activeSessions.prefill.actions.grant')}
+                              </Button>
+                            </div>
                           </div>
-                          <div className="prefill-service-row-controls">
-                            <span
-                              className={`px-2 py-0.5 text-xs rounded-full font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
-                            >
-                              {effective
-                                ? t('activeSessions.prefill.status.enabled')
-                                : t('activeSessions.prefill.status.disabled')}
-                            </span>
-                            <Button
-                              variant="default"
-                              color={effective ? 'orange' : 'green'}
-                              size="sm"
-                              onClick={() => setPendingXboxPrefillChange(!effective)}
-                            >
-                              {effective
-                                ? t('activeSessions.prefill.actions.revoke')
-                                : t('activeSessions.prefill.actions.grant')}
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })()}
+                        );
+                      })()}
+                    </div>
                   </div>
                 )}
 
@@ -2558,7 +2204,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     { value: '', label: t('user.guest.prefill.maxThreads.noLimit') },
                     ...THREAD_VALUES.map((n: number) => ({
                       value: String(n),
-                      label: `${n} threads`
+                      label: t('user.guest.prefill.maxThreads.threadsCount', '{{count}} threads', {
+                        count: n
+                      })
                     }))
                   ];
                   const hasOverride = editingPreferences.maxThreadCount != null;

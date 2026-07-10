@@ -1,6 +1,8 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Network } from 'lucide-react';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import { Alert } from '@components/ui/Alert';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { HelpPopover, HelpNote } from '@components/ui/HelpPopover';
@@ -9,7 +11,6 @@ interface PrefillServicePanelProps {
   serviceName: string;
   serviceNameClass: string;
   serviceIcon: React.ReactNode;
-  accentClass: string;
   config: {
     enabledByDefault: boolean;
     durationHours: number;
@@ -36,7 +37,6 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
   serviceName,
   serviceNameClass,
   serviceIcon,
-  accentClass,
   config,
   onToggleEnabled,
   onDurationChange,
@@ -53,11 +53,7 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
   maxThreadsLabel,
   maxThreadOptions
 }) => {
-  const handleToggleClick = () => {
-    if (!loading && !updating) {
-      onToggleEnabled();
-    }
-  };
+  const { t } = useTranslation();
 
   const handleDurationChange = (value: string) => {
     onDurationChange(Number(value));
@@ -69,72 +65,73 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
   };
 
   return (
-    <div className={`settings-group ${accentClass}`}>
-      {/* Service header */}
-      <div className="text-xs font-semibold uppercase tracking-wider text-themed-muted flex items-center gap-2">
-        {serviceIcon}
-        <span className={serviceNameClass}>{serviceName}</span>
+    <div>
+      <div className="mgmt-row">
+        <span className="user-settings-service-icon">{serviceIcon}</span>
+        <div className="mgmt-row__body">
+          <p className={`mgmt-row__title ${serviceNameClass}`}>{serviceName}</p>
+          <p className="mgmt-row__meta">{enableDescription}</p>
+        </div>
+        <div className="mgmt-row__actions">
+          <ToggleSwitch
+            options={[
+              { value: 'off', label: t('common.off') },
+              { value: 'on', label: t('common.on'), activeColor: 'success' }
+            ]}
+            value={config.enabledByDefault ? 'on' : 'off'}
+            onChange={() => onToggleEnabled()}
+            disabled={loading}
+            loading={updating}
+            title={enableLabel}
+            size="sm"
+          />
+        </div>
       </div>
 
-      {/* Enable by default toggle */}
-      <div className="toggle-row cursor-pointer" onClick={handleToggleClick}>
-        <div>
-          <div className="toggle-row-label">{enableLabel}</div>
-          <div className="toggle-row-description">{enableDescription}</div>
-        </div>
-        <div className="flex items-center gap-2">
-          {updating && <LoadingSpinner inline size="sm" className="text-themed-accent" />}
-          <div className={`modern-toggle ${config.enabledByDefault ? 'checked' : ''}`}>
-            <span className="toggle-thumb" />
-          </div>
-        </div>
-      </div>
+      <div className="mgmt-row-detail">
+        <div className="user-settings-detail-stack">
+          {config.enabledByDefault && <Alert color="yellow">{warningText}</Alert>}
 
-      {/* Warning alert - only shown when enabled */}
-      {config.enabledByDefault && <Alert color="yellow">{warningText}</Alert>}
-
-      {/* Permission Duration dropdown */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-        <div className="toggle-row-label whitespace-nowrap flex items-center gap-1.5">
-          {durationLabel}
-          <HelpPopover position="left" width={280}>
-            <HelpNote type="info">{durationHelpText}</HelpNote>
-          </HelpPopover>
-        </div>
-        <EnhancedDropdown
-          options={prefillDurationOptions}
-          value={config.durationHours.toString()}
-          onChange={handleDurationChange}
-          disabled={updating || loading}
-          className="w-48"
-        />
-      </div>
-
-      {/* Max Download Threads dropdown */}
-      {showMaxThreads && maxThreadOptions && (
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-          <div className="toggle-row-label whitespace-nowrap flex items-center gap-1.5">
-            <Network className="w-3.5 h-3.5 text-themed-accent" />
-            {maxThreadsLabel}
-          </div>
-          <div className="relative">
+          <div className="user-settings-field-row">
+            <span className="user-settings-field-label">
+              {durationLabel}
+              <HelpPopover position="left" width={280}>
+                <HelpNote type="info">{durationHelpText}</HelpNote>
+              </HelpPopover>
+            </span>
             <EnhancedDropdown
-              options={maxThreadOptions}
-              value={config.maxThreadCount != null ? String(config.maxThreadCount) : ''}
-              onChange={handleMaxThreadsChange}
+              options={prefillDurationOptions}
+              value={config.durationHours.toString()}
+              onChange={handleDurationChange}
               disabled={updating || loading}
-              className="w-48"
+              size="md"
+              className="w-40"
             />
-            {updating && (
-              <LoadingSpinner
-                inline
-                size="sm"
-                className="absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent"
-              />
-            )}
           </div>
+
+          {showMaxThreads && maxThreadOptions && (
+            <div className="user-settings-field-row">
+              <span className="user-settings-field-label">
+                <Network className="w-3.5 h-3.5 text-themed-accent" />
+                {maxThreadsLabel}
+              </span>
+              <span className="user-settings-dropdown">
+                <EnhancedDropdown
+                  options={maxThreadOptions}
+                  value={config.maxThreadCount != null ? String(config.maxThreadCount) : ''}
+                  onChange={handleMaxThreadsChange}
+                  disabled={updating || loading}
+                  size="md"
+                  className="w-40"
+                />
+                {updating && (
+                  <LoadingSpinner inline size="sm" className="user-settings-inline-spinner" />
+                )}
+              </span>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 };
