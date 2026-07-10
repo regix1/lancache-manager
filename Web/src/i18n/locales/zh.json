@@ -3124,6 +3124,7 @@
       "disabled": "已禁用",
       "lastRun": "上次运行",
       "nextRun": "下次运行",
+      "runEvery": "运行频率",
       "runNow": "立即运行",
       "statusRunning": "运行中",
       "statusIdle": "空闲",

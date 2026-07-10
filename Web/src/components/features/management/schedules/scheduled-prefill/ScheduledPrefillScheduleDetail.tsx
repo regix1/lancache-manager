@@ -45,6 +45,12 @@ interface ScheduledPrefillScheduleDetailProps {
    * summary content dims in that state - the zero-enabled warning and Configure button
    * stay at full opacity since they're the way out of that state. */
   dimmed?: boolean;
+  /** Card-level Run Now. It lives here (next to Configure, above the per-service table)
+   * rather than in the card header because both actions operate on the service list this
+   * component renders; the trigger + running state stay owned by SchedulesSection. */
+  onRunNow: () => void;
+  runNowLoading: boolean;
+  runNowDisabled: boolean;
 }
 
 interface ScheduledPrefillServiceScheduleRowProps {
@@ -63,10 +69,12 @@ interface ScheduledPrefillServiceScheduleRowProps {
 }
 
 /**
- * One service row: service identity, enablement and live container state, and its interval picker
- * on the first line, then a two-column "Next run" / "Last run" readout below. Extracted into its own component
- * because it calls hooks (useTranslation, useFormattedDateTime) that cannot run inside a .map()
- * loop in the parent.
+ * One row of the per-service schedule table: service identity (brand icon tile, name,
+ * enablement + container dots), the Next/Last run readout, and the interval picker. On
+ * desktop the cells sit on the table's shared column grid under a single header row; below
+ * that width each row folds into its own tile and the per-cell labels take over. Extracted
+ * into its own component because it calls hooks (useTranslation, useFormattedDateTime)
+ * that cannot run inside a .map() loop in the parent.
  */
 function ScheduledPrefillServiceScheduleRow({
   serviceKey,
@@ -83,28 +91,32 @@ function ScheduledPrefillServiceScheduleRow({
   const { t } = useTranslation();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const nextRunDate = useFormattedDateTime(nextRunUtc);
-  const ServiceIcon = SCHEDULED_PREFILL_PLATFORM_UI[serviceKey].icon;
+  const platformUi = SCHEDULED_PREFILL_PLATFORM_UI[serviceKey];
+  const ServiceIcon = platformUi.icon;
 
   return (
-    <div className="scheduled-prefill-card-summary__schedule-row">
-      <div className="scheduled-prefill-card-summary__schedule-head">
-        <span className="scheduled-prefill-card-summary__schedule-icon" aria-hidden="true">
-          <ServiceIcon size={16} />
+    <div role="row" className={`scheduled-prefill-schedule-table__row ${platformUi.rowClassName}`}>
+      <div
+        role="cell"
+        className="scheduled-prefill-schedule-table__cell scheduled-prefill-schedule-table__cell--service"
+      >
+        <span className="scheduled-prefill-schedule-table__service-icon" aria-hidden="true">
+          <ServiceIcon size={18} />
         </span>
-        <span className="scheduled-prefill-card-summary__schedule-service">{label}</span>
-        <div className="scheduled-prefill-card-summary__schedule-status">
-          <span className="scheduled-prefill-card-summary__schedule-status-item">
+        <span className="scheduled-prefill-schedule-table__service-name">{label}</span>
+        <span className="scheduled-prefill-schedule-table__service-status">
+          <span className="scheduled-prefill-schedule-table__status-item">
             <span
-              className={`scheduled-prefill-card-summary__schedule-status-dot scheduled-prefill-card-summary__schedule-status-dot--${enabled ? 'success' : 'error'}`}
+              className={`scheduled-prefill-schedule-table__status-dot scheduled-prefill-schedule-table__status-dot--${enabled ? 'success' : 'error'}`}
               aria-hidden="true"
             />
             {enabled
               ? t(`${baseKey}.platforms.status.enabled`)
               : t(`${baseKey}.platforms.status.disabled`)}
           </span>
-          <span className="scheduled-prefill-card-summary__schedule-status-item">
+          <span className="scheduled-prefill-schedule-table__status-item">
             <span
-              className={`scheduled-prefill-card-summary__schedule-status-dot scheduled-prefill-card-summary__schedule-status-dot--${containerRunning ? 'success' : 'error'}`}
+              className={`scheduled-prefill-schedule-table__status-dot scheduled-prefill-schedule-table__status-dot--${containerRunning ? 'success' : 'error'}`}
               aria-hidden="true"
             />
             {t(`${baseKey}.platforms.status.containerShort`)}:{' '}
@@ -112,29 +124,46 @@ function ScheduledPrefillServiceScheduleRow({
               ? t('prefill.persistent.states.running')
               : t('prefill.persistent.states.stopped')}
           </span>
-        </div>
-        <div className="scheduled-prefill-card-summary__schedule-picker">
-          <ScheduleIntervalPicker
-            intervalHours={intervalHours}
-            isDisabled={disabled || !enabled}
-            onChange={(hours) => onIntervalChange(serviceKey, hours)}
-          />
-        </div>
+        </span>
       </div>
-      <div className="scheduled-prefill-card-summary__schedule-readout">
-        <div className="scheduled-prefill-card-summary__schedule-slot">
-          <span className="schedule-timing-label">{t('management.schedules.nextRun')}</span>
-          <span className="scheduled-prefill-card-summary__schedule-value">{nextTiming}</span>
-          {nextRunUtc && (
-            <span className="scheduled-prefill-card-summary__schedule-date">{nextRunDate}</span>
-          )}
-        </div>
-        <div className="scheduled-prefill-card-summary__schedule-slot">
-          <span className="schedule-timing-label">{t('management.schedules.lastRun')}</span>
-          <span className="scheduled-prefill-card-summary__schedule-value">
-            {formatLastRun(lastRunUtc, t)}
-          </span>
-        </div>
+      <div role="cell" className="scheduled-prefill-schedule-table__cell">
+        <span
+          className="schedule-timing-label scheduled-prefill-schedule-table__cell-label"
+          aria-hidden="true"
+        >
+          {t('management.schedules.nextRun')}
+        </span>
+        <span className="scheduled-prefill-schedule-table__value">{nextTiming}</span>
+        {nextRunUtc && (
+          <span className="scheduled-prefill-schedule-table__date">{nextRunDate}</span>
+        )}
+      </div>
+      <div role="cell" className="scheduled-prefill-schedule-table__cell">
+        <span
+          className="schedule-timing-label scheduled-prefill-schedule-table__cell-label"
+          aria-hidden="true"
+        >
+          {t('management.schedules.lastRun')}
+        </span>
+        <span className="scheduled-prefill-schedule-table__value">
+          {formatLastRun(lastRunUtc, t)}
+        </span>
+      </div>
+      <div
+        role="cell"
+        className="scheduled-prefill-schedule-table__cell scheduled-prefill-schedule-table__cell--interval"
+      >
+        <span
+          className="schedule-timing-label scheduled-prefill-schedule-table__cell-label"
+          aria-hidden="true"
+        >
+          {t('management.schedules.runEvery')}
+        </span>
+        <ScheduleIntervalPicker
+          intervalHours={intervalHours}
+          isDisabled={disabled || !enabled}
+          onChange={(hours) => onIntervalChange(serviceKey, hours)}
+        />
       </div>
     </div>
   );
@@ -142,7 +171,10 @@ function ScheduledPrefillServiceScheduleRow({
 
 export function ScheduledPrefillScheduleDetail({
   disabled = false,
-  dimmed = false
+  dimmed = false,
+  onRunNow,
+  runNowLoading,
+  runNowDisabled
 }: ScheduledPrefillScheduleDetailProps) {
   const { t } = useTranslation();
   const { on, off } = useSignalR();
@@ -530,95 +562,127 @@ export function ScheduledPrefillScheduleDetail({
   const latestProgressLine =
     runProgress.length > 0 ? formatProgressLine(runProgress[runProgress.length - 1]) : null;
 
+  const isInitialLoading = loading && !config;
+
   return (
     <>
-      <div className="schedule-extra-row scheduled-prefill-card-summary">
-        <div className="scheduled-prefill-card-summary__content">
-          {/* The zero-enabled warning below is deliberately outside this wrapper: it's the
-              way out of the disabled state, so it (and the Configure button further down)
-              stay at full opacity while the rest of the summary dims. */}
-          <div
-            className={`scheduled-prefill-card-summary__dimmable${dimmed ? ' schedule-card-disabled' : ''}`}
-          >
-            {loading && !config ? (
-              <div className="scheduled-prefill-card-summary__loading">
-                <LoadingSpinner inline size="sm" />
-                <span>{t(`${baseKey}.loading`)}</span>
-              </div>
-            ) : (
-              <>
-                <span className="schedule-extra-label">{t(`${baseKey}.label`)}</span>
-                <p className="schedule-extra-help scheduled-prefill-card-summary__text">
-                  {t(`${baseKey}.summary`, { enabled: enabledCount, total: totalCount })}
-                </p>
-                {scheduleRows.length > 0 && (
-                  <div className="scheduled-prefill-card-summary__schedule">
-                    {scheduleRows.map((row) => (
-                      <ScheduledPrefillServiceScheduleRow
-                        key={row.key}
-                        serviceKey={row.key}
-                        label={row.label}
-                        enabled={row.enabled}
-                        containerRunning={row.containerRunning}
-                        intervalHours={row.intervalHours}
-                        nextTiming={row.nextTiming}
-                        nextRunUtc={row.nextRunUtc}
-                        lastRunUtc={row.lastRunUtc}
-                        disabled={disabled}
-                        onIntervalChange={(serviceKey, hours) =>
-                          void handleServiceIntervalChange(serviceKey, hours)
-                        }
-                      />
-                    ))}
-                  </div>
-                )}
-                {hasAccountWarning && (
-                  <p className="scheduled-prefill-card-summary__warning">
-                    {t(`${baseKey}.authWarning`)}
-                  </p>
-                )}
-                {runPhase === 'running' && (
-                  <p className="scheduled-prefill-card-summary__progress">
-                    {latestProgressLine ?? t(`${eventsKey}.started`)}
-                  </p>
-                )}
-                {runPhase === 'completed' && (
-                  <p className="scheduled-prefill-card-summary__progress scheduled-prefill-card-summary__progress--success">
-                    {latestProgressLine ?? t(`${eventsKey}.completed`)}
-                  </p>
-                )}
-                {runPhase === 'failed' && (
-                  <p className="scheduled-prefill-card-summary__error">
-                    {runError ?? latestProgressLine ?? t(`${eventsKey}.failed`)}
-                  </p>
-                )}
-                {error && (
-                  <p className="scheduled-prefill-card-summary__error">
-                    {t(`${baseKey}.summaryError`, { error })}
-                  </p>
-                )}
-              </>
-            )}
-          </div>
-          {config && enabledCount === 0 && (
-            <p className="scheduled-prefill-card-summary__warning">
-              {t(`${baseKey}.zeroEnabledWarning`)}
+      <div className="scheduled-prefill-card-summary">
+        {/* Command strip: enabled-count summary on the left, Run Now + Configure on the
+            right. Both buttons stay at full opacity while the summary below dims - the
+            Configure button is the way out of the zero-enabled state, and Run Now
+            communicates its state through its own disabled styling. */}
+        <div className="scheduled-prefill-card-summary__toolbar">
+          {isInitialLoading ? (
+            <div className="scheduled-prefill-card-summary__loading">
+              <LoadingSpinner inline size="sm" />
+              <span>{t(`${baseKey}.loading`)}</span>
+            </div>
+          ) : (
+            <p
+              className={`scheduled-prefill-card-summary__count${dimmed ? ' schedule-card-disabled' : ''}`}
+            >
+              {t(`${baseKey}.summary`, { enabled: enabledCount, total: totalCount })}
             </p>
           )}
+          <div className="scheduled-prefill-card-summary__actions">
+            <Button
+              type="button"
+              variant="filled"
+              color="green"
+              size="sm"
+              className="schedule-control-button"
+              onClick={onRunNow}
+              disabled={runNowDisabled}
+              loading={runNowLoading}
+              stableWidth
+            >
+              {t('management.schedules.runNow')}
+            </Button>
+            <Button
+              type="button"
+              variant="filled"
+              color="blue"
+              size="sm"
+              className="schedule-control-button"
+              onClick={() => setModalOpened(true)}
+              disabled={disabled}
+            >
+              {t(`${baseKey}.actions.configure`)}
+            </Button>
+          </div>
         </div>
-        <div className="schedule-extra-control scheduled-prefill-card-summary__actions">
-          <Button
-            type="button"
-            variant="filled"
-            color="blue"
-            size="sm"
-            className="schedule-control-button"
-            onClick={() => setModalOpened(true)}
-            disabled={disabled}
-          >
-            {t(`${baseKey}.actions.configure`)}
-          </Button>
-        </div>
+
+        {!isInitialLoading && (
+          <>
+            <div
+              className={`scheduled-prefill-card-summary__dimmable${dimmed ? ' schedule-card-disabled' : ''}`}
+            >
+              {scheduleRows.length > 0 && (
+                <div
+                  role="table"
+                  aria-label={t(`${baseKey}.servicesTitle`)}
+                  className="scheduled-prefill-schedule-table"
+                >
+                  <div role="row" className="scheduled-prefill-schedule-table__head">
+                    <span role="columnheader">{t(`${baseKey}.service`)}</span>
+                    <span role="columnheader">{t('management.schedules.nextRun')}</span>
+                    <span role="columnheader">{t('management.schedules.lastRun')}</span>
+                    <span role="columnheader">{t('management.schedules.runEvery')}</span>
+                  </div>
+                  {scheduleRows.map((row) => (
+                    <ScheduledPrefillServiceScheduleRow
+                      key={row.key}
+                      serviceKey={row.key}
+                      label={row.label}
+                      enabled={row.enabled}
+                      containerRunning={row.containerRunning}
+                      intervalHours={row.intervalHours}
+                      nextTiming={row.nextTiming}
+                      nextRunUtc={row.nextRunUtc}
+                      lastRunUtc={row.lastRunUtc}
+                      disabled={disabled}
+                      onIntervalChange={(serviceKey, hours) =>
+                        void handleServiceIntervalChange(serviceKey, hours)
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+              {hasAccountWarning && (
+                <p className="scheduled-prefill-card-summary__warning">
+                  {t(`${baseKey}.authWarning`)}
+                </p>
+              )}
+              {runPhase === 'running' && (
+                <p className="scheduled-prefill-card-summary__progress">
+                  {latestProgressLine ?? t(`${eventsKey}.started`)}
+                </p>
+              )}
+              {runPhase === 'completed' && (
+                <p className="scheduled-prefill-card-summary__progress scheduled-prefill-card-summary__progress--success">
+                  {latestProgressLine ?? t(`${eventsKey}.completed`)}
+                </p>
+              )}
+              {runPhase === 'failed' && (
+                <p className="scheduled-prefill-card-summary__error">
+                  {runError ?? latestProgressLine ?? t(`${eventsKey}.failed`)}
+                </p>
+              )}
+              {error && (
+                <p className="scheduled-prefill-card-summary__error">
+                  {t(`${baseKey}.summaryError`, { error })}
+                </p>
+              )}
+            </div>
+            {/* Deliberately outside the dimmable wrapper: this warning is the way out of
+                the zero-enabled state, so it stays at full opacity while the rest dims. */}
+            {config && enabledCount === 0 && (
+              <p className="scheduled-prefill-card-summary__warning">
+                {t(`${baseKey}.zeroEnabledWarning`)}
+              </p>
+            )}
+          </>
+        )}
       </div>
 
       <ScheduledPrefillConfigModal

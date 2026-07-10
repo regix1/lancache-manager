@@ -3124,6 +3124,7 @@
       "disabled": "Disabled",
       "lastRun": "Last run",
       "nextRun": "Next run",
+      "runEvery": "Run every",
       "runNow": "Run Now",
       "statusRunning": "Running",
       "statusIdle": "Idle",

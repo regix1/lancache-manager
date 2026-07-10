@@ -1,4 +1,4 @@
-/* Hallmark · pre-emit critique: P4 H5 E5 S5 R5 V4 · genre: modern-minimal · tone: utilitarian · macrostructure: Workbench · anchor: existing theme accent · contrast: pass (40–41) · responsive: pass (34, 49–57) */
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4 · genre: modern-minimal · tone: utilitarian · macrostructure: Workbench · anchor: existing theme accent · contrast: pass (40–41) · responsive: pass (34, 49–57) */
 .schedules-section {
   display: flex;
   flex-direction: column;
@@ -163,7 +163,16 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+/* Run Now sits at the card's top-right, opposite the title block. */
+.schedule-card-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .schedule-card-title-group {
@@ -217,11 +226,39 @@
   }
 }
 
-/* Timing Info Row */
-.schedule-timing-row {
+/* Readout row: Last run / Next run / interval picker as three labelled slots sharing
+   one grid, replacing the old full-width dropdown + button controls row. The picker
+   spans its own full-width line until the card is wide enough for a third column. */
+.schedule-readout-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
+  align-items: start;
+}
+
+.schedule-readout-interval {
+  grid-column: 1 / -1;
+}
+
+/* Slightly looser than the text slots' 0.125rem so the 40px picker box clears its label. */
+.schedule-readout-interval.schedule-timing-item {
+  gap: 0.375rem;
+}
+
+@media (min-width: 1100px) {
+  .schedule-readout-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(10rem, 12rem);
+  }
+
+  .schedule-readout-interval {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 379px) {
+  .schedule-readout-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .schedule-timing-item {
@@ -262,58 +299,11 @@
   font-weight: normal;
 }
 
-/* Controls Row */
-.schedule-controls-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-}
-
-.schedule-dropdown-wrapper {
-  flex: 1;
-  min-width: 0;
-}
-
-/* Button component handles all button styling */
-.schedule-run-button {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
 /* Match the Run Now / Configure buttons to the interval dropdown trigger height
    (.ed-trigger md = 2.5rem/40px since the 2026-06-30 control-height unification;
    the sm Button is shorter at py-1.5 with no border). */
 .schedule-control-button {
   min-height: 2.5rem;
-}
-
-/* Scheduled prefill hides its own interval dropdown here (each platform owns its
-   interval in the per-service detail below instead), leaving Run Now as this row's
-   only child. Fill the row instead of floating at content-width with dead space to
-   its right - same intent as the <380px stacked rule below, but for every width. */
-.schedule-controls-row > .schedule-run-button:only-child {
-  width: 100%;
-}
-
-/* On very narrow phones, stack the interval dropdown above the Run Now button so
-   neither gets cramped to an unreadable width. */
-@media (max-width: 380px) {
-  .schedule-controls-row {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.5rem;
-  }
-
-  .schedule-run-button {
-    width: 100%;
-  }
-
-  /* Same here for the timing row - last/next run side-by-side runs out of room
-     once the date strings ("Apr 30, 02:08:11 AM") have to wrap. */
-  .schedule-timing-row {
-    grid-template-columns: 1fr;
-    gap: 0.5rem;
-  }
 }
 
 /* Navigation row holding the "View Eviction Settings" button on the Eviction Scan
@@ -357,23 +347,54 @@
 
 /* Scheduled prefill card detail */
 .scheduled-prefill-card-summary {
-  padding-top: 0.25rem;
-}
-
-.scheduled-prefill-card-summary__content {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.75rem;
+  padding-top: 0.25rem;
   min-width: 0;
 }
 
-/* Holds everything in the summary except the zero-enabled warning, so that warning (and
-   the Configure button, which lives outside this whole content block) can stay at full
-   opacity while the schedule-card-disabled tint is applied here. */
+/* Command strip: enabled-count summary on the left, Run Now + Configure on the right. */
+.scheduled-prefill-card-summary__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.scheduled-prefill-card-summary__count {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--theme-text-secondary);
+}
+
+.scheduled-prefill-card-summary__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  /* Keeps the buttons pinned right even when the count line wraps above them. */
+  margin-left: auto;
+}
+
+@media (max-width: 639px) {
+  .scheduled-prefill-card-summary__actions {
+    width: 100%;
+  }
+
+  .scheduled-prefill-card-summary__actions > * {
+    flex: 1 1 auto;
+  }
+}
+
+/* Holds everything in the summary except the toolbar and the zero-enabled warning, so
+   those (the way out of the disabled state) can stay at full opacity while the
+   schedule-card-disabled tint is applied here. */
 .scheduled-prefill-card-summary__dimmable {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.75rem;
   min-width: 0;
 }
 
@@ -385,149 +406,212 @@
   color: var(--theme-text-muted);
 }
 
-.scheduled-prefill-card-summary__text {
-  color: var(--theme-text-secondary);
-}
-
-.scheduled-prefill-card-summary__schedule {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin: 0.375rem 0 0;
-  font-size: var(--font-size-sm);
-  color: var(--theme-text-secondary);
-}
-
-/* Each service becomes its own tinted, two-line row. This list-like treatment reads
-   distinctly from the generic cards' single Last/Next grid while staying inside the card's own
-   surface tokens: a subtle tint + hairline border + thin accent edge (no color-mix, no inline
-   styles). */
-.scheduled-prefill-card-summary__schedule-row {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.5rem 0.625rem;
+/* Per-service schedule table. Desktop: one aligned grid of rows under a single header
+   row, so the labels appear once and the values/pickers line up as true columns. Below
+   768px each row folds into its own tile and the per-cell labels take over (the header
+   row collapses to a visually-hidden line for screen readers). */
+.scheduled-prefill-schedule-table {
+  --scheduled-prefill-schedule-cols: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr)
+    minmax(10rem, 12rem);
   min-width: 0;
-  background: var(--theme-bg-tertiary);
-  border: 1px solid var(--theme-border-secondary);
-  border-left: 2px solid var(--theme-accent);
-  border-radius: var(--theme-border-radius);
 }
 
-/* Line 1: icon + display name on the left, the interval picker pushed to the right edge. */
-.scheduled-prefill-card-summary__schedule-head {
+.scheduled-prefill-schedule-table__cell {
   display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+/* Service identity: brand icon tile spanning both text lines, name, then the
+   enablement/container dots indented beneath the name. */
+.scheduled-prefill-schedule-table__cell--service {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 0.625rem;
+  row-gap: 0.2rem;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  min-width: 0;
 }
 
-.scheduled-prefill-card-summary__schedule-icon {
+.scheduled-prefill-schedule-table__service-icon {
+  grid-row: 1 / span 2;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--theme-border-radius);
+  background: var(--theme-bg-tertiary);
   color: var(--theme-text-secondary);
 }
 
-.scheduled-prefill-card-summary__schedule-service {
+/* Brand tint per platform - the faint/base pairs come from the theme service, so every
+   theme keeps its own contrast. */
+.scheduled-prefill-platform--steam .scheduled-prefill-schedule-table__service-icon {
+  background: var(--theme-steam-faint);
+  color: var(--theme-steam);
+}
+
+.scheduled-prefill-platform--epic .scheduled-prefill-schedule-table__service-icon {
+  background: var(--theme-epic-faint);
+  color: var(--theme-epic);
+}
+
+.scheduled-prefill-platform--xbox .scheduled-prefill-schedule-table__service-icon {
+  background: var(--theme-xbox-faint);
+  color: var(--theme-xbox);
+}
+
+.scheduled-prefill-platform--battlenet .scheduled-prefill-schedule-table__service-icon {
+  background: var(--theme-blizzard-faint);
+  color: var(--theme-blizzard);
+}
+
+.scheduled-prefill-platform--riot .scheduled-prefill-schedule-table__service-icon {
+  background: var(--theme-riot-faint);
+  color: var(--theme-riot);
+}
+
+.scheduled-prefill-schedule-table__service-name {
   min-width: 0;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--theme-text-primary);
+  overflow-wrap: anywhere;
 }
 
-.scheduled-prefill-card-summary__schedule-status {
+.scheduled-prefill-schedule-table__service-status {
+  grid-column: 2;
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
-  gap: 0.375rem 0.75rem;
+  align-items: center;
+  gap: 0.2rem 0.75rem;
   font-size: var(--font-size-xs);
-  color: var(--theme-text-secondary);
+  color: var(--theme-text-muted);
 }
 
-.scheduled-prefill-card-summary__schedule-status-item {
+.scheduled-prefill-schedule-table__status-item {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
   white-space: nowrap;
 }
 
-.scheduled-prefill-card-summary__schedule-status-dot {
+.scheduled-prefill-schedule-table__status-dot {
   width: 0.45rem;
   height: 0.45rem;
   flex-shrink: 0;
   border-radius: 50%;
 }
 
-.scheduled-prefill-card-summary__schedule-status-dot--success {
+.scheduled-prefill-schedule-table__status-dot--success {
   background: var(--theme-success);
 }
 
-.scheduled-prefill-card-summary__schedule-status-dot--error {
+.scheduled-prefill-schedule-table__status-dot--error {
   background: var(--theme-error);
 }
 
-/* The picker stretches to 100% of its container by design (modal usage); cap it here and pull
-   it to the right so line 1 reads "icon  name  ....  picker". */
-.scheduled-prefill-card-summary__schedule-picker {
-  flex: 0 1 13rem;
-  min-width: 10rem;
-  margin-left: auto;
-}
-
-/* Line 2: two equal columns so the Next/Last labels and values line up as columns across every
-   row (per-slot 1fr keeps x-parity between rows). */
-.scheduled-prefill-card-summary__schedule-readout {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.375rem 0.75rem;
-}
-
-.scheduled-prefill-card-summary__schedule-slot {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-  min-width: 0;
-}
-
-/* Time values are static data, not controls: tabular figures for column alignment, no hover /
-   focus / pointer affordance. Wrap rather than overflow on narrow widths. */
-.scheduled-prefill-card-summary__schedule-value {
-  font-variant-numeric: tabular-nums;
+/* Time values are static data, not controls: tabular figures for column alignment, no
+   hover / focus / pointer affordance. Wrap rather than overflow on narrow widths. */
+.scheduled-prefill-schedule-table__value {
+  font-size: var(--font-size-sm);
   color: var(--theme-text-secondary);
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 
-.scheduled-prefill-card-summary__schedule-date {
+.scheduled-prefill-schedule-table__date {
   font-size: var(--font-size-xs);
   color: var(--theme-text-muted);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 639px) {
-  .scheduled-prefill-card-summary__schedule-picker {
-    flex: 1 1 100%;
-    margin-left: 0;
+@media (min-width: 768px) {
+  .scheduled-prefill-schedule-table {
+    border: 1px solid var(--theme-border-secondary);
+    border-radius: var(--theme-border-radius);
+  }
+
+  .scheduled-prefill-schedule-table__head {
+    display: grid;
+    grid-template-columns: var(--scheduled-prefill-schedule-cols);
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.5rem 0.875rem;
+    background: var(--theme-bg-tertiary);
+    /* Inset by the container's 1px border so the fill never pokes past the rounding. */
+    border-radius: calc(var(--theme-border-radius) - 1px) calc(var(--theme-border-radius) - 1px) 0 0;
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--theme-text-muted);
+  }
+
+  .scheduled-prefill-schedule-table__row {
+    display: grid;
+    grid-template-columns: var(--scheduled-prefill-schedule-cols);
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.625rem 0.875rem;
+    border-top: 1px solid var(--theme-border-secondary);
+    transition: background-color 0.15s ease;
+  }
+
+  .scheduled-prefill-schedule-table__row:hover {
+    background: var(--theme-bg-hover);
+  }
+
+  .scheduled-prefill-schedule-table__row:last-child {
+    border-radius: 0 0 calc(var(--theme-border-radius) - 1px) calc(var(--theme-border-radius) - 1px);
+  }
+
+  /* The single header row carries the column labels at this width. */
+  .scheduled-prefill-schedule-table__cell-label {
+    display: none;
   }
 }
 
-/* Once the parent card spans both schedule columns, use that width for a compact two-up service
-   summary. Each row still collapses naturally to one column below desktop widths. */
-@media (min-width: 1100px) {
-  .schedules-grid-item--full .scheduled-prefill-card-summary__schedule {
+@media (max-width: 767px) {
+  .scheduled-prefill-schedule-table {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  /* Keep the header line for screen readers; the visible per-cell labels take over. */
+  .scheduled-prefill-schedule-table__head {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .scheduled-prefill-schedule-table__row {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.75rem;
+    padding: 0.75rem;
+    border: 1px solid var(--theme-border-secondary);
+    border-radius: var(--theme-border-radius);
+    background: var(--theme-bg-tertiary);
+  }
+
+  .scheduled-prefill-schedule-table__cell--service,
+  .scheduled-prefill-schedule-table__cell--interval {
+    grid-column: 1 / -1;
   }
 }
 
-/* On very narrow phones stack the Next/Last readout into a single full-width column so the
-   relative hint + absolute date never get squeezed into an overflowing two-up grid. */
-@media (max-width: 380px) {
-  .scheduled-prefill-card-summary__schedule-readout {
-    grid-template-columns: 1fr;
+@media (max-width: 379px) {
+  .scheduled-prefill-schedule-table__row {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -553,11 +637,6 @@
 
 .scheduled-prefill-card-summary__error {
   color: var(--theme-error-text);
-}
-
-.scheduled-prefill-card-summary__actions {
-  display: flex;
-  justify-content: flex-start;
 }
 
 /* Scheduled prefill modal. Modal's own body wrapper is opted into `bodyFlexLayout`, making it a
@@ -1260,19 +1339,6 @@
   line-height: 1.45;
   font-weight: 600;
   color: var(--theme-info-text);
-}
-
-@media (min-width: 640px) {
-  .scheduled-prefill-card-summary {
-    flex-direction: row;
-    align-items: flex-start;
-    justify-content: space-between;
-  }
-
-  .scheduled-prefill-card-summary__actions {
-    justify-content: flex-end;
-    flex-shrink: 0;
-  }
 }
 
 @media (min-width: 768px) {

@@ -261,13 +261,33 @@ const ScheduleCard = memo(function ScheduleCard({
                 {t(`management.schedules.services.${service.key}.description`)}
               </p>
             </div>
+            {/* Scheduled prefill renders its Run Now next to Configure on the summary
+            toolbar inside ScheduledPrefillScheduleDetail - both act on the service
+            list shown there, so they share one command strip instead of splitting. */}
+            {!isScheduledPrefill && (
+              <div className="schedule-card-header-actions">
+                <Button
+                  variant="filled"
+                  color="green"
+                  size="sm"
+                  onClick={handleRunNow}
+                  disabled={isDisabled || isDimmed}
+                  loading={isRunningThis}
+                  stableWidth
+                  className="schedule-control-button"
+                >
+                  {t('management.schedules.runNow')}
+                </Button>
+              </div>
+            )}
           </div>
 
-          {/* Timing Info. Scheduled prefill replaces this single aggregate Last/Next row
-          (which only surfaced the MIN next-run / MAX last-run across services) with a
-          per-service next+last readout inside ScheduledPrefillScheduleDetail below. */}
+          {/* Readout: last/next run and the interval picker as three labelled slots on
+          one shared grid. Scheduled prefill replaces this single aggregate row (which
+          only surfaced the MIN next-run / MAX last-run across services) with a
+          per-service table inside ScheduledPrefillScheduleDetail below. */}
           {!isScheduledPrefill && (
-            <div className="schedule-timing-row">
+            <div className="schedule-readout-row">
               <div className="schedule-timing-item">
                 <span className="schedule-timing-label">{t('management.schedules.lastRun')}</span>
                 <span className="schedule-timing-value">
@@ -285,33 +305,16 @@ const ScheduleCard = memo(function ScheduleCard({
                   <span className="schedule-next-run-date">{formattedNextRun}</span>
                 )}
               </div>
-            </div>
-          )}
-
-          {/* Controls. Scheduled prefill hides the card-level single interval picker -
-          each platform owns its own interval in the per-service detail below. */}
-          <div className="schedule-controls-row">
-            {!isScheduledPrefill && (
-              <div className="schedule-dropdown-wrapper">
+              <div className="schedule-timing-item schedule-readout-interval">
+                <span className="schedule-timing-label">{t('management.schedules.runEvery')}</span>
                 <ScheduleIntervalPicker
                   intervalHours={service.intervalHours}
                   isDisabled={isDisabled}
                   onChange={handleIntervalChange}
                 />
               </div>
-            )}
-            <Button
-              variant="filled"
-              color="green"
-              size="sm"
-              onClick={handleRunNow}
-              disabled={isDisabled || isDimmed}
-              loading={isRunningThis}
-              className="schedule-run-button schedule-control-button"
-            >
-              {t('management.schedules.runNow')}
-            </Button>
-          </div>
+            </div>
+          )}
 
           {isDepotMapping && (
             <div className="schedule-extra-row">
@@ -336,7 +339,13 @@ const ScheduleCard = memo(function ScheduleCard({
         </div>
 
         {isScheduledPrefill && (
-          <ScheduledPrefillScheduleDetail disabled={isDisabled} dimmed={isDimmed} />
+          <ScheduledPrefillScheduleDetail
+            disabled={isDisabled}
+            dimmed={isDimmed}
+            onRunNow={handleRunNow}
+            runNowLoading={isRunningThis}
+            runNowDisabled={isDisabled || isDimmed}
+          />
         )}
 
         <div className={`schedule-card-body${isDimmed ? ' schedule-card-disabled' : ''}`}>
