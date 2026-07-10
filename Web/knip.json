@@ -2,5 +2,5 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "project": ["src/**/*.{ts,tsx}"],
   "ignore": [],
-  "ignoreDependencies": ["lint-staged", "@fontsource/inter"]
+  "ignoreDependencies": ["lint-staged", "@fontsource/geist-sans"]
 }
