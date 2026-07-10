@@ -1,0 +1,73 @@
+/* Shared presentational primitives for the expanded content of Logs & Cache
+   management sections (Disk Cache, Corruption, Game Detection, Log Processing,
+   Log Removal, Eviction). Matches the Schedules design language: bordered
+   tertiary fills, uppercase tracked labels, tabular figures. Import this file in
+   any management section component that uses these classes so the styles ship
+   even if the component is rendered outside StorageSection. */
+
+/* Sub-section label inside an expanded section ("Cache Size", "Deletion method"). */
+.mgmt-subhead {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--theme-text-muted);
+}
+
+/* Stat readout grid - auto-fits as many tiles per row as fit, then wraps. */
+.mgmt-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 0.625rem;
+}
+
+.mgmt-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.625rem 0.75rem;
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-secondary);
+  border-radius: var(--theme-border-radius);
+}
+
+.mgmt-stat__label {
+  margin: 0;
+  font-size: var(--font-size-2xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--theme-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.mgmt-stat__value {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--theme-text-primary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* Inset configuration panel (e.g. the deletion-method selector). A bordered
+   tertiary surface that reads as a distinct block without a second card frame. */
+.mgmt-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-secondary);
+  border-radius: var(--theme-border-radius);
+}
+
+/* A segmented control built from Buttons (deletion mode): the buttons already
+   size themselves flex-1; this just guarantees they wrap cleanly on narrow cards. */
+.mgmt-segment-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}

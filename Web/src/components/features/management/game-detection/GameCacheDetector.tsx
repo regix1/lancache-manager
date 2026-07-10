@@ -38,6 +38,7 @@ import { useInvalidateImages } from '@components/common/ImageCacheContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { MANAGEMENT_STORAGE_KEYS } from '../sections/managementStorageKeys';
 import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
+import '../managementSectionContent.css';
 import Badge from '@components/ui/Badge';
 import GamesList from './GamesList';
 import ServicesList from './ServicesList';
@@ -923,22 +924,18 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   <p className="text-xs text-themed-muted">
                     {t('common.resultsFromPreviousScan')} · {formattedLastDetectionTime}
                   </p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="p-3 bg-themed-tertiary rounded-lg">
-                      <p className="text-xs text-themed-muted">
+                  <div className="mgmt-stat-grid">
+                    <div className="mgmt-stat">
+                      <p className="mgmt-stat__label">
                         {t('management.gameDetection.servicesSection')}
                       </p>
-                      <p className="text-sm font-medium text-themed-primary">
-                        {filteredServices.length}
-                      </p>
+                      <p className="mgmt-stat__value">{filteredServices.length}</p>
                     </div>
-                    <div className="p-3 bg-themed-tertiary rounded-lg">
-                      <p className="text-xs text-themed-muted">
+                    <div className="mgmt-stat">
+                      <p className="mgmt-stat__label">
                         {t('management.gameDetection.gamesSection')}
                       </p>
-                      <p className="text-sm font-medium text-themed-primary">
-                        {filteredGames.length}
-                      </p>
+                      <p className="mgmt-stat__value">{filteredGames.length}</p>
                     </div>
                   </div>
                 </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Server, AlertTriangle, FolderOpen, RefreshCw, Trash2 } from 'lucide-react';
+import '../managementSectionContent.css';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -373,9 +374,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               {/* Cache Size Info */}
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-themed-primary font-medium text-sm">
-                    {t('management.cache.cacheSize')}
-                  </p>
+                  <p className="mgmt-subhead">{t('management.cache.cacheSize')}</p>
                   <div className="flex-shrink-0">
                     <Tooltip content={t('management.cache.refreshCacheSize')} position="top">
                       <Button
@@ -403,46 +402,32 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     <span>{t('management.cache.calculatingSize')}</span>
                   </div>
                 ) : cacheSize ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                    <div className="p-3 bg-themed-tertiary rounded-lg">
-                      <p className="text-xs text-themed-muted">{t('management.cache.cacheSize')}</p>
-                      <p className="text-sm font-medium text-themed-primary truncate">
-                        {formatBytes(cacheSize.totalBytes)}
-                      </p>
+                  <div className="mgmt-stat-grid">
+                    <div className="mgmt-stat">
+                      <p className="mgmt-stat__label">{t('management.cache.cacheSize')}</p>
+                      <p className="mgmt-stat__value">{formatBytes(cacheSize.totalBytes)}</p>
                     </div>
-                    <div className="p-3 bg-themed-tertiary rounded-lg">
-                      <p className="text-xs text-themed-muted">{t('management.cache.files')}</p>
-                      <p className="text-sm font-medium text-themed-primary">
-                        {formatCount(cacheSize.totalFiles)}
-                      </p>
+                    <div className="mgmt-stat">
+                      <p className="mgmt-stat__label">{t('management.cache.files')}</p>
+                      <p className="mgmt-stat__value">{formatCount(cacheSize.totalFiles)}</p>
                     </div>
-                    <div className="p-3 bg-themed-tertiary rounded-lg">
-                      <p className="text-xs text-themed-muted">
-                        {t('management.cache.directories')}
-                      </p>
-                      <p className="text-sm font-medium text-themed-primary">
-                        {formatCount(cacheSize.hexDirectories)}
-                      </p>
+                    <div className="mgmt-stat">
+                      <p className="mgmt-stat__label">{t('management.cache.directories')}</p>
+                      <p className="mgmt-stat__value">{formatCount(cacheSize.hexDirectories)}</p>
                     </div>
                     {getEstimatedTime() && (
-                      <div className="p-3 bg-themed-tertiary rounded-lg">
-                        <p className="text-xs text-themed-muted">
-                          {t('management.cache.estDeletionTime')}
-                        </p>
-                        <p className="text-sm font-medium text-themed-primary">
-                          {getEstimatedTime()}
-                        </p>
+                      <div className="mgmt-stat">
+                        <p className="mgmt-stat__label">{t('management.cache.estDeletionTime')}</p>
+                        <p className="mgmt-stat__value">{getEstimatedTime()}</p>
                       </div>
                     )}
-                    <div className="p-3 bg-themed-tertiary rounded-lg">
-                      <p className="text-xs text-themed-muted">
+                    <div className="mgmt-stat">
+                      <p className="mgmt-stat__label">
                         {cacheSize.isCached
                           ? t('management.cache.cachedScan', 'Cached scan')
                           : t('management.cache.freshScan', 'Fresh scan')}
                       </p>
-                      <p className="text-sm font-medium text-themed-primary">
-                        {formatScanTime(cacheSize.timestamp)}
-                      </p>
+                      <p className="mgmt-stat__value">{formatScanTime(cacheSize.timestamp)}</p>
                     </div>
                   </div>
                 ) : (
@@ -453,28 +438,62 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               </div>
 
               {/* Configuration Options */}
-              <div className="p-4 rounded-lg bg-themed-tertiary/30">
+              <div className="mgmt-panel">
                 {/* Delete Mode Configuration */}
-                <div className="space-y-2">
-                  <div>
-                    <p className="text-sm font-medium text-themed-primary">
-                      {t('management.cache.deletionMethod')}
-                    </p>
-                    <p className="text-xs text-themed-muted">
-                      {deleteMode === 'rsync'
-                        ? t('management.cache.deletionMethods.rsyncDesc')
-                        : deleteMode === 'full'
-                          ? t('management.cache.deletionMethods.fullDesc')
-                          : t('management.cache.deletionMethods.preserveDesc')}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
+                <div>
+                  <p className="mgmt-subhead">{t('management.cache.deletionMethod')}</p>
+                  <p className="text-xs text-themed-muted mt-1">
+                    {deleteMode === 'rsync'
+                      ? t('management.cache.deletionMethods.rsyncDesc')
+                      : deleteMode === 'full'
+                        ? t('management.cache.deletionMethods.fullDesc')
+                        : t('management.cache.deletionMethods.preserveDesc')}
+                  </p>
+                </div>
+                <div className="mgmt-segment-row">
+                  <Button
+                    size="sm"
+                    className="flex-1 basis-0"
+                    variant={deleteMode === 'preserve' ? 'filled' : 'default'}
+                    color={deleteMode === 'preserve' ? 'blue' : undefined}
+                    onClick={() => handleDeleteModeChange('preserve')}
+                    awaitPermissions
+                    loading={deleteModeLoading}
+                    disabled={
+                      mockMode ||
+                      isAnyRemovalRunning ||
+                      authMode !== 'authenticated' ||
+                      cacheReadOnly
+                    }
+                    title={cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined}
+                  >
+                    {t('management.cache.deleteModes.preserve')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="flex-1 basis-0"
+                    variant={deleteMode === 'full' ? 'filled' : 'default'}
+                    color={deleteMode === 'full' ? 'green' : undefined}
+                    onClick={() => handleDeleteModeChange('full')}
+                    awaitPermissions
+                    loading={deleteModeLoading}
+                    disabled={
+                      mockMode ||
+                      isAnyRemovalRunning ||
+                      authMode !== 'authenticated' ||
+                      cacheReadOnly
+                    }
+                    title={cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined}
+                  >
+                    {t('management.cache.deleteModes.removeAll')}
+                  </Button>
+                  {rsyncAvailable && (
                     <Button
                       size="sm"
                       className="flex-1 basis-0"
-                      variant={deleteMode === 'preserve' ? 'filled' : 'default'}
-                      color={deleteMode === 'preserve' ? 'blue' : undefined}
-                      onClick={() => handleDeleteModeChange('preserve')}
+                      variant={deleteMode === 'rsync' ? 'filled' : 'default'}
+                      color={deleteMode === 'rsync' ? 'purple' : undefined}
+                      onClick={() => handleDeleteModeChange('rsync')}
                       awaitPermissions
                       loading={deleteModeLoading}
                       disabled={
@@ -487,51 +506,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                         cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined
                       }
                     >
-                      {t('management.cache.deleteModes.preserve')}
+                      {t('management.cache.deleteModes.rsync')}
                     </Button>
-                    <Button
-                      size="sm"
-                      className="flex-1 basis-0"
-                      variant={deleteMode === 'full' ? 'filled' : 'default'}
-                      color={deleteMode === 'full' ? 'green' : undefined}
-                      onClick={() => handleDeleteModeChange('full')}
-                      awaitPermissions
-                      loading={deleteModeLoading}
-                      disabled={
-                        mockMode ||
-                        isAnyRemovalRunning ||
-                        authMode !== 'authenticated' ||
-                        cacheReadOnly
-                      }
-                      title={
-                        cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined
-                      }
-                    >
-                      {t('management.cache.deleteModes.removeAll')}
-                    </Button>
-                    {rsyncAvailable && (
-                      <Button
-                        size="sm"
-                        className="flex-1 basis-0"
-                        variant={deleteMode === 'rsync' ? 'filled' : 'default'}
-                        color={deleteMode === 'rsync' ? 'purple' : undefined}
-                        onClick={() => handleDeleteModeChange('rsync')}
-                        awaitPermissions
-                        loading={deleteModeLoading}
-                        disabled={
-                          mockMode ||
-                          isAnyRemovalRunning ||
-                          authMode !== 'authenticated' ||
-                          cacheReadOnly
-                        }
-                        title={
-                          cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined
-                        }
-                      >
-                        {t('management.cache.deleteModes.rsync')}
-                      </Button>
-                    )}
-                  </div>
+                  )}
                 </div>
               </div>
 
