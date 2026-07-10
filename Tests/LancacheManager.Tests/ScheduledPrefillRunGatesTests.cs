@@ -156,7 +156,7 @@ public class ScheduledPrefillRunGatesTests
         Assert.NotEqual(stopped, loggedOut);
         Assert.Contains("Steam", stopped);
         Assert.Contains("Steam", loggedOut);
-        Assert.Contains("not running", stopped);
+        Assert.Contains("No running persistent container", stopped);
         Assert.Contains("not logged in", loggedOut);
     }
 
