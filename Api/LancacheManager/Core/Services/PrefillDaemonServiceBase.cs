@@ -1604,6 +1604,35 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             "{Action} daemon session {SessionId} for user {UserId}",
             isReconnect ? "Re-adopted" : "Created", sessionId, userId);
 
+        // A re-adopted persistent container keeps its login inside its named auth volume across a
+        // manager restart, but this fresh in-memory session starts at InitialAuthState
+        // (NotAuthenticated for account services). Reconcile once with the daemon's LIVE status,
+        // routed through the same OnStatusChangeAsync transition every socket status push uses, so
+        // a still-logged-in container immediately reads as Authenticated (and broadcasts
+        // AuthStateChanged) instead of showing needs-login until the next interactive login.
+        // Best-effort: an unresponsive daemon leaves the conservative NotAuthenticated default.
+        if (isReconnect && isPersistent)
+        {
+            try
+            {
+                var liveStatus = await daemonClient.GetStatusAsync(cancellationToken);
+                if (liveStatus is not null)
+                {
+                    await OnStatusChangeAsync(session, liveStatus);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to reconcile adopted persistent {ServiceName} session {SessionId} with live daemon status",
+                    ServiceName, sessionId);
+            }
+        }
+
         // Broadcast session creation to all clients for real-time updates (both hubs)
         var sessionDtoCreated = DaemonSessionDto.FromSession(session);
         await NotifyHubAsync(EventSessionCreated, sessionDtoCreated);
