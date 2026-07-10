@@ -1559,7 +1559,7 @@ const DownloadsTab: React.FC = () => {
               </div>
 
               {/* Dropdowns and View Controls */}
-              <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center justify-between w-full">
+              <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 items-start sm:items-center justify-between w-full">
                 {/* Mobile: First row with service and client filters */}
                 <div className="flex sm:hidden gap-2 w-full">
                   <EnhancedDropdown
@@ -1666,7 +1666,7 @@ const DownloadsTab: React.FC = () => {
                 </div>
 
                 {/* Desktop: All controls in one row */}
-                <div className="hidden sm:flex gap-2 items-center">
+                <div className="hidden sm:flex sm:flex-wrap gap-2 items-center">
                   <EnhancedDropdown
                     options={serviceOptions}
                     value={settings.selectedService}
@@ -1715,7 +1715,7 @@ const DownloadsTab: React.FC = () => {
                 </div>
 
                 {/* Desktop view controls */}
-                <div className="hidden sm:flex gap-2 justify-end w-auto flex-shrink-0">
+                <div className="hidden sm:flex sm:flex-wrap gap-2 justify-end w-auto flex-shrink-0">
                   {/* View Mode Toggle */}
                   <SegmentedControl
                     options={[

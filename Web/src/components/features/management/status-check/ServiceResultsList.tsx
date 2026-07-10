@@ -99,9 +99,11 @@ const ServiceResultsList: React.FC<ServiceResultsListProps> = ({
 
         return (
           <div key={service.service} ref={(element) => registerRef(service.service, element)}>
+            {/* No `count` here on purpose: the status badge below already shows
+                resolved/total (e.g. "3/3"), so a separate total-count badge next to
+                the title would just repeat the same number. */}
             <AccordionSection
               title={formatServiceLabel(service.service)}
-              count={service.totalCount}
               icon={Globe}
               iconColor={getServiceAccentColor(service.service)}
               isExpanded={expandedServices.has(service.service)}

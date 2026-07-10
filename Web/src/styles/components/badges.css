@@ -115,14 +115,17 @@
   /* Numeric count indicator — THE canonical look for every count/number badge
    * across the app (nav counts, section-header counts, selection counts, etc.).
    * Square box with lightly rounded corners (inherits themed-badge's 3px radius,
-   * never rounded-full) + a border + centered tabular figures. Compose on top of
-   * a Badge variant (`<Badge variant="neutral" className="badge-count">`) or a raw
-   * span (`themed-badge status-badge-neutral badge-count`). Placed after the
-   * status-badge-* rules so its border wins for every variant. */
+   * never rounded-full) + centered tabular figures. Compose on top of a Badge
+   * variant (`<Badge variant="neutral" className="badge-count">`) or a raw span
+   * (`themed-badge status-badge-neutral badge-count`). The border is a subtle
+   * translucent WHITE (not grey): it reads as a clean outline on saturated/accent
+   * fills (primary blue, warning, etc.) instead of a muddy grey box, and stays a
+   * light hairline on neutral chips. Placed after the status-badge-* rules so its
+   * border wins for every variant. */
   .badge-count {
     justify-content: center;
     min-width: 1.25rem;
-    border: 1px solid var(--theme-border-secondary);
+    border: 1px solid var(--theme-badge-white-subtle);
     font-variant-numeric: tabular-nums;
   }
 }

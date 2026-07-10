@@ -594,7 +594,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           font-size: 0.65rem;
           font-weight: 700;
           border-radius: 3px;
-          border: 1px solid var(--theme-border-secondary);
+          border: 1px solid var(--theme-badge-white-subtle);
           background: var(--theme-success);
           color: var(--theme-button-text);
           animation: badge-glow 2s ease-in-out infinite;
