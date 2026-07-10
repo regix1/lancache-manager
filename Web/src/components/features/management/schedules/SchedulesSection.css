@@ -1793,22 +1793,11 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .scheduled-prefill-platforms__nav {
-    flex-direction: row;
-    flex-wrap: wrap;
-  }
-
-  .scheduled-prefill-platforms__nav-item {
-    flex: 0 0 auto;
-    width: auto;
-    min-width: 12rem;
-    flex-wrap: wrap;
-    align-items: flex-start;
-  }
-
+  /* The nav keeps its desktop full-width rows here (one per platform) - the old
+     content-width wrapping chips left ragged widths and a hanging badge line on
+     phones. Only the badges change: inline on the row's right instead of the
+     desktop rail's stacked column. */
   .scheduled-prefill-platforms__nav-badges {
-    width: 100%;
-    padding-left: 1.675rem;
     flex-direction: row;
     align-items: center;
   }
