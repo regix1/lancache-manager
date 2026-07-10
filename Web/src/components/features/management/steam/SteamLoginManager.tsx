@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Key, CheckCircle, AlertTriangle } from 'lucide-react';
-import { Card } from '@components/ui/Card';
+import { CheckCircle, AlertTriangle } from 'lucide-react';
 
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
@@ -78,7 +78,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
 
   const handleSwitchToAnonymous = async () => {
     if (authMode !== 'authenticated') {
-      onError?.('Full authentication required for management operations');
+      onError?.(t('common.fullAuthRequired'));
       return;
     }
 
@@ -96,7 +96,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
         // The backend has already cleared the Steam auth, just update local state
         setContextSteamAuthMode('anonymous');
         setContextUsername('');
-        onSuccess?.('Switched to anonymous Steam mode. Depot mappings preserved.');
+        onSuccess?.(t('management.steamAuth.switchedToAnonymous'));
       } else {
         const errorBody = await response.json();
         onError?.(errorBody?.message || t('modals.steamAuth.errors.failedToSwitchToAnonymous'));
@@ -130,14 +130,11 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
 
   return (
     <>
-      <Card className="integration-card">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-blue">
-            <Key className="w-5 h-5 icon-blue" />
-          </div>
-          <h3 className="text-lg font-semibold text-themed-primary">
-            {t('management.steamAuth.title')}
-          </h3>
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <h4 className="text-sm font-semibold text-themed-primary">
+            {t('management.steamAuth.sectionTitle')}
+          </h4>
           <HelpPopover position="left" width={320}>
             <HelpSection title={t('management.steamAuth.help.authModes.title')} variant="subtle">
               <HelpDefinition
@@ -199,19 +196,19 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
         {steamAuthMode === 'authenticated' && (
           <Alert color="yellow" className="mb-4" icon={<AlertTriangle className="w-5 h-5" />}>
             <div>
-              <p className="font-medium text-sm mb-1">Prefill requires separate login</p>
+              <p className="font-medium text-sm mb-1">
+                {t('management.steamAuth.prefillWarning.title')}
+              </p>
               <p className="text-xs opacity-90">
-                Auto-login is not available for prefill sessions. Steam requires each connection to
-                authenticate with its own credentials - sharing a session token causes one
-                connection to be disconnected. Each prefill session must be logged in manually.
+                {t('management.steamAuth.prefillWarning.description')}
               </p>
             </div>
           </Alert>
         )}
 
         {/* Main auth mode selector */}
-        <div className="integration-card-body">
-          <div className="p-3 rounded-lg bg-themed-tertiary integration-row">
+        <div className="space-y-2">
+          <div className="p-3 rounded-lg bg-themed-tertiary">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex-1 min-w-0">
                 <p className="text-themed-primary text-sm font-medium mb-1">
@@ -250,7 +247,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
           </div>
 
           {/* Configuration section */}
-          <div className="p-3 mt-2 rounded-lg bg-themed-tertiary integration-row">
+          <div className="p-3 rounded-lg bg-themed-tertiary">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div className="flex-1 min-w-0">
                 <p className="text-themed-primary font-medium text-sm mb-1">
@@ -262,32 +259,29 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                     : t('management.steamAuth.manualRebuild')}
                 </p>
               </div>
-              <div className="inline-flex rounded-lg p-0.5 bg-themed-secondary">
-                <button
-                  onClick={() => handleAutoStartPicsChange(true)}
-                  disabled={loading || mockMode}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${
-                    loading || mockMode ? 'opacity-50 cursor-not-allowed' : ''
-                  } ${autoStartPics ? 'toggle-btn-active' : 'toggle-btn-inactive'}`}
-                >
-                  {t('management.steamAuth.automatic')}
-                </button>
-                <button
-                  onClick={() => handleAutoStartPicsChange(false)}
-                  disabled={loading || mockMode}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${
-                    loading || mockMode ? 'opacity-50 cursor-not-allowed' : ''
-                  } ${!autoStartPics ? 'toggle-btn-active' : 'toggle-btn-inactive'}`}
-                >
-                  {t('management.steamAuth.manual')}
-                </button>
-              </div>
+              <SegmentedControl
+                size="sm"
+                value={autoStartPics ? 'automatic' : 'manual'}
+                onChange={(value) => handleAutoStartPicsChange(value === 'automatic')}
+                options={[
+                  {
+                    value: 'automatic',
+                    label: t('management.steamAuth.automatic'),
+                    disabled: loading || mockMode
+                  },
+                  {
+                    value: 'manual',
+                    label: t('management.steamAuth.manual'),
+                    disabled: loading || mockMode
+                  }
+                ]}
+              />
             </div>
           </div>
 
           {/* Authenticated status row */}
           {steamAuthMode === 'authenticated' && (
-            <div className="p-3 mt-2 rounded-lg bg-themed-tertiary integration-row">
+            <div className="p-3 rounded-lg bg-themed-tertiary">
               <div className="flex items-center justify-between gap-4">
                 <div className="flex-1 min-w-0">
                   <p className="text-themed-primary text-sm font-medium">
@@ -309,7 +303,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                   ) : (
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
                       <CheckCircle size={14} />
-                      Connected
+                      {t('management.steamAuth.connected')}
                     </span>
                   )}
                 </div>
@@ -317,7 +311,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
             </div>
           )}
         </div>
-      </Card>
+      </div>
 
       {/* Authentication Modal */}
       <SteamAuthModal

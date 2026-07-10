@@ -102,6 +102,48 @@ export const fitWidthsToContainer = (
 
   const totalMin = columns.reduce((sum, column) => sum + minWidths[column], 0);
   if (totalMin >= availableWidth) {
+    const lockedColumns = new Set(
+      columns.filter(
+        (column) =>
+          lockedMinWidths !== undefined &&
+          Object.prototype.hasOwnProperty.call(lockedMinWidths, column)
+      )
+    );
+
+    if (lockedColumns.size > 0) {
+      const fitted: ColumnWidths = { ...normalized, cacheMiss: 0 };
+      const unlockedColumns = columns.filter((column) => !lockedColumns.has(column));
+      const lockedTotal = columns.reduce(
+        (sum, column) => sum + (lockedColumns.has(column) ? minWidths[column] : 0),
+        0
+      );
+      const availableForUnlocked = Math.max(0, availableWidth - lockedTotal);
+      const sharedFloor =
+        unlockedColumns.length > 0
+          ? Math.max(
+              1,
+              Math.min(COLUMN_FIT_FLOOR, Math.floor(availableForUnlocked / unlockedColumns.length))
+            )
+          : 0;
+      const remaining = Math.max(0, availableForUnlocked - sharedFloor * unlockedColumns.length);
+      const flexTotal = unlockedColumns.reduce(
+        (sum, column) => sum + Math.max(0, minWidths[column] - sharedFloor),
+        0
+      );
+
+      columns.forEach((column) => {
+        if (lockedColumns.has(column)) {
+          fitted[column] = minWidths[column];
+          return;
+        }
+
+        const flex = Math.max(0, minWidths[column] - sharedFloor);
+        const share = flexTotal > 0 ? (flex / flexTotal) * remaining : 0;
+        fitted[column] = Math.floor(sharedFloor + share);
+      });
+      return fitted;
+    }
+
     const scale = availableWidth / totalMin;
     const scaled: ColumnWidths = { ...normalized, cacheMiss: 0 };
     columns.forEach((column) => {
@@ -124,6 +166,23 @@ export const fitWidthsToContainer = (
 
   return fitted;
 };
+
+/**
+ * Fit content-measured widths to the page while keeping timestamp lines
+ * intact. Other columns can truncate gracefully, but losing AM/PM changes the
+ * meaning of the displayed time.
+ */
+export const fitMeasuredWidthsToContainer = (
+  widths: ColumnWidths,
+  containerWidth: number,
+  visibility: RetroColumnVisibility
+): ColumnWidths =>
+  fitWidthsToContainer(
+    widths,
+    containerWidth,
+    visibility,
+    visibility.showTimestamps ? { timestamp: widths.timestamp } : undefined
+  );
 
 // Build the grid-template-columns value applied as the --retro-grid-cols CSS
 // variable on the table container. Rows and the header consume the variable,

@@ -8,6 +8,7 @@ import { Button } from '@components/ui/Button';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
+import { EmptyState } from '@components/ui/ManagerCard';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import DoughnutChart from './DoughnutChart';
 import ChartLegend from './ChartLegend';
@@ -307,41 +308,43 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
               )}
             </div>
 
-            {/* Stats footer */}
-            <div className="analytics-insight-grid">
+            {/* Stats footer — shared readout family so the border line matches the
+                Downloads panel's footer across the row */}
+            <div className="dash-readout dash-readout--footer">
               {insightCards.map((stat) => (
-                <div
-                  key={stat.label}
-                  className={`analytics-insight ${stat.tone === 'primary' ? 'primary' : ''}`}
-                >
-                  <div className="analytics-insight-value">{stat.value}</div>
-                  <div className="analytics-insight-label">{stat.label}</div>
+                <div key={stat.label} className="dash-readout-item">
+                  <div
+                    className={`dash-readout-value${stat.tone === 'primary' ? ' is-primary' : ''}`}
+                  >
+                    {stat.value}
+                  </div>
+                  <div className="dash-readout-label">{stat.label}</div>
                 </div>
               ))}
             </div>
           </>
         ) : (
-          <div className="empty-state">
-            <div className="empty-icon">
-              <div className="empty-icon-bg" />
-              <PieChart size={24} />
-            </div>
-            <div className="empty-title">{t('dashboard.serviceAnalytics.empty.title')}</div>
-            <div className="empty-desc">{t('dashboard.serviceAnalytics.empty.description')}</div>
-            <div className="mt-4">
-              <Button
-                variant="filled"
-                color="gray"
-                size="sm"
-                onClick={() =>
-                  window.dispatchEvent(
-                    new CustomEvent('navigate-to-tab', { detail: { tab: 'downloads' } })
-                  )
-                }
-              >
-                {t('dashboard.serviceAnalytics.empty.action', 'View Logs')}
-              </Button>
-            </div>
+          <div className="dash-well p-3 flex flex-1">
+            <EmptyState
+              variant="panel"
+              icon={PieChart}
+              title={t('dashboard.serviceAnalytics.empty.title')}
+              subtitle={t('dashboard.serviceAnalytics.empty.description')}
+              action={
+                <Button
+                  variant="filled"
+                  color="gray"
+                  size="sm"
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new CustomEvent('navigate-to-tab', { detail: { tab: 'downloads' } })
+                    )
+                  }
+                >
+                  {t('dashboard.serviceAnalytics.empty.action', 'View Logs')}
+                </Button>
+              }
+            />
           </div>
         )}
       </Card>

@@ -470,7 +470,7 @@
 
   .downloads-header .tab-button:hover:not(.active) {
     color: var(--theme-text-secondary);
-    background: var(--theme-bg-secondary-strong);
+    background: var(--theme-bg-surface-hover);
   }
 
   .downloads-header .tab-button.active {
@@ -905,7 +905,7 @@
 
   .active-downloads-view .view-toggle-btn:hover:not(.active) {
     color: var(--theme-text-secondary);
-    background: var(--theme-bg-secondary-strong);
+    background: var(--theme-bg-surface-hover);
   }
 
   .active-downloads-view .view-toggle-btn.active {
@@ -927,7 +927,7 @@
     font-size: var(--font-size-xs);
     font-weight: 500;
     color: var(--theme-text-muted);
-    background: var(--theme-bg-tertiary);
+    background: var(--theme-bg-surface);
     border: 1px solid var(--theme-border-secondary);
     border-radius: 6px;
     cursor: pointer;
@@ -939,7 +939,7 @@
 
   .active-downloads-view .refresh-btn:hover {
     color: var(--theme-text-primary);
-    background: var(--theme-bg-secondary);
+    background: var(--theme-bg-surface-hover);
     border-color: var(--theme-border-primary);
   }
 
@@ -1314,7 +1314,7 @@
   }
 
   .session-filter-clear:hover {
-    background: var(--theme-bg-tertiary);
+    background: var(--theme-bg-surface-hover);
     border-color: var(--theme-border-primary);
     color: var(--theme-text-primary);
   }

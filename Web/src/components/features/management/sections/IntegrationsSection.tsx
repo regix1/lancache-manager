@@ -4,8 +4,7 @@ import { Card } from '@components/ui/Card';
 import HighlightGlow from '@components/ui/HighlightGlow';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { type AuthMode } from '@services/auth.service';
-import SteamLoginManager from '../steam/SteamLoginManager';
-import SteamWebApiStatus from '../steam/SteamWebApiStatus';
+import SteamIntegrationCard from '../steam/SteamIntegrationCard';
 import GrafanaEndpoints from '../grafana/GrafanaEndpoints';
 import EpicDaemonStatus from '../epic/EpicDaemonStatus';
 import BattleNetDaemonStatus from '../battlenet/BattleNetDaemonStatus';
@@ -14,7 +13,6 @@ import XboxDaemonStatus from '../xbox/XboxDaemonStatus';
 
 interface IntegrationsSectionProps {
   authMode: AuthMode;
-  steamAuthMode: 'anonymous' | 'authenticated';
   mockMode: boolean;
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
@@ -26,7 +24,6 @@ interface IntegrationsSectionProps {
 
 const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
   authMode,
-  steamAuthMode,
   mockMode,
   onError,
   onSuccess,
@@ -52,21 +49,18 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
       </div>
 
       <div className="space-y-8">
-        {/* Steam - PICS auth + Web API status side by side */}
+        {/* Steam - merged PICS authentication + Web API card */}
         <section>
           <h3 className="integrations-group-label">
             {t('management.sections.integrations.steamIntegration')}
           </h3>
           <HighlightGlow enabled={highlightSteamApi}>
-            <div className="integrations-grid">
-              <SteamLoginManager
-                authMode={authMode}
-                mockMode={mockMode}
-                onError={onError}
-                onSuccess={onSuccess}
-              />
-              <SteamWebApiStatus steamAuthMode={steamAuthMode} />
-            </div>
+            <SteamIntegrationCard
+              authMode={authMode}
+              mockMode={mockMode}
+              onError={onError}
+              onSuccess={onSuccess}
+            />
           </HighlightGlow>
         </section>
 

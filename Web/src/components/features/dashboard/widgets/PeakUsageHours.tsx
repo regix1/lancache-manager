@@ -222,7 +222,14 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
             {t('widgets.peakUsageHours.title')}
           </h3>
         </div>
-        <EmptyState icon={Clock} title={t('widgets.peakUsageHours.noDataAvailable')} />
+        <div className="dash-well p-3 flex-1 flex flex-col">
+          <EmptyState
+            variant="panel"
+            icon={Clock}
+            title={t('widgets.peakUsageHours.noDataTitle')}
+            subtitle={t('widgets.peakUsageHours.noDataAvailable')}
+          />
+        </div>
       </div>
     );
   }
@@ -283,30 +290,8 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
         </div>
       </div>
 
-      {/* Labeled readout strip */}
-      <div className="dash-readout">
-        <div className="dash-readout-item">
-          <div className="dash-readout-value is-warning">{formatHour(peakHour)}</div>
-          <div className="dash-readout-label">{t('widgets.peakUsageHours.busiestHour')}</div>
-        </div>
-        {isTodayInRange && (
-          <div className="dash-readout-item">
-            <div className="dash-readout-value is-primary">{formatHour(currentHour)}</div>
-            <div className="dash-readout-label">{t('widgets.peakUsageHours.currentHourLabel')}</div>
-          </div>
-        )}
-        <div className="dash-readout-item">
-          <div className="dash-readout-value">{formatCount(totalDownloads)}</div>
-          <div className="dash-readout-label">{t('widgets.peakUsageHours.downloads')}</div>
-        </div>
-        <div className="dash-readout-item">
-          <div className="dash-readout-value">{formatBytes(totalBytesServed)}</div>
-          <div className="dash-readout-label">{t('widgets.peakUsageHours.dataServed')}</div>
-        </div>
-      </div>
-
       {/* Heatmap well - 24 hour blocks */}
-      <div className="dash-well p-3 mb-3">
+      <div className="dash-well p-3">
         <div className="grid grid-cols-12 gap-1.5">
           {hourlyData.map((hourData) => {
             const isCurrentHour = isTodayInRange && hourData.hour === currentHour;
@@ -382,7 +367,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
       </div>
 
       {/* Legend */}
-      <div className="flex items-center justify-between flex-wrap gap-2">
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
         <div className="flex items-center gap-4 text-xs text-themed-muted">
           {isTodayInRange && (
             <div className="flex items-center gap-1.5">
@@ -407,6 +392,28 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
             <div className="peak-scale-swatch peak-scale-swatch--4" />
           </div>
           <span>{t('widgets.peakUsageHours.more')}</span>
+        </div>
+      </div>
+
+      {/* Labeled readout strip — pinned to the card bottom to match the other panels */}
+      <div className="dash-readout dash-readout--footer">
+        <div className="dash-readout-item">
+          <div className="dash-readout-value is-warning">{formatHour(peakHour)}</div>
+          <div className="dash-readout-label">{t('widgets.peakUsageHours.busiestHour')}</div>
+        </div>
+        {isTodayInRange && (
+          <div className="dash-readout-item">
+            <div className="dash-readout-value is-primary">{formatHour(currentHour)}</div>
+            <div className="dash-readout-label">{t('widgets.peakUsageHours.currentHourLabel')}</div>
+          </div>
+        )}
+        <div className="dash-readout-item">
+          <div className="dash-readout-value">{formatCount(totalDownloads)}</div>
+          <div className="dash-readout-label">{t('widgets.peakUsageHours.downloads')}</div>
+        </div>
+        <div className="dash-readout-item">
+          <div className="dash-readout-value">{formatBytes(totalBytesServed)}</div>
+          <div className="dash-readout-label">{t('widgets.peakUsageHours.dataServed')}</div>
         </div>
       </div>
     </div>

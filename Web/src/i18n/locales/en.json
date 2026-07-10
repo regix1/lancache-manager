@@ -155,6 +155,26 @@
       "unexpectedError": "An unexpected error occurred"
     },
     "notifications": {
+      "titles": {
+        "logProcessing": "Log Processing",
+        "cacheClearing": "Cache Clearing",
+        "logRemoval": "Log Removal",
+        "serviceRemoval": "Service Cache Removal",
+        "gameRemoval": "Game Cache Removal",
+        "corruptionRemoval": "Corruption Removal",
+        "corruptionDetection": "Corruption Detection",
+        "databaseReset": "Database Reset",
+        "depotMapping": "Depot Mapping",
+        "gameDetection": "Game Detection",
+        "dataImport": "Data Import",
+        "epicGameMapping": "Epic Game Mapping",
+        "xboxGameMapping": "Xbox Game Mapping",
+        "evictionScan": "Eviction Scan",
+        "evictionRemoval": "Eviction Removal",
+        "cacheSizeScan": "Cache File Scan",
+        "scheduledPrefill": "Scheduled Prefill",
+        "bulkRemoval": "Bulk Removal"
+      },
       "cacheFilesDeleted": "{{formattedCount}} cache file deleted",
       "cacheFilesDeleted_other": "{{formattedCount}} cache files deleted",
       "cancelCacheClearing": "Cancel cache clearing",
@@ -539,7 +559,8 @@
       "hitTooltipDetailed": "{{percent}} hit rate · {{saved}} served from cache ({{disk}} on disk)",
       "downloading": "downloading",
       "refresh": "Refresh",
-      "showing": "Showing <strong>{{displayed}}</strong> of <strong>{{total}}</strong>",
+      "showDetails": "Detailed stats",
+      "showingLabel": "Showing",
       "totalDownloads": "total downloads",
       "activeDownloadsOnly": "Active downloads only available in Live mode",
       "emptyStates": {
@@ -697,6 +718,7 @@
       "less": "Less",
       "more": "More",
       "noDataAvailable": "No download data available yet",
+      "noDataTitle": "No Download Data",
       "failedToLoad": "Failed to load hourly data",
       "morning": "Morning",
       "afternoon": "Afternoon",
@@ -705,6 +727,8 @@
     },
     "cacheGrowthTrend": {
       "title": "Cache Growth",
+      "noDataTitle": "No Growth Data",
+      "noDataDesc": "Cache growth will appear here once downloads start",
       "help": {
         "termsTitle": "Chart Legend"
       },
@@ -1915,6 +1939,9 @@
       "integrations": {
         "title": "Integration & Services",
         "subtitle": "Connect to Steam, configure Grafana endpoints, and manage external service integrations",
+        "steamCard": {
+          "title": "Steam"
+        },
         "steamIntegration": "Steam Integration",
         "monitoringMetrics": "Monitoring & Metrics",
         "epicIntegration": "Epic Games Integration",
@@ -2666,6 +2693,7 @@
     },
     "steamWebApi": {
       "title": "Steam Web API Status",
+      "sectionTitle": "Web API",
       "checkingStatus": "Checking status...",
       "unknownStatus": "Unknown status",
       "v1WithKey": "V1 (with key)",
@@ -2709,6 +2737,13 @@
     },
     "steamAuth": {
       "title": "Steam PICS Authentication",
+      "sectionTitle": "PICS Authentication",
+      "connected": "Connected",
+      "switchedToAnonymous": "Switched to anonymous Steam mode. Depot mappings preserved.",
+      "prefillWarning": {
+        "title": "Prefill requires separate login",
+        "description": "Auto-login is not available for prefill sessions. Steam requires each connection to authenticate with its own credentials - sharing a session token causes one connection to be disconnected. Each prefill session must be logged in manually."
+      },
       "autoLogout": {
         "title": "Steam Session Auto-Logout",
         "message": "{{message}}"
@@ -2927,6 +2962,7 @@
         "themes": "Themes",
         "customize": "Customize"
       },
+      "previewingBanner": "Previewing: {{name}}",
       "actions": {
         "applyTheme": "Apply Theme",
         "preview": "Preview",

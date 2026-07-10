@@ -32,6 +32,7 @@ import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useEvents } from '@contexts/useEvents';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { useDraggableCards } from '@hooks/useDraggableCards';
+import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
 import { formatBytes, formatCount, formatPercent } from '@utils/formatters';
 import { buildGamesOnDiskDisplayStats } from '@utils/gameDetection';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -282,6 +283,10 @@ const Dashboard: React.FC = () => {
     });
   }, [clientStats, timeRange, getTimeRangeParams]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const { present: dropdownPresent, closing: dropdownClosing } = useExitPresence(
+    dropdownOpen,
+    DROPDOWN_EXIT_MS
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [isChartExpanded, setIsChartExpanded] = useState<boolean>(true);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -756,8 +761,10 @@ const Dashboard: React.FC = () => {
               </Tooltip>
 
               {/* Hidden Cards Dropdown */}
-              {dropdownOpen && (
-                <div className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-72 sm:w-80 themed-border-radius border shadow-xl z-50 themed-card border-themed-primary">
+              {dropdownPresent && (
+                <div
+                  className={`dash-hidden-dropdown absolute left-0 sm:left-auto sm:right-0 mt-2 w-72 sm:w-80 themed-border-radius border shadow-xl z-50 themed-card border-themed-primary${dropdownClosing ? ' dash-hidden-dropdown--closing' : ''}`}
+                >
                   {/* Search - only show if more than 3 hidden cards */}
                   {hiddenCardsCount > 3 && (
                     <div className="p-3 border-b border-themed-primary">

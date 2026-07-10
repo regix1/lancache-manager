@@ -12,12 +12,12 @@ const themeColorDefaults: Record<string, string> = {
   // ── Backgrounds ──────────────────────────────────────────────────────
   bgPrimary: '#111827',
   bgSecondary: '#283649',
-  bgTertiary: '#313e52',
+  bgTertiary: '#182230',
   bgHover: '#4b5563',
   bgElevated: '#1c2a3a',
-  bgSurface: '#223044',
-  bgSurfaceHover: '#2a3a4e',
-  bgSurfaceActive: '#324458',
+  bgSurface: '#313e52',
+  bgSurfaceHover: '#3b4a63',
+  bgSurfaceActive: '#46587a',
   bgOverlay: 'rgba(0,0,0,0.6)',
 
   // ── Text ─────────────────────────────────────────────────────────────
@@ -36,6 +36,8 @@ const themeColorDefaults: Record<string, string> = {
   borderSecondary: '#4b5563',
   borderElevated: '#3a4d63',
   borderHover: '#4a5f78',
+  // Recessed data wells: a whisper edge so the fill change carries the boundary
+  borderWell: 'rgba(255, 255, 255, 0.05)',
 
   // ── Navigation ───────────────────────────────────────────────────────
   navBg: '#1f2937',
@@ -195,9 +197,9 @@ const themeColorDefaults: Record<string, string> = {
   chartCacheMissColor: '#f59e0b',
 
   // ── Scrollbar ────────────────────────────────────────────────────────
-  scrollbarTrack: '#374151',
-  scrollbarThumb: '#6B7280',
-  scrollbarHover: '#9CA3AF',
+  scrollbarTrack: 'rgba(255, 255, 255, 0.06)',
+  scrollbarThumb: 'rgba(255, 255, 255, 0.18)',
+  scrollbarHover: 'rgba(255, 255, 255, 0.32)',
 
   // ── Access control indicators ────────────────────────────────────────
   publicAccessBg: 'rgba(16, 185, 129, 0.2)',

@@ -933,6 +933,7 @@ class ThemeService {
       --theme-border: ${colors.borderPrimary};
       --theme-border-primary: ${colors.borderPrimary};
       --theme-border-secondary: ${colors.borderSecondary};
+      --theme-border-well: ${colors.borderWell || colors.borderSecondary};
       --theme-border-focus: ${colors.borderFocus};
       --theme-border-elevated: ${colors.borderElevated};
       --theme-border-hover: ${colors.borderHover};

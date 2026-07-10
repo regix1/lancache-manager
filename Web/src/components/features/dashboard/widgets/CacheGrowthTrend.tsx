@@ -190,7 +190,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
         {/* Current usage or period growth */}
         {isHistoricalView ? (
           <>
-            <div className="flex items-baseline gap-2 mb-2">
+            <div className="flex items-baseline gap-2 mb-3">
               <span className="text-xl font-bold text-themed-primary">
                 {formatBytes(periodGrowth)}
               </span>
@@ -203,7 +203,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
           </>
         ) : (
           <>
-            <div className="flex items-baseline gap-2 mb-2">
+            <div className="flex items-baseline gap-2 mb-3">
               <span className="text-xl font-bold text-themed-primary">
                 {formatBytes(usedCacheSize)}
               </span>
@@ -234,7 +234,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
         )}
 
         {/* Sparkline */}
-        {sparklineData.length > 1 && (
+        {sparklineData.length > 1 ? (
           <div className="dash-well p-3">
             <Sparkline
               data={sparklineData}
@@ -251,6 +251,15 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
                   : t('widgets.cacheGrowthTrend.someDeleted')}
               </div>
             )}
+          </div>
+        ) : (
+          <div className="dash-well p-3 flex-1 flex flex-col">
+            <EmptyState
+              variant="panel"
+              icon={TrendingUp}
+              title={t('widgets.cacheGrowthTrend.noDataTitle')}
+              subtitle={t('widgets.cacheGrowthTrend.noDataDesc')}
+            />
           </div>
         )}
 

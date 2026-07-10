@@ -327,7 +327,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
               onPointerCancel={resolvedHoldEnd}
               onLostPointerCapture={resolvedLostCapture}
               disabled={prevDisabled}
-              className="p-1.5 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-secondary)]"
+              className="p-1.5 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed bg-themed-surface text-[var(--theme-text-primary)] border border-[var(--theme-border-secondary)]"
               title={prevTitle}
             >
               <ChevronLeft size={14} />
@@ -344,7 +344,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
               onPointerCancel={resolvedHoldEnd}
               onLostPointerCapture={resolvedLostCapture}
               disabled={nextDisabled}
-              className="p-1.5 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-secondary)]"
+              className="p-1.5 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed bg-themed-surface text-[var(--theme-text-primary)] border border-[var(--theme-border-secondary)]"
               title={nextTitle}
             >
               <ChevronRight size={14} />
@@ -400,7 +400,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
           <button
             onClick={() => onPageChange(1)}
             disabled={currentPage === 1}
-            className="p-2 rounded-lg transition-[transform,box-shadow] hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-[var(--theme-bg-secondary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
+            className="p-2 rounded-lg transition-[transform,box-shadow] hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-themed-surface text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
             title={t('ui.pagination.firstPage')}
             aria-label={t('ui.pagination.goToFirstPage')}
           >
@@ -411,7 +411,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
           <button
             onClick={() => onPageChange(Math.max(1, currentPage - 1))}
             disabled={currentPage === 1}
-            className="p-2 rounded-lg transition-[transform,box-shadow] hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-[var(--theme-bg-secondary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
+            className="p-2 rounded-lg transition-[transform,box-shadow] hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-themed-surface text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
             title={t('ui.pagination.previousPage')}
             aria-label={t('ui.pagination.goToPreviousPage')}
           >
@@ -565,7 +565,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
           <button
             onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
             disabled={currentPage === totalPages}
-            className="p-2 rounded-lg transition-[transform,box-shadow] hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-[var(--theme-bg-secondary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
+            className="p-2 rounded-lg transition-[transform,box-shadow] hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-themed-surface text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
             title={t('ui.pagination.nextPage')}
             aria-label={t('ui.pagination.goToNextPage')}
           >
@@ -576,7 +576,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
           <button
             onClick={() => onPageChange(totalPages)}
             disabled={currentPage === totalPages}
-            className="p-2 rounded-lg transition-[transform,box-shadow] hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-[var(--theme-bg-secondary)] text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
+            className="p-2 rounded-lg transition-[transform,box-shadow] hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 bg-themed-surface text-[var(--theme-text-primary)] border border-[var(--theme-border-primary)]"
             title={t('ui.pagination.lastPage')}
             aria-label={t('ui.pagination.goToLastPage')}
           >

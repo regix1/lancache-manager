@@ -258,8 +258,9 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
             </div>
           </div>
         ) : (
-          <div className="dash-well">
+          <div className="dash-well p-3">
             <EmptyState
+              variant="panel"
               icon={Users}
               title={t('dashboard.topClients.noData')}
               subtitle={t('dashboard.topClients.noDataHint')}

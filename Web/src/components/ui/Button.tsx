@@ -48,15 +48,15 @@ export const Button: React.FC<ButtonProps> = ({
         red: 'action-delete',
         yellow: 'action-reset',
         purple: 'themed-button-primary',
-        gray: 'bg-themed-hover hover:bg-themed-tertiary text-themed-primary',
+        gray: 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary',
         orange: 'action-reset',
-        default: 'bg-themed-tertiary hover:bg-themed-hover text-themed-primary'
+        default: 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary'
       };
       return colors[color];
     }
     if (variant === 'subtle') {
       // Borderless muted solid (no transparent/ghost look) — same neutral fill for every color.
-      return 'bg-themed-tertiary hover:bg-themed-hover text-themed-primary';
+      return 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary';
     }
     if (variant === 'outline') {
       // Outline variants render as solid fills (aliases of the filled buttons), so no
@@ -70,12 +70,12 @@ export const Button: React.FC<ButtonProps> = ({
         yellow: `${base} outline-reset`,
         orange: `${base} outline-reset`,
         purple: `${base} outline-primary`,
-        gray: 'bg-themed-hover hover:bg-themed-tertiary text-themed-primary',
-        default: 'bg-themed-hover hover:bg-themed-tertiary text-themed-primary'
+        gray: 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary',
+        default: 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary'
       };
       return colors[color];
     }
-    return 'bg-themed-tertiary hover:bg-themed-hover text-themed-primary';
+    return 'bg-themed-surface hover:bg-themed-surface-hover text-themed-primary';
   };
 
   const sizes = {

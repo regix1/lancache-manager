@@ -16,7 +16,7 @@
 }
 
 .stat-pill:hover {
-  background: var(--theme-bg-tertiary);
+  background: var(--theme-bg-surface-hover);
   border-color: var(--theme-border);
 }
 

@@ -11,7 +11,7 @@
   justify-content: center;
   border-radius: 9999px;
   border: 1px solid var(--theme-border-secondary);
-  background-color: var(--theme-bg-secondary);
+  background-color: var(--theme-bg-surface);
   color: var(--theme-text-secondary);
   cursor: pointer;
   opacity: 0;
@@ -34,7 +34,7 @@
 
 .back-to-top-button.is-visible:hover {
   opacity: 1;
-  background-color: var(--theme-bg-tertiary);
+  background-color: var(--theme-bg-surface-hover);
   color: var(--theme-text-primary);
 }
 

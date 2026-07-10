@@ -203,7 +203,6 @@ const ManagementTab: React.FC = () => {
         return (
           <IntegrationsSection
             authMode={authMode}
-            steamAuthMode={steamAuthMode}
             mockMode={mockMode}
             onError={addError}
             onSuccess={setSuccess}

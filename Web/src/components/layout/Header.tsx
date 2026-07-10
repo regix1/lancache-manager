@@ -5,6 +5,7 @@ import RefreshRateSelector from '../common/RefreshRateSelector';
 import TimezoneSelector from '../common/TimezoneSelector';
 import LanguageSelector from '../common/LanguageSelector';
 import GitHubProjectsDropdown from '../common/GitHubProjectsDropdown';
+import ThemePreviewBanner from '../ui/ThemePreviewBanner';
 import { Tooltip } from '@components/ui/Tooltip';
 import LancacheIcon from '../ui/LancacheIcon';
 import LoadingSpinner from '../common/LoadingSpinner';
@@ -139,6 +140,7 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
             </div>
 
             <div className="header-controls flex items-center gap-2 sm:gap-3 flex-shrink-0">
+              <ThemePreviewBanner />
               <GitHubProjectsDropdown />
               <LanguageSelector />
               <TimezoneSelector />
@@ -186,6 +188,7 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
 
               {/* Right: Controls in a row - constrained width to prevent overflow */}
               <div className="flex items-center gap-0.5 xs:gap-1 flex-1 justify-end min-w-0 [&_.ed-trigger]:text-xs [&_.ed-trigger]:py-1.5 [&_.ed-trigger]:px-2">
+                <ThemePreviewBanner iconOnly={true} />
                 <GitHubProjectsDropdown iconOnly={true} />
                 <LanguageSelector iconOnly={true} />
                 <TimezoneSelector iconOnly={true} />

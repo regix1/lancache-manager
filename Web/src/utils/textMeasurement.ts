@@ -37,10 +37,13 @@ export function measureTextWidth(text: string, font: string): number {
   ctx.font = font;
   const metrics = ctx.measureText(text);
 
-  // Use actualBoundingBox for more accurate measurements when available
-  // This accounts for glyphs that extend beyond their advance width
+  // CSS layout uses the text's advance width, while glyphs can sometimes
+  // overhang that width. Keep whichever measurement is larger so fitted
+  // columns do not clip trailing characters such as a timestamp's AM/PM.
   if (metrics.actualBoundingBoxLeft !== undefined && metrics.actualBoundingBoxRight !== undefined) {
-    return Math.abs(metrics.actualBoundingBoxLeft) + Math.abs(metrics.actualBoundingBoxRight);
+    const glyphWidth =
+      Math.abs(metrics.actualBoundingBoxLeft) + Math.abs(metrics.actualBoundingBoxRight);
+    return Math.max(metrics.width, glyphWidth);
   }
 
   return metrics.width;

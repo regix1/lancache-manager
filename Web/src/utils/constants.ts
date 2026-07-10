@@ -41,5 +41,6 @@ export const STORAGE_KEYS = {
   GROUP_GAMES: 'lancache_downloads_group',
   HIDE_METADATA: 'lancache_downloads_hide_metadata',
   HIDE_SMALL_FILES: 'lancache_downloads_hide_small',
-  REFRESH_RATE: 'lancache_refresh_rate'
+  REFRESH_RATE: 'lancache_refresh_rate',
+  RECENT_DOWNLOADS_DETAILED: 'lancache_dashboard_recent_detailed'
 } as const;

@@ -155,6 +155,26 @@
       "unexpectedError": "发生意外错误"
     },
     "notifications": {
+      "titles": {
+        "logProcessing": "日志处理",
+        "cacheClearing": "缓存清理",
+        "logRemoval": "日志移除",
+        "serviceRemoval": "服务缓存移除",
+        "gameRemoval": "游戏缓存移除",
+        "corruptionRemoval": "损坏移除",
+        "corruptionDetection": "损坏检测",
+        "databaseReset": "数据库重置",
+        "depotMapping": "仓库映射",
+        "gameDetection": "游戏检测",
+        "dataImport": "数据导入",
+        "epicGameMapping": "Epic 游戏映射",
+        "xboxGameMapping": "Xbox 游戏映射",
+        "evictionScan": "淘汰扫描",
+        "evictionRemoval": "淘汰移除",
+        "cacheSizeScan": "缓存文件扫描",
+        "scheduledPrefill": "计划预填充",
+        "bulkRemoval": "批量移除"
+      },
       "cacheFilesDeleted": "已删除 {{formattedCount}} 个缓存文件",
       "cacheFilesDeleted_other": "已删除 {{formattedCount}} 个缓存文件",
       "cancelCacheClearing": "取消缓存清理",
@@ -539,7 +559,8 @@
       "hitTooltipDetailed": "{{percent}} 命中率 · {{saved}} 从缓存提供（磁盘 {{disk}}）",
       "downloading": "下载中",
       "refresh": "刷新",
-      "showing": "显示 <strong>{{displayed}}</strong> 个，共 <strong>{{total}}</strong> 个",
+      "showDetails": "详细统计",
+      "showingLabel": "显示",
       "totalDownloads": "总下载量",
       "activeDownloadsOnly": "活跃下载仅在实时模式下可用",
       "emptyStates": {
@@ -697,6 +718,7 @@
       "less": "较少",
       "more": "较多",
       "noDataAvailable": "暂无下载数据",
+      "noDataTitle": "暂无下载数据",
       "failedToLoad": "加载小时数据失败",
       "morning": "早上",
       "afternoon": "下午",
@@ -705,6 +727,8 @@
     },
     "cacheGrowthTrend": {
       "title": "缓存增长",
+      "noDataTitle": "暂无增长数据",
+      "noDataDesc": "开始下载后将显示缓存增长",
       "help": {
         "termsTitle": "图例"
       },
@@ -1915,6 +1939,9 @@
       "integrations": {
         "title": "集成与服务",
         "subtitle": "连接到 Steam、配置 Grafana 端点和管理外部服务集成",
+        "steamCard": {
+          "title": "Steam"
+        },
         "steamIntegration": "Steam 集成",
         "monitoringMetrics": "监控与指标",
         "epicIntegration": "Epic Games 集成",
@@ -2666,6 +2693,7 @@
     },
     "steamWebApi": {
       "title": "Steam Web API 状态",
+      "sectionTitle": "Web API",
       "checkingStatus": "正在检查状态...",
       "unknownStatus": "未知状态",
       "v1WithKey": "V1（有密钥）",
@@ -2709,6 +2737,13 @@
     },
     "steamAuth": {
       "title": "Steam PICS 身份验证",
+      "sectionTitle": "PICS 身份验证",
+      "connected": "已连接",
+      "switchedToAnonymous": "已切换至匿名 Steam 模式，Depot 映射已保留。",
+      "prefillWarning": {
+        "title": "预填充需要单独登录",
+        "description": "预填充会话不支持自动登录。Steam 要求每个连接使用自己的凭据进行身份验证，共享会话令牌会导致其中一个连接断开。每个预填充会话都必须手动登录。"
+      },
       "autoLogout": {
         "title": "Steam 会话自动登出",
         "message": "{{message}}"
@@ -2927,6 +2962,7 @@
         "themes": "主题",
         "customize": "自定义"
       },
+      "previewingBanner": "正在预览：{{name}}",
       "actions": {
         "applyTheme": "应用主题",
         "preview": "预览",

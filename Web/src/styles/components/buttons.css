@@ -122,7 +122,7 @@
   }
 
   .hover-btn:not(:disabled):hover {
-    background-color: var(--theme-bg-hover) !important;
+    background-color: var(--theme-bg-surface-hover) !important;
   }
 
   .hover-btn-trigger {
@@ -132,7 +132,7 @@
   }
 
   .hover-btn-trigger:hover {
-    background-color: var(--theme-bg-hover) !important;
+    background-color: var(--theme-bg-surface-hover) !important;
     color: var(--theme-text-primary) !important;
   }
 
@@ -143,17 +143,6 @@
 
   .hover-btn-light:hover {
     background-color: rgba(255, 255, 255, 0.2) !important;
-  }
-
-  /* Toggle/Tab button utilities - active and inactive states */
-  .toggle-btn-active {
-    background-color: var(--theme-primary);
-    color: var(--theme-button-text);
-  }
-
-  .toggle-btn-inactive {
-    background-color: transparent;
-    color: var(--theme-text-secondary);
   }
 
   /* Tab button utilities */

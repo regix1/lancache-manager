@@ -26,7 +26,7 @@
 /* Hover — only when not active and not disabled */
 @media (hover: hover) {
   .management-nav-tab:not([aria-selected='true']):not(:disabled):hover {
-    background-color: var(--theme-bg-hover);
+    background-color: var(--theme-bg-surface-hover);
     color: var(--theme-nav-tab-hover);
   }
 }
@@ -69,7 +69,7 @@
 
 @media (hover: hover) {
   .management-nav-tab--mobile:not([aria-selected='true']):not(:disabled):hover {
-    background-color: var(--theme-bg-hover);
+    background-color: var(--theme-bg-surface-hover);
     color: var(--theme-nav-tab-hover);
   }
 }
@@ -247,20 +247,6 @@
   border: 1px solid var(--theme-text-secondary-muted);
 }
 
-/* Integration sections - responsive grid layout (replaces merged split cards) */
-.integrations-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
-  align-items: stretch;
-}
-
-@media (max-width: 1023px) {
-  .integrations-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
 /* Group label above each integrations group (Steam / Epic / Monitoring) */
 .integrations-group-label {
   font-size: var(--font-size-sm);
@@ -271,27 +257,11 @@
   margin-bottom: 0.75rem;
 }
 
-/* Equal-height integration cards inside .integrations-grid */
-.integration-card {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-/* Card content area that grows to fill remaining card height */
-.integration-card-body {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-/* Rows inside .integration-card-body share the extra height evenly so
-   neither card in the grid ends with a block of dead space */
-.integration-card-body > .integration-row {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
+/* Divided subsection inside a merged integration card (e.g. Web API inside the Steam card) */
+.integration-subsection {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--theme-border-primary);
 }
 
 /* Library section embedded in the merged Epic Games card */
@@ -361,7 +331,7 @@
 
 @media (hover: hover) {
   .exclusion-mode-option:not(.is-active):not(:disabled):hover {
-    background-color: var(--theme-bg-hover);
+    background-color: var(--theme-bg-surface-hover);
     color: var(--theme-text-secondary);
   }
 }

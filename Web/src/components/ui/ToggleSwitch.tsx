@@ -49,7 +49,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
         color: 'var(--theme-info-text)'
       },
       default: {
-        backgroundColor: 'var(--theme-bg-tertiary)',
+        backgroundColor: 'var(--theme-bg-surface-active)',
         color: 'var(--theme-text-primary)'
       }
     };

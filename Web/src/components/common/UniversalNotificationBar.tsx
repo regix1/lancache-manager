@@ -18,6 +18,7 @@ import i18n from '../../i18n';
 import {
   useNotifications,
   type UnifiedNotification,
+  type NotificationType,
   type NotificationStatus,
   NOTIFICATION_ANIMATION_DURATION_MS
 } from '@contexts/notifications';
@@ -61,6 +62,35 @@ const CANCEL_CONFIG_BY_TYPE: Record<string, CancelConfig> = (() => {
 // ============================================================================
 
 const FORCE_KILL_TOOLTIP_KEY = 'common.notifications.forceKillOperation';
+
+/**
+ * Stable, localized operation labels for the notification eyebrow. The main
+ * notification message changes throughout an operation's lifecycle; this label
+ * keeps the operation itself identifiable at a glance. Generic toast-style
+ * notifications are intentionally excluded because they do not represent a
+ * named background operation.
+ */
+const NOTIFICATION_TITLE_KEYS: Record<NotificationType, string | null> = {
+  log_processing: 'common.notifications.titles.logProcessing',
+  cache_clearing: 'common.notifications.titles.cacheClearing',
+  log_removal: 'common.notifications.titles.logRemoval',
+  service_removal: 'common.notifications.titles.serviceRemoval',
+  game_removal: 'common.notifications.titles.gameRemoval',
+  corruption_removal: 'common.notifications.titles.corruptionRemoval',
+  corruption_detection: 'common.notifications.titles.corruptionDetection',
+  database_reset: 'common.notifications.titles.databaseReset',
+  depot_mapping: 'common.notifications.titles.depotMapping',
+  game_detection: 'common.notifications.titles.gameDetection',
+  data_import: 'common.notifications.titles.dataImport',
+  epic_game_mapping: 'common.notifications.titles.epicGameMapping',
+  xbox_game_mapping: 'common.notifications.titles.xboxGameMapping',
+  eviction_scan: 'common.notifications.titles.evictionScan',
+  eviction_removal: 'common.notifications.titles.evictionRemoval',
+  cache_size_scan: 'common.notifications.titles.cacheSizeScan',
+  scheduled_prefill: 'common.notifications.titles.scheduledPrefill',
+  bulk_removal: 'common.notifications.titles.bulkRemoval',
+  generic: null
+};
 
 /**
  * Surface a genuine cancel/force-kill failure to the user via the `show-toast` bridge. `handleCancel`
@@ -429,6 +459,7 @@ const UnifiedNotificationItem = ({
 
   const color = getNotificationColor(notification);
   const icon = getNotificationIcon(notification);
+  const titleKey = NOTIFICATION_TITLE_KEYS[notification.type];
 
   // Determine which title renderer to use
   const renderTitle = () => {
@@ -453,6 +484,12 @@ const UnifiedNotificationItem = ({
       {icon}
 
       <div className="flex-1 min-w-0">
+        {titleKey && (
+          <div className="mb-1.5 font-mono text-[11px] leading-none font-semibold tracking-[0.08em] uppercase text-themed-secondary">
+            {t(titleKey)}
+          </div>
+        )}
+
         {renderTitle()}
 
         {/* Detail message (except for service_removal which shows details differently) */}

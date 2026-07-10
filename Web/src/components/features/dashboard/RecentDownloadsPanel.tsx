@@ -1,10 +1,12 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import { Activity, Clock, RefreshCw } from 'lucide-react';
+import { Activity, Clock, RefreshCw, Rows3 } from 'lucide-react';
 import { type TFunction } from 'i18next';
-import { useTranslation, Trans } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
 import BadgesRow from '../downloads/BadgesRow';
 import { Card } from '@components/ui/Card';
+import { Button } from '@components/ui/Button';
+import { EmptyState } from '@components/ui/ManagerCard';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
@@ -18,6 +20,7 @@ import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import EventBadge from '../downloads/EventBadge';
 import { storage } from '@utils/storage';
+import { STORAGE_KEYS } from '@utils/constants';
 import type {
   Download,
   DownloadGroup,
@@ -94,6 +97,7 @@ interface RecentDownloadItemProps {
     string,
     { service_name: string; cache_files_found: number; total_size_bytes: number }
   > | null;
+  detailed?: boolean;
 }
 
 const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
@@ -101,7 +105,8 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
   events = [],
   detectionLookup = null,
   detectionByName = null,
-  detectionByService = null
+  detectionByService = null,
+  detailed = false
 }) => {
   const { t } = useTranslation();
   const isGroup = 'downloads' in item;
@@ -208,42 +213,46 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
       <div className="rdl-row-main">
         <div className="rdl-row-info">
           <div className="rdl-row-name">
+            {!detailed && <BadgesRow service={display.service} showDatasource={false} />}
             <span className="rdl-name-text">{display.name}</span>
-            {isGroup && display.count > 1 && (
+            {detailed && isGroup && display.count > 1 && (
               <span className="themed-badge status-badge-neutral badge-count">
                 {display.count}×
               </span>
             )}
           </div>
-          <div className="rdl-row-meta">
-            <BadgesRow
-              service={display.service}
-              showDatasource={false}
-              isEvicted={display.isEvicted}
-              isPartiallyEvicted={display.isPartiallyEvicted}
-            />
-            <span className="rdl-meta-sep">•</span>
-            <span>
-              {display.clientIp ? (
-                <ClientIpDisplay clientIp={display.clientIp} />
-              ) : (
-                display.clientInfo
-              )}
-            </span>
-            <span className="rdl-meta-sep">•</span>
-            <span>{formattedTime}</span>
+          {detailed && (
+            <div className="rdl-row-meta">
+              <BadgesRow
+                service={display.service}
+                showDatasource={false}
+                isEvicted={display.isEvicted}
+                isPartiallyEvicted={display.isPartiallyEvicted}
+              />
+              <span className="rdl-meta-sep">•</span>
+              <span>
+                {display.clientIp ? (
+                  <ClientIpDisplay clientIp={display.clientIp} />
+                ) : (
+                  display.clientInfo
+                )}
+              </span>
+              <span className="rdl-meta-sep">•</span>
+              <span>{formattedTime}</span>
 
-            {events.length > 0 &&
-              events
-                .slice(0, 1)
-                .map((event) => <EventBadge key={event.id} event={event} size="sm" />)}
-          </div>
+              {events.length > 0 &&
+                events
+                  .slice(0, 1)
+                  .map((event) => <EventBadge key={event.id} event={event} size="sm" />)}
+            </div>
+          )}
         </div>
       </div>
       <div className="rdl-row-stats">
         <div className="rdl-row-figures">
           <span className="rdl-row-size">{formatBytes(display.totalBytes)}</span>
-          <div className="rdl-row-subline">
+          {detailed && (
+            <div className="rdl-row-subline">
             {diskSizeBytes ? (
               <span className="rdl-row-sub">
                 {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })} ·
@@ -263,7 +272,8 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
             >
               {formatPercent(display.cacheHitPercent)} {t('dashboard.downloadsPanel.hitLabel')}
             </Tooltip>
-          </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -283,6 +293,15 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const [selectedService, setSelectedService] = useState<string>('all');
   const [selectedClient, setSelectedClient] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
+  // Simple rows by default; the header toggle opts into the detailed stats view.
+  const [showDetails, setShowDetails] = useState(
+    () => storage.getItem(STORAGE_KEYS.RECENT_DOWNLOADS_DETAILED) === 'true'
+  );
+  const toggleDetails = () => {
+    const next = !showDetails;
+    setShowDetails(next);
+    storage.setItem(STORAGE_KEYS.RECENT_DOWNLOADS_DETAILED, String(next));
+  };
 
   const latestDownloads = useMemo(() => downloads, [downloads]);
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
@@ -549,77 +568,51 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       <div className="rdl-header">
         <h3>{t('dashboard.downloadsPanel.title')}</h3>
 
-        <SegmentedControl
-          options={[
-            {
-              value: 'recent',
-              label: t('dashboard.downloadsPanel.recent'),
-              icon: <Clock size={14} />
-            },
-            {
-              value: 'active',
-              label: (
-                <span className="segmented-control-label">
-                  {t('dashboard.downloadsPanel.active')}
-                  {!isHistoricalView && activeCount > 0 && (
-                    <span className="rdl-tab-badge">{activeCount}</span>
-                  )}
-                </span>
-              ),
-              icon: <Activity size={14} />,
-              disabled: isHistoricalView,
-              tooltip: isHistoricalView
-                ? t('dashboard.downloadsPanel.activeDownloadsOnly')
-                : undefined
-            }
-          ]}
-          value={viewMode}
-          onChange={(value) => setViewMode(value as 'recent' | 'active')}
-          size="md"
-          showLabels={true}
-        />
-      </div>
-
-      {/* Labeled readout strip */}
-      <div className="dash-readout">
-        {viewMode === 'active' ? (
-          <>
-            <div className="dash-readout-item">
-              <div className={`dash-readout-value${hasActiveDownloads ? ' is-success' : ''}`}>
-                {hasActiveDownloads ? formatSpeed(totalSpeed) : '—'}
-              </div>
-              <div className="dash-readout-label">{t('dashboard.downloadsPanel.speed')}</div>
-            </div>
-            <div className="dash-readout-item">
-              <div className="dash-readout-value">{activeCount}</div>
-              <div className="dash-readout-label">
-                {t('dashboard.downloadsPanel.game', { count: activeCount })}
-              </div>
-            </div>
-            <div className="dash-readout-item">
-              <div className="dash-readout-value">
-                <span className="rdl-live-dot" />
-                {t('dashboard.downloadsPanel.live')}
-              </div>
-              <div className="dash-readout-label">{t('dashboard.downloadsPanel.period')}</div>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="dash-readout-item">
-              <div
-                className={`dash-readout-value${stats.totalBytes > 0 ? ` ${hitRateClass}` : ''}`}
-              >
-                {stats.totalBytes > 0 ? formatPercent(stats.overallHitRate) : '—'}
-              </div>
-              <div className="dash-readout-label">{t('dashboard.downloadsPanel.hitRate')}</div>
-            </div>
-            <div className="dash-readout-item">
-              <div className="dash-readout-value">{getTimeRangeLabel}</div>
-              <div className="dash-readout-label">{t('dashboard.downloadsPanel.period')}</div>
-            </div>
-          </>
-        )}
+        <div className="flex items-center gap-2">
+          <SegmentedControl
+            options={[
+              {
+                value: 'recent',
+                label: t('dashboard.downloadsPanel.recent'),
+                icon: <Clock size={14} />
+              },
+              {
+                value: 'active',
+                label: (
+                  <span className="segmented-control-label">
+                    {t('dashboard.downloadsPanel.active')}
+                    {!isHistoricalView && activeCount > 0 && (
+                      <span className="rdl-tab-badge">{activeCount}</span>
+                    )}
+                  </span>
+                ),
+                icon: <Activity size={14} />,
+                disabled: isHistoricalView,
+                tooltip: isHistoricalView
+                  ? t('dashboard.downloadsPanel.activeDownloadsOnly')
+                  : undefined
+              }
+            ]}
+            value={viewMode}
+            onChange={(value) => setViewMode(value as 'recent' | 'active')}
+            size="md"
+            showLabels={true}
+          />
+          {viewMode === 'recent' && (
+            <Tooltip content={t('dashboard.downloadsPanel.showDetails')}>
+              <Button
+                variant="filled"
+                color={showDetails ? 'blue' : 'gray'}
+                size="md"
+                onClick={toggleDetails}
+                aria-label={t('dashboard.downloadsPanel.showDetails')}
+                aria-pressed={showDetails}
+                leftSection={<Rows3 className="w-4 h-4" />}
+                className="min-h-10"
+              />
+            </Tooltip>
+          )}
+        </div>
       </div>
 
       {/* Filters (only for recent view) */}
@@ -674,18 +667,12 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                   />
                 ))
               ) : (
-                <div className="empty-state">
-                  <div className="empty-icon">
-                    <div className="empty-icon-bg" />
-                    <Activity size={24} />
-                  </div>
-                  <div className="empty-title">
-                    {t('dashboard.downloadsPanel.emptyStates.noActive')}
-                  </div>
-                  <div className="empty-desc">
-                    {t('dashboard.downloadsPanel.emptyStates.noActiveDesc')}
-                  </div>
-                </div>
+                <EmptyState
+                  variant="panel"
+                  icon={Activity}
+                  title={t('dashboard.downloadsPanel.emptyStates.noActive')}
+                  subtitle={t('dashboard.downloadsPanel.emptyStates.noActiveDesc')}
+                />
               )
             ) : loading ? (
               <div className="recent-downloads-skeleton">
@@ -723,24 +710,19 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                     detectionLookup={detectionLookup}
                     detectionByName={detectionByName}
                     detectionByService={detectionByService}
+                    detailed={showDetails}
                   />
                 );
               })
             ) : (
-              <div className="empty-state">
-                <div className="empty-icon">
-                  <div className="empty-icon-bg" />
-                  <Clock size={24} />
-                </div>
-                <div className="empty-title">
-                  {t('dashboard.downloadsPanel.emptyStates.noDownloads')}
-                </div>
-                <div className="empty-desc">
-                  {t('dashboard.downloadsPanel.emptyStates.noDownloadsInPeriod', {
-                    period: getTimeRangeLabel.toLowerCase()
-                  })}
-                </div>
-              </div>
+              <EmptyState
+                variant="panel"
+                icon={Clock}
+                title={t('dashboard.downloadsPanel.emptyStates.noDownloads')}
+                subtitle={t('dashboard.downloadsPanel.emptyStates.noDownloadsInPeriod', {
+                  period: getTimeRangeLabel.toLowerCase()
+                })}
+              />
             )}
           </div>
         </CustomScrollbar>
@@ -761,20 +743,58 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         </div>
       )}
 
-      {viewMode === 'recent' && groupedItems.totalGroups > displayCount && (
-        <div className="rdl-footer">
-          <div className="rdl-footer-stat">
-            <Trans
-              i18nKey="dashboard.downloadsPanel.showing"
-              values={{
-                displayed: Math.min(displayCount, groupedItems.displayedItems.length),
-                total: groupedItems.totalGroups
-              }}
-              components={{ strong: <strong /> }}
-            />
-          </div>
-        </div>
-      )}
+      {/* Labeled readout strip — pinned to the card bottom to mirror Service Analytics */}
+      <div className="dash-readout dash-readout--footer">
+        {viewMode === 'active' ? (
+          <>
+            <div className="dash-readout-item">
+              <div className={`dash-readout-value${hasActiveDownloads ? ' is-success' : ''}`}>
+                {hasActiveDownloads ? formatSpeed(totalSpeed) : '—'}
+              </div>
+              <div className="dash-readout-label">{t('dashboard.downloadsPanel.speed')}</div>
+            </div>
+            <div className="dash-readout-item">
+              <div className="dash-readout-value">{activeCount}</div>
+              <div className="dash-readout-label">
+                {t('dashboard.downloadsPanel.game', { count: activeCount })}
+              </div>
+            </div>
+            <div className="dash-readout-item">
+              <div className="dash-readout-value">
+                <span className="rdl-live-dot" />
+                {t('dashboard.downloadsPanel.live')}
+              </div>
+              <div className="dash-readout-label">{t('dashboard.downloadsPanel.period')}</div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="dash-readout-item">
+              <div
+                className={`dash-readout-value${stats.totalBytes > 0 ? ` ${hitRateClass}` : ''}`}
+              >
+                {stats.totalBytes > 0 ? formatPercent(stats.overallHitRate) : '—'}
+              </div>
+              <div className="dash-readout-label">{t('dashboard.downloadsPanel.hitRate')}</div>
+            </div>
+            <div className="dash-readout-item">
+              <div className="dash-readout-value">{getTimeRangeLabel}</div>
+              <div className="dash-readout-label">{t('dashboard.downloadsPanel.period')}</div>
+            </div>
+            {groupedItems.totalGroups > 0 && (
+              <div className="dash-readout-item">
+                <div className="dash-readout-value">
+                  {Math.min(displayCount, groupedItems.displayedItems.length)} /{' '}
+                  {groupedItems.totalGroups}
+                </div>
+                <div className="dash-readout-label">
+                  {t('dashboard.downloadsPanel.showingLabel')}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </Card>
   );
 };

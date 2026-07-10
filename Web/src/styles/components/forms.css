@@ -329,7 +329,7 @@
   }
 
   .number-input-wrapper .spinner-btn:hover:not(:disabled) {
-    background-color: var(--theme-bg-hover);
+    background-color: var(--theme-bg-surface-hover);
     color: var(--theme-primary);
   }
 

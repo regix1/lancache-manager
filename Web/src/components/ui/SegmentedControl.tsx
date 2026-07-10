@@ -65,7 +65,7 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
         // reads as disabled (matching a disabled dropdown/toggle) instead of looking clickable.
         const segmentClass = isActive
           ? isDisabled
-            ? 'bg-themed-hover text-themed-muted'
+            ? 'bg-themed-surface-active text-themed-muted'
             : activeClass
           : 'bg-transparent text-themed-muted';
 

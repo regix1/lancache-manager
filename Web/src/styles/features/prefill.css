@@ -180,7 +180,7 @@
   }
 
   .cmd-tile:hover:not(:disabled) {
-    background: var(--theme-bg-hover);
+    background: var(--theme-bg-surface-hover);
     border-color: var(--theme-border);
   }
 

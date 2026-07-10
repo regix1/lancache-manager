@@ -68,9 +68,10 @@
       inset 0 1px 0 var(--theme-text-primary-faint);
   }
 
-  /* Widget card styles */
+  /* Widget card styles - p-6 matches the analytics/downloads panels above so
+     content edges align down the dashboard column */
   .widget-card {
-    @apply p-4 flex flex-col;
+    @apply p-6 flex flex-col;
     border-radius: var(--theme-border-radius-lg);
     background: var(--theme-card-bg);
     border: 1px solid var(--theme-card-border);

@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Globe, AlertCircle, CheckCircle, XCircle, Key, Trash2, AlertTriangle } from 'lucide-react';
+import { AlertCircle, CheckCircle, XCircle, Key, Trash2, AlertTriangle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
-import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
@@ -16,11 +15,7 @@ import ApiService from '@services/api.service';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { getErrorMessage } from '@utils/error';
 
-interface SteamWebApiStatusProps {
-  steamAuthMode?: 'anonymous' | 'authenticated';
-}
-
-const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _steamAuthMode }) => {
+const SteamWebApiStatus: React.FC = () => {
   const { t } = useTranslation();
   const { status, loading, refresh, updateStatus } = useSteamWebApiStatus();
   const { updateProgress } = usePicsProgress();
@@ -194,14 +189,11 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
 
   return (
     <>
-      <Card className="integration-card">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-cyan">
-            <Globe className="w-5 h-5 icon-cyan" />
-          </div>
-          <h3 className="text-lg font-semibold text-themed-primary">
-            {t('management.steamWebApi.title')}
-          </h3>
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <h4 className="text-sm font-semibold text-themed-primary">
+            {t('management.steamWebApi.sectionTitle')}
+          </h4>
           <HelpPopover position="left" width={320}>
             <HelpSection
               title={t('management.steamWebApi.help.apiVersions.title')}
@@ -241,8 +233,8 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
         </div>
 
         {/* Status Overview */}
-        <div className="integration-card-body">
-          <div className="p-4 rounded-lg mb-4 bg-themed-tertiary integration-row">
+        <div>
+          <div className="p-4 rounded-lg mb-4 bg-themed-tertiary">
             {/* Status message - full width */}
             <div className="flex items-start gap-2.5 mb-3">
               <div className="mt-0.5 flex-shrink-0">{getStatusIcon()}</div>
@@ -346,7 +338,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
             </p>
           )}
         </div>
-      </Card>
+      </div>
 
       {/* Configuration Modal */}
       <SteamWebApiKeyModal

@@ -60,8 +60,11 @@
   border-bottom: none;
   border-top: 1px solid var(--theme-border-secondary);
   padding-bottom: 0;
-  padding-top: 0.75rem;
+  /* Roomier than the header variant: values sit against the border with no
+     label above them, so they need the extra air to not read crunched */
+  padding-top: 1.25rem;
   margin-bottom: 0;
+  /* auto pins the strip to the card bottom in stretched cards (Cache Growth) */
   margin-top: auto;
 }
 
@@ -71,7 +74,8 @@
 }
 
 .dash-readout-item:first-child {
-  padding-left: 0.15rem;
+  /* Flush with the card's content edge so readouts align with headers/wells */
+  padding-left: 0;
 }
 
 .dash-readout-item + .dash-readout-item {
@@ -146,9 +150,33 @@
 
 .dash-well {
   background: var(--theme-bg-tertiary);
-  border: 1px solid var(--theme-border-secondary);
+  border: 1px solid var(--theme-border-well);
   border-radius: var(--theme-border-radius);
   overflow: hidden;
+}
+
+/* Standard breathing room between a well and whatever follows it (footer
+   strips, legends) — matches the Downloads panel's well spacing */
+.dash-well:not(:last-child) {
+  margin-bottom: 1rem;
+}
+
+/* Hidden-cards dropdown: same open/close motion as the universal dropdowns
+   (keyframes shared from dropdowns.css, exit handled via useExitPresence) */
+.dash-hidden-dropdown {
+  animation: dropdownSlideDown 0.15s ease-out;
+}
+
+.dash-hidden-dropdown--closing {
+  animation: dropdownSlideOutDown 0.14s ease-in forwards;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-hidden-dropdown,
+  .dash-hidden-dropdown--closing {
+    animation: none;
+  }
 }
 
 /* Peak Usage heatmap legend swatches (static styles; cell colors stay

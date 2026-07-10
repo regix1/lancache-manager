@@ -266,6 +266,20 @@
     background-color: var(--theme-bg-hover);
   }
 
+  /* Neutral control fills — resting/hover/active for buttons and control chrome.
+     bg-tertiary is a recessed WELL surface, not a control fill; controls use these. */
+  .bg-themed-surface {
+    background-color: var(--theme-bg-surface);
+  }
+
+  .bg-themed-surface-hover {
+    background-color: var(--theme-bg-surface-hover);
+  }
+
+  .bg-themed-surface-active {
+    background-color: var(--theme-bg-surface-active);
+  }
+
   .bg-themed-nav {
     background-color: var(--theme-nav-bg);
   }

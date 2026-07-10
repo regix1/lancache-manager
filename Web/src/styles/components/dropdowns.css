@@ -78,6 +78,9 @@
 
   /* EnhancedDropdown */
   .ed-trigger {
+    /* Raised control fill — beats the themed-card class the non-button variant
+       carries, same as the hover rule below (uniform with Button neutrals) */
+    background-color: var(--theme-bg-surface) !important;
     transition:
       background-color 0.15s ease,
       border-color 0.15s ease;
@@ -143,7 +146,7 @@
   }
 
   .ed-trigger:not(:disabled):hover {
-    background-color: var(--theme-bg-hover) !important;
+    background-color: var(--theme-bg-surface-hover) !important;
   }
 
   .ed-trigger:focus {
@@ -190,12 +193,16 @@
       border-color 0.15s ease;
   }
 
+  .msd-trigger {
+    background-color: var(--theme-bg-surface) !important;
+  }
+
   .msd-trigger:not(:disabled):hover {
-    background-color: var(--theme-bg-hover) !important;
+    background-color: var(--theme-bg-surface-hover) !important;
   }
 
   .msd-trigger-open {
-    background-color: var(--theme-bg-hover) !important;
+    background-color: var(--theme-bg-surface-active) !important;
   }
 
   .msd-dropdown {

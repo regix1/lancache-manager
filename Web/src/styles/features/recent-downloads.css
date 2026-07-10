@@ -109,7 +109,7 @@
   font-size: var(--font-size-xs);
   font-weight: 500;
   color: var(--theme-text-muted);
-  background: var(--theme-bg-tertiary);
+  background: var(--theme-bg-surface);
   border: 1px solid var(--theme-border-secondary);
   border-radius: var(--theme-border-radius);
   cursor: pointer;
@@ -130,15 +130,16 @@
 }
 
 .rdl-clear-btn:active {
-  background: var(--theme-bg-hover);
+  background: var(--theme-bg-surface-active);
 }
 
 /* ----- The list well: one bordered surface, hairline dividers ----- */
 
 .rdl-well {
   background: var(--theme-bg-tertiary);
-  border: 1px solid var(--theme-border-secondary);
+  border: 1px solid var(--theme-border-well);
   border-radius: var(--theme-border-radius);
+  margin-bottom: 1rem;
   overflow: hidden;
 }
 
@@ -322,13 +323,24 @@
   flex-shrink: 0;
 }
 
-.rdl-hit.high {
-  color: var(--theme-success);
-}
-
+.rdl-hit.high,
 .rdl-hit.medium,
 .rdl-hit.low {
-  color: var(--theme-warning);
+  color: var(--theme-text-muted);
+}
+
+/* Evicted badges in the recent list keep the badge format but go tonal:
+   no bright fill, just tinted text and a hairline so ten rows don't shout. */
+.rdl-row-meta .status-badge-warning {
+  background: transparent;
+  color: var(--theme-warning-text);
+  border: 1px solid var(--theme-warning-bg);
+}
+
+.rdl-row-meta .status-badge-error {
+  background: transparent;
+  color: var(--theme-error-text);
+  border: 1px solid var(--theme-error-bg);
 }
 
 .rdl-hit.critical {
@@ -385,7 +397,7 @@
   font-size: var(--font-size-xs);
   font-weight: 500;
   color: var(--theme-text-muted);
-  background: var(--theme-bg-tertiary);
+  background: var(--theme-bg-surface);
   border: 1px solid var(--theme-border-secondary);
   border-radius: var(--theme-border-radius);
   cursor: pointer;
@@ -405,7 +417,7 @@
 }
 
 .rdl-refresh-btn:active {
-  background: var(--theme-bg-hover);
+  background: var(--theme-bg-surface-active);
 }
 
 .rdl-refresh-btn svg {

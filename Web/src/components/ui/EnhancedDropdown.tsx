@@ -431,7 +431,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         disabled={disabled}
         aria-label={resolvedAriaLabel}
         className={`ed-trigger w-full px-3 ${triggerSizeClass} themed-border-radius border text-left flex items-center justify-between text-sm text-themed-primary ${
-          variant === 'button' ? 'bg-themed-tertiary hover:bg-themed-hover' : 'themed-card'
+          variant === 'button' ? 'bg-themed-surface hover:bg-themed-surface-hover' : 'themed-card'
         } ${
           isOpen
             ? 'ed-trigger--open border-themed-focus'

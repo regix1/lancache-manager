@@ -173,12 +173,33 @@ interface EmptyStateProps {
   title: string;
   subtitle?: string;
   action?: React.ReactNode;
+  /** 'panel' renders the dashboard ring-icon block (.empty-state family) */
+  variant?: 'plain' | 'panel';
 }
 
 /**
- * Standardized empty state for management cards
+ * Standardized empty state for management cards and dashboard panels
  */
-export const EmptyState: React.FC<EmptyStateProps> = ({ icon: Icon, title, subtitle, action }) => {
+export const EmptyState: React.FC<EmptyStateProps> = ({
+  icon: Icon,
+  title,
+  subtitle,
+  action,
+  variant = 'plain'
+}) => {
+  if (variant === 'panel') {
+    return (
+      <div className="empty-state">
+        <div className="empty-icon">
+          <div className="empty-icon-bg" />
+          {Icon && <Icon size={24} />}
+        </div>
+        <div className="empty-title">{title}</div>
+        {subtitle && <div className="empty-desc">{subtitle}</div>}
+        {action && <div className="mt-4">{action}</div>}
+      </div>
+    );
+  }
   return (
     <div className="text-center py-8 text-themed-muted">
       {Icon && <Icon className="w-12 h-12 mx-auto mb-3 opacity-50" />}

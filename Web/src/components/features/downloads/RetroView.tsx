@@ -38,6 +38,7 @@ import {
   RETRO_WIDTHS_STORAGE_KEY,
   RESIZE_MIN_WIDTH,
   buildGridTemplate,
+  fitMeasuredWidthsToContainer,
   fitWidthsToContainer,
   getDefaultColumnWidths,
   measureAllRetroColumns,
@@ -522,7 +523,7 @@ const RetroView = memo(
             : getDefaultColumnWidths();
         const width = containerRef.current?.clientWidth;
         if (width && width > 0) {
-          setColumnWidths(fitWidthsToContainer(measured, width, visibility));
+          setColumnWidths(fitMeasuredWidthsToContainer(measured, width, visibility));
           return;
         }
 
@@ -561,7 +562,7 @@ const RetroView = memo(
         // the ResizeObserver re-fires this fit when the table becomes visible.
         if (containerWidth <= 0 || measureRows.length === 0) return;
         const measured = measureAllRetroColumns(measureRows, headerLabels, visibility);
-        const next = fitWidthsToContainer(measured, containerWidth, visibility);
+        const next = fitMeasuredWidthsToContainer(measured, containerWidth, visibility);
         setColumnWidths((prev) => (widthsEqual(prev, next) ? prev : next));
       }, [isManualWidths, containerWidth, measureRows, headerLabels, visibility]);
 
