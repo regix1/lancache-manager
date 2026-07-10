@@ -3309,7 +3309,7 @@
             "saveError": "保存计划预填充配置失败：{{error}}",
             "empty": "计划预填充配置不可用。",
             "label": "计划预填充",
-            "authWarning": "{{services}} 需要登录后才能运行计划预填充。",
+            "authWarning": "{{services}} 需要登录后才能为这些服务运行计划预填充。",
             "zeroEnabledWarning": "未启用任何服务。在至少启用一个服务之前，计划预填充不会下载任何内容。",
             "bulkToggle": {
               "label": "所有服务",
