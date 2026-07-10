@@ -60,38 +60,6 @@ export interface ScheduledPrefillConfigDto {
   riot: ScheduledPrefillServiceConfigDto;
 }
 
-export interface ScheduledPrefillStartedEvent {
-  operationId: string;
-  serviceCount: number;
-}
-
-export interface ScheduledPrefillProgressEvent {
-  operationId: string;
-  serviceId: string;
-  stage: string;
-  message: string;
-  needsLoginReason?: string | null;
-  bytesDownloaded?: number | null;
-  downloadSessionId?: string | null;
-}
-
-export interface ScheduledPrefillCompletedEvent {
-  operationId: string | null;
-  success: boolean;
-  error?: string | null;
-}
-
-export type ScheduledPrefillRunPhase = 'idle' | 'running' | 'completed' | 'failed';
-
-export interface ScheduledPrefillRunProgressItem {
-  serviceId: string;
-  stage: string;
-  message: string;
-  needsLoginReason?: string | null;
-  bytesDownloaded?: number | null;
-  downloadSessionId?: string | null;
-}
-
 /**
  * Per-row account readiness for the schedule table. `null` for anonymous services
  * (Battle.net/Riot), where a running container is all the readiness there is.

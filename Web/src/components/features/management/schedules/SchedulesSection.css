@@ -620,19 +620,10 @@
 }
 
 .scheduled-prefill-card-summary__warning,
-.scheduled-prefill-card-summary__error,
-.scheduled-prefill-card-summary__progress {
+.scheduled-prefill-card-summary__error {
   margin: 0;
   font-size: var(--font-size-sm);
   line-height: 1.4;
-}
-
-.scheduled-prefill-card-summary__progress {
-  color: var(--theme-text-secondary);
-}
-
-.scheduled-prefill-card-summary__progress--success {
-  color: var(--theme-success-text);
 }
 
 .scheduled-prefill-card-summary__warning {

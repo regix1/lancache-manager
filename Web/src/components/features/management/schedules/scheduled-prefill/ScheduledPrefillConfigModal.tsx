@@ -718,7 +718,9 @@ export function ScheduledPrefillConfigModal({
     [config]
   );
 
-  const hasPersistentLoginWarning = useMemo(() => {
+  // Names of the enabled account services whose persistent container needs login (the
+  // authWarning i18n key interpolates them, so the warning says WHICH services are blocked).
+  const servicesNeedingLogin = useMemo(() => {
     // Config and the persistent-container list load via independent requests, so config can
     // resolve before the container list has: don't flag a false "needs login" warning while the
     // container list has never loaded (or failed to load), since we simply don't know its state
@@ -726,18 +728,18 @@ export function ScheduledPrefillConfigModal({
     // pushes a container refresh on every prefill-progress tick during a download, and gating on
     // the loading flag made this warning blink off and back on with each refresh cycle.
     if (!config || persistentContainers === null || persistentError) {
-      return false;
+      return [];
     }
 
-    return SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.some((serviceId) => {
+    return SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.filter((serviceId) => {
       if (!config[serviceId].enabled) {
         return false;
       }
 
       const container = persistentContainerByService.get(getPersistentServiceId(serviceId));
       return needsPersistentLogin(container);
-    });
-  }, [config, persistentContainerByService, persistentContainers, persistentError]);
+    }).map((serviceId) => t(`${baseKey}.services.${serviceId}`));
+  }, [config, persistentContainerByService, persistentContainers, persistentError, baseKey, t]);
 
   // Single most-severe banner: errors win over the (yellow) validation hint; success is silent.
   const banner = useMemo<{ color: 'red' | 'yellow' | 'green'; message: string } | null>(() => {
@@ -1277,9 +1279,12 @@ export function ScheduledPrefillConfigModal({
                         </div>
                       </div>
 
-                      {hasPersistentLoginWarning && (
+                      {servicesNeedingLogin.length > 0 && (
                         <p className="scheduled-prefill-config-modal__overview-warning">
-                          {t(`${baseKey}.authWarning`)}
+                          {t(`${baseKey}.authWarning`, {
+                            services: servicesNeedingLogin.join(', '),
+                            count: servicesNeedingLogin.length
+                          })}
                         </p>
                       )}
 

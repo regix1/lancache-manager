@@ -11,8 +11,6 @@ import type {
 import {
   SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS,
   SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY,
-  SCHEDULED_PREFILL_RUN_COMPLETED_DISMISS_MS,
-  SCHEDULED_PREFILL_RUN_FAILED_DISMISS_MS,
   SCHEDULED_PREFILL_SERVICE_RUN_ORDER
 } from './constants';
 import ScheduleIntervalPicker from '../ScheduleIntervalPicker';
@@ -27,18 +25,12 @@ import {
   SCHEDULED_PREFILL_PLATFORM_UI
 } from './scheduledPrefillPlatformUi';
 import type {
-  ScheduledPrefillCompletedEvent,
   ScheduledPrefillConfigDto,
-  ScheduledPrefillProgressEvent,
   ScheduledPrefillRowLoginState,
-  ScheduledPrefillRunPhase,
-  ScheduledPrefillRunProgressItem,
   ScheduledPrefillServiceKey,
-  ScheduledPrefillServiceScheduleDto,
-  ScheduledPrefillStartedEvent
+  ScheduledPrefillServiceScheduleDto
 } from './types';
 import { getErrorMessage, isAbortError } from '@utils/error';
-import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 import { usePersistentPrefillContainerSignalR } from './usePersistentPrefillContainerSignalR';
 
 interface ScheduledPrefillScheduleDetailProps {
@@ -207,15 +199,11 @@ export function ScheduledPrefillScheduleDetail({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalOpened, setModalOpened] = useState(false);
-  const [runPhase, setRunPhase] = useState<ScheduledPrefillRunPhase>('idle');
-  const [runProgress, setRunProgress] = useState<ScheduledPrefillRunProgressItem[]>([]);
-  const [runError, setRunError] = useState<string | null>(null);
   // Relative labels ("in 2h", "Just now") are computed at render time, so without a clock they
   // freeze at whatever the last fetch produced. A minute tick matches their coarsest granularity
   // and re-derives every timing cell without refetching anything.
   const [now, setNow] = useState(() => Date.now());
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
-  const eventsKey = 'management.schedules.services.scheduledPrefill.events';
 
   // Aborts the in-flight refreshSchedule() fetch so an unmounted or superseded refresh never
   // setStates (last writer wins).
@@ -231,15 +219,6 @@ export function ScheduledPrefillScheduleDetail({
     nextRunUtc: string | null;
     intervalHours: number;
   } | null>(null);
-
-  // Auto-dismiss the terminal run-result line (e.g. "Riot: Prefill completed (130.05 MB
-  // downloaded)") back to idle so it does not linger on the card forever; in-progress runs
-  // never schedule a dismiss. Each hook instance cancels its own prior pending timer, so a
-  // new terminal event for the same kind always restarts the clock.
-  const scheduleRunCompletedDismiss = useTimeoutCallback(
-    SCHEDULED_PREFILL_RUN_COMPLETED_DISMISS_MS
-  );
-  const scheduleRunFailedDismiss = useTimeoutCallback(SCHEDULED_PREFILL_RUN_FAILED_DISMISS_MS);
 
   const loadSummary = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -348,76 +327,12 @@ export function ScheduledPrefillScheduleDetail({
     return () => clearInterval(interval);
   }, []);
 
-  const formatProgressLine = useCallback(
-    (item: ScheduledPrefillRunProgressItem): string => {
-      const serviceKey = SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY[item.serviceId];
-      const serviceLabel = serviceKey ? t(`${baseKey}.services.${serviceKey}`) : item.serviceId;
-
-      if (item.stage === 'skipped') {
-        return t(`${eventsKey}.skipped`, { service: serviceLabel, reason: item.message });
-      }
-
-      if (item.stage === 'needs-login') {
-        // Surface the backend's precise prerequisite (container stopped vs running-but-logged-out)
-        // instead of collapsing every needs-login skip into the same generic line.
-        return item.needsLoginReason
-          ? t(`${eventsKey}.needsLoginWithReason`, {
-              service: serviceLabel,
-              reason: item.needsLoginReason
-            })
-          : t(`${eventsKey}.needsLogin`, { service: serviceLabel });
-      }
-
-      return t(`${eventsKey}.serviceProgress`, {
-        service: serviceLabel,
-        message: item.message
-      });
-    },
-    [baseKey, eventsKey, t]
-  );
-
   useEffect(() => {
-    const handleStarted = (_payload: ScheduledPrefillStartedEvent) => {
-      setRunPhase('running');
-      setRunProgress([]);
-      setRunError(null);
-    };
-
-    const handleProgress = (payload: ScheduledPrefillProgressEvent) => {
-      setRunPhase('running');
-      setRunProgress((previous) => {
-        const next = previous.filter((item) => item.serviceId !== payload.serviceId);
-        next.push({
-          serviceId: payload.serviceId,
-          stage: payload.stage,
-          message: payload.message,
-          needsLoginReason: payload.needsLoginReason,
-          bytesDownloaded: payload.bytesDownloaded,
-          downloadSessionId: payload.downloadSessionId
-        });
-        return next;
-      });
-    };
-
-    const handleCompleted = (payload: ScheduledPrefillCompletedEvent) => {
+    // Run lifecycle/progress lines are deliberately NOT rendered on this card - the universal
+    // notification already shows them. The completion event only matters here because it stamps
+    // fresh last/next-run times that the table should pick up promptly.
+    const handleCompleted = () => {
       void refreshSchedule();
-
-      if (payload.success) {
-        setRunPhase('completed');
-        setRunError(null);
-        // Only reset to idle if a newer event (e.g. the next scheduled run starting) hasn't
-        // already moved the phase on; otherwise this stale timer would be a no-op by design.
-        scheduleRunCompletedDismiss(() => {
-          setRunPhase((current) => (current === 'completed' ? 'idle' : current));
-        });
-        return;
-      }
-
-      setRunPhase('failed');
-      setRunError(payload.error ?? t(`${eventsKey}.failed`));
-      scheduleRunFailedDismiss(() => {
-        setRunPhase((current) => (current === 'failed' ? 'idle' : current));
-      });
     };
 
     // The generic schedule broadcast carries the full ServiceScheduleInfo[] and fires on every
@@ -453,26 +368,14 @@ export function ScheduledPrefillScheduleDetail({
       }
     };
 
-    on('ScheduledPrefillStarted', handleStarted);
-    on('ScheduledPrefillProgress', handleProgress);
     on('ScheduledPrefillCompleted', handleCompleted);
     on('SchedulesUpdated', handleSchedulesUpdated);
 
     return () => {
-      off('ScheduledPrefillStarted', handleStarted);
-      off('ScheduledPrefillProgress', handleProgress);
       off('ScheduledPrefillCompleted', handleCompleted);
       off('SchedulesUpdated', handleSchedulesUpdated);
     };
-  }, [
-    eventsKey,
-    off,
-    on,
-    refreshSchedule,
-    scheduleRunCompletedDismiss,
-    scheduleRunFailedDismiss,
-    t
-  ]);
+  }, [off, on, refreshSchedule]);
 
   const enabledCount = useMemo(
     () =>
@@ -608,9 +511,6 @@ export function ScheduledPrefillScheduleDetail({
     await loadSummary();
   };
 
-  const latestProgressLine =
-    runProgress.length > 0 ? formatProgressLine(runProgress[runProgress.length - 1]) : null;
-
   const isInitialLoading = loading && !config;
 
   return (
@@ -704,21 +604,6 @@ export function ScheduledPrefillScheduleDetail({
                     services: servicesNeedingLogin.join(', '),
                     count: servicesNeedingLogin.length
                   })}
-                </p>
-              )}
-              {runPhase === 'running' && (
-                <p className="scheduled-prefill-card-summary__progress">
-                  {latestProgressLine ?? t(`${eventsKey}.started`)}
-                </p>
-              )}
-              {runPhase === 'completed' && (
-                <p className="scheduled-prefill-card-summary__progress scheduled-prefill-card-summary__progress--success">
-                  {latestProgressLine ?? t(`${eventsKey}.completed`)}
-                </p>
-              )}
-              {runPhase === 'failed' && (
-                <p className="scheduled-prefill-card-summary__error">
-                  {runError ?? latestProgressLine ?? t(`${eventsKey}.failed`)}
                 </p>
               )}
               {error && (
