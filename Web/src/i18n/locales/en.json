@@ -3309,7 +3309,8 @@
             "saveError": "Failed to save scheduled prefill configuration: {{error}}",
             "empty": "Scheduled prefill configuration is not available.",
             "label": "Scheduled prefill",
-            "authWarning": "One or more enabled services need login before scheduled prefill can run.",
+            "authWarning": "{{services}} needs login before scheduled prefill can run.",
+            "authWarning_other": "{{services}} need login before scheduled prefill can run.",
             "zeroEnabledWarning": "No services are enabled. Scheduled prefill will not download anything until at least one service is enabled.",
             "bulkToggle": {
               "label": "All services",

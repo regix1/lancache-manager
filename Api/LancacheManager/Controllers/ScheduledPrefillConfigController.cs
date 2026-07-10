@@ -19,15 +19,18 @@ public class ScheduledPrefillConfigController : ControllerBase
     private readonly IStateService _stateService;
     private readonly ISignalRNotificationService _notifications;
     private readonly IServiceScheduleRegistry _registry;
+    private readonly IUnifiedOperationTracker _operationTracker;
 
     public ScheduledPrefillConfigController(
         IStateService stateService,
         ISignalRNotificationService notifications,
-        IServiceScheduleRegistry registry)
+        IServiceScheduleRegistry registry,
+        IUnifiedOperationTracker operationTracker)
     {
         _stateService = stateService;
         _notifications = notifications;
         _registry = registry;
+        _operationTracker = operationTracker;
     }
 
     /// <summary>
@@ -90,6 +93,38 @@ public class ScheduledPrefillConfigController : ControllerBase
         await _notifications.NotifyAllAsync(SignalREvents.SchedulesUpdated, _registry.GetAll());
         return NoContent();
     }
+
+    /// <summary>
+    /// Reports whether a scheduled prefill run is executing right now. Notification recovery calls
+    /// this on (re)connect so a "Prefill in progress" card whose terminal SignalR event was missed
+    /// (page closed or connection dropped mid-run) is stale-completed instead of lingering forever,
+    /// and so a card is re-seeded when a run is genuinely still going.
+    /// </summary>
+    [HttpGet("run-status")]
+    public ActionResult<ScheduledPrefillRunStatusDto> GetRunStatus()
+    {
+        var operation = _operationTracker
+            .GetActiveOperations(OperationType.ScheduledPrefill)
+            .FirstOrDefault();
+
+        return Ok(new ScheduledPrefillRunStatusDto
+        {
+            IsRunning = operation is not null,
+            OperationId = operation?.Id.ToString()
+        });
+    }
+}
+
+/// <summary>
+/// Live run state returned by <c>GET /api/system/schedules/scheduledPrefill/run-status</c>.
+/// </summary>
+public sealed class ScheduledPrefillRunStatusDto
+{
+    /// <summary>True while a scheduled prefill run is actively executing.</summary>
+    public required bool IsRunning { get; init; }
+
+    /// <summary>Operation id of the active run (for cancel wiring), or null when idle.</summary>
+    public string? OperationId { get; init; }
 }
 
 /// <summary>

@@ -485,24 +485,27 @@ export function ScheduledPrefillScheduleDetail({
 
   const totalCount = SCHEDULED_PREFILL_SERVICE_RUN_ORDER.length;
 
-  const hasAccountWarning = useMemo(() => {
+  // Names of the enabled account services whose persistent container needs login. Named
+  // explicitly in the warning so a user whose Steam row reads "Logged in" doesn't misread the
+  // generic "one or more services" phrasing as Steam not being detected.
+  const servicesNeedingLogin = useMemo(() => {
     if (!config) {
-      return false;
+      return [];
     }
 
     const containerByService = new Map<PersistentPrefillServiceId, PersistentPrefillContainerDto>(
       persistentContainers.map((container) => [container.service, container])
     );
 
-    return SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.some((serviceId) => {
+    return SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS.filter((serviceId) => {
       if (!config[serviceId].enabled) {
         return false;
       }
 
       const container = containerByService.get(getPersistentServiceId(serviceId));
       return needsPersistentLogin(container);
-    });
-  }, [config, persistentContainers]);
+    }).map((serviceId) => t(`${baseKey}.services.${serviceId}`));
+  }, [config, persistentContainers, baseKey, t]);
 
   const formatTiming = useCallback(
     (item: ScheduledPrefillServiceScheduleDto): string => {
@@ -695,9 +698,12 @@ export function ScheduledPrefillScheduleDetail({
                   ))}
                 </div>
               )}
-              {hasAccountWarning && (
+              {servicesNeedingLogin.length > 0 && (
                 <p className="scheduled-prefill-card-summary__warning">
-                  {t(`${baseKey}.authWarning`)}
+                  {t(`${baseKey}.authWarning`, {
+                    services: servicesNeedingLogin.join(', '),
+                    count: servicesNeedingLogin.length
+                  })}
                 </p>
               )}
               {runPhase === 'running' && (

@@ -83,30 +83,40 @@ public class ScheduledPrefillServiceTests
         Assert.Equal("All due services need login", outcome.Error);
     }
 
-    // ---- Universal-notification percent: equal slice per due service, filled per game ----
+    // ---- Universal-notification percent: tracks the active service, per game + per byte ----
 
     [Fact]
     public void ComputeRunPercent_StartsAtOnePercent_NotMidBar()
     {
-        // First service, nothing completed yet: the bar must start at 1%, not jump to 50%.
-        Assert.Equal(1d, ScheduledPrefillRunGates.ComputeRunPercent(servicesDone: 0, serviceCount: 5, currentServiceFraction: 0d));
+        // Nothing completed yet: the bar must start at 1%, not jump to 50%.
+        Assert.Equal(1d, ScheduledPrefillRunGates.ComputeRunPercent(serviceFraction: 0d));
     }
 
     [Fact]
-    public void ComputeRunPercent_FillsServiceSlicePerCompletedGame()
+    public void ComputeRunPercent_AdvancesPerCompletedGame()
     {
-        // Single-service run with 4 selected games: each completed game advances the bar by 25%.
+        // 4 selected games: each completed game advances the bar by 25%.
         var fraction = ScheduledPrefillRunGates.ComputeServiceFraction(appsCompleted: 1, totalApps: 4);
-        Assert.Equal(25d, ScheduledPrefillRunGates.ComputeRunPercent(servicesDone: 0, serviceCount: 1, currentServiceFraction: fraction));
+        Assert.Equal(25d, ScheduledPrefillRunGates.ComputeRunPercent(fraction));
 
         fraction = ScheduledPrefillRunGates.ComputeServiceFraction(appsCompleted: 3, totalApps: 4);
-        Assert.Equal(75d, ScheduledPrefillRunGates.ComputeRunPercent(servicesDone: 0, serviceCount: 1, currentServiceFraction: fraction));
+        Assert.Equal(75d, ScheduledPrefillRunGates.ComputeRunPercent(fraction));
+    }
+
+    [Fact]
+    public void ComputeServiceFraction_IncludesCurrentGameByteProgress()
+    {
+        // 1 of 4 games done, second game half-downloaded: the bar must keep moving DURING the
+        // download (the reported bug: an 87 GB game left the card frozen at 1% for hours).
+        var fraction = ScheduledPrefillRunGates.ComputeServiceFraction(
+            appsCompleted: 1, totalApps: 4, currentAppFraction: 0.5d);
+        Assert.Equal(37.5d, ScheduledPrefillRunGates.ComputeRunPercent(fraction));
     }
 
     [Fact]
     public void ComputeRunPercent_CapsAtNinetyNine_ReservingCompletionForTerminalEvent()
     {
-        Assert.Equal(99d, ScheduledPrefillRunGates.ComputeRunPercent(servicesDone: 5, serviceCount: 5, currentServiceFraction: 1d));
+        Assert.Equal(99d, ScheduledPrefillRunGates.ComputeRunPercent(serviceFraction: 1d));
     }
 
     [Fact]

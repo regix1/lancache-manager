@@ -201,37 +201,33 @@ public static class ScheduledPrefillRunGates
     }
 
     /// <summary>
-    /// Maps a run's position to the percent shown on the universal notification: each due service
-    /// owns an equal slice of the bar and <paramref name="currentServiceFraction"/> (games completed
-    /// / games in the run, from <see cref="ComputeServiceFraction"/>) fills the active slice. Clamped
-    /// to [1, 99] so the card starts at 1% instead of an instant mid-bar jump and reserves 100% for
-    /// the run's terminal <c>ScheduledPrefillCompleted</c> event.
+    /// Maps the ACTIVE service's completion fraction (from <see cref="ComputeServiceFraction"/>) to
+    /// the percent shown on the universal notification. The bar deliberately tracks the service
+    /// currently doing work rather than slicing across every due service: needs-login and busy
+    /// services skip in milliseconds, so equal run-wide slices would leave a genuine multi-gigabyte
+    /// download crawling inside a fifth of the bar. Clamped to [1, 99] so the card starts at 1%
+    /// instead of an instant mid-bar jump and reserves 100% for the run's terminal
+    /// <c>ScheduledPrefillCompleted</c> event.
     /// </summary>
-    public static double ComputeRunPercent(int servicesDone, int serviceCount, double currentServiceFraction)
-    {
-        if (serviceCount <= 0)
-        {
-            return 1d;
-        }
-
-        var fraction = Math.Clamp(currentServiceFraction, 0d, 1d);
-        var percent = (servicesDone + fraction) / serviceCount * 100d;
-        return Math.Clamp(percent, 1d, 99d);
-    }
+    public static double ComputeRunPercent(double serviceFraction)
+        => Math.Clamp(Math.Clamp(serviceFraction, 0d, 1d) * 100d, 1d, 99d);
 
     /// <summary>
     /// Per-service completion fraction for <see cref="ComputeRunPercent"/>: games finished so far
-    /// over the games in this run (e.g. 1 of 4 selected games = 0.25). Unknown totals yield 0 so the
-    /// bar simply waits at the slice start instead of guessing.
+    /// plus the byte-level fraction of the game currently downloading, over the games in this run.
+    /// E.g. 1 of 4 games done with the second game half-downloaded = 0.375, so 4 selected games
+    /// advance the bar by 25% each. Unknown totals yield 0 so the bar simply waits at the start
+    /// instead of guessing.
     /// </summary>
-    public static double ComputeServiceFraction(int appsCompleted, int totalApps)
+    public static double ComputeServiceFraction(int appsCompleted, int totalApps, double currentAppFraction = 0d)
     {
         if (totalApps <= 0)
         {
             return 0d;
         }
 
-        return Math.Clamp((double)appsCompleted / totalApps, 0d, 1d);
+        var fraction = (appsCompleted + Math.Clamp(currentAppFraction, 0d, 1d)) / totalApps;
+        return Math.Clamp(fraction, 0d, 1d);
     }
 }
 

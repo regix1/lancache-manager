@@ -222,6 +222,12 @@ interface LogRemovalStatusResponse {
   context?: StageContext;
 }
 
+/** GET /api/system/schedules/scheduledPrefill/run-status - ScheduledPrefillRunStatusDto */
+interface ScheduledPrefillRunStatusResponse {
+  isRunning: boolean;
+  operationId?: string | null;
+}
+
 /** GET /api/games/detect/active - ActiveDetectionResponse */
 interface GameDetectionOperationInfo {
   operationId?: string;
@@ -1031,7 +1037,19 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     wiring: 'standard',
     cancelKind: 'serverOp',
     cancelTooltipKey: CANCEL_TOOLTIP.scheduledPrefill,
-    recovery: { kind: 'none' },
+    // The run's card persists via storageKey, so a terminal event missed while the page was
+    // closed or reconnecting mid-run used to leave a ghost "Prefill in progress" card forever.
+    // This endpoint stale-completes it (or re-seeds a card for a genuinely active run).
+    recovery: {
+      kind: 'simple',
+      apiEndpoint: '/api/system/schedules/scheduledPrefill/run-status',
+      isProcessing: (data: ScheduledPrefillRunStatusResponse) => data.isRunning,
+      createNotification: (data: ScheduledPrefillRunStatusResponse) => ({
+        message: i18n.t('management.schedules.services.scheduledPrefill.events.started'),
+        details: { operationId: data.operationId ?? undefined }
+      }),
+      staleMessage: 'Scheduled prefill completed'
+    } satisfies SimpleRecoveryConfig<ScheduledPrefillRunStatusResponse>,
     events: {
       started: 'ScheduledPrefillStarted',
       progress: 'ScheduledPrefillProgress',

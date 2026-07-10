@@ -721,8 +721,11 @@ export function ScheduledPrefillConfigModal({
   const hasPersistentLoginWarning = useMemo(() => {
     // Config and the persistent-container list load via independent requests, so config can
     // resolve before the container list has: don't flag a false "needs login" warning while the
-    // container list is still loading (or failed to load), since we simply don't know its state yet.
-    if (!config || loadingPersistentContainers || persistentError) {
+    // container list has never loaded (or failed to load), since we simply don't know its state
+    // yet. Deliberately keyed on "no data yet" (null), NOT on loadingPersistentContainers: SignalR
+    // pushes a container refresh on every prefill-progress tick during a download, and gating on
+    // the loading flag made this warning blink off and back on with each refresh cycle.
+    if (!config || persistentContainers === null || persistentError) {
       return false;
     }
 
@@ -734,7 +737,7 @@ export function ScheduledPrefillConfigModal({
       const container = persistentContainerByService.get(getPersistentServiceId(serviceId));
       return needsPersistentLogin(container);
     });
-  }, [config, persistentContainerByService, loadingPersistentContainers, persistentError]);
+  }, [config, persistentContainerByService, persistentContainers, persistentError]);
 
   // Single most-severe banner: errors win over the (yellow) validation hint; success is silent.
   const banner = useMemo<{ color: 'red' | 'yellow' | 'green'; message: string } | null>(() => {

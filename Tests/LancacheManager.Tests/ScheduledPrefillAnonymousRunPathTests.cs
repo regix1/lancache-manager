@@ -72,7 +72,7 @@ public class ScheduledPrefillAnonymousRunPathTests
 
         var result = await (Task<ScheduledPrefillServiceRunResult>)runServiceAsync.Invoke(
             scheduledPrefillService,
-            new object?[] { serviceConfig, "op-1", daemonProvider, notifications, config, 0, 1, CancellationToken.None })!;
+            new object?[] { serviceConfig, "op-1", daemonProvider, notifications, config, CancellationToken.None })!;
 
         scheduledPrefillService.Dispose();
 

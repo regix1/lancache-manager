@@ -172,7 +172,6 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             var servicesNeedingLogin = 0;
             var servicesSkipped = 0;
             var servicesFailed = 0;
-            var serviceIndex = 0;
 
             foreach (var serviceConfig in dueServices)
             {
@@ -187,8 +186,6 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                         scope.ServiceProvider,
                         notifications,
                         config,
-                        serviceIndex,
-                        dueServices.Count,
                         runToken);
                 }
                 catch (OperationCanceledException) when (runToken.IsCancellationRequested)
@@ -239,8 +236,6 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                         servicesSkipped++;
                         break;
                 }
-
-                serviceIndex++;
             }
 
             var outcome = ScheduledPrefillRunGates.EvaluateRunOutcome(servicesRan, servicesNeedingLogin, servicesSkipped, servicesFailed);
@@ -298,16 +293,15 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         IServiceProvider serviceProvider,
         ISignalRNotificationService notifications,
         ScheduledPrefillConfigDto config,
-        int serviceIndex,
-        int serviceCount,
         CancellationToken ct)
     {
         var serviceId = serviceConfig.ServiceId;
 
-        // Percent for the run's universal notification: this service owns one equal slice of the
-        // bar, filled by its games-completed fraction (0 = slice start, 1 = slice done).
-        double Percent(double serviceFraction) =>
-            ScheduledPrefillRunGates.ComputeRunPercent(serviceIndex, serviceCount, serviceFraction);
+        // Percent for the run's universal notification: tracks THIS service's completion fraction
+        // (games done + byte fraction of the game currently downloading). See ComputeRunPercent for
+        // why the bar follows the active service instead of slicing across every due service.
+        static double Percent(double serviceFraction) =>
+            ScheduledPrefillRunGates.ComputeRunPercent(serviceFraction);
 
         // 1. Resolve the concrete daemon service for this platform.
         var daemon = PrefillDaemonServiceBase.ResolveDaemon(serviceProvider, serviceId);
@@ -473,13 +467,16 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         // Poll until the daemon clears IsPrefilling, or a guard trips. The persistent container is
         // never terminated here; on cancellation we only cancel the in-flight prefill.
         var runDeadline = DateTime.UtcNow + config.MaxServiceRuntime;
-        // Per-game progress for the universal notification. PrefillAsync nulls LastProgress before
-        // the daemon starts, so the snapshot only ever reflects THIS run; the daemon's running
-        // updated/cached/failed counters are the same source the Prefill tab uses for "Game X of N".
-        // Guarded monotonic (some daemon ticks omit the counters) and emitted only when the count
-        // moves, so the 10s poll stays quiet between game completions.
+        // Live progress for the universal notification. PrefillAsync nulls LastProgress before the
+        // daemon starts, so the snapshot only ever reflects THIS run. The running updated/cached/
+        // failed counters (same source as the Prefill tab's "Game X of N") only advance when a game
+        // FINISHES, so a multi-gigabyte download would otherwise sit at the bar's start for hours:
+        // downloading ticks also contribute the current game's byte fraction and its name. The
+        // completed-count is kept monotonic locally because downloading ticks omit the counters.
         var selectedAppCount = serviceConfig.SelectedAppIds.Count;
-        var lastReportedApps = 0;
+        var appsCompleted = 0;
+        var lastEmittedMessage = (string?)null;
+        var lastEmittedPercent = double.NaN;
         while (session.IsPrefilling)
         {
             ct.ThrowIfCancellationRequested();
@@ -499,20 +496,47 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             var snapshot = session.LastProgress;
             if (snapshot is not null)
             {
-                var appsCompleted = snapshot.UpdatedApps + snapshot.AlreadyUpToDate + snapshot.FailedApps;
+                appsCompleted = Math.Max(
+                    appsCompleted,
+                    snapshot.UpdatedApps + snapshot.AlreadyUpToDate + snapshot.FailedApps);
                 var totalApps = selectedAppCount > 0 ? selectedAppCount : snapshot.TotalApps;
-                if (appsCompleted > lastReportedApps && totalApps > 0)
+
+                // Byte-level fraction of the game currently downloading. Only live "downloading"
+                // ticks count: an app_completed snapshot's bytes belong to a game that is already
+                // inside appsCompleted, so treating them as in-flight would double-count it.
+                var currentAppFraction = 0d;
+                string? currentAppName = null;
+                if (PrefillProgressStateExtensions.ParseOrUnknown(snapshot.State) == PrefillProgressState.Downloading
+                    && snapshot.TotalBytes > 0)
                 {
-                    lastReportedApps = appsCompleted;
-                    var fraction = ScheduledPrefillRunGates.ComputeServiceFraction(appsCompleted, totalApps);
-                    await EmitProgressAsync(
-                        notifications,
-                        operationId,
-                        serviceId,
-                        "running",
-                        $"Prefill in progress ({Math.Min(appsCompleted, totalApps)} of {totalApps} games)",
-                        downloadSessionId: sessionId,
-                        percent: Percent(fraction));
+                    currentAppFraction = Math.Clamp((double)snapshot.BytesDownloaded / snapshot.TotalBytes, 0d, 1d);
+                    currentAppName = snapshot.CurrentAppName;
+                }
+
+                if (totalApps > 0)
+                {
+                    var fraction = ScheduledPrefillRunGates.ComputeServiceFraction(appsCompleted, totalApps, currentAppFraction);
+                    var percent = Percent(fraction);
+                    var cappedCompleted = Math.Min(appsCompleted, totalApps);
+                    var message = string.IsNullOrEmpty(currentAppName)
+                        ? $"Prefill in progress ({cappedCompleted} of {totalApps} games)"
+                        : $"Downloading {currentAppName} ({Math.Min(appsCompleted + 1, totalApps)} of {totalApps} games)";
+
+                    // Re-emit only when something the card shows actually moved; keeps the 10s poll
+                    // quiet through long unchanged stretches.
+                    if (message != lastEmittedMessage || Math.Abs(percent - lastEmittedPercent) >= 1d)
+                    {
+                        lastEmittedMessage = message;
+                        lastEmittedPercent = percent;
+                        await EmitProgressAsync(
+                            notifications,
+                            operationId,
+                            serviceId,
+                            "running",
+                            message,
+                            downloadSessionId: sessionId,
+                            percent: percent);
+                    }
                 }
             }
 
