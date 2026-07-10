@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search } from 'lucide-react';
+import '../managementSectionContent.css';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Pagination } from '@components/ui/Pagination';
@@ -126,7 +127,7 @@ function CacheEntityList<TItem>({
             placeholder={searchPlaceholder}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-lg border text-sm bg-themed-secondary border-themed-secondary text-themed-primary"
+            className="themed-input w-full pl-10 pr-12 py-2 text-sm"
           />
           {searchQuery && (
             <button
@@ -177,7 +178,7 @@ function CacheEntityList<TItem>({
             />
           )}
 
-          <div className="space-y-3">
+          <div className="mgmt-list">
             {paginatedItems.map((item) => {
               const itemId = getItemKey(item);
               return (

@@ -5,6 +5,7 @@ import { useSelectionSet } from '@/hooks/useSelectionSet';
 import { useCancellableQueue } from '@/hooks/useCancellableQueue';
 import { useTranslation } from 'react-i18next';
 import { FileText, AlertTriangle, RefreshCw, Trash2 } from 'lucide-react';
+import '../managementSectionContent.css';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
@@ -58,7 +59,7 @@ const MAIN_SERVICES = [
   'apple'
 ];
 
-const ServiceButton: React.FC<{
+const ServiceRow: React.FC<{
   service: string;
   count: number;
   isRemoving: boolean;
@@ -88,41 +89,38 @@ const ServiceButton: React.FC<{
   selectDisabled
 }) => {
   return (
-    <div className="flex items-center justify-between gap-3 p-3 bg-themed-tertiary rounded-lg">
-      <div className="flex items-center gap-3 min-w-0">
-        {selectable && (
-          <Checkbox
-            checked={selected}
-            onChange={onSelectToggle}
-            disabled={selectDisabled}
-            aria-label={selectLabel}
-            className="flex-shrink-0"
-          />
-        )}
-        <div className="min-w-0">
-          {/* Display-only fold (xboxlive -> Xbox): the raw LogEntries.Service tag stays on keys
-              and API calls - on-disk cache filenames are md5(tag+url), so the tag itself must
-              never be relabeled. */}
-          <div className="capitalize font-medium text-sm text-themed-primary truncate">
-            {getServiceDisplayName(service)}
-          </div>
-          <div className="text-xs text-themed-muted">
-            {formatCount(count)} {entriesLabel}
-          </div>
-        </div>
+    <div className="mgmt-row mgmt-row--interactive">
+      {selectable && (
+        <Checkbox
+          checked={selected}
+          onChange={onSelectToggle}
+          disabled={selectDisabled}
+          aria-label={selectLabel}
+          className="flex-shrink-0"
+        />
+      )}
+      <div className="mgmt-row__body">
+        {/* Display-only fold (xboxlive -> Xbox): the raw LogEntries.Service tag stays on keys
+            and API calls - on-disk cache filenames are md5(tag+url), so the tag itself must
+            never be relabeled. */}
+        <p className="mgmt-row__title capitalize truncate">{getServiceDisplayName(service)}</p>
+        <p className="mgmt-row__meta">
+          {formatCount(count)} {entriesLabel}
+        </p>
       </div>
-      <Button
-        onClick={onClick}
-        awaitPermissions
-        disabled={isDisabled}
-        variant="filled"
-        color="red"
-        size="sm"
-        loading={isRemoving}
-        className="flex-shrink-0"
-      >
-        {isRemoving ? removingLabel : clearLabel}
-      </Button>
+      <div className="mgmt-row__actions">
+        <Button
+          onClick={onClick}
+          awaitPermissions
+          disabled={isDisabled}
+          variant="filled"
+          color="red"
+          size="sm"
+          loading={isRemoving}
+        >
+          {isRemoving ? removingLabel : clearLabel}
+        </Button>
+      </div>
     </div>
   );
 };
@@ -734,7 +732,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                       >
                         {hasEntries ? (
                           <div className="space-y-3 pt-3">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                            <div className="mgmt-list">
                               {displayed.map((service) => {
                                 const key = `${ds.datasource}:${service}`;
                                 const selectKey = `${ds.datasource}::${service}`;
@@ -747,7 +745,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                   !isDockerAvailable ||
                                   isBatchRunning;
                                 return (
-                                  <ServiceButton
+                                  <ServiceRow
                                     key={key}
                                     service={service}
                                     count={ds.serviceCounts[service] || 0}

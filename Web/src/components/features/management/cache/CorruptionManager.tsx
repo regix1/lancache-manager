@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useOptimisticPending } from '@/hooks/useOptimisticPending';
 import { useSelectionSet } from '@/hooks/useSelectionSet';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronUp, RefreshCw, Search, Trash2 } from 'lucide-react';
+import '../managementSectionContent.css';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useDockerSocket } from '@contexts/useDockerSocket';
@@ -17,6 +18,7 @@ import type {
   CorruptionDetailsProgressEvent
 } from '@contexts/SignalRContext/types';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
@@ -674,33 +676,40 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
   // Cancel is handled by UniversalNotificationBar via CANCEL_CONFIGS
   const controlSelectors = (
-    <div className="grid grid-cols-1 gap-3 sm:flex sm:flex-wrap sm:items-end">
-      <div className="w-full sm:w-auto">
-        <EnhancedDropdown
-          variant="button"
-          options={detectionModeOptions}
-          value={detectionMode}
-          onChange={(val: string) => setDetectionMode(val)}
-          disabled={isScanning || isAnyRemovalRunning}
-          dropdownWidth="w-72"
-          alignRight={true}
-          dropdownTitle={t('management.corruption.detectionModeTitle')}
-          compactMode={true}
-        />
+    <div className="mgmt-toolbar">
+      <div className="grid grid-cols-1 gap-3 w-full sm:w-auto sm:flex sm:flex-wrap sm:items-center">
+        <div className="w-full sm:w-auto">
+          <EnhancedDropdown
+            variant="button"
+            options={detectionModeOptions}
+            value={detectionMode}
+            onChange={(val: string) => setDetectionMode(val)}
+            disabled={isScanning || isAnyRemovalRunning}
+            dropdownWidth="w-72"
+            alignRight={true}
+            dropdownTitle={t('management.corruption.detectionModeTitle')}
+            compactMode={true}
+          />
+        </div>
+        <div className="w-full sm:w-auto">
+          <EnhancedDropdown
+            variant="button"
+            options={thresholdOptions}
+            value={String(missThreshold)}
+            onChange={(val: string) => setMissThreshold(Number(val))}
+            disabled={isScanning || isAnyRemovalRunning}
+            dropdownWidth="w-72"
+            alignRight={true}
+            dropdownTitle={t('management.corruption.sensitivityTitle')}
+            compactMode={true}
+          />
+        </div>
       </div>
-      <div className="w-full sm:w-auto">
-        <EnhancedDropdown
-          variant="button"
-          options={thresholdOptions}
-          value={String(missThreshold)}
-          onChange={(val: string) => setMissThreshold(Number(val))}
-          disabled={isScanning || isAnyRemovalRunning}
-          dropdownWidth="w-72"
-          alignRight={true}
-          dropdownTitle={t('management.corruption.sensitivityTitle')}
-          compactMode={true}
-        />
-      </div>
+      {hasCachedResults && lastDetectionTime && !isScanning && !isLoading && (
+        <p className="mgmt-scanmeta">
+          {t('common.resultsFromPreviousScan')} · {formattedLastDetection}
+        </p>
+      )}
     </div>
   );
 
@@ -711,7 +720,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const headerActions = (
     <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
       {corruptionList.length > 0 && (
-        <Badge variant="warning" className="badge-count">
+        <Badge variant="neutral" className="badge-count badge-count-warning">
           {corruptionList.reduce((sum, [, count]) => sum + count, 0)}
         </Badge>
       )}
@@ -795,15 +804,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       >
         <div className="space-y-3">
           {controlSelectors}
-          {/* Previous Results Badge */}
-          {hasCachedResults && lastDetectionTime && !isScanning && !isLoading && (
-            <Alert color="blue">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{t('common.resultsFromPreviousScan')}</span>
-                <span className="text-xs text-themed-muted">{formattedLastDetection}</span>
-              </div>
-            </Alert>
-          )}
 
           {/* Scanning Status */}
           {isScanning && <LoadingState message={t('management.corruption.scanningMessage')} />}
@@ -910,118 +910,131 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                       }
                     />
                   </div>
-                  {corruptionList.map(([service, count]) => (
-                    <div key={`corruption-${service}`} className="flex items-start gap-2">
-                      <Checkbox
-                        checked={selection.isSelected(service)}
-                        onChange={() => selection.toggle(service)}
-                        disabled={
-                          batchGateActive ||
-                          removingCorruption === service ||
-                          isCorruptionRemovalPending(service)
-                        }
-                        aria-label={t('management.batchSelect.selectItem', {
-                          name: getServiceDisplayName(service)
-                        })}
-                        className="flex-shrink-0 mt-4"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <AccordionSection
-                          title={getServiceDisplayName(service)}
-                          count={count}
-                          isExpanded={expandedCorruptionService === service}
-                          onToggle={() => toggleCorruptionDetails(service)}
-                        >
-                          {loadingDetailsServices.has(service) ? (
-                            <LoadingState
-                              message={t('management.corruption.loadingDetails')}
-                              submessage={
-                                detailsProgress[service] != null
-                                  ? `${Math.round(detailsProgress[service])}%`
-                                  : undefined
-                              }
+                  <div className="mgmt-list">
+                    {corruptionList.map(([service, count]) => {
+                      const isRowExpanded = expandedCorruptionService === service;
+                      const isRowRemoving =
+                        removingCorruption === service || isCorruptionRemovalPending(service);
+                      return (
+                        <div key={`corruption-${service}`}>
+                          <div className="mgmt-row mgmt-row--interactive flex-wrap">
+                            <Checkbox
+                              checked={selection.isSelected(service)}
+                              onChange={() => selection.toggle(service)}
+                              disabled={batchGateActive || isRowRemoving}
+                              aria-label={t('management.batchSelect.selectItem', {
+                                name: getServiceDisplayName(service)
+                              })}
+                              className="flex-shrink-0"
                             />
-                          ) : corruptionDetails[service] &&
-                            corruptionDetails[service].length > 0 ? (
-                            <div className="flex flex-col gap-3 max-h-96 overflow-y-auto">
-                              {corruptionDetails[service].map((chunk, idx) => (
-                                <div key={idx} className="p-3 bg-themed-tertiary rounded-lg">
-                                  <div className="flex items-start gap-2">
-                                    <div className="flex-1 min-w-0">
-                                      <div className="mb-1">
-                                        <Tooltip content={chunk.url}>
-                                          <span className="text-sm font-medium text-themed-primary truncate block font-mono">
-                                            {chunk.url}
-                                          </span>
-                                        </Tooltip>
-                                      </div>
-                                      <div className="flex items-center gap-3 text-xs text-themed-muted">
-                                        <span>
-                                          {isRedownloadMode
-                                            ? t('management.corruption.redownloadCount')
-                                            : t('management.corruption.missCount')}{' '}
-                                          <strong className="text-themed-error">
-                                            {chunk.miss_count || 0}
-                                          </strong>
-                                        </span>
-                                        {chunk.cache_file_path && (
-                                          <Tooltip content={chunk.cache_file_path}>
-                                            <span className="truncate">
-                                              {t('management.corruption.cache')}{' '}
-                                              <code className="text-xs">
-                                                {chunk.cache_file_path.split('/').pop() ||
-                                                  chunk.cache_file_path.split('\\').pop()}
-                                              </code>
-                                            </span>
-                                          </Tooltip>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="text-center py-6">
-                              <p className="text-sm text-themed-muted">
-                                {t('management.corruption.noDetailsAvailable')}
+                            <div className="mgmt-row__body">
+                              <p className="mgmt-row__title truncate">
+                                {getServiceDisplayName(service)}
                               </p>
                             </div>
-                          )}
-                          <div className="flex justify-end pt-3 border-t border-themed-secondary mt-3">
-                            <Tooltip content={t('management.corruption.deleteCorrupted')}>
+                            <div className="mgmt-row__actions">
+                              <Badge variant="neutral" className="badge-count badge-count-warning">
+                                {formatCount(count)}
+                              </Badge>
                               <Button
-                                onClick={() => handleRemoveCorruption(service)}
-                                awaitPermissions
-                                loading={
-                                  removingCorruption === service ||
-                                  isCorruptionRemovalPending(service)
-                                }
-                                disabled={
-                                  mockMode ||
-                                  anyCorruptionRemovalPending ||
-                                  isCorruptionRemovalActive ||
-                                  loadingDetailsServices.has(service) ||
-                                  authMode !== 'authenticated' ||
-                                  logsReadOnly ||
-                                  cacheReadOnly ||
-                                  !isDockerAvailable
-                                }
                                 variant="filled"
-                                color="red"
+                                color="gray"
                                 size="sm"
+                                onClick={() => toggleCorruptionDetails(service)}
+                                aria-expanded={isRowExpanded}
                               >
-                                {removingCorruption !== service &&
-                                !isCorruptionRemovalPending(service)
-                                  ? t('management.corruption.removeAll')
-                                  : t('management.corruption.removing')}
+                                {isRowExpanded ? (
+                                  <ChevronUp className="w-4 h-4" />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4" />
+                                )}
                               </Button>
-                            </Tooltip>
+                              <Tooltip content={t('management.corruption.deleteCorrupted')}>
+                                <Button
+                                  onClick={() => handleRemoveCorruption(service)}
+                                  awaitPermissions
+                                  loading={isRowRemoving}
+                                  disabled={
+                                    mockMode ||
+                                    anyCorruptionRemovalPending ||
+                                    isCorruptionRemovalActive ||
+                                    loadingDetailsServices.has(service) ||
+                                    authMode !== 'authenticated' ||
+                                    logsReadOnly ||
+                                    cacheReadOnly ||
+                                    !isDockerAvailable
+                                  }
+                                  variant="filled"
+                                  color="red"
+                                  size="sm"
+                                >
+                                  {isRowRemoving
+                                    ? t('management.corruption.removing')
+                                    : t('common.remove')}
+                                </Button>
+                              </Tooltip>
+                            </div>
                           </div>
-                        </AccordionSection>
-                      </div>
-                    </div>
-                  ))}
+                          <CollapsibleRegion
+                            open={isRowExpanded}
+                            contentClassName="mgmt-row-detail"
+                          >
+                            {loadingDetailsServices.has(service) ? (
+                              <LoadingState
+                                message={t('management.corruption.loadingDetails')}
+                                submessage={
+                                  detailsProgress[service] != null
+                                    ? `${Math.round(detailsProgress[service])}%`
+                                    : undefined
+                                }
+                              />
+                            ) : corruptionDetails[service] &&
+                              corruptionDetails[service].length > 0 ? (
+                              <div className="max-h-96 overflow-y-auto divide-y divide-[var(--theme-border-secondary)]">
+                                {corruptionDetails[service].map((chunk, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="flex items-start justify-between gap-3 py-2 first:pt-0 last:pb-0"
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <Tooltip content={chunk.url}>
+                                        <span className="block font-mono text-xs text-themed-primary truncate">
+                                          {chunk.url}
+                                        </span>
+                                      </Tooltip>
+                                      {chunk.cache_file_path && (
+                                        <Tooltip content={chunk.cache_file_path}>
+                                          <span className="block text-xs text-themed-muted truncate">
+                                            {t('management.corruption.cache')}{' '}
+                                            <code>
+                                              {chunk.cache_file_path.split('/').pop() ||
+                                                chunk.cache_file_path.split('\\').pop()}
+                                            </code>
+                                          </span>
+                                        </Tooltip>
+                                      )}
+                                    </div>
+                                    <span className="text-xs text-themed-muted flex-shrink-0">
+                                      {isRedownloadMode
+                                        ? t('management.corruption.redownloadCount')
+                                        : t('management.corruption.missCount')}{' '}
+                                      <strong className="text-themed-error">
+                                        {chunk.miss_count || 0}
+                                      </strong>
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="py-4 text-center text-sm text-themed-muted">
+                                {t('management.corruption.noDetailsAvailable')}
+                              </p>
+                            )}
+                          </CollapsibleRegion>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               ) : hasCachedResults && corruptionList.length === 0 ? (
                 <div className="text-center py-6">

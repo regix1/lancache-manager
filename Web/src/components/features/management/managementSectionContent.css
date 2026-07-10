@@ -71,3 +71,94 @@
   flex-wrap: wrap;
   gap: 0.5rem;
 }
+
+/* Toolbar row above a data list: select-all / filter cluster on the left,
+   quiet metadata or auxiliary controls on the right. */
+.mgmt-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+}
+
+/* Quiet scan-metadata readout ("Results from previous scan · Jul 9, 07:10"). */
+.mgmt-scanmeta {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--theme-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Contained data list: ONE bordered tertiary surface with hairline dividers
+   between items instead of per-item rounded boxes. Direct children are items -
+   either a .mgmt-row, or a plain wrapper holding a row plus its expanded
+   detail well - so the divider always falls between items. */
+.mgmt-list {
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-secondary);
+  border-radius: var(--theme-border-radius);
+  overflow: hidden;
+}
+
+.mgmt-list > * + * {
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+/* One list row: leading control(s), flexible body, trailing action cluster. */
+.mgmt-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.mgmt-row--interactive {
+  transition: background-color 0.15s ease;
+}
+
+.mgmt-row--interactive:hover {
+  background-color: var(--theme-bg-hover);
+}
+
+.mgmt-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  flex: 1 1 0%;
+  min-width: 0;
+}
+
+.mgmt-row__title {
+  margin: 0;
+  /* --font-size-md is this theme's 14px, i.e. Tailwind's text-sm - the size
+     every management row title already renders at. */
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  color: var(--theme-text-primary);
+}
+
+.mgmt-row__meta {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--theme-text-muted);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.mgmt-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Expanded detail well under a list row (corruption chunks, sample URLs,
+   cache paths). A translucent step back toward the card surface reads as a
+   recessed area on every theme without hard-coding a colour. */
+.mgmt-row-detail {
+  padding: 0.75rem;
+  background: var(--theme-bg-secondary-emphasis);
+  border-top: 1px solid var(--theme-border-secondary);
+}

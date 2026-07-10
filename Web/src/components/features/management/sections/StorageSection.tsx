@@ -920,8 +920,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                         message={t('management.sections.data.evictionLoadingSettings')}
                       />
                     ) : (
-                      <>
-                        <div className="space-y-2 mb-4">
+                      <div className="space-y-3">
+                        <div className="space-y-2">
                           {(['show', 'showClean', 'hide', 'remove'] as const).map((mode) => (
                             <label
                               key={mode}
@@ -947,30 +947,39 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                           ))}
                         </div>
 
-                        <div className="pt-4 border-t border-themed-primary">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <Checkbox
-                              label={t('management.sections.data.pruneOrphanedDownloads')}
-                              checked={pruneOrphanedDownloads}
-                              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                                setPruneOrphanedDownloads(e.target.checked)
-                              }
-                            />
-                            <Button
-                              onClick={handleSaveEviction}
-                              disabled={!isEvictionDirty || evictionSaving}
-                              loading={evictionSaving}
-                              className="w-full sm:w-40"
-                            >
-                              {t('management.sections.clients.saveChanges')}
-                            </Button>
+                        {/* Prune toggle styled as the same option-card language as the modes:
+                            accent left edge while enabled, description in the card body. */}
+                        <label
+                          className={`eviction-mode-option p-3 rounded-lg cursor-pointer flex items-start gap-3 transition duration-150${pruneOrphanedDownloads ? ' eviction-mode-option-selected' : ''}`}
+                        >
+                          <Checkbox
+                            checked={pruneOrphanedDownloads}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                              setPruneOrphanedDownloads(e.target.checked)
+                            }
+                            className="mt-1"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-themed-primary">
+                              {t('management.sections.data.pruneOrphanedDownloads')}
+                            </div>
+                            <div className="text-sm text-themed-secondary mt-1">
+                              {t('management.sections.data.pruneOrphanedDownloadsDescription')}
+                            </div>
                           </div>
+                        </label>
 
-                          <p className="text-xs text-themed-muted mt-2 ml-6">
-                            {t('management.sections.data.pruneOrphanedDownloadsDescription')}
-                          </p>
+                        <div className="flex justify-end pt-3 border-t border-themed-primary">
+                          <Button
+                            onClick={handleSaveEviction}
+                            disabled={!isEvictionDirty || evictionSaving}
+                            loading={evictionSaving}
+                            className="w-full sm:w-40"
+                          >
+                            {t('management.sections.clients.saveChanges')}
+                          </Button>
                         </div>
-                      </>
+                      </div>
                     )}
                   </AccordionSection>
 

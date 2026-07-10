@@ -373,7 +373,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
             <>
               {/* Cache Size Info */}
               <div className="space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="mgmt-toolbar">
                   <p className="mgmt-subhead">{t('management.cache.cacheSize')}</p>
                   <div className="flex-shrink-0">
                     <Tooltip content={t('management.cache.refreshCacheSize')} position="top">

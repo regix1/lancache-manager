@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import '../managementSectionContent.css';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -90,8 +91,8 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   const isUnknownGame = title.startsWith('Unknown Game');
 
   return (
-    <div className="rounded-lg border bg-themed-tertiary border-themed-secondary">
-      <div className="flex items-center gap-2 p-3">
+    <div>
+      <div className="mgmt-row mgmt-row--interactive">
         {selectable && (
           <Checkbox
             checked={selected}
@@ -206,7 +207,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
 
       {/* Loading State for Expansion */}
       {isExpanding && (
-        <div className="border-t px-3 py-4 flex items-center justify-center border-themed-secondary">
+        <div className="mgmt-row-detail flex items-center justify-center">
           <div className="flex items-center gap-2 text-themed-muted">
             <LoadingSpinner inline size="sm" />
             <span className="text-sm">{t('management.gameDetection.loadingDetails')}</span>
@@ -217,7 +218,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
       {/* Expandable Details Section */}
       <CollapsibleRegion
         open={hasExpandableContent && isExpanded && !isExpanding}
-        contentClassName="border-t px-3 py-3 space-y-3 border-themed-secondary"
+        contentClassName="mgmt-row-detail space-y-3"
       >
         {children}
       </CollapsibleRegion>

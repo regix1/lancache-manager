@@ -135,4 +135,13 @@
   .badge-count-on-color {
     border-color: var(--theme-badge-white-subtle);
   }
+
+  /* Warning-toned count (corruption totals): a translucent amber FILL turns
+   * muddy brown over dark card surfaces and an amber border reads worse, so the
+   * chip keeps the standard neutral surface + grey border and the warning tone
+   * lives in the numeral alone. Compose with a neutral Badge:
+   * <Badge variant="neutral" className="badge-count badge-count-warning">. */
+  .badge-count-warning {
+    color: var(--theme-warning-text);
+  }
 }

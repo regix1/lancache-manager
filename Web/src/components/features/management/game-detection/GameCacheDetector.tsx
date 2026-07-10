@@ -921,7 +921,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               {/* Previous Results Summary */}
               {lastDetectionTime && hasResults && (
                 <div className="space-y-2">
-                  <p className="text-xs text-themed-muted">
+                  <p className="mgmt-scanmeta">
                     {t('common.resultsFromPreviousScan')} · {formattedLastDetectionTime}
                   </p>
                   <div className="mgmt-stat-grid">

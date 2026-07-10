@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Logs, PlayCircle, RotateCcw } from 'lucide-react';
+import '../managementSectionContent.css';
 import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
@@ -354,14 +355,14 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                   enabled={ds.enabled}
                 >
                   {/* Expanded content - Position info */}
-                  <div className="space-y-3">
-                    {/* Access Log Section */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-themed-tertiary rounded-lg">
-                      <div className="min-w-0">
-                        <div className="font-mono text-sm text-themed-primary">access.log</div>
-                        <div className="text-xs text-themed-muted">{formatPosition(position)}</div>
+                  <div className="mgmt-list mt-3">
+                    {/* Access Log row */}
+                    <div className="mgmt-row flex-wrap">
+                      <div className="mgmt-row__body">
+                        <p className="mgmt-row__title font-mono">access.log</p>
+                        <p className="mgmt-row__meta">{formatPosition(position)}</p>
                       </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
+                      <div className="mgmt-row__actions">
                         <Button
                           variant="filled"
                           color="gray"
