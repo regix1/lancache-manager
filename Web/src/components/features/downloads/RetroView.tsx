@@ -3,6 +3,7 @@ import React, {
   useRef,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useImperativeHandle,
   forwardRef,
@@ -17,21 +18,17 @@ import type { RetroViewHandle, RetroRowData, HitMissFilter } from './RetroView.t
 import { useIsDesktop } from '@hooks/useMediaQuery';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
-import {
-  getDefaultColumnWidths,
-  calculateColumnWidths,
-  type ColumnWidths
-} from '@utils/textMeasurement';
+import type { ColumnWidths } from '@utils/textMeasurement';
 import { Alert } from '@components/ui/Alert';
 import { Pagination } from '@components/ui/Pagination';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { resolveGameDetection } from '@utils/gameDetection';
 import { nameKeyedImageKey } from '@utils/gameBannerSlug';
-import LoadingSpinner from '@components/common/LoadingSpinner';
 import RetroRow from './RetroRow';
 import { useRetroDownloads } from './useRetroDownloads';
 import {
   formatTimeRange,
+  formatTimeRangeLines,
   groupByDepot,
   mapDtoToDepotGroupedData,
   type DepotGroupedData,
@@ -42,6 +39,7 @@ import {
   RESIZE_MIN_WIDTH,
   buildGridTemplate,
   fitWidthsToContainer,
+  getDefaultColumnWidths,
   measureAllRetroColumns,
   measureRetroColumn,
   type RetroColumnVisibility,
@@ -126,18 +124,84 @@ const EmptyState: React.FC = () => {
       {/* Decorative dots */}
       <div className="flex gap-1.5 mt-6">
         {[0, 1, 2].map((i) => (
-          <div
-            key={i}
-            className="w-1.5 h-1.5 rounded-full bg-[var(--theme-text-muted)] opacity-30"
-            style={{
-              animation: `pulse 1.5s ease-in-out ${i * 0.2}s infinite`
-            }}
-          />
+          <div key={i} className="retro-empty-dot" />
         ))}
       </div>
     </div>
   );
 };
+
+// First-load placeholder: shimmer rows under the real header so the table
+// frame is stable while the server page is fetched (no header-only flash,
+// no external spinner pushing the layout around).
+const SKELETON_ROW_COUNT = 8;
+const RetroSkeletonRows: React.FC<{ isDesktop: boolean; visibility: RetroColumnVisibility }> = ({
+  isDesktop,
+  visibility
+}) => (
+  <div className="retro-skeleton" aria-hidden="true">
+    {Array.from({ length: SKELETON_ROW_COUNT }, (_, i) =>
+      isDesktop ? (
+        <div key={i} className="retro-grid-row retro-body-row items-center">
+          {visibility.showTimestamps && (
+            <div className="px-2">
+              <div className="retro-skeleton-bar w-4/5" />
+              <div className="retro-skeleton-bar retro-skeleton-bar-sub w-3/5" />
+            </div>
+          )}
+          {visibility.showBanner && (
+            <div className="px-2 flex justify-center">
+              <div className="retro-skeleton-banner" />
+            </div>
+          )}
+          <div className="px-2">
+            <div className="retro-skeleton-bar w-3/4" />
+            <div className="retro-skeleton-bar retro-skeleton-bar-sub w-1/3" />
+          </div>
+          {visibility.showDatasource && (
+            <div className="px-2 flex justify-center">
+              <div className="retro-skeleton-bar w-2/3" />
+            </div>
+          )}
+          <div className="px-2 flex justify-center">
+            <div className="retro-skeleton-bar w-1/2" />
+          </div>
+          <div className="px-2 flex justify-end">
+            <div className="retro-skeleton-bar w-2/3" />
+          </div>
+          <div className="px-2 flex justify-end">
+            <div className="retro-skeleton-bar w-3/4" />
+          </div>
+          <div className="px-2 flex justify-end">
+            <div className="retro-skeleton-bar w-1/2" />
+          </div>
+          <div className="px-2">
+            <div className="retro-skeleton-bar w-full" />
+          </div>
+          <div className="px-2 flex justify-center">
+            <div className="retro-skeleton-gauge" />
+          </div>
+        </div>
+      ) : (
+        <div key={i} className="retro-body-row">
+          <div className="flex items-center gap-3">
+            <div className="retro-skeleton-banner" />
+            <div className="flex-1 min-w-0">
+              <div className="retro-skeleton-bar w-2/3" />
+              <div className="retro-skeleton-bar retro-skeleton-bar-sub w-1/3" />
+            </div>
+          </div>
+          <div className="retro-skeleton-bar w-full mt-3" />
+        </div>
+      )
+    )}
+  </div>
+);
+
+// Cheap equality guard so the auto-fit layout effect can skip no-op state
+// updates instead of re-rendering every row after every fetch.
+const widthsEqual = (a: ColumnWidths, b: ColumnWidths): boolean =>
+  (Object.keys(a) as (keyof ColumnWidths)[]).every((key) => a[key] === b[key]);
 
 // Column resize handle component
 const ResizeHandle: React.FC<{
@@ -290,17 +354,26 @@ const RetroView = memo(
         [t]
       );
 
-      // Pre-formatted strings for canvas-based column measurement. Measuring
-      // through the canvas API avoids the forced DOM reflows the old
-      // span-per-measurement approach caused on every data load.
+      // Pre-formatted strings for canvas-based column measurement - mirrors
+      // exactly what RetroRow renders so fitted widths match the real cells.
+      // Canvas measuring avoids forced DOM reflows on every data load.
       const measureRows = useMemo<RetroMeasureRow[]>(
         () =>
           groupedItems.map((data) => {
             const totalBytes = data.totalBytes || 0;
             const hitPercent = totalBytes > 0 ? (data.cacheHitBytes / totalBytes) * 100 : 0;
             const missPercent = totalBytes > 0 ? (data.cacheMissBytes / totalBytes) * 100 : 0;
+            const detection = resolveGameDetection(
+              data.gameAppId,
+              data.gameName,
+              detectionLookup,
+              detectionByName,
+              data.service,
+              detectionByService
+            );
+            const onDiskSizeBytes = detection?.total_size_bytes;
             return {
-              timeRangeFull: formatTimeRange(data.startTimeUtc, data.endTimeUtc, true),
+              timeLines: formatTimeRangeLines(data.startTimeUtc, data.endTimeUtc),
               appName: data.gameName || data.service,
               serviceBadge: data.service.toUpperCase(),
               evictionLabel: data.isPartiallyEvicted
@@ -308,166 +381,180 @@ const RetroView = memo(
                 : data.isEvicted
                   ? 'Evicted'
                   : '',
+              onDiskLabel: onDiskSizeBytes
+                ? t('dashboard.downloadsPanel.onDisk', { size: formatBytes(onDiskSizeBytes) })
+                : '',
               datasourceLabel: data.datasource || t('downloads.tab.retro.notAvailable'),
-              depotLabel: data.depotId
-                ? String(data.depotId)
-                : t('downloads.tab.retro.notAvailable'),
+              depotLabel:
+                data.depotsSet.size > 1
+                  ? t('downloads.tab.retro.depotCount', { count: data.depotsSet.size })
+                  : data.depotId
+                    ? String(data.depotId)
+                    : t('downloads.tab.retro.notAvailable'),
               clientLabel:
                 data.clientsSet.size > 1
                   ? t('downloads.tab.retro.clientCount', { count: data.clientsSet.size })
                   : data.clientIp,
+              clientSubLabel:
+                data.requestCount > 1
+                  ? t('downloads.tab.retro.requestCount', { count: data.requestCount })
+                  : '',
               speedLabel: formatSpeed(data.averageBytesPerSecond),
               hitLabel: `${formatBytes(data.cacheHitBytes)} (${formatPercent(hitPercent)})`,
               missLabel: `${formatBytes(data.cacheMissBytes)} (${formatPercent(missPercent)})`
             };
           }),
-        [groupedItems, t]
+        [groupedItems, t, detectionLookup, detectionByName, detectionByService]
       );
 
-      // Calculate smart default widths based on content
-      const smartDefaultWidths = useMemo(() => {
-        return getDefaultColumnWidths();
-      }, []);
-
-      // Column widths state - load from localStorage or use smart defaults
+      // Column widths: auto-fit to content by default; manual once the user
+      // drags a divider or double-click-fits a column (persisted). The "Fit
+      // columns" toolbar action clears saved widths and returns to auto mode.
       const [columnWidths, setColumnWidths] = useState<ColumnWidths>(() => {
         try {
           const saved = localStorage.getItem(RETRO_WIDTHS_STORAGE_KEY);
           if (saved) {
-            const parsed = JSON.parse(saved);
-            // Merge with smart defaults to ensure all columns have valid widths
-            return { ...smartDefaultWidths, ...parsed };
+            return { ...getDefaultColumnWidths(), ...JSON.parse(saved) };
           }
         } catch {
           // Ignore localStorage errors
         }
-        return smartDefaultWidths;
+        return getDefaultColumnWidths();
+      });
+      const [isManualWidths, setIsManualWidths] = useState<boolean>(() => {
+        try {
+          return localStorage.getItem(RETRO_WIDTHS_STORAGE_KEY) !== null;
+        } catch {
+          return false;
+        }
       });
       // Ref that mirrors columnWidths so handlers can read the current value
       // without being recreated on every width change.
       const columnWidthsRef = useRef<ColumnWidths>(columnWidths);
       columnWidthsRef.current = columnWidths;
 
-      // Track whether we've auto-fitted this session
-      const hasAutoFittedRef = useRef(false);
+      const persistWidths = useCallback((widths: ColumnWidths) => {
+        try {
+          localStorage.setItem(RETRO_WIDTHS_STORAGE_KEY, JSON.stringify(widths));
+        } catch {
+          // Ignore localStorage errors
+        }
+      }, []);
 
       // Container ref for measurements
       const containerRef = useRef<HTMLDivElement>(null);
       const fadeContainerRef = useRef<HTMLDivElement>(null);
 
-      // Grow timestamp/app/client columns to fit new data when the user has no
-      // saved widths yet.
+      // Live container width. The view can mount hidden (display:none keeps it
+      // warm across view switches), so the real width arrives via
+      // ResizeObserver when the container becomes visible - that observation
+      // re-triggers auto-fit after unhide and on window/layout resizes.
+      const [containerWidth, setContainerWidth] = useState(0);
       useEffect(() => {
-        if (groupedItems.length === 0) return;
-        if (localStorage.getItem(RETRO_WIDTHS_STORAGE_KEY)) return;
-
-        const calculatedWidths = calculateColumnWidths({
-          timestamps: measureRows.map((r) => r.timeRangeFull),
-          appNames: measureRows.map((r) => r.appName),
-          clientIps: groupedItems.map((d) => d.clientIp)
+        const el = containerRef.current;
+        if (!el) return;
+        const update = (width: number) =>
+          setContainerWidth((prev) => (Math.abs(prev - width) < 1 ? prev : Math.round(width)));
+        update(el.clientWidth);
+        const observer = new ResizeObserver((entries) => {
+          for (const entry of entries) {
+            update(entry.contentRect.width);
+          }
         });
-
-        setColumnWidths((prev) => ({
-          ...prev,
-          timestamp: Math.max(prev.timestamp, calculatedWidths.timestamp),
-          app: Math.max(prev.app, calculatedWidths.app),
-          client: Math.max(prev.client, calculatedWidths.client)
-        }));
-      }, [groupedItems, measureRows]);
-
-      // Save column widths to localStorage (drags only commit on mouseup, so
-      // this no longer fires per mousemove).
-      useEffect(() => {
-        try {
-          localStorage.setItem(RETRO_WIDTHS_STORAGE_KEY, JSON.stringify(columnWidths));
-        } catch {
-          // Ignore localStorage errors
-        }
-      }, [columnWidths]);
+        observer.observe(el);
+        return () => observer.disconnect();
+      }, []);
 
       // Drag handling: mousemove only rewrites the --retro-grid-cols CSS
       // variable on the container (no React re-render); state commits on
       // mouseup so persistence and memoized rows stay cheap.
-      const handleMouseDown = useCallback((column: keyof ColumnWidths, e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
+      const handleMouseDown = useCallback(
+        (column: keyof ColumnWidths, e: React.MouseEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
 
-        const startX = e.clientX;
-        const startWidth = columnWidthsRef.current[column];
-        let liveWidths = columnWidthsRef.current;
+          const startX = e.clientX;
+          const startWidth = columnWidthsRef.current[column];
+          let liveWidths = columnWidthsRef.current;
 
-        const handleMouseMove = (moveEvent: MouseEvent) => {
-          const diff = moveEvent.clientX - startX;
-          const newWidth = Math.max(RESIZE_MIN_WIDTH, startWidth + diff);
-          liveWidths = { ...liveWidths, [column]: newWidth };
-          containerRef.current?.style.setProperty(
-            '--retro-grid-cols',
-            buildGridTemplate(liveWidths, visibilityRef.current)
-          );
-        };
+          const handleMouseMove = (moveEvent: MouseEvent) => {
+            const diff = moveEvent.clientX - startX;
+            const newWidth = Math.max(RESIZE_MIN_WIDTH, startWidth + diff);
+            liveWidths = { ...liveWidths, [column]: newWidth };
+            containerRef.current?.style.setProperty(
+              '--retro-grid-cols',
+              buildGridTemplate(liveWidths, visibilityRef.current)
+            );
+          };
 
-        const handleMouseUp = () => {
-          document.removeEventListener('mousemove', handleMouseMove);
-          document.removeEventListener('mouseup', handleMouseUp);
-          document.body.style.cursor = '';
-          document.body.style.userSelect = '';
-          setColumnWidths(liveWidths);
-        };
+          const handleMouseUp = () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            setColumnWidths(liveWidths);
+            setIsManualWidths(true);
+            persistWidths(liveWidths);
+          };
 
-        document.addEventListener('mousemove', handleMouseMove);
-        document.addEventListener('mouseup', handleMouseUp);
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
-      }, []);
+          document.addEventListener('mousemove', handleMouseMove);
+          document.addEventListener('mouseup', handleMouseUp);
+          document.body.style.cursor = 'col-resize';
+          document.body.style.userSelect = 'none';
+        },
+        [persistWidths]
+      );
 
-      // Measure all visible columns from real content and fit to container.
+      // "Fit columns" toolbar action: drop any manual widths and hand control
+      // back to auto-fit.
       const handleResetWidths = useCallback(() => {
-        localStorage.removeItem(RETRO_WIDTHS_STORAGE_KEY);
-
-        const containerWidth = containerRef.current?.clientWidth;
-        if (!containerWidth) {
-          setColumnWidths(smartDefaultWidths);
-          return;
+        try {
+          localStorage.removeItem(RETRO_WIDTHS_STORAGE_KEY);
+        } catch {
+          // Ignore localStorage errors
         }
+        setIsManualWidths(false);
 
-        setColumnWidths(
-          measureAllRetroColumns(measureRows, headerLabels, visibility, containerWidth)
-        );
-      }, [measureRows, headerLabels, visibility, smartDefaultWidths]);
+        if (measureRows.length > 0) {
+          setColumnWidths(measureAllRetroColumns(measureRows, headerLabels, visibility));
+        } else {
+          setColumnWidths(getDefaultColumnWidths());
+        }
+      }, [measureRows, headerLabels, visibility]);
 
-      // Auto-fit a single column by measuring actual data content (not truncated DOM text)
+      // Double-click on a divider: fit that one column to its content. An
+      // explicit per-column override, so widths switch to manual mode.
       const handleAutoFitColumn = useCallback(
         (column: keyof ColumnWidths) => {
-          const requiredWidth = Math.max(
-            smartDefaultWidths[column],
-            measureRetroColumn(column, measureRows, headerLabels[column])
-          );
-
-          setColumnWidths((prev) => {
-            const nextWidths: ColumnWidths = { ...prev, [column]: requiredWidth };
-            const containerWidth = containerRef.current?.clientWidth;
-            if (!containerWidth) {
-              return nextWidths;
-            }
-            return fitWidthsToContainer(nextWidths, containerWidth, visibility, {
-              [column]: requiredWidth
-            });
-          });
+          const requiredWidth = measureRetroColumn(column, measureRows, headerLabels[column]);
+          let next: ColumnWidths = { ...columnWidthsRef.current, [column]: requiredWidth };
+          const width = containerRef.current?.clientWidth;
+          if (width) {
+            next = fitWidthsToContainer(next, width, visibility, { [column]: requiredWidth });
+          }
+          setColumnWidths(next);
+          setIsManualWidths(true);
+          persistWidths(next);
         },
-        [measureRows, headerLabels, visibility, smartDefaultWidths]
+        [measureRows, headerLabels, visibility, persistWidths]
       );
 
       const setPageFading = useCallback((fading: boolean) => {
         fadeContainerRef.current?.classList.toggle('page-fading', fading);
       }, []);
 
-      // Auto-fit columns on initial data load
-      useEffect(() => {
-        if (!hasAutoFittedRef.current && groupedItems.length > 0 && containerRef.current) {
-          hasAutoFittedRef.current = true;
-          handleResetWidths();
-        }
-      }, [groupedItems, handleResetWidths]);
+      // Auto-fit columns to the current rows before paint. Reruns on every
+      // page/filter/data change and on container resizes until the user takes
+      // manual control; useLayoutEffect keeps the fit in the same frame as the
+      // row update, so columns never visibly jump after render.
+      useLayoutEffect(() => {
+        if (isManualWidths) return;
+        // containerWidth 0 = mounted but hidden (display:none view switch);
+        // the ResizeObserver re-fires this fit when the table becomes visible.
+        if (containerWidth <= 0 || measureRows.length === 0) return;
+        const next = measureAllRetroColumns(measureRows, headerLabels, visibility);
+        setColumnWidths((prev) => (widthsEqual(prev, next) ? prev : next));
+      }, [isManualWidths, containerWidth, measureRows, headerLabels, visibility]);
 
       // Expose imperative helpers to parent via ref
       useImperativeHandle(
@@ -520,13 +607,8 @@ const RetroView = memo(
           const cacheHitBytes = data.cacheHitBytes || 0;
           const cacheMissBytes = data.cacheMissBytes || 0;
           const hitPercent = totalBytes > 0 ? (cacheHitBytes / totalBytes) * 100 : 0;
-          const timeRange = formatTimeRange(data.startTimeUtc, data.endTimeUtc);
-
-          // Get accent color
-          let accentColor: string;
-          if (hitPercent >= 90) accentColor = 'var(--theme-success)';
-          else if (hitPercent >= 50) accentColor = 'var(--theme-warning)';
-          else accentColor = 'var(--theme-error)';
+          const timeLines = formatTimeRangeLines(data.startTimeUtc, data.endTimeUtc);
+          const timeRangeTitle = formatTimeRange(data.startTimeUtc, data.endTimeUtc);
 
           // Check if has game image
           const serviceLower = (data.service ?? '').toLowerCase();
@@ -568,8 +650,8 @@ const RetroView = memo(
             cacheHitBytes,
             cacheMissBytes,
             hitPercent,
-            timeRange,
-            accentColor,
+            timeLines,
+            timeRangeTitle,
             hasGameImage,
             nameKeyedService: hasNameKeyedImage ? nameKeyed!.service : null,
             nameKeyedSlug: hasNameKeyedImage ? nameKeyed!.slug : null,
@@ -606,6 +688,7 @@ const RetroView = memo(
 
       const renderRow = (
         data: RetroRowData,
+        rowIndex: number,
         virtualAttrs?: {
           dataIndex: number;
           measureRef: (el: Element | null) => void;
@@ -615,6 +698,7 @@ const RetroView = memo(
         <RetroRow
           key={data.id}
           data={data}
+          rowIndex={rowIndex}
           isDesktop={isDesktop}
           showTimestamps={showTimestamps}
           showBannerColumn={showBannerColumn}
@@ -627,19 +711,27 @@ const RetroView = memo(
         />
       );
 
+      // Header cells align with their column content: text columns left,
+      // numeric readouts right, badges/bars/gauge centered.
       const headerCell = (
         column: keyof ColumnWidths,
-        options: { centered?: boolean; resizable?: boolean } = {}
+        options: { align?: 'left' | 'center' | 'right'; resizable?: boolean } = {}
       ) => {
-        const { centered = true, resizable = true } = options;
+        const { align = 'center', resizable = true } = options;
+        const justifyClass =
+          align === 'left'
+            ? ' justify-start'
+            : align === 'right'
+              ? ' justify-end'
+              : ' justify-center';
+        const textClass =
+          align === 'left' ? ' text-left' : align === 'right' ? ' text-right' : ' text-center';
         return (
           <div
-            className={`relative px-2 flex items-center h-full min-w-0${centered ? ' justify-center text-center' : ''}`}
+            className={`relative px-2 flex items-center h-full min-w-0${justifyClass}`}
             data-header
           >
-            <span className={`min-w-0 flex-1 truncate${centered ? ' text-center' : ''}`}>
-              {headerLabels[column]}
-            </span>
+            <span className={`min-w-0 flex-1 truncate${textClass}`}>{headerLabels[column]}</span>
             {resizable && (
               <ResizeHandle
                 onMouseDown={(e: React.MouseEvent) => handleMouseDown(column, e)}
@@ -675,14 +767,6 @@ const RetroView = memo(
             <Alert color="red">{t('downloads.tab.retro.loadError')}</Alert>
           )}
 
-          {/* First-load spinner (server mode). Subsequent page fetches keep
-              previous rows visible via the keep-previous-data pattern. */}
-          {serverMode && serverRetro.isLoading && groupedItems.length === 0 && (
-            <div className="flex justify-center py-8">
-              <LoadingSpinner size="lg" />
-            </div>
-          )}
-
           <div ref={fadeContainerRef} className="page-content-transition relative z-0">
             <div
               ref={containerRef}
@@ -692,15 +776,15 @@ const RetroView = memo(
               <div>
                 {/* Desktop Table Header - only rendered on desktop via JS conditional */}
                 {isDesktop && (
-                  <div className="retro-grid-row pl-4 pr-4 py-3 items-center text-xs leading-none font-semibold uppercase tracking-wide border-b select-none sticky top-0 z-20 bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)] text-[var(--theme-text-secondary)] min-w-fit">
-                    {showTimestamps && headerCell('timestamp', { centered: false })}
+                  <div className="retro-grid-row retro-header-row select-none min-w-fit">
+                    {showTimestamps && headerCell('timestamp', { align: 'left' })}
                     {showBannerColumn && headerCell('banner')}
-                    {headerCell('app', { centered: false })}
+                    {headerCell('app', { align: 'left' })}
                     {showDatasourceColumn && headerCell('datasource')}
                     {headerCell('events')}
-                    {headerCell('depot')}
-                    {headerCell('client')}
-                    {headerCell('speed')}
+                    {headerCell('depot', { align: 'right' })}
+                    {headerCell('client', { align: 'right' })}
+                    {headerCell('speed', { align: 'right' })}
                     {headerCell('cacheHit')}
                     {headerCell('overall', { resizable: false })}
                   </div>
@@ -718,7 +802,7 @@ const RetroView = memo(
                         style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
                       >
                         {rowVirtualizer.getVirtualItems().map((virtualRow) =>
-                          renderRow(rowsWithEvents[virtualRow.index], {
+                          renderRow(rowsWithEvents[virtualRow.index], virtualRow.index, {
                             dataIndex: virtualRow.index,
                             measureRef: rowVirtualizer.measureElement,
                             translateY: virtualRow.start
@@ -727,9 +811,11 @@ const RetroView = memo(
                       </div>
                     </div>
                   ) : (
-                    <div>{rowsWithEvents.map((data) => renderRow(data))}</div>
+                    <div>{rowsWithEvents.map((data, index) => renderRow(data, index))}</div>
                   )
-                ) : serverMode && (serverRetro.isLoading || serverRetro.isFetching) ? null : (
+                ) : serverMode && (serverRetro.isLoading || serverRetro.isFetching) ? (
+                  <RetroSkeletonRows isDesktop={isDesktop} visibility={visibility} />
+                ) : (
                   <EmptyState />
                 )}
               </div>

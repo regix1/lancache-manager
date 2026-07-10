@@ -46,82 +46,7 @@ export function measureTextWidth(text: string, font: string): number {
   return metrics.width;
 }
 
-/**
- * Measure the maximum width needed for an array of text values
- *
- * @param texts - Array of text strings to measure
- * @param font - CSS font string
- * @param padding - Additional padding to add (default 16px for cell padding)
- * @returns Maximum width in pixels
- */
-function measureMaxTextWidth(texts: string[], font: string, padding = 16): number {
-  if (texts.length === 0) return 0;
-
-  const maxWidth = texts.reduce((max, text) => {
-    const width = measureTextWidth(text, font);
-    return Math.max(max, width);
-  }, 0);
-
-  return Math.ceil(maxWidth + padding);
-}
-
-/**
- * Font definitions matching the RetroView component styles
- */
-export const RETRO_VIEW_FONTS = {
-  // Header font (uppercase, semibold, tracking-wide)
-  header: '600 11px system-ui, -apple-system, sans-serif',
-  // Timestamp cell (text-xs)
-  timestamp: '400 12px system-ui, -apple-system, sans-serif',
-  // App name (text-sm font-medium)
-  appName: '500 14px system-ui, -apple-system, sans-serif',
-  // Badge text inside the app cell (text-[11px] font-semibold)
-  badge: '600 11px system-ui, -apple-system, sans-serif',
-  // Datasource badge (text-xs font-medium)
-  datasource: '500 12px system-ui, -apple-system, sans-serif',
-  // Depot ID (text-sm font-mono)
-  depot: '400 14px ui-monospace, monospace',
-  // Client IP (text-sm font-mono)
-  client: '400 14px ui-monospace, monospace',
-  // Speed (text-sm)
-  speed: '400 14px system-ui, -apple-system, sans-serif',
-  // Cache values (text-xs)
-  cacheValue: '400 12px system-ui, -apple-system, sans-serif',
-  // Overall percentage (text-lg font-bold)
-  overall: '700 18px system-ui, -apple-system, sans-serif'
-};
-
-/**
- * Sample data patterns for calculating minimum column widths
- * Uses generic text patterns to estimate typical content widths
- */
-const SAMPLE_DATA_PATTERNS = {
-  // Timestamp patterns - longest format with full date on both sides including seconds
-  timestamp: ['Dec 31, 2025, 10:05:19 PM - Dec 31, 2025, 10:05:48 PM'],
-  // App name patterns - use character width estimates (avg game name ~20 chars)
-  // Using placeholder text to avoid hardcoding specific names
-  appName: [
-    'XXXXXXXXXXXXXXXXXX' // ~18 chars typical app name
-  ],
-  // Header labels
-  headers: {
-    timestamp: 'TIMESTAMP',
-    app: 'APP',
-    datasource: 'SOURCE',
-    events: 'EVENTS',
-    depot: 'DEPOT',
-    client: 'CLIENT',
-    speed: 'AVG SPEED',
-    cacheHit: 'CACHE HIT',
-    cacheMiss: 'CACHE MISS',
-    overall: 'OVERALL'
-  }
-};
-
-/**
- * Calculate optimal column widths based on content
- * Returns widths that ensure no truncation for typical data
- */
+/** Column width model for the retro downloads table. */
 export interface ColumnWidths {
   timestamp: number;
   banner: number;
@@ -136,113 +61,69 @@ export interface ColumnWidths {
   overall: number;
 }
 
-/**
- * Calculate smart minimum column widths based on:
- * 1. Header text width
- * 2. Typical content width (sample patterns)
- * 3. Minimum usable width
- *
- * @param actualData - Optional array of actual data to measure
- * @returns Calculated column widths
- */
-export function calculateColumnWidths(actualData?: {
-  timestamps?: string[];
-  appNames?: string[];
-  clientIps?: string[];
-}): ColumnWidths {
-  const CELL_PADDING = 16; // px padding for cells
-  const RESIZE_HANDLE_WIDTH = 8; // px for resize handle
-  const MIN_COLUMN_WIDTH = 60;
-
-  // Measure header widths
-  const headerWidths = {
-    timestamp: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.timestamp, RETRO_VIEW_FONTS.header),
-    app: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.app, RETRO_VIEW_FONTS.header),
-    datasource: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.datasource, RETRO_VIEW_FONTS.header),
-    events: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.events, RETRO_VIEW_FONTS.header),
-    depot: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.depot, RETRO_VIEW_FONTS.header),
-    client: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.client, RETRO_VIEW_FONTS.header),
-    speed: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.speed, RETRO_VIEW_FONTS.header),
-    cacheHit: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.cacheHit, RETRO_VIEW_FONTS.header),
-    cacheMiss: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.cacheMiss, RETRO_VIEW_FONTS.header),
-    overall: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.overall, RETRO_VIEW_FONTS.header)
-  };
-
-  // Measure content widths from sample patterns
-  const timestampSamples = actualData?.timestamps?.length
-    ? actualData.timestamps
-    : SAMPLE_DATA_PATTERNS.timestamp;
-  const appNameSamples = actualData?.appNames?.length
-    ? actualData.appNames
-    : SAMPLE_DATA_PATTERNS.appName;
-
-  // Timestamp: measure the longest timestamp pattern
-  const timestampContentWidth = measureMaxTextWidth(
-    timestampSamples,
-    RETRO_VIEW_FONTS.timestamp,
-    0
-  );
-
-  // App: text only (image is now in separate banner column)
-  // Also account for BadgesRow below the name: service badge ("STEAM" ~40px) + optional eviction badge
-  // ("Partially Evicted" ~110px) + gap (6px) + badge padding (24px each). Use a representative worst-case.
-  const appNameContentWidth = measureMaxTextWidth(appNameSamples, RETRO_VIEW_FONTS.appName, 0);
-  const appServiceBadgeWidth = measureTextWidth('STEAM', RETRO_VIEW_FONTS.header) + 24;
-  const appEvictionBadgeWidth =
-    measureTextWidth('Partially Evicted', RETRO_VIEW_FONTS.header) + 24 + 6;
-  const appBadgesRowWidth = appServiceBadgeWidth + appEvictionBadgeWidth;
-
-  // Depot: typical depot IDs are 6-7 digits
-  const depotContentWidth = measureTextWidth('1234567', RETRO_VIEW_FONTS.depot);
-
-  // Client: IP addresses or "X clients"
-  const clientSamples = actualData?.clientIps?.length
-    ? actualData.clientIps
-    : ['192.168.100.255', '10 clients', 'Gaming-PC'];
-  const clientContentWidth = measureMaxTextWidth(clientSamples, RETRO_VIEW_FONTS.client, 0);
-
-  // Speed: typical format "999.9 Mb/s" (bits, not bytes)
-  const speedContentWidth = measureTextWidth('999.9 Mb/s', RETRO_VIEW_FONTS.speed);
-
-  // Cache Hit/Miss: "999.99 GB • 99.9%"
-  const cacheContentWidth = measureTextWidth('999.99 GB • 99.9%', RETRO_VIEW_FONTS.cacheValue);
-
-  // Overall: "100.0%" with label
-  const overallContentWidth = measureTextWidth('100.0%', RETRO_VIEW_FONTS.overall);
-
-  // Datasource: reasonable width for labels like "Primary", "cache-1", etc.
-  const datasourceContentWidth = measureTextWidth('Primary', RETRO_VIEW_FONTS.appName);
-
-  // Events: compact width for 2 small badges
-  const eventsContentWidth = 90; // Space for 2 compact badges
-
-  // Calculate final widths: max(header, content) + padding + resize handle
-  const calculateWidth = (headerW: number, contentW: number, extraPadding = 0): number => {
-    return Math.max(
-      MIN_COLUMN_WIDTH,
-      Math.ceil(Math.max(headerW, contentW) + CELL_PADDING + RESIZE_HANDLE_WIDTH + extraPadding)
-    );
-  };
-
-  return {
-    timestamp: calculateWidth(headerWidths.timestamp, timestampContentWidth),
-    banner: 140, // Fixed width for game banner images (120px image + padding)
-    app: calculateWidth(headerWidths.app, Math.max(appNameContentWidth, appBadgesRowWidth), 8), // App name or badges row, whichever is wider
-    datasource: calculateWidth(headerWidths.datasource, datasourceContentWidth),
-    events: calculateWidth(headerWidths.events, eventsContentWidth),
-    depot: calculateWidth(headerWidths.depot, depotContentWidth),
-    client: calculateWidth(headerWidths.client, clientContentWidth),
-    speed: calculateWidth(headerWidths.speed, speedContentWidth),
-    cacheHit: calculateWidth(headerWidths.cacheHit, cacheContentWidth),
-    cacheMiss: calculateWidth(headerWidths.cacheMiss, cacheContentWidth),
-    overall: Math.max(90, calculateWidth(headerWidths.overall, overallContentWidth + 24)) // Extra for label + reset button
-  };
+/** Font strings for each retro column, resolved against the app's real fonts. */
+interface RetroViewFonts {
+  header: string;
+  timestamp: string;
+  appName: string;
+  badge: string;
+  onDisk: string;
+  datasource: string;
+  depot: string;
+  client: string;
+  clientSub: string;
+  speed: string;
+  cacheValue: string;
 }
 
+// Matches Tailwind's font-mono stack, which the retro cells render with.
+const MONO_FALLBACK =
+  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+const SANS_FALLBACK = 'system-ui, -apple-system, sans-serif';
+
+function resolveCssFontFamily(varName: string, fallback: string): string {
+  if (typeof document === 'undefined') return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+  return value || fallback;
+}
+
+let cachedRetroFonts: RetroViewFonts | null = null;
+
 /**
- * Get default column widths using sample data patterns
- * Call this once on component mount
+ * Font definitions matching the RetroView cell styles. Canvas measurement must
+ * use the fonts the browser actually renders with - the app body renders
+ * `--font-sans` (Inter), not `system-ui`, and measuring with the wrong family
+ * is what made auto-fit widths land short. Resolved once and cached.
  */
-export function getDefaultColumnWidths(): ColumnWidths {
-  return calculateColumnWidths();
+export function getRetroViewFonts(): RetroViewFonts {
+  if (cachedRetroFonts) return cachedRetroFonts;
+
+  const sans = resolveCssFontFamily('--font-sans', SANS_FALLBACK);
+  const mono = MONO_FALLBACK;
+
+  cachedRetroFonts = {
+    // Header labels (uppercase mono, tracking-wider)
+    header: `600 11px ${mono}`,
+    // Timestamp lines (text-xs mono)
+    timestamp: `400 12px ${mono}`,
+    // App name (text-sm font-medium)
+    appName: `500 14px ${sans}`,
+    // Badge text inside the app cell (text-[11px] font-semibold)
+    badge: `600 11px ${sans}`,
+    // "X on disk" line under the app name (text-xs)
+    onDisk: `400 12px ${sans}`,
+    // Datasource badge (text-xs font-medium)
+    datasource: `500 12px ${sans}`,
+    // Depot ID (text-xs mono)
+    depot: `400 12px ${mono}`,
+    // Client IP / client count (text-xs mono)
+    client: `400 12px ${mono}`,
+    // Request-count sub-line under the client (10px mono)
+    clientSub: `400 10px ${mono}`,
+    // Speed (text-xs mono medium)
+    speed: `500 12px ${mono}`,
+    // Cache hit/miss labels under the bar (10px mono)
+    cacheValue: `400 10px ${mono}`
+  };
+  return cachedRetroFonts;
 }

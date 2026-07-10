@@ -1484,14 +1484,318 @@
     color: var(--theme-text-muted);
   }
 
-  /* Retro data-row hover: reinforce the row hover on the grid body only.
-     [data-row] scopes this to data rows so the sticky header is untouched. */
-  .retro-grid-row[data-row] {
+  /* ===== RETRO VIEW - INSTRUMENT TABLE =====
+   * The retro voice: mono readouts with tabular numerals, small-caps mono
+   * headers, tri-color accent stripes, split hit/miss bar and dial gauge.
+   * Column alignment discipline: text columns left, numeric readouts right,
+   * badges/bars/gauge centered - headers match their cells. */
+
+  .retro-table-container {
+    --retro-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+      'Courier New', monospace;
+  }
+
+  /* Sticky header strip */
+  .retro-header-row {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    align-items: center;
+    padding: 0.625rem 1rem;
+    background: var(--theme-bg-tertiary);
+    border-bottom: 1px solid var(--theme-border-secondary);
+    font-family: var(--retro-mono);
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--theme-text-secondary);
+  }
+
+  /* Body rows: hairline divider + efficiency accent stripe + zebra tint */
+  .retro-body-row {
+    padding: 0.625rem 1rem;
+  }
+
+  .retro-row {
+    position: relative;
+    width: 100%;
+    border-bottom: 1px solid var(--theme-border-secondary);
     transition: background-color 0.15s ease;
   }
 
-  .retro-grid-row[data-row]:hover {
+  .retro-row::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    opacity: 0.75;
+    pointer-events: none;
+  }
+
+  .retro-row-accent-success::before {
+    background: var(--theme-success);
+  }
+
+  .retro-row-accent-warning::before {
+    background: var(--theme-warning);
+  }
+
+  .retro-row-accent-error::before {
+    background: var(--theme-error);
+  }
+
+  .retro-row-alt {
+    background-color: var(--theme-bg-primary);
+  }
+
+  .retro-row:hover {
     background-color: var(--theme-bg-hover);
+  }
+
+  .retro-row-evicted {
+    opacity: 0.6;
+  }
+
+  /* Stacked start / end timestamp readout */
+  .retro-time {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+    font-family: var(--retro-mono);
+    font-size: 12px;
+    line-height: 1.25;
+    font-variant-numeric: tabular-nums;
+    color: var(--theme-text-secondary);
+  }
+
+  .retro-time-end {
+    color: var(--theme-text-muted);
+  }
+
+  /* Mono numeric readouts (depot, client, speed) + small sub-lines */
+  .retro-mono-value {
+    font-family: var(--retro-mono);
+    font-size: 12px;
+    line-height: 1.3;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .retro-sub-value {
+    font-family: var(--retro-mono);
+    font-size: 10px;
+    line-height: 1.3;
+    font-variant-numeric: tabular-nums;
+    color: var(--theme-text-muted);
+  }
+
+  /* Game artwork thumb + service-icon placeholder share one box */
+  .retro-banner-img {
+    width: 104px;
+    height: 48px;
+    border-radius: var(--theme-border-radius);
+    object-fit: cover;
+    object-position: center;
+  }
+
+  .retro-banner-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 104px;
+    height: 48px;
+    border-radius: var(--theme-border-radius);
+    background: var(--theme-bg-tertiary);
+  }
+
+  /* Split hit/miss cache bar with mono byte labels */
+  .retro-cache-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .retro-cache-bar {
+    display: flex;
+    width: 100%;
+    height: 0.375rem;
+    border-radius: 9999px;
+    overflow: hidden;
+    background: var(--theme-progress-bg);
+  }
+
+  .retro-cache-bar-hit {
+    height: 100%;
+    background: linear-gradient(
+      90deg,
+      var(--theme-chart-cache-hit),
+      var(--theme-chart-hit-highlight)
+    );
+    transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .retro-cache-bar-miss {
+    height: 100%;
+    background: linear-gradient(90deg, var(--theme-error), var(--theme-chart-miss-deep));
+    transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .retro-cache-labels {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    min-width: 0;
+    font-family: var(--retro-mono);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .retro-cache-label-hit {
+    color: var(--theme-chart-cache-hit);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .retro-cache-label-miss {
+    color: var(--theme-error);
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Dial gauge - color comes from the tier class */
+  .retro-gauge {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.125rem;
+  }
+
+  .retro-gauge-success {
+    color: var(--theme-success);
+  }
+
+  .retro-gauge-warning {
+    color: var(--theme-warning);
+  }
+
+  .retro-gauge-error {
+    color: var(--theme-error);
+  }
+
+  .retro-gauge-dial {
+    position: relative;
+    width: 44px;
+    height: 44px;
+  }
+
+  .retro-gauge-arc {
+    transition: stroke-dashoffset 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .retro-gauge-value {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--retro-mono);
+    font-size: 11px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .retro-gauge-label {
+    font-family: var(--retro-mono);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* First-load skeleton: shimmer rows under the real header keep the table
+     frame stable, so there is no header-only flash while fetching */
+  .retro-skeleton > * {
+    border-bottom: 1px solid var(--theme-border-secondary);
+  }
+
+  .retro-skeleton-bar {
+    height: 0.625rem;
+    border-radius: 4px;
+    background: var(--theme-bg-tertiary);
+    animation: retro-skeleton-pulse 1.4s ease-in-out infinite;
+  }
+
+  .retro-skeleton-bar + .retro-skeleton-bar {
+    margin-top: 0.375rem;
+  }
+
+  .retro-skeleton-bar-sub {
+    height: 0.5rem;
+    opacity: 0.6;
+  }
+
+  .retro-skeleton-banner {
+    width: 104px;
+    height: 48px;
+    border-radius: var(--theme-border-radius);
+    background: var(--theme-bg-tertiary);
+    animation: retro-skeleton-pulse 1.4s ease-in-out infinite;
+  }
+
+  .retro-skeleton-gauge {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 4px solid var(--theme-bg-tertiary);
+    animation: retro-skeleton-pulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes retro-skeleton-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.45;
+    }
+  }
+
+  /* Empty-state decorative dots */
+  .retro-empty-dot {
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 9999px;
+    background: var(--theme-text-muted);
+    animation: retro-empty-pulse 1.5s ease-in-out infinite;
+  }
+
+  .retro-empty-dot:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+
+  .retro-empty-dot:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+
+  @keyframes retro-empty-pulse {
+    0%,
+    100% {
+      opacity: 0.3;
+    }
+    50% {
+      opacity: 0.7;
+    }
   }
 
   /* ===== PAGINATION - CARD BLEED & MOBILE ===== */
@@ -1592,7 +1896,10 @@
     .dl-card,
     .dl-card-chevron,
     .dl-card-cache-bar-fill,
-    .retro-grid-row[data-row] {
+    .retro-row,
+    .retro-cache-bar-hit,
+    .retro-cache-bar-miss,
+    .retro-gauge-arc {
       transition: none;
     }
 
@@ -1600,6 +1907,13 @@
     .card-grid-item:active,
     .dl-card:not(.dl-card-expanded):hover {
       transform: none;
+    }
+
+    .retro-skeleton-bar,
+    .retro-skeleton-banner,
+    .retro-skeleton-gauge,
+    .retro-empty-dot {
+      animation: none;
     }
 
     /* Still the continuous header/live-download motion for reduced-motion users. */

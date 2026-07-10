@@ -18,8 +18,10 @@ export interface RetroViewHandle {
 export interface RetroRowData extends DepotGroupedData {
   events: EventSummary[];
   hitPercent: number;
-  timeRange: string;
-  accentColor: string;
+  /** Stacked timestamp display lines: ["start", "→ end" | null]. */
+  timeLines: [string, string | null];
+  /** Full single-line range for tooltips. */
+  timeRangeTitle: string;
   hasGameImage: boolean;
   /** Canonical name-keyed service ("blizzard" | "riot") when this row's banner is name-keyed. */
   nameKeyedService: string | null;

@@ -2134,15 +2134,18 @@ const DownloadsTab: React.FC = () => {
 
           {/* Downloads list */}
           <ImageCacheContext.Provider value={imageCacheVersion}>
-            {settings.viewMode === 'retro' ? (
-              <Suspense
-                fallback={
-                  <div className="flex justify-center py-8">
-                    <LoadingSpinner inline size="lg" />
-                  </div>
-                }
-              >
-                {retroEverMounted.current && (
+            {/* Retro stays mounted behind display:none like the other views, so
+                switching back is instant (previous rows + background refetch)
+                instead of a full remount that refetches from scratch. */}
+            <div style={{ display: settings.viewMode === 'retro' ? 'block' : 'none' }}>
+              {retroEverMounted.current && (
+                <Suspense
+                  fallback={
+                    <div className="flex justify-center py-8">
+                      <LoadingSpinner inline size="lg" />
+                    </div>
+                  }
+                >
                   <RetroView
                     ref={retroViewRef}
                     items={EMPTY_RETRO_ITEMS}
@@ -2174,81 +2177,82 @@ const DownloadsTab: React.FC = () => {
                     filterEndTime={retroTimeParams.endTime}
                     filterEventId={retroEventId}
                   />
+                </Suspense>
+              )}
+            </div>
+
+            <div
+              className="relative overflow-x-hidden page-content-transition"
+              ref={nonRetroContentRef}
+              style={{ display: settings.viewMode === 'retro' ? 'none' : 'block' }}
+            >
+              {/* Content based on view mode with display:none pattern for instant switching */}
+              <div style={{ display: settings.viewMode === 'compact' ? 'block' : 'none' }}>
+                {compactEverMounted.current && (
+                  <CompactView
+                    items={itemsToDisplay as (Download | DownloadGroup)[]}
+                    expandedItem={expandedItem}
+                    onItemClick={handleItemClick}
+                    aestheticMode={settings.aestheticMode}
+                    groupByFrequency={settings.groupByFrequency}
+                    enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
+                    showDatasourceLabels={showDatasourceLabels}
+                    hasMultipleDatasources={hasMultipleDatasources}
+                    detectionLookup={detectionLookup}
+                    detectionByName={detectionByName}
+                    detectionByService={detectionByService}
+                  />
                 )}
-              </Suspense>
-            ) : (
-              <div
-                className="relative overflow-x-hidden page-content-transition"
-                ref={nonRetroContentRef}
-              >
-                {/* Content based on view mode with display:none pattern for instant switching */}
-                <div style={{ display: settings.viewMode === 'compact' ? 'block' : 'none' }}>
-                  {compactEverMounted.current && (
-                    <CompactView
-                      items={itemsToDisplay as (Download | DownloadGroup)[]}
-                      expandedItem={expandedItem}
-                      onItemClick={handleItemClick}
-                      aestheticMode={settings.aestheticMode}
-                      groupByFrequency={settings.groupByFrequency}
-                      enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
-                      showDatasourceLabels={showDatasourceLabels}
-                      hasMultipleDatasources={hasMultipleDatasources}
-                      detectionLookup={detectionLookup}
-                      detectionByName={detectionByName}
-                      detectionByService={detectionByService}
-                    />
-                  )}
-                </div>
-
-                <div style={{ display: settings.viewMode === 'card' ? 'block' : 'none' }}>
-                  {cardEverMounted.current && (
-                    <NormalView
-                      items={itemsToDisplay as (Download | DownloadGroup)[]}
-                      expandedItem={expandedItem}
-                      onItemClick={handleItemClick}
-                      aestheticMode={false}
-                      fullHeightBanners={false}
-                      groupByFrequency={false}
-                      enableScrollIntoView={false}
-                      showDatasourceLabels={showDatasourceLabels}
-                      hasMultipleDatasources={hasMultipleDatasources}
-                      cardGridLayout={true}
-                      cardSize={settings.cardSize}
-                      showCacheHitBar={settings.showCacheHitBar}
-                      showEventBadges={settings.showEventBadges}
-                      bannerOnly={settings.bannerOnly}
-                      detectionLookup={detectionLookup}
-                      detectionByName={detectionByName}
-                      detectionByService={detectionByService}
-                    />
-                  )}
-                </div>
-
-                <div style={{ display: settings.viewMode === 'normal' ? 'block' : 'none' }}>
-                  {normalEverMounted.current && (
-                    <NormalView
-                      items={itemsToDisplay as (Download | DownloadGroup)[]}
-                      expandedItem={expandedItem}
-                      onItemClick={handleItemClick}
-                      aestheticMode={settings.aestheticMode}
-                      fullHeightBanners={settings.fullHeightBanners}
-                      groupByFrequency={settings.groupByFrequency}
-                      enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
-                      showDatasourceLabels={showDatasourceLabels}
-                      hasMultipleDatasources={hasMultipleDatasources}
-                      cardGridLayout={false}
-                      cardSize={settings.cardSize}
-                      showCacheHitBar={settings.showCacheHitBar}
-                      showEventBadges={settings.showEventBadges}
-                      bannerOnly={settings.bannerOnly}
-                      detectionLookup={detectionLookup}
-                      detectionByName={detectionByName}
-                      detectionByService={detectionByService}
-                    />
-                  )}
-                </div>
               </div>
-            )}
+
+              <div style={{ display: settings.viewMode === 'card' ? 'block' : 'none' }}>
+                {cardEverMounted.current && (
+                  <NormalView
+                    items={itemsToDisplay as (Download | DownloadGroup)[]}
+                    expandedItem={expandedItem}
+                    onItemClick={handleItemClick}
+                    aestheticMode={false}
+                    fullHeightBanners={false}
+                    groupByFrequency={false}
+                    enableScrollIntoView={false}
+                    showDatasourceLabels={showDatasourceLabels}
+                    hasMultipleDatasources={hasMultipleDatasources}
+                    cardGridLayout={true}
+                    cardSize={settings.cardSize}
+                    showCacheHitBar={settings.showCacheHitBar}
+                    showEventBadges={settings.showEventBadges}
+                    bannerOnly={settings.bannerOnly}
+                    detectionLookup={detectionLookup}
+                    detectionByName={detectionByName}
+                    detectionByService={detectionByService}
+                  />
+                )}
+              </div>
+
+              <div style={{ display: settings.viewMode === 'normal' ? 'block' : 'none' }}>
+                {normalEverMounted.current && (
+                  <NormalView
+                    items={itemsToDisplay as (Download | DownloadGroup)[]}
+                    expandedItem={expandedItem}
+                    onItemClick={handleItemClick}
+                    aestheticMode={settings.aestheticMode}
+                    fullHeightBanners={settings.fullHeightBanners}
+                    groupByFrequency={settings.groupByFrequency}
+                    enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
+                    showDatasourceLabels={showDatasourceLabels}
+                    hasMultipleDatasources={hasMultipleDatasources}
+                    cardGridLayout={false}
+                    cardSize={settings.cardSize}
+                    showCacheHitBar={settings.showCacheHitBar}
+                    showEventBadges={settings.showEventBadges}
+                    bannerOnly={settings.bannerOnly}
+                    detectionLookup={detectionLookup}
+                    detectionByName={detectionByName}
+                    detectionByService={detectionByService}
+                  />
+                )}
+              </div>
+            </div>
           </ImageCacheContext.Provider>
 
           {/* Performance warning */}

@@ -61,6 +61,23 @@ export const formatTimeRange = (
   return startTime === endTime ? startTime : `${startTime} - ${endTime}`;
 };
 
+/**
+ * Same range as formatTimeRange but split into stacked display lines so the
+ * timestamp column never truncates: ["start", null] when both ends match,
+ * otherwise ["start", "→ end"].
+ */
+export const formatTimeRangeLines = (
+  startTimeUtc: string,
+  endTimeUtc: string
+): [string, string | null] => {
+  const needsYear = isFromDifferentYear(startTimeUtc) || isFromDifferentYear(endTimeUtc);
+
+  const startTime = formatDateTime(startTimeUtc, needsYear);
+  const endTime = formatDateTime(endTimeUtc, needsYear);
+
+  return startTime === endTime ? [startTime, null] : [startTime, `→ ${endTime}`];
+};
+
 // Helper to check if item is a DownloadGroup
 const isDownloadGroup = (item: DownloadType | DownloadGroup): item is DownloadGroup => {
   return 'downloads' in item;

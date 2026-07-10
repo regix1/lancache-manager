@@ -1,6 +1,5 @@
 import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Zap } from 'lucide-react';
 
 import type { RetroRowData } from './RetroView.types';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
@@ -50,125 +49,109 @@ const getServiceIcon = (service: string, size = 24) => {
   }
 };
 
-// Circular Efficiency Gauge Component
-const EfficiencyGauge: React.FC<{ percent: number; size?: number }> = ({ percent, size = 56 }) => {
+// Circular efficiency gauge - the retro instrument readout for hit rate.
+// Colors come from the tier class so the SVG carries no inline styling.
+const GAUGE_SIZE = 44;
+const GAUGE_STROKE = 4;
+const GAUGE_RADIUS = (GAUGE_SIZE - GAUGE_STROKE) / 2;
+const GAUGE_CIRCUMFERENCE = 2 * Math.PI * GAUGE_RADIUS;
+
+const efficiencyTier = (percent: number): 'success' | 'warning' | 'error' => {
+  if (percent >= 90) return 'success';
+  if (percent >= 50) return 'warning';
+  return 'error';
+};
+
+// Class names must appear as literal strings (never template-built), or
+// Tailwind's content scanner purges the matching @layer components rules.
+const GAUGE_TIER_CLASS: Record<'success' | 'warning' | 'error', string> = {
+  success: 'retro-gauge retro-gauge-success',
+  warning: 'retro-gauge retro-gauge-warning',
+  error: 'retro-gauge retro-gauge-error'
+};
+
+const ROW_ACCENT_CLASS: Record<'success' | 'warning' | 'error', string> = {
+  success: 'retro-row retro-row-accent-success',
+  warning: 'retro-row retro-row-accent-warning',
+  error: 'retro-row retro-row-accent-error'
+};
+
+const EfficiencyGauge: React.FC<{ percent: number }> = ({ percent }) => {
   const { t } = useTranslation();
-  const strokeWidth = 4;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (percent / 100) * circumference;
-
-  const getColor = () => {
-    if (percent >= 90) return 'var(--theme-success)';
-    if (percent >= 50) return 'var(--theme-warning)';
-    return 'var(--theme-error)';
-  };
-
-  const getLabel = () => {
-    if (percent >= 90) return t('downloads.tab.retro.gauge.excellent');
-    if (percent >= 50) return t('downloads.tab.retro.gauge.partial');
-    return t('downloads.tab.retro.gauge.miss');
-  };
+  const offset = GAUGE_CIRCUMFERENCE - (percent / 100) * GAUGE_CIRCUMFERENCE;
+  const tier = efficiencyTier(percent);
+  const label =
+    tier === 'success'
+      ? t('downloads.tab.retro.gauge.excellent')
+      : tier === 'warning'
+        ? t('downloads.tab.retro.gauge.partial')
+        : t('downloads.tab.retro.gauge.miss');
 
   return (
-    <div className="flex flex-col items-center gap-0.5">
-      <div className="relative" style={{ width: size, height: size }}>
-        <svg width={size} height={size} className="transform -rotate-90">
+    <div className={GAUGE_TIER_CLASS[tier]}>
+      <div className="retro-gauge-dial">
+        <svg width={GAUGE_SIZE} height={GAUGE_SIZE} className="-rotate-90">
           {/* Background track */}
           <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
+            cx={GAUGE_SIZE / 2}
+            cy={GAUGE_SIZE / 2}
+            r={GAUGE_RADIUS}
             fill="none"
             stroke="var(--theme-progress-bg)"
-            strokeWidth={strokeWidth}
+            strokeWidth={GAUGE_STROKE}
           />
           {/* Progress arc */}
           <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
+            cx={GAUGE_SIZE / 2}
+            cy={GAUGE_SIZE / 2}
+            r={GAUGE_RADIUS}
             fill="none"
-            stroke={getColor()}
-            strokeWidth={strokeWidth}
+            stroke="currentColor"
+            strokeWidth={GAUGE_STROKE}
             strokeLinecap="round"
-            strokeDasharray={circumference}
+            strokeDasharray={GAUGE_CIRCUMFERENCE}
             strokeDashoffset={offset}
-            className="transition-[stroke-dashoffset,stroke] duration-500 ease-out"
+            className="retro-gauge-arc"
           />
         </svg>
-        {/* Center percentage */}
-        <div
-          className="absolute inset-0 flex items-center justify-center font-bold text-sm tabular-nums"
-          style={{ color: getColor() }}
-        >
-          {Math.round(percent)}%
-        </div>
+        <div className="retro-gauge-value">{Math.round(percent)}%</div>
       </div>
-      <span
-        className="text-[9px] font-medium uppercase tracking-wide"
-        style={{ color: getColor() }}
-      >
-        {getLabel()}
-      </span>
+      <span className="retro-gauge-label">{label}</span>
     </div>
   );
 };
 
-// Combined Progress Bar Component
+// Split hit/miss bar with mono byte readouts underneath.
 const CombinedProgressBar: React.FC<{
   hitBytes: number;
   missBytes: number;
   totalBytes: number;
-  showLabels?: boolean;
-}> = ({ hitBytes, missBytes, totalBytes, showLabels = true }) => {
+}> = ({ hitBytes, missBytes, totalBytes }) => {
   const hitPercent = totalBytes > 0 ? (hitBytes / totalBytes) * 100 : 0;
   const missPercent = totalBytes > 0 ? (missBytes / totalBytes) * 100 : 0;
 
   return (
-    <div className="flex flex-col gap-1.5 min-w-0 w-full max-w-full overflow-hidden">
-      {/* Combined bar */}
-      <div className="h-2 rounded-full overflow-hidden flex w-full bg-[var(--theme-progress-bg)]">
-        {/* Cache Hit portion */}
-        <div
-          className="h-full transition-[width] duration-500 ease-out"
-          style={{
-            width: `${hitPercent}%`,
-            background:
-              hitPercent > 0
-                ? 'linear-gradient(90deg, var(--theme-chart-cache-hit), var(--theme-chart-hit-highlight))'
-                : 'transparent'
-          }}
-        />
-        {/* Cache Miss portion */}
-        <div
-          className="h-full transition-[width] duration-500 ease-out"
-          style={{
-            width: `${missPercent}%`,
-            background:
-              missPercent > 0
-                ? 'linear-gradient(90deg, var(--theme-error), var(--theme-chart-miss-deep))'
-                : 'transparent'
-          }}
-        />
+    <div className="retro-cache-cell">
+      <div className="retro-cache-bar">
+        <div className="retro-cache-bar-hit" style={{ width: `${hitPercent}%` }} />
+        <div className="retro-cache-bar-miss" style={{ width: `${missPercent}%` }} />
       </div>
-      {/* Labels - with truncation support for mobile */}
-      {showLabels && (
-        <div className="flex justify-between text-[10px] min-w-0 gap-2">
-          <span className="truncate tabular-nums text-[var(--theme-chart-cache-hit)]">
-            {formatBytes(hitBytes)} ({formatPercent(hitPercent)})
-          </span>
-          <span className="truncate text-right tabular-nums text-[var(--theme-error)]">
-            {formatBytes(missBytes)} ({formatPercent(missPercent)})
-          </span>
-        </div>
-      )}
+      <div className="retro-cache-labels">
+        <span className="retro-cache-label-hit">
+          {formatBytes(hitBytes)} ({formatPercent(hitPercent)})
+        </span>
+        <span className="retro-cache-label-miss">
+          {formatBytes(missBytes)} ({formatPercent(missPercent)})
+        </span>
+      </div>
     </div>
   );
 };
 
 interface RetroRowProps {
   data: RetroRowData;
+  /** Position within the current page - drives the zebra tint. */
+  rowIndex: number;
   isDesktop: boolean;
   showTimestamps: boolean;
   showBannerColumn: boolean;
@@ -187,6 +170,7 @@ interface RetroRowProps {
 const RetroRow: React.FC<RetroRowProps> = memo(
   ({
     data,
+    rowIndex,
     isDesktop,
     showTimestamps,
     showBannerColumn,
@@ -203,8 +187,8 @@ const RetroRow: React.FC<RetroRowProps> = memo(
       cacheHitBytes,
       cacheMissBytes,
       hitPercent,
-      timeRange,
-      accentColor,
+      timeLines,
+      timeRangeTitle,
       hasGameImage,
       nameKeyedService,
       nameKeyedSlug,
@@ -213,6 +197,10 @@ const RetroRow: React.FC<RetroRowProps> = memo(
     } = data;
 
     const isVirtual = translateY !== undefined;
+    const tier = efficiencyTier(hitPercent);
+    const rowClasses = `${ROW_ACCENT_CLASS[tier]}${rowIndex % 2 === 1 ? ' retro-row-alt' : ''}${
+      data.isEvicted ? ' retro-row-evicted' : ''
+    }`;
 
     return (
       <div
@@ -221,28 +209,20 @@ const RetroRow: React.FC<RetroRowProps> = memo(
         className={isVirtual ? 'virtual-row' : undefined}
         style={isVirtual ? { transform: `translateY(${translateY}px)` } : undefined}
       >
-        <div
-          className={`w-full hover:bg-[var(--theme-bg-tertiary)]/50 group relative border-b border-[var(--theme-border-secondary)]${data.isEvicted ? ' opacity-60' : ''}`}
-        >
-          {/* Left accent border based on efficiency */}
-          <div
-            className="absolute left-0 top-0 bottom-0 w-1 opacity-70"
-            style={{ backgroundColor: accentColor }}
-          />
-
+        <div className={rowClasses}>
           {/* Conditional Layout - Mobile or Desktop based on JS breakpoint detection */}
           {isDesktop ? (
             /* Desktop Layout */
-            <div className="retro-grid-row pl-4 pr-4 py-3 items-center" data-row>
-              {/* Timestamp */}
+            <div className="retro-grid-row retro-body-row items-center" data-row>
+              {/* Timestamp - stacked start / end lines, never truncated mid-range */}
               {showTimestamps && (
-                <div
-                  className="px-2 min-w-0 text-xs text-[var(--theme-text-secondary)] overflow-hidden whitespace-nowrap"
-                  data-cell
-                >
-                  <span className="block truncate tabular-nums" title={timeRange}>
-                    {timeRange}
-                  </span>
+                <div className="px-2 min-w-0 overflow-hidden" data-cell>
+                  <div className="retro-time" title={timeRangeTitle}>
+                    <span className="truncate">{timeLines[0]}</span>
+                    {timeLines[1] && (
+                      <span className="retro-time-end truncate">{timeLines[1]}</span>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -256,13 +236,13 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                       nameKeyedService={nameKeyedService || undefined}
                       nameKeyedSlug={nameKeyedSlug || undefined}
                       alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                      className="w-[120px] h-[56px] rounded object-cover"
+                      className="retro-banner-img"
                       onError={onImageError}
                     />
                   ) : (
                     /* Service icon placeholder */
-                    <div className="w-[120px] h-[56px] rounded flex items-center justify-center bg-[var(--theme-bg-tertiary)]">
-                      {getServiceIcon(data.service, 32)}
+                    <div className="retro-banner-placeholder">
+                      {getServiceIcon(data.service, 28)}
                     </div>
                   )}
                 </div>
@@ -270,7 +250,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
 
               {/* App name */}
               <div className="px-2 min-w-0 overflow-hidden" data-cell>
-                <div className="flex flex-col min-w-0 overflow-hidden">
+                <div className="flex flex-col gap-0.5 min-w-0 overflow-hidden">
                   <span
                     className="text-sm font-medium text-[var(--theme-text-primary)] truncate"
                     title={data.gameName || data.service}
@@ -285,23 +265,12 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                     isPartiallyEvicted={data.isPartiallyEvicted}
                   />
                   {onDiskSizeBytes ? (
-                    <span className="text-themed-muted text-xs">
+                    <span className="text-themed-muted text-xs truncate">
                       {t('dashboard.downloadsPanel.onDisk', {
                         size: formatBytes(onDiskSizeBytes)
                       })}
                     </span>
                   ) : null}
-                  {data.requestCount > 1 && (
-                    <span className="text-xs text-[var(--theme-text-muted)] truncate">
-                      {t('downloads.tab.retro.clientCount', {
-                        count: data.clientsSet.size
-                      })}{' '}
-                      ·{' '}
-                      {t('downloads.tab.retro.requestCount', {
-                        count: data.requestCount
-                      })}
-                    </span>
-                  )}
                 </div>
               </div>
 
@@ -322,15 +291,15 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                 {events.length > 0 ? (
                   <DownloadBadges events={events} maxVisible={2} size="sm" />
                 ) : (
-                  <span className="text-xs text-[var(--theme-text-muted)]">-</span>
+                  <span className="retro-sub-value">—</span>
                 )}
               </div>
 
               {/* Depot */}
-              <div className="px-2 min-w-0 overflow-hidden text-center" data-cell>
+              <div className="px-2 min-w-0 overflow-hidden text-right" data-cell>
                 {data.depotsSet.size > 1 ? (
                   <span
-                    className="text-xs text-[var(--theme-text-muted)] truncate block"
+                    className="retro-mono-value text-[var(--theme-text-muted)] truncate block"
                     title={t('downloads.tab.retro.depotCount', {
                       count: data.depotsSet.size
                     })}
@@ -344,25 +313,22 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                     href={`https://steamdb.info/depot/${data.depotId}/`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sm font-mono text-[var(--theme-primary)] hover:underline"
+                    className="retro-mono-value text-[var(--theme-primary)] hover:underline"
                   >
                     {data.depotId}
                   </a>
                 ) : (
-                  <span className="text-sm text-[var(--theme-text-muted)]">
+                  <span className="retro-mono-value text-[var(--theme-text-muted)]">
                     {t('downloads.tab.retro.notAvailable')}
                   </span>
                 )}
               </div>
 
-              {/* Client IP */}
-              <div
-                className="px-2 min-w-0 text-sm font-mono text-[var(--theme-text-primary)] overflow-hidden text-center"
-                data-cell
-              >
+              {/* Client */}
+              <div className="px-2 min-w-0 overflow-hidden text-right" data-cell>
                 {data.clientsSet.size > 1 ? (
                   <span
-                    className="truncate block"
+                    className="retro-mono-value text-[var(--theme-text-primary)] truncate block"
                     title={t('downloads.tab.retro.clientCount', {
                       count: data.clientsSet.size
                     })}
@@ -372,19 +338,20 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                     })}
                   </span>
                 ) : (
-                  <span className="block truncate">
+                  <span className="retro-mono-value text-[var(--theme-text-primary)] block truncate">
                     <ClientIpDisplay clientIp={data.clientIp} className="inline" />
+                  </span>
+                )}
+                {data.requestCount > 1 && (
+                  <span className="retro-sub-value block truncate">
+                    {t('downloads.tab.retro.requestCount', { count: data.requestCount })}
                   </span>
                 )}
               </div>
 
               {/* Avg Speed */}
-              <div
-                className="px-2 min-w-0 text-sm text-[var(--theme-text-primary)] overflow-hidden flex items-center justify-center gap-1"
-                data-cell
-              >
-                <Zap size={12} className="text-[var(--theme-warning)] opacity-70" />
-                <span className="truncate tabular-nums">
+              <div className="px-2 min-w-0 overflow-hidden text-right" data-cell>
+                <span className="retro-mono-value font-medium text-[var(--theme-text-primary)] block truncate">
                   {formatSpeed(data.averageBytesPerSecond)}
                 </span>
               </div>
@@ -405,7 +372,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
             </div>
           ) : (
             /* Mobile Layout - with explicit width constraints */
-            <div className="p-3 pl-4 space-y-2 sm:space-y-3 w-full max-w-full overflow-hidden">
+            <div className="retro-body-row space-y-2 w-full max-w-full overflow-hidden">
               {/* App image and name */}
               <div className="flex items-center gap-3 w-full min-w-0">
                 {hasGameImage && (data.gameAppId || data.epicAppId || nameKeyedSlug) ? (
@@ -415,12 +382,12 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                     nameKeyedService={nameKeyedService || undefined}
                     nameKeyedSlug={nameKeyedSlug || undefined}
                     alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                    className="w-[120px] h-[56px] rounded object-cover flex-shrink-0"
+                    className="retro-banner-img flex-shrink-0"
                     onError={onImageError}
                   />
                 ) : (
-                  <div className="w-[120px] h-[56px] rounded flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
-                    {getServiceIcon(data.service, 32)}
+                  <div className="retro-banner-placeholder flex-shrink-0">
+                    {getServiceIcon(data.service, 28)}
                   </div>
                 )}
                 <div className="flex-1 min-w-0 overflow-hidden">
@@ -494,10 +461,11 @@ const RetroRow: React.FC<RetroRowProps> = memo(
               </div>
 
               {/* Timestamp and Speed */}
-              <div className="flex items-center justify-between text-xs text-[var(--theme-text-secondary)] min-w-0">
-                <span className="truncate mr-2 tabular-nums">{timeRange}</span>
-                <span className="flex items-center gap-1 text-[var(--theme-text-primary)] flex-shrink-0 tabular-nums">
-                  <Zap size={12} className="text-[var(--theme-warning)]" />
+              <div className="flex items-center justify-between text-xs min-w-0">
+                <span className="retro-mono-value text-[var(--theme-text-secondary)] truncate mr-2">
+                  {timeRangeTitle}
+                </span>
+                <span className="retro-mono-value font-medium text-[var(--theme-text-primary)] flex-shrink-0">
                   {formatSpeed(data.averageBytesPerSecond)}
                 </span>
               </div>
@@ -512,7 +480,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                   />
                 </div>
                 <div className="flex-shrink-0">
-                  <EfficiencyGauge percent={hitPercent} size={44} />
+                  <EfficiencyGauge percent={hitPercent} />
                 </div>
               </div>
             </div>

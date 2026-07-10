@@ -1,4 +1,4 @@
-import { measureTextWidth, RETRO_VIEW_FONTS, type ColumnWidths } from '@utils/textMeasurement';
+import { measureTextWidth, getRetroViewFonts, type ColumnWidths } from '@utils/textMeasurement';
 
 export const RETRO_WIDTHS_STORAGE_KEY = 'retro-view-column-widths';
 
@@ -10,7 +10,7 @@ const COLUMN_FIT_FLOOR = 40;
 
 const MIN_COLUMN_WIDTHS: ColumnWidths = {
   timestamp: 80,
-  banner: 130,
+  banner: 120,
   app: 100,
   datasource: 70,
   events: 50,
@@ -22,10 +22,11 @@ const MIN_COLUMN_WIDTHS: ColumnWidths = {
   overall: 50
 };
 
-// Baseline widths used as the floor when measuring real content.
+// Baseline widths used as the floor when measuring real content. Also the
+// initial render widths before the first auto-fit pass runs.
 const MEASURE_BASE_WIDTHS: ColumnWidths = {
-  timestamp: 80,
-  banner: 140,
+  timestamp: 120,
+  banner: 120,
   app: 100,
   datasource: 75,
   events: 90,
@@ -36,6 +37,8 @@ const MEASURE_BASE_WIDTHS: ColumnWidths = {
   cacheMiss: 0,
   overall: 80
 };
+
+export const getDefaultColumnWidths = (): ColumnWidths => ({ ...MEASURE_BASE_WIDTHS });
 
 export interface RetroColumnVisibility {
   showDatasource: boolean;
@@ -147,13 +150,15 @@ export const buildGridTemplate = (
 
 // Pre-formatted strings for one row, used for canvas text measurement.
 export interface RetroMeasureRow {
-  timeRangeFull: string;
+  timeLines: [string, string | null];
   appName: string;
   serviceBadge: string;
   evictionLabel: string;
+  onDiskLabel: string;
   datasourceLabel: string;
   depotLabel: string;
   clientLabel: string;
+  clientSubLabel: string;
   speedLabel: string;
   hitLabel: string;
   missLabel: string;
@@ -179,60 +184,65 @@ export const measureRetroColumn = (
   rows: RetroMeasureRow[],
   headerLabel: string
 ): number => {
+  const fonts = getRetroViewFonts();
   let width = MEASURE_BASE_WIDTHS[column];
 
   switch (column) {
     case 'timestamp':
       width = Math.max(
         width,
-        maxRowWidth(rows, RETRO_VIEW_FONTS.timestamp, (r) => r.timeRangeFull, 12)
+        maxRowWidth(rows, fonts.timestamp, (r) => r.timeLines[0], 16),
+        maxRowWidth(rows, fonts.timestamp, (r) => r.timeLines[1] ?? '', 16)
       );
       break;
     case 'banner':
-      // Fixed size for game artwork (120px image + padding)
-      width = 140;
+      // Fixed size for game artwork (104px image + padding)
+      width = 120;
       break;
     case 'app':
       rows.forEach((row) => {
-        const gameNameWidth = measureTextWidth(row.appName, RETRO_VIEW_FONTS.appName) + 32;
+        const gameNameWidth = measureTextWidth(row.appName, fonts.appName) + 32;
         // Account for BadgesRow width: service badge + optional eviction badge + padding/gaps
-        const serviceBadgeWidth = measureTextWidth(row.serviceBadge, RETRO_VIEW_FONTS.badge) + 24;
+        const serviceBadgeWidth = measureTextWidth(row.serviceBadge, fonts.badge) + 24;
         const evictionBadgeWidth = row.evictionLabel
-          ? measureTextWidth(row.evictionLabel, RETRO_VIEW_FONTS.badge) + 24 + 6
+          ? measureTextWidth(row.evictionLabel, fonts.badge) + 24 + 6
           : 0;
         const badgesWidth = serviceBadgeWidth + evictionBadgeWidth + 32;
-        width = Math.max(width, gameNameWidth, badgesWidth);
+        const onDiskWidth = row.onDiskLabel
+          ? measureTextWidth(row.onDiskLabel, fonts.onDisk) + 32
+          : 0;
+        width = Math.max(width, gameNameWidth, badgesWidth, onDiskWidth);
       });
       break;
     case 'datasource':
       width = Math.max(
         width,
-        maxRowWidth(rows, RETRO_VIEW_FONTS.datasource, (r) => r.datasourceLabel, 32)
+        maxRowWidth(rows, fonts.datasource, (r) => r.datasourceLabel, 32)
       );
       break;
     case 'depot':
       width = Math.max(
         width,
-        maxRowWidth(rows, RETRO_VIEW_FONTS.depot, (r) => r.depotLabel, 32)
+        maxRowWidth(rows, fonts.depot, (r) => r.depotLabel, 32)
       );
       break;
     case 'client':
       width = Math.max(
         width,
-        maxRowWidth(rows, RETRO_VIEW_FONTS.client, (r) => r.clientLabel, 32)
+        maxRowWidth(rows, fonts.client, (r) => r.clientLabel, 32),
+        maxRowWidth(rows, fonts.clientSub, (r) => r.clientSubLabel, 32)
       );
       break;
     case 'speed':
-      // +16 extra for the inline speed icon
       width = Math.max(
         width,
-        maxRowWidth(rows, RETRO_VIEW_FONTS.speed, (r) => r.speedLabel, 32 + 16)
+        maxRowWidth(rows, fonts.speed, (r) => r.speedLabel, 32)
       );
       break;
     case 'cacheHit':
       rows.forEach((row) => {
-        const hitWidth = measureTextWidth(row.hitLabel, RETRO_VIEW_FONTS.cacheValue);
-        const missWidth = measureTextWidth(row.missLabel, RETRO_VIEW_FONTS.cacheValue);
+        const hitWidth = measureTextWidth(row.hitLabel, fonts.cacheValue);
+        const missWidth = measureTextWidth(row.missLabel, fonts.cacheValue);
         width = Math.max(width, hitWidth + missWidth + 8 + 32);
       });
       break;
@@ -242,24 +252,26 @@ export const measureRetroColumn = (
   }
 
   const headerPadding = column === 'cacheHit' ? 16 : 32;
-  width = Math.max(width, measureTextWidth(headerLabel, RETRO_VIEW_FONTS.header) + headerPadding);
+  width = Math.max(width, measureTextWidth(headerLabel, fonts.header) + headerPadding);
 
   return Math.max(RESIZE_MIN_WIDTH, Math.ceil(width));
 };
 
 /**
- * Measure every visible column from real row content, then fit the result to
- * the container width. Used by the auto-fit-on-load and "fit columns" actions.
+ * Measure every visible column from real row content. Used by the
+ * auto-fit-on-data-change pass and the "fit columns" toolbar action.
+ * Widths are never squeezed below measured content - when the sum exceeds
+ * the viewport, the table scrolls horizontally (the container already
+ * supports it) instead of re-truncating exactly what was measured.
  */
 export const measureAllRetroColumns = (
   rows: RetroMeasureRow[],
   headers: Record<keyof ColumnWidths, string>,
-  visibility: RetroColumnVisibility,
-  containerWidth: number
+  visibility: RetroColumnVisibility
 ): ColumnWidths => {
-  const measured: ColumnWidths = { ...MEASURE_BASE_WIDTHS };
+  const measured: ColumnWidths = { ...MEASURE_BASE_WIDTHS, cacheMiss: 0 };
   getVisibleColumns(visibility).forEach((column) => {
     measured[column] = measureRetroColumn(column, rows, headers[column]);
   });
-  return fitWidthsToContainer(measured, containerWidth, visibility);
+  return measured;
 };
