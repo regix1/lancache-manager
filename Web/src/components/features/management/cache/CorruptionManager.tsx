@@ -16,7 +16,6 @@ import type {
   CorruptionDetectionCompleteEvent,
   CorruptionDetailsProgressEvent
 } from '@contexts/SignalRContext/types';
-import { Card } from '@components/ui/Card';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Button } from '@components/ui/Button';
@@ -785,278 +784,268 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
   return (
     <>
-      <Card>
+      <AccordionSection
+        title={t('management.corruption.title')}
+        description={t('management.corruption.summary')}
+        icon={AlertTriangle}
+        iconColor="var(--theme-icon-yellow)"
+        isExpanded={sectionExpanded}
+        onToggle={() => setSectionExpanded((prev) => !prev)}
+        badge={headerActions}
+      >
         <div className="space-y-3">
-          <AccordionSection
-            title={t('management.corruption.title')}
-            icon={AlertTriangle}
-            iconColor="var(--theme-icon-yellow)"
-            isExpanded={sectionExpanded}
-            onToggle={() => setSectionExpanded((prev) => !prev)}
-            badge={headerActions}
-          >
-            <div className="space-y-3">
-              {controlSelectors}
-              {/* Previous Results Badge */}
-              {hasCachedResults && lastDetectionTime && !isScanning && !isLoading && (
-                <Alert color="blue">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">
-                      {t('common.resultsFromPreviousScan')}
-                    </span>
-                    <span className="text-xs text-themed-muted">{formattedLastDetection}</span>
-                  </div>
-                </Alert>
-              )}
+          {controlSelectors}
+          {/* Previous Results Badge */}
+          {hasCachedResults && lastDetectionTime && !isScanning && !isLoading && (
+            <Alert color="blue">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium">{t('common.resultsFromPreviousScan')}</span>
+                <span className="text-xs text-themed-muted">{formattedLastDetection}</span>
+              </div>
+            </Alert>
+          )}
 
-              {/* Scanning Status */}
-              {isScanning && <LoadingState message={t('management.corruption.scanningMessage')} />}
+          {/* Scanning Status */}
+          {isScanning && <LoadingState message={t('management.corruption.scanningMessage')} />}
 
-              {/* Directory Missing Warning */}
-              {directoryMissing && (
-                <Alert color="red">
-                  <div>
-                    <p className="font-medium">
-                      {!logsExist && !cacheExist
-                        ? t(
-                            'management.corruption.alerts.logsAndCacheMissing',
-                            'Logs and cache files do not exist'
-                          )
-                        : !logsExist
-                          ? t(
-                              'management.corruption.alerts.logsMissing',
-                              'Logs directory does not exist'
-                            )
-                          : t(
-                              'management.corruption.alerts.cacheMissing',
-                              'Cache directory does not exist'
-                            )}
-                    </p>
-                    <p className="text-sm mt-1">
-                      {t(
-                        'management.corruption.alerts.directoryNotFound',
-                        'The required directories were not found. Ensure they are mounted correctly in docker-compose.'
-                      )}
-                    </p>
-                  </div>
-                </Alert>
-              )}
-
-              {/* Read-Only Warning */}
-              {isReadOnly && !directoryMissing && (
-                <Alert color="orange">
-                  <div>
-                    <p className="font-medium">
-                      {logsReadOnly && cacheReadOnly
-                        ? t('management.corruption.alerts.logsAndCacheReadOnly')
-                        : logsReadOnly
-                          ? t('management.corruption.alerts.logsReadOnly')
-                          : t('management.corruption.alerts.cacheReadOnly')}
-                    </p>
-                    <p className="text-sm mt-1">
-                      {t('management.corruption.alerts.requiresWriteAccess')}{' '}
-                      <code className="bg-themed-tertiary px-1 rounded">:ro</code>{' '}
-                      {t('management.corruption.alerts.fromVolumeMounts')}
-                    </p>
-                  </div>
-                </Alert>
-              )}
-
-              {/* Docker Socket Warning */}
-              {!isDockerAvailable && !hasPermissionIssue && (
-                <Alert color="orange">
-                  <div className="min-w-0">
-                    <p className="font-medium">
-                      {t('management.corruption.alerts.dockerSocketUnavailable')}
-                    </p>
-                    <p className="text-sm mt-1">
-                      {t('management.corruption.alerts.requiresNginxSignal')}
-                    </p>
-                    <p className="text-sm mt-2">
-                      {t('management.logRemoval.alerts.dockerSocket.addVolumes')}
-                    </p>
-                    <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1 break-all">
-                      - /var/run/docker.sock:/var/run/docker.sock
-                    </code>
-                  </div>
-                </Alert>
-              )}
-
-              {/* Content */}
-              {showReadOnlyPlaceholder ? (
-                <ReadOnlyBadge
-                  message={
-                    directoryMissing
+          {/* Directory Missing Warning */}
+          {directoryMissing && (
+            <Alert color="red">
+              <div>
+                <p className="font-medium">
+                  {!logsExist && !cacheExist
+                    ? t(
+                        'management.corruption.alerts.logsAndCacheMissing',
+                        'Logs and cache files do not exist'
+                      )
+                    : !logsExist
                       ? t(
-                          'management.corruption.directoryMissing',
-                          'Required directories not found'
+                          'management.corruption.alerts.logsMissing',
+                          'Logs directory does not exist'
                         )
-                      : isReadOnly
-                        ? t('management.corruption.readOnly')
-                        : t('management.corruption.dockerSocketRequired')
-                  }
-                />
-              ) : (
-                <>
-                  {isLoading && !isScanning ? (
-                    <LoadingState message={t('management.corruption.loadingCachedData')} />
-                  ) : hasCachedResults && corruptionList.length > 0 ? (
-                    <div className="space-y-3">
-                      {/* Batch multi-select toolbar: select-all (visible). The selected
+                      : t(
+                          'management.corruption.alerts.cacheMissing',
+                          'Cache directory does not exist'
+                        )}
+                </p>
+                <p className="text-sm mt-1">
+                  {t(
+                    'management.corruption.alerts.directoryNotFound',
+                    'The required directories were not found. Ensure they are mounted correctly in docker-compose.'
+                  )}
+                </p>
+              </div>
+            </Alert>
+          )}
+
+          {/* Read-Only Warning */}
+          {isReadOnly && !directoryMissing && (
+            <Alert color="orange">
+              <div>
+                <p className="font-medium">
+                  {logsReadOnly && cacheReadOnly
+                    ? t('management.corruption.alerts.logsAndCacheReadOnly')
+                    : logsReadOnly
+                      ? t('management.corruption.alerts.logsReadOnly')
+                      : t('management.corruption.alerts.cacheReadOnly')}
+                </p>
+                <p className="text-sm mt-1">
+                  {t('management.corruption.alerts.requiresWriteAccess')}{' '}
+                  <code className="bg-themed-tertiary px-1 rounded">:ro</code>{' '}
+                  {t('management.corruption.alerts.fromVolumeMounts')}
+                </p>
+              </div>
+            </Alert>
+          )}
+
+          {/* Docker Socket Warning */}
+          {!isDockerAvailable && !hasPermissionIssue && (
+            <Alert color="orange">
+              <div className="min-w-0">
+                <p className="font-medium">
+                  {t('management.corruption.alerts.dockerSocketUnavailable')}
+                </p>
+                <p className="text-sm mt-1">
+                  {t('management.corruption.alerts.requiresNginxSignal')}
+                </p>
+                <p className="text-sm mt-2">
+                  {t('management.logRemoval.alerts.dockerSocket.addVolumes')}
+                </p>
+                <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1 break-all">
+                  - /var/run/docker.sock:/var/run/docker.sock
+                </code>
+              </div>
+            </Alert>
+          )}
+
+          {/* Content */}
+          {showReadOnlyPlaceholder ? (
+            <ReadOnlyBadge
+              message={
+                directoryMissing
+                  ? t('management.corruption.directoryMissing', 'Required directories not found')
+                  : isReadOnly
+                    ? t('management.corruption.readOnly')
+                    : t('management.corruption.dockerSocketRequired')
+              }
+            />
+          ) : (
+            <>
+              {isLoading && !isScanning ? (
+                <LoadingState message={t('management.corruption.loadingCachedData')} />
+              ) : hasCachedResults && corruptionList.length > 0 ? (
+                <div className="space-y-3">
+                  {/* Batch multi-select toolbar: select-all (visible). The selected
                           count shows once in the section header badge; Remove Selected lives
                           in the header cluster (with Remove All). Wraps at 390px. */}
-                      <div className="flex flex-wrap items-center gap-3">
-                        <Checkbox
-                          checked={allVisibleSelected}
-                          onChange={() =>
-                            selection.setMany(visibleServiceKeys, !allVisibleSelected)
-                          }
-                          disabled={batchGateActive || visibleServiceKeys.length === 0}
-                          label={
-                            allVisibleSelected
-                              ? t('management.batchSelect.deselectAll')
-                              : t('management.batchSelect.selectAll')
-                          }
-                        />
-                      </div>
-                      {corruptionList.map(([service, count]) => (
-                        <div key={`corruption-${service}`} className="flex items-start gap-2">
-                          <Checkbox
-                            checked={selection.isSelected(service)}
-                            onChange={() => selection.toggle(service)}
-                            disabled={
-                              batchGateActive ||
-                              removingCorruption === service ||
-                              isCorruptionRemovalPending(service)
-                            }
-                            aria-label={t('management.batchSelect.selectItem', {
-                              name: getServiceDisplayName(service)
-                            })}
-                            className="flex-shrink-0 mt-4"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <AccordionSection
-                              title={getServiceDisplayName(service)}
-                              count={count}
-                              isExpanded={expandedCorruptionService === service}
-                              onToggle={() => toggleCorruptionDetails(service)}
-                            >
-                              {loadingDetailsServices.has(service) ? (
-                                <LoadingState
-                                  message={t('management.corruption.loadingDetails')}
-                                  submessage={
-                                    detailsProgress[service] != null
-                                      ? `${Math.round(detailsProgress[service])}%`
-                                      : undefined
-                                  }
-                                />
-                              ) : corruptionDetails[service] &&
-                                corruptionDetails[service].length > 0 ? (
-                                <div className="flex flex-col gap-3 max-h-96 overflow-y-auto">
-                                  {corruptionDetails[service].map((chunk, idx) => (
-                                    <div key={idx} className="p-3 bg-themed-tertiary rounded-lg">
-                                      <div className="flex items-start gap-2">
-                                        <div className="flex-1 min-w-0">
-                                          <div className="mb-1">
-                                            <Tooltip content={chunk.url}>
-                                              <span className="text-sm font-medium text-themed-primary truncate block font-mono">
-                                                {chunk.url}
-                                              </span>
-                                            </Tooltip>
-                                          </div>
-                                          <div className="flex items-center gap-3 text-xs text-themed-muted">
-                                            <span>
-                                              {isRedownloadMode
-                                                ? t('management.corruption.redownloadCount')
-                                                : t('management.corruption.missCount')}{' '}
-                                              <strong className="text-themed-error">
-                                                {chunk.miss_count || 0}
-                                              </strong>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Checkbox
+                      checked={allVisibleSelected}
+                      onChange={() => selection.setMany(visibleServiceKeys, !allVisibleSelected)}
+                      disabled={batchGateActive || visibleServiceKeys.length === 0}
+                      label={
+                        allVisibleSelected
+                          ? t('management.batchSelect.deselectAll')
+                          : t('management.batchSelect.selectAll')
+                      }
+                    />
+                  </div>
+                  {corruptionList.map(([service, count]) => (
+                    <div key={`corruption-${service}`} className="flex items-start gap-2">
+                      <Checkbox
+                        checked={selection.isSelected(service)}
+                        onChange={() => selection.toggle(service)}
+                        disabled={
+                          batchGateActive ||
+                          removingCorruption === service ||
+                          isCorruptionRemovalPending(service)
+                        }
+                        aria-label={t('management.batchSelect.selectItem', {
+                          name: getServiceDisplayName(service)
+                        })}
+                        className="flex-shrink-0 mt-4"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <AccordionSection
+                          title={getServiceDisplayName(service)}
+                          count={count}
+                          isExpanded={expandedCorruptionService === service}
+                          onToggle={() => toggleCorruptionDetails(service)}
+                        >
+                          {loadingDetailsServices.has(service) ? (
+                            <LoadingState
+                              message={t('management.corruption.loadingDetails')}
+                              submessage={
+                                detailsProgress[service] != null
+                                  ? `${Math.round(detailsProgress[service])}%`
+                                  : undefined
+                              }
+                            />
+                          ) : corruptionDetails[service] &&
+                            corruptionDetails[service].length > 0 ? (
+                            <div className="flex flex-col gap-3 max-h-96 overflow-y-auto">
+                              {corruptionDetails[service].map((chunk, idx) => (
+                                <div key={idx} className="p-3 bg-themed-tertiary rounded-lg">
+                                  <div className="flex items-start gap-2">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="mb-1">
+                                        <Tooltip content={chunk.url}>
+                                          <span className="text-sm font-medium text-themed-primary truncate block font-mono">
+                                            {chunk.url}
+                                          </span>
+                                        </Tooltip>
+                                      </div>
+                                      <div className="flex items-center gap-3 text-xs text-themed-muted">
+                                        <span>
+                                          {isRedownloadMode
+                                            ? t('management.corruption.redownloadCount')
+                                            : t('management.corruption.missCount')}{' '}
+                                          <strong className="text-themed-error">
+                                            {chunk.miss_count || 0}
+                                          </strong>
+                                        </span>
+                                        {chunk.cache_file_path && (
+                                          <Tooltip content={chunk.cache_file_path}>
+                                            <span className="truncate">
+                                              {t('management.corruption.cache')}{' '}
+                                              <code className="text-xs">
+                                                {chunk.cache_file_path.split('/').pop() ||
+                                                  chunk.cache_file_path.split('\\').pop()}
+                                              </code>
                                             </span>
-                                            {chunk.cache_file_path && (
-                                              <Tooltip content={chunk.cache_file_path}>
-                                                <span className="truncate">
-                                                  {t('management.corruption.cache')}{' '}
-                                                  <code className="text-xs">
-                                                    {chunk.cache_file_path.split('/').pop() ||
-                                                      chunk.cache_file_path.split('\\').pop()}
-                                                  </code>
-                                                </span>
-                                              </Tooltip>
-                                            )}
-                                          </div>
-                                        </div>
+                                          </Tooltip>
+                                        )}
                                       </div>
                                     </div>
-                                  ))}
+                                  </div>
                                 </div>
-                              ) : (
-                                <div className="text-center py-6">
-                                  <p className="text-sm text-themed-muted">
-                                    {t('management.corruption.noDetailsAvailable')}
-                                  </p>
-                                </div>
-                              )}
-                              <div className="flex justify-end pt-3 border-t border-themed-secondary mt-3">
-                                <Tooltip content={t('management.corruption.deleteCorrupted')}>
-                                  <Button
-                                    onClick={() => handleRemoveCorruption(service)}
-                                    awaitPermissions
-                                    loading={
-                                      removingCorruption === service ||
-                                      isCorruptionRemovalPending(service)
-                                    }
-                                    disabled={
-                                      mockMode ||
-                                      anyCorruptionRemovalPending ||
-                                      isCorruptionRemovalActive ||
-                                      loadingDetailsServices.has(service) ||
-                                      authMode !== 'authenticated' ||
-                                      logsReadOnly ||
-                                      cacheReadOnly ||
-                                      !isDockerAvailable
-                                    }
-                                    variant="filled"
-                                    color="red"
-                                    size="sm"
-                                  >
-                                    {removingCorruption !== service &&
-                                    !isCorruptionRemovalPending(service)
-                                      ? t('management.corruption.removeAll')
-                                      : t('management.corruption.removing')}
-                                  </Button>
-                                </Tooltip>
-                              </div>
-                            </AccordionSection>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-center py-6">
+                              <p className="text-sm text-themed-muted">
+                                {t('management.corruption.noDetailsAvailable')}
+                              </p>
+                            </div>
+                          )}
+                          <div className="flex justify-end pt-3 border-t border-themed-secondary mt-3">
+                            <Tooltip content={t('management.corruption.deleteCorrupted')}>
+                              <Button
+                                onClick={() => handleRemoveCorruption(service)}
+                                awaitPermissions
+                                loading={
+                                  removingCorruption === service ||
+                                  isCorruptionRemovalPending(service)
+                                }
+                                disabled={
+                                  mockMode ||
+                                  anyCorruptionRemovalPending ||
+                                  isCorruptionRemovalActive ||
+                                  loadingDetailsServices.has(service) ||
+                                  authMode !== 'authenticated' ||
+                                  logsReadOnly ||
+                                  cacheReadOnly ||
+                                  !isDockerAvailable
+                                }
+                                variant="filled"
+                                color="red"
+                                size="sm"
+                              >
+                                {removingCorruption !== service &&
+                                !isCorruptionRemovalPending(service)
+                                  ? t('management.corruption.removeAll')
+                                  : t('management.corruption.removing')}
+                              </Button>
+                            </Tooltip>
                           </div>
-                        </div>
-                      ))}
+                        </AccordionSection>
+                      </div>
                     </div>
-                  ) : hasCachedResults && corruptionList.length === 0 ? (
-                    <div className="text-center py-6">
-                      <p className="text-sm text-themed-muted">
-                        {t('management.corruption.emptyStates.noCorrupted.title')}
-                      </p>
-                      <p className="text-xs text-themed-muted">
-                        {t('management.corruption.emptyStates.noCorrupted.subtitle')}
-                      </p>
-                    </div>
-                  ) : !hasCachedResults && !isScanning && !isLoading ? (
-                    <div className="text-center py-6">
-                      <p className="text-sm text-themed-muted">
-                        {t('management.corruption.emptyStates.noCachedData.title')}
-                      </p>
-                      <p className="text-xs text-themed-muted">
-                        {t('management.corruption.emptyStates.noCachedData.subtitle')}
-                      </p>
-                    </div>
-                  ) : null}
-                </>
-              )}
-            </div>
-          </AccordionSection>
+                  ))}
+                </div>
+              ) : hasCachedResults && corruptionList.length === 0 ? (
+                <div className="text-center py-6">
+                  <p className="text-sm text-themed-muted">
+                    {t('management.corruption.emptyStates.noCorrupted.title')}
+                  </p>
+                  <p className="text-xs text-themed-muted">
+                    {t('management.corruption.emptyStates.noCorrupted.subtitle')}
+                  </p>
+                </div>
+              ) : !hasCachedResults && !isScanning && !isLoading ? (
+                <div className="text-center py-6">
+                  <p className="text-sm text-themed-muted">
+                    {t('management.corruption.emptyStates.noCachedData.title')}
+                  </p>
+                  <p className="text-xs text-themed-muted">
+                    {t('management.corruption.emptyStates.noCachedData.subtitle')}
+                  </p>
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
-      </Card>
+      </AccordionSection>
 
       {/* Remove All Corrupted Confirmation Modal */}
       <Modal

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Logs, PlayCircle, RotateCcw } from 'lucide-react';
 import ApiService from '@services/api.service';
-import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
@@ -327,95 +326,92 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
   return (
     <>
-      <Card>
-        <AccordionSection
-          title={t('management.datasources.title')}
-          titleAccessory={helpContent}
-          icon={Logs}
-          iconColor="var(--theme-icon-purple)"
-          isExpanded={isExpanded}
-          onToggle={() => setIsExpanded((prev) => !prev)}
-          badge={headerActions}
-        >
-          {loading ? (
-            <LoadingState message={t('management.datasources.loadingDatasources')} />
-          ) : (
-            <div className="space-y-3">
-              {datasources.map((ds) => {
-                const position = getPositionForDatasource(ds.name);
-                const isDatasourceExpanded = expandedDatasources.has(ds.name);
+      <AccordionSection
+        title={t('management.datasources.title')}
+        description={t('management.datasources.summary')}
+        titleAccessory={helpContent}
+        icon={Logs}
+        iconColor="var(--theme-icon-purple)"
+        isExpanded={isExpanded}
+        onToggle={() => setIsExpanded((prev) => !prev)}
+        badge={headerActions}
+      >
+        {loading ? (
+          <LoadingState message={t('management.datasources.loadingDatasources')} />
+        ) : (
+          <div className="space-y-3">
+            {datasources.map((ds) => {
+              const position = getPositionForDatasource(ds.name);
+              const isDatasourceExpanded = expandedDatasources.has(ds.name);
 
-                return (
-                  <DatasourceListItem
-                    key={ds.name}
-                    name={ds.name}
-                    path={ds.logsPath}
-                    isExpanded={isDatasourceExpanded}
-                    onToggle={() => toggleExpanded(ds.name)}
-                    enabled={ds.enabled}
-                  >
-                    {/* Expanded content - Position info */}
-                    <div className="space-y-3">
-                      {/* Access Log Section */}
-                      <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-themed-tertiary rounded-lg">
-                        <div className="min-w-0">
-                          <div className="font-mono text-sm text-themed-primary">access.log</div>
-                          <div className="text-xs text-themed-muted">
-                            {formatPosition(position)}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <Button
-                            variant="filled"
-                            color="gray"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setResetModal({ datasource: ds.name, all: false });
-                            }}
-                            awaitPermissions
-                            disabled={
-                              actionLoading !== null ||
-                              isProcessing ||
-                              mockMode ||
-                              !isAdmin ||
-                              !ds.enabled
-                            }
-                          >
-                            {t('management.datasources.reposition')}
-                          </Button>
-                          <Button
-                            variant="filled"
-                            color="green"
-                            size="sm"
-                            leftSection={<PlayCircle className="w-3 h-3" />}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleProcessDatasource(ds.name);
-                            }}
-                            awaitPermissions
-                            disabled={
-                              actionLoading !== null ||
-                              isProcessing ||
-                              mockMode ||
-                              !isAdmin ||
-                              !ds.enabled ||
-                              position?.totalLines === 0
-                            }
-                            loading={actionLoading === `access-${ds.name}`}
-                          >
-                            {t('common.process')}
-                          </Button>
-                        </div>
+              return (
+                <DatasourceListItem
+                  key={ds.name}
+                  name={ds.name}
+                  path={ds.logsPath}
+                  isExpanded={isDatasourceExpanded}
+                  onToggle={() => toggleExpanded(ds.name)}
+                  enabled={ds.enabled}
+                >
+                  {/* Expanded content - Position info */}
+                  <div className="space-y-3">
+                    {/* Access Log Section */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-themed-tertiary rounded-lg">
+                      <div className="min-w-0">
+                        <div className="font-mono text-sm text-themed-primary">access.log</div>
+                        <div className="text-xs text-themed-muted">{formatPosition(position)}</div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <Button
+                          variant="filled"
+                          color="gray"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setResetModal({ datasource: ds.name, all: false });
+                          }}
+                          awaitPermissions
+                          disabled={
+                            actionLoading !== null ||
+                            isProcessing ||
+                            mockMode ||
+                            !isAdmin ||
+                            !ds.enabled
+                          }
+                        >
+                          {t('management.datasources.reposition')}
+                        </Button>
+                        <Button
+                          variant="filled"
+                          color="green"
+                          size="sm"
+                          leftSection={<PlayCircle className="w-3 h-3" />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleProcessDatasource(ds.name);
+                          }}
+                          awaitPermissions
+                          disabled={
+                            actionLoading !== null ||
+                            isProcessing ||
+                            mockMode ||
+                            !isAdmin ||
+                            !ds.enabled ||
+                            position?.totalLines === 0
+                          }
+                          loading={actionLoading === `access-${ds.name}`}
+                        >
+                          {t('common.process')}
+                        </Button>
                       </div>
                     </div>
-                  </DatasourceListItem>
-                );
-              })}
-            </div>
-          )}
-        </AccordionSection>
-      </Card>
+                  </div>
+                </DatasourceListItem>
+              );
+            })}
+          </div>
+        )}
+      </AccordionSection>
 
       {/* Reposition Log Modal */}
       <Modal

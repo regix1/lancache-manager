@@ -6,6 +6,8 @@ import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 interface AccordionSectionProps {
   title: string;
   titleAccessory?: React.ReactNode;
+  /** One-line summary under the title so a collapsed section still says what it does. */
+  description?: string;
   count?: number;
   icon?: LucideIcon;
   iconColor?: string;
@@ -18,6 +20,7 @@ interface AccordionSectionProps {
 export const AccordionSection: React.FC<AccordionSectionProps> = ({
   title,
   titleAccessory,
+  description,
   count,
   icon: Icon,
   iconColor = 'var(--theme-accent)',
@@ -125,38 +128,47 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
             </div>
           )}
 
-          {/* Title — wraps to two lines before ellipsizing so narrow screens
-              keep the meaningful trailing words instead of cutting them off */}
-          <span
-            className={`font-semibold transition-colors duration-200 min-w-0 line-clamp-2 ${
-              isExpanded ? 'text-themed-primary' : 'text-themed-secondary'
-            }`}
-          >
-            {title}
-          </span>
+          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+            <div className="flex items-center gap-2 min-w-0">
+              {/* Title — wraps to two lines before ellipsizing so narrow screens
+                  keep the meaningful trailing words instead of cutting them off */}
+              <span
+                className={`font-semibold transition-colors duration-200 min-w-0 line-clamp-2 ${
+                  isExpanded ? 'text-themed-primary' : 'text-themed-secondary'
+                }`}
+              >
+                {title}
+              </span>
 
-          {titleAccessory && (
-            <span className="inline-flex flex-shrink-0 items-center">{titleAccessory}</span>
-          )}
+              {titleAccessory && (
+                <span className="inline-flex flex-shrink-0 items-center">{titleAccessory}</span>
+              )}
 
-          {/* Count Badge */}
-          {count !== undefined && (
-            <span
-              className={`themed-badge badge-count font-semibold transition duration-300 flex-shrink-0 ${
-                isExpanded ? 'scale-105' : 'scale-100 bg-themed-tertiary text-themed-muted'
-              }`}
-              style={
-                isExpanded
-                  ? {
-                      backgroundColor: `${iconColor.replace(')', '-muted)')}`,
-                      color: iconColor
-                    }
-                  : undefined
-              }
-            >
-              {formatCount(count)}
-            </span>
-          )}
+              {/* Count Badge */}
+              {count !== undefined && (
+                <span
+                  className={`themed-badge badge-count font-semibold transition duration-300 flex-shrink-0 ${
+                    isExpanded ? 'scale-105' : 'scale-100 bg-themed-tertiary text-themed-muted'
+                  }`}
+                  style={
+                    isExpanded
+                      ? {
+                          backgroundColor: `${iconColor.replace(')', '-muted)')}`,
+                          color: iconColor
+                        }
+                      : undefined
+                  }
+                >
+                  {formatCount(count)}
+                </span>
+              )}
+            </div>
+
+            {/* Kept visible while expanded too - a stable header beats one that reflows. */}
+            {description && (
+              <span className="text-xs text-themed-muted line-clamp-2">{description}</span>
+            )}
+          </div>
         </div>
 
         {/* Action badge + chevron cluster — stays inline on the title row at every

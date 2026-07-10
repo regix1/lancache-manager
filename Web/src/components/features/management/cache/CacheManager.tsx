@@ -14,7 +14,6 @@ import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermission
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { showPermissionBlock } from '@utils/permissionUi';
-import { Card } from '@components/ui/Card';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -343,265 +342,259 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
   return (
     <>
-      <Card>
-        <AccordionSection
-          title={t('management.cache.title')}
-          icon={Server}
-          iconColor="var(--theme-icon-green)"
-          isExpanded={sectionExpanded}
-          onToggle={() => setSectionExpanded((prev) => !prev)}
-          badge={headerActions}
-        >
-          <div className="space-y-3">
-            {/* Read-Only Warning */}
-            {cacheReadOnly && (
-              <Alert color="orange" className="mb-6">
-                <div>
-                  <p className="font-medium">{t('management.cache.alerts.readOnly.title')}</p>
-                  <p className="text-sm mt-1">
-                    {t('management.cache.alerts.readOnly.descriptionPrefix')}{' '}
-                    <code className="bg-themed-tertiary px-1 rounded">:ro</code>{' '}
-                    {t('management.cache.alerts.readOnly.descriptionSuffix')}
+      <AccordionSection
+        title={t('management.cache.title')}
+        description={t('management.cache.summary')}
+        icon={Server}
+        iconColor="var(--theme-icon-green)"
+        isExpanded={sectionExpanded}
+        onToggle={() => setSectionExpanded((prev) => !prev)}
+        badge={headerActions}
+      >
+        <div className="space-y-3">
+          {/* Read-Only Warning */}
+          {cacheReadOnly && (
+            <Alert color="orange" className="mb-6">
+              <div>
+                <p className="font-medium">{t('management.cache.alerts.readOnly.title')}</p>
+                <p className="text-sm mt-1">
+                  {t('management.cache.alerts.readOnly.descriptionPrefix')}{' '}
+                  <code className="bg-themed-tertiary px-1 rounded">:ro</code>{' '}
+                  {t('management.cache.alerts.readOnly.descriptionSuffix')}
+                </p>
+              </div>
+            </Alert>
+          )}
+
+          {showPermissionBlock(checkingPermissions, cacheReadOnly) ? (
+            <ReadOnlyBadge />
+          ) : (
+            <>
+              {/* Cache Size Info */}
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-themed-primary font-medium text-sm">
+                    {t('management.cache.cacheSize')}
+                  </p>
+                  <div className="flex-shrink-0">
+                    <Tooltip content={t('management.cache.refreshCacheSize')} position="top">
+                      <Button
+                        variant="filled"
+                        color="gray"
+                        size="sm"
+                        onClick={handleRefreshCacheSize}
+                        disabled={cacheSizeLoading || isAnyRemovalRunning || isCacheSizeScanRunning}
+                      >
+                        {cacheSizeLoading ? (
+                          <LoadingSpinner inline size="sm" />
+                        ) : (
+                          <RefreshCw className="w-3.5 h-3.5 text-themed-muted" />
+                        )}
+                      </Button>
+                    </Tooltip>
+                  </div>
+                </div>
+
+                {cacheSizeError ? (
+                  <p className="text-xs text-themed-error">{cacheSizeError}</p>
+                ) : cacheSizeLoading && !cacheSize ? (
+                  <div className="flex items-center gap-2 text-xs text-themed-muted">
+                    <LoadingSpinner inline size="xs" />
+                    <span>{t('management.cache.calculatingSize')}</span>
+                  </div>
+                ) : cacheSize ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                    <div className="p-3 bg-themed-tertiary rounded-lg">
+                      <p className="text-xs text-themed-muted">{t('management.cache.cacheSize')}</p>
+                      <p className="text-sm font-medium text-themed-primary truncate">
+                        {formatBytes(cacheSize.totalBytes)}
+                      </p>
+                    </div>
+                    <div className="p-3 bg-themed-tertiary rounded-lg">
+                      <p className="text-xs text-themed-muted">{t('management.cache.files')}</p>
+                      <p className="text-sm font-medium text-themed-primary">
+                        {formatCount(cacheSize.totalFiles)}
+                      </p>
+                    </div>
+                    <div className="p-3 bg-themed-tertiary rounded-lg">
+                      <p className="text-xs text-themed-muted">
+                        {t('management.cache.directories')}
+                      </p>
+                      <p className="text-sm font-medium text-themed-primary">
+                        {formatCount(cacheSize.hexDirectories)}
+                      </p>
+                    </div>
+                    {getEstimatedTime() && (
+                      <div className="p-3 bg-themed-tertiary rounded-lg">
+                        <p className="text-xs text-themed-muted">
+                          {t('management.cache.estDeletionTime')}
+                        </p>
+                        <p className="text-sm font-medium text-themed-primary">
+                          {getEstimatedTime()}
+                        </p>
+                      </div>
+                    )}
+                    <div className="p-3 bg-themed-tertiary rounded-lg">
+                      <p className="text-xs text-themed-muted">
+                        {cacheSize.isCached
+                          ? t('management.cache.cachedScan', 'Cached scan')
+                          : t('management.cache.freshScan', 'Fresh scan')}
+                      </p>
+                      <p className="text-sm font-medium text-themed-primary">
+                        {formatScanTime(cacheSize.timestamp)}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="py-6 text-sm text-themed-muted text-center">
+                    {t('management.cache.clickRefreshToCalculate')}
+                  </p>
+                )}
+              </div>
+
+              {/* Configuration Options */}
+              <div className="p-4 rounded-lg bg-themed-tertiary/30">
+                {/* Delete Mode Configuration */}
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-sm font-medium text-themed-primary">
+                      {t('management.cache.deletionMethod')}
+                    </p>
+                    <p className="text-xs text-themed-muted">
+                      {deleteMode === 'rsync'
+                        ? t('management.cache.deletionMethods.rsyncDesc')
+                        : deleteMode === 'full'
+                          ? t('management.cache.deletionMethods.fullDesc')
+                          : t('management.cache.deletionMethods.preserveDesc')}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      className="flex-1 basis-0"
+                      variant={deleteMode === 'preserve' ? 'filled' : 'default'}
+                      color={deleteMode === 'preserve' ? 'blue' : undefined}
+                      onClick={() => handleDeleteModeChange('preserve')}
+                      awaitPermissions
+                      loading={deleteModeLoading}
+                      disabled={
+                        mockMode ||
+                        isAnyRemovalRunning ||
+                        authMode !== 'authenticated' ||
+                        cacheReadOnly
+                      }
+                      title={
+                        cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined
+                      }
+                    >
+                      {t('management.cache.deleteModes.preserve')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="flex-1 basis-0"
+                      variant={deleteMode === 'full' ? 'filled' : 'default'}
+                      color={deleteMode === 'full' ? 'green' : undefined}
+                      onClick={() => handleDeleteModeChange('full')}
+                      awaitPermissions
+                      loading={deleteModeLoading}
+                      disabled={
+                        mockMode ||
+                        isAnyRemovalRunning ||
+                        authMode !== 'authenticated' ||
+                        cacheReadOnly
+                      }
+                      title={
+                        cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined
+                      }
+                    >
+                      {t('management.cache.deleteModes.removeAll')}
+                    </Button>
+                    {rsyncAvailable && (
+                      <Button
+                        size="sm"
+                        className="flex-1 basis-0"
+                        variant={deleteMode === 'rsync' ? 'filled' : 'default'}
+                        color={deleteMode === 'rsync' ? 'purple' : undefined}
+                        onClick={() => handleDeleteModeChange('rsync')}
+                        awaitPermissions
+                        loading={deleteModeLoading}
+                        disabled={
+                          mockMode ||
+                          isAnyRemovalRunning ||
+                          authMode !== 'authenticated' ||
+                          cacheReadOnly
+                        }
+                        title={
+                          cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined
+                        }
+                      >
+                        {t('management.cache.deleteModes.rsync')}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Datasource list */}
+              <div className="space-y-3">
+                {datasources.map((ds) => (
+                  <DatasourceListItem
+                    key={ds.name}
+                    name={ds.name}
+                    path={ds.cachePath}
+                    isExpanded={expandedDatasources.has(ds.name)}
+                    onToggle={() => toggleExpanded(ds.name)}
+                    enabled={ds.enabled && ds.cacheWritable}
+                  >
+                    {/* Expanded content */}
+                    <div className="pt-3 flex justify-end">
+                      <Button
+                        variant="filled"
+                        color="red"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleClearCache(ds.name);
+                        }}
+                        awaitPermissions
+                        loading={isCacheClearing && clearingDatasource === ds.name}
+                        disabled={
+                          actionLoading ||
+                          isCacheClearActive ||
+                          mockMode ||
+                          authMode !== 'authenticated' ||
+                          cacheReadOnly ||
+                          !ds.cacheWritable
+                        }
+                        title={
+                          !ds.cacheWritable
+                            ? t('management.cache.alerts.readOnly.title')
+                            : !isCacheClearActive && (isAnyRemovalRunning || isCacheSizeScanRunning)
+                              ? t('common.notifications.willQueueBehindCurrent')
+                              : t('management.cache.clearDatasourceCache', {
+                                  datasource: ds.name
+                                })
+                        }
+                      >
+                        {isCacheClearing && clearingDatasource === ds.name
+                          ? t('common.clearing')
+                          : t('management.cache.clearCache')}
+                      </Button>
+                    </div>
+                  </DatasourceListItem>
+                ))}
+
+                <div className="border-t border-themed-secondary pt-3 mt-3">
+                  <p className="text-xs text-themed-muted flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-themed-accent flex-shrink-0" />
+                    <span>{t('management.cache.clearingCacheDeletes')}</span>
                   </p>
                 </div>
-              </Alert>
-            )}
-
-            {showPermissionBlock(checkingPermissions, cacheReadOnly) ? (
-              <ReadOnlyBadge />
-            ) : (
-              <>
-                {/* Cache Size Info */}
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-themed-primary font-medium text-sm">
-                      {t('management.cache.cacheSize')}
-                    </p>
-                    <div className="flex-shrink-0">
-                      <Tooltip content={t('management.cache.refreshCacheSize')} position="top">
-                        <Button
-                          variant="filled"
-                          color="gray"
-                          size="sm"
-                          onClick={handleRefreshCacheSize}
-                          disabled={
-                            cacheSizeLoading || isAnyRemovalRunning || isCacheSizeScanRunning
-                          }
-                        >
-                          {cacheSizeLoading ? (
-                            <LoadingSpinner inline size="sm" />
-                          ) : (
-                            <RefreshCw className="w-3.5 h-3.5 text-themed-muted" />
-                          )}
-                        </Button>
-                      </Tooltip>
-                    </div>
-                  </div>
-
-                  {cacheSizeError ? (
-                    <p className="text-xs text-themed-error">{cacheSizeError}</p>
-                  ) : cacheSizeLoading && !cacheSize ? (
-                    <div className="flex items-center gap-2 text-xs text-themed-muted">
-                      <LoadingSpinner inline size="xs" />
-                      <span>{t('management.cache.calculatingSize')}</span>
-                    </div>
-                  ) : cacheSize ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                      <div className="p-3 bg-themed-tertiary rounded-lg">
-                        <p className="text-xs text-themed-muted">
-                          {t('management.cache.cacheSize')}
-                        </p>
-                        <p className="text-sm font-medium text-themed-primary truncate">
-                          {formatBytes(cacheSize.totalBytes)}
-                        </p>
-                      </div>
-                      <div className="p-3 bg-themed-tertiary rounded-lg">
-                        <p className="text-xs text-themed-muted">{t('management.cache.files')}</p>
-                        <p className="text-sm font-medium text-themed-primary">
-                          {formatCount(cacheSize.totalFiles)}
-                        </p>
-                      </div>
-                      <div className="p-3 bg-themed-tertiary rounded-lg">
-                        <p className="text-xs text-themed-muted">
-                          {t('management.cache.directories')}
-                        </p>
-                        <p className="text-sm font-medium text-themed-primary">
-                          {formatCount(cacheSize.hexDirectories)}
-                        </p>
-                      </div>
-                      {getEstimatedTime() && (
-                        <div className="p-3 bg-themed-tertiary rounded-lg">
-                          <p className="text-xs text-themed-muted">
-                            {t('management.cache.estDeletionTime')}
-                          </p>
-                          <p className="text-sm font-medium text-themed-primary">
-                            {getEstimatedTime()}
-                          </p>
-                        </div>
-                      )}
-                      <div className="p-3 bg-themed-tertiary rounded-lg">
-                        <p className="text-xs text-themed-muted">
-                          {cacheSize.isCached
-                            ? t('management.cache.cachedScan', 'Cached scan')
-                            : t('management.cache.freshScan', 'Fresh scan')}
-                        </p>
-                        <p className="text-sm font-medium text-themed-primary">
-                          {formatScanTime(cacheSize.timestamp)}
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="py-6 text-sm text-themed-muted text-center">
-                      {t('management.cache.clickRefreshToCalculate')}
-                    </p>
-                  )}
-                </div>
-
-                {/* Configuration Options */}
-                <div className="p-4 rounded-lg bg-themed-tertiary/30">
-                  {/* Delete Mode Configuration */}
-                  <div className="space-y-2">
-                    <div>
-                      <p className="text-sm font-medium text-themed-primary">
-                        {t('management.cache.deletionMethod')}
-                      </p>
-                      <p className="text-xs text-themed-muted">
-                        {deleteMode === 'rsync'
-                          ? t('management.cache.deletionMethods.rsyncDesc')
-                          : deleteMode === 'full'
-                            ? t('management.cache.deletionMethods.fullDesc')
-                            : t('management.cache.deletionMethods.preserveDesc')}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        className="flex-1 basis-0"
-                        variant={deleteMode === 'preserve' ? 'filled' : 'default'}
-                        color={deleteMode === 'preserve' ? 'blue' : undefined}
-                        onClick={() => handleDeleteModeChange('preserve')}
-                        awaitPermissions
-                        loading={deleteModeLoading}
-                        disabled={
-                          mockMode ||
-                          isAnyRemovalRunning ||
-                          authMode !== 'authenticated' ||
-                          cacheReadOnly
-                        }
-                        title={
-                          cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined
-                        }
-                      >
-                        {t('management.cache.deleteModes.preserve')}
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="flex-1 basis-0"
-                        variant={deleteMode === 'full' ? 'filled' : 'default'}
-                        color={deleteMode === 'full' ? 'green' : undefined}
-                        onClick={() => handleDeleteModeChange('full')}
-                        awaitPermissions
-                        loading={deleteModeLoading}
-                        disabled={
-                          mockMode ||
-                          isAnyRemovalRunning ||
-                          authMode !== 'authenticated' ||
-                          cacheReadOnly
-                        }
-                        title={
-                          cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined
-                        }
-                      >
-                        {t('management.cache.deleteModes.removeAll')}
-                      </Button>
-                      {rsyncAvailable && (
-                        <Button
-                          size="sm"
-                          className="flex-1 basis-0"
-                          variant={deleteMode === 'rsync' ? 'filled' : 'default'}
-                          color={deleteMode === 'rsync' ? 'purple' : undefined}
-                          onClick={() => handleDeleteModeChange('rsync')}
-                          awaitPermissions
-                          loading={deleteModeLoading}
-                          disabled={
-                            mockMode ||
-                            isAnyRemovalRunning ||
-                            authMode !== 'authenticated' ||
-                            cacheReadOnly
-                          }
-                          title={
-                            cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined
-                          }
-                        >
-                          {t('management.cache.deleteModes.rsync')}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Datasource list */}
-                <div className="space-y-3">
-                  {datasources.map((ds) => (
-                    <DatasourceListItem
-                      key={ds.name}
-                      name={ds.name}
-                      path={ds.cachePath}
-                      isExpanded={expandedDatasources.has(ds.name)}
-                      onToggle={() => toggleExpanded(ds.name)}
-                      enabled={ds.enabled && ds.cacheWritable}
-                    >
-                      {/* Expanded content */}
-                      <div className="pt-3 flex justify-end">
-                        <Button
-                          variant="filled"
-                          color="red"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleClearCache(ds.name);
-                          }}
-                          awaitPermissions
-                          loading={isCacheClearing && clearingDatasource === ds.name}
-                          disabled={
-                            actionLoading ||
-                            isCacheClearActive ||
-                            mockMode ||
-                            authMode !== 'authenticated' ||
-                            cacheReadOnly ||
-                            !ds.cacheWritable
-                          }
-                          title={
-                            !ds.cacheWritable
-                              ? t('management.cache.alerts.readOnly.title')
-                              : !isCacheClearActive &&
-                                  (isAnyRemovalRunning || isCacheSizeScanRunning)
-                                ? t('common.notifications.willQueueBehindCurrent')
-                                : t('management.cache.clearDatasourceCache', {
-                                    datasource: ds.name
-                                  })
-                          }
-                        >
-                          {isCacheClearing && clearingDatasource === ds.name
-                            ? t('common.clearing')
-                            : t('management.cache.clearCache')}
-                        </Button>
-                      </div>
-                    </DatasourceListItem>
-                  ))}
-
-                  <div className="border-t border-themed-secondary pt-3 mt-3">
-                    <p className="text-xs text-themed-muted flex items-center gap-1.5">
-                      <AlertTriangle className="w-3.5 h-3.5 text-themed-accent flex-shrink-0" />
-                      <span>{t('management.cache.clearingCacheDeletes')}</span>
-                    </p>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </AccordionSection>
-      </Card>
+              </div>
+            </>
+          )}
+        </div>
+      </AccordionSection>
 
       <ConfirmationModal
         opened={showConfirmModal}

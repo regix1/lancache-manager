@@ -1636,6 +1636,7 @@
         },
         "dataImport": "Data Import",
         "evictedCacheData": "Eviction Detection and Removal",
+        "evictedCacheSummary": "Find and clean up games nginx evicted from the cache.",
         "evictedCacheDescription": "Controls how games that have been evicted from the nginx cache are handled. Eviction happens automatically when the cache disk fills up.",
         "evictionSettingsHeading": "Eviction Scan & Settings",
         "evictedItemsHeading": "Evicted Items",
@@ -2135,6 +2136,7 @@
     },
     "cache": {
       "title": "Disk Cache Management",
+      "summary": "Inspect and clear the cached game files stored on disk.",
       "subtitle": "Clear cached game files from disk",
       "refreshCacheSize": "Refresh cache size",
       "cacheSize": "Cache Size",
@@ -2221,6 +2223,7 @@
     },
     "corruption": {
       "title": "Corruption Detection",
+      "summary": "Scan for corrupted cache chunks and clean them up.",
       "subtitle": "Find and fix corrupted cache files",
       "directoryMissing": "Required directories not found",
       "loadPreviousResults": "Load previous scan results from database",
@@ -2449,6 +2452,7 @@
     },
     "datasources": {
       "title": "Log Processing",
+      "summary": "Reads new access.log entries into the download history database.",
       "subtitleLoading": "Loading...",
       "subtitleMultiple": "{{count}} datasources configured",
       "subtitleSingle": "Import historical data or monitor new downloads",
@@ -2575,6 +2579,7 @@
     },
     "logRemoval": {
       "title": "Log Removal",
+      "summary": "Remove access log entries for specific services to shrink the log.",
       "subtitle": "Remove service entries from log files",
       "logsMissing": "Logs directory not found",
       "readOnly": "Read-only",

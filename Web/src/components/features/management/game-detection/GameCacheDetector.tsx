@@ -13,7 +13,6 @@ import {
   Trash2
 } from 'lucide-react';
 import ApiService from '@services/api.service';
-import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
@@ -840,210 +839,207 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
   return (
     <>
-      <Card>
-        <div className="space-y-4">
-          <AccordionSection
-            title={t('management.gameDetection.title')}
-            icon={HardDrive}
-            iconColor="var(--theme-icon-blue)"
-            isExpanded={sectionExpanded}
-            onToggle={() => setSectionExpanded((prev) => !prev)}
-            badge={
-              <>
-                {hasResults && (
-                  <Badge variant="info" className="badge-count">
-                    {filteredGames.length + filteredServices.length}
-                  </Badge>
-                )}
-                {headerActions}
-              </>
-            }
-          >
-            <div className="space-y-3">
-              {/* Read-Only Warning */}
-              {cacheReadOnly && (
-                <>
-                  <Alert color="orange" className="mb-2">
-                    <div>
-                      <p className="font-medium">
-                        {t('management.gameDetection.alerts.cacheReadOnly.title')}
+      <AccordionSection
+        title={t('management.gameDetection.title')}
+        description={t('management.gameDetection.subtitle')}
+        icon={HardDrive}
+        iconColor="var(--theme-icon-blue)"
+        isExpanded={sectionExpanded}
+        onToggle={() => setSectionExpanded((prev) => !prev)}
+        badge={
+          <>
+            {hasResults && (
+              <Badge variant="info" className="badge-count">
+                {filteredGames.length + filteredServices.length}
+              </Badge>
+            )}
+            {headerActions}
+          </>
+        }
+      >
+        <div className="space-y-3">
+          {/* Read-Only Warning */}
+          {cacheReadOnly && (
+            <>
+              <Alert color="orange" className="mb-2">
+                <div>
+                  <p className="font-medium">
+                    {t('management.gameDetection.alerts.cacheReadOnly.title')}
+                  </p>
+                  <p className="text-sm mt-1">
+                    {t('management.gameDetection.alerts.cacheReadOnly.description')}
+                  </p>
+                </div>
+              </Alert>
+              <ReadOnlyBadge />
+            </>
+          )}
+
+          {/* Datasource Filter */}
+          {!cacheReadOnly && datasources.length > 1 && (
+            <div className="flex justify-end">
+              <EnhancedDropdown
+                variant="button"
+                options={[
+                  {
+                    value: '',
+                    label: t('management.gameDetection.placeholders.allDatasources')
+                  },
+                  ...datasources.map(
+                    (ds): DropdownOption => ({
+                      value: ds.name,
+                      label: ds.name
+                    })
+                  )
+                ]}
+                value={selectedDatasource || ''}
+                onChange={(value) => setSelectedDatasource(value || null)}
+                placeholder={t('management.gameDetection.placeholders.allDatasources')}
+                cleanStyle
+                prefix={t('management.gameDetection.filterPrefix')}
+              />
+            </div>
+          )}
+
+          {/* Loading State */}
+          {showBlockingLoader && (
+            <LoadingState
+              message={
+                datasources.length > 1
+                  ? t('management.gameDetection.scanningMultipleDatasources', {
+                      count: datasources.length
+                    })
+                  : t('management.gameDetection.scanningSingle')
+              }
+              submessage={t('management.gameDetection.scanningNote')}
+            />
+          )}
+
+          {!cacheReadOnly && !showBlockingLoader && (
+            <>
+              {/* Previous Results Summary */}
+              {lastDetectionTime && hasResults && (
+                <div className="space-y-2">
+                  <p className="text-xs text-themed-muted">
+                    {t('common.resultsFromPreviousScan')} · {formattedLastDetectionTime}
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 bg-themed-tertiary rounded-lg">
+                      <p className="text-xs text-themed-muted">
+                        {t('management.gameDetection.servicesSection')}
                       </p>
-                      <p className="text-sm mt-1">
-                        {t('management.gameDetection.alerts.cacheReadOnly.description')}
+                      <p className="text-sm font-medium text-themed-primary">
+                        {filteredServices.length}
                       </p>
                     </div>
-                  </Alert>
-                  <ReadOnlyBadge />
-                </>
-              )}
-
-              {/* Datasource Filter */}
-              {!cacheReadOnly && datasources.length > 1 && (
-                <div className="flex justify-end">
-                  <EnhancedDropdown
-                    variant="button"
-                    options={[
-                      {
-                        value: '',
-                        label: t('management.gameDetection.placeholders.allDatasources')
-                      },
-                      ...datasources.map(
-                        (ds): DropdownOption => ({
-                          value: ds.name,
-                          label: ds.name
-                        })
-                      )
-                    ]}
-                    value={selectedDatasource || ''}
-                    onChange={(value) => setSelectedDatasource(value || null)}
-                    placeholder={t('management.gameDetection.placeholders.allDatasources')}
-                    cleanStyle
-                    prefix={t('management.gameDetection.filterPrefix')}
-                  />
+                    <div className="p-3 bg-themed-tertiary rounded-lg">
+                      <p className="text-xs text-themed-muted">
+                        {t('management.gameDetection.gamesSection')}
+                      </p>
+                      <p className="text-sm font-medium text-themed-primary">
+                        {filteredGames.length}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
 
-              {/* Loading State */}
-              {showBlockingLoader && (
-                <LoadingState
-                  message={
-                    datasources.length > 1
-                      ? t('management.gameDetection.scanningMultipleDatasources', {
-                          count: datasources.length
+              {/* Filter indicator */}
+              {selectedDatasource && hasResults && (
+                <Alert color="blue">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">
+                      {t('management.gameDetection.filteredBy', {
+                        datasource: selectedDatasource,
+                        gameCount: filteredGames.length,
+                        serviceCount: filteredServices.length
+                      })}
+                    </span>
+                    <Button
+                      variant="filled"
+                      color="gray"
+                      size="xs"
+                      onClick={() => setSelectedDatasource(null)}
+                    >
+                      {t('management.gameDetection.clearFilter')}
+                    </Button>
+                  </div>
+                </Alert>
+              )}
+
+              {/* Services Section (Accordion) */}
+              {filteredServices.length > 0 && (
+                <AccordionSection
+                  title={t('management.gameDetection.servicesSection')}
+                  count={filteredServices.length}
+                  icon={Server}
+                  iconColor="var(--theme-icon-cyan)"
+                  isExpanded={servicesExpanded}
+                  onToggle={() => setServicesExpanded(!servicesExpanded)}
+                >
+                  <ServicesList
+                    services={filteredServices}
+                    isAdmin={isAdmin}
+                    dockerSocketAvailable={isDockerAvailable}
+                    onRemoveService={handleServiceRemoveClick}
+                    selection={servicesSelectionProp}
+                  />
+                </AccordionSection>
+              )}
+
+              {/* Games Section (Accordion) */}
+              {filteredGames.length > 0 && (
+                <AccordionSection
+                  title={t('management.gameDetection.gamesSection')}
+                  count={filteredGames.length}
+                  icon={Database}
+                  iconColor="var(--theme-icon-emerald)"
+                  isExpanded={gamesExpanded}
+                  onToggle={() => setGamesExpanded(!gamesExpanded)}
+                >
+                  <GamesList
+                    games={filteredGames}
+                    isAdmin={isAdmin}
+                    dockerSocketAvailable={isDockerAvailable}
+                    onRemoveGame={handleRemoveClick}
+                    selection={gamesSelectionProp}
+                  />
+                </AccordionSection>
+              )}
+
+              {/* Empty State - shown only when no scan results (games/services) exist */}
+              {filteredGames.length === 0 && filteredServices.length === 0 && !loading && (
+                <EmptyState
+                  title={
+                    selectedDatasource
+                      ? t('management.gameDetection.emptyState.noGamesServicesDatasource', {
+                          datasource: selectedDatasource
                         })
-                      : t('management.gameDetection.scanningSingle')
+                      : t('management.gameDetection.emptyState.noGamesServices')
                   }
-                  submessage={t('management.gameDetection.scanningNote')}
+                  subtitle={
+                    !hasProcessedLogs
+                      ? t('management.gameDetection.emptyState.processLogsFirst')
+                      : t('management.gameDetection.emptyState.clickFullScan')
+                  }
+                  action={
+                    selectedDatasource ? (
+                      <Button
+                        variant="filled"
+                        color="gray"
+                        size="sm"
+                        onClick={() => setSelectedDatasource(null)}
+                      >
+                        {t('management.gameDetection.clearFilter')}
+                      </Button>
+                    ) : undefined
+                  }
                 />
               )}
-
-              {!cacheReadOnly && !showBlockingLoader && (
-                <>
-                  {/* Previous Results Summary */}
-                  {lastDetectionTime && hasResults && (
-                    <div className="space-y-2">
-                      <p className="text-xs text-themed-muted">
-                        {t('common.resultsFromPreviousScan')} · {formattedLastDetectionTime}
-                      </p>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="p-3 bg-themed-tertiary rounded-lg">
-                          <p className="text-xs text-themed-muted">
-                            {t('management.gameDetection.servicesSection')}
-                          </p>
-                          <p className="text-sm font-medium text-themed-primary">
-                            {filteredServices.length}
-                          </p>
-                        </div>
-                        <div className="p-3 bg-themed-tertiary rounded-lg">
-                          <p className="text-xs text-themed-muted">
-                            {t('management.gameDetection.gamesSection')}
-                          </p>
-                          <p className="text-sm font-medium text-themed-primary">
-                            {filteredGames.length}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Filter indicator */}
-                  {selectedDatasource && hasResults && (
-                    <Alert color="blue">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm">
-                          {t('management.gameDetection.filteredBy', {
-                            datasource: selectedDatasource,
-                            gameCount: filteredGames.length,
-                            serviceCount: filteredServices.length
-                          })}
-                        </span>
-                        <Button
-                          variant="filled"
-                          color="gray"
-                          size="xs"
-                          onClick={() => setSelectedDatasource(null)}
-                        >
-                          {t('management.gameDetection.clearFilter')}
-                        </Button>
-                      </div>
-                    </Alert>
-                  )}
-
-                  {/* Services Section (Accordion) */}
-                  {filteredServices.length > 0 && (
-                    <AccordionSection
-                      title={t('management.gameDetection.servicesSection')}
-                      count={filteredServices.length}
-                      icon={Server}
-                      iconColor="var(--theme-icon-cyan)"
-                      isExpanded={servicesExpanded}
-                      onToggle={() => setServicesExpanded(!servicesExpanded)}
-                    >
-                      <ServicesList
-                        services={filteredServices}
-                        isAdmin={isAdmin}
-                        dockerSocketAvailable={isDockerAvailable}
-                        onRemoveService={handleServiceRemoveClick}
-                        selection={servicesSelectionProp}
-                      />
-                    </AccordionSection>
-                  )}
-
-                  {/* Games Section (Accordion) */}
-                  {filteredGames.length > 0 && (
-                    <AccordionSection
-                      title={t('management.gameDetection.gamesSection')}
-                      count={filteredGames.length}
-                      icon={Database}
-                      iconColor="var(--theme-icon-emerald)"
-                      isExpanded={gamesExpanded}
-                      onToggle={() => setGamesExpanded(!gamesExpanded)}
-                    >
-                      <GamesList
-                        games={filteredGames}
-                        isAdmin={isAdmin}
-                        dockerSocketAvailable={isDockerAvailable}
-                        onRemoveGame={handleRemoveClick}
-                        selection={gamesSelectionProp}
-                      />
-                    </AccordionSection>
-                  )}
-
-                  {/* Empty State - shown only when no scan results (games/services) exist */}
-                  {filteredGames.length === 0 && filteredServices.length === 0 && !loading && (
-                    <EmptyState
-                      title={
-                        selectedDatasource
-                          ? t('management.gameDetection.emptyState.noGamesServicesDatasource', {
-                              datasource: selectedDatasource
-                            })
-                          : t('management.gameDetection.emptyState.noGamesServices')
-                      }
-                      subtitle={
-                        !hasProcessedLogs
-                          ? t('management.gameDetection.emptyState.processLogsFirst')
-                          : t('management.gameDetection.emptyState.clickFullScan')
-                      }
-                      action={
-                        selectedDatasource ? (
-                          <Button
-                            variant="filled"
-                            color="gray"
-                            size="sm"
-                            onClick={() => setSelectedDatasource(null)}
-                          >
-                            {t('management.gameDetection.clearFilter')}
-                          </Button>
-                        ) : undefined
-                      }
-                    />
-                  )}
-                </>
-              )}
-            </div>
-          </AccordionSection>
+            </>
+          )}
         </div>
-      </Card>
+      </AccordionSection>
 
       {/* Game Removal Confirmation Modal */}
       <CacheRemovalModal

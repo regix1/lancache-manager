@@ -22,7 +22,6 @@ import type {
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
 import { finalizeBulkRemovalNotification } from '@components/features/management/game-detection/cacheRemovalHelpers';
-import { Card } from '@components/ui/Card';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { Button } from '@components/ui/Button';
 import Badge from '@components/ui/Badge';
@@ -611,254 +610,248 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
 
   return (
     <>
-      <Card>
-        <AccordionSection
-          title={t('management.logRemoval.title')}
-          icon={FileText}
-          iconColor="var(--theme-icon-red)"
-          isExpanded={sectionExpanded}
-          onToggle={() => setSectionExpanded((prev) => !prev)}
-          badge={headerBadge}
-        >
-          <div className="space-y-4">
-            {/* Logs Directory Missing Warning */}
-            {logsMissing && (
-              <Alert color="red" className="mb-6">
-                <div>
-                  <p className="font-medium">
-                    {t(
-                      'management.logRemoval.alerts.logsMissing.title',
-                      'Logs directory does not exist'
-                    )}
-                  </p>
-                  <p className="text-sm mt-1">
-                    {t(
-                      'management.logRemoval.alerts.logsMissing.description',
-                      'The logs directory was not found. Ensure it is mounted correctly in docker-compose.'
-                    )}
-                  </p>
-                </div>
-              </Alert>
-            )}
+      <AccordionSection
+        title={t('management.logRemoval.title')}
+        description={t('management.logRemoval.summary')}
+        icon={FileText}
+        iconColor="var(--theme-icon-red)"
+        isExpanded={sectionExpanded}
+        onToggle={() => setSectionExpanded((prev) => !prev)}
+        badge={headerBadge}
+      >
+        <div className="space-y-4">
+          {/* Logs Directory Missing Warning */}
+          {logsMissing && (
+            <Alert color="red" className="mb-6">
+              <div>
+                <p className="font-medium">
+                  {t(
+                    'management.logRemoval.alerts.logsMissing.title',
+                    'Logs directory does not exist'
+                  )}
+                </p>
+                <p className="text-sm mt-1">
+                  {t(
+                    'management.logRemoval.alerts.logsMissing.description',
+                    'The logs directory was not found. Ensure it is mounted correctly in docker-compose.'
+                  )}
+                </p>
+              </div>
+            </Alert>
+          )}
 
-            {/* Read-Only Warning */}
-            {logsReadOnly && !logsMissing && (
-              <Alert color="orange" className="mb-6">
-                <div>
-                  <p className="font-medium">
-                    {t('management.logRemoval.alerts.logsReadOnly.title')}
-                  </p>
-                  <p className="text-sm mt-1">
-                    {t('management.logRemoval.alerts.logsReadOnly.description')}
-                  </p>
-                </div>
-              </Alert>
-            )}
+          {/* Read-Only Warning */}
+          {logsReadOnly && !logsMissing && (
+            <Alert color="orange" className="mb-6">
+              <div>
+                <p className="font-medium">
+                  {t('management.logRemoval.alerts.logsReadOnly.title')}
+                </p>
+                <p className="text-sm mt-1">
+                  {t('management.logRemoval.alerts.logsReadOnly.description')}
+                </p>
+              </div>
+            </Alert>
+          )}
 
-            {/* Docker Socket Warning */}
-            {!isDockerAvailable && !hasPermissionIssue && (
-              <Alert color="orange" className="mb-6">
-                <div className="min-w-0">
-                  <p className="font-medium">
-                    {t('management.logRemoval.alerts.dockerSocket.title')}
-                  </p>
-                  <p className="text-sm mt-1">
-                    {t('management.logRemoval.alerts.dockerSocket.description')}
-                  </p>
-                  <p className="text-sm mt-2">
-                    {t('management.logRemoval.alerts.dockerSocket.addVolumes')}
-                  </p>
-                  <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1 break-all">
-                    - /var/run/docker.sock:/var/run/docker.sock
-                  </code>
-                </div>
-              </Alert>
-            )}
+          {/* Docker Socket Warning */}
+          {!isDockerAvailable && !hasPermissionIssue && (
+            <Alert color="orange" className="mb-6">
+              <div className="min-w-0">
+                <p className="font-medium">
+                  {t('management.logRemoval.alerts.dockerSocket.title')}
+                </p>
+                <p className="text-sm mt-1">
+                  {t('management.logRemoval.alerts.dockerSocket.description')}
+                </p>
+                <p className="text-sm mt-2">
+                  {t('management.logRemoval.alerts.dockerSocket.addVolumes')}
+                </p>
+                <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1 break-all">
+                  - /var/run/docker.sock:/var/run/docker.sock
+                </code>
+              </div>
+            </Alert>
+          )}
 
-            {/* Content */}
-            {showReadOnlyPlaceholder ? (
-              <ReadOnlyBadge
-                message={
-                  logsMissing
-                    ? t('management.logRemoval.logsMissing', 'Logs directory not found')
-                    : logsReadOnly
-                      ? t('management.logRemoval.readOnly')
-                      : t('management.logRemoval.dockerSocketRequired')
-                }
-              />
-            ) : (
-              <>
-                {isLoading ? (
-                  <LoadingState
-                    message={t('management.logRemoval.loading.scanning')}
-                    submessage={t('management.logRemoval.loading.mayTakeMinutes')}
-                  />
-                ) : hasAnyLogEntries ? (
-                  <div className="space-y-3">
-                    {selectableKeys.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-2">
-                        {/* Select-all only. The selected count shows once in the section
+          {/* Content */}
+          {showReadOnlyPlaceholder ? (
+            <ReadOnlyBadge
+              message={
+                logsMissing
+                  ? t('management.logRemoval.logsMissing', 'Logs directory not found')
+                  : logsReadOnly
+                    ? t('management.logRemoval.readOnly')
+                    : t('management.logRemoval.dockerSocketRequired')
+              }
+            />
+          ) : (
+            <>
+              {isLoading ? (
+                <LoadingState
+                  message={t('management.logRemoval.loading.scanning')}
+                  submessage={t('management.logRemoval.loading.mayTakeMinutes')}
+                />
+              ) : hasAnyLogEntries ? (
+                <div className="space-y-3">
+                  {selectableKeys.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Select-all only. The selected count shows once in the section
                             header badge, so it is not repeated here. */}
-                        <Checkbox
-                          checked={allVisibleSelected}
-                          onChange={() => selection.setMany(selectableKeys, !allVisibleSelected)}
-                          disabled={
-                            mockMode ||
-                            authMode !== 'authenticated' ||
-                            isLogRemovalActive ||
-                            anyServiceRemovalPending ||
-                            isBatchRunning
-                          }
-                          label={t(
-                            allVisibleSelected
-                              ? 'management.batchSelect.deselectAll'
-                              : 'management.batchSelect.selectAll'
-                          )}
-                        />
-                      </div>
-                    )}
-                    {datasourceCounts.map((ds) => {
-                      const { other, displayed } = getServicesForDatasource(ds);
-                      const isExpanded = expandedDatasources.has(ds.datasource);
-                      const totalEntries = Object.values(ds.serviceCounts).reduce(
-                        (a, b) => a + b,
-                        0
-                      );
-                      const hasEntries = totalEntries > 0;
+                      <Checkbox
+                        checked={allVisibleSelected}
+                        onChange={() => selection.setMany(selectableKeys, !allVisibleSelected)}
+                        disabled={
+                          mockMode ||
+                          authMode !== 'authenticated' ||
+                          isLogRemovalActive ||
+                          anyServiceRemovalPending ||
+                          isBatchRunning
+                        }
+                        label={t(
+                          allVisibleSelected
+                            ? 'management.batchSelect.deselectAll'
+                            : 'management.batchSelect.selectAll'
+                        )}
+                      />
+                    </div>
+                  )}
+                  {datasourceCounts.map((ds) => {
+                    const { other, displayed } = getServicesForDatasource(ds);
+                    const isExpanded = expandedDatasources.has(ds.datasource);
+                    const totalEntries = Object.values(ds.serviceCounts).reduce((a, b) => a + b, 0);
+                    const hasEntries = totalEntries > 0;
 
-                      return (
-                        <DatasourceListItem
-                          key={ds.datasource}
-                          name={ds.datasource}
-                          path={ds.logsPath}
-                          isExpanded={isExpanded}
-                          onToggle={() => toggleDatasourceExpanded(ds.datasource)}
-                          enabled={ds.enabled && ds.logsWritable}
-                          statusBadge={`${formatCount(totalEntries)} entries`}
-                        >
-                          {hasEntries ? (
-                            <div className="space-y-3 pt-3">
-                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                                {displayed.map((service) => {
-                                  const key = `${ds.datasource}:${service}`;
-                                  const selectKey = `${ds.datasource}::${service}`;
-                                  const rowDisabled =
-                                    mockMode ||
-                                    anyServiceRemovalPending ||
-                                    isLogRemovalActive ||
-                                    authMode !== 'authenticated' ||
-                                    !ds.logsWritable ||
-                                    !isDockerAvailable ||
-                                    isBatchRunning;
-                                  return (
-                                    <ServiceButton
-                                      key={key}
-                                      service={service}
-                                      count={ds.serviceCounts[service] || 0}
-                                      isRemoving={
-                                        activeLogRemoval === service || isServiceRemovalPending(key)
-                                      }
-                                      isDisabled={rowDisabled}
-                                      onClick={() =>
-                                        handleRemoveServiceLogs(ds.datasource, service)
-                                      }
-                                      clearLabel={t('management.logRemoval.buttons.clear')}
-                                      entriesLabel={t('management.logRemoval.labels.entries')}
-                                      removingLabel={t('management.logRemoval.labels.removing', {
-                                        service
-                                      })}
-                                      selectable={ds.logsWritable}
-                                      selected={selection.isSelected(selectKey)}
-                                      onSelectToggle={() => selection.toggle(selectKey)}
-                                      selectLabel={t('management.batchSelect.selectItem', {
-                                        name: getServiceDisplayName(service)
-                                      })}
-                                      selectDisabled={rowDisabled || isBatchRunning}
-                                    />
-                                  );
-                                })}
-                              </div>
+                    return (
+                      <DatasourceListItem
+                        key={ds.datasource}
+                        name={ds.datasource}
+                        path={ds.logsPath}
+                        isExpanded={isExpanded}
+                        onToggle={() => toggleDatasourceExpanded(ds.datasource)}
+                        enabled={ds.enabled && ds.logsWritable}
+                        statusBadge={`${formatCount(totalEntries)} entries`}
+                      >
+                        {hasEntries ? (
+                          <div className="space-y-3 pt-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                              {displayed.map((service) => {
+                                const key = `${ds.datasource}:${service}`;
+                                const selectKey = `${ds.datasource}::${service}`;
+                                const rowDisabled =
+                                  mockMode ||
+                                  anyServiceRemovalPending ||
+                                  isLogRemovalActive ||
+                                  authMode !== 'authenticated' ||
+                                  !ds.logsWritable ||
+                                  !isDockerAvailable ||
+                                  isBatchRunning;
+                                return (
+                                  <ServiceButton
+                                    key={key}
+                                    service={service}
+                                    count={ds.serviceCounts[service] || 0}
+                                    isRemoving={
+                                      activeLogRemoval === service || isServiceRemovalPending(key)
+                                    }
+                                    isDisabled={rowDisabled}
+                                    onClick={() => handleRemoveServiceLogs(ds.datasource, service)}
+                                    clearLabel={t('management.logRemoval.buttons.clear')}
+                                    entriesLabel={t('management.logRemoval.labels.entries')}
+                                    removingLabel={t('management.logRemoval.labels.removing', {
+                                      service
+                                    })}
+                                    selectable={ds.logsWritable}
+                                    selected={selection.isSelected(selectKey)}
+                                    onSelectToggle={() => selection.toggle(selectKey)}
+                                    selectLabel={t('management.batchSelect.selectItem', {
+                                      name: getServiceDisplayName(service)
+                                    })}
+                                    selectDisabled={rowDisabled || isBatchRunning}
+                                  />
+                                );
+                              })}
+                            </div>
 
-                              {other.length > 0 && (
-                                <div>
-                                  <Button
-                                    variant="filled"
-                                    color="gray"
-                                    size="sm"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setShowMoreServices((prev) => ({
-                                        ...prev,
-                                        [ds.datasource]: !prev[ds.datasource]
-                                      }));
-                                    }}
-                                  >
-                                    {showMoreServices[ds.datasource] ? (
-                                      <>
-                                        {t('management.logRemoval.buttons.showLess', {
-                                          count: other.length
-                                        })}
-                                      </>
-                                    ) : (
-                                      <>
-                                        {t('management.logRemoval.buttons.showMore', {
-                                          count: other.length
-                                        })}
-                                      </>
-                                    )}
-                                  </Button>
-                                </div>
-                              )}
-
-                              {/* Delete entire log file button */}
-                              <div className="flex justify-end pt-3 mt-3 border-t border-themed-secondary">
+                            {other.length > 0 && (
+                              <div>
                                 <Button
                                   variant="filled"
+                                  color="gray"
                                   size="sm"
-                                  color="red"
-                                  leftSection={<Trash2 className="w-3 h-3" />}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setPendingLogFileDeletion(ds.datasource);
+                                    setShowMoreServices((prev) => ({
+                                      ...prev,
+                                      [ds.datasource]: !prev[ds.datasource]
+                                    }));
                                   }}
-                                  awaitPermissions
-                                  loading={deletingLogFile === ds.datasource}
-                                  disabled={
-                                    mockMode ||
-                                    isAnyRemovalRunning ||
-                                    isLogRemovalActive ||
-                                    anyServiceRemovalPending ||
-                                    !!deletingLogFile ||
-                                    authMode !== 'authenticated' ||
-                                    !ds.logsWritable ||
-                                    !isDockerAvailable
-                                  }
-                                  className="w-full sm:w-auto"
                                 >
-                                  {t('management.logRemoval.buttons.deleteLogFile')}
+                                  {showMoreServices[ds.datasource] ? (
+                                    <>
+                                      {t('management.logRemoval.buttons.showLess', {
+                                        count: other.length
+                                      })}
+                                    </>
+                                  ) : (
+                                    <>
+                                      {t('management.logRemoval.buttons.showMore', {
+                                        count: other.length
+                                      })}
+                                    </>
+                                  )}
                                 </Button>
                               </div>
+                            )}
+
+                            {/* Delete entire log file button */}
+                            <div className="flex justify-end pt-3 mt-3 border-t border-themed-secondary">
+                              <Button
+                                variant="filled"
+                                size="sm"
+                                color="red"
+                                leftSection={<Trash2 className="w-3 h-3" />}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPendingLogFileDeletion(ds.datasource);
+                                }}
+                                awaitPermissions
+                                loading={deletingLogFile === ds.datasource}
+                                disabled={
+                                  mockMode ||
+                                  isAnyRemovalRunning ||
+                                  isLogRemovalActive ||
+                                  anyServiceRemovalPending ||
+                                  !!deletingLogFile ||
+                                  authMode !== 'authenticated' ||
+                                  !ds.logsWritable ||
+                                  !isDockerAvailable
+                                }
+                                className="w-full sm:w-auto"
+                              >
+                                {t('management.logRemoval.buttons.deleteLogFile')}
+                              </Button>
                             </div>
-                          ) : (
-                            <div className="py-6 text-center text-sm text-themed-muted">
-                              {t('management.logRemoval.noEntriesForDatasource')}
-                            </div>
-                          )}
-                        </DatasourceListItem>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <EmptyState
-                    title={t('management.logRemoval.emptyState.title')}
-                    subtitle={t('management.logRemoval.emptyState.subtitle')}
-                  />
-                )}
-              </>
-            )}
-          </div>
-        </AccordionSection>
-      </Card>
+                          </div>
+                        ) : (
+                          <div className="py-6 text-center text-sm text-themed-muted">
+                            {t('management.logRemoval.noEntriesForDatasource')}
+                          </div>
+                        )}
+                      </DatasourceListItem>
+                    );
+                  })}
+                </div>
+              ) : (
+                <EmptyState
+                  title={t('management.logRemoval.emptyState.title')}
+                  subtitle={t('management.logRemoval.emptyState.subtitle')}
+                />
+              )}
+            </>
+          )}
+        </div>
+      </AccordionSection>
 
       {/* Log Removal Confirmation Modal */}
       <Modal

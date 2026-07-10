@@ -13,7 +13,6 @@ import {
   ChevronsDownUp,
   ChevronsUpDown
 } from 'lucide-react';
-import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
@@ -796,215 +795,211 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
             glow when the user jumps here from the Eviction Scan schedule card. */}
           <div data-eviction-target>
             <HighlightGlow enabled={highlightEviction}>
-              <Card>
-                <AccordionSection
-                  title={t('management.sections.data.evictedCacheData')}
-                  icon={Archive}
-                  iconColor="var(--theme-icon-orange)"
-                  isExpanded={evictedDataExpanded}
-                  onToggle={() => setEvictedDataExpanded((prev) => !prev)}
-                  badge={
-                    <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
-                      {selectedEvictedCount > 0 && (
-                        <Badge variant="neutral" className="badge-count">
-                          {selectedEvictedCount}
-                        </Badge>
-                      )}
-                      <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
-                        {(close) => (
-                          <>
-                            <ActionMenuItem
-                              icon={
-                                evictionAllExpanded ? (
-                                  <ChevronsDownUp className="w-3.5 h-3.5" />
-                                ) : (
-                                  <ChevronsUpDown className="w-3.5 h-3.5" />
-                                )
-                              }
-                              disabled={!evictedDataExpanded}
-                              onClick={() => {
-                                handleEvictionExpandCollapseAll();
-                                close();
-                              }}
-                            >
-                              {evictionAllExpanded
-                                ? t('management.gameDetection.collapseAll')
-                                : t('management.gameDetection.expandAll')}
-                            </ActionMenuItem>
-
-                            <ActionMenuItem
-                              icon={<Search className="w-3.5 h-3.5" />}
-                              disabled={isEvictionScanRunning || resettingEvictions}
-                              onClick={() => {
-                                handleStartEvictionScan();
-                                close();
-                              }}
-                            >
-                              {t('management.sections.data.runEvictionScan')}
-                            </ActionMenuItem>
-
-                            <ActionMenuDivider />
-
-                            <ActionMenuDangerItem
-                              icon={<RotateCcw className="w-3.5 h-3.5" />}
-                              disabled={
-                                resettingEvictions ||
-                                isEvictionScanRunning ||
-                                isEvictionRemovalRunning
-                              }
-                              onClick={() => {
-                                handleResetEvictions();
-                                close();
-                              }}
-                            >
-                              {t('management.sections.data.resetEvictions')}
-                            </ActionMenuDangerItem>
-
-                            {isAdmin && (
-                              <>
-                                <ActionMenuDangerItem
-                                  icon={<Trash2 className="w-3.5 h-3.5" />}
-                                  disabled={
-                                    selectedEvictedCount === 0 ||
-                                    removeAllRunning ||
-                                    removeSelectedEvictedRunning ||
-                                    isEvictedRemovalRunning ||
-                                    isAnyEvictedRemovalRunning ||
-                                    cacheReadOnly ||
-                                    checkingPermissions
-                                  }
-                                  onClick={() => {
-                                    setConfirmRemoveSelectedEvicted(true);
-                                    close();
-                                  }}
-                                >
-                                  {t(
-                                    'management.batchSelect.removeSelectedLabel',
-                                    'Remove Selected'
-                                  )}
-                                </ActionMenuDangerItem>
-
-                                <ActionMenuDangerItem
-                                  icon={<Trash2 className="w-3.5 h-3.5" />}
-                                  disabled={
-                                    evictedGames.length + evictedServices.length === 0 ||
-                                    removeAllRunning ||
-                                    removeSelectedEvictedRunning ||
-                                    isEvictionRemovalRunning ||
-                                    isAnyEvictedRemovalRunning ||
-                                    cacheReadOnly ||
-                                    checkingPermissions
-                                  }
-                                  onClick={() => {
-                                    setShowRemoveAllConfirm(true);
-                                    close();
-                                  }}
-                                >
-                                  {t('management.sections.data.evictionRemoveAll', 'Remove All')}
-                                </ActionMenuDangerItem>
-                              </>
-                            )}
-                          </>
-                        )}
-                      </SectionActionsMenu>
-                    </div>
-                  }
-                >
-                  <div className="space-y-4">
-                    {/* Sub-accordion 1: Eviction Scan & Settings */}
-                    <AccordionSection
-                      title={t('management.sections.data.evictionSettingsHeading')}
-                      icon={Sliders}
-                      iconColor="var(--theme-icon-blue)"
-                      isExpanded={evictionSettingsExpanded}
-                      onToggle={() => setEvictionSettingsExpanded((prev) => !prev)}
-                    >
-                      {evictionLoading ? (
-                        <LoadingState
-                          message={t('management.sections.data.evictionLoadingSettings')}
-                        />
-                      ) : (
+              <AccordionSection
+                title={t('management.sections.data.evictedCacheData')}
+                description={t('management.sections.data.evictedCacheSummary')}
+                icon={Archive}
+                iconColor="var(--theme-icon-orange)"
+                isExpanded={evictedDataExpanded}
+                onToggle={() => setEvictedDataExpanded((prev) => !prev)}
+                badge={
+                  <div className="flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
+                    {selectedEvictedCount > 0 && (
+                      <Badge variant="neutral" className="badge-count">
+                        {selectedEvictedCount}
+                      </Badge>
+                    )}
+                    <SectionActionsMenu label={t('management.actions.menuLabel', 'Actions')}>
+                      {(close) => (
                         <>
-                          <div className="space-y-2 mb-4">
-                            {(['show', 'showClean', 'hide', 'remove'] as const).map((mode) => (
-                              <label
-                                key={mode}
-                                className={`eviction-mode-option p-3 rounded-lg cursor-pointer flex items-start gap-3 transition duration-150${evictionMode === mode ? ' eviction-mode-option-selected' : ''}`}
-                              >
-                                <input
-                                  type="radio"
-                                  name="evictionMode"
-                                  value={mode}
-                                  checked={evictionMode === mode}
-                                  onChange={() => setEvictionMode(mode)}
-                                  className="eviction-radio mt-1"
-                                />
-                                <div className="flex-1 min-w-0">
-                                  <div className="font-medium text-themed-primary">
-                                    {t(`management.sections.data.evictionModes.${mode}`)}
-                                  </div>
-                                  <div className="text-sm text-themed-secondary mt-1">
-                                    {t(`management.sections.data.evictionModes.${mode}Description`)}
-                                  </div>
-                                </div>
-                              </label>
-                            ))}
-                          </div>
+                          <ActionMenuItem
+                            icon={
+                              evictionAllExpanded ? (
+                                <ChevronsDownUp className="w-3.5 h-3.5" />
+                              ) : (
+                                <ChevronsUpDown className="w-3.5 h-3.5" />
+                              )
+                            }
+                            disabled={!evictedDataExpanded}
+                            onClick={() => {
+                              handleEvictionExpandCollapseAll();
+                              close();
+                            }}
+                          >
+                            {evictionAllExpanded
+                              ? t('management.gameDetection.collapseAll')
+                              : t('management.gameDetection.expandAll')}
+                          </ActionMenuItem>
 
-                          <div className="pt-4 border-t border-themed-primary">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <Checkbox
-                                label={t('management.sections.data.pruneOrphanedDownloads')}
-                                checked={pruneOrphanedDownloads}
-                                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                                  setPruneOrphanedDownloads(e.target.checked)
+                          <ActionMenuItem
+                            icon={<Search className="w-3.5 h-3.5" />}
+                            disabled={isEvictionScanRunning || resettingEvictions}
+                            onClick={() => {
+                              handleStartEvictionScan();
+                              close();
+                            }}
+                          >
+                            {t('management.sections.data.runEvictionScan')}
+                          </ActionMenuItem>
+
+                          <ActionMenuDivider />
+
+                          <ActionMenuDangerItem
+                            icon={<RotateCcw className="w-3.5 h-3.5" />}
+                            disabled={
+                              resettingEvictions ||
+                              isEvictionScanRunning ||
+                              isEvictionRemovalRunning
+                            }
+                            onClick={() => {
+                              handleResetEvictions();
+                              close();
+                            }}
+                          >
+                            {t('management.sections.data.resetEvictions')}
+                          </ActionMenuDangerItem>
+
+                          {isAdmin && (
+                            <>
+                              <ActionMenuDangerItem
+                                icon={<Trash2 className="w-3.5 h-3.5" />}
+                                disabled={
+                                  selectedEvictedCount === 0 ||
+                                  removeAllRunning ||
+                                  removeSelectedEvictedRunning ||
+                                  isEvictedRemovalRunning ||
+                                  isAnyEvictedRemovalRunning ||
+                                  cacheReadOnly ||
+                                  checkingPermissions
                                 }
-                              />
-                              <Button
-                                onClick={handleSaveEviction}
-                                disabled={!isEvictionDirty || evictionSaving}
-                                loading={evictionSaving}
-                                className="w-full sm:w-40"
+                                onClick={() => {
+                                  setConfirmRemoveSelectedEvicted(true);
+                                  close();
+                                }}
                               >
-                                {t('management.sections.clients.saveChanges')}
-                              </Button>
-                            </div>
+                                {t('management.batchSelect.removeSelectedLabel', 'Remove Selected')}
+                              </ActionMenuDangerItem>
 
-                            <p className="text-xs text-themed-muted mt-2 ml-6">
-                              {t('management.sections.data.pruneOrphanedDownloadsDescription')}
-                            </p>
-                          </div>
+                              <ActionMenuDangerItem
+                                icon={<Trash2 className="w-3.5 h-3.5" />}
+                                disabled={
+                                  evictedGames.length + evictedServices.length === 0 ||
+                                  removeAllRunning ||
+                                  removeSelectedEvictedRunning ||
+                                  isEvictionRemovalRunning ||
+                                  isAnyEvictedRemovalRunning ||
+                                  cacheReadOnly ||
+                                  checkingPermissions
+                                }
+                                onClick={() => {
+                                  setShowRemoveAllConfirm(true);
+                                  close();
+                                }}
+                              >
+                                {t('management.sections.data.evictionRemoveAll', 'Remove All')}
+                              </ActionMenuDangerItem>
+                            </>
+                          )}
                         </>
                       )}
-                    </AccordionSection>
-
-                    {/* Sub-accordion 2: Evicted Items */}
-                    <AccordionSection
-                      title={t('management.sections.data.evictedItemsHeading')}
-                      count={
-                        evictedGames.length + evictedServices.length > 0
-                          ? evictedGames.length + evictedServices.length
-                          : undefined
-                      }
-                      icon={Database}
-                      iconColor="var(--theme-icon-emerald)"
-                      isExpanded={evictedItemsExpanded}
-                      onToggle={() => setEvictedItemsExpanded((prev) => !prev)}
-                    >
-                      <EvictedItemsList
-                        games={evictedGames}
-                        services={evictedServices}
-                        isAdmin={isAdmin}
-                        dockerSocketAvailable={isDockerAvailable}
-                        onRemoveGame={handleEvictedGameRemoveClick}
-                        onRemoveService={handleEvictedServiceRemoveClick}
-                        servicesSelection={evictedServicesSelectionProp}
-                        gamesSelection={evictedGamesSelectionProp}
-                      />
-                    </AccordionSection>
+                    </SectionActionsMenu>
                   </div>
-                </AccordionSection>
-              </Card>
+                }
+              >
+                <div className="space-y-4">
+                  {/* Sub-accordion 1: Eviction Scan & Settings */}
+                  <AccordionSection
+                    title={t('management.sections.data.evictionSettingsHeading')}
+                    icon={Sliders}
+                    iconColor="var(--theme-icon-blue)"
+                    isExpanded={evictionSettingsExpanded}
+                    onToggle={() => setEvictionSettingsExpanded((prev) => !prev)}
+                  >
+                    {evictionLoading ? (
+                      <LoadingState
+                        message={t('management.sections.data.evictionLoadingSettings')}
+                      />
+                    ) : (
+                      <>
+                        <div className="space-y-2 mb-4">
+                          {(['show', 'showClean', 'hide', 'remove'] as const).map((mode) => (
+                            <label
+                              key={mode}
+                              className={`eviction-mode-option p-3 rounded-lg cursor-pointer flex items-start gap-3 transition duration-150${evictionMode === mode ? ' eviction-mode-option-selected' : ''}`}
+                            >
+                              <input
+                                type="radio"
+                                name="evictionMode"
+                                value={mode}
+                                checked={evictionMode === mode}
+                                onChange={() => setEvictionMode(mode)}
+                                className="eviction-radio mt-1"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium text-themed-primary">
+                                  {t(`management.sections.data.evictionModes.${mode}`)}
+                                </div>
+                                <div className="text-sm text-themed-secondary mt-1">
+                                  {t(`management.sections.data.evictionModes.${mode}Description`)}
+                                </div>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+
+                        <div className="pt-4 border-t border-themed-primary">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <Checkbox
+                              label={t('management.sections.data.pruneOrphanedDownloads')}
+                              checked={pruneOrphanedDownloads}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                setPruneOrphanedDownloads(e.target.checked)
+                              }
+                            />
+                            <Button
+                              onClick={handleSaveEviction}
+                              disabled={!isEvictionDirty || evictionSaving}
+                              loading={evictionSaving}
+                              className="w-full sm:w-40"
+                            >
+                              {t('management.sections.clients.saveChanges')}
+                            </Button>
+                          </div>
+
+                          <p className="text-xs text-themed-muted mt-2 ml-6">
+                            {t('management.sections.data.pruneOrphanedDownloadsDescription')}
+                          </p>
+                        </div>
+                      </>
+                    )}
+                  </AccordionSection>
+
+                  {/* Sub-accordion 2: Evicted Items */}
+                  <AccordionSection
+                    title={t('management.sections.data.evictedItemsHeading')}
+                    count={
+                      evictedGames.length + evictedServices.length > 0
+                        ? evictedGames.length + evictedServices.length
+                        : undefined
+                    }
+                    icon={Database}
+                    iconColor="var(--theme-icon-emerald)"
+                    isExpanded={evictedItemsExpanded}
+                    onToggle={() => setEvictedItemsExpanded((prev) => !prev)}
+                  >
+                    <EvictedItemsList
+                      games={evictedGames}
+                      services={evictedServices}
+                      isAdmin={isAdmin}
+                      dockerSocketAvailable={isDockerAvailable}
+                      onRemoveGame={handleEvictedGameRemoveClick}
+                      onRemoveService={handleEvictedServiceRemoveClick}
+                      servicesSelection={evictedServicesSelectionProp}
+                      gamesSelection={evictedGamesSelectionProp}
+                    />
+                  </AccordionSection>
+                </div>
+              </AccordionSection>
             </HighlightGlow>
           </div>
         </div>

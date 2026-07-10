@@ -1636,6 +1636,7 @@
         },
         "dataImport": "数据导入",
         "evictedCacheData": "淘汰检测与移除",
+        "evictedCacheSummary": "查找并清理已被 nginx 从缓存中逐出的游戏。",
         "evictedCacheDescription": "控制如何处理已从 nginx 缓存淘汰的游戏。当缓存磁盘满时会自动发生驱逐。",
         "evictionSettingsHeading": "淘汰扫描与设置",
         "evictedItemsHeading": "已淘汰项目",
@@ -2135,6 +2136,7 @@
     },
     "cache": {
       "title": "磁盘缓存管理",
+      "summary": "查看并清除磁盘上缓存的游戏文件。",
       "subtitle": "从磁盘清除缓存的游戏文件",
       "refreshCacheSize": "刷新缓存大小",
       "cacheSize": "缓存大小",
@@ -2221,6 +2223,7 @@
     },
     "corruption": {
       "title": "损坏检测",
+      "summary": "扫描损坏的缓存块并进行清理。",
       "subtitle": "查找并修复损坏的缓存文件",
       "directoryMissing": "未找到所需目录",
       "loadPreviousResults": "从数据库加载之前的扫描结果",
@@ -2449,6 +2452,7 @@
     },
     "datasources": {
       "title": "日志处理",
+      "summary": "将新的 access.log 记录读入下载历史数据库。",
       "subtitleLoading": "加载中...",
       "subtitleMultiple": "已配置 {{count}} 个数据源",
       "subtitleSingle": "导入历史数据或监控新下载",
@@ -2575,6 +2579,7 @@
     },
     "logRemoval": {
       "title": "日志移除",
+      "summary": "按服务删除访问日志记录以缩减日志。",
       "subtitle": "从日志文件中移除服务条目",
       "logsMissing": "未找到日志目录",
       "readOnly": "只读",
