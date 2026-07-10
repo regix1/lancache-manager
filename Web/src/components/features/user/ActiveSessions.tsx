@@ -1719,9 +1719,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     className={`filter-chip ${activeFilterValue === filter ? 'filter-chip--active' : ''}`}
                     onClick={() => setActiveFilter(filter)}
                   >
-                    <span className="filter-chip-count themed-badge status-badge-neutral badge-count">
-                      {getCountForFilter(filter)}
-                    </span>
+                    {/* Plain bold count, NOT a badge box: inside a filter-chip button the
+                        chip itself (border + active accent state) is the visual container,
+                        so a nested bordered badge reads as a box-in-a-box. */}
+                    <span className="filter-chip-count">{getCountForFilter(filter)}</span>
                     <span>{getFilterLabel(filter)}</span>
                   </button>
                 ))}
