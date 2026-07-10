@@ -1,3 +1,4 @@
+/* Hallmark · pre-emit critique: P4 H5 E5 S5 R5 V4 · genre: modern-minimal · tone: utilitarian · macrostructure: Workbench · anchor: existing theme accent · contrast: pass (40–41) · responsive: pass (34, 49–57) */
 .schedules-section {
   display: flex;
   flex-direction: column;
@@ -98,6 +99,15 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+/* Scheduled prefill carries five independent service schedules and container states. It needs the
+   full workbench width instead of being squeezed into the same half-width card used by the simpler
+   single-service schedules. */
+@media (min-width: 768px) {
+  .schedules-grid-item--full {
+    grid-column: 1 / -1;
+  }
 }
 
 .schedules-grid-item > .highlight-glow-wrapper {
@@ -388,7 +398,7 @@
   color: var(--theme-text-secondary);
 }
 
-/* Each enabled service becomes its own tinted, two-line row. This list-like treatment reads
+/* Each service becomes its own tinted, two-line row. This list-like treatment reads
    distinctly from the generic cards' single Last/Next grid while staying inside the card's own
    surface tokens: a subtle tint + hairline border + thin accent edge (no color-mix, no inline
    styles). */
@@ -425,6 +435,37 @@
   min-width: 0;
   font-weight: 500;
   color: var(--theme-text-primary);
+}
+
+.scheduled-prefill-card-summary__schedule-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.375rem 0.75rem;
+  font-size: var(--font-size-xs);
+  color: var(--theme-text-secondary);
+}
+
+.scheduled-prefill-card-summary__schedule-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
+.scheduled-prefill-card-summary__schedule-status-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.scheduled-prefill-card-summary__schedule-status-dot--success {
+  background: var(--theme-success);
+}
+
+.scheduled-prefill-card-summary__schedule-status-dot--error {
+  background: var(--theme-error);
 }
 
 /* The picker stretches to 100% of its container by design (modal usage); cap it here and pull
@@ -469,6 +510,16 @@
   .scheduled-prefill-card-summary__schedule-picker {
     flex: 1 1 100%;
     margin-left: 0;
+  }
+}
+
+/* Once the parent card spans both schedule columns, use that width for a compact two-up service
+   summary. Each row still collapses naturally to one column below desktop widths. */
+@media (min-width: 1100px) {
+  .schedules-grid-item--full .scheduled-prefill-card-summary__schedule {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
   }
 }
 
@@ -1684,11 +1735,16 @@
   .scheduled-prefill-platforms__nav-item {
     flex: 0 0 auto;
     width: auto;
-    min-width: 9.5rem;
+    min-width: 12rem;
+    flex-wrap: wrap;
+    align-items: flex-start;
   }
 
   .scheduled-prefill-platforms__nav-badges {
-    display: none;
+    width: 100%;
+    padding-left: 1.675rem;
+    flex-direction: row;
+    align-items: center;
   }
 
   /* The active nav item already shows the platform icon + name, so repeating

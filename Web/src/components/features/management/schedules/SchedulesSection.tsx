@@ -802,7 +802,13 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
 
       <div className="schedules-grid">
         {schedules.map((service) => (
-          <div key={service.key} data-schedule-key={service.key} className="schedules-grid-item">
+          <div
+            key={service.key}
+            data-schedule-key={service.key}
+            className={`schedules-grid-item${
+              service.key === 'scheduledPrefill' ? ' schedules-grid-item--full' : ''
+            }`}
+          >
             <ScheduleCard
               service={service}
               isAdmin={isAdmin}

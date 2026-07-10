@@ -160,8 +160,10 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         </div>
 
         {/* Action badge + chevron cluster — stays inline on the title row at every
-            width so the count/actions never wrap to a full-width second row. */}
-        <div className="flex items-center gap-2 flex-shrink-0 sm:gap-3 sm:justify-end">
+            width so the count/actions never wrap to a full-width second row. One
+            uniform gap so the count badge, actions menu, and chevron are evenly
+            spaced (the inner badge/menu group also uses gap-2). */}
+        <div className="flex items-center gap-2 flex-shrink-0 sm:justify-end">
           {badge}
 
           <span className="flex flex-shrink-0">{chevronButton}</span>

@@ -124,8 +124,8 @@ export function ScheduledPrefillPlatformsPanel({
                     className="scheduled-prefill-platforms__nav-badge"
                   >
                     {serviceConfig.enabled
-                      ? t(`${baseKey}.platforms.status.on`)
-                      : t(`${baseKey}.platforms.status.off`)}
+                      ? t(`${baseKey}.platforms.status.enabled`)
+                      : t(`${baseKey}.platforms.status.disabled`)}
                   </Badge>
                   {/* Neutral while the container list is still loading so it does not flash red
                       before its real running state is known. */}
@@ -133,7 +133,14 @@ export function ScheduledPrefillPlatformsPanel({
                     variant={statusLoading ? 'neutral' : container?.isRunning ? 'success' : 'error'}
                     className="scheduled-prefill-platforms__nav-badge"
                   >
-                    {t(`${baseKey}.platforms.status.containerShort`)}
+                    <span className="sr-only">
+                      {t(`${baseKey}.platforms.status.containerShort`)}:{' '}
+                    </span>
+                    {statusLoading
+                      ? t('common.loading')
+                      : container?.isRunning
+                        ? t('prefill.persistent.states.running')
+                        : t('prefill.persistent.states.stopped')}
                   </Badge>
                 </span>
               </button>

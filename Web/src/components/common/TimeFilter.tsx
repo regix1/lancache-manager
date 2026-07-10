@@ -346,7 +346,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
 
             {/* Event Filter Count Badge */}
             {selectedEventIds.length > 0 && (
-              <span className="absolute -top-1 -right-1 themed-badge badge-count font-bold bg-[var(--theme-primary)] text-white shadow-sm">
+              <span className="absolute -top-1 -right-1 themed-badge badge-count badge-count-on-color font-bold bg-[var(--theme-primary)] text-white shadow-sm">
                 {selectedEventIds.length}
               </span>
             )}

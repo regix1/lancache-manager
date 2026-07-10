@@ -359,13 +359,15 @@
     line-height: 1;
     text-align: center;
     border-radius: 3px;
-    border: 1px solid currentColor;
+    border: 1px solid var(--theme-border-secondary);
     background: var(--theme-text-muted-muted);
     color: inherit;
   }
 
   .downloads-header .tab-button.active .tab-badge {
     background: var(--theme-badge-white-subtle);
+    /* On the active (accent) tab a grey edge muddies the fill, use a white one. */
+    border-color: var(--theme-badge-white-subtle);
   }
 
   .downloads-header .tab-button:not(.active) .tab-badge.has-active {

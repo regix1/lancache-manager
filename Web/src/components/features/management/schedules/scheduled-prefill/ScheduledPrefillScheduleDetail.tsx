@@ -37,6 +37,7 @@ import type {
 } from './types';
 import { getErrorMessage, isAbortError } from '@utils/error';
 import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
+import { usePersistentPrefillContainerSignalR } from './usePersistentPrefillContainerSignalR';
 
 interface ScheduledPrefillScheduleDetailProps {
   disabled?: boolean;
@@ -49,6 +50,8 @@ interface ScheduledPrefillScheduleDetailProps {
 interface ScheduledPrefillServiceScheduleRowProps {
   serviceKey: ScheduledPrefillServiceKey;
   label: string;
+  enabled: boolean;
+  containerRunning: boolean;
   intervalHours: number;
   /** Relative next-run hint ("in 2d", "soon", "paused", "on startup") from formatTiming. */
   nextTiming: string;
@@ -60,14 +63,16 @@ interface ScheduledPrefillServiceScheduleRowProps {
 }
 
 /**
- * One enabled-service row: service icon + display name + its interval picker on the first line,
- * then a two-column "Next run" / "Last run" readout below. Extracted into its own component
+ * One service row: service identity, enablement and live container state, and its interval picker
+ * on the first line, then a two-column "Next run" / "Last run" readout below. Extracted into its own component
  * because it calls hooks (useTranslation, useFormattedDateTime) that cannot run inside a .map()
  * loop in the parent.
  */
 function ScheduledPrefillServiceScheduleRow({
   serviceKey,
   label,
+  enabled,
+  containerRunning,
   intervalHours,
   nextTiming,
   nextRunUtc,
@@ -76,6 +81,7 @@ function ScheduledPrefillServiceScheduleRow({
   onIntervalChange
 }: ScheduledPrefillServiceScheduleRowProps) {
   const { t } = useTranslation();
+  const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const nextRunDate = useFormattedDateTime(nextRunUtc);
   const ServiceIcon = SCHEDULED_PREFILL_PLATFORM_UI[serviceKey].icon;
 
@@ -86,10 +92,31 @@ function ScheduledPrefillServiceScheduleRow({
           <ServiceIcon size={16} />
         </span>
         <span className="scheduled-prefill-card-summary__schedule-service">{label}</span>
+        <div className="scheduled-prefill-card-summary__schedule-status">
+          <span className="scheduled-prefill-card-summary__schedule-status-item">
+            <span
+              className={`scheduled-prefill-card-summary__schedule-status-dot scheduled-prefill-card-summary__schedule-status-dot--${enabled ? 'success' : 'error'}`}
+              aria-hidden="true"
+            />
+            {enabled
+              ? t(`${baseKey}.platforms.status.enabled`)
+              : t(`${baseKey}.platforms.status.disabled`)}
+          </span>
+          <span className="scheduled-prefill-card-summary__schedule-status-item">
+            <span
+              className={`scheduled-prefill-card-summary__schedule-status-dot scheduled-prefill-card-summary__schedule-status-dot--${containerRunning ? 'success' : 'error'}`}
+              aria-hidden="true"
+            />
+            {t(`${baseKey}.platforms.status.containerShort`)}:{' '}
+            {containerRunning
+              ? t('prefill.persistent.states.running')
+              : t('prefill.persistent.states.stopped')}
+          </span>
+        </div>
         <div className="scheduled-prefill-card-summary__schedule-picker">
           <ScheduleIntervalPicker
             intervalHours={intervalHours}
-            isDisabled={disabled}
+            isDisabled={disabled || !enabled}
             onChange={(hours) => onIntervalChange(serviceKey, hours)}
           />
         </div>
@@ -136,6 +163,7 @@ export function ScheduledPrefillScheduleDetail({
   // Aborts the in-flight refreshSchedule() fetch so an unmounted or superseded refresh never
   // setStates (last writer wins).
   const refreshScheduleControllerRef = useRef<AbortController | null>(null);
+  const refreshContainersControllerRef = useRef<AbortController | null>(null);
 
   // Last-seen prefill entry from the SchedulesUpdated broadcast. That event fires on every
   // tracked service's work-tick, so we only refetch when the prefill aggregate actually
@@ -196,6 +224,31 @@ export function ScheduledPrefillScheduleDetail({
     }
   }, []);
 
+  // Keep the at-a-glance container badges current while this card remains mounted. Container
+  // start/stop actions happen inside Configure, but their state is useful on the schedule page
+  // even after that modal closes. Refresh only the lightweight container list for these events;
+  // the config and per-service schedule do not need to be fetched again.
+  const refreshPersistentContainers = useCallback(async () => {
+    refreshContainersControllerRef.current?.abort();
+    const controller = new AbortController();
+    refreshContainersControllerRef.current = controller;
+    try {
+      const nextContainers = await ApiService.getPersistentPrefillContainers(controller.signal);
+      if (!controller.signal.aborted) {
+        setPersistentContainers(nextContainers);
+      }
+    } catch {
+      // Preserve the last known status when a refresh is aborted or temporarily unavailable.
+    }
+  }, []);
+
+  usePersistentPrefillContainerSignalR({
+    enabled: true,
+    onRefresh: () => {
+      void refreshPersistentContainers();
+    }
+  });
+
   // Card-level per-service interval change. Saves via the same whole-config round-trip the
   // Configure modal uses; optimistic so the picker never flashes back to the old value.
   const handleServiceIntervalChange = useCallback(
@@ -229,6 +282,7 @@ export function ScheduledPrefillScheduleDetail({
     return () => {
       controller.abort();
       refreshScheduleControllerRef.current?.abort();
+      refreshContainersControllerRef.current?.abort();
     };
   }, [loadSummary]);
 
@@ -423,16 +477,23 @@ export function ScheduledPrefillScheduleDetail({
     const rows: {
       key: ScheduledPrefillServiceKey;
       label: string;
+      enabled: boolean;
+      containerRunning: boolean;
       intervalHours: number;
       nextTiming: string;
       nextRunUtc: string | null;
       lastRunUtc: string | null;
     }[] = [];
+    const containerByService = new Map<PersistentPrefillServiceId, PersistentPrefillContainerDto>(
+      persistentContainers.map((container) => [container.service, container])
+    );
     for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER) {
       const item = byServiceKey.get(serviceKey);
-      if (!item || !item.enabled) {
+      if (!item) {
         continue;
       }
+      const enabled = config ? config[serviceKey].enabled : item.enabled;
+      const container = containerByService.get(getPersistentServiceId(serviceKey));
       // Prefer the (optimistically updated) config value so the picker reflects a change
       // immediately; the schedule DTO catches up on the post-save refresh.
       const intervalHours = config ? config[serviceKey].intervalHours : item.intervalHours;
@@ -440,6 +501,7 @@ export function ScheduledPrefillScheduleDetail({
       // nextRunUtc that has not been re-stamped yet still reads as "soon" via formatTiming, so
       // suppress the stale elapsed timestamp here rather than render a confusing past date.
       const upcomingNextRunUtc =
+        enabled &&
         intervalHours > 0 &&
         item.nextRunUtc !== null &&
         new Date(item.nextRunUtc).getTime() > Date.now()
@@ -448,16 +510,18 @@ export function ScheduledPrefillScheduleDetail({
       rows.push({
         key: serviceKey,
         label: t(`${baseKey}.services.${serviceKey}`),
+        enabled,
+        containerRunning: container?.isRunning ?? false,
         intervalHours,
-        // formatTiming resolves paused (0) / startup-only (-1) / soon / "in Xd" for the Next
-        // run readout independently of the absolute date above.
-        nextTiming: formatTiming({ ...item, intervalHours }),
+        // A disabled platform keeps its chosen interval for the picker but has no active next run,
+        // so feed formatTiming a paused interval instead of suggesting that it will run "soon".
+        nextTiming: formatTiming({ ...item, intervalHours: enabled ? intervalHours : 0 }),
         nextRunUtc: upcomingNextRunUtc,
         lastRunUtc: item.lastRunUtc
       });
     }
     return rows;
-  }, [schedule, config, baseKey, formatTiming, t]);
+  }, [schedule, config, persistentContainers, baseKey, formatTiming, t]);
 
   const handleModalSaved = async () => {
     await loadSummary();
@@ -494,6 +558,8 @@ export function ScheduledPrefillScheduleDetail({
                         key={row.key}
                         serviceKey={row.key}
                         label={row.label}
+                        enabled={row.enabled}
+                        containerRunning={row.containerRunning}
                         intervalHours={row.intervalHours}
                         nextTiming={row.nextTiming}
                         nextRunUtc={row.nextRunUtc}

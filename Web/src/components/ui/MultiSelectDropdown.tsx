@@ -283,7 +283,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
         <span className="truncate flex-1">{displayLabel}</span>
         <div className="flex items-center gap-1.5 text-themed-muted">
           {selectedCount > 0 && (
-            <span className="themed-badge badge-count font-semibold bg-[var(--theme-primary)] text-white">
+            <span className="themed-badge badge-count badge-count-on-color font-semibold bg-[var(--theme-primary)] text-white">
               {selectedCount}
             </span>
           )}

@@ -117,15 +117,22 @@
    * Square box with lightly rounded corners (inherits themed-badge's 3px radius,
    * never rounded-full) + centered tabular figures. Compose on top of a Badge
    * variant (`<Badge variant="neutral" className="badge-count">`) or a raw span
-   * (`themed-badge status-badge-neutral badge-count`). The border uses
-   * `currentColor`, so the outline always matches the NUMBER's own text colour in
-   * every context (neutral grey, warning orange, info blue, white on an accent
-   * fill, etc.). Placed after the status-badge-* rules so its border wins for
-   * every variant. */
+   * (`themed-badge status-badge-neutral badge-count`). The border is a subtle dark
+   * grey (--theme-border-secondary, the same colour the cards use) so the chip
+   * blends quietly into the surface instead of reading as a bright outline. On a
+   * SATURATED colour fill (primary-blue active tab, live-green badge) a grey border
+   * goes muddy, so those badges add `.badge-count-on-color` to switch the outline to
+   * a translucent white. Placed after the status-badge-* rules so its border wins. */
   .badge-count {
     justify-content: center;
     min-width: 1.25rem;
-    border: 1px solid currentColor;
+    border: 1px solid var(--theme-border-secondary);
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Count badge sitting on a saturated colour fill (accent button, live badge):
+   * a grey outline muddies the colour, so use a translucent white edge instead. */
+  .badge-count-on-color {
+    border-color: var(--theme-badge-white-subtle);
   }
 }
