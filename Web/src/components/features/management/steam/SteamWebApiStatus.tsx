@@ -310,7 +310,6 @@ const SteamWebApiStatus: React.FC = () => {
                 color="blue"
                 leftSection={<Key className="w-4 h-4" />}
                 onClick={() => setShowConfigModal(true)}
-                className="flex-1"
                 disabled={removing}
               >
                 {status?.hasApiKey
@@ -333,7 +332,7 @@ const SteamWebApiStatus: React.FC = () => {
 
           {/* Last Checked */}
           {!loading && status && (
-            <p className="text-xs text-themed-muted mt-3 text-center">
+            <p className="text-xs text-themed-muted mt-3">
               {t('management.steamWebApi.lastChecked')}: {formattedLastChecked}
             </p>
           )}

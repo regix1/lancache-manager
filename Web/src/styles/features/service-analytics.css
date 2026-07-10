@@ -790,15 +790,17 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 2rem 1rem;
+  /* Keep the placeholder compact so an empty panel never drives its grid row
+     (and the data-filled panel beside it) taller than real content */
+  padding: 1rem;
   text-align: center;
 }
 
 .empty-icon {
   position: relative;
-  width: 72px;
-  height: 72px;
-  margin-bottom: 1rem;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 0.75rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -811,7 +813,7 @@
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  border: 9px solid var(--theme-bg-secondary-strong);
+  border: 7px solid var(--theme-bg-secondary-strong);
 }
 
 .empty-icon svg {

@@ -187,55 +187,59 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
             )}
         </div>
 
-        {/* Current usage or period growth */}
-        {isHistoricalView ? (
-          <>
-            <div className="flex items-baseline gap-2 mb-3">
-              <span className="text-xl font-bold text-themed-primary">
-                {formatBytes(periodGrowth)}
-              </span>
-              <span className="text-sm text-themed-muted">
-                {t('widgets.cacheGrowthTrend.addedDuringPeriod')}
-              </span>
-            </div>
-            {/* No usage bar for historical view - we don't have snapshot data */}
-            <div className="h-1 mb-3" />
-          </>
-        ) : (
-          <>
-            <div className="flex items-baseline gap-2 mb-3">
-              <span className="text-xl font-bold text-themed-primary">
-                {formatBytes(usedCacheSize)}
-              </span>
-              {totalCacheSize > 0 && (
-                <span className="text-sm text-themed-muted">/ {formatBytes(totalCacheSize)}</span>
-              )}
-            </div>
-
-            {/* Usage bar */}
-            {totalCacheSize > 0 && (
-              <div className="widget-progress mb-3">
-                <div
-                  className="widget-progress-fill"
-                  style={{
-                    width: `${displayPercent}%`,
-                    backgroundColor: isOverLimit
-                      ? 'var(--theme-error)' // Over configured limit (during eviction)
-                      : usagePercent >= 90
-                        ? 'var(--theme-error)'
-                        : usagePercent >= 75
-                          ? 'var(--theme-warning)'
-                          : 'var(--theme-primary)'
-                  }}
-                />
+        {/* Current usage or period growth — hidden while the growth chart is
+            empty (the usage number already lives in the Used Space stat card)
+            so the placeholder card stays as compact as its row partner */}
+        {hasEnoughData &&
+          (isHistoricalView ? (
+            <>
+              <div className="flex items-baseline gap-2 mb-3">
+                <span className="text-xl font-bold text-themed-primary">
+                  {formatBytes(periodGrowth)}
+                </span>
+                <span className="text-sm text-themed-muted">
+                  {t('widgets.cacheGrowthTrend.addedDuringPeriod')}
+                </span>
               </div>
-            )}
-          </>
-        )}
+              {/* No usage bar for historical view - we don't have snapshot data */}
+              <div className="h-1 mb-3" />
+            </>
+          ) : (
+            <>
+              <div className="flex items-baseline gap-2 mb-3">
+                <span className="text-xl font-bold text-themed-primary">
+                  {formatBytes(usedCacheSize)}
+                </span>
+                {totalCacheSize > 0 && (
+                  <span className="text-sm text-themed-muted">/ {formatBytes(totalCacheSize)}</span>
+                )}
+              </div>
 
-        {/* Sparkline */}
+              {/* Usage bar */}
+              {totalCacheSize > 0 && (
+                <div className="widget-progress mb-3">
+                  <div
+                    className="widget-progress-fill"
+                    style={{
+                      width: `${displayPercent}%`,
+                      backgroundColor: isOverLimit
+                        ? 'var(--theme-error)' // Over configured limit (during eviction)
+                        : usagePercent >= 90
+                          ? 'var(--theme-error)'
+                          : usagePercent >= 75
+                            ? 'var(--theme-warning)'
+                            : 'var(--theme-primary)'
+                    }}
+                  />
+                </div>
+              )}
+            </>
+          ))}
+
+        {/* Sparkline. flex-1 so the small row-stretch remainder lands inside
+            the well instead of as dead card space */}
         {sparklineData.length > 1 ? (
-          <div className="dash-well p-3">
+          <div className="dash-well p-3 flex-1 flex flex-col justify-center">
             <Sparkline
               data={sparklineData}
               color={hasDataDeletion ? 'var(--theme-info)' : 'var(--theme-primary)'}

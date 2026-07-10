@@ -290,8 +290,9 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
         </div>
       </div>
 
-      {/* Heatmap well - 24 hour blocks */}
-      <div className="dash-well p-3">
+      {/* Heatmap well - 24 hour blocks. flex-1 so the small row-stretch
+          remainder lands inside the well instead of as dead card space */}
+      <div className="dash-well p-3 flex-1 flex flex-col justify-center">
         <div className="grid grid-cols-12 gap-1.5">
           {hourlyData.map((hourData) => {
             const isCurrentHour = isTodayInRange && hourData.hour === currentHour;
@@ -337,7 +338,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
                 position="top"
               >
                 <div
-                  className="w-full h-5 rounded cursor-pointer transition-colors duration-200 hover:brightness-110"
+                  className="w-full h-6 rounded cursor-pointer transition-colors duration-200 hover:brightness-110"
                   style={{
                     backgroundColor: getIntensityColor(
                       hourData.downloads,

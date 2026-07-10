@@ -3,6 +3,8 @@
 
 # Playwright MCP output (screenshots, snapshots)
 .playwright-mcp/
+# Loose root-level UI review screenshots
+/*.png
 
 # Build results
 [Dd]ebug/
