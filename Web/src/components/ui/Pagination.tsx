@@ -586,7 +586,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
           {/* Quick Page Jump (for many pages) */}
           {totalPages > 10 && (
             <>
-              <div className="border-l mx-2 h-6 border-themed-secondary" />
+              <div className="border-l h-6 border-themed-secondary" />
               <EnhancedDropdown
                 options={Array.from({ length: totalPages }, (_, i) => ({
                   value: (i + 1).toString(),

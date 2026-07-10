@@ -285,7 +285,7 @@ const RetroRow: React.FC<RetroRowProps> = memo(
                     isPartiallyEvicted={data.isPartiallyEvicted}
                   />
                   {onDiskSizeBytes ? (
-                    <span className="text-themed-muted text-xs ml-2">
+                    <span className="text-themed-muted text-xs">
                       {t('dashboard.downloadsPanel.onDisk', {
                         size: formatBytes(onDiskSizeBytes)
                       })}

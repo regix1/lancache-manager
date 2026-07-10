@@ -328,7 +328,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
   const cardContent = (
     <div
-      className={`flex flex-col sm:flex-row ${fullHeightBanners ? 'download-card-fullheight' : 'sm:h-[160px]'}`}
+      className={`flex flex-col sm:flex-row ${fullHeightBanners ? 'download-card-fullheight' : 'sm:min-h-[160px]'}`}
     >
       {bannerContent && (
         <>
@@ -372,7 +372,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   </h3>
                 )}
                 {diskSizeBytes ? (
-                  <span className="text-themed-muted text-xs ml-2">
+                  <span className="text-themed-muted text-xs">
                     {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
                   </span>
                 ) : null}
@@ -403,9 +403,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                       {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
                     </span>
                     {detection?.cache_files_found ? (
-                      <span className="ml-1">
-                        · {formatCount(detection.cache_files_found)} files
-                      </span>
+                      <span>· {formatCount(detection.cache_files_found)} files</span>
                     ) : null}
                   </div>
                 ) : null}
@@ -461,7 +459,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   </h3>
                 )}
                 {diskSizeBytes ? (
-                  <span className="text-themed-muted text-xs ml-2">
+                  <span className="text-themed-muted text-xs">
                     {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
                   </span>
                 ) : null}
@@ -476,11 +474,11 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 )}
               </div>
 
-              {/* Stats Grid */}
-              <div
-                className={`grid grid-cols-2 ${fullHeightBanners ? 'gap-x-4 gap-y-1' : 'gap-x-8 gap-y-2'}`}
-              >
-                <div className="flex items-baseline gap-2">
+              {/* Stats list — one row per stat spanning the full content width, label on
+                  the left and value right-aligned (justify-between), so the card reads as an
+                  aligned list instead of a left-packed two-column block with empty space. */}
+              <div className={`flex flex-col ${fullHeightBanners ? 'gap-y-0.5' : 'gap-y-1.5'}`}>
+                <div className="flex items-baseline justify-between gap-2">
                   <span
                     className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
                   >
@@ -492,7 +490,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     {formatBytes(group.totalBytes)}
                   </span>
                 </div>
-                <div className="flex items-baseline gap-2">
+                <div className="flex items-baseline justify-between gap-2">
                   <span
                     className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
                   >
@@ -505,7 +503,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   </span>
                 </div>
                 {showCacheHitBar && (
-                  <div className="flex items-baseline gap-2">
+                  <div className="flex items-baseline justify-between gap-2">
                     <span
                       className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
                     >
@@ -518,7 +516,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     </span>
                   </div>
                 )}
-                <div className="flex items-baseline gap-2">
+                <div className="flex items-baseline justify-between gap-2">
                   <span
                     className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
                   >
@@ -536,7 +534,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   </span>
                 </div>
                 {showCacheHitBar && (
-                  <div className="flex items-baseline gap-2">
+                  <div className="flex items-baseline justify-between gap-2">
                     <span
                       className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
                     >

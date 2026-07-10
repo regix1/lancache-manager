@@ -323,7 +323,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     </span>
                   )}
                   {diskSizeBytes ? (
-                    <span className="text-themed-muted text-xs ml-2">
+                    <span className="text-themed-muted text-xs">
                       {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
                     </span>
                   ) : null}

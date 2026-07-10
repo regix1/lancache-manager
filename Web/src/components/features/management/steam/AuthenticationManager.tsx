@@ -290,7 +290,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
             <p className="text-xs mt-1 opacity-75">{getDescriptionText()}</p>
           </div>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto sm:ml-4">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
             {authMode === 'authenticated' && (
               <Button
                 variant="filled"

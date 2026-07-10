@@ -533,7 +533,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                           </div>
                           {option.rightLabel && (
                             <span
-                              className={`flex-shrink-0 text-xs font-medium mr-1 ${
+                              className={`flex-shrink-0 text-xs font-medium ${
                                 value.startsWith(option.value + ':')
                                   ? 'text-[var(--theme-primary)]'
                                   : 'text-themed-secondary'
