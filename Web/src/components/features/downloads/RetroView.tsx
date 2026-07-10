@@ -407,9 +407,10 @@ const RetroView = memo(
         [groupedItems, t, detectionLookup, detectionByName, detectionByService]
       );
 
-      // Column widths: auto-fit to content by default; manual once the user
-      // drags a divider or double-click-fits a column (persisted). The "Fit
-      // columns" toolbar action clears saved widths and returns to auto mode.
+      // Column widths: auto-fit measured content to the available table width
+      // by default; manual once the user drags a divider or double-click-fits
+      // a column (persisted). The "Fit columns" toolbar action clears saved
+      // widths and returns to responsive auto-fit mode.
       const [columnWidths, setColumnWidths] = useState<ColumnWidths>(() => {
         try {
           const saved = localStorage.getItem(RETRO_WIDTHS_STORAGE_KEY);
@@ -505,8 +506,8 @@ const RetroView = memo(
         [persistWidths]
       );
 
-      // "Fit columns" toolbar action: drop any manual widths and hand control
-      // back to auto-fit.
+      // "Fit columns" toolbar action: drop any manual widths and fit the
+      // measured content widths into the table's current rendered width.
       const handleResetWidths = useCallback(() => {
         try {
           localStorage.removeItem(RETRO_WIDTHS_STORAGE_KEY);
@@ -515,11 +516,17 @@ const RetroView = memo(
         }
         setIsManualWidths(false);
 
-        if (measureRows.length > 0) {
-          setColumnWidths(measureAllRetroColumns(measureRows, headerLabels, visibility));
-        } else {
-          setColumnWidths(getDefaultColumnWidths());
+        const measured =
+          measureRows.length > 0
+            ? measureAllRetroColumns(measureRows, headerLabels, visibility)
+            : getDefaultColumnWidths();
+        const width = containerRef.current?.clientWidth;
+        if (width && width > 0) {
+          setColumnWidths(fitWidthsToContainer(measured, width, visibility));
+          return;
         }
+
+        setColumnWidths(measured);
       }, [measureRows, headerLabels, visibility]);
 
       // Double-click on a divider: fit that one column to its content. An
@@ -543,16 +550,18 @@ const RetroView = memo(
         fadeContainerRef.current?.classList.toggle('page-fading', fading);
       }, []);
 
-      // Auto-fit columns to the current rows before paint. Reruns on every
-      // page/filter/data change and on container resizes until the user takes
-      // manual control; useLayoutEffect keeps the fit in the same frame as the
-      // row update, so columns never visibly jump after render.
+      // Auto-fit columns to the current rows and available width before paint.
+      // Reruns on every page/filter/data change and on container resizes until
+      // the user takes manual control; useLayoutEffect keeps the fit in the
+      // same frame as the row update, so columns never visibly jump after
+      // render.
       useLayoutEffect(() => {
         if (isManualWidths) return;
         // containerWidth 0 = mounted but hidden (display:none view switch);
         // the ResizeObserver re-fires this fit when the table becomes visible.
         if (containerWidth <= 0 || measureRows.length === 0) return;
-        const next = measureAllRetroColumns(measureRows, headerLabels, visibility);
+        const measured = measureAllRetroColumns(measureRows, headerLabels, visibility);
+        const next = fitWidthsToContainer(measured, containerWidth, visibility);
         setColumnWidths((prev) => (widthsEqual(prev, next) ? prev : next));
       }, [isManualWidths, containerWidth, measureRows, headerLabels, visibility]);
 

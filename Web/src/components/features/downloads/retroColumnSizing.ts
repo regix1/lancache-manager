@@ -258,11 +258,9 @@ export const measureRetroColumn = (
 };
 
 /**
- * Measure every visible column from real row content. Used by the
- * auto-fit-on-data-change pass and the "fit columns" toolbar action.
- * Widths are never squeezed below measured content - when the sum exceeds
- * the viewport, the table scrolls horizontally (the container already
- * supports it) instead of re-truncating exactly what was measured.
+ * Measure every visible column from real row content. Callers can then keep
+ * these content widths for horizontal scrolling or pass them through
+ * fitWidthsToContainer for responsive auto-fit behavior.
  */
 export const measureAllRetroColumns = (
   rows: RetroMeasureRow[],
