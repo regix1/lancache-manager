@@ -210,6 +210,10 @@ export function ScheduledPrefillScheduleDetail({
   const [runPhase, setRunPhase] = useState<ScheduledPrefillRunPhase>('idle');
   const [runProgress, setRunProgress] = useState<ScheduledPrefillRunProgressItem[]>([]);
   const [runError, setRunError] = useState<string | null>(null);
+  // Relative labels ("in 2h", "Just now") are computed at render time, so without a clock they
+  // freeze at whatever the last fetch produced. A minute tick matches their coarsest granularity
+  // and re-derives every timing cell without refetching anything.
+  const [now, setNow] = useState(() => Date.now());
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
   const eventsKey = 'management.schedules.services.scheduledPrefill.events';
 
@@ -338,6 +342,11 @@ export function ScheduledPrefillScheduleDetail({
       refreshContainersControllerRef.current?.abort();
     };
   }, [loadSummary]);
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   const formatProgressLine = useCallback(
     (item: ScheduledPrefillRunProgressItem): string => {
@@ -507,7 +516,7 @@ export function ScheduledPrefillScheduleDetail({
         return t(`${baseKey}.nextRunSummary.soon`);
       }
 
-      const diffMs = new Date(item.nextRunUtc).getTime() - Date.now();
+      const diffMs = new Date(item.nextRunUtc).getTime() - now;
       if (diffMs <= 0) {
         return t(`${baseKey}.nextRunSummary.soon`);
       }
@@ -523,7 +532,7 @@ export function ScheduledPrefillScheduleDetail({
       const diffDays = Math.floor(diffHours / 24);
       return t(`${baseKey}.nextRunSummary.inDays`, { count: diffDays });
     },
-    [baseKey, t]
+    [baseKey, now, t]
   );
 
   const scheduleRows = useMemo(() => {
@@ -566,7 +575,7 @@ export function ScheduledPrefillScheduleDetail({
         enabled &&
         intervalHours > 0 &&
         item.nextRunUtc !== null &&
-        new Date(item.nextRunUtc).getTime() > Date.now()
+        new Date(item.nextRunUtc).getTime() > now
           ? item.nextRunUtc
           : null;
       rows.push({
@@ -590,7 +599,7 @@ export function ScheduledPrefillScheduleDetail({
       });
     }
     return rows;
-  }, [schedule, config, persistentContainers, baseKey, formatTiming, t]);
+  }, [schedule, config, persistentContainers, baseKey, formatTiming, now, t]);
 
   const handleModalSaved = async () => {
     await loadSummary();
