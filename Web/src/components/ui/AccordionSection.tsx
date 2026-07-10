@@ -15,6 +15,12 @@ interface AccordionSectionProps {
   isExpanded: boolean;
   onToggle: () => void;
   badge?: React.ReactNode;
+  /**
+   * 'card' (default) matches the app-wide card shell. 'well' renders a stable
+   * recessed-well fill/border in both expanded and collapsed states, for
+   * accordions nested inside another AccordionSection — avoids a card-in-card look.
+   */
+  surface?: 'card' | 'well';
 }
 
 export const AccordionSection: React.FC<AccordionSectionProps> = ({
@@ -27,7 +33,8 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
   children,
   isExpanded,
   onToggle,
-  badge
+  badge,
+  surface = 'card'
 }) => {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     const target = e.target as HTMLElement;
@@ -93,9 +100,11 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
   return (
     <div
       className={`group themed-border-radius overflow-hidden transition duration-300 border ${
-        isExpanded
-          ? 'bg-themed-secondary border-themed-primary shadow-[0_4px_16px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.12)]'
-          : 'bg-[var(--theme-bg-secondary-emphasis)] border-themed-secondary shadow-[0_1px_3px_rgba(0,0,0,0.1)]'
+        surface === 'well'
+          ? 'bg-transparent border-themed-well'
+          : isExpanded
+            ? 'bg-themed-card border-themed-primary shadow-[0_4px_16px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.12)]'
+            : 'bg-[var(--theme-card-bg-emphasis)] border-themed-secondary shadow-[0_1px_3px_rgba(0,0,0,0.1)]'
       }`}
     >
       {/* Header - using div with role="button" to allow nested interactive elements */}

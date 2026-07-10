@@ -394,7 +394,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
       <CollapsibleRegion
         open={isExpanded}
-        contentClassName="border-t border-[var(--theme-primary)] bg-[var(--theme-bg-secondary)] px-4 pb-4 pt-4 sm:px-6 sm:pb-6 sm:pt-5"
+        contentClassName="border-t border-[var(--theme-primary)] bg-[var(--theme-card-bg)] px-4 pb-4 pt-4 sm:px-6 sm:pb-6 sm:pt-5"
       >
         <div onClick={(event: React.MouseEvent<HTMLDivElement>) => event.stopPropagation()}>
           <div className="flex flex-col gap-6">
@@ -421,7 +421,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 className={`grid grid-cols-1 sm:grid-cols-2 ${diskSizeBytes ? 'md:grid-cols-4' : 'md:grid-cols-3'} gap-4`}
               >
                 {/* Efficiency & Savings */}
-                <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
+                <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
                   <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
                     Efficiency
                   </h5>
@@ -455,7 +455,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
                 {/* Disk Usage */}
                 {diskSizeBytes ? (
-                  <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
+                  <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
                     <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
                       {t('downloads.tab.normal.stats.diskUsage', 'Disk Usage')}
                     </h5>
@@ -483,7 +483,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 ) : null}
 
                 {/* Network Traffic */}
-                <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
+                <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
                   <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
                     {t('downloads.tab.normal.stats.networkTraffic', 'Network Traffic')}
                   </h5>
@@ -516,7 +516,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 </div>
 
                 {/* Activity Summary */}
-                <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
+                <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
                   <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
                     Activity
                   </h5>
@@ -622,7 +622,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                             <button
                               type="button"
                               onClick={() => toggleIp(clientIp)}
-                              className="w-full bg-[var(--theme-bg-tertiary)] px-4 py-2 flex flex-wrap items-center justify-between gap-1 border-b border-[var(--theme-border-secondary)] text-left"
+                              className={`w-full bg-[var(--theme-bg-tertiary)] px-4 py-2 flex flex-wrap items-center justify-between gap-1 text-left ${expanded ? 'border-b border-[var(--theme-border-secondary)]' : ''}`}
                             >
                               <div className="flex items-center gap-2">
                                 <ChevronDown
@@ -1261,7 +1261,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
 
         <div className="flex flex-col gap-3">
           {/* Efficiency */}
-          <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
+          <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
             <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
               Efficiency
             </h5>
@@ -1295,7 +1295,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
 
           {/* Disk Usage */}
           {diskSizeBytes ? (
-            <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
+            <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
               <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
                 {t('downloads.tab.normal.stats.diskUsage', 'Disk Usage')}
               </h5>
@@ -1323,7 +1323,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
           ) : null}
 
           {/* Network Traffic */}
-          <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
+          <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
             <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
               {t('downloads.tab.normal.stats.networkTraffic', 'Network Traffic')}
             </h5>
@@ -1356,7 +1356,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
           </div>
 
           {/* Activity */}
-          <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
+          <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-well)] [background-clip:padding-box]">
             <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
               Activity
             </h5>
@@ -1439,7 +1439,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                   <button
                     type="button"
                     onClick={() => toggleIp(clientIp)}
-                    className="w-full bg-[var(--theme-bg-tertiary)] px-4 py-2 flex flex-wrap items-center justify-between gap-1 border-b border-[var(--theme-border-secondary)] text-left"
+                    className={`w-full bg-[var(--theme-bg-tertiary)] px-4 py-2 flex flex-wrap items-center justify-between gap-1 text-left ${expanded ? 'border-b border-[var(--theme-border-secondary)]' : ''}`}
                   >
                     <div className="flex items-center gap-2">
                       <ChevronDown

@@ -400,7 +400,7 @@ const DataSection: React.FC<DataSectionProps> = ({
             {tables.map((table) => (
               <label
                 key={table.name}
-                className={`db-table-item p-3 rounded-lg cursor-pointer flex items-start gap-3 transition duration-150 bg-themed-secondary${selectedTables.includes(table.name) ? ' db-table-item-selected' : ''}`}
+                className={`db-table-item p-3 rounded-lg cursor-pointer flex items-start gap-3 transition duration-150 bg-themed-tertiary${selectedTables.includes(table.name) ? ' db-table-item-selected' : ''}`}
               >
                 <input
                   type="checkbox"
@@ -471,7 +471,10 @@ const DataSection: React.FC<DataSectionProps> = ({
 
           <div className="space-y-2 max-h-[40vh] overflow-y-auto custom-scrollbar pr-2">
             {getSelectedTableInfo().map((table) => (
-              <div key={table.name} className="p-3 rounded-lg bg-themed-secondary">
+              <div
+                key={table.name}
+                className="p-3 rounded-lg bg-themed-tertiary border border-[var(--theme-border-well)] [background-clip:padding-box]"
+              >
                 <div className="font-medium text-themed-primary">{table.label}</div>
                 <div className="text-sm text-themed-secondary mt-1">{table.description}</div>
                 <div className="text-xs mt-2 flex items-center gap-1.5">

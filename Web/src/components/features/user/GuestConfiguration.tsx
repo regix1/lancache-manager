@@ -892,7 +892,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         </div>
         <div className="p-4 sm:p-5 space-y-4">
           <p className="text-xs text-themed-muted">{t('user.guest.prefill.existingGuestsNote')}</p>
-          <div className="mgmt-list user-settings-list">
+          <div className="user-settings-service-sections">
             <PrefillServicePanel
               serviceName="Steam"
               serviceNameClass="text-steam"

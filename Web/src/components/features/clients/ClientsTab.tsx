@@ -17,9 +17,10 @@ interface ClientListItemProps {
 }
 
 /**
- * One client row: identity + last activity, hit rate readout, and an expanded
- * detail strip of downloads/data/hits/misses. Replaces the old ClientRow/ClientCard
- * pair with a single responsive item (CSS reflows it, no forked component tree).
+ * One dense table row (CSS grid): client identity plus six figure columns.
+ * Under 768px the same DOM reflows into a labeled two-column stack via the
+ * cells' data-label attributes — one component, no forked tree, no per-client
+ * readout wells.
  */
 const ClientListItem: React.FC<ClientListItemProps> = ({ client }) => {
   const { t } = useTranslation();
@@ -35,65 +36,59 @@ const ClientListItem: React.FC<ClientListItemProps> = ({ client }) => {
   const hitRateTone = client.cacheHitPercent > 50 ? 'is-success' : 'is-warning';
 
   return (
-    <div>
-      <div className="mgmt-row mgmt-row--interactive">
+    <div className="clients-grid">
+      <div className="clients-cell clients-cell--client">
         {client.isGrouped && <Users className="w-4 h-4 text-themed-muted flex-shrink-0" />}
-        <div className="mgmt-row__body">
-          <p className="mgmt-row__title flex items-center gap-2">
-            {ipTooltip ? (
-              <Tooltip content={ipTooltip}>
-                <span className="cursor-help border-b border-dashed border-themed-muted">
-                  {displayLabel}
-                </span>
-              </Tooltip>
-            ) : (
-              <span>{displayLabel}</span>
-            )}
-            {showGroupCount && (
-              <span
-                className="themed-badge status-badge-neutral badge-count"
-                aria-label={t('clients.groupCount', { count: client.groupMemberIps!.length })}
-              >
-                {client.groupMemberIps!.length}
-              </span>
-            )}
-          </p>
-          <p className="mgmt-row__meta">
-            {t('clients.labels.lastActivity', { time: formattedLastActivity })}
-          </p>
-        </div>
-        <div className="mgmt-row__actions">
-          <div className="flex flex-col items-end">
-            <span className={`dash-readout-value ${hitRateTone}`}>
-              {formatPercent(client.cacheHitPercent)}
+        {ipTooltip ? (
+          <Tooltip content={ipTooltip}>
+            <span className="cursor-help border-b border-dashed border-themed-muted truncate">
+              {displayLabel}
             </span>
-            <span className="dash-readout-label">{t('clients.table.hitRate')}</span>
-          </div>
-        </div>
+          </Tooltip>
+        ) : (
+          <span className="truncate">{displayLabel}</span>
+        )}
+        {showGroupCount && (
+          <span
+            className="themed-badge status-badge-neutral badge-count"
+            aria-label={t('clients.groupCount', { count: client.groupMemberIps!.length })}
+          >
+            {client.groupMemberIps!.length}
+          </span>
+        )}
       </div>
-      <div className="mgmt-row-detail">
-        <div className="dash-readout">
-          <div className="dash-readout-item">
-            <span className="dash-readout-value">{client.totalDownloads}</span>
-            <span className="dash-readout-label">{t('clients.labels.downloads')}</span>
-          </div>
-          <div className="dash-readout-item">
-            <span className="dash-readout-value">{formatBytes(client.totalBytes)}</span>
-            <span className="dash-readout-label">{t('clients.labels.totalData')}</span>
-          </div>
-          <div className="dash-readout-item">
-            <span className="dash-readout-value is-success">
-              {formatBytes(client.totalCacheHitBytes)}
-            </span>
-            <span className="dash-readout-label">{t('clients.labels.cacheHits')}</span>
-          </div>
-          <div className="dash-readout-item">
-            <span className="dash-readout-value is-warning">
-              {formatBytes(client.totalCacheMissBytes)}
-            </span>
-            <span className="dash-readout-label">{t('clients.labels.cacheMisses')}</span>
-          </div>
-        </div>
+      <div
+        className="clients-cell clients-cell--num"
+        data-label={t('clients.table.totalDownloads')}
+      >
+        {client.totalDownloads}
+      </div>
+      <div className="clients-cell clients-cell--num" data-label={t('clients.table.totalData')}>
+        {formatBytes(client.totalBytes)}
+      </div>
+      <div
+        className="clients-cell clients-cell--num cache-hit"
+        data-label={t('clients.table.cacheHits')}
+      >
+        {formatBytes(client.totalCacheHitBytes)}
+      </div>
+      <div
+        className="clients-cell clients-cell--num cache-miss"
+        data-label={t('clients.table.cacheMisses')}
+      >
+        {formatBytes(client.totalCacheMissBytes)}
+      </div>
+      <div
+        className={`clients-cell clients-cell--num clients-hit ${hitRateTone}`}
+        data-label={t('clients.table.hitRate')}
+      >
+        {formatPercent(client.cacheHitPercent)}
+      </div>
+      <div
+        className="clients-cell clients-cell--num clients-cell--lg clients-cell--muted"
+        data-label={t('clients.table.lastActivity')}
+      >
+        {formattedLastActivity}
       </div>
     </div>
   );
@@ -193,19 +188,48 @@ const ClientsTab: React.FC = () => {
         </div>
 
         {loading ? (
-          <div className="mgmt-list" aria-hidden="true">
-            {Array.from({ length: 5 }, (_, i) => (
-              <div key={i} className="mgmt-row">
-                <div className="mgmt-row__body">
+          <div className="clients-well" aria-hidden="true">
+            {Array.from({ length: 8 }, (_, i) => (
+              <div key={i} className="clients-grid">
+                <div className="clients-cell clients-cell--client">
                   <div className="clients-skeleton-line clients-skeleton-line--title" />
-                  <div className="clients-skeleton-line clients-skeleton-line--meta" />
                 </div>
-                <div className="clients-skeleton-line clients-skeleton-line--value" />
+                <div className="clients-cell clients-cell--num">
+                  <div className="clients-skeleton-line clients-skeleton-line--value" />
+                </div>
+                <div className="clients-cell clients-cell--num">
+                  <div className="clients-skeleton-line clients-skeleton-line--value" />
+                </div>
+                <div className="clients-cell clients-cell--num">
+                  <div className="clients-skeleton-line clients-skeleton-line--value" />
+                </div>
+                <div className="clients-cell clients-cell--num">
+                  <div className="clients-skeleton-line clients-skeleton-line--value" />
+                </div>
+                <div className="clients-cell clients-cell--num">
+                  <div className="clients-skeleton-line clients-skeleton-line--value" />
+                </div>
+                <div className="clients-cell clients-cell--num clients-cell--lg">
+                  <div className="clients-skeleton-line clients-skeleton-line--value" />
+                </div>
               </div>
             ))}
           </div>
         ) : sortedClients.length > 0 ? (
-          <div className="mgmt-list">
+          <div className="clients-well">
+            <div className="clients-grid clients-grid--header">
+              <div className="clients-cell clients-cell--client">{t('clients.table.client')}</div>
+              <div className="clients-cell clients-cell--num">
+                {t('clients.table.totalDownloads')}
+              </div>
+              <div className="clients-cell clients-cell--num">{t('clients.table.totalData')}</div>
+              <div className="clients-cell clients-cell--num">{t('clients.table.cacheHits')}</div>
+              <div className="clients-cell clients-cell--num">{t('clients.table.cacheMisses')}</div>
+              <div className="clients-cell clients-cell--num">{t('clients.table.hitRate')}</div>
+              <div className="clients-cell clients-cell--num clients-cell--lg">
+                {t('clients.table.lastActivity')}
+              </div>
+            </div>
             {sortedClients.map((client) => (
               <ClientListItem key={getClientKey(client)} client={client} />
             ))}

@@ -243,9 +243,7 @@ export function ScheduledPrefillConfigModal({
     DEFAULT_PERSISTENT_PREFILL_VALIDITY_DAYS
   );
   const [loadingGlobalSettings, setLoadingGlobalSettings] = useState(false);
-  const [savingGlobalSettings, setSavingGlobalSettings] = useState(false);
   const [globalSettingsError, setGlobalSettingsError] = useState<string | null>(null);
-  const [globalSettingsSaved, setGlobalSettingsSaved] = useState(false);
   const [clearLoginsConfirmOpen, setClearLoginsConfirmOpen] = useState(false);
   const [clearingLogins, setClearingLogins] = useState(false);
   const [clearLoginsSuccessNote, setClearLoginsSuccessNote] = useState<string | null>(null);
@@ -259,10 +257,7 @@ export function ScheduledPrefillConfigModal({
     useState<ScheduledPrefillServiceKey | null>(null);
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
 
-  // Auto-dismiss the "settings saved" notice so it does not linger forever.
-  const scheduleGlobalSavedDismiss = useTimeoutCallback(2500);
-  // Same auto-dismiss treatment for the "logins cleared" success note (kept separate from the
-  // settings-saved one above since the two can be triggered independently of each other).
+  // Auto-dismiss the "logins cleared" success note so it does not linger forever.
   const scheduleClearLoginsSuccessDismiss = useTimeoutCallback(2500);
 
   const loadConfig = useCallback(async (signal?: AbortSignal) => {
@@ -354,7 +349,6 @@ export function ScheduledPrefillConfigModal({
     setSaveError(null);
     setPersistentError(null);
     setGlobalSettingsError(null);
-    setGlobalSettingsSaved(false);
     setGameSelectionError(null);
     setGameSelection(null);
     void loadConfig(controller.signal);
@@ -773,9 +767,6 @@ export function ScheduledPrefillConfigModal({
     }
     // Success notices win over nothing (every error case above already returned), so these are
     // safe to check last - one shared horizontal banner instead of a message beside each button.
-    if (globalSettingsSaved) {
-      return { color: 'green', message: t(`${baseKey}.settings.saved`) };
-    }
     if (clearLoginsSuccessNote) {
       return { color: 'green', message: clearLoginsSuccessNote };
     }
@@ -787,7 +778,6 @@ export function ScheduledPrefillConfigModal({
     persistentError,
     gameSelectionError,
     validationError,
-    globalSettingsSaved,
     clearLoginsSuccessNote,
     t,
     baseKey
@@ -802,7 +792,6 @@ export function ScheduledPrefillConfigModal({
     setPersistentError(null);
     setGameSelectionError(null);
     setValidationError(null);
-    setGlobalSettingsSaved(false);
     setClearLoginsSuccessNote(null);
   };
 
@@ -832,36 +821,9 @@ export function ScheduledPrefillConfigModal({
     setSaveError(null);
   };
 
-  const clearGlobalSettingsNotice = () => {
-    setGlobalSettingsError(null);
-    setGlobalSettingsSaved(false);
-  };
-
   const handlePersistentValidityDaysChange = (value: number) => {
     setPersistentValidityDays(clampToBounds(value, PERSISTENT_PREFILL_VALIDITY_BOUNDS));
-    clearGlobalSettingsNotice();
-  };
-
-  const handleSaveGlobalSettings = async () => {
-    const nextValidityDays = clampToBounds(
-      persistentValidityDays,
-      PERSISTENT_PREFILL_VALIDITY_BOUNDS
-    );
-
-    setSavingGlobalSettings(true);
     setGlobalSettingsError(null);
-    setGlobalSettingsSaved(false);
-
-    try {
-      await ApiService.updatePersistentPrefillValidity({ days: nextValidityDays });
-      setPersistentValidityDays(nextValidityDays);
-      setGlobalSettingsSaved(true);
-      scheduleGlobalSavedDismiss(() => setGlobalSettingsSaved(false));
-    } catch (error: unknown) {
-      setGlobalSettingsError(getErrorMessage(error));
-    } finally {
-      setSavingGlobalSettings(false);
-    }
   };
 
   // Wipes stored logins for every persistent-container service in one shot: logs out any running
@@ -1215,7 +1177,17 @@ export function ScheduledPrefillConfigModal({
     setValidationError(null);
 
     try {
-      await ApiService.updateScheduledPrefillConfig(config);
+      // ONE save button for the whole modal: persist the schedule config and the
+      // persistent-login validity together (the validity field no longer carries
+      // its own Save).
+      const nextValidityDays = clampToBounds(
+        persistentValidityDays,
+        PERSISTENT_PREFILL_VALIDITY_BOUNDS
+      );
+      await Promise.all([
+        ApiService.updateScheduledPrefillConfig(config),
+        ApiService.updatePersistentPrefillValidity({ days: nextValidityDays })
+      ]);
       await Promise.resolve(onSaved?.());
       onClose();
     } catch (error: unknown) {
@@ -1226,7 +1198,7 @@ export function ScheduledPrefillConfigModal({
   };
 
   const handleClose = () => {
-    if (!saving && !savingGlobalSettings) {
+    if (!saving) {
       setGameSelection(null);
       onClose();
     }
@@ -1361,28 +1333,18 @@ export function ScheduledPrefillConfigModal({
                             </p>
                           </div>
                           <div className="scheduled-prefill-config-modal__setting-actions">
+                            {/* Saved by the modal's single Save button - no inline save here. */}
                             <NumberInput
                               id="scheduled-prefill-persistent-validity-days"
-                              className="scheduled-prefill-number-cap"
+                              className="scheduled-prefill-number-cap scheduled-prefill-number-cap--full"
                               min={PERSISTENT_PREFILL_VALIDITY_BOUNDS.min}
                               max={PERSISTENT_PREFILL_VALIDITY_BOUNDS.max}
                               step={1}
                               value={persistentValidityDays}
-                              disabled={loadingGlobalSettings || savingGlobalSettings}
+                              disabled={loadingGlobalSettings || saving}
                               aria-label={t(`${baseKey}.settings.persistentValidityLabel`)}
                               onChange={handlePersistentValidityDaysChange}
                             />
-                            <Button
-                              type="button"
-                              variant="subtle"
-                              size={SCHEDULED_PREFILL_BUTTON_SIZE}
-                              onClick={() => void handleSaveGlobalSettings()}
-                              disabled={loadingGlobalSettings || savingGlobalSettings}
-                              loading={savingGlobalSettings}
-                              stableWidth
-                            >
-                              {t(`${baseKey}.settings.save`)}
-                            </Button>
                           </div>
                         </div>
                       </div>
@@ -1463,7 +1425,7 @@ export function ScheduledPrefillConfigModal({
               variant="default"
               size={SCHEDULED_PREFILL_BUTTON_SIZE}
               onClick={handleClose}
-              disabled={saving || savingGlobalSettings}
+              disabled={saving}
             >
               {t('common.cancel')}
             </Button>
@@ -1473,7 +1435,7 @@ export function ScheduledPrefillConfigModal({
               color="green"
               size={SCHEDULED_PREFILL_BUTTON_SIZE}
               onClick={handleSave}
-              disabled={!config || saving || loadingConfig || savingGlobalSettings}
+              disabled={!config || saving || loadingConfig}
               loading={saving}
             >
               {saving ? t(`${baseKey}.actions.saving`) : t(`${baseKey}.actions.save`)}

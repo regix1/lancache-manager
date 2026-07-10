@@ -5,6 +5,15 @@
    any management section component that uses these classes so the styles ship
    even if the component is rendered outside StorageSection. */
 
+/* Shared recessed-well surface (see .dash-well / .rdl-well for the app-wide idiom). */
+.mgmt-stat,
+.mgmt-panel,
+.mgmt-list {
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-well);
+  background-clip: padding-box;
+}
+
 /* Sub-section label inside an expanded section ("Cache Size", "Deletion method"). */
 .mgmt-subhead {
   margin: 0;
@@ -28,8 +37,6 @@
   gap: 0.25rem;
   min-width: 0;
   padding: 0.625rem 0.75rem;
-  background: var(--theme-bg-tertiary);
-  border: 1px solid var(--theme-border-secondary);
   border-radius: var(--theme-border-radius);
 }
 
@@ -59,8 +66,6 @@
   flex-direction: column;
   gap: 0.75rem;
   padding: 0.875rem 1rem;
-  background: var(--theme-bg-tertiary);
-  border: 1px solid var(--theme-border-secondary);
   border-radius: var(--theme-border-radius);
 }
 
@@ -95,8 +100,6 @@
    either a .mgmt-row, or a plain wrapper holding a row plus its expanded
    detail well - so the divider always falls between items. */
 .mgmt-list {
-  background: var(--theme-bg-tertiary);
-  border: 1px solid var(--theme-border-secondary);
   border-radius: var(--theme-border-radius);
   overflow: hidden;
 }
@@ -119,7 +122,7 @@
 }
 
 .mgmt-row--interactive:hover {
-  background-color: var(--theme-bg-hover);
+  background-color: var(--theme-bg-secondary-on-tertiary);
 }
 
 .mgmt-row__body {
@@ -159,6 +162,6 @@
    recessed area on every theme without hard-coding a colour. */
 .mgmt-row-detail {
   padding: 0.75rem;
-  background: var(--theme-bg-secondary-emphasis);
+  background: var(--theme-bg-primary-emphasis);
   border-top: 1px solid var(--theme-border-secondary);
 }

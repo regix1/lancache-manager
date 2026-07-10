@@ -60,15 +60,35 @@
   white-space: nowrap;
 }
 
+/* Prefill Services: each service is its OWN recessed section (user feedback:
+   "split these into their own sections instead of grouped together as one").
+   Mirrors the .mgmt-list/.dash-well surface (bg-tertiary + border-well token =
+   borderless-in-dark, framed-in-light), one box per service, stacked with gaps.
+   The inner .mgmt-row header + .mgmt-row-detail body keep their family styling. */
+.user-settings-service-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.user-settings-service-section {
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-well);
+  border-radius: var(--theme-border-radius-lg);
+  overflow: hidden;
+}
+
 /* Narrow screens: let a settings row wrap its trailing controls onto their own
-   line instead of overflowing. Scoped to markup that carries both classes so it
+   line instead of overflowing. Scoped to markup inside a service section so it
    never touches other .mgmt-row consumers elsewhere in the app. */
 @media (max-width: 480px) {
-  .user-settings-list .mgmt-row {
+  .user-settings-list .mgmt-row,
+  .user-settings-service-section .mgmt-row {
     flex-wrap: wrap;
   }
 
-  .user-settings-list .mgmt-row__actions {
+  .user-settings-list .mgmt-row__actions,
+  .user-settings-service-section .mgmt-row__actions {
     width: 100%;
     justify-content: flex-start;
   }

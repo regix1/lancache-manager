@@ -769,18 +769,18 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
 
   if (isLoading) {
     return (
-      <div className="schedules-loading">
+      <div className="management-section animate-fade-in schedules-loading">
         <LoadingSpinner size="lg" />
       </div>
     );
   }
 
   if (error) {
-    return <div className="schedules-error">{error}</div>;
+    return <div className="management-section animate-fade-in schedules-error">{error}</div>;
   }
 
   return (
-    <div className="schedules-section">
+    <div className="management-section animate-fade-in schedules-section">
       <div className="schedules-section-header">
         <div>
           <h2 className="schedules-section-title">{t('management.schedules.title')}</h2>

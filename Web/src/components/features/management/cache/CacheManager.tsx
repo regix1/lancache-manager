@@ -603,7 +603,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
             <p className="text-themed-secondary">
               {t('management.cache.modal.deleteFromAll', { count: datasources.length })}
             </p>
-            <div className="space-y-1.5 p-3 rounded-lg bg-themed-tertiary/50">
+            <div className="space-y-1.5 p-3 rounded-lg bg-[var(--theme-bg-tertiary-muted)]">
               {datasources.map((ds) => (
                 <div key={ds.name} className="flex items-center gap-2 text-xs">
                   <FolderOpen className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />

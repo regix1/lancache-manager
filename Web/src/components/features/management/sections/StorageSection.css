@@ -1,24 +1,26 @@
 .eviction-mode-option {
-  border: 1px solid var(--theme-border-secondary);
+  border: 1px solid var(--theme-border-well);
   border-left: 2px solid transparent;
   background-color: var(--theme-bg-tertiary);
+  background-clip: padding-box;
   transition:
     background-color 0.15s ease,
     border-color 0.15s ease;
 }
 
 .eviction-mode-option:hover {
-  background-color: var(--theme-bg-hover);
+  background-color: var(--theme-bg-secondary-on-tertiary);
   border-color: var(--theme-border-primary);
   /* Reserve the accent left edge for the selected row only. */
   border-left-color: transparent;
 }
 
-/* Selected reads with an accent left edge, matching the Schedules table rows. */
+/* Selected reads with an accent left edge, matching the Schedules table rows.
+   No bright fill - the accent edge + radio communicate selection. */
 .eviction-mode-option-selected,
 .eviction-mode-option-selected:hover {
-  background-color: var(--theme-bg-hover);
-  border-color: var(--theme-border-secondary);
+  background-color: var(--theme-bg-tertiary);
+  border-color: var(--theme-border-well);
   border-left-color: var(--theme-accent);
 }
 

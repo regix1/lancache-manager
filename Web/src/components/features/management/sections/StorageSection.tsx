@@ -914,6 +914,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                     iconColor="var(--theme-icon-blue)"
                     isExpanded={evictionSettingsExpanded}
                     onToggle={() => setEvictionSettingsExpanded((prev) => !prev)}
+                    surface="well"
                   >
                     {evictionLoading ? (
                       <LoadingState
@@ -991,6 +992,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                         ? evictedGames.length + evictedServices.length
                         : undefined
                     }
+                    surface="well"
                     icon={Database}
                     iconColor="var(--theme-icon-emerald)"
                     isExpanded={evictedItemsExpanded}

@@ -1,7 +1,8 @@
-/* Clients page — layers onto the shared .mgmt-toolbar / .mgmt-list / .dash-readout
-   family (managementSectionContent.css + dashboard.css, both imported explicitly by
-   ClientsTab.tsx). Only the page-specific rules those shared sheets don't cover
-   live here. */
+/* Clients page — a DENSE grid table inside one recessed well (user feedback:
+   "we don't need massive rows"). One DOM: real columns from 768px up, a labeled
+   two-column stack below (cells carry data-label). The .mgmt-toolbar sort
+   cluster still comes from managementSectionContent.css (imported by
+   ClientsTab.tsx). */
 
 /* Sort cluster: both EnhancedDropdowns are full-width on the narrowest screens so
    the toolbar wraps instead of overflowing, then take fixed widths from `sm` up. */
@@ -20,8 +21,147 @@
   }
 }
 
-/* Loading skeleton — mirrors the .mgmt-row shape (leading icon slot skipped,
-   title/meta stack + trailing value) so the list doesn't jump when data arrives. */
+/* ---- Well + rows ---- */
+
+.clients-well {
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-well);
+  border-radius: var(--theme-border-radius-lg);
+  overflow: hidden;
+}
+
+/* Base (mobile <768px): each row is a compact labeled stack — client name spans
+   the row, figures pair up in two columns with small labels from data-label. */
+.clients-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.2rem 1.25rem;
+  padding: 0.55rem 1rem;
+}
+
+.clients-grid + .clients-grid {
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+.clients-grid--header {
+  display: none;
+}
+
+/* House table text convention (matches TopClientsTable + the old Clients table):
+   only the client NAME is primary; figures are grey secondary; hits/misses carry
+   the cache tokens; dates are muted. The compound selectors below out-rank the
+   base .clients-cell color so the tones survive any import order. */
+.clients-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  font-size: var(--font-size-md);
+  color: var(--theme-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.clients-cell--client {
+  grid-column: 1 / -1;
+  font-weight: 500;
+  color: var(--theme-text-primary);
+}
+
+.clients-cell--muted {
+  color: var(--theme-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.clients-cell.cache-hit {
+  color: var(--theme-success-text);
+}
+
+.clients-cell.cache-miss {
+  color: var(--theme-warning-text);
+}
+
+.clients-hit {
+  font-weight: 600;
+}
+
+.clients-hit.is-success {
+  color: var(--theme-success-text);
+}
+
+.clients-hit.is-warning {
+  color: var(--theme-warning-text);
+}
+
+@media (max-width: 767px) {
+  .clients-cell:not(.clients-cell--client) {
+    justify-content: space-between;
+    font-size: var(--font-size-sm);
+  }
+
+  .clients-cell:not(.clients-cell--client)::before {
+    content: attr(data-label);
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    color: var(--theme-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+}
+
+/* ---- Real columns from 768px up (dense ~38px rows) ---- */
+@media (min-width: 768px) {
+  .clients-grid {
+    grid-template-columns:
+      minmax(0, 1.7fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1fr)
+      minmax(0, 1fr) minmax(0, 0.75fr);
+    gap: 0 1rem;
+    align-items: center;
+    padding: 0.45rem 1rem;
+    min-height: 2.4rem;
+  }
+
+  .clients-grid:not(.clients-grid--header):hover {
+    background: var(--theme-bg-hover);
+  }
+
+  .clients-grid--header {
+    display: grid;
+    min-height: 2.2rem;
+  }
+
+  .clients-grid--header .clients-cell {
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--theme-text-muted);
+  }
+
+  .clients-cell--num {
+    justify-content: flex-end;
+    text-align: right;
+  }
+
+  /* Last activity earns its column only on wide screens */
+  .clients-cell--lg {
+    display: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  .clients-grid {
+    grid-template-columns:
+      minmax(0, 1.6fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1fr)
+      minmax(0, 1fr) minmax(0, 0.75fr) minmax(0, 1.2fr);
+  }
+
+  .clients-cell--lg {
+    display: flex;
+  }
+}
+
+/* Loading skeleton — thin shimmer lines in the same grid so the table doesn't
+   jump when data arrives. */
 .clients-skeleton-line {
   height: 0.875rem;
   border-radius: 0.25rem;
@@ -37,12 +177,6 @@
 
 .clients-skeleton-line--title {
   width: 40%;
-}
-
-.clients-skeleton-line--meta {
-  width: 60%;
-  height: 0.7rem;
-  margin-top: 0.4rem;
 }
 
 .clients-skeleton-line--value {

@@ -328,6 +328,10 @@ class ThemeService {
           // Borders - Subtle on cards (Radix step 6), stronger on interactive bits
           borderPrimary: '#dde3ec', // Soft card/divider border
           borderSecondary: '#cbd5e1', // slate-300 - stronger separators
+          // parseThemeColors() pre-fills every omitted key from the dark defaults
+          // (including borderWell's near-invisible white-alpha rgba), so this must
+          // be set explicitly here or recessed wells get no visible edge in light.
+          borderWell: '#dde3ec', // Same quiet tone as the card/divider border
           borderFocus: '#2563eb',
           borderElevated: '#dde3ec', // Borders within elevated panels
           borderHover: '#94a3b8', // slate-400 - border hover state

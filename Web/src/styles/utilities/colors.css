@@ -368,6 +368,10 @@
     border-color: var(--theme-border-primary);
   }
 
+  .border-themed-well {
+    border-color: var(--theme-border-well);
+  }
+
   .border-themed-focus {
     border-color: var(--theme-border-focus);
   }

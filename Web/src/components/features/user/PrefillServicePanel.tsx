@@ -65,7 +65,7 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
   };
 
   return (
-    <div>
+    <div className="user-settings-service-section">
       <div className="mgmt-row">
         <span className="user-settings-service-icon">{serviceIcon}</span>
         <div className="mgmt-row__body">
@@ -80,8 +80,7 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
             ]}
             value={config.enabledByDefault ? 'on' : 'off'}
             onChange={() => onToggleEnabled()}
-            disabled={loading}
-            loading={updating}
+            disabled={loading || updating}
             title={enableLabel}
             size="sm"
           />

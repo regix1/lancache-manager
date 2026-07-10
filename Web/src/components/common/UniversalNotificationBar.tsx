@@ -198,6 +198,23 @@ const getNotificationColor = (notification: UnifiedNotification): string => {
     return 'var(--theme-error)';
   }
 
+  // Toast-style notifications carry their real semantic in details.notificationType
+  // (the show-toast bridge stores every toast with status 'completed'), so color by
+  // that semantic first - an error toast must read red, never completed-green.
+  // Scoped to generic so operation cards keep pure status semantics.
+  if (notification.type === 'generic' && notification.details?.notificationType) {
+    const typeColorMap: Record<string, string> = {
+      success: 'var(--theme-success)',
+      error: 'var(--theme-error)',
+      warning: 'var(--theme-warning)',
+      info: 'var(--theme-info)'
+    };
+    const typeColor = typeColorMap[notification.details.notificationType];
+    if (typeColor) {
+      return typeColor;
+    }
+  }
+
   switch (notification.status) {
     case 'completed':
       return 'var(--theme-success)';
@@ -216,6 +233,20 @@ const getNotificationColor = (notification: UnifiedNotification): string => {
  */
 const getNotificationIcon = (notification: UnifiedNotification): React.ReactNode => {
   const color = getNotificationColor(notification);
+
+  // Toast-style (generic) notifications: icon follows details.notificationType,
+  // checked BEFORE the status branches - the bridge marks every toast
+  // status 'completed', which otherwise short-circuits an error toast into the
+  // green CheckCircle.
+  if (notification.type === 'generic' && notification.details?.notificationType) {
+    const iconMap: Record<string, React.ReactNode> = {
+      success: <CheckCircle className="w-4 h-4 flex-shrink-0 text-[var(--theme-success)]" />,
+      error: <XCircle className="w-4 h-4 flex-shrink-0 text-[var(--theme-error)]" />,
+      warning: <AlertCircle className="w-4 h-4 flex-shrink-0 text-[var(--theme-warning)]" />,
+      info: <Info className="w-4 h-4 flex-shrink-0 text-[var(--theme-info)]" />
+    };
+    return iconMap[notification.details.notificationType] || iconMap.info;
+  }
 
   if (notification.status === 'running') {
     return <LoadingSpinner inline size="sm" className="flex-shrink-0" style={{ color }} />;
@@ -236,17 +267,6 @@ const getNotificationIcon = (notification: UnifiedNotification): React.ReactNode
 
   if (notification.status === 'failed') {
     return <XCircle className="w-4 h-4 flex-shrink-0" style={{ color }} />;
-  }
-
-  // For generic notifications (toast-style)
-  if (notification.details?.notificationType) {
-    const iconMap: Record<string, React.ReactNode> = {
-      success: <CheckCircle className="w-4 h-4 flex-shrink-0 text-[var(--theme-success)]" />,
-      error: <XCircle className="w-4 h-4 flex-shrink-0 text-[var(--theme-error)]" />,
-      warning: <AlertCircle className="w-4 h-4 flex-shrink-0 text-[var(--theme-warning)]" />,
-      info: <Info className="w-4 h-4 flex-shrink-0 text-[var(--theme-info)]" />
-    };
-    return iconMap[notification.details.notificationType] || iconMap.info;
   }
 
   return null;

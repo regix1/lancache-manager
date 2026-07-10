@@ -195,11 +195,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const [loadingPreferences, setLoadingPreferences] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
 
-  // Pagination state
+  // Pagination state — pages are computed client-side over the FILTERED group
+  // (all/admin/guest), so each filter paginates its own sessions instead of the
+  // server's all-sessions page count overriding the active filter.
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(20);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
 
   // History state
   const [historyExpanded, setHistoryExpanded] = useState(false);
@@ -249,22 +249,33 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   // ============================================================
 
   const loadSessions = useCallback(
-    async (showLoading = false, page = currentPage) => {
+    async (showLoading = false) => {
       try {
         if (showLoading) {
           setLoading(true);
         }
-        const data = await ApiService.getSessions<{
+        // The server pages over ALL active sessions (pageSize capped at 100) and
+        // knows nothing about the admin/guest filter, so load every active
+        // session (following server pages when needed) and paginate client-side
+        // per filtered group. History rides along on the first response only.
+        interface SessionsResponse {
           sessions: Session[];
           pagination: { totalPages: number; totalCount: number; page: number };
           historySessions: Session[];
-        }>(page, pageSize);
-        const loadedSessions = data.sessions;
+        }
+        const first = await ApiService.getSessions<SessionsResponse>(1, 100);
+        let loadedSessions = first.sessions;
+        const serverPages = first.pagination?.totalPages || 1;
+        if (serverPages > 1) {
+          const rest = await Promise.all(
+            Array.from({ length: serverPages - 1 }, (_: unknown, i: number) =>
+              ApiService.getSessions<SessionsResponse>(i + 2, 100)
+            )
+          );
+          loadedSessions = loadedSessions.concat(rest.flatMap((r: SessionsResponse) => r.sessions));
+        }
         setSessions(loadedSessions);
-        setTotalPages(data.pagination?.totalPages || 1);
-        setTotalCount(data.pagination?.totalCount || loadedSessions.length);
-        setCurrentPage(data.pagination?.page || 1);
-        setHistorySessions(data.historySessions);
+        setHistorySessions(first.historySessions);
       } catch (err: unknown) {
         notifyError(t('activeSessions.errors.loadSessions'), err, {
           logLabel: 'Failed to load sessions'
@@ -274,8 +285,14 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [currentPage, pageSize, setLoading, setSessions]
+    [setLoading, setSessions]
   );
+
+  // Each filter group paginates independently — always restart at page 1 when
+  // the filter changes so a deep page in one group can't strand another.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeFilterValue]);
 
   const confirmRevokeSession = async () => {
     if (!pendingRevokeSession) return;
@@ -854,6 +871,15 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         ? activeSessions.filter((s: Session) => isAdminSession(s))
         : activeSessions.filter((s: Session) => isGuestSession(s));
 
+  // Client-side pagination over the filtered group. Clamp the page so deleting
+  // sessions (or a stale page) can never point past the end.
+  const totalPages = Math.max(1, Math.ceil(filteredActiveSessions.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const pagedSessions = filteredActiveSessions.slice(
+    (safePage - 1) * pageSize,
+    safePage * pageSize
+  );
+
   // ============================================================
   // Render Helpers: Session Row (one responsive item — desktop + mobile)
   // ============================================================
@@ -1430,7 +1456,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
           {/* One responsive divided list (reflows via CSS at every breakpoint) */}
           {!loading && filteredActiveSessions.length > 0 && (
-            <div className="mgmt-list">{filteredActiveSessions.map(renderSessionItem)}</div>
+            <div className="mgmt-list">{pagedSessions.map(renderSessionItem)}</div>
           )}
 
           {/* Filtered but no results */}
@@ -1447,18 +1473,17 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           )}
         </div>
 
-        {/* ---- Pagination ---- */}
+        {/* ---- Pagination (per filtered group — every session is already
+            loaded, so page flips are instant and each filter pages only its
+            own sessions) ---- */}
         {!loading && totalPages > 1 && (
           <div className="px-4 sm:px-5 py-3 border-t border-themed-secondary">
             <Pagination
-              currentPage={currentPage}
+              currentPage={safePage}
               totalPages={totalPages}
-              totalItems={totalCount}
+              totalItems={filteredActiveSessions.length}
               itemsPerPage={pageSize}
-              onPageChange={(newPage: number) => {
-                setCurrentPage(newPage);
-                loadSessions(true, newPage);
-              }}
+              onPageChange={(newPage: number) => setCurrentPage(newPage)}
               itemLabel={t('activeSessions.paginationLabel')}
               showCard={false}
             />
@@ -1472,8 +1497,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
       {!loading && historySessions.length > 0 && (
         <Card padding="none">
-          <div
-            className="p-4 sm:p-5 cursor-pointer select-none"
+          <button
+            type="button"
+            className="w-full text-left p-4 sm:p-5 cursor-pointer select-none"
+            aria-expanded={historyExpanded}
             onClick={() => setHistoryExpanded((prev: boolean) => !prev)}
           >
             <div className="flex items-center justify-between">
@@ -1490,12 +1517,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 className={`w-5 h-5 transition-transform duration-200 text-themed-muted ${historyExpanded ? 'rotate-180' : ''}`}
               />
             </div>
-          </div>
-          {historyExpanded && (
+          </button>
+          <CollapsibleRegion open={historyExpanded}>
             <div className="px-4 sm:px-5 pb-4 sm:pb-5">
               <div className="mgmt-list">{historySessions.map(renderHistoryCard)}</div>
             </div>
-          )}
+          </CollapsibleRegion>
         </Card>
       )}
 

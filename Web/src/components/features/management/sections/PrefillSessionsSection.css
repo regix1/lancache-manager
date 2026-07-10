@@ -551,8 +551,8 @@
   gap: 0.75rem;
   padding: 0.75rem;
   border-radius: var(--theme-border-radius, 0.5rem);
-  background-color: var(--theme-bg-secondary);
-  border: 1px solid var(--theme-border-secondary);
+  background-color: var(--theme-card-bg);
+  border: 1px solid var(--theme-card-border);
   transition:
     transform 0.15s ease-out,
     box-shadow 0.15s ease-out;

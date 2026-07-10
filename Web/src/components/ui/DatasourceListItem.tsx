@@ -30,8 +30,8 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
     <div
       className={`group themed-border-radius overflow-hidden transition duration-300 border ${
         isExpanded
-          ? `bg-themed-secondary ${enabled ? 'border-themed-primary' : 'border-themed-secondary'} shadow-[0_4px_16px_rgba(0,0,0,0.25),0_1px_4px_rgba(0,0,0,0.15)]`
-          : 'bg-[var(--theme-bg-secondary-emphasis)] border-themed-secondary shadow-[0_1px_3px_rgba(0,0,0,0.12)]'
+          ? `bg-themed-card ${enabled ? 'border-themed-primary' : 'border-themed-secondary'} shadow-[0_4px_16px_rgba(0,0,0,0.25),0_1px_4px_rgba(0,0,0,0.15)]`
+          : 'bg-[var(--theme-bg-primary-emphasis)] border-themed-secondary shadow-[0_1px_3px_rgba(0,0,0,0.12)]'
       } ${enabled ? 'opacity-100' : 'opacity-65'}`}
     >
       {/* Header - clickable to expand */}

@@ -39,7 +39,7 @@
   .dl-card:not(.dl-card-expanded):hover {
     border-color: var(--theme-primary);
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px var(--theme-shadow);
+    box-shadow: 0 4px 12px var(--theme-shadow-black);
   }
 
   .dl-card-expanded {
@@ -217,7 +217,8 @@
       align-self: center;
       margin: 0.875rem 0 0.875rem 0.875rem;
       border-radius: var(--theme-border-radius);
-      border: 1px solid var(--theme-border-secondary);
+      border: 1px solid var(--theme-border-well);
+      background-clip: padding-box;
     }
 
     .dl-card-banner-lg .dl-card-banner {
@@ -672,12 +673,12 @@
   .card-grid-item:hover {
     border-color: var(--theme-primary);
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px var(--theme-shadow);
+    box-shadow: 0 4px 12px var(--theme-shadow-black);
   }
 
   .card-grid-item:active {
     transform: translateY(0);
-    box-shadow: 0 1px 4px var(--theme-shadow);
+    box-shadow: 0 1px 4px var(--theme-shadow-black);
   }
 
   .card-grid-item-banner {
@@ -1227,7 +1228,8 @@
     gap: 0.5rem 0.75rem;
     padding: 0.5rem 0.625rem;
     background: var(--theme-bg-tertiary);
-    border: 1px solid var(--theme-border-secondary);
+    border: 1px solid var(--theme-border-well);
+    background-clip: padding-box;
     border-radius: var(--theme-border-radius);
   }
 

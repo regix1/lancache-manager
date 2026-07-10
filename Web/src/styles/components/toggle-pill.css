@@ -1,8 +1,8 @@
 .toggle-pill {
   font-weight: 500;
-  border: 1px solid var(--theme-border-secondary);
+  border: 1px solid var(--theme-border-primary);
   border-radius: var(--theme-border-radius);
-  background: var(--theme-bg-secondary);
+  background: var(--theme-bg-surface);
   color: var(--theme-text-secondary);
   cursor: pointer;
   transition:
@@ -13,8 +13,8 @@
 }
 
 .toggle-pill:hover:not(.active) {
-  background: var(--theme-bg-secondary-strong);
-  border-color: var(--theme-border-primary);
+  background: var(--theme-bg-surface-hover);
+  border-color: var(--theme-border-secondary);
   color: var(--theme-text-primary);
 }
 

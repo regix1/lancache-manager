@@ -56,7 +56,10 @@ const ExpandableList: React.FC<ExpandableListProps> = ({
       </div>
       <div className="space-y-1 max-h-48 overflow-y-auto">
         {displayedItems.map((item, idx) => (
-          <div key={idx} className="p-2 rounded border bg-themed-secondary border-themed-primary">
+          <div
+            key={idx}
+            className="p-2 rounded border bg-themed-tertiary border-[var(--theme-border-well)] [background-clip:padding-box]"
+          >
             <span className="text-xs font-mono text-themed-primary break-all block">{item}</span>
           </div>
         ))}

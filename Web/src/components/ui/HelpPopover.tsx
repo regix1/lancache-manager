@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from
 import { createPortal } from 'react-dom';
 import { HelpCircle, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
 import { CustomScrollbar } from './CustomScrollbar';
+import { useExitPresence, DROPDOWN_EXIT_MS } from '@hooks/useExitPresence';
 
 interface HelpPopoverProps {
   /** Rich content as children */
@@ -26,6 +27,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
   const [popoverPos, setPopoverPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isReady, setIsReady] = useState(false);
   const [effectiveWidth, setEffectiveWidth] = useState(width);
+  const { present, closing } = useExitPresence(isOpen, DROPDOWN_EXIT_MS);
 
   // Calculate effective width based on viewport
   useEffect(() => {
@@ -59,12 +61,14 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
     setIsReady(true);
   }, [effectiveWidth, position]);
 
-  // Reset visibility when closing so stale position doesn't flash on reopen
+  // Reset visibility only once the popover has fully unmounted (after the exit
+  // animation), so the closing frame keeps its measured position instead of
+  // snapping to opacity 0 mid-animation.
   useEffect(() => {
-    if (!isOpen) {
+    if (!present) {
       setIsReady(false);
     }
-  }, [isOpen]);
+  }, [present]);
 
   // Close on click outside
   useEffect(() => {
@@ -157,11 +161,17 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
         <HelpCircle className="w-4 h-4" />
       </button>
 
-      {isOpen &&
+      {present &&
         createPortal(
           <div
             ref={popoverRef}
-            className="fixed themed-border-radius border help-popover themed-card max-w-[calc(100vw-24px)] z-[90]"
+            className={`fixed themed-border-radius border help-popover themed-card max-w-[calc(100vw-24px)] z-[90] ${
+              closing
+                ? 'animate-[dropdownSlideOutDown_0.14s_ease-in_forwards]'
+                : isReady
+                  ? 'animate-[dropdownSlideDown_0.15s_cubic-bezier(0.16,1,0.3,1)]'
+                  : ''
+            }`}
             style={{
               left: popoverPos.x,
               top: popoverPos.y,
@@ -169,7 +179,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
               maxHeight: maxHeight || `calc(100vh - 100px)`,
               opacity: isReady ? 1 : 0,
               transition: 'none',
-              pointerEvents: isReady ? 'auto' : 'none'
+              pointerEvents: isReady && !closing ? 'auto' : 'none'
             }}
           >
             {maxHeight ? (

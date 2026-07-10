@@ -824,6 +824,12 @@
   max-width: 7rem;
 }
 
+/* The login-validity counter fills its whole settings column now that its inline
+   Save button is gone (the modal-wide Save persists it). */
+.scheduled-prefill-number-cap--full {
+  max-width: none;
+}
+
 /* The themed-input (px-3 py-2 + 1px border) renders 2px taller than the adjacent md
    SegmentedControl (40px). Trim vertical padding by the border width so both controls
    in the Connections row share one height, mirroring the proven .clients-control-row
@@ -1552,6 +1558,11 @@
 
 .scheduled-prefill-platforms__nav-badge {
   font-size: var(--font-size-2xs);
+  /* Equal-width pills: floor sized to the widest settled label
+     (Enabled/Disabled/Running/Stopped) so the stacked pair reads as one column. */
+  min-width: 4rem;
+  justify-content: center;
+  text-align: center;
 }
 
 .scheduled-prefill-platforms__content {

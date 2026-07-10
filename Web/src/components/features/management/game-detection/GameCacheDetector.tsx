@@ -973,6 +973,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   iconColor="var(--theme-icon-cyan)"
                   isExpanded={servicesExpanded}
                   onToggle={() => setServicesExpanded(!servicesExpanded)}
+                  surface="well"
                 >
                   <ServicesList
                     services={filteredServices}
@@ -993,6 +994,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   iconColor="var(--theme-icon-emerald)"
                   isExpanded={gamesExpanded}
                   onToggle={() => setGamesExpanded(!gamesExpanded)}
+                  surface="well"
                 >
                   <GamesList
                     games={filteredGames}

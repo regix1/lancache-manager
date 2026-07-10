@@ -6,9 +6,8 @@
  * family (`.mgmt-list`, `.mgmt-row`, `.dash-readout`, `.mgmt-stat-grid`,
  * `.badge-count`) imported via managementSectionContent.css + dashboard.css.
  * This sheet keeps only: the status dot, the small session-row layout helpers
- * that sit on top of `.mgmt-row`, the settings-group / toggle-row / tooltip
- * blocks (owned by the Settings lane + shared Tooltip), and the tab-content
- * fade.
+ * that sit on top of `.mgmt-row`, the shared Tooltip overlay blocks, and the
+ * tab-content fade.
  */
 
 /* ===== STATUS DOT (quiet activity marker in the row's leading slot) ===== */
@@ -61,35 +60,6 @@
   }
 }
 
-/* ===== CONFIG SECTION TITLE (owned by the Settings lane - leave in place) ===== */
-
-.config-section-title {
-  @apply text-xs font-semibold uppercase tracking-wider mb-3;
-  color: var(--theme-text-muted);
-}
-
-/* ===== TOGGLE ROW (owned by the Settings lane - leave in place) ===== */
-
-.toggle-row {
-  @apply flex items-center justify-between py-2.5 px-3 -mx-3;
-  border-radius: var(--theme-border-radius-lg);
-  transition: background 0.15s ease;
-}
-
-.toggle-row:hover {
-  background: var(--theme-bg-hover);
-}
-
-.toggle-row-label {
-  @apply text-sm font-medium;
-  color: var(--theme-text-primary);
-}
-
-.toggle-row-description {
-  @apply text-xs mt-0.5;
-  color: var(--theme-text-muted);
-}
-
 /* ===== TOOLTIP (shared Tooltip + dashboard charts - global, do not remove) ===== */
 
 .tooltip-overlay {
@@ -106,52 +76,6 @@
   -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--theme-card-border);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
-}
-
-/* ==============================================
- * SETTINGS GROUP WITH ACCENT LINES
- * (owned by the Settings lane - leave in place; verifier removes once the
- * Settings markup has finished migrating off these classes)
- * ============================================== */
-
-.settings-group {
-  @apply p-4 space-y-4;
-  border-radius: var(--theme-border-radius-lg);
-  background: var(--theme-bg-tertiary);
-  border: 1px solid var(--theme-border-secondary);
-  border-left: 3px solid transparent;
-}
-
-.settings-group--access {
-  border-left-color: var(--theme-icon-orange);
-}
-
-.settings-group--steam {
-  border-left-color: var(--theme-steam);
-}
-
-.settings-group--epic {
-  border-left-color: var(--theme-epic);
-}
-
-.settings-group--battlenet {
-  border-left-color: var(--theme-blizzard);
-}
-
-.settings-group--riot {
-  border-left-color: var(--theme-riot);
-}
-
-.settings-group--xbox {
-  border-left-color: var(--theme-xbox);
-}
-
-.settings-group--look {
-  border-left-color: var(--theme-icon-blue);
-}
-
-.settings-group--display {
-  border-left-color: var(--theme-icon-purple);
 }
 
 /* ==============================================
