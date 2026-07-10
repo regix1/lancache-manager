@@ -144,6 +144,34 @@ public class ScheduledPrefillRunGatesTests
     }
 
     [Fact]
+    public void BuildNeedsLoginMessage_DistinguishesStoppedContainerFromLoggedOutContainer()
+    {
+        // Both prerequisite failures reach the same needs-login stage, but the outward message
+        // must say WHICH prerequisite failed: a stopped container versus a running container whose
+        // account was logged out (e.g. after a cancelled interactive login). The old shared
+        // "No logged-in persistent container" wording made the two indistinguishable in plain logs.
+        var stopped = ScheduledPrefillRunGates.BuildNeedsLoginMessage(PrefillPlatform.Steam, containerRunning: false);
+        var loggedOut = ScheduledPrefillRunGates.BuildNeedsLoginMessage(PrefillPlatform.Steam, containerRunning: true);
+
+        Assert.NotEqual(stopped, loggedOut);
+        Assert.Contains("Steam", stopped);
+        Assert.Contains("Steam", loggedOut);
+        Assert.Contains("not running", stopped);
+        Assert.Contains("not logged in", loggedOut);
+    }
+
+    [Fact]
+    public void LoggedOutNeedsLoginReason_DiffersFromNoContainerReason()
+    {
+        // The detailed needsLoginReason carried on the progress event must also stay distinct
+        // between the no-container gate and the live logged-out check.
+        ScheduledPrefillRunGates.TryGetRunnablePersistentSession(null, out _, out var noContainerReason);
+
+        Assert.NotEqual(noContainerReason, ScheduledPrefillRunGates.LoggedOutNeedsLoginReason);
+        Assert.False(string.IsNullOrWhiteSpace(ScheduledPrefillRunGates.LoggedOutNeedsLoginReason));
+    }
+
+    [Fact]
     public void GuestPrefillValidation_AcceptsDurationHoursOneThroughThree()
     {
         foreach (var hours in new[] { 1, 2, 3 })

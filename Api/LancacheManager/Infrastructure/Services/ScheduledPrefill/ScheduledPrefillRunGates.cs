@@ -38,6 +38,25 @@ public static class ScheduledPrefillRunGates
     }
 
     /// <summary>
+    /// Reason attached to the needs-login skip when the persistent container IS running but its
+    /// account is logged out (e.g. a cancelled interactive login left the session active while the
+    /// daemon logged everything out). Kept distinct from the no-container reason produced by
+    /// <see cref="TryGetRunnablePersistentSession"/> so UI and logs can tell the two apart.
+    /// </summary>
+    public const string LoggedOutNeedsLoginReason =
+        "The persistent container is running but not logged in. Log in to the persistent container before scheduling.";
+
+    /// <summary>
+    /// Top-level needs-login progress message. The two prerequisite failures are deliberately
+    /// distinct so plain logs and the schedule card can tell "no running container" apart from
+    /// "container running but logged out" without needing the SignalR payload's needsLoginReason.
+    /// </summary>
+    public static string BuildNeedsLoginMessage(PrefillPlatform serviceId, bool containerRunning) =>
+        containerRunning
+            ? $"Persistent container for {serviceId} is running but not logged in"
+            : $"No running persistent container for {serviceId}";
+
+    /// <summary>
     /// Returns true when a scheduled run for this daemon should defer. The persistent reuse target
     /// and every other scheduler-owned session share <paramref name="systemUserId"/>, so an idle
     /// authenticated persistent container does NOT block (Cause 2 / 19): only a genuinely-conflicting

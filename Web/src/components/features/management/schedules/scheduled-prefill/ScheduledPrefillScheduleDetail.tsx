@@ -22,6 +22,7 @@ import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { ScheduledPrefillConfigModal } from './ScheduledPrefillConfigModal';
 import {
   getPersistentServiceId,
+  isScheduledPrefillAccountService,
   needsPersistentLogin,
   SCHEDULED_PREFILL_PLATFORM_UI
 } from './scheduledPrefillPlatformUi';
@@ -29,6 +30,7 @@ import type {
   ScheduledPrefillCompletedEvent,
   ScheduledPrefillConfigDto,
   ScheduledPrefillProgressEvent,
+  ScheduledPrefillRowLoginState,
   ScheduledPrefillRunPhase,
   ScheduledPrefillRunProgressItem,
   ScheduledPrefillServiceKey,
@@ -58,6 +60,13 @@ interface ScheduledPrefillServiceScheduleRowProps {
   label: string;
   enabled: boolean;
   containerRunning: boolean;
+  /**
+   * Account readiness for Steam/Epic/Xbox (null for anonymous Battle.net/Riot). A running
+   * container can still be logged out (e.g. after a cancelled interactive login), and the
+   * scheduler gates on the daemon's live login state - so the row must surface it too instead
+   * of presenting "Container: Running" as the only prerequisite.
+   */
+  loginState: ScheduledPrefillRowLoginState | null;
   intervalHours: number;
   /** Relative next-run hint ("in 2d", "soon", "paused", "on startup") from formatTiming. */
   nextTiming: string;
@@ -81,6 +90,7 @@ function ScheduledPrefillServiceScheduleRow({
   label,
   enabled,
   containerRunning,
+  loginState,
   intervalHours,
   nextTiming,
   nextRunUtc,
@@ -124,6 +134,17 @@ function ScheduledPrefillServiceScheduleRow({
               ? t('prefill.persistent.states.running')
               : t('prefill.persistent.states.stopped')}
           </span>
+          {loginState !== null && (
+            <span className="scheduled-prefill-schedule-table__status-item">
+              <span
+                className={`scheduled-prefill-schedule-table__status-dot scheduled-prefill-schedule-table__status-dot--${loginState === 'loggedIn' ? 'success' : 'warning'}`}
+                aria-hidden="true"
+              />
+              {loginState === 'loggedIn'
+                ? t(`${baseKey}.platforms.status.loggedIn`)
+                : t(`${baseKey}.platforms.status.loginRequired`)}
+            </span>
+          )}
         </span>
       </div>
       <div role="cell" className="scheduled-prefill-schedule-table__cell">
@@ -328,7 +349,14 @@ export function ScheduledPrefillScheduleDetail({
       }
 
       if (item.stage === 'needs-login') {
-        return t(`${eventsKey}.needsLogin`, { service: serviceLabel });
+        // Surface the backend's precise prerequisite (container stopped vs running-but-logged-out)
+        // instead of collapsing every needs-login skip into the same generic line.
+        return item.needsLoginReason
+          ? t(`${eventsKey}.needsLoginWithReason`, {
+              service: serviceLabel,
+              reason: item.needsLoginReason
+            })
+          : t(`${eventsKey}.needsLogin`, { service: serviceLabel });
       }
 
       return t(`${eventsKey}.serviceProgress`, {
@@ -354,6 +382,7 @@ export function ScheduledPrefillScheduleDetail({
           serviceId: payload.serviceId,
           stage: payload.stage,
           message: payload.message,
+          needsLoginReason: payload.needsLoginReason,
           bytesDownloaded: payload.bytesDownloaded,
           downloadSessionId: payload.downloadSessionId
         });
@@ -511,6 +540,7 @@ export function ScheduledPrefillScheduleDetail({
       label: string;
       enabled: boolean;
       containerRunning: boolean;
+      loginState: ScheduledPrefillRowLoginState | null;
       intervalHours: number;
       nextTiming: string;
       nextRunUtc: string | null;
@@ -544,6 +574,13 @@ export function ScheduledPrefillScheduleDetail({
         label: t(`${baseKey}.services.${serviceKey}`),
         enabled,
         containerRunning: container?.isRunning ?? false,
+        // Account services gate on the daemon's live login, so mirror that readiness here;
+        // anonymous services (Battle.net/Riot) have no login dimension to show.
+        loginState: isScheduledPrefillAccountService(serviceKey)
+          ? needsPersistentLogin(container)
+            ? 'loginRequired'
+            : 'loggedIn'
+          : null,
         intervalHours,
         // A disabled platform keeps its chosen interval for the picker but has no active next run,
         // so feed formatTiming a paused interval instead of suggesting that it will run "soon".
@@ -636,6 +673,7 @@ export function ScheduledPrefillScheduleDetail({
                       label={row.label}
                       enabled={row.enabled}
                       containerRunning={row.containerRunning}
+                      loginState={row.loginState}
                       intervalHours={row.intervalHours}
                       nextTiming={row.nextTiming}
                       nextRunUtc={row.nextRunUtc}

@@ -87,6 +87,13 @@ export interface ScheduledPrefillRunProgressItem {
   serviceId: string;
   stage: string;
   message: string;
+  needsLoginReason?: string | null;
   bytesDownloaded?: number | null;
   downloadSessionId?: string | null;
 }
+
+/**
+ * Per-row account readiness for the schedule table. `null` for anonymous services
+ * (Battle.net/Riot), where a running container is all the readiness there is.
+ */
+export type ScheduledPrefillRowLoginState = 'loggedIn' | 'loginRequired';

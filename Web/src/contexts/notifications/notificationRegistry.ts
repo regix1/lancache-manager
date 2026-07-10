@@ -1060,9 +1060,16 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         }
 
         if (event.stage === 'needs-login') {
-          return i18n.t('management.schedules.services.scheduledPrefill.events.needsLogin', {
-            service: serviceLabel
-          });
+          // Keep the backend's precise prerequisite (container stopped vs running-but-logged-out)
+          // instead of collapsing every needs-login skip into the same generic line.
+          return event.needsLoginReason
+            ? i18n.t('management.schedules.services.scheduledPrefill.events.needsLoginWithReason', {
+                service: serviceLabel,
+                reason: event.needsLoginReason
+              })
+            : i18n.t('management.schedules.services.scheduledPrefill.events.needsLogin', {
+                service: serviceLabel
+              });
         }
 
         return i18n.t('management.schedules.services.scheduledPrefill.events.serviceProgress', {

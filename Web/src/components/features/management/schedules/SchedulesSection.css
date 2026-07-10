@@ -511,6 +511,10 @@
   background: var(--theme-error);
 }
 
+.scheduled-prefill-schedule-table__status-dot--warning {
+  background: var(--theme-warning);
+}
+
 /* Time values are static data, not controls: tabular figures for column alignment, no
    hover / focus / pointer affordance. Wrap rather than overflow on narrow widths. */
 .scheduled-prefill-schedule-table__value {

@@ -3337,7 +3337,9 @@
                 "off": "Off",
                 "containerReady": "Container logged in",
                 "containerRunning": "Container needs login",
-                "containerShort": "Container"
+                "containerShort": "Container",
+                "loggedIn": "Logged in",
+                "loginRequired": "Login required"
               }
             },
             "services": {
@@ -3401,6 +3403,7 @@
             "failed": "Scheduled prefill failed",
             "skipped": "{{service}} skipped: {{reason}}",
             "needsLogin": "{{service}} needs login before scheduled prefill can continue",
+            "needsLoginWithReason": "{{service}} needs login: {{reason}}",
             "serviceProgress": "{{service}}: {{message}}"
           }
         },

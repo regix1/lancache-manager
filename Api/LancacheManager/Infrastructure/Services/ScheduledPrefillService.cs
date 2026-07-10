@@ -302,7 +302,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 operationId,
                 serviceId,
                 "needs-login",
-                $"No logged-in persistent container for {serviceId}",
+                ScheduledPrefillRunGates.BuildNeedsLoginMessage(serviceId, containerRunning: false),
                 needsLoginReason);
             return false;
         }
@@ -338,8 +338,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 operationId,
                 serviceId,
                 "needs-login",
-                $"No logged-in persistent container for {serviceId}",
-                "The persistent container is not logged in. Log in to the persistent container before scheduling.");
+                ScheduledPrefillRunGates.BuildNeedsLoginMessage(serviceId, containerRunning: true),
+                ScheduledPrefillRunGates.LoggedOutNeedsLoginReason);
             return false;
         }
 
@@ -549,7 +549,19 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         long? bytesDownloaded = null,
         string? downloadSessionId = null)
     {
-        _logger.LogInformation("[ScheduledPrefill] {Service} {Stage}: {Message}", serviceId, stage, message);
+        if (string.IsNullOrEmpty(needsLoginReason))
+        {
+            _logger.LogInformation("[ScheduledPrefill] {Service} {Stage}: {Message}", serviceId, stage, message);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "[ScheduledPrefill] {Service} {Stage}: {Message} ({Reason})",
+                serviceId,
+                stage,
+                message,
+                needsLoginReason);
+        }
         return notifications.NotifyAllAsync(SignalREvents.ScheduledPrefillProgress, new
         {
             operationId,

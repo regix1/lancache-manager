@@ -3337,7 +3337,9 @@
                 "off": "关",
                 "containerReady": "容器已登录",
                 "containerRunning": "容器需要登录",
-                "containerShort": "容器"
+                "containerShort": "容器",
+                "loggedIn": "已登录",
+                "loginRequired": "需要登录"
               }
             },
             "services": {
@@ -3401,6 +3403,7 @@
             "failed": "计划预填充失败",
             "skipped": "{{service}} 已跳过：{{reason}}",
             "needsLogin": "{{service}} 需要登录后才能继续计划预填充",
+            "needsLoginWithReason": "{{service}} 需要登录：{{reason}}",
             "serviceProgress": "{{service}}：{{message}}"
           }
         },
