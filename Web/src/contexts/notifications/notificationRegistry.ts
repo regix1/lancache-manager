@@ -1077,7 +1077,11 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           message: event.message
         });
       },
-      getProgress: () => 50,
+      // Backend-computed run percent: each due service owns an equal slice of the bar and the
+      // active service fills its slice per game completed (clamped 1-99 server-side, 100 comes
+      // from the terminal Completed event).
+      getProgress: (event: ScheduledPrefillProgressEvent) =>
+        Math.max(1, Math.round(event.percentComplete ?? 1)),
       getStatus: () => undefined,
       getDetails: (event: ScheduledPrefillProgressEvent) => ({ operationId: event.operationId })
     },

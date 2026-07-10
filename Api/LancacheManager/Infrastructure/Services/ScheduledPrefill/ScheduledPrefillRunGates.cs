@@ -171,26 +171,84 @@ public static class ScheduledPrefillRunGates
         => enabled && intervalHours > 0d && !hasExistingLastRun;
 
     /// <summary>
-    /// Computes the overall outcome of a completed scheduled-prefill pass. The run is only reported
-    /// successful when at least one service actually engaged its persistent container AND no service
-    /// threw, skipped, or failed to engage. This stops a partial failure (one service erroring or
-    /// skipping) from masquerading as a fully successful run in the <c>ScheduledPrefillCompleted</c>
-    /// notification.
+    /// Computes the overall outcome of a completed scheduled-prefill pass from per-service result
+    /// counts. Only a genuine failure (a service threw, failed to start, stalled, or exceeded its
+    /// runtime) fails the run: a service that was merely skipped because it needs login or was busy
+    /// is a prerequisite gap, not a failure, and must not make a run where another service prefilled
+    /// successfully report "One or more services failed" in the <c>ScheduledPrefillCompleted</c>
+    /// notification. A run where nothing ran at all still reports unsuccessful so the schedule card
+    /// surfaces why the tick did no work.
     /// </summary>
-    public static ScheduledPrefillRunOutcome EvaluateRunOutcome(int servicesAttempted, bool anyServiceFailed)
+    public static ScheduledPrefillRunOutcome EvaluateRunOutcome(
+        int servicesRan,
+        int servicesNeedingLogin,
+        int servicesSkipped,
+        int servicesFailed)
     {
-        if (servicesAttempted == 0)
-        {
-            return new ScheduledPrefillRunOutcome(false, "All enabled services were skipped");
-        }
-
-        if (anyServiceFailed)
+        if (servicesFailed > 0)
         {
             return new ScheduledPrefillRunOutcome(false, "One or more services failed during the run");
         }
 
+        if (servicesRan == 0)
+        {
+            return servicesNeedingLogin > 0 && servicesSkipped == 0
+                ? new ScheduledPrefillRunOutcome(false, "All due services need login")
+                : new ScheduledPrefillRunOutcome(false, "All enabled services were skipped");
+        }
+
         return new ScheduledPrefillRunOutcome(true, null);
     }
+
+    /// <summary>
+    /// Maps a run's position to the percent shown on the universal notification: each due service
+    /// owns an equal slice of the bar and <paramref name="currentServiceFraction"/> (games completed
+    /// / games in the run, from <see cref="ComputeServiceFraction"/>) fills the active slice. Clamped
+    /// to [1, 99] so the card starts at 1% instead of an instant mid-bar jump and reserves 100% for
+    /// the run's terminal <c>ScheduledPrefillCompleted</c> event.
+    /// </summary>
+    public static double ComputeRunPercent(int servicesDone, int serviceCount, double currentServiceFraction)
+    {
+        if (serviceCount <= 0)
+        {
+            return 1d;
+        }
+
+        var fraction = Math.Clamp(currentServiceFraction, 0d, 1d);
+        var percent = (servicesDone + fraction) / serviceCount * 100d;
+        return Math.Clamp(percent, 1d, 99d);
+    }
+
+    /// <summary>
+    /// Per-service completion fraction for <see cref="ComputeRunPercent"/>: games finished so far
+    /// over the games in this run (e.g. 1 of 4 selected games = 0.25). Unknown totals yield 0 so the
+    /// bar simply waits at the slice start instead of guessing.
+    /// </summary>
+    public static double ComputeServiceFraction(int appsCompleted, int totalApps)
+    {
+        if (totalApps <= 0)
+        {
+            return 0d;
+        }
+
+        return Math.Clamp((double)appsCompleted / totalApps, 0d, 1d);
+    }
+}
+
+/// <summary>
+/// How a single service's scheduled run ended, distinguishing prerequisite skips from genuine
+/// failures so <see cref="ScheduledPrefillRunGates.EvaluateRunOutcome"/> can report the run
+/// honestly: <see cref="Ran"/> = engaged the persistent container and finished its prefill;
+/// <see cref="NeedsLogin"/> = skipped because the container is missing or logged out;
+/// <see cref="Skipped"/> = skipped for a non-login reason (no daemon, busy, prefill already
+/// running); <see cref="Failed"/> = engaged (or tried to) and genuinely failed.
+/// </summary>
+public enum ScheduledPrefillServiceRunResult
+{
+    Ran,
+    NeedsLogin,
+    Skipped,
+    Failed
 }
 
 /// <summary>

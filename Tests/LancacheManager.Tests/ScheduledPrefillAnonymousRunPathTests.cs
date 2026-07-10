@@ -70,15 +70,15 @@ public class ScheduledPrefillAnonymousRunPathTests
         var runServiceAsync = typeof(ScheduledPrefillService).GetMethod(
             "RunServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
-        var attempted = await (Task<bool>)runServiceAsync.Invoke(
+        var result = await (Task<ScheduledPrefillServiceRunResult>)runServiceAsync.Invoke(
             scheduledPrefillService,
-            new object?[] { serviceConfig, "op-1", daemonProvider, notifications, config, CancellationToken.None })!;
+            new object?[] { serviceConfig, "op-1", daemonProvider, notifications, config, 0, 1, CancellationToken.None })!;
 
         scheduledPrefillService.Dispose();
 
         // The gate must not skip: an anonymous daemon reporting the REAL "logged-in" status must be
         // treated as runnable, exactly like an authenticated Steam/Epic/Xbox persistent container.
-        Assert.True(attempted);
+        Assert.Equal(ScheduledPrefillServiceRunResult.Ran, result);
         Assert.DoesNotContain("needs-login", recorder.Stages);
         Assert.Contains("completed", recorder.Stages);
 

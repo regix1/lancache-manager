@@ -168,27 +168,28 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 serviceCount = dueServices.Count
             });
 
-            var servicesAttempted = 0;
-            var anyServiceFailed = false;
+            var servicesRan = 0;
+            var servicesNeedingLogin = 0;
+            var servicesSkipped = 0;
+            var servicesFailed = 0;
+            var serviceIndex = 0;
 
             foreach (var serviceConfig in dueServices)
             {
                 runToken.ThrowIfCancellationRequested();
 
-                var serviceGenuinelyRan = false;
+                var result = ScheduledPrefillServiceRunResult.Skipped;
                 try
                 {
-                    if (await RunServiceAsync(serviceConfig, operationIdString, scope.ServiceProvider, notifications, config, runToken))
-                    {
-                        servicesAttempted++;
-                        serviceGenuinelyRan = true;
-                    }
-                    else
-                    {
-                        // A service that skipped (no daemon / needs-login / busy) or failed to engage
-                        // its container must not let the run report full success.
-                        anyServiceFailed = true;
-                    }
+                    result = await RunServiceAsync(
+                        serviceConfig,
+                        operationIdString,
+                        scope.ServiceProvider,
+                        notifications,
+                        config,
+                        serviceIndex,
+                        dueServices.Count,
+                        runToken);
                 }
                 catch (OperationCanceledException) when (runToken.IsCancellationRequested)
                 {
@@ -197,7 +198,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 catch (Exception ex)
                 {
                     // One service failing must not abort the rest of the run.
-                    anyServiceFailed = true;
+                    result = ScheduledPrefillServiceRunResult.Failed;
                     _logger.LogError(ex, "[ScheduledPrefill] Service {Service} failed; continuing", serviceConfig.ServiceId);
                 }
                 finally
@@ -213,18 +214,36 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                         _stateService.SetScheduledPrefillServiceLastRun(serviceConfig.ServiceId.ToString(), DateTime.UtcNow);
 
                         // Stamp the GENUINE last-run (the "Last run" the schedule view shows) ONLY when the
-                        // service actually engaged its container. A skip / needs-login / failure advances the
-                        // schedule basis above but must NOT count as a real run, so the UI keeps reading
-                        // "Never" until the service has truly prefilled at least once.
-                        if (serviceGenuinelyRan)
+                        // service actually ran its prefill to completion. A skip / needs-login / failure
+                        // advances the schedule basis above but must NOT count as a real run, so the UI keeps
+                        // reading "Never" until the service has truly prefilled at least once.
+                        if (result == ScheduledPrefillServiceRunResult.Ran)
                         {
                             _stateService.SetScheduledPrefillServiceLastActualRun(serviceConfig.ServiceId.ToString(), DateTime.UtcNow);
                         }
                     }
                 }
+
+                switch (result)
+                {
+                    case ScheduledPrefillServiceRunResult.Ran:
+                        servicesRan++;
+                        break;
+                    case ScheduledPrefillServiceRunResult.NeedsLogin:
+                        servicesNeedingLogin++;
+                        break;
+                    case ScheduledPrefillServiceRunResult.Failed:
+                        servicesFailed++;
+                        break;
+                    default:
+                        servicesSkipped++;
+                        break;
+                }
+
+                serviceIndex++;
             }
 
-            var outcome = ScheduledPrefillRunGates.EvaluateRunOutcome(servicesAttempted, anyServiceFailed);
+            var outcome = ScheduledPrefillRunGates.EvaluateRunOutcome(servicesRan, servicesNeedingLogin, servicesSkipped, servicesFailed);
             success = outcome.Success;
             error = outcome.Error;
         }
@@ -272,23 +291,30 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     /// persistent container is system-owned and long-lived, so it is never created or torn down
     /// here. Emits <see cref="SignalREvents.ScheduledPrefillProgress"/> at each stage.
     /// </summary>
-    /// <returns>True when the service engaged the persistent container's prefill; false when skipped.</returns>
-    private async Task<bool> RunServiceAsync(
+    /// <returns>How the service's run ended — see <see cref="ScheduledPrefillServiceRunResult"/>.</returns>
+    private async Task<ScheduledPrefillServiceRunResult> RunServiceAsync(
         ScheduledPrefillServiceConfigDto serviceConfig,
         string operationId,
         IServiceProvider serviceProvider,
         ISignalRNotificationService notifications,
         ScheduledPrefillConfigDto config,
+        int serviceIndex,
+        int serviceCount,
         CancellationToken ct)
     {
         var serviceId = serviceConfig.ServiceId;
+
+        // Percent for the run's universal notification: this service owns one equal slice of the
+        // bar, filled by its games-completed fraction (0 = slice start, 1 = slice done).
+        double Percent(double serviceFraction) =>
+            ScheduledPrefillRunGates.ComputeRunPercent(serviceIndex, serviceCount, serviceFraction);
 
         // 1. Resolve the concrete daemon service for this platform.
         var daemon = PrefillDaemonServiceBase.ResolveDaemon(serviceProvider, serviceId);
         if (daemon is null)
         {
-            await EmitProgressAsync(notifications, operationId, serviceId, "skipped", "No daemon registered for this service");
-            return false;
+            await EmitProgressAsync(notifications, operationId, serviceId, "skipped", "No daemon registered for this service", percent: Percent(1));
+            return ScheduledPrefillServiceRunResult.Skipped;
         }
 
         // 2. Reuse the running persistent admin container. Scheduled prefill is admin-only and
@@ -303,8 +329,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 serviceId,
                 "needs-login",
                 ScheduledPrefillRunGates.BuildNeedsLoginMessage(serviceId, containerRunning: false),
-                needsLoginReason);
-            return false;
+                needsLoginReason,
+                percent: Percent(1));
+            return ScheduledPrefillServiceRunResult.NeedsLogin;
         }
 
         // TryGetRunnablePersistentSession only returns true for a non-null session.
@@ -339,8 +366,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 serviceId,
                 "needs-login",
                 ScheduledPrefillRunGates.BuildNeedsLoginMessage(serviceId, containerRunning: true),
-                ScheduledPrefillRunGates.LoggedOutNeedsLoginReason);
-            return false;
+                ScheduledPrefillRunGates.LoggedOutNeedsLoginReason,
+                percent: Percent(1));
+            return ScheduledPrefillServiceRunResult.NeedsLogin;
         }
 
         // 3. Busy check: defer when the persistent container is already prefilling (a prior run still
@@ -351,8 +379,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 _systemUserId,
                 out var skipMessage))
         {
-            await EmitProgressAsync(notifications, operationId, serviceId, "skipped", skipMessage);
-            return false;
+            await EmitProgressAsync(notifications, operationId, serviceId, "skipped", skipMessage, percent: Percent(1));
+            return ScheduledPrefillServiceRunResult.Skipped;
         }
 
         await EmitProgressAsync(
@@ -361,7 +389,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             serviceId,
             "starting",
             "Reusing persistent container",
-            downloadSessionId: sessionId);
+            downloadSessionId: sessionId,
+            percent: Percent(0));
 
         // 4. Kick off the prefill. Map preset + OS list to the real daemon signature.
         // When specific apps are selected, prefill exactly those and ignore the All/Recent/Top
@@ -417,8 +446,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         }
         catch (PrefillAlreadyRunningException)
         {
-            await EmitProgressAsync(notifications, operationId, serviceId, "skipped", "A prefill is already in progress");
-            return true;
+            await EmitProgressAsync(notifications, operationId, serviceId, "skipped", "A prefill is already in progress", percent: Percent(1));
+            return ScheduledPrefillServiceRunResult.Skipped;
         }
 
         // A failed start may leave IsPrefilling already false, which would make the poll loop
@@ -428,8 +457,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             var failureMessage = string.IsNullOrWhiteSpace(result.ErrorMessage)
                 ? "Prefill failed to start"
                 : result.ErrorMessage;
-            await EmitProgressAsync(notifications, operationId, serviceId, "failed", failureMessage);
-            return true;
+            await EmitProgressAsync(notifications, operationId, serviceId, "failed", failureMessage, percent: Percent(1));
+            return ScheduledPrefillServiceRunResult.Failed;
         }
 
         await EmitProgressAsync(
@@ -438,25 +467,53 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             serviceId,
             "running",
             "Prefill in progress",
-            downloadSessionId: sessionId);
+            downloadSessionId: sessionId,
+            percent: Percent(0));
 
         // Poll until the daemon clears IsPrefilling, or a guard trips. The persistent container is
         // never terminated here; on cancellation we only cancel the in-flight prefill.
         var runDeadline = DateTime.UtcNow + config.MaxServiceRuntime;
+        // Per-game progress for the universal notification. PrefillAsync nulls LastProgress before
+        // the daemon starts, so the snapshot only ever reflects THIS run; the daemon's running
+        // updated/cached/failed counters are the same source the Prefill tab uses for "Game X of N".
+        // Guarded monotonic (some daemon ticks omit the counters) and emitted only when the count
+        // moves, so the 10s poll stays quiet between game completions.
+        var selectedAppCount = serviceConfig.SelectedAppIds.Count;
+        var lastReportedApps = 0;
         while (session.IsPrefilling)
         {
             ct.ThrowIfCancellationRequested();
 
             if (DateTime.UtcNow >= runDeadline)
             {
-                await EmitProgressAsync(notifications, operationId, serviceId, "failed", "Exceeded maximum service runtime");
-                return true;
+                await EmitProgressAsync(notifications, operationId, serviceId, "failed", "Exceeded maximum service runtime", percent: Percent(1));
+                return ScheduledPrefillServiceRunResult.Failed;
             }
 
             if (PrefillDaemonServiceBase.IsPrefillStalled(session, DateTime.UtcNow, config.StallTimeout))
             {
-                await EmitProgressAsync(notifications, operationId, serviceId, "failed", "Prefill stalled (no progress)");
-                return true;
+                await EmitProgressAsync(notifications, operationId, serviceId, "failed", "Prefill stalled (no progress)", percent: Percent(1));
+                return ScheduledPrefillServiceRunResult.Failed;
+            }
+
+            var snapshot = session.LastProgress;
+            if (snapshot is not null)
+            {
+                var appsCompleted = snapshot.UpdatedApps + snapshot.AlreadyUpToDate + snapshot.FailedApps;
+                var totalApps = selectedAppCount > 0 ? selectedAppCount : snapshot.TotalApps;
+                if (appsCompleted > lastReportedApps && totalApps > 0)
+                {
+                    lastReportedApps = appsCompleted;
+                    var fraction = ScheduledPrefillRunGates.ComputeServiceFraction(appsCompleted, totalApps);
+                    await EmitProgressAsync(
+                        notifications,
+                        operationId,
+                        serviceId,
+                        "running",
+                        $"Prefill in progress ({Math.Min(appsCompleted, totalApps)} of {totalApps} games)",
+                        downloadSessionId: sessionId,
+                        percent: Percent(fraction));
+                }
             }
 
             try
@@ -477,8 +534,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             "completed",
             BuildCompletionMessage(session, hasSelectedApps, serviceConfig.Force),
             bytesDownloaded: session.TotalBytesTransferred,
-            downloadSessionId: sessionId);
-        return true;
+            downloadSessionId: sessionId,
+            percent: Percent(1));
+        return ScheduledPrefillServiceRunResult.Ran;
     }
 
     private static void MapPreset(ScheduledPrefillServiceConfigDto serviceConfig, out bool all, out bool recent, out int? top)
@@ -547,7 +605,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         string message,
         string? needsLoginReason = null,
         long? bytesDownloaded = null,
-        string? downloadSessionId = null)
+        string? downloadSessionId = null,
+        double? percent = null)
     {
         if (string.IsNullOrEmpty(needsLoginReason))
         {
@@ -570,7 +629,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             message,
             needsLoginReason,
             bytesDownloaded,
-            downloadSessionId
+            downloadSessionId,
+            percentComplete = percent
         });
     }
 }

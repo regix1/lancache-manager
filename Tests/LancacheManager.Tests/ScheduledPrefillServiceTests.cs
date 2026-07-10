@@ -26,35 +26,93 @@ namespace LancacheManager.Tests;
 /// </summary>
 public class ScheduledPrefillServiceTests
 {
-    // ---- Criterion 5: partial per-service failure must report success:false ----
+    // ---- Criterion 5: only genuine per-service failures report success:false ----
 
     [Fact]
-    public void EvaluateRunOutcome_ReportsSuccess_WhenServicesAttemptedAndNoneFailed()
+    public void EvaluateRunOutcome_ReportsSuccess_WhenServicesRanAndNoneFailed()
     {
-        var outcome = ScheduledPrefillRunGates.EvaluateRunOutcome(servicesAttempted: 3, anyServiceFailed: false);
+        var outcome = ScheduledPrefillRunGates.EvaluateRunOutcome(
+            servicesRan: 3, servicesNeedingLogin: 0, servicesSkipped: 0, servicesFailed: 0);
 
         Assert.True(outcome.Success);
         Assert.Null(outcome.Error);
     }
 
     [Fact]
-    public void EvaluateRunOutcome_ReportsFailure_WhenAServiceFailed_EvenIfOthersAttempted()
+    public void EvaluateRunOutcome_ReportsSuccess_WhenAServiceRan_AndOthersOnlyNeedLogin()
     {
-        // A service threw (per-service catch) or returned false (skipped / failed to engage) during
-        // an otherwise-progressing run — the run as a whole must not claim full success.
-        var outcome = ScheduledPrefillRunGates.EvaluateRunOutcome(servicesAttempted: 2, anyServiceFailed: true);
+        // The reported bug: Steam prefilled successfully while Epic/Xbox/Battle.net/Riot were
+        // skipped awaiting login, and the run claimed "One or more services failed during the run".
+        // A needs-login skip is a prerequisite gap, not a failure.
+        var outcome = ScheduledPrefillRunGates.EvaluateRunOutcome(
+            servicesRan: 1, servicesNeedingLogin: 4, servicesSkipped: 0, servicesFailed: 0);
 
-        Assert.False(outcome.Success);
-        Assert.False(string.IsNullOrWhiteSpace(outcome.Error));
+        Assert.True(outcome.Success);
+        Assert.Null(outcome.Error);
     }
 
     [Fact]
-    public void EvaluateRunOutcome_ReportsFailure_WhenNoServiceWasAttempted()
+    public void EvaluateRunOutcome_ReportsFailure_WhenAServiceFailed_EvenIfOthersRan()
     {
-        var outcome = ScheduledPrefillRunGates.EvaluateRunOutcome(servicesAttempted: 0, anyServiceFailed: false);
+        // A service threw (per-service catch), failed to start, stalled, or timed out during an
+        // otherwise-progressing run — the run as a whole must not claim full success.
+        var outcome = ScheduledPrefillRunGates.EvaluateRunOutcome(
+            servicesRan: 2, servicesNeedingLogin: 0, servicesSkipped: 0, servicesFailed: 1);
+
+        Assert.False(outcome.Success);
+        Assert.Equal("One or more services failed during the run", outcome.Error);
+    }
+
+    [Fact]
+    public void EvaluateRunOutcome_ReportsAllSkipped_WhenNoServiceRan()
+    {
+        var outcome = ScheduledPrefillRunGates.EvaluateRunOutcome(
+            servicesRan: 0, servicesNeedingLogin: 0, servicesSkipped: 2, servicesFailed: 0);
 
         Assert.False(outcome.Success);
         Assert.Equal("All enabled services were skipped", outcome.Error);
+    }
+
+    [Fact]
+    public void EvaluateRunOutcome_ReportsNeedsLogin_WhenEveryDueServiceNeededLogin()
+    {
+        var outcome = ScheduledPrefillRunGates.EvaluateRunOutcome(
+            servicesRan: 0, servicesNeedingLogin: 3, servicesSkipped: 0, servicesFailed: 0);
+
+        Assert.False(outcome.Success);
+        Assert.Equal("All due services need login", outcome.Error);
+    }
+
+    // ---- Universal-notification percent: equal slice per due service, filled per game ----
+
+    [Fact]
+    public void ComputeRunPercent_StartsAtOnePercent_NotMidBar()
+    {
+        // First service, nothing completed yet: the bar must start at 1%, not jump to 50%.
+        Assert.Equal(1d, ScheduledPrefillRunGates.ComputeRunPercent(servicesDone: 0, serviceCount: 5, currentServiceFraction: 0d));
+    }
+
+    [Fact]
+    public void ComputeRunPercent_FillsServiceSlicePerCompletedGame()
+    {
+        // Single-service run with 4 selected games: each completed game advances the bar by 25%.
+        var fraction = ScheduledPrefillRunGates.ComputeServiceFraction(appsCompleted: 1, totalApps: 4);
+        Assert.Equal(25d, ScheduledPrefillRunGates.ComputeRunPercent(servicesDone: 0, serviceCount: 1, currentServiceFraction: fraction));
+
+        fraction = ScheduledPrefillRunGates.ComputeServiceFraction(appsCompleted: 3, totalApps: 4);
+        Assert.Equal(75d, ScheduledPrefillRunGates.ComputeRunPercent(servicesDone: 0, serviceCount: 1, currentServiceFraction: fraction));
+    }
+
+    [Fact]
+    public void ComputeRunPercent_CapsAtNinetyNine_ReservingCompletionForTerminalEvent()
+    {
+        Assert.Equal(99d, ScheduledPrefillRunGates.ComputeRunPercent(servicesDone: 5, serviceCount: 5, currentServiceFraction: 1d));
+    }
+
+    [Fact]
+    public void ComputeServiceFraction_UnknownTotalYieldsZero()
+    {
+        Assert.Equal(0d, ScheduledPrefillRunGates.ComputeServiceFraction(appsCompleted: 2, totalApps: 0));
     }
 
     // ---- Criteria 3/4: saving a config anchors first-run so the next poll is NOT instant ----
