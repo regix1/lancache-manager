@@ -15,11 +15,13 @@ public class DomainCheckResult
 
     public string Service { get; set; } = string.Empty;
 
-    /// <summary>"resolved" | "mismatched" | "unresolved" | "unverified". Semantics per contract
-    /// amendment v1.4 (active verification): resolved = heartbeat-verified live OR matches the
-    /// expected cache IPs; mismatched = no heartbeat, no expected match, answers are public IPs
+    /// <summary>"resolved" | "mismatched" | "unresolved" | "unverified" | "blocked". Semantics per
+    /// contract amendment v1.4 (active verification): resolved = heartbeat-verified live OR matches
+    /// the expected cache IPs; mismatched = no heartbeat, no expected match, answers are public IPs
     /// (traffic is going to the internet); unverified = no heartbeat, no expected match, answers
-    /// are private IPs (cache down or wrong host - can't tell); unresolved = no A records.</summary>
+    /// are private IPs (cache down or wrong host - can't tell); unresolved = no A records;
+    /// blocked (v1.5) = every answer is a deliberate blackhole (0.0.0.0/::), typically an
+    /// intentionally blocked telemetry endpoint - benign, never counted as a failure.</summary>
     public string Status { get; set; } = string.Empty;
 
     public List<string> ResolvedIps { get; set; } = new();
@@ -38,6 +40,11 @@ public class DomainCheckResult
     public string? Error { get; set; }
 
     public double? LatencyMs { get; set; }
+
+    /// <summary>Public-edge HTTP/HTTPS probe of this hostname (v1.5), run for every swept and
+    /// ad hoc tested domain via the content lane's shared pipeline. Null on results persisted
+    /// before v1.5 and when the probe crashed unexpectedly.</summary>
+    public HostProtocolProbeResult? EdgeProbe { get; set; }
 }
 
 /// <summary>Aggregated verdict for one cache-domains service (e.g. "steam").</summary>
@@ -123,6 +130,83 @@ public class StatusCheckResult
     /// this sweep; empty when nothing heartbeat-verified. Older persisted results deserialize this
     /// as an empty list automatically.</summary>
     public List<CacheNodeInfo> CacheNodes { get; set; } = new();
+
+    /// <summary>Empirical cache traversal and current public-edge protocol observations for recent,
+    /// concrete content paths. Default-initialized so older persisted snapshots remain readable.</summary>
+    public StatusCheckContentReport ContentReport { get; set; } = new();
+}
+
+/// <summary>Bounded report built from recent real access-log paths during an explicit Status Check.</summary>
+public class StatusCheckContentReport
+{
+    /// <summary>"available" | "logMissing" | "unreadable".</summary>
+    public string Availability { get; set; } = "logMissing";
+    public DateTimeOffset? CheckedAtUtc { get; set; }
+    public bool ScanTruncated { get; set; }
+    public long ScannedBytes { get; set; }
+    public List<ContentPathCheckResult> Paths { get; set; } = new();
+}
+
+/// <summary>Evidence and current public-edge observations for one concrete service/host/path.</summary>
+public class ContentPathCheckResult
+{
+    public string Service { get; set; } = string.Empty;
+    public string Host { get; set; } = string.Empty;
+    public string PathDisplay { get; set; } = string.Empty;
+    public DateTimeOffset? SampleObservedAtUtc { get; set; }
+    public CacheTraversalEvidence? CacheEvidence { get; set; }
+
+    /// <summary>"notRun" | "bothUsable" | "httpUsable" | "httpsOnlyCandidate" | "inconclusive".</summary>
+    public string ProtocolStatus { get; set; } = "notRun";
+
+    /// <summary>Bounded lower-camel reason key; never a raw network or exception message.</summary>
+    public string? ProtocolReason { get; set; }
+    public int ConsensusEdges { get; set; }
+    public int TotalPublicEdges { get; set; }
+    public List<ContentPathEdgeResult> Edges { get; set; } = new();
+}
+
+/// <summary>Authoritative positive-byte cache observation for the exact sampled request target.</summary>
+public class CacheTraversalEvidence
+{
+    /// <summary>"hit" | "miss".</summary>
+    public string Outcome { get; set; } = string.Empty;
+    public int StatusCode { get; set; }
+    public long Bytes { get; set; }
+}
+
+/// <summary>HTTP and HTTPS results from one explicitly pinned public edge address.</summary>
+public class ContentPathEdgeResult
+{
+    public string Address { get; set; } = string.Empty;
+
+    /// <summary>"ipv4" | "ipv6".</summary>
+    public string AddressFamily { get; set; } = string.Empty;
+    public ProtocolProbeResult Http { get; set; } = new();
+    public ProtocolProbeResult Https { get; set; } = new();
+}
+
+/// <summary>Bounded transport outcome; contains no response body or raw exception detail.</summary>
+public class ProtocolProbeResult
+{
+    /// <summary>"content" | "redirectToHttps" | "otherRedirect" | "denied" |
+    /// "notFoundOrStale" | "rangeRejected" | "serverError" | "tlsCertificateFailure" |
+    /// "connectFailure" | "timeout" | "invalidResponse".</summary>
+    public string Outcome { get; set; } = "invalidResponse";
+    public int? StatusCode { get; set; }
+    public string? RedirectScheme { get; set; }
+}
+
+/// <summary>Current public-edge HTTP/HTTPS behaviour of one ad hoc tested hostname (v1.5),
+/// produced by the same resolve-and-probe pipeline as the sweep's content lane.</summary>
+public class HostProtocolProbeResult
+{
+    /// <summary>Same vocabulary as <see cref="ContentPathCheckResult.ProtocolStatus"/>.</summary>
+    public string ProtocolStatus { get; set; } = "notRun";
+    public string? ProtocolReason { get; set; }
+    public int ConsensusEdges { get; set; }
+    public int TotalPublicEdges { get; set; }
+    public List<ContentPathEdgeResult> Edges { get; set; } = new();
 }
 
 /// <summary>One cache node behind the resolved fleet, identified by its
@@ -207,6 +291,7 @@ public class TestDomainRequest
 
 public class TestDomainResponse
 {
+    /// <summary>Carries the public-edge probe in <see cref="DomainCheckResult.EdgeProbe"/>.</summary>
     public DomainCheckResult Result { get; set; } = new();
     public HeartbeatResult? Heartbeat { get; set; }
 }

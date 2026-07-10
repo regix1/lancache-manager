@@ -25,7 +25,8 @@ public interface IStatusCheckService
     Guid? StartSweep();
 
     /// <summary>Resolves and verdicts a single ad hoc domain (dropdown selection or free text),
-    /// heartbeat-probing its resolved IP when it resolves.</summary>
+    /// heartbeat-probing its resolved IP when it resolves. The result also carries the host's
+    /// current public-edge HTTP/HTTPS probe (v1.5) in <see cref="DomainCheckResult.EdgeProbe"/>.</summary>
     Task<(DomainCheckResult Result, HeartbeatResult? Heartbeat)> TestDomainAsync(string domain, CancellationToken cancellationToken);
 
     /// <summary>The persisted DNS resolver mode ("auto" | "bridge" | "host"); an unknown or absent

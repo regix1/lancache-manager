@@ -12,10 +12,10 @@ using Microsoft.Extensions.Options;
 namespace LancacheManager.Core.Services.StatusCheck;
 
 /// <summary>
-/// Runs the Status Check DNS sweep: resolves every cache-domains entry (via the configured/detected
-/// lancache-dns server, or the system resolver as a last resort) and compares against the lancache
-/// server's expected IP(s); heartbeat-verifies the cache once per sweep. Also backs the ad hoc
-/// "test a domain" flow. One sweep at a time (Interlocked guard), tracked via
+/// Runs the Status Check DNS sweep and the bounded empirical content-path lane. Resolves every
+/// cache-domains entry (via the configured/detected lancache-dns server, or the system resolver as
+/// a last resort), compares against the expected cache IP(s), and heartbeat-verifies the cache once
+/// per sweep. Also backs the ad hoc "test a domain" flow. One sweep at a time (Interlocked guard), tracked via
 /// <see cref="IUnifiedOperationTracker"/> for cancellation/progress, persisted via
 /// <see cref="IStateService"/> so the last result survives a restart.
 /// </summary>
@@ -33,6 +33,7 @@ public sealed class StatusCheckService : IStatusCheckService
     private readonly ICacheDomainsService _domainsService;
     private readonly ILancacheServerLocator _serverLocator;
     private readonly ILancacheEnvironmentSource _environmentSource;
+    private readonly IContentPathCheckService _contentPathCheckService;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly ISignalRNotificationService _notifications;
     private readonly IStateService _stateService;
@@ -54,6 +55,7 @@ public sealed class StatusCheckService : IStatusCheckService
         ICacheDomainsService domainsService,
         ILancacheServerLocator serverLocator,
         ILancacheEnvironmentSource environmentSource,
+        IContentPathCheckService contentPathCheckService,
         IUnifiedOperationTracker operationTracker,
         ISignalRNotificationService notifications,
         IStateService stateService,
@@ -63,6 +65,7 @@ public sealed class StatusCheckService : IStatusCheckService
         _domainsService = domainsService;
         _serverLocator = serverLocator;
         _environmentSource = environmentSource;
+        _contentPathCheckService = contentPathCheckService;
         _operationTracker = operationTracker;
         _notifications = notifications;
         _stateService = stateService;
@@ -147,10 +150,42 @@ public sealed class StatusCheckService : IStatusCheckService
             heartbeat = await _heartbeatCache.GetAsync(probeIp, cancellationToken);
         }
 
+        result.EdgeProbe = await ProbeDomainEdgesAsync(domain, result.Domain, cancellationToken);
+
         _logger.LogDebug("Status Check: tested domain {Domain} via {ResolverSource} resolver ({DnsServer}) -> {Status}",
             domain, resolverSource, dnsServer ?? "system", result.Status);
 
         return (result, heartbeat);
+    }
+
+    /// <summary>Fail-soft per-domain public-edge HTTP/HTTPS probe (v1.5) via the content lane's
+    /// shared pipeline. It resolves through public DoH and pins probes to validated public
+    /// addresses only, so a LAN-poisoned or black-holed DNS answer never influences (or is
+    /// influenced by) this probe. Wildcard entries have no concrete public hostname to probe -
+    /// they get a typed notRun/wildcardEntry result instead of a misleading NXDOMAIN probe of
+    /// the synthetic "status-check" label.</summary>
+    private async Task<HostProtocolProbeResult?> ProbeDomainEdgesAsync(string originalEntry, string host, CancellationToken cancellationToken)
+    {
+        if (originalEntry.StartsWith("*.", StringComparison.Ordinal))
+        {
+            return new HostProtocolProbeResult { ProtocolStatus = "notRun", ProtocolReason = "wildcardEntry" };
+        }
+
+        try
+        {
+            return await _contentPathCheckService.ProbeHostAsync(host, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(
+                "Status Check: edge probe for {Domain} returned fail-soft state {FailureCategory}",
+                host, ex.GetType().Name);
+            return null;
+        }
     }
 
     private async Task RunSweepAsync(Guid operationId, CancellationTokenSource cts)
@@ -224,6 +259,10 @@ public sealed class StatusCheckService : IStatusCheckService
                     {
                         var result = await ResolveDomainAsync(
                             originalEntry, service.Name, location.CacheIps, dnsClient, token, verifiedIps);
+                        // v1.5: every swept domain also gets a bounded public-edge HTTP/HTTPS
+                        // probe so each row can show its checks separately. Runs inside the same
+                        // concurrency gate; failures are typed, never fatal to the sweep.
+                        result.EdgeProbe = await ProbeDomainEdgesAsync(originalEntry, result.Domain, token);
                         if (result.ResolvedIps.Count == 0)
                         {
                             var reason = result.Error ?? "No A records returned";
@@ -298,6 +337,7 @@ public sealed class StatusCheckService : IStatusCheckService
             }
 
             var heartbeat = await BuildHeartbeatResultAsync(location, token);
+            var contentReport = await BuildContentReportAsync(domains.Services, token);
 
             var result = new StatusCheckResult
             {
@@ -311,7 +351,8 @@ public sealed class StatusCheckService : IStatusCheckService
                 Services = serviceResults,
                 Summary = BuildSummaryCore(serviceResults),
                 AvgLatencyMs = BuildAvgLatencyMs(serviceResults),
-                CacheNodes = BuildCacheNodes(verifiedIps)
+                CacheNodes = BuildCacheNodes(verifiedIps),
+                ContentReport = contentReport
             };
 
             lock (_lastResultLock)
@@ -372,6 +413,33 @@ public sealed class StatusCheckService : IStatusCheckService
             cts.Dispose();
             Interlocked.Exchange(ref _running, 0);
             _currentOperationId = null;
+        }
+    }
+
+    private async Task<StatusCheckContentReport> BuildContentReportAsync(
+        IReadOnlyList<CacheDomainService> services,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _contentPathCheckService.CheckAsync(services, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Keep the completed DNS/heartbeat evidence. The exception category is safe to log;
+            // its raw message may contain a request target and is deliberately not retained.
+            _logger.LogWarning(
+                "Status Check content lane returned fail-soft state {FailureCategory}",
+                ex.GetType().Name);
+            return new StatusCheckContentReport
+            {
+                Availability = "unreadable",
+                CheckedAtUtc = DateTimeOffset.UtcNow
+            };
         }
     }
 
@@ -554,13 +622,22 @@ public sealed class StatusCheckService : IStatusCheckService
     /// expected-IP overlap decides (resolved with heartbeatVerified=false = DNS right, cache not
     /// answering); with neither, a private answer is "unverified" (cache down or wrong host -
     /// can't tell) while an all-public answer is "mismatched" (traffic is going to the internet,
-    /// the failure this tool exists to catch). No A records = "unresolved".
+    /// the failure this tool exists to catch). No A records = "unresolved". An all-blackhole
+    /// answer (0.0.0.0/::) is "blocked" (v1.5) - a deliberate upstream block, not a leak.
     /// </summary>
     internal static string BuildDomainStatus(List<string> resolvedIps, List<string> expectedIps, bool heartbeatVerified)
     {
         if (resolvedIps.Count == 0)
         {
             return "unresolved";
+        }
+
+        // v1.5: blocklist-style answers black-hole the domain on purpose (telemetry endpoints,
+        // un-cacheable POST receivers). Nothing reaches the internet via 0.0.0.0, so this is
+        // neither "mismatched" nor a failure - it gets its own neutral verdict.
+        if (resolvedIps.All(LancacheServerLocator.IsBlackholeIp))
+        {
+            return "blocked";
         }
 
         if (heartbeatVerified)
@@ -581,12 +658,16 @@ public sealed class StatusCheckService : IStatusCheckService
     internal static ServiceCheckResult BuildServiceResultCore(string name, string description, List<DomainCheckResult> domains)
     {
         var resolvedCount = domains.Count(d => d.Status == "resolved");
+        // v1.5: deliberately black-holed domains are benign - they never count against the
+        // service, so a service whose only oddity is a blocked telemetry endpoint stays
+        // "resolved" instead of reading as a partial DNS failure.
+        var activeCount = domains.Count(d => d.Status != "blocked");
         string status;
         if (domains.Count == 0)
         {
             status = "unresolved";
         }
-        else if (resolvedCount == domains.Count)
+        else if (resolvedCount == activeCount)
         {
             status = "resolved";
         }

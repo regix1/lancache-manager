@@ -3560,8 +3560,9 @@ export interface StatusCheckDomainResult {
   originalEntry: string;
   service: string;
   /** v1.4 semantics: resolved = heartbeat-verified live OR matches expectedIps; mismatched =
-   *  public answer with no heartbeat/match; unverified = private answer with no heartbeat/match. */
-  status: 'resolved' | 'mismatched' | 'unresolved' | 'unverified';
+   *  public answer with no heartbeat/match; unverified = private answer with no heartbeat/match.
+   *  blocked (v1.5) = every answer is a deliberate blackhole (0.0.0.0/::) - benign, never a failure. */
+  status: 'resolved' | 'mismatched' | 'unresolved' | 'unverified' | 'blocked';
   resolvedIps: string[];
   expectedIps: string[];
   /** True when a resolved IP answered /lancache-heartbeat during this sweep (v1.4). */
@@ -3570,6 +3571,9 @@ export interface StatusCheckDomainResult {
   servedBy: string | null;
   error: string | null;
   latencyMs: number | null;
+  /** Public-edge HTTP/HTTPS probe of this hostname (v1.5), present on swept and ad hoc tested
+   *  domains. Null/absent on pre-v1.5 snapshots and when the probe crashed unexpectedly. */
+  edgeProbe?: StatusCheckHostProtocolProbeResult | null;
 }
 
 export interface StatusCheckServiceResult {
@@ -3612,6 +3616,69 @@ export interface StatusCheckCacheNodeInfo {
   ips: string[];
 }
 
+export type StatusCheckContentAvailability = 'available' | 'logMissing' | 'unreadable';
+
+export type StatusCheckProtocolStatus =
+  | 'notRun'
+  | 'bothUsable'
+  | 'httpUsable'
+  | 'httpsOnlyCandidate'
+  | 'inconclusive';
+
+export type StatusCheckProtocolOutcome =
+  | 'content'
+  | 'redirectToHttps'
+  | 'otherRedirect'
+  | 'denied'
+  | 'notFoundOrStale'
+  | 'rangeRejected'
+  | 'serverError'
+  | 'tlsCertificateFailure'
+  | 'connectFailure'
+  | 'timeout'
+  | 'invalidResponse';
+
+export interface StatusCheckCacheTraversalEvidence {
+  outcome: 'hit' | 'miss';
+  statusCode: number;
+  bytes: number;
+}
+
+export interface StatusCheckProtocolProbeResult {
+  outcome: StatusCheckProtocolOutcome;
+  statusCode: number | null;
+  redirectScheme: string | null;
+}
+
+export interface StatusCheckContentPathEdgeResult {
+  address: string;
+  addressFamily: 'ipv4' | 'ipv6';
+  http: StatusCheckProtocolProbeResult;
+  https: StatusCheckProtocolProbeResult;
+}
+
+export interface StatusCheckContentPathResult {
+  service: string;
+  host: string;
+  pathDisplay: string;
+  sampleObservedAtUtc: string | null;
+  cacheEvidence: StatusCheckCacheTraversalEvidence | null;
+  protocolStatus: StatusCheckProtocolStatus;
+  /** Bounded enum-like backend value. The UI maps known values and never prints this raw. */
+  protocolReason: string | null;
+  consensusEdges: number;
+  totalPublicEdges: number;
+  edges: StatusCheckContentPathEdgeResult[];
+}
+
+export interface StatusCheckContentReport {
+  availability: StatusCheckContentAvailability;
+  checkedAtUtc: string | null;
+  scanTruncated: boolean;
+  scannedBytes: number;
+  paths: StatusCheckContentPathResult[];
+}
+
 export interface StatusCheckResult {
   startedAtUtc: string;
   completedAtUtc: string;
@@ -3630,6 +3697,8 @@ export interface StatusCheckResult {
   /** Verified cache IPs grouped by the hostname that answered their heartbeat; empty when nothing
    *  heartbeat-verified during this sweep. */
   cacheNodes: StatusCheckCacheNodeInfo[];
+  /** Optional for stale browser snapshots created before content-path checks were introduced. */
+  contentReport?: StatusCheckContentReport | null;
 }
 
 export interface StatusCheckDomainsSource {
@@ -3666,7 +3735,19 @@ interface StatusCheckResolverModeResponse {
   resolverMode: StatusCheckResolverMode;
 }
 
+/** Current public-edge HTTP/HTTPS behaviour of one ad hoc tested hostname (v1.5), produced by
+ *  the same resolve-and-probe pipeline as the sweep's content lane. */
+export interface StatusCheckHostProtocolProbeResult {
+  protocolStatus: StatusCheckProtocolStatus;
+  /** Bounded enum-like backend value. The UI maps known values and never prints this raw. */
+  protocolReason: string | null;
+  consensusEdges: number;
+  totalPublicEdges: number;
+  edges: StatusCheckContentPathEdgeResult[];
+}
+
 export interface StatusCheckTestDomainResponse {
+  /** Carries the public-edge probe in result.edgeProbe (v1.5). */
   result: StatusCheckDomainResult;
   /** Attempted against the domain's resolved IP when it resolves; null otherwise. */
   heartbeat: StatusCheckHeartbeatResult | null;

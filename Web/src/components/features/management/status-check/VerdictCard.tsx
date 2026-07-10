@@ -1,4 +1,5 @@
 import React from 'react';
+import '../managementSectionContent.css';
 import { useTranslation } from 'react-i18next';
 import { Activity, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { Card } from '@components/ui/Card';
@@ -12,6 +13,7 @@ import type {
   StatusCheckSummary
 } from '@services/api.service';
 import ResolutionRibbon from './ResolutionRibbon';
+import ContentPathSummary from './ContentPathSummary';
 import { formatServiceLabel, splitExamples } from './helpers';
 import type { RibbonSegment, StatusCheckProgressEvent } from './types';
 
@@ -24,6 +26,25 @@ interface VerdictCardProps {
   ribbonInteractive: boolean;
   onRibbonSegmentClick: (service: string) => void;
   onRun: () => void;
+  /** The resolver-mode picker, rendered as a quiet toolbar at the top of the card. */
+  resolverControl?: React.ReactNode;
+}
+
+/** One labeled tile in the verdict readout grid. */
+interface VerdictStatTile {
+  id: string;
+  value: string;
+  label: string;
+  tone: 'success' | 'warning' | 'error' | 'info' | null;
+  isZero: boolean;
+}
+
+/** One labeled slot in the meta strip under the ribbon. */
+interface VerdictMetaSlot {
+  id: string;
+  value: string;
+  label: string;
+  tooltip: string | null;
 }
 
 // The non-running verdict category - drives both the headline text and the glyph so the two
@@ -54,7 +75,8 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
   ribbonSegments,
   ribbonInteractive,
   onRibbonSegmentClick,
-  onRun
+  onRun,
+  resolverControl
 }) => {
   const { t } = useTranslation();
   const keys = 'management.sections.statusCheck';
@@ -101,11 +123,12 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
   if (!lastResult && !isRunning) {
     return (
       <Card>
+        {resolverControl && <div className="status-check-resolver">{resolverControl}</div>}
         <div className="flex flex-col items-center text-center gap-3 py-6">
           <div className="status-check-glyph status-check-glyph--neutral">
             <Activity className="w-5 h-5" />
           </div>
-          <p className="font-medium text-themed-primary">{t(`${keys}.emptyTitle`)}</p>
+          <h3 className="font-medium text-themed-primary">{t(`${keys}.emptyTitle`)}</h3>
           <p className="text-sm text-themed-secondary max-w-xl">{t(`${keys}.emptyBody`)}</p>
           <Button variant="filled" color="blue" size="md" onClick={onRun}>
             {t(`${keys}.runCheck`)}
@@ -178,52 +201,71 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
   const totalCacheNodeIps = cacheNodes.reduce((sum, node) => sum + node.ips.length, 0);
   const avgLatencyMs = lastResult?.avgLatencyMs ?? null;
 
-  // v1.4: domain-level heartbeat probes can verify cache nodes even when the locator-level
-  // heartbeat (a single candidate IP) failed to answer - never show both a "did not answer" line
-  // and evidence that it plainly did. The nodes+avg line replaces the error line in that case.
-  const cacheNodesLine =
-    cacheNodes.length > 0
-      ? t(`${keys}.cacheNodesLine`, {
-          count: totalCacheNodeIps,
-          ips: totalCacheNodeIps,
-          nodes:
-            cacheNodes.length === 1
-              ? t(`${keys}.cacheNodesSingle`, { host: cacheNodes[0].servedBy })
-              : t(`${keys}.cacheNodesMulti`, { count: cacheNodes.length })
-        })
-      : null;
-
-  // Primary at-a-glance signal: the verdict tally as prominent count pills. Zero buckets stay
-  // muted so the ones that actually hold services carry the eye.
-  const statPills: { id: string; value: number; label: string }[] = summary
-    ? [
-        { id: 'resolved', value: summary.resolvedServices, label: t(`${keys}.statLabel.resolved`) },
-        { id: 'partial', value: summary.partialServices, label: t(`${keys}.statLabel.partial`) },
-        {
-          id: 'unresolved',
-          value: summary.unresolvedServices,
-          label: t(`${keys}.statLabel.unresolved`)
-        },
-        ...(summary.unverifiedServices > 0
-          ? [
-              {
-                id: 'unverified',
-                value: summary.unverifiedServices,
-                label: t(`${keys}.statLabel.unverified`)
-              }
-            ]
-          : []),
-        ...(summary.disabledServices > 0
-          ? [
-              {
-                id: 'disabled',
-                value: summary.disabledServices,
-                label: t(`${keys}.statLabel.disabled`)
-              }
-            ]
-          : [])
-      ]
-    : [];
+  // Primary at-a-glance signal: the verdict tally plus the key live figures as one labeled
+  // readout grid. The former standalone sentences (live heartbeat answers, average DNS
+  // latency) become tiles here instead of loose paragraphs.
+  const statTiles: VerdictStatTile[] = [];
+  if (!isRunning && summary) {
+    statTiles.push(
+      {
+        id: 'resolved',
+        value: String(summary.resolvedServices),
+        label: t(`${keys}.statLabel.resolved`),
+        tone: 'success',
+        isZero: summary.resolvedServices === 0
+      },
+      {
+        id: 'partial',
+        value: String(summary.partialServices),
+        label: t(`${keys}.statLabel.partial`),
+        tone: 'warning',
+        isZero: summary.partialServices === 0
+      },
+      {
+        id: 'unresolved',
+        value: String(summary.unresolvedServices),
+        label: t(`${keys}.statLabel.unresolved`),
+        tone: 'error',
+        isZero: summary.unresolvedServices === 0
+      }
+    );
+    if (summary.unverifiedServices > 0) {
+      statTiles.push({
+        id: 'unverified',
+        value: String(summary.unverifiedServices),
+        label: t(`${keys}.statLabel.unverified`),
+        tone: 'info',
+        isZero: false
+      });
+    }
+    if (summary.disabledServices > 0) {
+      statTiles.push({
+        id: 'disabled',
+        value: String(summary.disabledServices),
+        label: t(`${keys}.statLabel.disabled`),
+        tone: null,
+        isZero: true
+      });
+    }
+    if (verifiedDomains > 0) {
+      statTiles.push({
+        id: 'liveAnswers',
+        value: String(verifiedDomains),
+        label: t(`${keys}.readoutLiveAnswers`),
+        tone: 'success',
+        isZero: false
+      });
+    }
+    if (avgLatencyMs !== null) {
+      statTiles.push({
+        id: 'avgDns',
+        value: t(`${keys}.readoutAvgDnsValue`, { ms: avgLatencyMs }),
+        label: t(`${keys}.readoutAvgDns`),
+        tone: null,
+        isZero: false
+      });
+    }
+  }
 
   // Failure breakdown: one row per failure type with a count and a few example chips, replacing
   // the old comma-run sentences that spelled out every failing service name.
@@ -262,12 +304,79 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
 
   const showMeta = !isRunning && !!lastResult;
 
+  // The labeled meta strip: expected cache IP, answering cache nodes (or the locator
+  // heartbeat when no node evidence exists), and the resolver the sweep used. Full
+  // sentences live in each slot's tooltip; a failed heartbeat with no node evidence
+  // stays a visible warning line below the strip.
+  const metaSlots: VerdictMetaSlot[] = [];
+  if (showMeta && lastResult) {
+    if (expectedCacheIps.length > 0) {
+      metaSlots.push({
+        id: 'expectedIp',
+        value: expectedIpLabel,
+        label: t(`${keys}.metaExpectedIp`),
+        tooltip: t(`${keys}.expectedIp`, {
+          ips: expectedCacheIps.join(', '),
+          source: t(`${keys}.expectedIpSource.${lastResult.expectedIpSource}`)
+        })
+      });
+    }
+    if (cacheNodes.length > 0) {
+      metaSlots.push({
+        id: 'cacheNodes',
+        value:
+          cacheNodes.length === 1
+            ? t(`${keys}.metaCacheNodesSingle`, {
+                host: cacheNodes[0].servedBy,
+                count: totalCacheNodeIps
+              })
+            : t(`${keys}.metaCacheNodesMulti`, {
+                nodes: cacheNodes.length,
+                count: totalCacheNodeIps
+              }),
+        label: t(`${keys}.metaCacheNodes`),
+        tooltip: cacheNodes.map((node) => `${node.servedBy} (${node.ips.join(', ')})`).join(' · ')
+      });
+    } else if (heartbeat?.reachable) {
+      metaSlots.push({
+        id: 'heartbeat',
+        value: heartbeat.servedBy ?? heartbeat.cacheIp ?? '',
+        label: t(`${keys}.metaHeartbeat`),
+        tooltip: heartbeat.servedBy
+          ? t(`${keys}.heartbeatOk`, { ip: heartbeat.cacheIp, host: heartbeat.servedBy })
+          : t(`${keys}.heartbeatOkNoHost`, { ip: heartbeat.cacheIp })
+      });
+    }
+    metaSlots.push({
+      id: 'resolver',
+      value:
+        lastResult.resolverSource === 'system'
+          ? t(`${keys}.metaResolverSystemValue`)
+          : (lastResult.dnsServer ?? ''),
+      label:
+        lastResult.resolverSource === 'configured'
+          ? t(`${keys}.metaResolverConfigured`)
+          : lastResult.resolverSource === 'detected'
+            ? t(`${keys}.metaResolverDetected`)
+            : t(`${keys}.metaResolverSystem`),
+      tooltip:
+        lastResult.resolverSource === 'configured'
+          ? t(`${keys}.resolverConfigured`, { server: lastResult.dnsServer })
+          : lastResult.resolverSource === 'detected'
+            ? t(`${keys}.resolverDetected`, { server: lastResult.dnsServer })
+            : t(`${keys}.resolverSystem`)
+    });
+  }
+
   return (
     <Card>
+      {resolverControl && <div className="status-check-resolver">{resolverControl}</div>}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3 min-w-0">
           {glyph}
           <div className="min-w-0">
+            <h3 className="status-check-scope-title">{t(`${keys}.scopeTitle`)}</h3>
+            <p className="status-check-scope-description">{t(`${keys}.scopeDescription`)}</p>
             <p className="font-medium text-themed-primary tabular-nums">{verdictLine}</p>
             {!isRunning && cantVerify && (
               <p className="text-sm text-themed-secondary">{t(`${keys}.verdictUnverifiedHint`)}</p>
@@ -279,11 +388,6 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
                   {t(`${keys}.systemResolverCaveat`)}
                 </p>
               )}
-            {!isRunning && verifiedDomains > 0 && (
-              <p className="text-sm text-themed-secondary">
-                {t(`${keys}.verifiedLive`, { count: verifiedDomains })}
-              </p>
-            )}
             {isRunning && progress?.currentService && (
               <p className="text-sm text-themed-muted">
                 {t(`${keys}.sweepCurrentService`, {
@@ -305,17 +409,22 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
         </div>
       </div>
 
-      {!isRunning && summary && (
-        <div className="status-check-stats mt-3">
-          {statPills.map((pill) => (
-            <div
-              key={pill.id}
-              className={`status-check-stat status-check-stat--${pill.id}${
-                pill.value === 0 ? ' status-check-stat--zero' : ''
-              }`}
-            >
-              <span className="status-check-stat-value tabular-nums">{pill.value}</span>
-              <span className="status-check-stat-label">{pill.label}</span>
+      {statTiles.length > 0 && (
+        <div className="mgmt-stat-grid mt-4">
+          {statTiles.map((tile) => (
+            <div key={tile.id} className="mgmt-stat">
+              <p className="mgmt-stat__label">{tile.label}</p>
+              <p
+                className={`mgmt-stat__value tabular-nums${
+                  tile.isZero
+                    ? ' status-check-value--zero'
+                    : tile.tone
+                      ? ` status-check-value--${tile.tone}`
+                      : ''
+                }`}
+              >
+                {tile.value}
+              </p>
             </div>
           ))}
         </div>
@@ -358,48 +467,30 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
         />
       )}
 
-      {showMeta && (
+      {metaSlots.length > 0 && (
         <div className="status-check-meta">
-          {expectedCacheIps.length > 0 && (
-            <Tooltip
-              content={expectedCacheIps.join(', ')}
-              // self-start keeps the trigger box text-sized inside the stretch-by-default flex
-              // column, so the tooltip anchors over the text instead of the card's full width.
-              className="text-xs text-themed-muted tabular-nums self-start"
-            >
-              {t(`${keys}.expectedIp`, {
-                ips: expectedIpLabel,
-                source: t(`${keys}.expectedIpSource.${lastResult.expectedIpSource}`)
-              })}
-            </Tooltip>
+          {metaSlots.map((slot) =>
+            slot.tooltip ? (
+              <Tooltip key={slot.id} content={slot.tooltip} className="status-check-meta-item">
+                <span className="status-check-meta-value">{slot.value}</span>
+                <span className="status-check-meta-label">{slot.label}</span>
+              </Tooltip>
+            ) : (
+              <div key={slot.id} className="status-check-meta-item">
+                <span className="status-check-meta-value">{slot.value}</span>
+                <span className="status-check-meta-label">{slot.label}</span>
+              </div>
+            )
           )}
-          {heartbeat && (
-            <p className="text-xs text-themed-muted tabular-nums">
-              {heartbeat.reachable
-                ? heartbeat.servedBy
-                  ? t(`${keys}.heartbeatOk`, { ip: heartbeat.cacheIp, host: heartbeat.servedBy })
-                  : t(`${keys}.heartbeatOkNoHost`, { ip: heartbeat.cacheIp })
-                : cacheNodesLine
-                  ? cacheNodesLine
-                  : t(`${keys}.heartbeatFailed`, {
-                      error: heartbeat.error ?? t(`${keys}.unknownError`)
-                    })}
-            </p>
-          )}
-          {avgLatencyMs !== null && (
-            <p className="text-xs text-themed-muted tabular-nums">
-              {t(`${keys}.avgLatency`, { ms: avgLatencyMs })}
-            </p>
-          )}
-          <p className="text-xs text-themed-muted">
-            {lastResult.resolverSource === 'configured'
-              ? t(`${keys}.resolverConfigured`, { server: lastResult.dnsServer })
-              : lastResult.resolverSource === 'detected'
-                ? t(`${keys}.resolverDetected`, { server: lastResult.dnsServer })
-                : t(`${keys}.resolverSystem`)}
-          </p>
         </div>
       )}
+      {showMeta && heartbeat && !heartbeat.reachable && cacheNodes.length === 0 && (
+        <p className="text-xs text-[var(--theme-warning)] mt-2">
+          {t(`${keys}.heartbeatFailed`, { error: heartbeat.error ?? t(`${keys}.unknownError`) })}
+        </p>
+      )}
+
+      <ContentPathSummary report={lastResult?.contentReport} isRunning={isRunning} />
 
       {runError && (
         <Alert color="red" className="mt-3">

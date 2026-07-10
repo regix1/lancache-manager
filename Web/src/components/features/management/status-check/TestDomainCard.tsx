@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
+import '../managementSectionContent.css';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
+import Badge from '@components/ui/Badge';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import ApiService, {
   type StatusCheckDomainGroup,
@@ -9,6 +11,12 @@ import ApiService, {
 } from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import DomainLeafRow from './DomainLeafRow';
+import ProtocolEdgeList from './ProtocolEdgeList';
+import {
+  getProtocolReasonTranslationKey,
+  getProtocolStatusTranslationKey,
+  getProtocolStatusVariant
+} from './contentPathHelpers';
 import { formatServiceLabel } from './helpers';
 
 interface TestDomainCardProps {
@@ -61,6 +69,8 @@ const TestDomainCard: React.FC<TestDomainCardProps> = ({ groups }) => {
   };
 
   const heartbeat = response?.heartbeat ?? null;
+  const edgeProbe = response?.result.edgeProbe ?? null;
+  const contentKeys = 'management.sections.statusCheck.content';
 
   return (
     <Card>
@@ -110,10 +120,12 @@ const TestDomainCard: React.FC<TestDomainCardProps> = ({ groups }) => {
       )}
 
       {response && (
-        <div className="mt-3 pt-3 border-t border-themed-secondary space-y-1">
-          <DomainLeafRow result={response.result} />
+        <div className="mgmt-list mt-3">
+          <div className="status-check-domain-item">
+            <DomainLeafRow result={response.result} />
+          </div>
           {heartbeat && (
-            <p className="text-xs text-themed-muted ml-6">
+            <p className="status-check-domain-item text-xs text-themed-muted">
               {heartbeat.reachable
                 ? heartbeat.servedBy
                   ? t(`${keys}.testHeartbeatOk`, { host: heartbeat.servedBy })
@@ -122,6 +134,38 @@ const TestDomainCard: React.FC<TestDomainCardProps> = ({ groups }) => {
                     error: heartbeat.error ?? t(`${keys}.unknownError`)
                   })}
             </p>
+          )}
+        </div>
+      )}
+
+      {edgeProbe && (
+        <div className="status-check-test-probe">
+          <div className="status-check-test-probe-head">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-themed-primary">
+                {t(`${keys}.testEdgeProbe`)}
+              </p>
+              <p className="text-xs text-themed-muted">
+                {t(`${contentKeys}.protocolDetail.${edgeProbe.protocolStatus}`)}
+              </p>
+            </div>
+            <Badge variant={getProtocolStatusVariant(edgeProbe.protocolStatus)}>
+              {t(getProtocolStatusTranslationKey(edgeProbe.protocolStatus))}
+            </Badge>
+          </div>
+          {edgeProbe.protocolReason &&
+            (edgeProbe.protocolStatus === 'inconclusive' ||
+              edgeProbe.protocolStatus === 'notRun') && (
+              <p className="text-xs text-themed-muted mt-1">
+                {t(getProtocolReasonTranslationKey(edgeProbe.protocolReason))}
+              </p>
+            )}
+          {edgeProbe.edges.length > 0 ? (
+            <div className="mt-2">
+              <ProtocolEdgeList edges={edgeProbe.edges} />
+            </div>
+          ) : (
+            <p className="status-check-content-no-edges">{t(`${contentKeys}.noTestedEdges`)}</p>
           )}
         </div>
       )}

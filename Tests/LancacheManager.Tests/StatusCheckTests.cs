@@ -374,6 +374,44 @@ public class StatusCheckTests
     }
 
     [Fact]
+    public void BuildDomainStatus_AllBlackholeAnswers_AreBlockedNotMismatched()
+    {
+        // v1.5: 0.0.0.0/:: is a deliberate upstream block (e.g. Nintendo's telemetry receiver
+        // receive-lp1.dg.srv.nintendo.net) - nothing reaches the internet, so it must never be
+        // reported as the wrong-IP failure this tool exists to catch.
+        var ipv4Blackhole = StatusCheckService.BuildDomainStatus(
+            new List<string> { "0.0.0.0" }, new List<string> { "10.0.0.5" }, heartbeatVerified: false);
+        var ipv6Blackhole = StatusCheckService.BuildDomainStatus(
+            new List<string> { "::" }, new List<string> { "10.0.0.5" }, heartbeatVerified: false);
+        var mixedWithRealPublic = StatusCheckService.BuildDomainStatus(
+            new List<string> { "0.0.0.0", "1.2.3.4" }, new List<string> { "10.0.0.5" }, heartbeatVerified: false);
+
+        Assert.Equal("blocked", ipv4Blackhole);
+        Assert.Equal("blocked", ipv6Blackhole);
+        // A real public answer alongside the blackhole still leaks - stays mismatched.
+        Assert.Equal("mismatched", mixedWithRealPublic);
+    }
+
+    [Fact]
+    public void BuildServiceResultCore_BlockedDomainNeverCountsAgainstTheService()
+    {
+        var withBlocked = StatusCheckService.BuildServiceResultCore("nintendo", "Nintendo CDN",
+            new List<DomainCheckResult>
+            {
+                new() { Status = "resolved" },
+                new() { Status = "resolved" },
+                new() { Status = "blocked" }
+            });
+        var allBlocked = StatusCheckService.BuildServiceResultCore("nintendo", "Nintendo CDN",
+            new List<DomainCheckResult> { new() { Status = "blocked" } });
+
+        Assert.Equal("resolved", withBlocked.Status);
+        Assert.Equal(2, withBlocked.ResolvedCount);
+        Assert.Equal(3, withBlocked.TotalCount);
+        Assert.Equal("resolved", allBlocked.Status);
+    }
+
+    [Fact]
     public void BuildServiceResultCore_AllResolved_IsResolved()
     {
         var domains = new List<DomainCheckResult>

@@ -674,7 +674,8 @@ builder.Services.AddSingletonHostedService<DashboardCacheWarmerService>();
 // Register service schedule registry - collects all ScheduledBackgroundService / ConfigurableScheduledService instances
 builder.Services.AddSingleton<IServiceScheduleRegistry, ServiceScheduleRegistry>();
 
-// Register Status Check (DNS diagnostics) services - ILancacheEnvFileReader is also consumed by
+// Register Status Check (DNS/cache reachability and empirical content-path diagnostics) services -
+// ILancacheEnvFileReader is also consumed by
 // CacheManagementService.ReadCacheSizeFromEnvFile (root-cause reuse of the .env discovery chain).
 // ILancacheEnvironmentSource (contract amendment v1.2) composes Docker-inspect + the file reader
 // into the codebase's established two-tier env lookup for LANCACHE_IP/DISABLE_*/CACHE_DOMAINS_*/NOFETCH.
@@ -682,6 +683,7 @@ builder.Services.AddSingleton<LancacheManager.Core.Interfaces.ILancacheEnvFileRe
 builder.Services.AddSingleton<LancacheManager.Core.Interfaces.ILancacheEnvironmentSource, LancacheManager.Core.Services.StatusCheck.LancacheEnvironmentSource>();
 builder.Services.AddSingleton<LancacheManager.Core.Interfaces.ICacheDomainsService, LancacheManager.Core.Services.StatusCheck.CacheDomainsService>();
 builder.Services.AddSingleton<LancacheManager.Core.Interfaces.ILancacheServerLocator, LancacheManager.Core.Services.StatusCheck.LancacheServerLocator>();
+builder.Services.AddSingleton<LancacheManager.Core.Interfaces.IContentPathCheckService, LancacheManager.Core.Services.StatusCheck.ContentPathCheckService>();
 builder.Services.AddSingleton<LancacheManager.Core.Interfaces.IStatusCheckService, LancacheManager.Core.Services.StatusCheck.StatusCheckService>();
 
 // Configure OpenTelemetry Metrics for Prometheus + Grafana

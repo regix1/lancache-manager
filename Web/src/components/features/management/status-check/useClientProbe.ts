@@ -10,7 +10,8 @@ import type { ClientProbeState } from './types';
  * - On an https: page the browser blocks plain-http fetches outright (mixed
  *   content applies below Fetch's CORS layer), so no probe is attempted.
  * - A cors-mode fetch can read X-LanCache-Processed-By ONLY when the cache's
- *   nginx opts in; when it does, the result is definitive ("intercepted").
+ *   nginx opts in; interception still requires the exact heartbeat contract:
+ *   HTTP 204 plus a non-empty readable header.
  * - A no-cors fetch yields an opaque response: it proves something answered,
  *   never WHAT answered, so it can only ever be "inconclusive".
  * - A rejected fetch (or the probe timing out) means "unreachable".
@@ -37,9 +38,9 @@ export function useClientProbe(): { state: ClientProbeState; retry: () => void }
           cache: 'no-store',
           signal: controller.signal
         });
-        const servedBy = response.headers.get('X-LanCache-Processed-By');
+        const servedBy = response.headers.get('X-LanCache-Processed-By')?.trim() ?? null;
         if (cancelled) return;
-        if (response.ok && servedBy) {
+        if (response.status === 204 && servedBy) {
           setState({ status: 'intercepted', servedBy });
         } else {
           setState({ status: 'inconclusive', servedBy: null });
@@ -59,7 +60,7 @@ export function useClientProbe(): { state: ClientProbeState; retry: () => void }
             signal: controller.signal
           });
           if (!cancelled) setState({ status: 'inconclusive', servedBy: null });
-        } catch {
+        } catch (_fallbackError) {
           if (!cancelled) setState({ status: 'unreachable', servedBy: null });
         }
       } finally {

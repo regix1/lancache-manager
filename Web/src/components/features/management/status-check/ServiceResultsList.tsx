@@ -1,12 +1,15 @@
 import React from 'react';
+import '../managementSectionContent.css';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle2, Globe } from 'lucide-react';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import Badge from '@components/ui/Badge';
 import { Tooltip } from '@components/ui/Tooltip';
 import { getServiceColorClass } from '@utils/serviceColors';
-import type { StatusCheckServiceResult } from '@services/api.service';
+import type { StatusCheckContentReport, StatusCheckServiceResult } from '@services/api.service';
 import DomainLeafRow from './DomainLeafRow';
+import ContentPathGroup from './ContentPathGroup';
+import { getContentPathsForService, isVisibleWithProblemsOnly } from './contentPathHelpers';
 import { formatServiceLabel, getServiceAccentColor, splitExamples } from './helpers';
 
 interface ServiceResultsListProps {
@@ -15,6 +18,7 @@ interface ServiceResultsListProps {
   expandedServices: ReadonlySet<string>;
   onToggle: (service: string) => void;
   problemsOnly: boolean;
+  contentReport: StatusCheckContentReport | null | undefined;
   registerRef: (service: string, element: HTMLDivElement | null) => void;
 }
 
@@ -22,7 +26,8 @@ const DOMAIN_STATUS_WEIGHT: Record<string, number> = {
   unresolved: 0,
   mismatched: 1,
   unverified: 2,
-  resolved: 3
+  blocked: 3,
+  resolved: 4
 };
 
 const ServiceResultsList: React.FC<ServiceResultsListProps> = ({
@@ -30,20 +35,16 @@ const ServiceResultsList: React.FC<ServiceResultsListProps> = ({
   expandedServices,
   onToggle,
   problemsOnly,
+  contentReport,
   registerRef
 }) => {
   const { t } = useTranslation();
   const keys = 'management.sections.statusCheck';
 
-  // Disabled services are intentionally not cached - never counted as problems. Unverified
-  // services stay visible in the problems filter (they need attention: nothing could be verified).
+  // DNS failures remain problems. A path-level HTTPS-only candidate also remains visible even
+  // when the service's DNS badge is healthy; inconclusive content paths stay neutral.
   const visibleServices = problemsOnly
-    ? services.filter(
-        (service) =>
-          service.status === 'partial' ||
-          service.status === 'unresolved' ||
-          service.status === 'unverified'
-      )
+    ? services.filter((service) => isVisibleWithProblemsOnly(service, contentReport))
     : services;
 
   if (visibleServices.length === 0) {
@@ -58,18 +59,23 @@ const ServiceResultsList: React.FC<ServiceResultsListProps> = ({
   return (
     <div className="space-y-2">
       {visibleServices.map((service) => {
-        const wrongCount = service.totalCount - service.resolvedCount;
+        const contentPaths = getContentPathsForService(contentReport, service.service);
+        // Deliberately black-holed domains (v1.5) are benign - they leave both the badge's
+        // denominator and the wrong-count so a blocked telemetry endpoint never reads as failure.
+        const blockedCount = service.domains.filter((domain) => domain.status === 'blocked').length;
+        const activeTotal = service.totalCount - blockedCount;
+        const wrongCount = activeTotal - service.resolvedCount;
         const badge =
           service.status === 'resolved' ? (
             <Badge variant="success" className="tabular-nums">
               {t(`${keys}.badgeResolved`, {
                 resolved: service.resolvedCount,
-                total: service.totalCount
+                total: activeTotal
               })}
             </Badge>
           ) : service.status === 'partial' ? (
             <Badge variant="warning" className="tabular-nums">
-              {t(`${keys}.badgePartial`, { wrong: wrongCount, total: service.totalCount })}
+              {t(`${keys}.badgePartial`, { wrong: wrongCount, total: activeTotal })}
             </Badge>
           ) : service.status === 'disabled' ? (
             <Badge variant="neutral">{t(`${keys}.badgeDisabled`)}</Badge>
@@ -123,7 +129,7 @@ const ServiceResultsList: React.FC<ServiceResultsListProps> = ({
                   {t(`${keys}.disabledNote`, { service: service.service.toUpperCase() })}
                 </p>
               ) : (
-                <div className="space-y-2">
+                <div>
                   {hasMismatch && expectedIps.length > 0 && (
                     <Tooltip
                       content={expectedIps.join(', ')}
@@ -132,11 +138,16 @@ const ServiceResultsList: React.FC<ServiceResultsListProps> = ({
                       {t(`${keys}.expectedForService`, { ips: expectedLabel })}
                     </Tooltip>
                   )}
-                  {sortedDomains.map((domain) => (
-                    <DomainLeafRow key={domain.originalEntry} result={domain} />
-                  ))}
+                  <div className="mgmt-list">
+                    {sortedDomains.map((domain) => (
+                      <div key={domain.originalEntry} className="status-check-domain-item">
+                        <DomainLeafRow result={domain} />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
+              <ContentPathGroup paths={contentPaths} />
             </AccordionSection>
           </div>
         );

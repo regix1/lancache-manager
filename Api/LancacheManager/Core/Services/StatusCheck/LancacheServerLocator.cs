@@ -470,14 +470,7 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
             using var response = await _heartbeatProbeClient.SendAsync(
                 request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
-            string? servedBy = null;
-            if (response.Headers.TryGetValues("X-LanCache-Processed-By", out var headerValues) ||
-                (response.Content?.Headers.TryGetValues("X-LanCache-Processed-By", out headerValues) ?? false))
-            {
-                servedBy = headerValues?.FirstOrDefault();
-            }
-
-            if (servedBy != null)
+            if (IsHeartbeatSuccess(response, out var servedBy))
             {
                 return new HeartbeatResult { Reachable = true, ServedBy = servedBy, CacheIp = ip, Error = null };
             }
@@ -487,7 +480,7 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
                 Reachable = false,
                 ServedBy = null,
                 CacheIp = ip,
-                Error = $"HTTP {(int)response.StatusCode} but no X-LanCache-Processed-By header (not a lancache server)"
+                Error = $"HTTP {(int)response.StatusCode} did not match the LANCache heartbeat contract"
             };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -502,9 +495,34 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
                 Reachable = false,
                 ServedBy = null,
                 CacheIp = ip,
-                Error = $"probe failed ({ex.GetType().Name}: {ex.Message})"
+                Error = $"probe failed ({ex.GetType().Name})"
             };
         }
+    }
+
+    /// <summary>The heartbeat contract is exact: HTTP 204 plus a non-empty processed-by header.</summary>
+    internal static bool IsHeartbeatSuccess(HttpResponseMessage response, out string? servedBy)
+    {
+        servedBy = null;
+        if (response.StatusCode != HttpStatusCode.NoContent)
+        {
+            return false;
+        }
+
+        if (!response.Headers.TryGetValues("X-LanCache-Processed-By", out var headerValues) &&
+            !(response.Content?.Headers.TryGetValues("X-LanCache-Processed-By", out headerValues) ?? false))
+        {
+            return false;
+        }
+
+        var value = headerValues.FirstOrDefault(header => !string.IsNullOrWhiteSpace(header));
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        servedBy = value.Trim();
+        return true;
     }
 
     /// <summary>Caller-scoping profile for the cache-server candidate builder. There is deliberately
@@ -734,6 +752,17 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
     /// <summary>Same private-range classification as <c>PrefillDaemonServiceBase.IsPrivateIp</c>
     /// (a small, self-contained helper - not worth extracting given the risk-containment decision
     /// not to touch that file).</summary>
+    /// <summary>A deliberate DNS blackhole answer (0.0.0.0 or ::). Upstream blocklists and
+    /// lancache-dns use it to block un-cacheable endpoints (e.g. Nintendo's telemetry receiver
+    /// receive-lp1.dg.srv.nintendo.net). Traffic to it goes nowhere, so it must never be
+    /// classified as "reaching the internet".</summary>
+    internal static bool IsBlackholeIp(string ip)
+    {
+        return !string.IsNullOrEmpty(ip) &&
+               IPAddress.TryParse(ip, out var address) &&
+               (address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any));
+    }
+
     internal static bool IsPrivateIp(string ip)
     {
         if (string.IsNullOrEmpty(ip) || !IPAddress.TryParse(ip, out var address))

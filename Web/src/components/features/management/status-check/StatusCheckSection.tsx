@@ -22,6 +22,7 @@ import TestDomainCard from './TestDomainCard';
 import DomainSourceFooter from './DomainSourceFooter';
 import { useClientProbe } from './useClientProbe';
 import { prefersReducedMotion } from './helpers';
+import { isVisibleWithProblemsOnly } from './contentPathHelpers';
 import { RESOLVER_MODE_OPTIONS } from './constants';
 import {
   getCachedDomainGroups,
@@ -304,7 +305,7 @@ const StatusCheckSection: React.FC = () => {
     (service: string) => {
       const target = sortedServices.find((entry) => entry.service === service);
       if (!target) return;
-      if (problemsOnly && (target.status === 'resolved' || target.status === 'disabled')) {
+      if (problemsOnly && !isVisibleWithProblemsOnly(target, status?.lastResult?.contentReport)) {
         setProblemsOnly(false);
       }
       setExpandedServices((previous) => new Set(previous).add(service));
@@ -316,7 +317,7 @@ const StatusCheckSection: React.FC = () => {
         });
       }, 60);
     },
-    [sortedServices, problemsOnly]
+    [sortedServices, problemsOnly, status?.lastResult?.contentReport]
   );
 
   const handleRefreshDomains = useCallback(async () => {
@@ -369,6 +370,21 @@ const StatusCheckSection: React.FC = () => {
 
   const lastResult = status?.lastResult ?? null;
 
+  // Rendered as a quiet toolbar at the top of the verdict card; each option's
+  // tooltip explains its strategy, so no hint paragraph floats in the layout.
+  const resolverControl = status ? (
+    <>
+      <span className="status-check-resolver-label">{t(`${keys}.resolverMode.label`)}</span>
+      <SegmentedControl
+        size="sm"
+        showLabels
+        options={resolverModeOptions}
+        value={resolverMode}
+        onChange={(value) => void handleResolverModeChange(value as StatusCheckResolverMode)}
+      />
+    </>
+  ) : null;
+
   return sectionShell(
     <>
       {statusError && status && (
@@ -378,25 +394,6 @@ const StatusCheckSection: React.FC = () => {
       )}
       <div className="space-y-8">
         <section>
-          {status && (
-            <div className="status-check-resolver">
-              <div className="status-check-resolver-head">
-                <span className="status-check-resolver-label">
-                  {t(`${keys}.resolverMode.label`)}
-                </span>
-                <SegmentedControl
-                  size="sm"
-                  showLabels
-                  options={resolverModeOptions}
-                  value={resolverMode}
-                  onChange={(value) =>
-                    void handleResolverModeChange(value as StatusCheckResolverMode)
-                  }
-                />
-              </div>
-              <p className="status-check-resolver-hint">{t(`${keys}.resolverMode.hint`)}</p>
-            </div>
-          )}
           <VerdictCard
             lastResult={lastResult}
             isRunning={isRunning}
@@ -406,6 +403,7 @@ const StatusCheckSection: React.FC = () => {
             ribbonInteractive={!isRunning && sortedServices.length > 0}
             onRibbonSegmentClick={handleRibbonSegmentClick}
             onRun={() => void handleRun()}
+            resolverControl={resolverControl}
           />
         </section>
 
@@ -432,6 +430,7 @@ const StatusCheckSection: React.FC = () => {
                 expandedServices={expandedServices}
                 onToggle={toggleService}
                 problemsOnly={problemsOnly}
+                contentReport={lastResult.contentReport}
                 registerRef={registerServiceRef}
               />
             ) : (
