@@ -290,11 +290,14 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                     <div className="analytics-list-container">
                       <div className="analytics-list-header">
                         <span>{activeTabConfig.tooltip ?? activeTabConfig.label}</span>
-                        <span>
-                          {t('dashboard.serviceAnalytics.itemCount', {
+                        <span
+                          className="themed-badge status-badge-neutral badge-count"
+                          aria-label={t('dashboard.serviceAnalytics.itemCount', {
                             count: legendItems.length,
                             defaultValue: '{{count}} items'
                           })}
+                        >
+                          {legendItems.length}
                         </span>
                       </div>
                       <ChartLegend items={legendItems} />

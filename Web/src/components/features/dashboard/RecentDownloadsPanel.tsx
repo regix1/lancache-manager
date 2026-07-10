@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import { Activity, Clock, HardDrive, TrendingUp, RefreshCw } from 'lucide-react';
+import { Activity, Clock, RefreshCw } from 'lucide-react';
 import { type TFunction } from 'i18next';
 import { useTranslation, Trans } from 'react-i18next';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
@@ -41,43 +41,43 @@ interface RecentDownloadsPanelProps {
 }
 
 // Active download item component using real-time speed data
-const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number; t: TFunction }> = ({
-  game,
-  index,
-  t
-}) => {
+const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; t: TFunction }> = ({ game, t }) => {
   return (
-    <div className="download-item active-item" style={{ animationDelay: `${index * 50}ms` }}>
-      <div className="item-left">
-        <div className="item-indicator">
-          <div className="pulse-ring" />
-          <div className="pulse-dot" />
+    <div className="rdl-row rdl-row-active">
+      <div className="rdl-row-main">
+        <div className="rdl-active-indicator">
+          <div className="rdl-pulse-ring" />
+          <div className="rdl-pulse-dot" />
         </div>
-        <div className="item-info">
-          <div className="item-name">
-            {game.gameName &&
-            game.gameName !== game.service &&
-            !game.gameName.match(/^Steam App \d+$/)
-              ? game.gameName
-              : game.gameName || (game.depotId ? `Depot ${game.depotId}` : game.service)}
+        <div className="rdl-row-info">
+          <div className="rdl-row-name">
+            <span className="rdl-name-text">
+              {game.gameName &&
+              game.gameName !== game.service &&
+              !game.gameName.match(/^Steam App \d+$/)
+                ? game.gameName
+                : game.gameName || (game.depotId ? `Depot ${game.depotId}` : game.service)}
+            </span>
           </div>
-          <div className="item-meta">
+          <div className="rdl-row-meta">
             <BadgesRow service={game.service} showDatasource={false} />
-            <span className="meta-separator">•</span>
-            <span className="meta-text">{formatBytes(game.totalBytes)}</span>
-            <span className="meta-separator">•</span>
-            <span className="meta-text">
+            <span className="rdl-meta-sep">•</span>
+            <span>{formatBytes(game.totalBytes)}</span>
+            <span className="rdl-meta-sep">•</span>
+            <span>
               {game.requestCount} {t('dashboard.downloadsPanel.req')}
             </span>
           </div>
         </div>
       </div>
-      <div className="item-right">
-        <span className="speed-value">{formatSpeed(game.bytesPerSecond)}</span>
-        <div
-          className={`hit-badge ${game.cacheHitPercent >= 80 ? 'high' : game.cacheHitPercent >= 50 ? 'medium' : 'low'}`}
-        >
-          {formatPercent(game.cacheHitPercent, 0)}
+      <div className="rdl-row-stats">
+        <div className="rdl-row-figures">
+          <span className="rdl-row-speed">{formatSpeed(game.bytesPerSecond)}</span>
+          <div
+            className={`rdl-hit ${game.cacheHitPercent >= 80 ? 'high' : game.cacheHitPercent >= 50 ? 'medium' : 'low'}`}
+          >
+            {formatPercent(game.cacheHitPercent, 0)} {t('dashboard.downloadsPanel.hitLabel')}
+          </div>
         </div>
       </div>
     </div>
@@ -88,7 +88,6 @@ const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number; t: TFun
 interface RecentDownloadItemProps {
   item: DownloadGroup | Download;
   events?: EventSummary[];
-  index: number;
   detectionLookup?: Map<number, GameDetectionSummary> | null;
   detectionByName?: Map<string, GameDetectionSummary> | null;
   detectionByService?: Map<
@@ -100,7 +99,6 @@ interface RecentDownloadItemProps {
 const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
   item,
   events = [],
-  index,
   detectionLookup = null,
   detectionByName = null,
   detectionByService = null
@@ -199,8 +197,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
 
   return (
     <div
-      className={`download-item recent-item clickable-row${display.isEvicted ? ' evicted-row' : ''}`}
-      style={{ animationDelay: `${index * 30}ms` }}
+      className={`rdl-row rdl-row-clickable${display.isEvicted ? ' evicted-row' : ''}`}
       onClick={handleClick}
       role="button"
       tabIndex={0}
@@ -208,34 +205,33 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
         if (e.key === 'Enter' || e.key === ' ') handleClick();
       }}
     >
-      <div className="item-left">
-        <div className="item-icon">
-          <HardDrive size={16} />
-        </div>
-        <div className="item-info">
-          <div className="item-name">
-            {display.name}
+      <div className="rdl-row-main">
+        <div className="rdl-row-info">
+          <div className="rdl-row-name">
+            <span className="rdl-name-text">{display.name}</span>
             {isGroup && display.count > 1 && (
               <span className="themed-badge status-badge-neutral badge-count">
                 {display.count}×
               </span>
             )}
           </div>
-          <div className="item-meta">
+          <div className="rdl-row-meta">
             <BadgesRow
               service={display.service}
               showDatasource={false}
               isEvicted={display.isEvicted}
               isPartiallyEvicted={display.isPartiallyEvicted}
             />
-            <span className="meta-separator">•</span>
-            <span className="meta-text">
+            <span className="rdl-meta-sep">•</span>
+            <span>
               {display.clientIp ? (
                 <ClientIpDisplay clientIp={display.clientIp} />
               ) : (
                 display.clientInfo
               )}
             </span>
+            <span className="rdl-meta-sep">•</span>
+            <span>{formattedTime}</span>
 
             {events.length > 0 &&
               events
@@ -244,32 +240,31 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
           </div>
         </div>
       </div>
-      <div className="item-right">
-        <div className="size-time">
-          <span className="size-value">
-            {formatBytes(display.totalBytes)} {t('dashboard.downloadsPanel.transferred')}
-          </span>
-          {diskSizeBytes ? (
-            <span className="disk-value">
-              {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
-            </span>
-          ) : null}
-          <span className="time-value">{formattedTime}</span>
+      <div className="rdl-row-stats">
+        <div className="rdl-row-figures">
+          <span className="rdl-row-size">{formatBytes(display.totalBytes)}</span>
+          <div className="rdl-row-subline">
+            {diskSizeBytes ? (
+              <span className="rdl-row-sub">
+                {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })} ·
+              </span>
+            ) : null}
+            <Tooltip
+              content={hitTooltip}
+              className={`rdl-hit ${
+                display.cacheHitPercent >= 75
+                  ? 'high'
+                  : display.cacheHitPercent >= 50
+                    ? 'medium'
+                    : display.cacheHitPercent >= 25
+                      ? 'low'
+                      : 'critical'
+              }`}
+            >
+              {formatPercent(display.cacheHitPercent)} {t('dashboard.downloadsPanel.hitLabel')}
+            </Tooltip>
+          </div>
         </div>
-        <Tooltip
-          content={hitTooltip}
-          className={`hit-badge ${
-            display.cacheHitPercent >= 75
-              ? 'high'
-              : display.cacheHitPercent >= 50
-                ? 'medium'
-                : display.cacheHitPercent >= 25
-                  ? 'low'
-                  : 'critical'
-          }`}
-        >
-          {formatPercent(display.cacheHitPercent)} {t('dashboard.downloadsPanel.hitLabel')}
-        </Tooltip>
       </div>
     </div>
   );
@@ -528,12 +523,11 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   }, [groupedItems.displayedItems, fetchAssociations, refreshVersion]);
 
   const stats = useMemo(() => {
-    const totalDownloads = filteredDownloads.length;
     const totalBytes = filteredDownloads.reduce((sum, d) => sum + d.totalBytes, 0);
     const totalCacheHits = filteredDownloads.reduce((sum, d) => sum + d.cacheHitBytes, 0);
     const overallHitRate = totalBytes > 0 ? (totalCacheHits / totalBytes) * 100 : 0;
 
-    return { totalDownloads, totalBytes, overallHitRate };
+    return { totalBytes, overallHitRate };
   }, [filteredDownloads]);
 
   // Active downloads data from speed context (same source as Active Downloads stat card)
@@ -542,733 +536,225 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const totalSpeed = speedSnapshot?.totalBytesPerSecond || 0;
   const hasActiveDownloads = speedSnapshot?.hasActiveDownloads || false;
 
+  const hitRateClass =
+    stats.overallHitRate >= 75
+      ? 'is-success'
+      : stats.overallHitRate >= 50
+        ? 'is-warning'
+        : 'is-error';
+
   return (
-    <Card glassmorphism={glassmorphism} className="downloads-panel-redesign">
-      <style>{`
-        .downloads-panel-redesign {
-          container-type: inline-size;
-        }
-
-        .panel-header {
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
-          margin-bottom: 1rem;
-        }
-
-        .header-top {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 1rem;
-        }
-
-        .header-title {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-        }
-
-        .header-title h3 {
-          font-size: 1rem;
-          font-weight: 600;
-          color: var(--theme-text-primary);
-          margin: 0;
-        }
-
-        .tab-toggle {
-          display: flex;
-          padding: 3px;
-          border-radius: var(--theme-border-radius-lg);
-          background: var(--theme-bg-tertiary);
-          border: 1px solid var(--theme-border-secondary);
-        }
-
-.tab-badge {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          min-width: 1.25rem;
-          height: 18px;
-          padding: 0 5px;
-          font-size: 0.65rem;
-          font-weight: 700;
-          border-radius: 3px;
-          border: 1px solid var(--theme-badge-white-subtle);
-          background: var(--theme-success);
-          color: var(--theme-button-text);
-          animation: badge-glow 2s ease-in-out infinite;
-        }
-
-        @keyframes badge-glow {
-          0%, 100% { box-shadow: 0 0 0 0 var(--theme-success-strong); }
-          50% { box-shadow: 0 0 8px 2px var(--theme-success-strong); }
-        }
-
-        .header-stats {
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-          font-size: 0.7rem;
-        }
-
-        .stat-item {
-          display: flex;
-          align-items: center;
-          gap: 0.35rem;
-          color: var(--theme-text-muted);
-        }
-
-        .stat-item svg {
-          width: 12px;
-          height: 12px;
-        }
-
-        .stat-value {
-          font-weight: 600;
-          color: var(--theme-text-secondary);
-        }
-
-        .stat-value.speed {
-          color: var(--theme-success);
-        }
-
-        .stat-value.hit-high {
-          color: var(--theme-success);
-        }
-
-        .stat-value.hit-medium {
-          color: var(--theme-warning);
-        }
-
-        .stat-value.hit-low {
-          color: var(--theme-error);
-        }
-
-        .filters-row {
-          display: flex;
-          gap: 0.5rem;
-          flex-wrap: wrap;
-        }
-
-        .filters-row > * {
-          flex: 1;
-          min-width: 120px;
-        }
-
-        @container (min-width: 400px) {
-          .filters-row > * {
-            flex: 0 1 auto;
-            min-width: 140px;
-          }
-        }
-
-        .clear-filters-btn {
-          padding: 0.5rem 0.75rem;
-          font-size: 0.7rem;
-          font-weight: 500;
-          color: var(--theme-button-text);
-          background: var(--theme-primary);
-          border: none;
-          border-radius: var(--theme-border-radius);
-          cursor: pointer;
-          transition: opacity 0.2s ease;
-          white-space: nowrap;
-        }
-
-        .clear-filters-btn:hover {
-          opacity: 0.9;
-        }
-
-        /* CustomScrollbar clips content at its rounded-xl corners, which shaves the
-           rounded border of the first/last item; square the clip for this list. */
-        .downloads-panel-redesign .downloads-scroll-area {
-          border-radius: 0;
-        }
-
-        /* 1px inset keeps item borders off the scroll container's clip edge so
-           rounded corners can't be shaved by the overflow clip. */
-        .downloads-list {
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
-          padding: 1px;
-        }
-
-        .download-item {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 0.75rem;
-          padding: 0.75rem;
-          border-radius: var(--theme-border-radius-lg);
-          background: var(--theme-bg-secondary);
-          border: 1px solid var(--theme-border-secondary);
-          transition:
-            border-color 0.2s ease,
-            box-shadow 0.2s ease;
-          /* backwards fill + from-keyframe: the final state keeps NO transform,
-             so the item drops its compositing layer and the corner border
-             renders crisp instead of being shaved at the clip edge. */
-          animation: item-slide-in 0.3s ease backwards;
-        }
-
-        @keyframes item-slide-in {
-          from {
-            opacity: 0;
-            transform: translateY(8px);
-          }
-        }
-
-        .download-item.clickable-row:hover {
-          border-color: var(--theme-border-primary);
-          background: var(--theme-bg-secondary-on-tertiary);
-        }
-
-        .download-item.clickable-row {
-          cursor: pointer;
-        }
-
-        .download-item.active-item {
-          background: linear-gradient(
-            90deg,
-            var(--theme-success-on-bg) 0%,
-            var(--theme-bg-secondary) 65%
-          );
-          background-clip: padding-box;
-          border-color: var(--theme-success-on-border);
-        }
-
-        .item-left {
-          display: flex;
-          align-items: center;
-          gap: 0.65rem;
-          flex: 1;
-          min-width: 0;
-        }
-
-        .item-indicator {
-          position: relative;
-          width: 32px;
-          height: 32px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .pulse-ring {
-          position: absolute;
-          inset: 0;
-          border-radius: 50%;
-          border: 2px solid var(--theme-success);
-          animation: pulse-expand 1.5s ease-out infinite;
-        }
-
-        @keyframes pulse-expand {
-          0% { transform: scale(0.8); opacity: 1; }
-          100% { transform: scale(1.4); opacity: 0; }
-        }
-
-        .pulse-dot {
-          width: 10px;
-          height: 10px;
-          border-radius: 50%;
-          background: var(--theme-success);
-          box-shadow: 0 0 8px var(--theme-success);
-        }
-
-        .item-icon {
-          width: 32px;
-          height: 32px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: var(--theme-border-radius);
-          background: var(--theme-bg-tertiary);
-          color: var(--theme-text-muted);
-        }
-
-        .item-info {
-          flex: 1;
-          min-width: 0;
-        }
-
-        .item-name {
-          font-size: 0.8rem;
-          font-weight: 600;
-          color: var(--theme-text-primary);
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          display: flex;
-          align-items: center;
-          gap: 0.4rem;
-        }
-
-        .item-meta {
-          display: flex;
-          align-items: center;
-          gap: 0.4rem;
-          margin-top: 0.2rem;
-          font-size: 0.7rem;
-          color: var(--theme-text-muted);
-          flex-wrap: wrap;
-        }
-
-        .service-badge {
-          padding: 0.15rem 0.4rem;
-          border-radius: 4px;
-          background: var(--theme-bg-tertiary);
-          color: var(--theme-text-secondary);
-          font-weight: 600;
-          font-size: 0.65rem;
-          text-transform: uppercase;
-          letter-spacing: 0.02em;
-        }
-        .service-badge--service-steam { color: var(--theme-steam); }
-        .service-badge--service-epic { color: var(--theme-epic); }
-        .service-badge--service-origin { color: var(--theme-origin); }
-        .service-badge--service-blizzard { color: var(--theme-blizzard); }
-        .service-badge--service-wsus { color: var(--theme-wsus); }
-        .service-badge--service-riot { color: var(--theme-riot); }
-        .service-badge--service-xbox { color: var(--theme-xbox); }
-
-        .meta-separator {
-          color: var(--theme-border-secondary);
-        }
-
-        .meta-text {
-          color: var(--theme-text-muted);
-        }
-
-        .item-right {
-          display: flex;
-          align-items: center;
-          gap: 0.65rem;
-          flex-shrink: 0;
-        }
-
-        /* Narrow containers: stats no longer fit beside the name without
-           crushing it, so wrap them onto their own full-width row aligned
-           with the text column (icon is 32px + 0.65rem gap). */
-        @container (max-width: 419px) {
-          .download-item {
-            flex-wrap: wrap;
-            row-gap: 0.5rem;
-          }
-
-          .item-right {
-            width: 100%;
-            justify-content: space-between;
-            padding-left: calc(32px + 0.65rem);
-          }
-
-          .size-time {
-            align-items: flex-start;
-          }
-        }
-
-        .speed-value {
-          font-size: 0.8rem;
-          font-weight: 700;
-          color: var(--theme-success);
-          font-variant-numeric: tabular-nums;
-          white-space: nowrap;
-        }
-
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-
-        .size-time {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-end;
-          gap: 0.1rem;
-        }
-
-        .size-value {
-          font-size: 0.75rem;
-          font-weight: 600;
-          color: var(--theme-text-primary);
-        }
-
-        .time-value {
-          font-size: 0.65rem;
-          color: var(--theme-text-muted);
-        }
-
-        .disk-value {
-          font-size: 0.65rem;
-          color: var(--theme-text-muted);
-          font-variant-numeric: tabular-nums;
-        }
-
-        .hit-badge {
-          padding: 0.25rem 0.5rem;
-          border-radius: var(--theme-border-radius);
-          font-size: 0.7rem;
-          font-weight: 700;
-          min-width: 42px;
-          text-align: center;
-        }
-
-        .hit-badge.high {
-          background: var(--theme-success-subtle);
-          color: var(--theme-success);
-        }
-
-        .hit-badge.medium {
-          background: var(--theme-warning-subtle);
-          color: var(--theme-warning);
-        }
-
-        .hit-badge.low {
-          background: var(--theme-warning-faint);
-          color: var(--theme-warning-on-error);
-        }
-
-        .hit-badge.critical {
-          background: var(--theme-error-subtle);
-          color: var(--theme-error);
-        }
-
-        .empty-state {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          padding: 2.5rem 1rem;
-          text-align: center;
-        }
-
-        .empty-icon {
-          position: relative;
-          width: 56px;
-          height: 56px;
-          margin-bottom: 1rem;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .empty-icon-bg {
-          position: absolute;
-          inset: 0;
-          border-radius: 50%;
-          border: 2px dashed var(--theme-border-secondary);
-          animation: rotate-slow 15s linear infinite;
-        }
-
-        @keyframes rotate-slow {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-
-        .empty-icon svg {
-          position: relative;
-          z-index: 1;
-          color: var(--theme-text-muted);
-          opacity: 0.5;
-        }
-
-        .empty-title {
-          font-size: 0.9rem;
-          font-weight: 600;
-          color: var(--theme-text-primary);
-          margin-bottom: 0.25rem;
-        }
-
-        .empty-desc {
-          font-size: 0.75rem;
-          color: var(--theme-text-muted);
-        }
-
-        .panel-footer {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-top: 0.75rem;
-          padding-top: 0.75rem;
-          border-top: 1px solid var(--theme-border-secondary);
-          font-size: 0.7rem;
-          color: var(--theme-text-muted);
-        }
-
-        .footer-stat {
-          display: flex;
-          align-items: center;
-          gap: 0.25rem;
-        }
-
-        .footer-stat strong {
-          color: var(--theme-text-secondary);
-        }
-
-        .refresh-btn {
-          display: flex;
-          align-items: center;
-          gap: 0.35rem;
-          padding: 0.35rem 0.5rem;
-          font-size: 0.65rem;
-          font-weight: 500;
-          color: var(--theme-text-muted);
-          background: var(--theme-bg-tertiary);
-          border: 1px solid var(--theme-border-secondary);
-          border-radius: var(--theme-border-radius);
-          cursor: pointer;
-          transition:
-            color 0.2s ease,
-            border-color 0.2s ease;
-        }
-
-        .refresh-btn:hover {
-          color: var(--theme-text-primary);
-          border-color: var(--theme-border-primary);
-        }
-
-        .refresh-btn svg {
-          width: 12px;
-          height: 12px;
-        }
-
-        .loading-state {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 3rem 1rem;
-          color: var(--theme-text-muted);
-          gap: 0.5rem;
-          font-size: 0.8rem;
-        }
-
-        .loading-spinner {
-          width: 1.125rem;
-          height: 1.125rem;
-          animation: spin 1s linear infinite;
-        }
-
-        @media (max-width: 767px) {
-          .loading-spinner {
-            width: 0.875rem;
-            height: 0.875rem;
-          }
-
-          .loading-state {
-            padding: 2rem 0.75rem;
-          }
-        }
-      `}</style>
-
+    <Card glassmorphism={glassmorphism} className="recent-downloads-panel">
       {/* Header */}
-      <div className="panel-header">
-        <div className="header-top">
-          <div className="header-title">
-            <h3>{t('dashboard.downloadsPanel.title')}</h3>
-          </div>
+      <div className="rdl-header">
+        <h3>{t('dashboard.downloadsPanel.title')}</h3>
 
-          <SegmentedControl
-            options={[
-              {
-                value: 'recent',
-                label: t('dashboard.downloadsPanel.recent'),
-                icon: <Clock size={14} />
-              },
-              {
-                value: 'active',
-                label: (
-                  <span className="segmented-control-label">
-                    {t('dashboard.downloadsPanel.active')}
-                    {!isHistoricalView && activeCount > 0 && (
-                      <span className="tab-badge">{activeCount}</span>
-                    )}
-                  </span>
-                ),
-                icon: <Activity size={14} />,
-                disabled: isHistoricalView,
-                tooltip: isHistoricalView
-                  ? t('dashboard.downloadsPanel.activeDownloadsOnly')
-                  : undefined
-              }
-            ]}
-            value={viewMode}
-            onChange={(value) => setViewMode(value as 'recent' | 'active')}
-            size="md"
-            showLabels={true}
-          />
-        </div>
+        <SegmentedControl
+          options={[
+            {
+              value: 'recent',
+              label: t('dashboard.downloadsPanel.recent'),
+              icon: <Clock size={14} />
+            },
+            {
+              value: 'active',
+              label: (
+                <span className="segmented-control-label">
+                  {t('dashboard.downloadsPanel.active')}
+                  {!isHistoricalView && activeCount > 0 && (
+                    <span className="rdl-tab-badge">{activeCount}</span>
+                  )}
+                </span>
+              ),
+              icon: <Activity size={14} />,
+              disabled: isHistoricalView,
+              tooltip: isHistoricalView
+                ? t('dashboard.downloadsPanel.activeDownloadsOnly')
+                : undefined
+            }
+          ]}
+          value={viewMode}
+          onChange={(value) => setViewMode(value as 'recent' | 'active')}
+          size="md"
+          showLabels={true}
+        />
+      </div>
 
-        {/* Stats row */}
-        <div className="header-stats">
-          {viewMode === 'active' ? (
-            <>
-              {hasActiveDownloads && (
-                <div className="stat-item">
-                  <TrendingUp />
-                  <span className="stat-value speed">{formatSpeed(totalSpeed)}</span>
-                </div>
-              )}
-              <div className="stat-item">
-                <HardDrive />
-                <span className="stat-value">{activeCount}</span>{' '}
+      {/* Labeled readout strip */}
+      <div className="dash-readout">
+        {viewMode === 'active' ? (
+          <>
+            <div className="dash-readout-item">
+              <div className={`dash-readout-value${hasActiveDownloads ? ' is-success' : ''}`}>
+                {hasActiveDownloads ? formatSpeed(totalSpeed) : '—'}
+              </div>
+              <div className="dash-readout-label">{t('dashboard.downloadsPanel.speed')}</div>
+            </div>
+            <div className="dash-readout-item">
+              <div className="dash-readout-value">{activeCount}</div>
+              <div className="dash-readout-label">
                 {t('dashboard.downloadsPanel.game', { count: activeCount })}
               </div>
-              <div className="stat-item">
-                <span>{t('dashboard.downloadsPanel.live')}</span>
+            </div>
+            <div className="dash-readout-item">
+              <div className="dash-readout-value">
+                <span className="rdl-live-dot" />
+                {t('dashboard.downloadsPanel.live')}
               </div>
-            </>
-          ) : (
-            <>
-              <div className="stat-item">
-                <span
-                  className={`stat-value ${stats.overallHitRate >= 75 ? 'hit-high' : stats.overallHitRate >= 50 ? 'hit-medium' : 'hit-low'}`}
-                >
-                  {formatPercent(stats.overallHitRate)}
-                </span>
-                <span>{t('dashboard.downloadsPanel.hitRate')}</span>
-              </div>
-              <div className="stat-item">
-                <span>{getTimeRangeLabel}</span>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Filters (only for recent view) */}
-        {viewMode === 'recent' && latestDownloads.length > 0 && (
-          <div className="filters-row">
-            <EnhancedDropdown
-              options={availableServices.map((service) => ({
-                value: service,
-                label:
-                  service === 'all'
-                    ? t('dashboard.downloadsPanel.allServices')
-                    : service.charAt(0).toUpperCase() + service.slice(1)
-              }))}
-              value={selectedService}
-              onChange={setSelectedService}
-            />
-            <EnhancedDropdown
-              options={clientOptions}
-              value={selectedClient}
-              onChange={setSelectedClient}
-            />
-            {(selectedService !== 'all' || selectedClient !== 'all') && (
-              <button
-                className="clear-filters-btn"
-                onClick={() => {
-                  setSelectedService('all');
-                  setSelectedClient('all');
-                }}
+              <div className="dash-readout-label">{t('dashboard.downloadsPanel.period')}</div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="dash-readout-item">
+              <div
+                className={`dash-readout-value${stats.totalBytes > 0 ? ` ${hitRateClass}` : ''}`}
               >
-                {t('dashboard.downloadsPanel.clear')}
-              </button>
-            )}
-          </div>
+                {stats.totalBytes > 0 ? formatPercent(stats.overallHitRate) : '—'}
+              </div>
+              <div className="dash-readout-label">{t('dashboard.downloadsPanel.hitRate')}</div>
+            </div>
+            <div className="dash-readout-item">
+              <div className="dash-readout-value">{getTimeRangeLabel}</div>
+              <div className="dash-readout-label">{t('dashboard.downloadsPanel.period')}</div>
+            </div>
+          </>
         )}
       </div>
 
-      {/* Downloads List */}
-      <CustomScrollbar maxHeight="380px" paddingMode="default" className="downloads-scroll-area">
-        <div className="downloads-list">
-          {viewMode === 'active' ? (
-            speedLoading ? (
-              <div className="loading-state">
-                <LoadingSpinner size="md" />
-                <span>{t('dashboard.downloadsPanel.emptyStates.loading')}</span>
+      {/* Filters (only for recent view) */}
+      {viewMode === 'recent' && latestDownloads.length > 0 && (
+        <div className="rdl-filters">
+          <EnhancedDropdown
+            options={availableServices.map((service) => ({
+              value: service,
+              label:
+                service === 'all'
+                  ? t('dashboard.downloadsPanel.allServices')
+                  : service.charAt(0).toUpperCase() + service.slice(1)
+            }))}
+            value={selectedService}
+            onChange={setSelectedService}
+          />
+          <EnhancedDropdown
+            options={clientOptions}
+            value={selectedClient}
+            onChange={setSelectedClient}
+          />
+          {(selectedService !== 'all' || selectedClient !== 'all') && (
+            <button
+              className="rdl-clear-btn"
+              onClick={() => {
+                setSelectedService('all');
+                setSelectedClient('all');
+              }}
+            >
+              {t('dashboard.downloadsPanel.clear')}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Downloads list */}
+      <div className="rdl-well">
+        <CustomScrollbar maxHeight="380px" paddingMode="none" radius="none" className="rdl-scroll">
+          <div className="rdl-list">
+            {viewMode === 'active' ? (
+              speedLoading ? (
+                <div className="rdl-loading">
+                  <LoadingSpinner size="md" />
+                  <span>{t('dashboard.downloadsPanel.emptyStates.loading')}</span>
+                </div>
+              ) : hasActiveDownloads && activeGames.length > 0 ? (
+                activeGames.map((game) => (
+                  <ActiveDownloadItem
+                    key={`${game.service}-${game.gameAppId || game.gameName || game.depotId}-${game.clientIp ?? 'unknown'}`}
+                    game={game}
+                    t={t}
+                  />
+                ))
+              ) : (
+                <div className="empty-state">
+                  <div className="empty-icon">
+                    <div className="empty-icon-bg" />
+                    <Activity size={24} />
+                  </div>
+                  <div className="empty-title">
+                    {t('dashboard.downloadsPanel.emptyStates.noActive')}
+                  </div>
+                  <div className="empty-desc">
+                    {t('dashboard.downloadsPanel.emptyStates.noActiveDesc')}
+                  </div>
+                </div>
+              )
+            ) : loading ? (
+              <div className="recent-downloads-skeleton">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="recent-downloads-skeleton-row">
+                    <div className="recent-downloads-skeleton-icon" />
+                    <div className="recent-downloads-skeleton-content">
+                      <div className="recent-downloads-skeleton-title" />
+                      <div className="recent-downloads-skeleton-meta" />
+                    </div>
+                    <div className="recent-downloads-skeleton-stats">
+                      <div className="recent-downloads-skeleton-size" />
+                      <div className="recent-downloads-skeleton-date" />
+                      <div className="recent-downloads-skeleton-hit-rate" />
+                    </div>
+                  </div>
+                ))}
               </div>
-            ) : hasActiveDownloads && activeGames.length > 0 ? (
-              activeGames.map((game, idx) => (
-                <ActiveDownloadItem
-                  key={`${game.service}-${game.gameAppId || game.gameName || game.depotId}-${game.clientIp ?? 'unknown'}`}
-                  game={game}
-                  index={idx}
-                  t={t}
-                />
-              ))
+            ) : groupedItems.displayedItems.length > 0 ? (
+              groupedItems.displayedItems.map((item, idx) => {
+                const isGroup = 'downloads' in item;
+                const events = isGroup
+                  ? Array.from(
+                      item.downloads.reduce((acc, d) => {
+                        getAssociations(d.id).events.forEach((e) => acc.set(e.id, e));
+                        return acc;
+                      }, new Map<number, EventSummary>())
+                    ).map(([, e]) => e)
+                  : getAssociations(item.id).events;
+                return (
+                  <RecentDownloadItem
+                    key={isGroup ? item.id : item.id || idx}
+                    item={item}
+                    events={events}
+                    detectionLookup={detectionLookup}
+                    detectionByName={detectionByName}
+                    detectionByService={detectionByService}
+                  />
+                );
+              })
             ) : (
               <div className="empty-state">
                 <div className="empty-icon">
                   <div className="empty-icon-bg" />
-                  <Activity size={24} />
+                  <Clock size={24} />
                 </div>
                 <div className="empty-title">
-                  {t('dashboard.downloadsPanel.emptyStates.noActive')}
+                  {t('dashboard.downloadsPanel.emptyStates.noDownloads')}
                 </div>
                 <div className="empty-desc">
-                  {t('dashboard.downloadsPanel.emptyStates.noActiveDesc')}
+                  {t('dashboard.downloadsPanel.emptyStates.noDownloadsInPeriod', {
+                    period: getTimeRangeLabel.toLowerCase()
+                  })}
                 </div>
               </div>
-            )
-          ) : loading ? (
-            <div className="recent-downloads-skeleton">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="recent-downloads-skeleton-row">
-                  <div className="recent-downloads-skeleton-icon" />
-                  <div className="recent-downloads-skeleton-content">
-                    <div className="recent-downloads-skeleton-title" />
-                    <div className="recent-downloads-skeleton-meta" />
-                  </div>
-                  <div className="recent-downloads-skeleton-stats">
-                    <div className="recent-downloads-skeleton-size" />
-                    <div className="recent-downloads-skeleton-date" />
-                    <div className="recent-downloads-skeleton-hit-rate" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : groupedItems.displayedItems.length > 0 ? (
-            groupedItems.displayedItems.map((item, idx) => {
-              const isGroup = 'downloads' in item;
-              const events = isGroup
-                ? Array.from(
-                    item.downloads.reduce((acc, d) => {
-                      getAssociations(d.id).events.forEach((e) => acc.set(e.id, e));
-                      return acc;
-                    }, new Map<number, EventSummary>())
-                  ).map(([, e]) => e)
-                : getAssociations(item.id).events;
-              return (
-                <RecentDownloadItem
-                  key={isGroup ? item.id : item.id || idx}
-                  item={item}
-                  events={events}
-                  index={idx}
-                  detectionLookup={detectionLookup}
-                  detectionByName={detectionByName}
-                  detectionByService={detectionByService}
-                />
-              );
-            })
-          ) : (
-            <div className="empty-state">
-              <div className="empty-icon">
-                <div className="empty-icon-bg" />
-                <Clock size={24} />
-              </div>
-              <div className="empty-title">
-                {t('dashboard.downloadsPanel.emptyStates.noDownloads')}
-              </div>
-              <div className="empty-desc">
-                {t('dashboard.downloadsPanel.emptyStates.noDownloadsInPeriod', {
-                  period: getTimeRangeLabel.toLowerCase()
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      </CustomScrollbar>
+            )}
+          </div>
+        </CustomScrollbar>
+      </div>
 
       {/* Footer */}
       {viewMode === 'active' && hasActiveDownloads && (
-        <div className="panel-footer">
-          <div className="footer-stat">
+        <div className="rdl-footer">
+          <div className="rdl-footer-stat">
             <strong>{activeGames.length}</strong>{' '}
             {t('dashboard.downloadsPanel.game', { count: activeGames.length })}{' '}
             {t('dashboard.downloadsPanel.downloading')}
           </div>
-          <button className="refresh-btn" onClick={refreshSpeed}>
+          <button className="rdl-refresh-btn" onClick={refreshSpeed}>
             <RefreshCw />
             {t('dashboard.downloadsPanel.refresh')}
           </button>
@@ -1276,8 +762,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       )}
 
       {viewMode === 'recent' && groupedItems.totalGroups > displayCount && (
-        <div className="panel-footer">
-          <div className="footer-stat">
+        <div className="rdl-footer">
+          <div className="rdl-footer-stat">
             <Trans
               i18nKey="dashboard.downloadsPanel.showing"
               values={{
@@ -1286,9 +772,6 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
               }}
               components={{ strong: <strong /> }}
             />
-          </div>
-          <div className="footer-stat">
-            <strong>{stats.totalDownloads}</strong> {t('dashboard.downloadsPanel.totalDownloads')}
           </div>
         </div>
       )}

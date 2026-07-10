@@ -14,7 +14,7 @@ const ChartLegend: React.FC<ChartLegendProps> = React.memo(({ items }) => {
 
   return (
     <div className="data-side">
-      <CustomScrollbar maxHeight="100%" paddingMode="default" className="legend-scroll">
+      <CustomScrollbar maxHeight="100%" paddingMode="none" radius="none" className="legend-scroll">
         <div className="legend-list">
           {items.map((item) => {
             const fillPct = Math.max(item.percentage, 0.5);
@@ -26,9 +26,13 @@ const ChartLegend: React.FC<ChartLegendProps> = React.memo(({ items }) => {
                     <span className="legend-dot" />
                     <span className="legend-name">{item.label}</span>
                   </div>
-                  <span className="legend-value">{formatPercent(item.percentage)}</span>
+                  <div className="legend-figures">
+                    <span className="legend-bytes">
+                      {item.valueLabel ?? formatBytes(item.value)}
+                    </span>
+                    <span className="legend-value">{formatPercent(item.percentage)}</span>
+                  </div>
                 </div>
-                <div className="legend-detail">{item.valueLabel ?? formatBytes(item.value)}</div>
                 <div
                   role="progressbar"
                   aria-label={`${item.label} ${formatPercent(item.percentage)}`}

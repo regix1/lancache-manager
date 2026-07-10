@@ -24,7 +24,6 @@
 @media (min-width: 1024px) {
   .dashboard-analytics-row {
     flex-direction: row;
-    max-height: var(--dashboard-analytics-panel-max-height);
   }
 
   .dashboard-analytics-pane-chart-expanded {
@@ -44,18 +43,49 @@
   }
 }
 
-.dashboard-analytics-row .downloads-panel-redesign {
+.dashboard-analytics-row .recent-downloads-panel {
   display: flex;
   flex-direction: column;
   height: 100%;
-  max-height: var(--dashboard-analytics-panel-max-height);
-  overflow: hidden;
 }
 
-.dashboard-analytics-row .downloads-panel-redesign .downloads-list {
-  flex: 1;
-  min-height: 0;
-  max-height: none;
+/* Height caps only make sense on wide desktops where the two panels sit
+   side-by-side with room to spare. In the 1024-1179px window the analytics
+   panel stacks its donut over its list (container query below), so both
+   panels release their caps and size naturally instead of crushing content. */
+@media (min-width: 1180px) {
+  .dashboard-analytics-row {
+    max-height: var(--dashboard-analytics-panel-max-height);
+  }
+
+  .dashboard-analytics-row .recent-downloads-panel {
+    max-height: var(--dashboard-analytics-panel-max-height);
+    overflow: hidden;
+  }
+}
+
+/* The list well flexes to fill the shared row height; the 380px
+   CustomScrollbar cap only applies on stacked (mobile) layouts. Both the
+   scrollbar root and its viewport carry an inline max-height, so each needs
+   the !important release. */
+@media (min-width: 1024px) {
+  .dashboard-analytics-row .recent-downloads-panel .rdl-well {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .dashboard-analytics-row .recent-downloads-panel .rdl-scroll {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .dashboard-analytics-row .recent-downloads-panel .rdl-scroll,
+  .dashboard-analytics-row .recent-downloads-panel .rdl-scroll > div:first-child {
+    max-height: none !important;
+    height: 100%;
+  }
 }
 
 .service-chart-panel {
@@ -63,8 +93,13 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  max-height: var(--dashboard-analytics-panel-max-height);
-  overflow: hidden;
+}
+
+@media (min-width: 1180px) {
+  .service-chart-panel {
+    max-height: var(--dashboard-analytics-panel-max-height);
+    overflow: hidden;
+  }
 }
 
 .service-analytics-header {
@@ -180,8 +215,8 @@
   min-width: 0;
   padding: 0.75rem;
   border: 1px solid var(--theme-border-secondary);
-  border-radius: var(--theme-border-radius-lg) !important;
-  background: var(--theme-bg-secondary);
+  border-radius: var(--theme-border-radius) !important;
+  background: var(--theme-bg-tertiary);
   overflow: hidden;
 }
 
@@ -286,6 +321,8 @@
   min-width: 0;
 }
 
+/* The breakdown list is a data well: one bordered surface with hairline
+   dividers, matching the Recent Downloads panel and the mgmt-list language. */
 .analytics-list-container {
   flex: 1;
   display: flex;
@@ -294,6 +331,9 @@
   min-height: 0;
   height: 100%;
   overflow: hidden;
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-secondary);
+  border-radius: var(--theme-border-radius);
 }
 
 .analytics-list-header {
@@ -301,14 +341,14 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0 0.15rem 0.45rem;
+  padding: 0.55rem 0.75rem;
   font-size: var(--font-size-xs);
   font-weight: 700;
   color: var(--theme-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   border-bottom: 1px solid var(--theme-border-secondary);
-  margin-bottom: 0.5rem;
+  flex-shrink: 0;
 }
 
 .chart-wrapper {
@@ -399,42 +439,41 @@
   min-height: 0;
   height: 100%;
   max-height: 100%;
-  border-radius: var(--theme-border-radius) !important;
 }
 
 .legend-list {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  padding-bottom: 0.25rem;
-  padding-right: 0.2rem;
 }
 
 .legend-item {
   --legend-color: var(--theme-text-secondary);
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  padding: 0.55rem 0.6rem;
-  border-radius: var(--theme-border-radius);
+  gap: 0.4rem;
+  padding: 0.6rem 0.75rem;
   transition: background 0.15s ease;
 }
 
+.legend-item + .legend-item {
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
 .legend-item:hover {
-  background: var(--theme-bg-secondary);
+  background: var(--theme-bg-hover);
 }
 
 .legend-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.75rem;
 }
 
 .legend-label {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.45rem;
   min-width: 0;
   flex: 1;
 }
@@ -456,20 +495,28 @@
   text-overflow: ellipsis;
 }
 
+.legend-figures {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-shrink: 0;
+}
+
+.legend-bytes {
+  font-size: var(--font-size-sm);
+  color: var(--theme-text-muted);
+  font-variant-numeric: tabular-nums lining-nums;
+  white-space: nowrap;
+}
+
 .legend-value {
   font-size: var(--font-size-base);
   font-weight: 600;
   color: var(--theme-text-primary);
   font-variant-numeric: tabular-nums lining-nums;
   white-space: nowrap;
-  padding-left: 0.5rem;
-}
-
-.legend-detail {
-  padding-left: 1rem;
-  font-size: var(--font-size-sm);
-  color: var(--theme-text-muted);
-  font-variant-numeric: tabular-nums lining-nums;
+  min-width: 3.4rem;
+  text-align: right;
 }
 
 .legend-meter {
@@ -537,6 +584,48 @@
 @container (max-width: 480px) {
   .service-analytics-body {
     flex-direction: column;
+  }
+
+  /* Stacked narrow-panel layout (desktop 50% columns around 1024-1179px):
+     the fixed body height would crush the stack, so release it, bound the
+     donut, and give the list well a real height. The panel/row caps are
+     already released below 1180px, so the panel just grows. The ≤1023px
+     media block later re-overrides these for phones. */
+  .service-analytics-body {
+    gap: 1rem;
+    height: auto;
+    max-height: none;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .analytics-chart-container {
+    flex: 0 0 auto;
+    height: 11rem;
+    min-height: 11rem;
+    align-items: center;
+  }
+
+  /* Fills whatever height the shared row gives the panel, with a floor so
+     the list stays usable when the panel is short. */
+  .analytics-list-container {
+    flex: 1 1 auto;
+    min-height: 18rem;
+    height: auto;
+  }
+
+  /* Desktop only: phones re-bound the donut to 18rem in the ≤1023px media
+     block below, where the larger center type still fits its hole. */
+  @media (min-width: 1024px) {
+    .chart-center-value {
+      font-size: var(--font-size-xl);
+    }
+
+    .chart-center-label {
+      font-size: var(--font-size-2xs);
+      letter-spacing: 0.08em;
+      margin-top: 0.15rem;
+    }
   }
 
   .analytics-insight-grid {

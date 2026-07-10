@@ -9,7 +9,6 @@ import { EmptyState } from '@components/ui/ManagerCard';
 import { useTimezone } from '@contexts/useTimezone';
 import { getEffectiveTimezone, formatShortDate } from '@utils/timezone';
 import { Users, ArrowDown } from 'lucide-react';
-import Badge from '@components/ui/Badge';
 import type { ClientStat } from '@/types';
 
 interface TopClientsTableProps {
@@ -50,7 +49,7 @@ const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
 
   return (
     <tr>
-      <td className="py-3 text-themed-primary whitespace-nowrap">
+      <td className="text-themed-primary font-medium whitespace-nowrap">
         <div className="flex items-center gap-2">
           {client.isGrouped && <Users className="w-4 h-4 text-themed-muted flex-shrink-0" />}
           {ipTooltip ? (
@@ -67,21 +66,25 @@ const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
           )}
         </div>
       </td>
-      <td className="py-3 text-right tabular-nums text-themed-secondary hidden sm:table-cell whitespace-nowrap">
+      <td className="text-right tabular-nums text-themed-secondary hidden sm:table-cell whitespace-nowrap">
         {formatBytes(client.totalBytes)}
       </td>
-      <td className="py-3 text-right tabular-nums cache-hit hidden md:table-cell whitespace-nowrap">
+      <td className="text-right tabular-nums cache-hit hidden md:table-cell whitespace-nowrap">
         {formatBytes(client.totalCacheHitBytes)}
       </td>
-      <td className="py-3 text-right tabular-nums cache-miss hidden md:table-cell whitespace-nowrap">
+      <td className="text-right tabular-nums cache-miss hidden md:table-cell whitespace-nowrap">
         {formatBytes(client.totalCacheMissBytes)}
       </td>
-      <td className="py-3 text-right tabular-nums">
-        <Badge variant={client.cacheHitPercent > 50 ? 'success' : 'warning'}>
+      <td className="text-right whitespace-nowrap">
+        <span
+          className={`text-xs font-semibold tabular-nums ${
+            client.cacheHitPercent > 50 ? 'text-themed-success' : 'text-themed-warning'
+          }`}
+        >
           {formatPercent(client.cacheHitPercent)}
-        </Badge>
+        </span>
       </td>
-      <td className="py-3 text-right text-themed-muted hidden lg:table-cell whitespace-nowrap">
+      <td className="text-right text-themed-muted hidden lg:table-cell whitespace-nowrap">
         {formattedLastActivity}
       </td>
     </tr>
@@ -160,106 +163,108 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
         </div>
 
         {loading ? (
-          <div className="overflow-x-auto -mx-2 px-2">
-            <table className="w-full top-clients-table">
-              <thead>
-                <tr className="text-left text-xs text-themed-muted uppercase tracking-wider sticky top-0 z-[1] bg-[var(--theme-card-bg)]">
-                  <th scope="col" className="pb-3">
-                    {t('dashboard.topClients.columns.client')}
-                  </th>
-                  <th scope="col" className="pb-3 text-right hidden sm:table-cell">
-                    {t('dashboard.topClients.columns.total')}
-                  </th>
-                  <th scope="col" className="pb-3 text-right hidden md:table-cell">
-                    {t('dashboard.topClients.columns.hits')}
-                  </th>
-                  <th scope="col" className="pb-3 text-right hidden md:table-cell">
-                    {t('dashboard.topClients.columns.misses')}
-                  </th>
-                  <th scope="col" className="pb-3 text-right">
-                    {t('dashboard.topClients.columns.hitRate')}
-                  </th>
-                  <th scope="col" className="pb-3 text-right hidden lg:table-cell">
-                    {t('dashboard.topClients.columns.lastSeen')}
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="text-sm">
-                {Array.from({ length: 5 }, (_, i) => (
-                  <tr key={i}>
-                    <td className="py-3">
-                      <div className="h-4 w-24 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
-                    </td>
-                    <td className="py-3 hidden sm:table-cell">
-                      <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
-                    </td>
-                    <td className="py-3 hidden md:table-cell">
-                      <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
-                    </td>
-                    <td className="py-3 hidden md:table-cell">
-                      <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
-                    </td>
-                    <td className="py-3">
-                      <div className="h-4 w-12 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
-                    </td>
-                    <td className="py-3 text-right hidden lg:table-cell">
-                      <div className="h-4 w-20 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
-                    </td>
+          <div className="dash-well">
+            <div className="overflow-x-auto">
+              <table className="top-clients-table">
+                <thead>
+                  <tr>
+                    <th scope="col">{t('dashboard.topClients.columns.client')}</th>
+                    <th scope="col" className="text-right hidden sm:table-cell">
+                      {t('dashboard.topClients.columns.total')}
+                    </th>
+                    <th scope="col" className="text-right hidden md:table-cell">
+                      {t('dashboard.topClients.columns.hits')}
+                    </th>
+                    <th scope="col" className="text-right hidden md:table-cell">
+                      {t('dashboard.topClients.columns.misses')}
+                    </th>
+                    <th scope="col" className="text-right">
+                      {t('dashboard.topClients.columns.hitRate')}
+                    </th>
+                    <th scope="col" className="text-right hidden lg:table-cell">
+                      {t('dashboard.topClients.columns.lastSeen')}
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="text-sm">
+                  {Array.from({ length: 5 }, (_, i) => (
+                    <tr key={i}>
+                      <td>
+                        <div className="h-4 w-24 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
+                      </td>
+                      <td className="hidden sm:table-cell">
+                        <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
+                      </td>
+                      <td className="hidden md:table-cell">
+                        <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
+                      </td>
+                      <td className="hidden md:table-cell">
+                        <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
+                      </td>
+                      <td>
+                        <div className="h-4 w-12 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
+                      </td>
+                      <td className="text-right hidden lg:table-cell">
+                        <div className="h-4 w-20 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse ml-auto" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : displayClients.length > 0 ? (
-          <div className="overflow-x-auto -mx-2 px-2">
-            <table className="w-full top-clients-table">
-              <thead>
-                <tr className="text-left text-xs text-themed-muted uppercase tracking-wider sticky top-0 z-[1] bg-[var(--theme-card-bg)]">
-                  <th scope="col" className="pb-3">
-                    {t('dashboard.topClients.columns.client')}
-                  </th>
-                  <th scope="col" className="pb-3 text-right hidden sm:table-cell">
-                    <span className="inline-flex items-center justify-end gap-1">
-                      {t('dashboard.topClients.columns.total')}
-                      {sortBy === 'total' && <ArrowDown className="w-3 h-3" />}
-                    </span>
-                  </th>
-                  <th scope="col" className="pb-3 text-right hidden md:table-cell">
-                    <span className="inline-flex items-center justify-end gap-1">
-                      {t('dashboard.topClients.columns.hits')}
-                      {sortBy === 'hits' && <ArrowDown className="w-3 h-3" />}
-                    </span>
-                  </th>
-                  <th scope="col" className="pb-3 text-right hidden md:table-cell">
-                    <span className="inline-flex items-center justify-end gap-1">
-                      {t('dashboard.topClients.columns.misses')}
-                      {sortBy === 'misses' && <ArrowDown className="w-3 h-3" />}
-                    </span>
-                  </th>
-                  <th scope="col" className="pb-3 text-right">
-                    <span className="inline-flex items-center justify-end gap-1">
-                      {t('dashboard.topClients.columns.hitRate')}
-                      {sortBy === 'hitRate' && <ArrowDown className="w-3 h-3" />}
-                    </span>
-                  </th>
-                  <th scope="col" className="pb-3 text-right hidden lg:table-cell">
-                    {t('dashboard.topClients.columns.lastSeen')}
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="text-sm">
-                {displayClients.map((client, idx) => (
-                  <TopClientRow key={`${client.clientIp}-${idx}`} client={client} />
-                ))}
-              </tbody>
-            </table>
+          <div className="dash-well">
+            <div className="overflow-x-auto">
+              <table className="top-clients-table">
+                <thead>
+                  <tr>
+                    <th scope="col">{t('dashboard.topClients.columns.client')}</th>
+                    <th scope="col" className="text-right hidden sm:table-cell">
+                      <span className="inline-flex items-center justify-end gap-1">
+                        {t('dashboard.topClients.columns.total')}
+                        {sortBy === 'total' && <ArrowDown className="w-3 h-3" />}
+                      </span>
+                    </th>
+                    <th scope="col" className="text-right hidden md:table-cell">
+                      <span className="inline-flex items-center justify-end gap-1">
+                        {t('dashboard.topClients.columns.hits')}
+                        {sortBy === 'hits' && <ArrowDown className="w-3 h-3" />}
+                      </span>
+                    </th>
+                    <th scope="col" className="text-right hidden md:table-cell">
+                      <span className="inline-flex items-center justify-end gap-1">
+                        {t('dashboard.topClients.columns.misses')}
+                        {sortBy === 'misses' && <ArrowDown className="w-3 h-3" />}
+                      </span>
+                    </th>
+                    <th scope="col" className="text-right">
+                      <span className="inline-flex items-center justify-end gap-1">
+                        {t('dashboard.topClients.columns.hitRate')}
+                        {sortBy === 'hitRate' && <ArrowDown className="w-3 h-3" />}
+                      </span>
+                    </th>
+                    <th scope="col" className="text-right hidden lg:table-cell">
+                      {t('dashboard.topClients.columns.lastSeen')}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm">
+                  {displayClients.map((client, idx) => (
+                    <TopClientRow key={`${client.clientIp}-${idx}`} client={client} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : (
-          <EmptyState
-            icon={Users}
-            title={t('dashboard.topClients.noData')}
-            subtitle={t('dashboard.topClients.noDataHint')}
-          />
+          <div className="dash-well">
+            <EmptyState
+              icon={Users}
+              title={t('dashboard.topClients.noData')}
+              subtitle={t('dashboard.topClients.noDataHint')}
+            />
+          </div>
         )}
       </Card>
     );

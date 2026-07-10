@@ -1,5 +1,5 @@
 import React, { useMemo, memo } from 'react';
-import { Clock, TrendingUp, Zap, Calendar } from 'lucide-react';
+import { Clock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatCount } from '@utils/formatters';
 import { type HourlyActivityItem } from '../../../../types';
@@ -119,7 +119,8 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
     isPeakHour: boolean
   ): string => {
     if (downloads === 0) {
-      return 'var(--theme-bg-tertiary)';
+      // Cells sit on the tertiary well surface, so idle needs its own step
+      return 'var(--theme-bg-secondary-strong)';
     }
 
     const intensity = downloads / maxDownloads;
@@ -151,8 +152,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
     return (
       <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
         <div className="flex items-center gap-2 mb-3">
-          <Clock className="w-5 h-5 text-themed-muted" />
-          <h3 className="text-sm font-semibold text-themed-primary">
+          <h3 className="text-lg font-semibold text-themed-primary">
             {t('widgets.peakUsageHours.title')}
           </h3>
         </div>
@@ -195,8 +195,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
     return (
       <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
         <div className="flex items-center gap-2 mb-3">
-          <Clock className="w-5 h-5 text-themed-muted" />
-          <h3 className="text-sm font-semibold text-themed-primary">
+          <h3 className="text-lg font-semibold text-themed-primary">
             {t('widgets.peakUsageHours.title')}
           </h3>
         </div>
@@ -219,8 +218,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
     return (
       <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
         <div className="flex items-center gap-2 mb-3">
-          <Clock className="w-5 h-5 text-themed-muted" />
-          <h3 className="text-sm font-semibold text-themed-primary">
+          <h3 className="text-lg font-semibold text-themed-primary">
             {t('widgets.peakUsageHours.title')}
           </h3>
         </div>
@@ -229,17 +227,12 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
     );
   }
 
-  // Get peak hour data for stats
-  const peakHourData = hourlyData.find((h) => h.hour === peakHour);
-  const currentHourData = hourlyData.find((h) => h.hour === currentHour);
-
   return (
     <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <Clock className="w-5 h-5 flex-shrink-0 text-themed-accent" />
-          <h3 className="text-sm font-semibold text-themed-primary">
+      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <h3 className="text-lg font-semibold text-themed-primary">
             {t('widgets.peakUsageHours.title')}
           </h3>
           {loading && displayData && <LoadingSpinner size="xs" inline />}
@@ -279,161 +272,42 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
           </HelpPopover>
         </div>
         <div className="flex items-center gap-2 text-xs text-themed-muted">
+          {isMultiDayPeriod && (
+            <>
+              <span>{t('widgets.peakUsageHours.days', { count: daysInPeriod })}</span>
+              <span>·</span>
+            </>
+          )}
           <span className="hidden sm:inline">{t('widgets.peakUsageHours.mostActive')}</span>
           <span className="font-medium text-themed-warning">{peakTimeOfDay}</span>
         </div>
       </div>
 
-      {/* Period Totals - Aggregate stats for entire time range */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between px-3 py-2 mb-3 themed-border-radius text-xs gap-1 sm:gap-0 bg-themed-secondary">
-        <div className="flex items-center gap-2">
-          {isMultiDayPeriod && (
-            <Calendar className="w-3.5 h-3.5 hidden sm:block text-themed-muted" />
-          )}
-          <span className="text-themed-muted">
-            {isMultiDayPeriod
-              ? t('widgets.peakUsageHours.days', { count: daysInPeriod })
-              : t('widgets.peakUsageHours.selectedPeriod')}
-          </span>
-          <span className="sm:hidden text-themed-secondary">•</span>
-          <span className="sm:hidden text-themed-secondary tabular-nums">
-            {formatCount(totalDownloads)} {t('widgets.peakUsageHours.downloads')}
-          </span>
-          <span className="sm:hidden text-themed-secondary">•</span>
-          <span className="sm:hidden text-themed-secondary tabular-nums">
-            {formatBytes(totalBytesServed)}
-          </span>
+      {/* Labeled readout strip */}
+      <div className="dash-readout">
+        <div className="dash-readout-item">
+          <div className="dash-readout-value is-warning">{formatHour(peakHour)}</div>
+          <div className="dash-readout-label">{t('widgets.peakUsageHours.busiestHour')}</div>
         </div>
-        <div className="hidden sm:flex items-center gap-4">
-          <span className="text-themed-secondary tabular-nums">
-            {t('widgets.peakUsageHours.totalDownloads', {
-              count: totalDownloads,
-              formattedCount: formatCount(totalDownloads)
-            })}
-          </span>
-          <span className="text-themed-secondary tabular-nums">
-            {t('widgets.peakUsageHours.totalData', { size: formatBytes(totalBytesServed) })}
-          </span>
-        </div>
-      </div>
-
-      {/* Stats Summary - Single column on mobile, two columns on desktop */}
-      <div className={`grid grid-cols-1 ${isTodayInRange ? 'sm:grid-cols-2' : ''} gap-3 mb-4`}>
-        {/* Peak Hour */}
-        <div
-          className="p-3 flex flex-col justify-between min-h-[72px] themed-border-radius"
-          style={{
-            backgroundColor: 'var(--theme-warning-faint)'
-          }}
-        >
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 flex-shrink-0 text-themed-warning" />
-              <span className="text-xs font-medium text-themed-warning">
-                {t('widgets.peakUsageHours.busiestHour')}
-              </span>
-            </div>
-            {isMultiDayPeriod && (
-              <span
-                className="text-[10px] px-1.5 py-0.5 rounded text-themed-warning"
-                style={{
-                  backgroundColor: 'var(--theme-warning-subtle)'
-                }}
-              >
-                {t('widgets.peakUsageHours.dailyAvg')}
-              </span>
-            )}
-          </div>
-          <div className="flex items-baseline gap-3">
-            <div className="text-lg font-bold leading-tight text-themed-primary tabular-nums">
-              {formatHour(peakHour)}
-            </div>
-            <div className="text-[11px] leading-tight text-themed-muted tabular-nums">
-              {isMultiDayPeriod
-                ? `${(peakHourData?.avgDownloads ?? 0).toFixed(1)}${t('widgets.peakUsageHours.perDay')}`
-                : `${formatCount(peakHourData?.downloads ?? 0)} ${t('widgets.peakUsageHours.downloads')}`}
-            </div>
-            <div className="text-[11px] leading-tight text-themed-muted tabular-nums">
-              {isMultiDayPeriod
-                ? `${formatBytes(peakHourData?.avgBytesServed ?? 0)}${t('widgets.peakUsageHours.perDay')}`
-                : formatBytes(peakHourData?.bytesServed ?? 0)}
-            </div>
-          </div>
-        </div>
-
-        {/* Current Hour - Hidden on mobile, only show on sm+ if today is in range */}
         {isTodayInRange && (
-          <div
-            className="hidden sm:flex p-3 flex-col justify-between min-h-[72px] themed-border-radius"
-            style={{
-              backgroundColor: 'var(--theme-primary-faint)'
-            }}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-2">
-                <Zap className="w-4 h-4 flex-shrink-0 text-themed-accent" />
-                <span className="text-xs font-medium text-themed-accent">
-                  {currentHour === peakHour
-                    ? t('widgets.peakUsageHours.nowPeakHour')
-                    : t('widgets.peakUsageHours.typicalFor', {
-                        hour: formatHour(currentHour, true)
-                      })}
-                </span>
-              </div>
-              {/* Show % of peak for context - only when not the peak hour */}
-              {currentHour !== peakHour &&
-                peakHourData &&
-                (isMultiDayPeriod ? peakHourData.avgDownloads : peakHourData.downloads) > 0 && (
-                  <span
-                    className="text-[10px] px-1.5 py-0.5 rounded text-themed-accent"
-                    style={{
-                      backgroundColor: 'var(--theme-primary-subtle)'
-                    }}
-                  >
-                    {t('widgets.peakUsageHours.ofPeak', {
-                      percent: isMultiDayPeriod
-                        ? Math.round(
-                            ((currentHourData?.avgDownloads ?? 0) / peakHourData.avgDownloads) * 100
-                          )
-                        : Math.round(
-                            ((currentHourData?.downloads ?? 0) / peakHourData.downloads) * 100
-                          )
-                    })}
-                  </span>
-                )}
-              {isMultiDayPeriod && currentHour === peakHour && (
-                <span
-                  className="text-[10px] px-1.5 py-0.5 rounded text-themed-accent"
-                  style={{
-                    backgroundColor: 'var(--theme-primary-subtle)'
-                  }}
-                >
-                  {t('widgets.peakUsageHours.dailyAvg')}
-                </span>
-              )}
-            </div>
-            <div className="flex items-baseline gap-3">
-              <div className="text-lg font-bold leading-tight text-themed-primary tabular-nums">
-                {formatHour(currentHour)}
-              </div>
-              <div className="text-[11px] leading-tight text-themed-muted tabular-nums">
-                {isMultiDayPeriod
-                  ? `${(currentHourData?.avgDownloads ?? 0).toFixed(1)}${t('widgets.peakUsageHours.perDay')}`
-                  : `${formatCount(currentHourData?.downloads ?? 0)} ${t('widgets.peakUsageHours.downloads')}`}
-              </div>
-              <div className="text-[11px] leading-tight text-themed-muted tabular-nums">
-                {isMultiDayPeriod
-                  ? `${formatBytes(currentHourData?.avgBytesServed ?? 0)}${t('widgets.peakUsageHours.perDay')}`
-                  : formatBytes(currentHourData?.bytesServed ?? 0)}
-              </div>
-            </div>
+          <div className="dash-readout-item">
+            <div className="dash-readout-value is-primary">{formatHour(currentHour)}</div>
+            <div className="dash-readout-label">{t('widgets.peakUsageHours.currentHourLabel')}</div>
           </div>
         )}
+        <div className="dash-readout-item">
+          <div className="dash-readout-value">{formatCount(totalDownloads)}</div>
+          <div className="dash-readout-label">{t('widgets.peakUsageHours.downloads')}</div>
+        </div>
+        <div className="dash-readout-item">
+          <div className="dash-readout-value">{formatBytes(totalBytesServed)}</div>
+          <div className="dash-readout-label">{t('widgets.peakUsageHours.dataServed')}</div>
+        </div>
       </div>
 
-      {/* Heatmap Grid - 24 hour blocks */}
-      <div className="mb-3">
-        <div className="grid grid-cols-12 gap-1.5 p-1">
+      {/* Heatmap well - 24 hour blocks */}
+      <div className="dash-well p-3 mb-3">
+        <div className="grid grid-cols-12 gap-1.5">
           {hourlyData.map((hourData) => {
             const isCurrentHour = isTodayInRange && hourData.hour === currentHour;
             const isPeakHour = hourData.hour === peakHour;
@@ -508,28 +382,16 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
       </div>
 
       {/* Legend */}
-      <div className="flex items-center justify-between pt-3 border-t border-themed-primary">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-4 text-xs text-themed-muted">
           {isTodayInRange && (
             <div className="flex items-center gap-1.5">
-              <div
-                className="w-3 h-3 rounded"
-                style={{
-                  backgroundColor: 'var(--theme-primary)',
-                  boxShadow: '0 0 0 1px var(--theme-card-bg), 0 0 0 2px var(--theme-primary)'
-                }}
-              />
+              <div className="peak-legend-swatch peak-legend-swatch--now" />
               <span>{t('widgets.peakUsageHours.currentHourLabel')}</span>
             </div>
           )}
           <div className="flex items-center gap-1.5">
-            <div
-              className="w-3 h-3 rounded"
-              style={{
-                backgroundColor: 'var(--theme-warning)',
-                boxShadow: '0 0 0 1px var(--theme-card-bg), 0 0 0 2px var(--theme-warning)'
-              }}
-            />
+            <div className="peak-legend-swatch peak-legend-swatch--peak" />
             <span>{t('widgets.peakUsageHours.busiestHourLabel')}</span>
           </div>
         </div>
@@ -538,29 +400,11 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
         <div className="flex items-center gap-1 text-xs text-themed-muted">
           <span>{t('widgets.peakUsageHours.less')}</span>
           <div className="flex gap-0.5">
-            <div className="w-2.5 h-2.5 rounded-sm bg-themed-tertiary" />
-            <div
-              className="w-2.5 h-2.5 rounded-sm"
-              style={{
-                backgroundColor: 'var(--theme-chart-1-muted)'
-              }}
-            />
-            <div
-              className="w-2.5 h-2.5 rounded-sm"
-              style={{
-                backgroundColor: 'var(--theme-chart-1-strong)'
-              }}
-            />
-            <div
-              className="w-2.5 h-2.5 rounded-sm"
-              style={{
-                backgroundColor: 'var(--theme-chart-1-emphasis)'
-              }}
-            />
-            <div
-              className="w-2.5 h-2.5 rounded-sm"
-              style={{ backgroundColor: 'var(--theme-chart-1)' }}
-            />
+            <div className="peak-scale-swatch peak-scale-swatch--0" />
+            <div className="peak-scale-swatch peak-scale-swatch--1" />
+            <div className="peak-scale-swatch peak-scale-swatch--2" />
+            <div className="peak-scale-swatch peak-scale-swatch--3" />
+            <div className="peak-scale-swatch peak-scale-swatch--4" />
           </div>
           <span>{t('widgets.peakUsageHours.more')}</span>
         </div>

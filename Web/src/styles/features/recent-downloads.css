@@ -1,0 +1,441 @@
+/* Hallmark · component: dashboard panel · genre: modern-minimal · theme: project (theme.service)
+ * states: default · hover · focus · active · disabled(n/a) · loading · error(evicted) · success
+ * contrast: theme tokens only (no raw colors) · reduced-motion: animations collapse
+ * ==============================================
+ * DASHBOARD RECENT DOWNLOADS PANEL
+ * Divided-list language (one bordered surface + hairline dividers) shared with
+ * the Logs & Cache mgmt-list and the Service Analytics legend well - never
+ * per-item rounded chip boxes.
+ * ============================================== */
+
+.recent-downloads-panel {
+  container-type: inline-size;
+}
+
+/* ----- Header: title + view switch ----- */
+
+.rdl-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.rdl-header h3 {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--theme-text-primary);
+  margin: 0;
+  min-width: 0;
+}
+
+/* Live count bubble inside the Active segmented tab. Sits on a saturated green
+   fill, so the count-badge border uses the white-subtle edge, not the grey one. */
+.rdl-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 18px;
+  padding: 0 5px;
+  font-size: var(--font-size-2xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  border-radius: 3px;
+  border: 1px solid var(--theme-badge-white-subtle);
+  background: var(--theme-success);
+  color: var(--theme-button-text);
+  animation: rdl-badge-glow 2s ease-in-out infinite;
+}
+
+@keyframes rdl-badge-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--theme-success-strong);
+  }
+  50% {
+    box-shadow: 0 0 8px 2px var(--theme-success-strong);
+  }
+}
+
+/* Labeled readout strip: shared .dash-readout classes (dashboard.css) */
+
+.rdl-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--theme-success);
+  box-shadow: 0 0 6px var(--theme-success);
+  flex-shrink: 0;
+  animation: rdl-live-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes rdl-live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ----- Filters ----- */
+
+.rdl-filters {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.rdl-filters > * {
+  flex: 1;
+  min-width: 120px;
+}
+
+@container (min-width: 400px) {
+  .rdl-filters > * {
+    flex: 0 1 auto;
+    min-width: 140px;
+  }
+}
+
+.rdl-clear-btn {
+  flex: 0 0 auto;
+  padding: 0.5rem 0.75rem;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--theme-text-muted);
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-secondary);
+  border-radius: var(--theme-border-radius);
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+  white-space: nowrap;
+}
+
+.rdl-clear-btn:hover {
+  color: var(--theme-text-primary);
+  border-color: var(--theme-border-primary);
+}
+
+.rdl-clear-btn:focus-visible {
+  outline: 2px solid var(--theme-primary);
+  outline-offset: 2px;
+}
+
+.rdl-clear-btn:active {
+  background: var(--theme-bg-hover);
+}
+
+/* ----- The list well: one bordered surface, hairline dividers ----- */
+
+.rdl-well {
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-secondary);
+  border-radius: var(--theme-border-radius);
+  overflow: hidden;
+}
+
+.rdl-list > * + * {
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+.rdl-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  min-height: 3.25rem;
+  padding: 0.6rem 1rem 0.6rem 0.85rem;
+  animation: rdl-row-in 0.25s ease backwards;
+}
+
+@keyframes rdl-row-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.rdl-row-clickable {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.rdl-row-clickable:hover {
+  background-color: var(--theme-bg-hover);
+}
+
+.rdl-row-clickable:focus-visible {
+  outline: 2px solid var(--theme-primary);
+  outline-offset: -2px;
+}
+
+.rdl-row-clickable:active {
+  background-color: var(--theme-bg-secondary-on-tertiary);
+}
+
+/* Live rows carry a left accent keyline instead of a tinted card */
+.rdl-row-active {
+  box-shadow: inset 3px 0 0 var(--theme-success);
+}
+
+.rdl-row-main {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.rdl-row-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.rdl-row-name {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--theme-text-primary);
+  min-width: 0;
+}
+
+.rdl-name-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rdl-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+  font-size: var(--font-size-xs);
+  color: var(--theme-text-muted);
+  flex-wrap: wrap;
+}
+
+.rdl-meta-sep {
+  color: var(--theme-border-secondary);
+}
+
+/* ----- Right readout per row ----- */
+
+.rdl-row-stats {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.rdl-row-figures {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.rdl-row-size {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--theme-text-primary);
+  font-variant-numeric: tabular-nums lining-nums;
+  white-space: nowrap;
+}
+
+.rdl-row-subline {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.rdl-row-sub {
+  font-size: var(--font-size-xs);
+  color: var(--theme-text-muted);
+  font-variant-numeric: tabular-nums lining-nums;
+  white-space: nowrap;
+}
+
+.rdl-row-speed {
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  color: var(--theme-success);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Pulsing live indicator on active rows */
+.rdl-active-indicator {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.rdl-pulse-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--theme-success);
+  animation: rdl-pulse-expand 1.5s ease-out infinite;
+}
+
+@keyframes rdl-pulse-expand {
+  0% {
+    transform: scale(0.7);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+.rdl-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--theme-success);
+  box-shadow: 0 0 8px var(--theme-success);
+}
+
+/* ----- Hit-rate readout bands: quiet colored text, not a pill per row ----- */
+
+.rdl-hit {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.rdl-hit.high {
+  color: var(--theme-success);
+}
+
+.rdl-hit.medium,
+.rdl-hit.low {
+  color: var(--theme-warning);
+}
+
+.rdl-hit.critical {
+  color: var(--theme-error);
+}
+
+/* Narrow containers: the stats no longer fit beside the name without crushing
+   it, so wrap them onto their own full-width row under the text column. */
+@container (max-width: 419px) {
+  .rdl-row {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+  }
+
+  .rdl-row-stats {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .rdl-row-figures {
+    align-items: flex-start;
+  }
+}
+
+/* ----- Footer ----- */
+
+.rdl-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--theme-border-secondary);
+  font-size: var(--font-size-xs);
+  color: var(--theme-text-muted);
+}
+
+.rdl-footer-stat {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.rdl-footer-stat strong {
+  color: var(--theme-text-secondary);
+}
+
+.rdl-refresh-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--theme-text-muted);
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-secondary);
+  border-radius: var(--theme-border-radius);
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.rdl-refresh-btn:hover {
+  color: var(--theme-text-primary);
+  border-color: var(--theme-border-primary);
+}
+
+.rdl-refresh-btn:focus-visible {
+  outline: 2px solid var(--theme-primary);
+  outline-offset: 2px;
+}
+
+.rdl-refresh-btn:active {
+  background: var(--theme-bg-hover);
+}
+
+.rdl-refresh-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* ----- Loading state (Active view) ----- */
+
+.rdl-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1rem;
+  color: var(--theme-text-muted);
+  gap: 0.5rem;
+  font-size: var(--font-size-sm);
+}
+
+@media (max-width: 767px) {
+  .rdl-loading {
+    padding: 2rem 0.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rdl-row,
+  .rdl-tab-badge,
+  .rdl-live-dot,
+  .rdl-pulse-ring {
+    animation: none;
+  }
+}

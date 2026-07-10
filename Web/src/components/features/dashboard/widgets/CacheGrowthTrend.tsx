@@ -66,21 +66,20 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
     const isOverLimit = usagePercent > 100;
     const displayPercent = Math.min(usagePercent, 100);
 
-    // Get trend color
-    const getTrendColor = (): string => {
-      // For cache, growth (up) is neutral/warning, stable is good, down is concerning
-      if (trend === 'up') return 'var(--theme-warning)';
-      if (trend === 'down') return 'var(--theme-info)';
-      return 'var(--theme-success)';
-    };
+    // For cache, growth (up) is neutral/warning, stable is good, down is concerning
+    const trendClass =
+      trend === 'up'
+        ? 'text-themed-warning'
+        : trend === 'down'
+          ? 'text-themed-info'
+          : 'text-themed-success';
 
     // Loading state — skeleton only on initial load (no prior data); SWR refetch keeps existing chart
     if (loading && !displayData) {
       return (
         <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
           <div className="flex items-center gap-2 mb-3">
-            <TrendingUp className="w-5 h-5 text-themed-muted" />
-            <h3 className="text-sm font-semibold text-themed-primary">
+            <h3 className="text-lg font-semibold text-themed-primary">
               {t('widgets.cacheGrowthTrend.title')}
             </h3>
           </div>
@@ -115,8 +114,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
       return (
         <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
           <div className="flex items-center gap-2 mb-3">
-            <TrendingUp className="w-5 h-5 text-themed-muted" />
-            <h3 className="text-sm font-semibold text-themed-primary">
+            <h3 className="text-lg font-semibold text-themed-primary">
               {t('widgets.cacheGrowthTrend.title')}
             </h3>
           </div>
@@ -139,8 +137,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-themed-accent" />
-            <h3 className="text-sm font-semibold text-themed-primary">
+            <h3 className="text-lg font-semibold text-themed-primary">
               {t('widgets.cacheGrowthTrend.title')}
             </h3>
             {loading && displayData && <LoadingSpinner size="xs" inline />}
@@ -179,10 +176,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
             percentChange !== 0 &&
             Math.abs(percentChange) <= 500 &&
             !cacheWasCleared && (
-              <div
-                className="flex items-center gap-1 text-xs font-medium"
-                style={{ color: getTrendColor() }}
-              >
+              <div className={`flex items-center gap-1 text-xs font-medium ${trendClass}`}>
                 {trend === 'up' && <TrendingUp className="w-3 h-3" />}
                 {trend === 'down' && <TrendingDown className="w-3 h-3" />}
                 <span>
@@ -241,7 +235,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
 
         {/* Sparkline */}
         {sparklineData.length > 1 && (
-          <div className="mb-3">
+          <div className="dash-well p-3">
             <Sparkline
               data={sparklineData}
               color={hasDataDeletion ? 'var(--theme-info)' : 'var(--theme-primary)'}
@@ -260,10 +254,17 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
           </div>
         )}
 
-        {/* Growth stats */}
-        <div className="grid grid-cols-2 gap-4 text-xs">
-          <div>
-            <div className="text-themed-muted">
+        {/* Growth readout */}
+        <div className="dash-readout dash-readout--footer">
+          <div className="dash-readout-item">
+            <div className={`dash-readout-value${growthRatePerDay < 0 ? ' is-info' : ''}`}>
+              {growthRatePerDay > 0
+                ? `+${formatBytes(growthRatePerDay)}/day`
+                : growthRatePerDay < 0
+                  ? `-${formatBytes(Math.abs(growthRatePerDay))}/day`
+                  : t('widgets.cacheGrowthTrend.stable')}
+            </div>
+            <div className="dash-readout-label">
               {isHistoricalView
                 ? t('widgets.cacheGrowthTrend.avgGrowth')
                 : cacheWasCleared
@@ -272,29 +273,9 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
                     ? t('widgets.cacheGrowthTrend.netGrowth.term')
                     : t('widgets.cacheGrowthTrend.growthRate')}
             </div>
-            <div
-              className={`font-medium ${
-                growthRatePerDay < 0
-                  ? 'text-themed-info'
-                  : growthRatePerDay > 0
-                    ? 'text-themed-primary'
-                    : 'text-themed-muted'
-              }`}
-            >
-              {growthRatePerDay > 0
-                ? `+${formatBytes(growthRatePerDay)}/day`
-                : growthRatePerDay < 0
-                  ? `-${formatBytes(Math.abs(growthRatePerDay))}/day`
-                  : t('widgets.cacheGrowthTrend.stable')}
-            </div>
           </div>
-          <div>
-            <div className="text-themed-muted">
-              {daysUntilFull !== null && daysUntilFull > 0
-                ? t('widgets.cacheGrowthTrend.estFull')
-                : t('widgets.cacheGrowthTrend.status')}
-            </div>
-            <div className="font-medium text-themed-primary">
+          <div className="dash-readout-item">
+            <div className="dash-readout-value">
               {daysUntilFull !== null && daysUntilFull > 0
                 ? t('widgets.cacheGrowthTrend.days', { count: daysUntilFull })
                 : daysUntilFull === 0
@@ -306,6 +287,11 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
                     : usagePercent > 0
                       ? t('widgets.cacheGrowthTrend.used', { percent: usagePercent.toFixed(1) })
                       : t('widgets.cacheGrowthTrend.empty')}
+            </div>
+            <div className="dash-readout-label">
+              {daysUntilFull !== null && daysUntilFull > 0
+                ? t('widgets.cacheGrowthTrend.estFull')
+                : t('widgets.cacheGrowthTrend.status')}
             </div>
           </div>
         </div>

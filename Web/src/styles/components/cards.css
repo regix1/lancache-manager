@@ -70,7 +70,7 @@
 
   /* Widget card styles */
   .widget-card {
-    @apply p-4;
+    @apply p-4 flex flex-col;
     border-radius: var(--theme-border-radius-lg);
     background: var(--theme-card-bg);
     border: 1px solid var(--theme-card-border);
