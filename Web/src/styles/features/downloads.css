@@ -359,7 +359,7 @@
     line-height: 1;
     text-align: center;
     border-radius: 3px;
-    border: 1px solid var(--theme-badge-white-subtle);
+    border: 1px solid currentColor;
     background: var(--theme-text-muted-muted);
     color: inherit;
   }
