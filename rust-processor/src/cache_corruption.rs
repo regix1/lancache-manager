@@ -5,7 +5,7 @@ use sqlx::Row;
 use serde::Serialize;
 use serde_json::json;
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 mod cache_utils;
@@ -130,6 +130,14 @@ struct ProgressData {
 
 fn parse_timezone(tz_str: &str) -> chrono_tz::Tz {
     tz_str.parse().unwrap_or(chrono_tz::UTC)
+}
+
+fn write_pretty_json<T: Serialize + ?Sized>(output_path: &Path, value: &T) -> Result<()> {
+    let output_file = File::create(output_path)?;
+    let mut output_writer = BufWriter::new(output_file);
+    serde_json::to_writer_pretty(&mut output_writer, value)?;
+    output_writer.flush()?;
+    Ok(())
 }
 
 /// Writes the progress file exactly as before, then emits the matching stdout event via
@@ -372,10 +380,7 @@ async fn main() -> Result<()> {
                 );
 
                 // Write detailed report to JSON
-                let json = serde_json::to_string_pretty(&report)?;
-                let mut file = File::create(&output_json)?;
-                file.write_all(json.as_bytes())?;
-                file.flush()?;
+                write_pretty_json(&output_json, &report)?;
 
                 eprintln!("Report saved to: {}", output_json.display());
                 Ok(())
@@ -528,7 +533,7 @@ async fn main() -> Result<()> {
                 write_progress(&progress_path, &reporter, "filtering", "signalr.corruptionRemove.filteringLogs", json!({ "totalFiles": total_files }), 30.0, 0, total_files)?;
 
                 let prefilter = log_purge::RemovalPrefilter::new(
-                    corrupted_urls.iter().map(|url| url.as_bytes().to_vec()).collect::<Vec<_>>(),
+                    corrupted_urls.iter().map(|url| url.as_bytes()),
                 )?;
                 let filter_progress_cb = |files_done: usize, total: usize| {
                     let filter_percent = 30.0 + (files_done as f64 / total.max(1) as f64) * 20.0;
@@ -848,7 +853,7 @@ async fn main() -> Result<()> {
             write_progress(&progress_path, &reporter, "filtering", "signalr.corruptionRemove.filteringLogs", json!({ "totalFiles": total_files }), 30.0, 0, total_files)?;
 
             let prefilter = log_purge::RemovalPrefilter::new(
-                corrupted_urls.iter().map(|url| url.as_bytes().to_vec()).collect::<Vec<_>>(),
+                corrupted_urls.iter().map(|url| url.as_bytes()),
             )?;
             let filter_progress_cb = |files_done: usize, total: usize| {
                 // Update progress during filtering (30-70%)
@@ -1049,4 +1054,27 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn streamed_pretty_json_matches_previous_serialization_bytes() {
+        let report = json!({
+            "summary": { "totalCorrupted": 2, "serviceCounts": { "steam": 1, "wsus": 1 } },
+            "corruptedChunks": [
+                { "service": "steam", "url": "/depot/1/chunk/a" },
+                { "service": "wsus", "url": "/content/file.psf" }
+            ]
+        });
+        let expected = serde_json::to_string_pretty(&report).unwrap().into_bytes();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let output_path = temp_dir.path().join("report.json");
+
+        write_pretty_json(&output_path, &report).unwrap();
+
+        assert_eq!(std::fs::read(output_path).unwrap(), expected);
+    }
 }

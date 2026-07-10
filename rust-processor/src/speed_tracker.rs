@@ -24,6 +24,10 @@ const WINDOW_SECONDS: i64 = 2;
 const BROADCAST_INTERVAL_MS: u64 = 500;
 const POLL_INTERVAL_MS: u64 = 100;
 
+fn replace_pattern_lookup_cache(cache: &mut HashMap<u128, Option<String>>) {
+    *cache = HashMap::new();
+}
+
 #[derive(Debug, Clone)]
 struct SpeedLogEntry {
     timestamp: NaiveDateTime,
@@ -617,7 +621,7 @@ impl SpeedTracker {
                     .collect();
 
                 self.last_epic_pattern_load = Some(Instant::now());
-                self.epic_cdn_cache.clear(); // Clear cache when patterns reload
+                replace_pattern_lookup_cache(&mut self.epic_cdn_cache);
             }
             Err(_) => {
                 // Silently ignore errors (table may not exist yet)
@@ -686,7 +690,7 @@ impl SpeedTracker {
                     .collect();
 
                 self.last_xbox_pattern_load = Some(Instant::now());
-                self.xbox_cdn_cache.clear(); // Clear cache when patterns reload
+                replace_pattern_lookup_cache(&mut self.xbox_cdn_cache);
             }
             Err(_) => {
                 // Silently ignore errors (tables may not exist yet).
@@ -921,7 +925,10 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_game_speed_info, collapse_depot_groups, SpeedLogEntry, WINDOW_SECONDS};
+    use super::{
+        build_game_speed_info, collapse_depot_groups, replace_pattern_lookup_cache, SpeedLogEntry,
+        WINDOW_SECONDS,
+    };
     use chrono::Utc;
     use std::collections::HashMap;
 
@@ -1061,5 +1068,19 @@ mod tests {
         let rows = collapse_depot_groups(groups, cs2_resolver);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].depot_id, 1001);
+    }
+
+    #[test]
+    fn pattern_cache_replacement_releases_retained_capacity() {
+        let mut cache = HashMap::with_capacity(256);
+        cache.insert(1, Some("Epic Game".to_string()));
+        cache.insert(2, None);
+        let previous_capacity = cache.capacity();
+
+        replace_pattern_lookup_cache(&mut cache);
+
+        assert!(cache.is_empty());
+        assert_eq!(cache.capacity(), 0);
+        assert!(previous_capacity > cache.capacity());
     }
 }

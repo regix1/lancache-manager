@@ -24,6 +24,7 @@
 //    rotated logs are archival, slightly larger output is accepted).
 
 use anyhow::{Context, Result};
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::io::{BufWriter, Write as IoWrite};
 use std::path::Path;
@@ -296,22 +297,6 @@ where
     Ok((final_removed, final_permission_errors))
 }
 
-/// Builds the prefilter pattern set for a URL + depot-ID removal: the exact URL
-/// strings plus a literal `/depot/{id}/` fragment per depot id.
-fn build_url_depot_patterns(
-    urls_to_remove: &HashSet<String>,
-    valid_depot_ids: &HashSet<u32>,
-) -> Vec<Vec<u8>> {
-    let mut patterns: Vec<Vec<u8>> =
-        urls_to_remove.iter().map(|url| url.as_bytes().to_vec()).collect();
-    patterns.extend(
-        valid_depot_ids
-            .iter()
-            .map(|depot_id| format!("/depot/{}/", depot_id).into_bytes()),
-    );
-    patterns
-}
-
 /// Rewrite every nginx access.log file under `log_dir` to drop entries whose
 /// URL is in `urls_to_remove` OR whose parsed depot_id is in `valid_depot_ids`.
 ///
@@ -333,7 +318,15 @@ pub(crate) fn remove_log_entries_for_game(
     valid_depot_ids: &HashSet<u32>,
     on_file_processed: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
 ) -> Result<(u64, usize)> {
-    let prefilter = RemovalPrefilter::new(build_url_depot_patterns(urls_to_remove, valid_depot_ids))?;
+    let patterns = urls_to_remove
+        .iter()
+        .map(|url| Cow::<[u8]>::Borrowed(url.as_bytes()))
+        .chain(
+            valid_depot_ids
+                .iter()
+                .map(|depot_id| Cow::<[u8]>::Owned(format!("/depot/{depot_id}/").into_bytes())),
+        );
+    let prefilter = RemovalPrefilter::new(patterns)?;
     rewrite_matching_log_entries(
         log_dir,
         "game",
@@ -356,9 +349,7 @@ pub(crate) fn remove_log_entries_for_urls(
     log_dir: &Path,
     urls_to_remove: &HashSet<String>,
 ) -> Result<(u64, usize)> {
-    let prefilter = RemovalPrefilter::new(
-        urls_to_remove.iter().map(|url| url.as_bytes().to_vec()).collect::<Vec<_>>(),
-    )?;
+    let prefilter = RemovalPrefilter::new(urls_to_remove.iter().map(|url| url.as_bytes()))?;
     rewrite_matching_log_entries(
         log_dir,
         "URL-matched",
@@ -376,9 +367,7 @@ pub(crate) fn remove_log_entries_for_service(
 ) -> Result<(u64, usize)> {
     let normalized_service = service_utils::normalize_service_name(service);
     let description = format!("service '{}'", service);
-    let prefilter = RemovalPrefilter::new(
-        urls_to_remove.iter().map(|url| url.as_bytes().to_vec()).collect::<Vec<_>>(),
-    )?;
+    let prefilter = RemovalPrefilter::new(urls_to_remove.iter().map(|url| url.as_bytes()))?;
 
     rewrite_matching_log_entries(
         log_dir,
@@ -403,7 +392,10 @@ mod tests {
 
     #[test]
     fn prefilter_skips_non_matching_lines_and_flags_candidates() {
-        let prefilter = RemovalPrefilter::new(["/depot/123456/chunk/abc".as_bytes()]).unwrap();
+        let patterns = ["/depot/123456/chunk/abc".to_string()];
+        let prefilter =
+            RemovalPrefilter::new(patterns.iter().map(|pattern| pattern.as_bytes())).unwrap();
+        drop(patterns);
 
         // Direct literal hit -> candidate
         assert!(prefilter.is_candidate(log_line("/depot/123456/chunk/abc", "HIT").as_bytes()));

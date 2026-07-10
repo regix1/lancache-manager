@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -453,14 +453,30 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    let mut sample_urls: Vec<String> = urls
-        .into_iter()
-        .map(|url| url.as_ref().to_string())
-        .collect();
-    sample_urls.sort();
-    sample_urls.dedup();
-    sample_urls.truncate(limit);
-    sample_urls
+    let mut sample_urls = BTreeSet::new();
+
+    for url in urls {
+        let url = url.as_ref();
+        if sample_urls.contains(url) {
+            continue;
+        }
+
+        if sample_urls.len() < limit {
+            sample_urls.insert(url.to_owned());
+            continue;
+        }
+
+        if sample_urls
+            .last()
+            .map(|largest| url < largest.as_str())
+            .unwrap_or(false)
+        {
+            sample_urls.pop_last();
+            sample_urls.insert(url.to_owned());
+        }
+    }
+
+    sample_urls.into_iter().collect()
 }
 
 /// Lazily yields the md5-hex cache-key hashes probed for (service, url) — exactly the
@@ -882,6 +898,24 @@ fn is_guid_at(bytes: &[u8], at: usize) -> bool {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn sorted_sample_urls_matches_full_sort_and_dedup() {
+        let urls = [
+            "z", "beta", "alpha", "beta", "m", "aa", "delta", "alpha", "é", "c",
+        ];
+
+        for limit in 0..=(urls.len() + 1) {
+            let mut expected: Vec<String> = urls.iter().map(|url| (*url).to_string()).collect();
+            expected.sort();
+            expected.dedup();
+            expected.truncate(limit);
+
+            let actual = sorted_sample_urls(urls.iter().copied(), limit);
+            assert_eq!(actual, expected, "limit {limit}");
+            assert!(actual.len() <= limit);
+        }
+    }
 
     /// The shared Xbox fragment shape guard used by BOTH `log_processor::load_xbox_patterns` and
     /// `speed_tracker::load_xbox_patterns`. It must reject the malformed / short / non-GUID

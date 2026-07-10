@@ -21,7 +21,6 @@ type ServiceUrl = (String, String, i64);
 struct SteamGameInputs {
     game_app_id: u32,
     game_name: String,
-    unique_urls: HashSet<String>,
     depot_ids: HashSet<u32>,
     service_urls: Vec<ServiceUrl>,
 }
@@ -90,12 +89,10 @@ fn collect_steam_game_inputs(records: &[DownloadRecord]) -> Result<SteamGameInpu
 
     let game_app_id = records[0].game_app_id;
     let game_name = records[0].game_name.clone();
-    let mut unique_urls: HashSet<String> = HashSet::new();
     let mut depot_ids: HashSet<u32> = HashSet::new();
     let mut service_urls: Vec<ServiceUrl> = Vec::with_capacity(records.len());
 
     for record in records {
-        unique_urls.insert(record.url.clone());
         service_urls.push((
             cache_utils::service_name_lowercase(&record.service),
             record.url.clone(),
@@ -110,7 +107,6 @@ fn collect_steam_game_inputs(records: &[DownloadRecord]) -> Result<SteamGameInpu
     Ok(SteamGameInputs {
         game_app_id,
         game_name,
-        unique_urls,
         depot_ids,
         service_urls,
     })
@@ -254,7 +250,10 @@ fn build_steam_game_cache_info(
     total_size_bytes: u64,
     cache_file_paths: Vec<String>,
 ) -> GameCacheInfo {
-    let sample_urls = cache_utils::sorted_sample_urls(inputs.unique_urls.iter(), 5);
+    let sample_urls = cache_utils::sorted_sample_urls(
+        inputs.service_urls.iter().map(|(_, url, _)| url.as_str()),
+        5,
+    );
 
     GameCacheInfo {
         game_app_id: inputs.game_app_id,

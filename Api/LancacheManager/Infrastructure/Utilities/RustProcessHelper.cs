@@ -529,7 +529,10 @@ public partial class RustProcessHelper
     /// <summary>
     /// Reads an output JSON file and deserializes it (keeps the file for history)
     /// </summary>
-    public async Task<T> ReadOutputJsonAsync<T>(string outputJsonPath, string operationName) where T : class
+    public async Task<T> ReadOutputJsonAsync<T>(
+        string outputJsonPath,
+        string operationName,
+        CancellationToken cancellationToken = default) where T : class
     {
         if (!File.Exists(outputJsonPath))
         {
@@ -540,18 +543,20 @@ public partial class RustProcessHelper
         // Deserialize straight off the stream - report payloads (corruption chunk lists,
         // removal reports) can run to hundreds of MB, and ReadAllText would hold the whole
         // document as a string next to the parsed result.
-        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         T? result;
         await using (var fileStream = File.OpenRead(outputJsonPath))
         {
             _logger.LogInformation("[{Operation}] Reading JSON output, {Length} bytes", operationName, fileStream.Length);
-            result = await JsonSerializer.DeserializeAsync<T>(fileStream, options);
+            result = await JsonSerializer.DeserializeAsync<T>(
+                fileStream,
+                _jsonOptions,
+                cancellationToken);
         }
 
         if (result == null)
         {
             _logger.LogError("[{Operation}] Failed to parse output JSON", operationName);
-            throw new Exception($"Failed to parse {operationName} output JSON");
+            throw new InvalidDataException($"Failed to parse {operationName} output JSON");
         }
 
         return result;
@@ -707,6 +712,124 @@ public partial class RustProcessHelper
                 Error = ex.Message
             };
         }
+    }
+
+    /// <summary>
+    /// Streams the configured datasource's canonical plain/gzip log rotations through the Rust
+    /// log manager and returns its final typed line count. Rust cancellation remains an
+    /// <see cref="OperationCanceledException"/> and never becomes a zero count.
+    /// </summary>
+    public virtual async Task<LogLineCountResult> CountLogLinesAsync(
+        string logsPath,
+        CancellationToken cancellationToken = default)
+    {
+        var progress = await RunLogFileOperationAsync(
+            "count-lines",
+            logsPath,
+            cancellationToken);
+
+        return new LogLineCountResult(
+            progress.LinesProcessed,
+            progress.FilesProcessed);
+    }
+
+    /// <summary>
+    /// Deletes one host-validated active log path through the Rust log manager and returns the
+    /// pre-delete byte count reported by Rust.
+    /// </summary>
+    public virtual async Task<LogFileDeletionResult> DeleteLogFileAsync(
+        string filePath,
+        CancellationToken cancellationToken = default)
+    {
+        var progress = await RunLogFileOperationAsync(
+            "delete-file",
+            filePath,
+            cancellationToken);
+
+        return new LogFileDeletionResult(progress.BytesDeleted);
+    }
+
+    private async Task<LogManagerFileProgress> RunLogFileOperationAsync(
+        string command,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        var progressFile = Path.GetTempFileName();
+        try
+        {
+            var rustBinaryPath = _pathResolver.GetRustLogManagerPath();
+            EnsureBinaryExists(rustBinaryPath, "log_service_manager");
+
+            // ArgumentList preserves configured paths verbatim without shell parsing or quote
+            // construction. CreateProcessStartInfo still supplies the shared redirected/tracked
+            // process configuration used by every Rust wrapper.
+            var startInfo = CreateProcessStartInfo(rustBinaryPath, string.Empty);
+            startInfo.ArgumentList.Add(command);
+            startInfo.ArgumentList.Add(path);
+            startInfo.ArgumentList.Add(progressFile);
+            startInfo.ArgumentList.Add("--progress");
+
+            var result = await ExecuteTrackedProcessWithProgressEventsAsync(
+                startInfo,
+                operationId: null,
+                cancellationToken,
+                onProgressEvent: evt =>
+                {
+                    _logger.LogDebug(
+                        "[log_service_manager:{Command}] {Event} ({StageKey})",
+                        command,
+                        evt.Event,
+                        evt.StageKey);
+                    return Task.CompletedTask;
+                },
+                processLabel: $"log_service_manager:{command}");
+
+            result.EnsureSuccess("log_service_manager", command);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var progress = await ReadOutputJsonAsync<LogManagerFileProgress>(
+                progressFile,
+                $"log_service_manager {command}",
+                cancellationToken);
+
+            if (string.Equals(progress.Status, "cancelled", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new OperationCanceledException(
+                    $"log_service_manager {command} was cancelled.",
+                    cancellationToken);
+            }
+
+            if (!string.Equals(progress.Status, "completed", StringComparison.OrdinalIgnoreCase) ||
+                progress.IsProcessing)
+            {
+                throw new InvalidDataException(
+                    $"log_service_manager {command} did not produce a completed result.");
+            }
+
+            return progress;
+        }
+        finally
+        {
+            await DeleteTempFileAsync(progressFile);
+        }
+    }
+
+    private sealed class LogManagerFileProgress
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("is_processing")]
+        public required bool IsProcessing { get; init; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("status")]
+        public required string Status { get; init; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("lines_processed")]
+        public required long LinesProcessed { get; init; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("files_processed")]
+        public required long FilesProcessed { get; init; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("bytes_deleted")]
+        public required long BytesDeleted { get; init; }
     }
 
     /// <summary>
@@ -1013,3 +1136,10 @@ public class RustExecutionResult
     public object? Data { get; set; }
     public string? Error { get; set; }
 }
+
+
+/// <summary>Final line/file totals produced by log_service_manager count-lines.</summary>
+public sealed record LogLineCountResult(long LinesProcessed, long FilesProcessed);
+
+/// <summary>Pre-delete byte count produced by log_service_manager delete-file.</summary>
+public sealed record LogFileDeletionResult(long BytesDeleted);

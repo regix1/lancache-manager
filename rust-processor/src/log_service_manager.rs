@@ -30,6 +30,7 @@ struct ProgressData {
     lines_processed: u64,
     lines_removed: u64,
     files_processed: usize,
+    bytes_deleted: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     service_counts: Option<HashMap<String, u64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -61,6 +62,7 @@ impl ProgressData {
             lines_processed,
             lines_removed,
             files_processed,
+            bytes_deleted: 0,
             service_counts,
             datasource_name,
             stage_key: String::new(),
@@ -74,6 +76,11 @@ impl ProgressData {
         self.stage_key = stage_key.to_string();
         self
     }
+
+    fn with_bytes_deleted(mut self, bytes_deleted: u64) -> Self {
+        self.bytes_deleted = bytes_deleted;
+        self
+    }
 }
 
 /// Default stdout stage key when `ProgressData.stage_key` is empty (the "count" command's ticks
@@ -81,6 +88,7 @@ impl ProgressData {
 fn default_stage_key_for_status(status: &str) -> &'static str {
     match status {
         "counting" => "signalr.logService.count.counting",
+        "deleting" => "signalr.logService.delete.deleting",
         "removing" => "signalr.logRemoval.removing",
         "completed" => "signalr.logService.complete",
         "cancelled" => "signalr.logService.cancelled",
@@ -89,11 +97,15 @@ fn default_stage_key_for_status(status: &str) -> &'static str {
     }
 }
 
-/// Writes the progress file (unchanged schema), then emits the matching stdout event via
+/// Writes the backward-compatible, extended progress file, then emits the matching stdout event via
 /// `reporter` (file write always first). Reuses `progress.stage_key` when the "remove" path has
 /// already set one via `.with_stage_key(...)`; falls back to a status-derived default otherwise
 /// (the "count" path's ticks) so the stdout channel is always meaningful.
-fn write_progress(progress_path: &Path, reporter: &ProgressReporter, progress: &ProgressData) -> Result<()> {
+fn write_progress(
+    progress_path: &Path,
+    reporter: &ProgressReporter,
+    progress: &ProgressData,
+) -> Result<()> {
     // Use shared progress writing utility
     progress_utils::write_progress_json(progress_path, progress)?;
 
@@ -108,6 +120,7 @@ fn write_progress(progress_path: &Path, reporter: &ProgressReporter, progress: &
         "linesProcessed": progress.lines_processed,
         "linesRemoved": progress.lines_removed,
         "filesProcessed": progress.files_processed,
+        "bytesDeleted": progress.bytes_deleted,
         "datasourceName": progress.datasource_name,
         // Real data (never omitted on the terminal "completed" tick) - this is the count
         // command's actual result, otherwise only available via the file.
@@ -117,13 +130,14 @@ fn write_progress(progress_path: &Path, reporter: &ProgressReporter, progress: &
     match progress.status.as_str() {
         "completed" => reporter.emit_complete(stage_key, context),
         "cancelled" => reporter.emit_cancelled(stage_key, context),
-        "failed" | "error" => reporter.emit_failed(stage_key, context, Some(progress.message.clone())),
+        "failed" | "error" => {
+            reporter.emit_failed(stage_key, context, Some(progress.message.clone()))
+        }
         _ => reporter.emit_progress(progress.percent_complete, stage_key, context),
     }
 
     Ok(())
 }
-
 
 // Use the shared service extraction utility for consistency
 fn extract_service_from_line(line: &str) -> Option<String> {
@@ -152,7 +166,319 @@ fn line_matches_service(raw_line: &[u8], service_lower: &str) -> bool {
     }
 }
 
-fn count_services(log_path: &str, progress_path: &Path, reporter: &ProgressReporter, datasource_name: Option<&str>) -> Result<HashMap<String, u64>> {
+#[derive(Debug, PartialEq, Eq)]
+struct LineCountOutcome {
+    lines_processed: u64,
+    files_processed: usize,
+    cancelled: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct DeleteFileOutcome {
+    bytes_deleted: u64,
+    cancelled: bool,
+}
+
+fn resolve_log_location(log_path: &str) -> Result<(&Path, &str)> {
+    let path = Path::new(log_path);
+    if path.is_dir() {
+        Ok((path, "access.log"))
+    } else {
+        let directory = path.parent().context("Failed to get parent directory")?;
+        let base_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .context("Failed to get file name")?;
+        Ok((directory, base_name))
+    }
+}
+
+fn finish_cancelled_line_count(
+    progress_path: &Path,
+    reporter: &ProgressReporter,
+    datasource_name: Option<&str>,
+    lines_processed: u64,
+    files_processed: usize,
+) -> Result<LineCountOutcome> {
+    let progress = ProgressData::new(
+        false,
+        0.0,
+        "cancelled".to_string(),
+        "Line counting cancelled".to_string(),
+        lines_processed,
+        0,
+        files_processed,
+        None,
+        datasource_name.map(str::to_string),
+    )
+    .with_stage_key("signalr.logService.cancelled");
+    write_progress(progress_path, reporter, &progress)?;
+
+    Ok(LineCountOutcome {
+        lines_processed,
+        files_processed,
+        cancelled: true,
+    })
+}
+
+fn count_log_lines<F>(
+    log_path: &str,
+    progress_path: &Path,
+    reporter: &ProgressReporter,
+    datasource_name: Option<&str>,
+    is_cancelled: F,
+) -> Result<LineCountOutcome>
+where
+    F: Fn() -> bool,
+{
+    if is_cancelled() {
+        return finish_cancelled_line_count(progress_path, reporter, datasource_name, 0, 0);
+    }
+
+    // A configured datasource directory may not exist yet. Preserve the former C# behavior by
+    // treating that as an empty input instead of interpreting its final component as a file name.
+    let mut log_files = if Path::new(log_path).exists() {
+        let (log_directory, base_name) = resolve_log_location(log_path)?;
+        discover_log_files(log_directory, base_name)?
+    } else {
+        Vec::new()
+    };
+
+    // Reset-to-end historically counted plain and gzip files only. Keep .zst out of this focused
+    // command even though LogFileReader supports it for the processor's other operations.
+    log_files.retain(|log_file| {
+        !log_file
+            .path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("zst"))
+    });
+
+    if log_files.is_empty() {
+        let progress = ProgressData::new(
+            false,
+            100.0,
+            "completed".to_string(),
+            "No log files found".to_string(),
+            0,
+            0,
+            0,
+            None,
+            datasource_name.map(str::to_string),
+        )
+        .with_stage_key("signalr.logService.complete");
+        write_progress(progress_path, reporter, &progress)?;
+
+        return Ok(LineCountOutcome {
+            lines_processed: 0,
+            files_processed: 0,
+            cancelled: false,
+        });
+    }
+
+    let total_size = log_files
+        .iter()
+        .filter_map(|log_file| fs::metadata(&log_file.path).ok())
+        .map(|metadata| metadata.len())
+        .sum::<u64>();
+    let mut lines_processed = 0u64;
+    let mut files_processed = 0usize;
+    let mut bytes_processed = 0u64;
+    let mut last_progress_update = Instant::now();
+
+    for log_file in &log_files {
+        if is_cancelled() {
+            return finish_cancelled_line_count(
+                progress_path,
+                reporter,
+                datasource_name,
+                lines_processed,
+                files_processed,
+            );
+        }
+
+        let mut reader = match LogFileReader::open(&log_file.path) {
+            Ok(reader) => reader,
+            Err(error) => {
+                files_processed += 1;
+                eprintln!(
+                    "WARNING: Skipping unreadable log file {}: {error:#}",
+                    log_file.path.display()
+                );
+                continue;
+            }
+        };
+        let mut line = Vec::new();
+        let mut file_lines = 0u64;
+        let mut file_failed = false;
+
+        loop {
+            if is_cancelled() {
+                return finish_cancelled_line_count(
+                    progress_path,
+                    reporter,
+                    datasource_name,
+                    lines_processed,
+                    files_processed,
+                );
+            }
+
+            line.clear();
+            match reader.read_until_newline(&mut line) {
+                Ok(0) => break,
+                Ok(bytes_read) => {
+                    bytes_processed = bytes_processed.saturating_add(bytes_read as u64);
+                    file_lines += 1;
+                }
+                Err(error) => {
+                    eprintln!(
+                        "WARNING: Skipping corrupted log file {}: {error:#}",
+                        log_file.path.display()
+                    );
+                    file_failed = true;
+                    break;
+                }
+            }
+
+            if last_progress_update.elapsed().as_millis() > 500 {
+                let percent_complete = if total_size == 0 {
+                    0.0
+                } else {
+                    ((bytes_processed as f64 / total_size as f64) * 100.0).min(100.0)
+                };
+                let progress = ProgressData::new(
+                    true,
+                    percent_complete,
+                    "counting".to_string(),
+                    format!(
+                        "Counting log lines... {} lines across {} files",
+                        lines_processed + file_lines,
+                        files_processed + 1
+                    ),
+                    lines_processed + file_lines,
+                    0,
+                    files_processed + 1,
+                    None,
+                    datasource_name.map(str::to_string),
+                );
+                write_progress(progress_path, reporter, &progress)?;
+                last_progress_update = Instant::now();
+            }
+        }
+
+        files_processed += 1;
+        // Match the former C# implementation: if decoding a file fails, discard that file's
+        // partial count and continue with the remaining rotations.
+        if !file_failed {
+            lines_processed += file_lines;
+        }
+    }
+
+    let progress = ProgressData::new(
+        false,
+        100.0,
+        "completed".to_string(),
+        format!("Line counting completed. {lines_processed} lines across {files_processed} files."),
+        lines_processed,
+        0,
+        files_processed,
+        None,
+        datasource_name.map(str::to_string),
+    )
+    .with_stage_key("signalr.logService.complete");
+    write_progress(progress_path, reporter, &progress)?;
+
+    Ok(LineCountOutcome {
+        lines_processed,
+        files_processed,
+        cancelled: false,
+    })
+}
+
+fn delete_log_file<F>(
+    file_path: &Path,
+    progress_path: &Path,
+    reporter: &ProgressReporter,
+    datasource_name: Option<&str>,
+    is_cancelled: F,
+) -> Result<DeleteFileOutcome>
+where
+    F: Fn() -> bool,
+{
+    if is_cancelled() {
+        let progress = ProgressData::new(
+            false,
+            0.0,
+            "cancelled".to_string(),
+            "Log file deletion cancelled".to_string(),
+            0,
+            0,
+            0,
+            None,
+            datasource_name.map(str::to_string),
+        )
+        .with_stage_key("signalr.logService.cancelled");
+        write_progress(progress_path, reporter, &progress)?;
+        return Ok(DeleteFileOutcome {
+            bytes_deleted: 0,
+            cancelled: true,
+        });
+    }
+
+    let bytes_deleted = fs::metadata(file_path)
+        .with_context(|| format!("Failed to inspect log file: {}", file_path.display()))?
+        .len();
+
+    if is_cancelled() {
+        let progress = ProgressData::new(
+            false,
+            0.0,
+            "cancelled".to_string(),
+            "Log file deletion cancelled".to_string(),
+            0,
+            0,
+            0,
+            None,
+            datasource_name.map(str::to_string),
+        )
+        .with_stage_key("signalr.logService.cancelled");
+        write_progress(progress_path, reporter, &progress)?;
+        return Ok(DeleteFileOutcome {
+            bytes_deleted: 0,
+            cancelled: true,
+        });
+    }
+
+    fs::remove_file(file_path)
+        .with_context(|| format!("Failed to delete log file: {}", file_path.display()))?;
+
+    let progress = ProgressData::new(
+        false,
+        100.0,
+        "completed".to_string(),
+        format!("Deleted log file ({} bytes)", bytes_deleted),
+        0,
+        0,
+        1,
+        None,
+        datasource_name.map(str::to_string),
+    )
+    .with_bytes_deleted(bytes_deleted)
+    .with_stage_key("signalr.logService.complete");
+    write_progress(progress_path, reporter, &progress)?;
+
+    Ok(DeleteFileOutcome {
+        bytes_deleted,
+        cancelled: false,
+    })
+}
+
+fn count_services(
+    log_path: &str,
+    progress_path: &Path,
+    reporter: &ProgressReporter,
+    datasource_name: Option<&str>,
+) -> Result<HashMap<String, u64>> {
     let start_time = Instant::now();
     let ds_name = datasource_name.map(|s| s.to_string());
     if let Some(ds) = &ds_name {
@@ -168,7 +494,8 @@ fn count_services(log_path: &str, progress_path: &Path, reporter: &ProgressRepor
         // Extract directory and base name from file path
         let path = Path::new(log_path);
         let dir = path.parent().context("Failed to get parent directory")?;
-        let name = path.file_name()
+        let name = path
+            .file_name()
             .and_then(|n| n.to_str())
             .context("Failed to get file name")?;
         (dir, name)
@@ -217,7 +544,12 @@ fn count_services(log_path: &str, progress_path: &Path, reporter: &ProgressRepor
 
     // Process each log file in order (oldest to newest)
     for (file_index, log_file) in log_files.iter().enumerate() {
-        eprintln!("\nProcessing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
+        eprintln!(
+            "\nProcessing file {}/{}: {}",
+            file_index + 1,
+            log_files.len(),
+            log_file.path.display()
+        );
 
         // Try to open and read the file, but skip if it's corrupted
         let file_result = (|| -> Result<()> {
@@ -251,7 +583,11 @@ fn count_services(log_path: &str, progress_path: &Path, reporter: &ProgressRepor
                         true,
                         percent,
                         "counting".to_string(),
-                        format!("Counting services... {} lines processed across {} files", lines_processed, file_index + 1),
+                        format!(
+                            "Counting services... {} lines processed across {} files",
+                            lines_processed,
+                            file_index + 1
+                        ),
                         lines_processed,
                         0,
                         file_index + 1,
@@ -267,7 +603,11 @@ fn count_services(log_path: &str, progress_path: &Path, reporter: &ProgressRepor
 
         // If this file failed (e.g., corrupted gzip), log warning and skip it
         if let Err(e) = file_result {
-            eprintln!("WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
+            eprintln!(
+                "WARNING: Skipping corrupted file {}: {}",
+                log_file.path.display(),
+                e
+            );
             eprintln!("  Continuing with remaining files...");
             continue;
         }
@@ -289,8 +629,12 @@ fn count_services(log_path: &str, progress_path: &Path, reporter: &ProgressRepor
         false,
         100.0,
         "completed".to_string(),
-        format!("Service counting completed. Found {} services in {} lines across {} files.",
-            service_counts.len(), lines_processed, log_files.len()),
+        format!(
+            "Service counting completed. Found {} services in {} lines across {} files.",
+            service_counts.len(),
+            lines_processed,
+            log_files.len()
+        ),
         lines_processed,
         0,
         log_files.len(),
@@ -312,7 +656,10 @@ fn remove_service_from_logs(
     let start_time = Instant::now();
     let ds_name = datasource_name.map(|s| s.to_string());
     if let Some(ds) = &ds_name {
-        eprintln!("Removing {} entries from log files for datasource: {}", service_to_remove, ds);
+        eprintln!(
+            "Removing {} entries from log files for datasource: {}",
+            service_to_remove, ds
+        );
     } else {
         eprintln!("Removing {} entries from log files...", service_to_remove);
     }
@@ -324,7 +671,8 @@ fn remove_service_from_logs(
     } else {
         let path = Path::new(log_path);
         let dir = path.parent().context("Failed to get parent directory")?;
-        let name = path.file_name()
+        let name = path
+            .file_name()
             .and_then(|n| n.to_str())
             .context("Failed to get file name")?;
         (dir, name)
@@ -368,15 +716,26 @@ fn remove_service_from_logs(
         // Cooperative cancel: check between file iterations (each file uses NamedTempFile+rename, so
         // stopping between files is safe — completed files are already atomically rewritten)
         if cancel::is_cancelled() {
-            eprintln!("Cancel requested — stopping before file {}/{}", file_index + 1, log_files.len());
+            eprintln!(
+                "Cancel requested — stopping before file {}/{}",
+                file_index + 1,
+                log_files.len()
+            );
             let elapsed = start_time.elapsed();
             let progress = ProgressData::new(
                 false,
-                if log_files.len() > 0 { (file_index as f64 / log_files.len() as f64) * 100.0 } else { 0.0 },
+                if log_files.len() > 0 {
+                    (file_index as f64 / log_files.len() as f64) * 100.0
+                } else {
+                    0.0
+                },
                 "cancelled".to_string(),
                 format!(
                     "Cancelled after {} files. {} lines processed, {} removed in {:.2}s.",
-                    file_index, total_lines_processed, total_lines_removed, elapsed.as_secs_f64()
+                    file_index,
+                    total_lines_processed,
+                    total_lines_removed,
+                    elapsed.as_secs_f64()
                 ),
                 total_lines_processed,
                 total_lines_removed,
@@ -388,7 +747,12 @@ fn remove_service_from_logs(
             std::process::exit(0);
         }
 
-        eprintln!("\nProcessing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
+        eprintln!(
+            "\nProcessing file {}/{}: {}",
+            file_index + 1,
+            log_files.len(),
+            log_file.path.display()
+        );
 
         // Try to process the file, but skip if it's corrupted (e.g., invalid gzip header)
         let file_result = (|| -> Result<(u64, u64)> {
@@ -399,13 +763,19 @@ fn remove_service_from_logs(
                 true,
                 0.0,
                 "removing".to_string(),
-                format!("Processing file {}/{}: removing {} entries...", file_index + 1, log_files.len(), service_to_remove),
+                format!(
+                    "Processing file {}/{}: removing {} entries...",
+                    file_index + 1,
+                    log_files.len(),
+                    service_to_remove
+                ),
                 total_lines_processed,
                 total_lines_removed,
                 file_index + 1,
                 None,
                 ds_name.clone(),
-            ).with_stage_key("signalr.logRemoval.removing");
+            )
+            .with_stage_key("signalr.logRemoval.removing");
             write_progress(progress_path, reporter, &progress)?;
 
             // Builds the 500ms-throttled progress payload shared by both passes.
@@ -413,12 +783,17 @@ fn remove_service_from_logs(
                 let message = if current_removed > 0 {
                     format!(
                         "File {}/{}: {} lines processed, {} removed",
-                        file_index + 1, log_files.len(), current_processed, current_removed
+                        file_index + 1,
+                        log_files.len(),
+                        current_processed,
+                        current_removed
                     )
                 } else {
                     format!(
                         "File {}/{}: {} lines processed",
-                        file_index + 1, log_files.len(), current_processed
+                        file_index + 1,
+                        log_files.len(),
+                        current_processed
                     )
                 };
                 ProgressData::new(
@@ -431,7 +806,8 @@ fn remove_service_from_logs(
                     file_index + 1,
                     None,
                     ds_name.clone(),
-                ).with_stage_key("signalr.logRemoval.removing")
+                )
+                .with_stage_key("signalr.logRemoval.removing")
             };
 
             // PASS 1: read-only scan. If the file contains no entries for this
@@ -476,14 +852,20 @@ fn remove_service_from_logs(
             }
 
             if scan_matches == 0 {
-                eprintln!("  No {} entries in this file - leaving it untouched", service_to_remove);
+                eprintln!(
+                    "  No {} entries in this file - leaving it untouched",
+                    service_to_remove
+                );
                 return Ok((scan_lines, 0));
             }
 
             // Allow removing all lines - user may want to clear all entries for a service
             // If file would be empty, just delete it instead of leaving an empty file
             if scan_lines > 0 && scan_matches == scan_lines {
-                eprintln!("  INFO: All {} lines from this file will be removed", scan_lines);
+                eprintln!(
+                    "  INFO: All {} lines from this file will be removed",
+                    scan_lines
+                );
                 eprintln!("    Deleting the log file entirely");
                 fs::remove_file(&log_file.path).ok();
                 return Ok((scan_lines, scan_matches));
@@ -493,12 +875,14 @@ fn remove_service_from_logs(
             // Create temp file for filtered output with automatic cleanup
             // Try the log directory first (enables atomic rename), fall back to system temp
             // if the directory doesn't allow file creation (common in Docker volume mounts)
-            let file_dir = log_file.path.parent().context("Failed to get file directory")?;
-            let temp_file = NamedTempFile::new_in(file_dir)
-                .or_else(|_| {
-                    eprintln!("  Cannot create temp file in log directory, using system temp dir");
-                    NamedTempFile::new()
-                })?;
+            let file_dir = log_file
+                .path
+                .parent()
+                .context("Failed to get file directory")?;
+            let temp_file = NamedTempFile::new_in(file_dir).or_else(|_| {
+                eprintln!("  Cannot create temp file in log directory, using system temp dir");
+                NamedTempFile::new()
+            })?;
 
             let mut lines_processed: u64 = 0;
             let mut lines_removed: u64 = 0;
@@ -514,18 +898,24 @@ fn remove_service_from_logs(
                     if path_str.ends_with(".gz") {
                         Box::new(BufWriter::with_capacity(
                             1024 * 1024,
-                            GzEncoder::new(temp_file.as_file().try_clone()?, Compression::fast())
+                            GzEncoder::new(temp_file.as_file().try_clone()?, Compression::fast()),
                         ))
                     } else if path_str.ends_with(".zst") {
                         Box::new(BufWriter::with_capacity(
                             1024 * 1024,
-                            zstd::Encoder::new(temp_file.as_file().try_clone()?, 3)?
+                            zstd::Encoder::new(temp_file.as_file().try_clone()?, 3)?,
                         ))
                     } else {
-                        Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
+                        Box::new(BufWriter::with_capacity(
+                            1024 * 1024,
+                            temp_file.as_file().try_clone()?,
+                        ))
                     }
                 } else {
-                    Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
+                    Box::new(BufWriter::with_capacity(
+                        1024 * 1024,
+                        temp_file.as_file().try_clone()?,
+                    ))
                 };
 
                 let mut bytes_processed: u64 = 0;
@@ -545,7 +935,10 @@ fn remove_service_from_logs(
                     if line_matches_service(&line, &service_lower) {
                         lines_removed += 1;
                         if lines_removed.is_multiple_of(10000) {
-                            eprintln!("Removed {} {} entries from this file", lines_removed, service_to_remove);
+                            eprintln!(
+                                "Removed {} {} entries from this file",
+                                lines_removed, service_to_remove
+                            );
                         }
                     } else {
                         writer.write_all(&line)?;
@@ -579,7 +972,10 @@ fn remove_service_from_logs(
             // rewrite passes — if the rewrite saw only matching lines, delete the file
             // instead of persisting an empty one (same semantics as before).
             if lines_processed > 0 && lines_removed == lines_processed {
-                eprintln!("  INFO: All {} lines from this file will be removed", lines_processed);
+                eprintln!(
+                    "  INFO: All {} lines from this file will be removed",
+                    lines_processed
+                );
                 eprintln!("    Deleting the log file entirely");
                 // temp_file automatically deleted when it goes out of scope
                 // Delete the original log file
@@ -593,7 +989,10 @@ fn remove_service_from_logs(
 
             if let Err(persist_err) = temp_path.persist(&log_file.path) {
                 // Fallback: copy + delete (works even if target is locked by file watcher)
-                eprintln!("    persist() failed ({}), using copy fallback...", persist_err);
+                eprintln!(
+                    "    persist() failed ({}), using copy fallback...",
+                    persist_err
+                );
                 fs::copy(&persist_err.path, &log_file.path)?;
                 fs::remove_file(&persist_err.path).ok();
             }
@@ -615,9 +1014,17 @@ fn remove_service_from_logs(
                 let error_str = e.to_string();
                 if error_str.contains("Permission denied") || error_str.contains("os error 13") {
                     permission_errors += 1;
-                    eprintln!("ERROR: Permission denied for file {}: {}", log_file.path.display(), e);
+                    eprintln!(
+                        "ERROR: Permission denied for file {}: {}",
+                        log_file.path.display(),
+                        e
+                    );
                 } else {
-                    eprintln!("WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
+                    eprintln!(
+                        "WARNING: Skipping corrupted file {}: {}",
+                        log_file.path.display(),
+                        e
+                    );
                 }
                 eprintln!("  Continuing with remaining files...");
                 continue;
@@ -639,7 +1046,7 @@ fn remove_service_from_logs(
             permission_errors, puid, pgid
         );
         eprintln!("\n{}", error_msg);
-        
+
         let progress = ProgressData::new(
             false,
             0.0,
@@ -652,7 +1059,7 @@ fn remove_service_from_logs(
             ds_name,
         );
         write_progress(progress_path, reporter, &progress)?;
-        
+
         anyhow::bail!("{}", error_msg);
     }
 
@@ -680,7 +1087,8 @@ fn remove_service_from_logs(
         log_files.len(),
         None,
         ds_name,
-    ).with_stage_key("signalr.logRemoval.complete");
+    )
+    .with_stage_key("signalr.logRemoval.complete");
     write_progress(progress_path, reporter, &progress)?;
 
     Ok(())
@@ -704,7 +1112,8 @@ fn check_cache_validity(log_path: &str, progress_path: &Path) -> Result<HashMap<
     } else {
         let path = Path::new(log_path);
         let dir = path.parent().context("Failed to get parent directory")?;
-        let name = path.file_name()
+        let name = path
+            .file_name()
             .and_then(|n| n.to_str())
             .context("Failed to get file name")?;
         (dir, name)
@@ -722,7 +1131,10 @@ fn check_cache_validity(log_path: &str, progress_path: &Path) -> Result<HashMap<
         if let Ok(log_metadata) = fs::metadata(&log_file.path) {
             if let Ok(log_modified) = log_metadata.modified() {
                 if log_modified > progress_modified {
-                    return Err(anyhow::anyhow!("Log file {} is newer than progress file", log_file.path.display()));
+                    return Err(anyhow::anyhow!(
+                        "Log file {} is newer than progress file",
+                        log_file.path.display()
+                    ));
                 }
             }
         }
@@ -741,35 +1153,50 @@ fn check_cache_validity(log_path: &str, progress_path: &Path) -> Result<HashMap<
     if let Some(counts) = cached.service_counts {
         Ok(counts)
     } else {
-        Err(anyhow::anyhow!("Progress file doesn't contain service counts"))
+        Err(anyhow::anyhow!(
+            "Progress file doesn't contain service counts"
+        ))
     }
 }
 
-fn main() -> anyhow::Result<()> {
-    cancel::install();
+fn write_error_progress(progress_path: &Path, message: String, datasource_name: Option<&str>) {
+    let error_progress = ProgressData::new(
+        false,
+        0.0,
+        "error".to_string(),
+        message,
+        0,
+        0,
+        0,
+        None,
+        datasource_name.map(str::to_string),
+    );
 
-    let mut args: Vec<String> = env::args().collect();
+    if let Err(progress_error) = progress_utils::write_progress_json(progress_path, &error_progress)
+    {
+        eprintln!(
+            "Warning: failed to write error progress to {}: {progress_error:#}",
+            progress_path.display()
+        );
+    }
+}
 
-    // Emit JSON progress events to stdout (mirrors cache_clear.rs/cache_game_detect.rs's
-    // `-p`/`--progress` flag). Stripped before the existing positional-argument checks below.
-    let progress_enabled = if let Some(pos) = args.iter().position(|a| a == "--progress" || a == "-p") {
-        args.remove(pos);
-        true
-    } else {
-        false
-    };
-    let reporter = ProgressReporter::new(progress_enabled);
-
+fn run(args: &[String], reporter: &ProgressReporter) -> Result<()> {
     if args.len() < 4 {
         eprintln!("Usage:");
-        eprintln!("  log_manager count <log_path_or_directory> <progress_json_path> [datasource_name]");
-        eprintln!("  log_manager remove <log_path_or_directory> <service_name> <progress_json_path> [datasource_name]");
-        eprintln!("\nExamples:");
-        eprintln!("  log_manager count ./logs ./data/log_count_progress.json");
-        eprintln!("  log_manager count ./logs ./data/log_count_progress.json my-lancache");
-        eprintln!("  log_manager remove ./logs steam ./data/log_remove_progress.json");
-        eprintln!("  log_manager remove ./logs steam ./data/log_remove_progress.json my-lancache");
-        eprintln!("\nNote: Will automatically discover and process all log files (access.log, access.log.1, .gz, .zst)");
+        eprintln!(
+            "  log_manager count <log_path_or_directory> <progress_json_path> [datasource_name]"
+        );
+        eprintln!(
+            "  log_manager count-lines <log_path_or_directory> <progress_json_path> [datasource_name]"
+        );
+        eprintln!(
+            "  log_manager remove <log_path_or_directory> <service_name> <progress_json_path> [datasource_name]"
+        );
+        eprintln!("  log_manager delete-file <file_path> <progress_json_path> [datasource_name]");
+        eprintln!(
+            "\nNote: count-lines preserves the former reset behavior by skipping .zst files."
+        );
         anyhow::bail!("invalid arguments");
     }
 
@@ -779,25 +1206,25 @@ fn main() -> anyhow::Result<()> {
     match command.as_str() {
         "count" => {
             if args.len() < 4 || args.len() > 5 {
-                eprintln!("Usage: log_manager count <log_path_or_directory> <progress_json_path> [datasource_name]");
+                eprintln!(
+                    "Usage: log_manager count <log_path_or_directory> <progress_json_path> [datasource_name]"
+                );
                 anyhow::bail!("invalid arguments for count");
             }
             let progress_path = Path::new(&args[3]);
-            let datasource_name = args.get(4).map(|s| s.as_str());
+            let datasource_name = args.get(4).map(String::as_str);
 
-            if let Some(ds) = datasource_name {
-                eprintln!("Processing for datasource: {}", ds);
+            if let Some(datasource) = datasource_name {
+                eprintln!("Processing for datasource: {datasource}");
             }
 
-            // Check if cached progress is still valid
-            if let Ok(_cached_counts) = check_cache_validity(log_path, progress_path) {
-                eprintln!("Using cached service counts (progress file is newer than all log files)");
+            if check_cache_validity(log_path, progress_path).is_ok() {
+                eprintln!(
+                    "Using cached service counts (progress file is newer than all log files)"
+                );
                 return Ok(());
             }
 
-            // File-write-before-stdout-emit invariant: seed the progress file before the
-            // "started" event so an event-triggered C# read never sees empty JSON. Must stay
-            // AFTER the cache-validity check above, which exits early on a still-valid file.
             let starting = ProgressData::new(
                 true,
                 0.0,
@@ -807,100 +1234,208 @@ fn main() -> anyhow::Result<()> {
                 0,
                 0,
                 None,
-                datasource_name.map(|s| s.to_string()),
+                datasource_name.map(str::to_string),
             )
             .with_stage_key("signalr.logService.count.starting");
-            if let Err(e) = progress_utils::write_progress_json(progress_path, &starting) {
-                eprintln!("Warning: failed to seed progress file: {:#}", e);
+            if let Err(error) = progress_utils::write_progress_json(progress_path, &starting) {
+                eprintln!("Warning: failed to seed progress file: {error:#}");
             }
 
             reporter.emit_started("signalr.logService.count.starting", serde_json::json!({}));
 
-            match count_services(log_path, progress_path, &reporter, datasource_name) {
-                Ok(_) => Ok(()),
-                Err(e) => {
-                    eprintln!("Error: {:?}", e);
-                    let error_progress = ProgressData::new(
-                        false,
-                        0.0,
-                        "error".to_string(),
-                        format!("Service counting failed: {}", e),
-                        0,
-                        0,
-                        0,
-                        None,
-                        datasource_name.map(|s| s.to_string()),
-                    );
-                    let _ = write_progress(progress_path, &reporter, &error_progress);
-                    Err(e)
-                }
+            if let Err(error) = count_services(log_path, progress_path, reporter, datasource_name) {
+                let error = error.context("Service counting failed");
+                write_error_progress(progress_path, format!("{error:#}"), datasource_name);
+                return Err(error);
             }
+
+            Ok(())
         }
-        "remove" => {
-            if args.len() < 5 || args.len() > 6 {
-                eprintln!("Usage: log_manager remove <log_path_or_directory> <service_name> <progress_json_path> [datasource_name]");
-                anyhow::bail!("invalid arguments for remove");
+        "count-lines" => {
+            if args.len() < 4 || args.len() > 5 {
+                eprintln!(
+                    "Usage: log_manager count-lines <log_path_or_directory> <progress_json_path> [datasource_name]"
+                );
+                anyhow::bail!("invalid arguments for count-lines");
             }
-            let service_name = &args[3];
-            let progress_path = Path::new(&args[4]);
-            let datasource_name = args.get(5).map(|s| s.as_str());
-
-            if let Some(ds) = datasource_name {
-                eprintln!("Processing for datasource: {}", ds);
-            }
-
-            // File-write-before-stdout-emit invariant: seed the (C#-pre-created, empty)
-            // progress file before the "started" event so an event-triggered read never sees
-            // empty JSON. The emit keeps its original context shape ({"service"}) untouched.
+            let progress_path = Path::new(&args[3]);
+            let datasource_name = args.get(4).map(String::as_str);
             let starting = ProgressData::new(
                 true,
                 0.0,
                 "starting".to_string(),
-                format!("Starting removal of {} entries", service_name),
+                "Starting line count".to_string(),
                 0,
                 0,
                 0,
                 None,
-                datasource_name.map(|s| s.to_string()),
+                datasource_name.map(str::to_string),
+            )
+            .with_stage_key("signalr.logService.count.starting");
+            progress_utils::write_progress_json(progress_path, &starting)
+                .context("Failed to seed line-count progress file")?;
+            reporter.emit_started(
+                "signalr.logService.count.starting",
+                serde_json::json!({ "datasourceName": datasource_name }),
+            );
+
+            if let Err(error) = count_log_lines(
+                log_path,
+                progress_path,
+                reporter,
+                datasource_name,
+                cancel::is_cancelled,
+            ) {
+                let error = error.context("Line counting failed");
+                write_error_progress(progress_path, format!("{error:#}"), datasource_name);
+                return Err(error);
+            }
+
+            Ok(())
+        }
+        "remove" => {
+            if args.len() < 5 || args.len() > 6 {
+                eprintln!(
+                    "Usage: log_manager remove <log_path_or_directory> <service_name> <progress_json_path> [datasource_name]"
+                );
+                anyhow::bail!("invalid arguments for remove");
+            }
+            let service_name = &args[3];
+            let progress_path = Path::new(&args[4]);
+            let datasource_name = args.get(5).map(String::as_str);
+
+            if let Some(datasource) = datasource_name {
+                eprintln!("Processing for datasource: {datasource}");
+            }
+
+            let starting = ProgressData::new(
+                true,
+                0.0,
+                "starting".to_string(),
+                format!("Starting removal of {service_name} entries"),
+                0,
+                0,
+                0,
+                None,
+                datasource_name.map(str::to_string),
             )
             .with_stage_key("signalr.logRemoval.starting.single");
-            if let Err(e) = progress_utils::write_progress_json(progress_path, &starting) {
-                eprintln!("Warning: failed to seed progress file: {:#}", e);
+            if let Err(error) = progress_utils::write_progress_json(progress_path, &starting) {
+                eprintln!("Warning: failed to seed progress file: {error:#}");
             }
 
-            reporter.emit_started("signalr.logRemoval.starting.single", serde_json::json!({ "service": service_name }));
+            reporter.emit_started(
+                "signalr.logRemoval.starting.single",
+                serde_json::json!({ "service": service_name }),
+            );
 
-            match remove_service_from_logs(log_path, service_name, progress_path, &reporter, datasource_name) {
-                Ok(_) => Ok(()),
-                Err(e) => {
-                    eprintln!("Error: {:?}", e);
-                    let error_progress = ProgressData::new(
-                        false,
-                        0.0,
-                        "error".to_string(),
-                        format!("Service removal failed: {}", e),
-                        0,
-                        0,
-                        0,
-                        None,
-                        datasource_name.map(|s| s.to_string()),
-                    );
-                    let _ = write_progress(progress_path, &reporter, &error_progress);
-                    Err(e)
-                }
+            if let Err(error) = remove_service_from_logs(
+                log_path,
+                service_name,
+                progress_path,
+                reporter,
+                datasource_name,
+            ) {
+                let error = error.context("Service removal failed");
+                write_error_progress(progress_path, format!("{error:#}"), datasource_name);
+                return Err(error);
             }
+
+            Ok(())
+        }
+        "delete-file" => {
+            if args.len() < 4 || args.len() > 5 {
+                eprintln!(
+                    "Usage: log_manager delete-file <file_path> <progress_json_path> [datasource_name]"
+                );
+                anyhow::bail!("invalid arguments for delete-file");
+            }
+            let file_path = Path::new(log_path);
+            let progress_path = Path::new(&args[3]);
+            let datasource_name = args.get(4).map(String::as_str);
+            let starting = ProgressData::new(
+                true,
+                0.0,
+                "deleting".to_string(),
+                "Starting log file deletion".to_string(),
+                0,
+                0,
+                0,
+                None,
+                datasource_name.map(str::to_string),
+            )
+            .with_stage_key("signalr.logService.delete.deleting");
+            progress_utils::write_progress_json(progress_path, &starting)
+                .context("Failed to seed delete-file progress file")?;
+            reporter.emit_started(
+                "signalr.logService.delete.deleting",
+                serde_json::json!({ "datasourceName": datasource_name }),
+            );
+
+            if let Err(error) = delete_log_file(
+                file_path,
+                progress_path,
+                reporter,
+                datasource_name,
+                cancel::is_cancelled,
+            ) {
+                let error = error.context("Log file deletion failed");
+                write_error_progress(progress_path, format!("{error:#}"), datasource_name);
+                return Err(error);
+            }
+
+            Ok(())
         }
         _ => {
-            eprintln!("Unknown command: {}", command);
-            eprintln!("Valid commands: count, remove");
-            anyhow::bail!("unknown command: {}", command);
+            eprintln!("Unknown command: {command}");
+            eprintln!("Valid commands: count, count-lines, remove, delete-file");
+            anyhow::bail!("unknown command: {command}");
         }
     }
+}
+
+fn main() -> anyhow::Result<()> {
+    cancel::install();
+
+    let mut args: Vec<String> = env::args().collect();
+    let progress_enabled = if let Some(position) = args
+        .iter()
+        .position(|arg| arg == "--progress" || arg == "-p")
+    {
+        args.remove(position);
+        true
+    } else {
+        false
+    };
+    let reporter = ProgressReporter::new(progress_enabled);
+    let failure_stage_key = match args.get(1).map(String::as_str) {
+        Some("remove") => "signalr.logRemoval.error.fatal",
+        Some("delete-file") => "signalr.logService.delete.failed",
+        Some("count") | Some("count-lines") => "signalr.logService.error.fatal",
+        _ => "signalr.logService.error.fatal",
+    };
+
+    progress_events::run_or_exit(&reporter, failure_stage_key, || run(&args, &reporter));
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn write_gzip(path: &Path, contents: &[u8]) {
+        let file = fs::File::create(path).expect("create gzip fixture");
+        let mut encoder = GzEncoder::new(file, Compression::default());
+        encoder
+            .write_all(contents)
+            .expect("write gzip fixture contents");
+        encoder.finish().expect("finish gzip fixture");
+    }
+
+    fn read_progress(path: &Path) -> serde_json::Value {
+        let contents = fs::read_to_string(path).expect("read progress JSON");
+        serde_json::from_str(&contents).expect("parse progress JSON")
+    }
 
     #[test]
     fn line_matches_service_agrees_with_string_extraction() {
@@ -910,10 +1445,182 @@ mod tests {
 
         // Tag normalization must match the String-based path (uppercase tag, IP grouping)
         assert!(line_matches_service(b"[Steam] 1.2.3.4 / - ...", "steam"));
-        assert!(line_matches_service(b"[127.0.0.1] 1.2.3.4 / - ...", "localhost"));
+        assert!(line_matches_service(
+            b"[127.0.0.1] 1.2.3.4 / - ...",
+            "localhost"
+        ));
 
         // No tag / unterminated tag -> never matches
         assert!(!line_matches_service(b"no tag here", "steam"));
         assert!(!line_matches_service(b"[unterminated", "steam"));
+    }
+
+    #[test]
+    fn count_log_lines_counts_plain_and_gzip_but_skips_zstd() {
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        fs::write(directory.path().join("access.log"), b"one\ntwo").expect("write current log");
+        fs::write(directory.path().join("access.log.1"), b"three\n").expect("write rotated log");
+        write_gzip(&directory.path().join("access.log.2.gz"), b"four\nfive\n");
+        fs::write(
+            directory.path().join("access.log.3.zst"),
+            b"intentionally not zstd",
+        )
+        .expect("write skipped zstd fixture");
+        fs::write(directory.path().join("access.log.bak"), b"ignored\n")
+            .expect("write ignored backup");
+        let progress_path = directory.path().join("progress.json");
+        let reporter = ProgressReporter::new(false);
+
+        let result = count_log_lines(
+            directory.path().to_str().expect("UTF-8 fixture path"),
+            &progress_path,
+            &reporter,
+            Some("primary"),
+            || false,
+        )
+        .expect("count lines");
+
+        assert_eq!(
+            result,
+            LineCountOutcome {
+                lines_processed: 5,
+                files_processed: 3,
+                cancelled: false,
+            }
+        );
+        let progress = read_progress(&progress_path);
+        assert_eq!(progress["status"], "completed");
+        assert_eq!(progress["lines_processed"], 5);
+        assert_eq!(progress["files_processed"], 3);
+        assert!(progress.get("service_counts").is_none());
+    }
+
+    #[test]
+    fn count_log_lines_returns_zero_for_missing_and_empty_inputs() {
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        let reporter = ProgressReporter::new(false);
+
+        let missing_progress = directory.path().join("missing-progress.json");
+        let missing = count_log_lines(
+            directory
+                .path()
+                .join("not-created")
+                .to_str()
+                .expect("UTF-8 fixture path"),
+            &missing_progress,
+            &reporter,
+            None,
+            || false,
+        )
+        .expect("count missing directory");
+        assert_eq!(missing.lines_processed, 0);
+        assert_eq!(missing.files_processed, 0);
+
+        let empty_directory = directory.path().join("empty");
+        fs::create_dir(&empty_directory).expect("create empty log directory");
+        let empty_progress = directory.path().join("empty-progress.json");
+        let empty = count_log_lines(
+            empty_directory.to_str().expect("UTF-8 fixture path"),
+            &empty_progress,
+            &reporter,
+            None,
+            || false,
+        )
+        .expect("count empty directory");
+        assert_eq!(empty.lines_processed, 0);
+        assert_eq!(empty.files_processed, 0);
+    }
+
+    #[test]
+    fn count_log_lines_discards_corrupt_file_partial_count_and_continues() {
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        fs::write(directory.path().join("access.log"), b"good\n").expect("write current log");
+        fs::write(
+            directory.path().join("access.log.1.gz"),
+            b"not a gzip stream",
+        )
+        .expect("write corrupt gzip");
+        let progress_path = directory.path().join("progress.json");
+        let reporter = ProgressReporter::new(false);
+
+        let result = count_log_lines(
+            directory.path().to_str().expect("UTF-8 fixture path"),
+            &progress_path,
+            &reporter,
+            None,
+            || false,
+        )
+        .expect("count around corrupt rotation");
+
+        assert_eq!(result.lines_processed, 1);
+        assert_eq!(result.files_processed, 2);
+        assert_eq!(read_progress(&progress_path)["status"], "completed");
+    }
+
+    #[test]
+    fn count_log_lines_reports_cancellation_without_failure() {
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        fs::write(directory.path().join("access.log"), b"one\n").expect("write current log");
+        let progress_path = directory.path().join("progress.json");
+        let reporter = ProgressReporter::new(false);
+
+        let result = count_log_lines(
+            directory.path().to_str().expect("UTF-8 fixture path"),
+            &progress_path,
+            &reporter,
+            None,
+            || true,
+        )
+        .expect("cancel line count");
+
+        assert!(result.cancelled);
+        assert_eq!(read_progress(&progress_path)["status"], "cancelled");
+    }
+
+    #[test]
+    fn delete_log_file_reports_pre_delete_bytes() {
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        let log_path = directory.path().join("access.log");
+        fs::write(&log_path, b"123456").expect("write active log");
+        let progress_path = directory.path().join("progress.json");
+        let reporter = ProgressReporter::new(false);
+
+        let result = delete_log_file(&log_path, &progress_path, &reporter, None, || false)
+            .expect("delete active log");
+
+        assert_eq!(
+            result,
+            DeleteFileOutcome {
+                bytes_deleted: 6,
+                cancelled: false,
+            }
+        );
+        assert!(!log_path.exists());
+        let progress = read_progress(&progress_path);
+        assert_eq!(progress["status"], "completed");
+        assert_eq!(progress["bytes_deleted"], 6);
+    }
+
+    #[test]
+    fn delete_log_file_missing_or_cancelled_never_claims_success() {
+        let directory = tempfile::tempdir().expect("create fixture directory");
+        let reporter = ProgressReporter::new(false);
+        let missing_path = directory.path().join("missing.log");
+        let missing_progress = directory.path().join("missing-progress.json");
+
+        let error = delete_log_file(&missing_path, &missing_progress, &reporter, None, || false)
+            .expect_err("missing file must fail");
+        assert!(format!("{error:#}").contains("Failed to inspect log file"));
+        assert!(!missing_progress.exists());
+
+        let active_path = directory.path().join("access.log");
+        fs::write(&active_path, b"keep").expect("write active log");
+        let cancelled_progress = directory.path().join("cancelled-progress.json");
+        let cancelled =
+            delete_log_file(&active_path, &cancelled_progress, &reporter, None, || true)
+                .expect("cancel deletion");
+        assert!(cancelled.cancelled);
+        assert!(active_path.exists());
+        assert_eq!(read_progress(&cancelled_progress)["status"], "cancelled");
     }
 }

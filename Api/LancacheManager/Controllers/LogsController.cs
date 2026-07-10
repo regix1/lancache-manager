@@ -169,106 +169,22 @@ public class LogsController : ControllerBase
     /// Request body: { "position": 0 } to reset to beginning, { "position": null } to reset to end
     /// </summary>
     [HttpPatch("position")]
-    public IActionResult ResetLogPosition([FromBody] UpdateLogPositionRequest? request)
+    public async Task<IActionResult> ResetLogPositionAsync(
+        [FromBody] UpdateLogPositionRequest? request,
+        CancellationToken cancellationToken = default)
     {
-        return ResetPositionCore(datasourceName: null, requestedPosition: request?.Position);
-    }
-
-    /// <summary>
-    /// Count lines in a file efficiently
-    /// </summary>
-    private static long CountLines(string filePath)
-    {
-        long lineCount = 0;
-        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        using var reader = new StreamReader(stream);
-        while (reader.ReadLine() != null)
-        {
-            lineCount++;
-        }
-        return lineCount;
-    }
-
-    /// <summary>
-    /// Count lines in a gzip-compressed file
-    /// </summary>
-    private static long CountGzipLines(string filePath)
-    {
-        long lineCount = 0;
-        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        using var gzipStream = new System.IO.Compression.GZipStream(stream, System.IO.Compression.CompressionMode.Decompress);
-        using var reader = new StreamReader(gzipStream);
-        while (reader.ReadLine() != null)
-        {
-            lineCount++;
-        }
-        return lineCount;
-    }
-
-    /// <summary>
-    /// Count total lines across all log files in a directory (matching Rust processor behavior)
-    /// Includes access.log, access.log.1, access.log.2, and compressed variants (.gz)
-    /// </summary>
-    private long CountAllLogLines(string logDirectory)
-    {
-        long totalLines = 0;
-
-        if (!Directory.Exists(logDirectory))
-        {
-            return 0;
-        }
-
-        try
-        {
-            // Find all files matching access.log* pattern (same as Rust processor)
-            var logFiles = Directory.GetFiles(logDirectory, "access.log*")
-                .OrderBy(f => f) // Sort for consistent ordering
-                .ToList();
-
-            foreach (var logFile in logFiles)
-            {
-                try
-                {
-                    var fileName = Path.GetFileName(logFile).ToLowerInvariant();
-
-                    // Skip .zst files (not commonly used and would require additional library)
-                    if (fileName.EndsWith(".zst"))
-                    {
-                        _logger.LogDebug("Skipping .zst file (not supported): {File}", logFile);
-                        continue;
-                    }
-
-                    if (fileName.EndsWith(".gz"))
-                    {
-                        // Handle gzip-compressed files
-                        totalLines += CountGzipLines(logFile);
-                    }
-                    else
-                    {
-                        // Handle plain text files
-                        totalLines += CountLines(logFile);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    // Skip corrupted files (same as Rust processor behavior)
-                    _logger.LogWarning(ex, "Skipping corrupted log file {File}", logFile);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error enumerating log files in {Directory}", logDirectory);
-        }
-
-        return totalLines;
+        return await ResetPositionCoreAsync(
+            datasourceName: null,
+            requestedPosition: request?.Position,
+            cancellationToken);
     }
 
     /// <summary>
     /// GET /api/logs/positions - Get log positions for all datasources
     /// </summary>
     [HttpGet("positions")]
-    public IActionResult GetLogPositions()
+    public async Task<IActionResult> GetLogPositionsAsync(
+        CancellationToken cancellationToken = default)
     {
         var datasources = _datasourceService.GetDatasources();
         var positions = new List<object>();
@@ -277,20 +193,23 @@ public class LogsController : ControllerBase
         {
             var position = _stateRepository.GetLogPosition(ds.Name);
 
-            // Use saved totalLines from Rust processor (avoids C# recounting)
-            // Falls back to counting if no saved value (e.g., first run before processing)
+            // Use saved totalLines from Rust processor (avoids recounting). On the first run,
+            // use the same focused Rust line-count command as reset-to-end; failures propagate
+            // instead of masquerading as a required zero value.
             var totalLines = _stateRepository.GetLogTotalLines(ds.Name);
             if (totalLines == 0 && position == 0)
             {
-                // No saved value and position is 0 - count files as fallback
-                totalLines = CountAllLogLines(ds.LogPath);
+                var countResult = await _rustProcessHelper.CountLogLinesAsync(
+                    ds.LogPath,
+                    cancellationToken);
+                totalLines = countResult.LinesProcessed;
             }
 
             positions.Add(new
             {
                 datasource = ds.Name,
-                position = position,
-                totalLines = totalLines,
+                position,
+                totalLines,
                 logPath = ds.LogPath,
                 enabled = ds.Enabled
             });
@@ -303,7 +222,10 @@ public class LogsController : ControllerBase
     /// PATCH /api/logs/position/{datasourceName} - Reset position for a specific datasource
     /// </summary>
     [HttpPatch("position/{datasourceName}")]
-    public IActionResult ResetDatasourceLogPosition(string datasourceName, [FromBody] UpdateLogPositionRequest? request)
+    public async Task<IActionResult> ResetDatasourceLogPositionAsync(
+        string datasourceName,
+        [FromBody] UpdateLogPositionRequest? request,
+        CancellationToken cancellationToken = default)
     {
         var datasource = _datasourceService.GetDatasource(datasourceName);
         if (datasource == null)
@@ -311,7 +233,10 @@ public class LogsController : ControllerBase
             return NotFound(new NotFoundResponse { Error = $"Datasource '{datasourceName}' not found" });
         }
 
-        return ResetPositionCore(datasourceName: datasourceName, requestedPosition: request?.Position);
+        return await ResetPositionCoreAsync(
+            datasourceName,
+            request?.Position,
+            cancellationToken);
     }
 
     /// <summary>
@@ -472,11 +397,15 @@ public class LogsController : ControllerBase
     /// When <paramref name="datasourceName"/> is null, operates across all datasources.
     /// If <paramref name="requestedPosition"/> is 0, resets to beginning; otherwise resets to end of file.
     /// </summary>
-    private OkObjectResult ResetPositionCore(string? datasourceName, long? requestedPosition)
+    private async Task<OkObjectResult> ResetPositionCoreAsync(
+        string? datasourceName,
+        long? requestedPosition,
+        CancellationToken cancellationToken)
     {
         var isSingleDatasource = datasourceName != null;
 
-        // Position == 0 → reset to beginning
+        // Position == 0 -> reset to beginning. This remains state-only and deliberately does not
+        // launch the Rust line counter.
         if (requestedPosition == 0)
         {
             if (isSingleDatasource)
@@ -499,8 +428,6 @@ public class LogsController : ControllerBase
             });
         }
 
-        // Otherwise reset to end of file - count lines across ALL log files
-        // This matches the Rust processor behavior which processes all rotated logs
         IEnumerable<ResolvedDatasource> datasources = isSingleDatasource
             ? new[] { _datasourceService.GetDatasource(datasourceName!)! }
             : _datasourceService.GetDatasources();
@@ -508,8 +435,13 @@ public class LogsController : ControllerBase
         long totalLines = 0;
         foreach (var ds in datasources)
         {
-            var lineCount = CountAllLogLines(ds.LogPath);
-            // Save both position AND totalLines so they stay in sync
+            // Persist only after this datasource's Rust process has completed successfully. A
+            // failure or cancellation therefore cannot overwrite its state with a fallback zero.
+            var countResult = await _rustProcessHelper.CountLogLinesAsync(
+                ds.LogPath,
+                cancellationToken);
+            var lineCount = countResult.LinesProcessed;
+
             _stateRepository.SetLogPosition(ds.Name, lineCount);
             _stateRepository.SetLogTotalLines(ds.Name, lineCount);
             totalLines += lineCount;
@@ -701,7 +633,9 @@ public class LogsController : ControllerBase
     /// This is a destructive operation that removes all log history for the datasource
     /// </summary>
     [HttpDelete("datasources/{datasourceName}/file")]
-    public async Task<IActionResult> DeleteLogFileAsync(string datasourceName)
+    public async Task<IActionResult> DeleteLogFileAsync(
+        string datasourceName,
+        CancellationToken cancellationToken = default)
     {
         var datasource = _datasourceService.GetDatasource(datasourceName);
         if (datasource == null)
@@ -715,47 +649,37 @@ public class LogsController : ControllerBase
         }
 
         var accessLogPath = Path.Combine(datasource.LogPath, "access.log");
-
         if (!System.IO.File.Exists(accessLogPath))
         {
             return NotFound(new NotFoundResponse { Error = $"Log file not found: {accessLogPath}" });
         }
 
-        try
+        // C# retains authorization, datasource/read-only validation, state, and nginx
+        // orchestration. Rust performs only the validated leaf-file mutation.
+        var deletion = await _rustProcessHelper.DeleteLogFileAsync(
+            accessLogPath,
+            cancellationToken);
+
+        _stateRepository.SetLogPosition(datasourceName, 0);
+        _stateRepository.SetLogTotalLines(datasourceName, 0);
+
+        _logger.LogInformation(
+            "Deleted log file for datasource '{Datasource}': {Path} ({Size} bytes)",
+            datasourceName,
+            accessLogPath,
+            deletion.BytesDeleted);
+
+        // Reopening nginx remains best-effort after a successful deletion.
+        var rotationResult = await _nginxLogRotationService.ReopenNginxLogsAsync();
+        if (!rotationResult.Success)
         {
-            // Get file size before deletion for logging
-            var fileInfo = new FileInfo(accessLogPath);
-            var fileSize = fileInfo.Length;
-
-            // Delete the file
-            System.IO.File.Delete(accessLogPath);
-
-            // Reset the log position to 0 for this datasource
-            _stateRepository.SetLogPosition(datasourceName, 0);
-            _stateRepository.SetLogTotalLines(datasourceName, 0);
-
-            _logger.LogInformation(
-                "Deleted log file for datasource '{Datasource}': {Path} ({Size} bytes)",
-                datasourceName, accessLogPath, fileSize);
-
-            // Signal nginx to reopen logs (if docker socket is available)
-            var rotationResult = await _nginxLogRotationService.ReopenNginxLogsAsync();
-            if (!rotationResult.Success)
-            {
-                _logger.LogWarning("Failed to signal nginx to reopen logs: {Error}", rotationResult.ErrorMessage);
-                // Don't fail the operation - the file was deleted successfully
-            }
-
-            return Ok(new MessageResponse
-            {
-                Message = $"Log file deleted successfully for datasource '{datasourceName}'"
-            });
+            _logger.LogWarning("Failed to signal nginx to reopen logs: {Error}", rotationResult.ErrorMessage);
         }
-        catch (IOException ex)
+
+        return Ok(new MessageResponse
         {
-            _logger.LogError(ex, "Failed to delete log file: {Path}", accessLogPath);
-            throw; // -> GlobalExceptionMiddleware -> 500 safe message (IOException-mapped)
-        }
+            Message = $"Log file deleted successfully for datasource '{datasourceName}'"
+        });
     }
 
     /// <summary>
