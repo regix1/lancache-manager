@@ -1341,7 +1341,13 @@ class ApiService {
     threshold = 3,
     compareToCacheLogs = true,
     detectionMode = 'miss_count'
-  ): Promise<{ operationId: string; message: string; status: string; queued?: boolean; alreadyRunning?: boolean }> {
+  ): Promise<{
+    operationId: string;
+    message: string;
+    status: string;
+    queued?: boolean;
+    alreadyRunning?: boolean;
+  }> {
     try {
       const res = await fetch(
         `${API_BASE}/cache/corruption/detect?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}&detectionMode=${detectionMode}`,
@@ -1350,9 +1356,13 @@ class ApiService {
           headers: { 'Content-Type': 'application/json' }
         })
       );
-      return await this.handleResponse<{ operationId: string; message: string; status: string; queued?: boolean; alreadyRunning?: boolean }>(
-        res
-      );
+      return await this.handleResponse<{
+        operationId: string;
+        message: string;
+        status: string;
+        queued?: boolean;
+        alreadyRunning?: boolean;
+      }>(res);
     } catch (error: unknown) {
       console.error('startCorruptionDetection error:', error);
       throw error;
@@ -1604,9 +1614,7 @@ class ApiService {
   }
 
   // Remove all cache files for a specific service (fire-and-forget, requires auth)
-  static async removeServiceFromCache(
-    serviceName: string
-  ): Promise<{
+  static async removeServiceFromCache(serviceName: string): Promise<{
     message: string;
     serviceName: string;
     status: string;
