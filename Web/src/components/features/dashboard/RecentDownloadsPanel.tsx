@@ -193,6 +193,17 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
 
   const formattedTime = useFormattedDateTime(display.startTime);
 
+  // Shared hit-rate band so the simple and detailed views color the figure the
+  // same way (green = mostly served from cache, red = mostly missed).
+  const hitClass =
+    display.cacheHitPercent >= 75
+      ? 'high'
+      : display.cacheHitPercent >= 50
+        ? 'medium'
+        : display.cacheHitPercent >= 25
+          ? 'low'
+          : 'critical';
+
   const handleClick = useCallback(() => {
     // Service buckets use a synthesized display name ("Wsus Downloads") that the
     // downloads search can't match — search by the raw service instead.
@@ -215,7 +226,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
           <div className="rdl-row-name">
             {!detailed && <BadgesRow service={display.service} showDatasource={false} />}
             <span className="rdl-name-text">{display.name}</span>
-            {detailed && isGroup && display.count > 1 && (
+            {isGroup && display.count > 1 && (
               <span className="themed-badge status-badge-neutral badge-count">
                 {display.count}×
               </span>
@@ -251,28 +262,25 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
       <div className="rdl-row-stats">
         <div className="rdl-row-figures">
           <span className="rdl-row-size">{formatBytes(display.totalBytes)}</span>
-          {detailed && (
+          {detailed ? (
             <div className="rdl-row-subline">
               {diskSizeBytes ? (
                 <span className="rdl-row-sub">
                   {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })} ·
                 </span>
               ) : null}
-              <Tooltip
-                content={hitTooltip}
-                className={`rdl-hit ${
-                  display.cacheHitPercent >= 75
-                    ? 'high'
-                    : display.cacheHitPercent >= 50
-                      ? 'medium'
-                      : display.cacheHitPercent >= 25
-                        ? 'low'
-                        : 'critical'
-                }`}
-              >
+              <Tooltip content={hitTooltip} className={`rdl-hit ${hitClass}`}>
                 {formatPercent(display.cacheHitPercent)} {t('dashboard.downloadsPanel.hitLabel')}
               </Tooltip>
             </div>
+          ) : (
+            display.totalBytes > 0 && (
+              <div className="rdl-row-subline">
+                <Tooltip content={hitTooltip} className={`rdl-hit ${hitClass}`}>
+                  {formatPercent(display.cacheHitPercent)} {t('dashboard.downloadsPanel.hitLabel')}
+                </Tooltip>
+              </div>
+            )
           )}
         </div>
       </div>

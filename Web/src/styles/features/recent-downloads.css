@@ -329,10 +329,19 @@
   flex-shrink: 0;
 }
 
-.rdl-hit.high,
-.rdl-hit.medium,
+/* Semantic bands so cache performance is scannable across ten quiet rows:
+   good hit rates read green, degrade through neutral and amber to red. Kept as
+   tinted text (never a per-row pill) so the list stays calm. */
+.rdl-hit.high {
+  color: var(--theme-success-text);
+}
+
+.rdl-hit.medium {
+  color: var(--theme-text-secondary);
+}
+
 .rdl-hit.low {
-  color: var(--theme-text-muted);
+  color: var(--theme-warning-text);
 }
 
 /* Evicted badges in the recent list keep the badge format but go tonal:
@@ -350,7 +359,7 @@
 }
 
 .rdl-hit.critical {
-  color: var(--theme-error);
+  color: var(--theme-error-text);
 }
 
 /* Narrow containers: the stats no longer fit beside the name without crushing
