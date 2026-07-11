@@ -17,7 +17,6 @@ import { Button } from '@components/ui/Button';
 import { showPermissionBlock } from '@utils/permissionUi';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
-import { Tooltip } from '@components/ui/Tooltip';
 import { ReadOnlyBadge } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
@@ -373,30 +372,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
             <>
               {/* Cache Size Info */}
               <div className="space-y-3">
-                <div className="mgmt-toolbar">
-                  <p className="mgmt-subhead">{t('management.cache.cacheSize')}</p>
-                  <div className="flex-shrink-0">
-                    <Tooltip content={t('management.cache.refreshCacheSize')} position="top">
-                      <Button
-                        variant="filled"
-                        color="gray"
-                        size="sm"
-                        onClick={handleRefreshCacheSize}
-                        disabled={cacheSizeLoading || isAnyRemovalRunning || isCacheSizeScanRunning}
-                      >
-                        {cacheSizeLoading ? (
-                          <LoadingSpinner inline size="sm" />
-                        ) : (
-                          <RefreshCw className="w-3.5 h-3.5 text-themed-muted" />
-                        )}
-                      </Button>
-                    </Tooltip>
-                  </div>
-                </div>
+                <p className="mgmt-subhead">{t('management.cache.cacheSize')}</p>
 
-                {cacheSizeError ? (
-                  <p className="text-xs text-themed-error">{cacheSizeError}</p>
-                ) : cacheSizeLoading && !cacheSize ? (
+                {cacheSizeLoading && !cacheSize ? (
                   <div className="flex items-center gap-2 text-xs text-themed-muted">
                     <LoadingSpinner inline size="xs" />
                     <span>{t('management.cache.calculatingSize')}</span>

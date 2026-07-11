@@ -352,12 +352,12 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
           <div className="w-1 h-5 rounded-full bg-[var(--theme-primary)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
             {t('management.sections.clients.nicknames')}
-            {clientGroups.length > 0 && (
-              <span className="themed-badge status-badge-neutral badge-count">
-                {clientGroups.length}
-              </span>
-            )}
           </h3>
+          {clientGroups.length > 0 && (
+            <span className="themed-badge status-badge-neutral badge-count">
+              {clientGroups.length}
+            </span>
+          )}
         </div>
 
         {loading ? (
@@ -482,12 +482,12 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
             <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-orange)]" />
             <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
               {t('management.sections.clients.withoutNicknames')}
-              {!loadingClients && ungroupedClients.length > 0 && (
-                <span className="themed-badge status-badge-neutral badge-count">
-                  {ungroupedClients.length}
-                </span>
-              )}
             </h3>
+            {!loadingClients && ungroupedClients.length > 0 && (
+              <span className="themed-badge status-badge-neutral badge-count">
+                {ungroupedClients.length}
+              </span>
+            )}
           </div>
 
           <Card>
