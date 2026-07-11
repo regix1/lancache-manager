@@ -718,7 +718,7 @@ volumes:
 | 变量 | 默认值 | 描述 |
 |----------|---------|-------------|
 | `LanCache__EnvFilePath` | （自动） | lancache `.env` 文件的路径（用于读取 `CACHE_DISK_SIZE`）。未设置时会在常见位置搜索。 |
-| `LanCache__AutoDiscoverDatasources` | `false` | 从 `/cache` 和 `/logs` 下匹配的子目录自动检测数据源。 |
+| `LanCache__AutoDiscoverDatasources` | `false` | 从 `/cache` 和 `/logs` 下匹配的子目录自动检测数据源，最多向下三层。 |
 
 如果你运行多个缓存实例，或者把不同服务分散在多个驱动器上，请参见[多数据源](#multiple-datasources)。
 
@@ -826,7 +826,7 @@ services:
 
       # --- 路径与数据源 ---
       # - LanCache__EnvFilePath=/lancache/.env    # 未设置 = 自动搜索常见位置
-      # - LanCache__AutoDiscoverDatasources=false # 扫描 /cache 和 /logs 下的匹配子目录
+      # - LanCache__AutoDiscoverDatasources=false # 扫描 /cache 和 /logs 下的匹配子目录，最多三层
       # 多数据源会替代上面的 LogPath/CachePath。保持编号连续，
       # 并按同样的方式添加更多：__2__、__3__……
       # - LanCache__DataSources__0__Name=Default
@@ -881,30 +881,35 @@ environment:
   - LanCache__AutoDiscoverDatasources=true
 ```
 
-会检测两种情况：
+自动发现会同时遍历你配置的缓存路径和日志路径，逐层向下最多搜索三层子目录——这是一个固定的内部上限，不能配置。只要某一层的缓存和日志两侧都有实际内容，这一对就会被记录为一个数据源；记录之后并不会阻止继续搜索它的子目录：
 
-1. **根级数据源**——如果 `/logs/access.log` 存在，且 `/cache` 中包含 LANCache 的哈希目录（`00/`、`01/` 等），就会创建一个 "Default" 数据源。
-2. **子目录数据源**——对于同时存在于 `/cache` 和 `/logs` 中的每个文件夹，都会创建一个以该文件夹命名的数据源（例如 `/cache/steam` + `/logs/steam` 会变成 "Steam"）。
+1. **根目录**——如果 `/logs/access.log` 存在，且 `/cache` 中包含 LANCache 的哈希目录（`00/`、`01/` 等），根目录会成为 "Default"。
+2. **嵌套文件夹**——根目录下任何匹配成功的缓存/日志文件夹对，都会创建一个以该缓存文件夹命名的数据源（例如 `/cache/steam` + `/logs/steam` → "Steam"），无论它是唯一被发现的一个还是其中之一，也无论它位于第 1 到第 3 层的哪一层。
+3. **第 4 层及更深处永远不会被扫描**——请把文件夹上移一层，或改用手动配置。
 
-文件夹匹配不区分大小写：`Steam`、`steam` 和 `STEAM` 都能匹配。
+匹配顺序是先精确匹配，再忽略大小写，最后做归一化匹配（会忽略短横线、下划线以及末尾的 "s"）。如果同一层的缓存和日志文件夹名称不一致，但两侧都恰好只有一个子文件夹，这一对仍会被匹配上——这样命名不同的中间包装文件夹就不会阻断发现；但两个各自已经是有效、且命名不同的数据源文件夹永远不会被交叉配对。隐藏/系统文件夹、LANCache 的两字符哈希桶、符号链接以及无法读取的分支都会被跳过，且不会影响其他同级目录继续搜索。如果某个名称与已发现的数据源重名，会被跳过并记录日志，而不是悄悄覆盖已有的数据源；如果任何地方都没有发现有效结构，应用会回退到使用你配置的路径构建单个 `default` 数据源。
 
-创建三个数据源（Default、Steam、Epic）的示例目录结构：
+带分组父目录的示例布局，仍然只创建三个数据源（Default、Steam、Epic）：
 
 ```
 /mnt/lancache/
 ├── cache/
-│   ├── 00/, 01/, a1/, ff/    ← 默认缓存（哈希目录在根级）
-│   ├── steam/
-│   │   └── 00/, 01/, ...     ← 外包的 Steam
-│   └── epic/
-│       └── 00/, 01/, ...     ← 外包的 Epic
+│   ├── 00/, 01/, a1/, ff/       ← 默认缓存（哈希目录在根级，第 0 层）
+│   └── outsourced/
+│       ├── steam/
+│       │   └── 00/, 01/, ...    ← Steam，第 2 层
+│       └── epic/
+│           └── 00/, 01/, ...    ← Epic，第 2 层
 └── logs/
-    ├── access.log            ← 默认日志
-    ├── steam/
-    │   └── access.log        ← Steam 日志
-    └── epic/
-        └── access.log        ← Epic 日志
+    ├── access.log               ← 默认日志
+    └── outsourced/
+        ├── steam/
+        │   └── access.log       ← Steam 日志
+        └── epic/
+            └── access.log       ← Epic 日志
 ```
+
+如果一个文件夹有哈希目录，但同一层级下没有对应的日志文件夹（反之亦然），会被跳过——这不是一个有效的配对，因此它不会成为数据源，也不会报错。如果驱动器或目录结构过于不对称，自动发现无法正确配对，请改用下面的手动配置显式声明数据源。
 
 #### 手动配置
 

@@ -13,6 +13,12 @@ public class DatasourceService
 {
     private static readonly Regex _datasourceNameRegex = new("^[A-Za-z0-9._-]+$", RegexOptions.Compiled);
 
+    /// <summary>
+    /// Maximum descendant depth auto-discovery will search below the configured root.
+    /// Root is depth 0; depths 1-3 are eligible; children are never enumerated from depth 3.
+    /// </summary>
+    private const int MaxDiscoveryDepth = 3;
+
     private static bool IsValidDatasourceName(string name) =>
         !string.IsNullOrWhiteSpace(name) && _datasourceNameRegex.IsMatch(name);
 
@@ -129,14 +135,14 @@ public class DatasourceService
     }
 
     /// <summary>
-    /// Discover datasources by scanning cache and logs folders.
-    /// - Detects "Default" datasource if access.log exists at root level
-    /// - Detects subdirectory datasources if matching folders exist in BOTH cache and logs
+    /// Discover datasources by walking paired cache/log directories from the configured root
+    /// through up to <see cref="MaxDiscoveryDepth"/> descendant levels.
+    /// - Root (depth 0) becomes "Default" when it has valid top-level log/cache content.
+    /// - Each valid nested pair (depths 1-3) is named from its cache leaf, as today.
+    /// - A valid pair does not stop descent; eligible children are still explored below it.
     /// </summary>
     private List<DatasourceConfig> DiscoverDatasources()
     {
-        var discovered = new List<DatasourceConfig>();
-
         var baseCachePath = _pathResolver.ResolvePath(
             _configuration["LanCache:CachePath"] ?? "cache");
         var baseLogsPath = _pathResolver.ResolvePath(
@@ -147,78 +153,173 @@ public class DatasourceService
         if (!Directory.Exists(baseCachePath))
         {
             _logger.LogWarning("Auto-discovery: Cache directory does not exist: {Path}", baseCachePath);
-            return discovered;
+            return new List<DatasourceConfig>();
         }
 
         if (!Directory.Exists(baseLogsPath))
         {
             _logger.LogWarning("Auto-discovery: Logs directory does not exist: {Path}", baseLogsPath);
-            return discovered;
+            return new List<DatasourceConfig>();
         }
 
-        // Check for root-level "Default" datasource
-        // If there's an access.log at the root AND cache has content, create Default datasource
-        if (HasRootLevelLogFile(baseLogsPath) && HasCacheContent(baseCachePath))
+        var candidates = new List<DiscoveryCandidate>();
+        var queue = new Queue<(string CachePath, string LogPath, int Depth, string RelativePath)>();
+        queue.Enqueue((baseCachePath, baseLogsPath, 0, string.Empty));
+
+        while (queue.Count > 0)
         {
-            discovered.Add(new DatasourceConfig
+            var (cachePath, logPath, depth, relativePath) = queue.Dequeue();
+            var isRoot = depth == 0;
+
+            if (HasRootLevelLogFile(logPath) && HasCacheContent(cachePath))
             {
-                Name = "Default",
-                CachePath = baseCachePath,
-                LogPath = baseLogsPath,
-                Enabled = true
-            });
-
-            _logger.LogDebug("Auto-discovery found root-level Default datasource: Cache={Cache}, Logs={Logs}",
-                baseCachePath, baseLogsPath);
-        }
-
-        // Scan subdirectories for additional datasources
-        foreach (var cacheSubdir in Directory.GetDirectories(baseCachePath))
-        {
-            var subdirName = Path.GetFileName(cacheSubdir);
-
-            // Skip hidden directories and common non-datasource folders
-            if (subdirName.StartsWith(".") || subdirName.StartsWith("_"))
-                continue;
-
-            // Skip LANCache hash directories (2 character hex names like 00, 01, a1, ff)
-            // These are cache content, not datasource subdirectories
-            if (IsLanCacheHashDirectory(subdirName))
-                continue;
-
-            // Try to find matching logs subdirectory (handles naming variations)
-            var logsSubdir = FindMatchingLogsDirectory(baseLogsPath, subdirName);
-
-            if (logsSubdir != null)
-            {
-                var displayName = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(subdirName.ToLower());
-
-                if (!IsValidDatasourceName(displayName))
+                var name = isRoot ? "Default" : BuildNestedDatasourceName(cachePath);
+                if (name != null)
                 {
-                    _logger.LogWarning(
-                        "Auto-discovery skipping subdirectory '{Name}': name contains disallowed characters (only letters, digits, dots, hyphens, and underscores are permitted)",
-                        displayName);
-                    continue;
+                    candidates.Add(new DiscoveryCandidate(name, cachePath, logPath, depth, relativePath));
+                    _logger.LogDebug("Auto-discovery found valid pair: {Name} (cache: {Cache}, logs: {Logs}, depth: {Depth})",
+                        name, cachePath, logPath, depth);
                 }
+            }
 
-                discovered.Add(new DatasourceConfig
+            if (depth < MaxDiscoveryDepth)
+            {
+                foreach (var (childCache, childLog) in GetChildPairs(cachePath, logPath))
                 {
-                    Name = displayName,
-                    CachePath = cacheSubdir,
-                    LogPath = logsSubdir,
-                    Enabled = true
-                });
-
-                _logger.LogDebug("Auto-discovery found matching pair: {Name} (cache: {Cache}, logs: {Logs})",
-                    displayName, cacheSubdir, logsSubdir);
+                    var childName = Path.GetFileName(childCache);
+                    var childRelativePath = relativePath.Length == 0 ? childName : $"{relativePath}/{childName}";
+                    queue.Enqueue((childCache, childLog, depth + 1, childRelativePath));
+                }
             }
         }
 
+        // Deduplicate by name (case-insensitive): shallower depth wins, then lexically earlier
+        // normalized relative path. Later duplicates warn and are skipped.
+        var deduped = new Dictionary<string, DiscoveryCandidate>(StringComparer.OrdinalIgnoreCase);
+        foreach (var candidate in candidates
+            .OrderBy(c => c.Depth)
+            .ThenBy(c => NormalizeRelativePath(c.RelativePath), StringComparer.Ordinal))
+        {
+            if (deduped.TryGetValue(candidate.Name, out var existing))
+            {
+                _logger.LogWarning(
+                    "Auto-discovery skipping duplicate datasource name '{Name}' at {Path} (already using {ExistingPath})",
+                    candidate.Name, candidate.CachePath, existing.CachePath);
+                continue;
+            }
+
+            deduped[candidate.Name] = candidate;
+        }
+
         // Sort by name for consistent ordering, but keep Default first
-        return discovered
-            .OrderBy(d => d.Name == "Default" ? 0 : 1)
-            .ThenBy(d => d.Name)
+        return deduped.Values
+            .OrderBy(c => c.Name == "Default" ? 0 : 1)
+            .ThenBy(c => c.Name, StringComparer.Ordinal)
+            .Select(c => new DatasourceConfig
+            {
+                Name = c.Name,
+                CachePath = c.CachePath,
+                LogPath = c.LogPath,
+                Enabled = true
+            })
             .ToList();
+    }
+
+    /// <summary>
+    /// Build the display name for a valid nested (non-root) datasource pair from its cache leaf.
+    /// Returns null (and logs a warning) when the name is reserved for the root ("default") or
+    /// contains disallowed characters, so the caller skips recording without aborting traversal.
+    /// </summary>
+    private string? BuildNestedDatasourceName(string cachePath)
+    {
+        var leaf = Path.GetFileName(cachePath);
+
+        // "Default" is reserved for the root pair; a nested leaf named "default" would
+        // otherwise shadow it. Its content is already reachable via the root.
+        if (string.Equals(leaf, "default", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning(
+                "Auto-discovery skipping nested datasource at '{Path}': the name 'default' is reserved for the root datasource",
+                cachePath);
+            return null;
+        }
+
+        var displayName = CultureInfo.InvariantCulture.TextInfo.ToTitleCase(leaf.ToLowerInvariant());
+
+        if (!IsValidDatasourceName(displayName))
+        {
+            _logger.LogWarning(
+                "Auto-discovery skipping subdirectory '{Name}': name contains disallowed characters (only letters, digits, dots, hyphens, and underscores are permitted)",
+                displayName);
+            return null;
+        }
+
+        return displayName;
+    }
+
+    /// <summary>
+    /// Find eligible child cache/log directory pairs directly under a paired parent, for
+    /// enqueueing at the next depth. Matches exact, then case-insensitive, then normalized
+    /// names via <see cref="FindMatchingLogsDirectory"/>. When both parents have exactly one
+    /// eligible child that did not match by name, the two are paired as an unnamed wrapper
+    /// level, unless both are already independently content-valid leaves (which would be an
+    /// unrelated cross-pair, e.g. a valid "steam" cache leaf next to a valid "epic" log leaf).
+    /// </summary>
+    private List<(string CachePath, string LogPath)> GetChildPairs(string parentCachePath, string parentLogPath)
+    {
+        var cacheChildren = GetEligibleChildDirectories(parentCachePath);
+        var logChildren = GetEligibleChildDirectories(parentLogPath);
+        var pairs = new List<(string CachePath, string LogPath)>();
+
+        foreach (var cacheChild in cacheChildren)
+        {
+            var logMatch = FindMatchingLogsDirectory(parentLogPath, Path.GetFileName(cacheChild));
+            if (logMatch != null)
+            {
+                pairs.Add((cacheChild, logMatch));
+            }
+        }
+
+        if (pairs.Count == 0 && cacheChildren.Count == 1 && logChildren.Count == 1)
+        {
+            var singleCache = cacheChildren[0];
+            var singleLog = logChildren[0];
+            var bothAlreadyValidLeaves = HasCacheContent(singleCache) && HasRootLevelLogFile(singleLog);
+
+            if (!bothAlreadyValidLeaves)
+            {
+                pairs.Add((singleCache, singleLog));
+            }
+        }
+
+        return pairs;
+    }
+
+    /// <summary>
+    /// List immediate subdirectories eligible for traversal: not hidden/underscore-prefixed,
+    /// not a LANCache hash bucket, and not a reparse point/symlink. Returns an empty list both
+    /// when there are no eligible children AND when enumeration fails (logged as a warning) -
+    /// the two cases are indistinguishable to the caller by design, matching the sibling helpers.
+    /// </summary>
+    private List<string> GetEligibleChildDirectories(string parentPath)
+    {
+        try
+        {
+            return Directory.GetDirectories(parentPath)
+                .Where(dir =>
+                {
+                    var name = Path.GetFileName(dir);
+                    return !IsHiddenOrUnderscoreName(name)
+                        && !IsLanCacheHashDirectory(name)
+                        && !IsReparsePoint(dir);
+                })
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error enumerating child directories in {Path}", parentPath);
+            return new List<string>();
+        }
     }
 
     /// <summary>
@@ -303,6 +404,30 @@ public class DatasourceService
     }
 
     /// <summary>
+    /// Check if a directory name is hidden (dot-prefixed) or underscore-prefixed, and therefore
+    /// excluded from traversal at every depth.
+    /// </summary>
+    private static bool IsHiddenOrUnderscoreName(string name) =>
+        name.StartsWith(".") || name.StartsWith("_");
+
+    /// <summary>
+    /// Check if a filesystem entry is a reparse point (symlink/junction), excluded from
+    /// traversal at every depth to avoid cycles. Inaccessible entries are treated as not a
+    /// reparse point; enumeration failures at the parent level are handled by the caller.
+    /// </summary>
+    private static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Find a matching logs directory for a given cache subdirectory name.
     /// Uses case-insensitive matching and normalized name comparison.
     /// Returns null both when no match is found AND when the directory scan fails (logged as a
@@ -312,23 +437,27 @@ public class DatasourceService
     {
         // Try exact match first
         var exactMatch = Path.Combine(baseLogsPath, cacheSubdirName);
-        if (Directory.Exists(exactMatch))
+        if (Directory.Exists(exactMatch) && !IsReparsePoint(exactMatch))
         {
             return exactMatch;
         }
 
-        // Scan all directories and find case-insensitive or normalized matches
+        // Scan all directories and find case-insensitive or normalized matches. Order the
+        // eligible directories by ordinal name so an ambiguous layout (two normalized-equal
+        // log dirs) always resolves to the same winner regardless of filesystem enumeration
+        // order. Exact and case-insensitive matches are still preferred over normalized ones.
         try
         {
-            var logsDirectories = Directory.GetDirectories(baseLogsPath);
+            var logsDirectories = Directory.GetDirectories(baseLogsPath)
+                .OrderBy(Path.GetFileName, StringComparer.Ordinal);
             var normalizedCacheName = NormalizeName(cacheSubdirName);
 
             foreach (var logsDir in logsDirectories)
             {
                 var logsDirName = Path.GetFileName(logsDir);
 
-                // Skip hash directories
-                if (IsLanCacheHashDirectory(logsDirName))
+                // Skip hash directories, hidden/underscore directories, and reparse points/symlinks
+                if (IsLanCacheHashDirectory(logsDirName) || IsHiddenOrUnderscoreName(logsDirName) || IsReparsePoint(logsDir))
                     continue;
 
                 // Case-insensitive exact match
@@ -373,6 +502,19 @@ public class DatasourceService
         }
 
         return normalized;
+    }
+
+    /// <summary>
+    /// Normalize a relative discovery path (segments joined by '/') for deterministic duplicate
+    /// tie-breaking, by normalizing each segment the same way single directory names are
+    /// normalized for matching.
+    /// </summary>
+    private static string NormalizeRelativePath(string relativePath)
+    {
+        if (string.IsNullOrEmpty(relativePath))
+            return string.Empty;
+
+        return string.Join('/', relativePath.Split('/').Select(NormalizeName));
     }
 
     /// <summary>
@@ -556,3 +698,9 @@ public class DatasourceInfo
     public bool LogsWritable { get; set; }
     public bool Enabled { get; set; }
 }
+
+/// <summary>
+/// A candidate datasource pair discovered during bounded auto-discovery traversal, before
+/// deduplication. Carries the depth and relative path used to resolve duplicate-name priority.
+/// </summary>
+internal sealed record DiscoveryCandidate(string Name, string CachePath, string LogPath, int Depth, string RelativePath);

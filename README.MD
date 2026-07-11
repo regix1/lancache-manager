@@ -710,7 +710,7 @@ Prefill auto-detects the right values for almost everything in this table. Three
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LanCache__EnvFilePath` | (auto) | Path to the lancache `.env` file (used to read `CACHE_DISK_SIZE`). Searches common locations if unset. |
-| `LanCache__AutoDiscoverDatasources` | `false` | Auto-detect datasources from matching subdirectories under `/cache` and `/logs`. |
+| `LanCache__AutoDiscoverDatasources` | `false` | Auto-detect datasources from matching subdirectories under `/cache` and `/logs`, up to three levels deep. |
 
 If you run more than one cache instance or split services across drives, see [Multiple Datasources](#multiple-datasources).
 
@@ -818,7 +818,7 @@ services:
 
       # --- Paths and datasources ---
       # - LanCache__EnvFilePath=/lancache/.env    # unset = auto-search common locations
-      # - LanCache__AutoDiscoverDatasources=false # scan /cache and /logs for matching subfolders
+      # - LanCache__AutoDiscoverDatasources=false # scan /cache and /logs for matching subfolders, up to 3 levels deep
       # Multiple datasources replace LogPath/CachePath above. Keep the numbers
       # contiguous and add more the same way: __2__, __3__, ...
       # - LanCache__DataSources__0__Name=Default
@@ -873,30 +873,35 @@ environment:
   - LanCache__AutoDiscoverDatasources=true
 ```
 
-Two things get detected:
+Discovery walks the configured cache and log paths together, level by level, down to three levels of subfolders below the root - a fixed internal limit, not something you configure. A pair is recorded as a datasource whenever both sides have real content, and recording one doesn't stop its children from also being searched:
 
-1. **Root-level datasource** - if `/logs/access.log` exists and `/cache` contains LANCache hash directories (`00/`, `01/`, etc.), it creates a "Default" datasource.
-2. **Subdirectory datasources** - for each folder that exists in *both* `/cache` and `/logs`, it creates a named datasource (e.g., `/cache/steam` + `/logs/steam` becomes "Steam").
+1. **Root** - if `/logs/access.log` exists and `/cache` contains LANCache hash directories (`00/`, `01/`, etc.), the root becomes "Default".
+2. **Nested folders** - any matched cache/log pair below the root becomes a datasource named after its cache folder (e.g., `/cache/steam` + `/logs/steam` → "Steam"), whether it's the only pair found or one of several, at any level from 1 to 3.
+3. **Level 4 and deeper is never scanned** - move the folder up, or configure it manually.
 
-Folder matching is case-insensitive: `Steam`, `steam`, and `STEAM` all match.
+Matching is exact, then case-insensitive, then normalized (dashes, underscores, and a trailing "s" are ignored). When a cache and log folder at the same level don't share a name but each has exactly one child, that single pair is still followed, so a differently-named wrapper folder doesn't block discovery - but two folders that are already valid, differently-named datasources are never cross-paired. Hidden and system folders, LANCache's two-character hash buckets, symlinks, and unreadable branches are skipped without stopping their siblings. A name that collides with one already found is skipped and logged instead of silently shadowing it; if nothing valid turns up anywhere, the app falls back to a single `default` datasource built from the paths you configured.
 
-Example layout that creates three datasources (Default, Steam, Epic):
+Example layout with a grouping parent folder, still three datasources (Default, Steam, Epic):
 
 ```
 /mnt/lancache/
 ├── cache/
-│   ├── 00/, 01/, a1/, ff/    ← Default cache (hash dirs at root)
-│   ├── steam/
-│   │   └── 00/, 01/, ...     ← Outsourced Steam
-│   └── epic/
-│       └── 00/, 01/, ...     ← Outsourced Epic
+│   ├── 00/, 01/, a1/, ff/       ← Default cache (hash dirs at root, level 0)
+│   └── outsourced/
+│       ├── steam/
+│       │   └── 00/, 01/, ...    ← Steam, level 2
+│       └── epic/
+│           └── 00/, 01/, ...    ← Epic, level 2
 └── logs/
-    ├── access.log            ← Default log
-    ├── steam/
-    │   └── access.log        ← Steam log
-    └── epic/
-        └── access.log        ← Epic log
+    ├── access.log               ← Default log
+    └── outsourced/
+        ├── steam/
+        │   └── access.log       ← Steam log
+        └── epic/
+            └── access.log       ← Epic log
 ```
+
+A folder with hash directories but no matching logs folder at the same level (or vice versa) is skipped - not a valid pairing, so it never becomes a datasource, and nothing errors. For drives or layouts too asymmetric for auto-discovery to pair correctly, declare datasources explicitly - see Manual configuration below.
 
 #### Manual configuration
 

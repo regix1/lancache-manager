@@ -235,7 +235,8 @@ services:
       # - /mnt/steam-drive/cache:/steam-cache:ro
       # - /mnt/steam-drive/logs:/steam-logs:ro
 
-      # Auto-detect datasources by scanning for matching subdirectories
+      # Auto-detect datasources by scanning for matching subdirectories,
+      # up to three levels below the configured path (fixed internal limit)
       # Scans /cache and /logs for folders that exist in both locations
       # Example: /cache/steam + /logs/steam → creates "Steam" datasource
       # - LanCache__AutoDiscoverDatasources=true
