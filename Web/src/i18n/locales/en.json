@@ -2448,12 +2448,14 @@
       "evidenceCount": "Evidence:",
       "retryEvidenceLabel": "Retry client and window:",
       "retryEvidence": "{{client}} · {{first}}–{{last}}",
-      "reviewOnlyTitle": "Review-only scan",
-      "reviewOnlyShort": "Review only",
-      "reviewOnlyDescription": "These {{count}} review findings are evidence for inspection only. No destructive action is available for them.",
+      "reviewOnlyTitle": "For inspection only",
+      "reviewOnlyDescription": "These {{count}} findings are for inspection only and can't be removed, the cached file is already gone or was not verified on disk.",
       "reviewOnlyAction": "No removable suspects are available in this stored scan selection.",
-      "mixedReviewTitle": "Some findings require review",
-      "mixedReviewDescription": "These {{count}} review findings remain available for inspection and are excluded from every removal action.",
+      "mixedReviewTitle": "Some findings are inspection-only",
+      "mixedReviewDescription": "{{count}} of these findings can't be removed, the cached file is already gone or was not verified. Expand a service to see them grouped under \"Review only\".",
+      "removableSectionTitle": "Removable",
+      "reviewSectionTitle": "Review only",
+      "reviewSectionNote": "Shown for inspection. Nothing to remove here, the cached file is already gone or this is normal cache cleanup, not corruption.",
       "removableCount": "{{count}} removable",
       "reviewCount": "{{count}} review",
       "sliceKinds": {
@@ -2462,14 +2464,14 @@
         "ranged": "ranged slice"
       },
       "reasons": {
-        "repeated_miss_burst": "literal MISS burst on one physical slice",
-        "same_client_hit_retry_burst": "same-client HIT retry burst on one physical slice",
-        "missing_cached_slice": "missing cached slice with a present sibling at scan time"
+        "repeated_miss_burst": "Repeated cache misses on this piece",
+        "same_client_hit_retry_burst": "Same device re-downloaded this piece repeatedly",
+        "missing_cached_slice": "Cached piece missing while other pieces of this file remain"
       },
       "validationStates": {
-        "log_suspect": "log evidence only",
-        "exact_path_missing": "exact mapped path not present",
-        "exact_path_present": "exact mapped path present"
+        "log_suspect": "Log evidence only",
+        "exact_path_missing": "Cached file not on disk",
+        "exact_path_present": "Cached file on disk"
       },
       "noDetailsAvailable": "No stored evidence is available",
       "searchPlaceholder": "Search suspects by ID, URL, range, client, or path…",

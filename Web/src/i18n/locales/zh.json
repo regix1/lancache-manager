@@ -2448,12 +2448,14 @@
       "evidenceCount": "证据：",
       "retryEvidenceLabel": "重试客户端和时间窗口：",
       "retryEvidence": "{{client}} · {{first}}–{{last}}",
-      "reviewOnlyTitle": "仅供审核的扫描",
-      "reviewOnlyShort": "仅供审核",
-      "reviewOnlyDescription": "这 {{count}} 个审核发现仅供检查证据，不能对其执行破坏性操作。",
+      "reviewOnlyTitle": "仅供查看",
+      "reviewOnlyDescription": "这 {{count}} 项发现仅供查看，无法移除，缓存文件已不存在或未在磁盘上验证。",
       "reviewOnlyAction": "此已存储扫描选择中没有可移除的嫌疑项。",
-      "mixedReviewTitle": "部分发现需要审核",
-      "mixedReviewDescription": "这 {{count}} 个审核发现仍可供检查，并会从所有移除操作中排除。",
+      "mixedReviewTitle": "部分发现仅供查看",
+      "mixedReviewDescription": "其中 {{count}} 项发现无法移除，缓存文件已不存在或未经验证。展开某个服务即可看到它们归入“仅供审核”。",
+      "removableSectionTitle": "可移除",
+      "reviewSectionTitle": "仅供审核",
+      "reviewSectionNote": "仅供查看，此处无需移除，缓存文件已不存在或属于正常的缓存清理，并非损坏。",
       "removableCount": "{{count}} 个可移除",
       "reviewCount": "{{count}} 个待审核",
       "sliceKinds": {
@@ -2462,14 +2464,14 @@
         "ranged": "范围切片"
       },
       "reasons": {
-        "repeated_miss_burst": "一个物理切片上的字面 MISS 突发",
-        "same_client_hit_retry_burst": "同一客户端在一个物理切片上的 HIT 重试突发",
-        "missing_cached_slice": "扫描时存在同级切片的缓存切片缺失"
+        "repeated_miss_burst": "该分片反复缓存未命中",
+        "same_client_hit_retry_burst": "同一设备反复重新下载该分片",
+        "missing_cached_slice": "该分片缺失，但该文件的其他分片仍在"
       },
       "validationStates": {
         "log_suspect": "仅有日志证据",
-        "exact_path_missing": "精确映射路径不存在",
-        "exact_path_present": "精确映射路径存在"
+        "exact_path_missing": "缓存文件已不在磁盘",
+        "exact_path_present": "缓存文件在磁盘上"
       },
       "noDetailsAvailable": "无已存储证据",
       "searchPlaceholder": "按 ID、URL、范围、客户端或路径搜索嫌疑项…",
