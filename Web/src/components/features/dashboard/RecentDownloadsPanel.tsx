@@ -253,25 +253,25 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
           <span className="rdl-row-size">{formatBytes(display.totalBytes)}</span>
           {detailed && (
             <div className="rdl-row-subline">
-            {diskSizeBytes ? (
-              <span className="rdl-row-sub">
-                {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })} ·
-              </span>
-            ) : null}
-            <Tooltip
-              content={hitTooltip}
-              className={`rdl-hit ${
-                display.cacheHitPercent >= 75
-                  ? 'high'
-                  : display.cacheHitPercent >= 50
-                    ? 'medium'
-                    : display.cacheHitPercent >= 25
-                      ? 'low'
-                      : 'critical'
-              }`}
-            >
-              {formatPercent(display.cacheHitPercent)} {t('dashboard.downloadsPanel.hitLabel')}
-            </Tooltip>
+              {diskSizeBytes ? (
+                <span className="rdl-row-sub">
+                  {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })} ·
+                </span>
+              ) : null}
+              <Tooltip
+                content={hitTooltip}
+                className={`rdl-hit ${
+                  display.cacheHitPercent >= 75
+                    ? 'high'
+                    : display.cacheHitPercent >= 50
+                      ? 'medium'
+                      : display.cacheHitPercent >= 25
+                        ? 'low'
+                        : 'critical'
+                }`}
+              >
+                {formatPercent(display.cacheHitPercent)} {t('dashboard.downloadsPanel.hitLabel')}
+              </Tooltip>
             </div>
           )}
         </div>
@@ -562,6 +562,13 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         ? 'is-warning'
         : 'is-error';
 
+  // Footer readout only appears once there's real data to summarize, so an
+  // empty panel shows no placeholder strip (matches Service Analytics / Peak Usage).
+  const showFooterReadout =
+    viewMode === 'active'
+      ? hasActiveDownloads && activeGames.length > 0
+      : !loading && groupedItems.displayedItems.length > 0;
+
   return (
     <Card glassmorphism={glassmorphism} className="recent-downloads-panel">
       {/* Header */}
@@ -743,58 +750,61 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         </div>
       )}
 
-      {/* Labeled readout strip — pinned to the card bottom to mirror Service Analytics */}
-      <div className="dash-readout dash-readout--footer">
-        {viewMode === 'active' ? (
-          <>
-            <div className="dash-readout-item">
-              <div className={`dash-readout-value${hasActiveDownloads ? ' is-success' : ''}`}>
-                {hasActiveDownloads ? formatSpeed(totalSpeed) : '—'}
+      {/* Labeled readout strip, pinned to the card bottom to mirror Service Analytics.
+          Only shown once there's real data (no placeholder strip on an empty panel). */}
+      {showFooterReadout && (
+        <div className="dash-readout dash-readout--footer">
+          {viewMode === 'active' ? (
+            <>
+              <div className="dash-readout-item">
+                <div className={`dash-readout-value${hasActiveDownloads ? ' is-success' : ''}`}>
+                  {hasActiveDownloads ? formatSpeed(totalSpeed) : '—'}
+                </div>
+                <div className="dash-readout-label">{t('dashboard.downloadsPanel.speed')}</div>
               </div>
-              <div className="dash-readout-label">{t('dashboard.downloadsPanel.speed')}</div>
-            </div>
-            <div className="dash-readout-item">
-              <div className="dash-readout-value">{activeCount}</div>
-              <div className="dash-readout-label">
-                {t('dashboard.downloadsPanel.game', { count: activeCount })}
+              <div className="dash-readout-item">
+                <div className="dash-readout-value">{activeCount}</div>
+                <div className="dash-readout-label">
+                  {t('dashboard.downloadsPanel.game', { count: activeCount })}
+                </div>
               </div>
-            </div>
-            <div className="dash-readout-item">
-              <div className="dash-readout-value">
-                <span className="rdl-live-dot" />
-                {t('dashboard.downloadsPanel.live')}
-              </div>
-              <div className="dash-readout-label">{t('dashboard.downloadsPanel.period')}</div>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="dash-readout-item">
-              <div
-                className={`dash-readout-value${stats.totalBytes > 0 ? ` ${hitRateClass}` : ''}`}
-              >
-                {stats.totalBytes > 0 ? formatPercent(stats.overallHitRate) : '—'}
-              </div>
-              <div className="dash-readout-label">{t('dashboard.downloadsPanel.hitRate')}</div>
-            </div>
-            <div className="dash-readout-item">
-              <div className="dash-readout-value">{getTimeRangeLabel}</div>
-              <div className="dash-readout-label">{t('dashboard.downloadsPanel.period')}</div>
-            </div>
-            {groupedItems.totalGroups > 0 && (
               <div className="dash-readout-item">
                 <div className="dash-readout-value">
-                  {Math.min(displayCount, groupedItems.displayedItems.length)} /{' '}
-                  {groupedItems.totalGroups}
+                  <span className="rdl-live-dot" />
+                  {t('dashboard.downloadsPanel.live')}
                 </div>
-                <div className="dash-readout-label">
-                  {t('dashboard.downloadsPanel.showingLabel')}
-                </div>
+                <div className="dash-readout-label">{t('dashboard.downloadsPanel.period')}</div>
               </div>
-            )}
-          </>
-        )}
-      </div>
+            </>
+          ) : (
+            <>
+              <div className="dash-readout-item">
+                <div
+                  className={`dash-readout-value${stats.totalBytes > 0 ? ` ${hitRateClass}` : ''}`}
+                >
+                  {stats.totalBytes > 0 ? formatPercent(stats.overallHitRate) : '—'}
+                </div>
+                <div className="dash-readout-label">{t('dashboard.downloadsPanel.hitRate')}</div>
+              </div>
+              <div className="dash-readout-item">
+                <div className="dash-readout-value">{getTimeRangeLabel}</div>
+                <div className="dash-readout-label">{t('dashboard.downloadsPanel.period')}</div>
+              </div>
+              {groupedItems.totalGroups > 0 && (
+                <div className="dash-readout-item">
+                  <div className="dash-readout-value">
+                    {Math.min(displayCount, groupedItems.displayedItems.length)} /{' '}
+                    {groupedItems.totalGroups}
+                  </div>
+                  <div className="dash-readout-label">
+                    {t('dashboard.downloadsPanel.showingLabel')}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </Card>
   );
 };

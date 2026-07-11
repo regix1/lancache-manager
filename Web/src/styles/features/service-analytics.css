@@ -86,6 +86,15 @@
     max-height: none !important;
     height: 100%;
   }
+
+  /* Empty state fills the flexed scroll area so its icon + text center in the
+     darker well instead of pinning to the top. min-height (not height) keeps a
+     real, longer list free to grow past the viewport and scroll. */
+  .dashboard-analytics-row .recent-downloads-panel .rdl-list {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+  }
 }
 
 .service-chart-panel {

@@ -267,47 +267,50 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
           </div>
         )}
 
-        {/* Growth readout */}
-        <div className="dash-readout dash-readout--footer">
-          <div className="dash-readout-item">
-            <div className={`dash-readout-value${growthRatePerDay < 0 ? ' is-info' : ''}`}>
-              {growthRatePerDay > 0
-                ? `+${formatBytes(growthRatePerDay)}/day`
-                : growthRatePerDay < 0
-                  ? `-${formatBytes(Math.abs(growthRatePerDay))}/day`
-                  : t('widgets.cacheGrowthTrend.stable')}
+        {/* Growth readout — hidden until real trend data exists, so an empty
+            card shows no placeholder strip (matches Service Analytics / Peak Usage) */}
+        {sparklineData.length > 1 && (
+          <div className="dash-readout dash-readout--footer">
+            <div className="dash-readout-item">
+              <div className={`dash-readout-value${growthRatePerDay < 0 ? ' is-info' : ''}`}>
+                {growthRatePerDay > 0
+                  ? `+${formatBytes(growthRatePerDay)}/day`
+                  : growthRatePerDay < 0
+                    ? `-${formatBytes(Math.abs(growthRatePerDay))}/day`
+                    : t('widgets.cacheGrowthTrend.stable')}
+              </div>
+              <div className="dash-readout-label">
+                {isHistoricalView
+                  ? t('widgets.cacheGrowthTrend.avgGrowth')
+                  : cacheWasCleared
+                    ? t('widgets.cacheGrowthTrend.downloadRate')
+                    : hasDataDeletion
+                      ? t('widgets.cacheGrowthTrend.netGrowth.term')
+                      : t('widgets.cacheGrowthTrend.growthRate')}
+              </div>
             </div>
-            <div className="dash-readout-label">
-              {isHistoricalView
-                ? t('widgets.cacheGrowthTrend.avgGrowth')
-                : cacheWasCleared
-                  ? t('widgets.cacheGrowthTrend.downloadRate')
-                  : hasDataDeletion
-                    ? t('widgets.cacheGrowthTrend.netGrowth.term')
-                    : t('widgets.cacheGrowthTrend.growthRate')}
+            <div className="dash-readout-item">
+              <div className="dash-readout-value">
+                {daysUntilFull !== null && daysUntilFull > 0
+                  ? t('widgets.cacheGrowthTrend.days', { count: daysUntilFull })
+                  : daysUntilFull === 0
+                    ? t('widgets.cacheGrowthTrend.full')
+                    : isOverLimit
+                      ? t('widgets.cacheGrowthTrend.overLimit', {
+                          percent: usagePercent.toFixed(1)
+                        })
+                      : usagePercent > 0
+                        ? t('widgets.cacheGrowthTrend.used', { percent: usagePercent.toFixed(1) })
+                        : t('widgets.cacheGrowthTrend.empty')}
+              </div>
+              <div className="dash-readout-label">
+                {daysUntilFull !== null && daysUntilFull > 0
+                  ? t('widgets.cacheGrowthTrend.estFull')
+                  : t('widgets.cacheGrowthTrend.status')}
+              </div>
             </div>
           </div>
-          <div className="dash-readout-item">
-            <div className="dash-readout-value">
-              {daysUntilFull !== null && daysUntilFull > 0
-                ? t('widgets.cacheGrowthTrend.days', { count: daysUntilFull })
-                : daysUntilFull === 0
-                  ? t('widgets.cacheGrowthTrend.full')
-                  : isOverLimit
-                    ? t('widgets.cacheGrowthTrend.overLimit', {
-                        percent: usagePercent.toFixed(1)
-                      })
-                    : usagePercent > 0
-                      ? t('widgets.cacheGrowthTrend.used', { percent: usagePercent.toFixed(1) })
-                      : t('widgets.cacheGrowthTrend.empty')}
-            </div>
-            <div className="dash-readout-label">
-              {daysUntilFull !== null && daysUntilFull > 0
-                ? t('widgets.cacheGrowthTrend.estFull')
-                : t('widgets.cacheGrowthTrend.status')}
-            </div>
-          </div>
-        </div>
+        )}
       </div>
     );
   }

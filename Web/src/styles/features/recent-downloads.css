@@ -139,8 +139,14 @@
   background: var(--theme-bg-tertiary);
   border: 1px solid var(--theme-border-well);
   border-radius: var(--theme-border-radius);
-  margin-bottom: 1rem;
   overflow: hidden;
+}
+
+/* Only gap the well from a following footer — when the footer is hidden (empty
+   panel) the well is the last child and fills to the card bottom, matching the
+   Service Analytics .dash-well:not(:last-child) pattern so the two panels align. */
+.rdl-well:not(:last-child) {
+  margin-bottom: 1rem;
 }
 
 .rdl-list > * + * {

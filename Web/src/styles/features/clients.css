@@ -120,6 +120,14 @@
     min-height: 2.4rem;
   }
 
+  /* Desktop is a real single-row table: the client name occupies ONLY the first
+     column. Without this reset it keeps the mobile `grid-column: 1 / -1` span,
+     which pushes every figure into a second row shifted one column left and
+     leaves the final Last Activity column empty on the right. */
+  .clients-cell--client {
+    grid-column: auto;
+  }
+
   .clients-grid:not(.clients-grid--header):hover {
     background: var(--theme-bg-hover);
   }
@@ -152,11 +160,16 @@
   .clients-grid {
     grid-template-columns:
       minmax(0, 1.6fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1fr)
-      minmax(0, 1fr) minmax(0, 0.75fr) minmax(0, 1.2fr);
+      minmax(0, 1fr) minmax(0, 0.75fr) minmax(0, 1.4fr);
   }
 
+  /* Last activity owns the final column: pinned hard to the right edge on a
+     single line so it never wraps or crowds the Hit Rate column beside it. */
   .clients-cell--lg {
     display: flex;
+    justify-content: flex-end;
+    text-align: right;
+    white-space: nowrap;
   }
 }
 
