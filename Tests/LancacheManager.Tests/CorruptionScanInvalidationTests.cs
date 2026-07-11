@@ -206,6 +206,7 @@ public sealed class CorruptionScanInvalidationTests
             ScanId = scanId,
             DetectionMode = CorruptionDetectionMode.CacheAndLogs,
             Threshold = 3,
+            LookbackDays = 30,
             ContractVersion = CorruptionReport.SupportedContractVersion,
             Status = "completed",
             StartedAtUtc = DateTime.UtcNow.AddSeconds(-1),

@@ -16,6 +16,8 @@ public class CachedCorruptionScan
 
     public int Threshold { get; set; }
 
+    public int LookbackDays { get; set; }
+
     public int ContractVersion { get; set; }
 
     [MaxLength(20)]

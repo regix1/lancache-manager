@@ -5,24 +5,56 @@ namespace LancacheManager.Models;
 /// <summary>Canonical typed report emitted by the Rust corruption detector.</summary>
 public sealed class CorruptionReport
 {
-    public const int SupportedContractVersion = 1;
+    public const int SupportedContractVersion = 2;
 
     [JsonPropertyName("contract_version")]
+    [JsonRequired]
     public int ContractVersion { get; set; }
 
     [JsonPropertyName("mode")]
+    [JsonRequired]
     public CorruptionDetectionMode Mode { get; set; }
 
     [JsonPropertyName("threshold")]
+    [JsonRequired]
     public int Threshold { get; set; }
 
+    [JsonPropertyName("lookback_days")]
+    [JsonRequired]
+    public int LookbackDays { get; set; }
+
+    [JsonPropertyName("scan_started_utc")]
+    [JsonRequired]
+    public string ScanStartedUtc { get; set; } = string.Empty;
+
     [JsonPropertyName("service_counts")]
+    [JsonRequired]
     public Dictionary<string, long> ServiceCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     [JsonPropertyName("total")]
+    [JsonRequired]
     public long Total { get; set; }
 
+    [JsonPropertyName("removable_service_counts")]
+    [JsonRequired]
+    public Dictionary<string, long> RemovableServiceCounts { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    [JsonPropertyName("review_only_service_counts")]
+    [JsonRequired]
+    public Dictionary<string, long> ReviewOnlyServiceCounts { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    [JsonPropertyName("removable_total")]
+    [JsonRequired]
+    public long RemovableTotal { get; set; }
+
+    [JsonPropertyName("review_only_total")]
+    [JsonRequired]
+    public long ReviewOnlyTotal { get; set; }
+
     [JsonPropertyName("candidates")]
+    [JsonRequired]
     public List<CorruptionCandidate> Candidates { get; set; } = [];
 }
 
@@ -83,6 +115,10 @@ public sealed class CorruptionCandidate
 
     [JsonPropertyName("observations")]
     public List<CandidateObservation> Observations { get; set; } = [];
+
+    [JsonPropertyName("supporting_sibling")]
+    [JsonRequired]
+    public SupportingSiblingEvidence? SupportingSibling { get; set; }
 }
 
 /// <summary>Raw request range retained by the detector.</summary>
@@ -115,6 +151,21 @@ public sealed class CacheSliceIdentity
     public ulong? End { get; set; }
 }
 
+/// <summary>
+/// Safely validated present sibling supporting a review-only missing-slice finding.
+/// It never authorizes removal of the absent target.
+/// </summary>
+public sealed class SupportingSiblingEvidence
+{
+    [JsonPropertyName("cache_slice")]
+    [JsonRequired]
+    public CacheSliceIdentity CacheSlice { get; set; } = new();
+
+    [JsonPropertyName("exact_path")]
+    [JsonRequired]
+    public string ExactPath { get; set; } = string.Empty;
+}
+
 /// <summary>One qualifying access-log observation in a bounded evidence window.</summary>
 public sealed class CandidateObservation
 {
@@ -142,6 +193,10 @@ public sealed class CandidateObservation
 
     [JsonPropertyName("raw_range")]
     public string? RawRange { get; set; }
+
+    [JsonPropertyName("bytes_served")]
+    [JsonRequired]
+    public long BytesServed { get; set; }
 }
 
 /// <summary>

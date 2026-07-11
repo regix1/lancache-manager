@@ -503,7 +503,7 @@ export interface CorruptionDetailsProgressEvent {
   totalFiles: number;
 }
 
-// C# sends anonymous object: OperationId, Success, Status, Message, Cancelled, totalServicesWithCorruption, totalCorruptedChunks
+// C# sends the aggregate all/removable/review count projections for the completed scan.
 export interface CorruptionDetectionCompleteEvent {
   operationId: string;
   success: boolean;
@@ -516,6 +516,10 @@ export interface CorruptionDetectionCompleteEvent {
   status?: OperationStatus;
   totalServicesWithCorruption?: number;
   totalCorruptedChunks?: number;
+  removableServiceCounts?: Record<string, number>;
+  reviewOnlyServiceCounts?: Record<string, number>;
+  removableTotal?: number;
+  reviewOnlyTotal?: number;
 }
 
 export interface GameDetectionStartedEvent {

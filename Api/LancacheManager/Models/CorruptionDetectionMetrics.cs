@@ -12,10 +12,16 @@ public class CorruptionDetectionMetrics
 
     public int Threshold { get; set; }
 
+    public int LookbackDays { get; set; }
+
     /// <summary>
     /// Corruption counts keyed by category or URL.
     /// </summary>
     public Dictionary<string, long>? CorruptionCounts { get; set; }
+
+    public Dictionary<string, long>? RemovableServiceCounts { get; set; }
+
+    public Dictionary<string, long>? ReviewOnlyServiceCounts { get; set; }
 
     /// <summary>
     /// Timestamp of the last completed corruption detection.

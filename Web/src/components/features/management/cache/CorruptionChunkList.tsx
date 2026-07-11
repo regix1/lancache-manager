@@ -42,6 +42,7 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
         chunk.retry_client ?? '',
         chunk.reason,
         chunk.validation_state,
+        chunk.supporting_sibling?.exact_path ?? '',
         ...chunk.exact_paths
       ]
         .join(' ')
@@ -98,6 +99,14 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
                   : t(`management.corruption.sliceKinds.${chunk.cache_slice.kind}`, {
                       defaultValue: chunk.cache_slice.kind
                     });
+              const supportingSiblingSlice = chunk.supporting_sibling
+                ? chunk.supporting_sibling.cache_slice.kind === 'ranged'
+                  ? `bytes=${chunk.supporting_sibling.cache_slice.start}-${chunk.supporting_sibling.cache_slice.end}`
+                  : t(
+                      `management.corruption.sliceKinds.${chunk.supporting_sibling.cache_slice.kind}`,
+                      { defaultValue: chunk.supporting_sibling.cache_slice.kind }
+                    )
+                : null;
               const reason = t(`management.corruption.reasons.${chunk.reason}`, {
                 defaultValue: chunk.reason
               });
@@ -165,7 +174,13 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
                       <dd>{reason}</dd>
                     </div>
                     <div className="mgmt-kv__cell mgmt-kv__cell--wide">
-                      <dt>{t('management.corruption.cache')}</dt>
+                      <dt>
+                        {t(
+                          chunk.reason === 'missing_cached_slice'
+                            ? 'management.corruption.expectedMissingPath'
+                            : 'management.corruption.cache'
+                        )}
+                      </dt>
                       <dd>
                         {chunk.exact_paths.length > 0 ? (
                           chunk.exact_paths.map((path) => (
@@ -178,6 +193,17 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
                         )}
                       </dd>
                     </div>
+                    {chunk.supporting_sibling && (
+                      <div className="mgmt-kv__cell mgmt-kv__cell--wide">
+                        <dt>{t('management.corruption.supportingSibling')}</dt>
+                        <dd>
+                          {supportingSiblingSlice && <code>{supportingSiblingSlice}</code>}
+                          <code className="mgmt-evidence__exact-value">
+                            {chunk.supporting_sibling.exact_path}
+                          </code>
+                        </dd>
+                      </div>
+                    )}
                     {chunk.retry_client && (
                       <div className="mgmt-kv__cell mgmt-kv__cell--wide">
                         <dt>{t('management.corruption.retryEvidenceLabel')}</dt>

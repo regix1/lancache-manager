@@ -335,7 +335,10 @@ export type CorruptionDetectionMode = 'logs_only' | 'cache_and_logs' | 'redownlo
 
 export type CorruptionValidationState = 'log_suspect' | 'exact_path_missing' | 'exact_path_present';
 
-export type CorruptionDetectionReason = 'repeated_miss_burst' | 'same_client_hit_retry_burst';
+export type CorruptionDetectionReason =
+  | 'repeated_miss_burst'
+  | 'same_client_hit_retry_burst'
+  | 'missing_cached_slice';
 
 type CorruptionSliceKind = 'no_range' | 'noslice' | 'ranged';
 
@@ -359,6 +362,12 @@ export interface CorruptionCandidateObservation {
   http_status: number;
   cache_status: string;
   raw_range: string | null;
+  bytes_served: number;
+}
+
+export interface CorruptionSupportingSibling {
+  cache_slice: CorruptionCacheSlice;
+  exact_path: string;
 }
 
 /**
@@ -383,6 +392,7 @@ export interface CorruptedChunkDetail {
   reason: CorruptionDetectionReason;
   validation_state: CorruptionValidationState;
   removal_allowed: boolean;
+  supporting_sibling: CorruptionSupportingSibling | null;
   observations: CorruptionCandidateObservation[];
 }
 
@@ -392,9 +402,14 @@ export interface CachedCorruptionDetectionResponse {
   detectionMode?: CorruptionDetectionMode;
   threshold?: number;
   contractVersion?: number;
+  lookbackDays?: number;
   corruptionCounts?: Record<string, number>;
+  removableServiceCounts?: Record<string, number>;
+  reviewOnlyServiceCounts?: Record<string, number>;
   totalServicesWithCorruption?: number;
   totalCorruptedChunks?: number;
+  removableTotal?: number;
+  reviewOnlyTotal?: number;
   lastDetectionTime?: string;
   removalAllowed?: boolean;
   serviceRemovalAllowed?: Record<string, boolean>;

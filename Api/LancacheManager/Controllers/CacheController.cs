@@ -385,10 +385,15 @@ public class CacheController : ControllerBase
             ScanId = cachedResults.ScanId,
             DetectionMode = cachedResults.DetectionMode,
             Threshold = cachedResults.Threshold,
+            LookbackDays = cachedResults.LookbackDays,
             ContractVersion = cachedResults.ContractVersion,
             CorruptionCounts = cachedResults.CorruptionCounts,
+            RemovableServiceCounts = cachedResults.RemovableServiceCounts,
+            ReviewOnlyServiceCounts = cachedResults.ReviewOnlyServiceCounts,
             TotalServicesWithCorruption = cachedResults.TotalServicesWithCorruption,
             TotalCorruptedChunks = cachedResults.TotalCorruptedChunks,
+            RemovableTotal = cachedResults.RemovableTotal,
+            ReviewOnlyTotal = cachedResults.ReviewOnlyTotal,
             LastDetectionTime = lastDetectionTimeUtc.ToString("o"),
             RemovalAllowed = cachedResults.RemovalAllowed,
             ServiceRemovalAllowed = cachedResults.ServiceRemovalAllowed
@@ -404,9 +409,13 @@ public class CacheController : ControllerBase
     public async Task<IActionResult> StartCorruptionDetectionAsync(
         [FromQuery] int threshold = 3,
         [FromQuery] string detectionMode = "cache_and_logs",
+        [FromQuery] int lookbackDays = CorruptionDetectionService.DefaultLookbackDays,
         CancellationToken cancellationToken = default)
     {
-        var mode = CorruptionDetectionService.ValidateScanInput(detectionMode, threshold);
+        var mode = CorruptionDetectionService.ValidateScanInput(
+            detectionMode,
+            threshold,
+            lookbackDays);
 
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
         // The bulk corruption scan is a heavy data op (OperationConflictChecker section 1a), so
@@ -414,7 +423,10 @@ public class CacheController : ControllerBase
         // Deliberately no request token in the delegate: it may run at queue promotion, long
         // after this HTTP request completed (the operation owns its own CTS via the tracker).
         async Task<Guid?> StartDetectionAsync() =>
-            await _corruptionDetectionService.StartDetectionAsync(threshold, mode.ToWireString());
+            await _corruptionDetectionService.StartDetectionAsync(
+                threshold,
+                mode.ToWireString(),
+                lookbackDays);
 
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.CorruptionDetection,
@@ -646,15 +658,13 @@ public class CacheController : ControllerBase
                     "One or more requested services are not part of the stored corruption scan");
             }
 
-            servicesToRemove = cachedDetection.CorruptionCounts.Keys
+            servicesToRemove = cachedDetection.RemovableServiceCounts.Keys
                 .Where(requestedServices.Contains)
                 .ToList();
         }
         else
         {
-            servicesToRemove = cachedDetection.CorruptionCounts.Keys
-                .Where(service => cachedDetection.ServiceRemovalAllowed.GetValueOrDefault(service))
-                .ToList();
+            servicesToRemove = cachedDetection.RemovableServiceCounts.Keys.ToList();
         }
 
         if (servicesToRemove.Count == 0)

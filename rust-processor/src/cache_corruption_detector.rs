@@ -4,13 +4,17 @@ use crate::parser::LogParser;
 use crate::progress_utils;
 use crate::service_utils;
 use anyhow::{bail, Context, Result};
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Duration, NaiveDateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
-pub const CORRUPTION_CONTRACT_VERSION: u32 = 1;
+pub const CORRUPTION_CONTRACT_VERSION: u32 = 2;
+pub const DEFAULT_LOOKBACK_DAYS: u32 = 30;
+pub const MIN_LOOKBACK_DAYS: u32 = 1;
+pub const MAX_LOOKBACK_DAYS: u32 = 365;
 const EVIDENCE_WINDOW_SECONDS: i64 = 60;
 
 /// String interner for the streaming evidence maps. Large access logs repeat the same service,
@@ -69,6 +73,7 @@ impl DetectionMode {
 pub enum DetectionReason {
     RepeatedMissBurst,
     SameClientHitRetryBurst,
+    MissingCachedSlice,
 }
 
 impl DetectionReason {
@@ -76,6 +81,7 @@ impl DetectionReason {
         match self {
             Self::RepeatedMissBurst => "repeated_miss_burst",
             Self::SameClientHitRetryBurst => "same_client_hit_retry_burst",
+            Self::MissingCachedSlice => "missing_cached_slice",
         }
     }
 }
@@ -98,8 +104,25 @@ pub struct CandidateObservation {
     pub raw_url: String,
     pub method: String,
     pub http_status: i32,
+    pub bytes_served: i64,
     pub cache_status: String,
     pub raw_range: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SupportingSiblingEvidence {
+    pub cache_slice: CacheSliceKind,
+    pub exact_path: String,
+}
+
+fn deserialize_required_option<'de, D, T>(
+    deserializer: D,
+) -> std::result::Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -120,6 +143,8 @@ pub struct CorruptionCandidate {
     pub reason: DetectionReason,
     pub validation_state: ValidationState,
     pub removal_allowed: bool,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub supporting_sibling: Option<SupportingSiblingEvidence>,
     pub observations: Vec<CandidateObservation>,
 }
 
@@ -128,9 +153,15 @@ pub struct CorruptionSummary {
     pub contract_version: u32,
     pub mode: DetectionMode,
     pub threshold: usize,
+    pub lookback_days: u32,
+    pub scan_started_utc: String,
     pub service_counts: BTreeMap<String, usize>,
+    pub removable_service_counts: BTreeMap<String, usize>,
+    pub review_only_service_counts: BTreeMap<String, usize>,
     #[serde(rename = "total")]
     pub total_corrupted: usize,
+    pub removable_total: usize,
+    pub review_only_total: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -138,11 +169,17 @@ pub struct CorruptionReport {
     pub contract_version: u32,
     pub mode: DetectionMode,
     pub threshold: usize,
+    pub lookback_days: u32,
+    pub scan_started_utc: String,
     pub service_counts: BTreeMap<String, usize>,
+    pub removable_service_counts: BTreeMap<String, usize>,
+    pub review_only_service_counts: BTreeMap<String, usize>,
     pub total: usize,
+    pub removable_total: usize,
+    pub review_only_total: usize,
     pub candidates: Vec<CorruptionCandidate>,
     /// Runtime compatibility for the current CLI. It is a projection of `candidates` and is not
-    /// serialized, so the wire report remains the canonical six-field contract.
+    /// serialized, so the wire report remains the canonical v2 contract.
     #[serde(skip, default)]
     pub summary: CorruptionSummary,
 }
@@ -174,8 +211,48 @@ struct InternalObservation {
     client_id: u32,
     raw_url_id: u32,
     http_status: i32,
+    bytes_served: i64,
     raw_range_id: Option<u32>,
     observed_range: ObservedByteRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct MissingProofKey {
+    service_id: u32,
+    normalized_uri_id: u32,
+    cache_slice: CacheSliceKind,
+}
+
+#[derive(Debug, Default)]
+struct LatestProofAccumulator {
+    latest: Option<InternalObservation>,
+}
+
+impl LatestProofAccumulator {
+    fn record(&mut self, observation: InternalObservation) {
+        if self
+            .latest
+            .as_ref()
+            .is_none_or(|latest| observation.timestamp >= latest.timestamp)
+        {
+            self.latest = Some(observation);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MappedPathState {
+    PresentSafeRegular,
+    MissingSafe,
+    Unverifiable,
+}
+
+#[derive(Debug)]
+struct ResolvedMissingProof {
+    cache_slice: CacheSliceKind,
+    observation: InternalObservation,
+    exact_path: PathBuf,
+    initial_path_state: MappedPathState,
 }
 
 #[derive(Debug, Default)]
@@ -223,15 +300,24 @@ impl EvidenceAccumulator {
 pub struct CorruptionDetector {
     miss_threshold: usize,
     cache_dir: PathBuf,
+    lookback_days: u32,
+    scan_started_utc: DateTime<Utc>,
     /// Legacy caller compatibility: true selects Logs Only for MISS report/summary entry points.
     skip_cache_check: bool,
 }
 
 impl CorruptionDetector {
-    pub fn new<P: AsRef<Path>>(cache_dir: P, miss_threshold: usize) -> Self {
+    pub fn new<P: AsRef<Path>>(
+        cache_dir: P,
+        miss_threshold: usize,
+        lookback_days: u32,
+        scan_started_utc: DateTime<Utc>,
+    ) -> Self {
         Self {
             miss_threshold,
             cache_dir: cache_dir.as_ref().to_path_buf(),
+            lookback_days,
+            scan_started_utc,
             skip_cache_check: false,
         }
     }
@@ -251,12 +337,49 @@ impl CorruptionDetector {
         timezone: chrono_tz::Tz,
         progress_path: Option<&Path>,
     ) -> Result<CorruptionReport> {
+        let cache_dir = self.cache_dir.clone();
+        let canonical_root = canonical_cache_root(&cache_dir);
+        self.generate_report_for_mode_with_path_inspector(
+            mode,
+            log_dir,
+            log_base_name,
+            timezone,
+            progress_path,
+            move |path| inspect_mapped_path(&cache_dir, canonical_root.as_deref(), path),
+        )
+    }
+
+    fn generate_report_for_mode_with_path_inspector<P, F>(
+        &self,
+        mode: DetectionMode,
+        log_dir: P,
+        log_base_name: &str,
+        timezone: chrono_tz::Tz,
+        progress_path: Option<&Path>,
+        mut inspect_path: F,
+    ) -> Result<CorruptionReport>
+    where
+        P: AsRef<Path>,
+        F: FnMut(&Path) -> MappedPathState,
+    {
         if !matches!(self.miss_threshold, 3 | 5 | 10) {
             bail!(
                 "corruption threshold must be one of 3, 5, or 10 (received {})",
                 self.miss_threshold
             );
         }
+        if !(MIN_LOOKBACK_DAYS..=MAX_LOOKBACK_DAYS).contains(&self.lookback_days) {
+            bail!(
+                "corruption lookback days must be between {} and {} (received {})",
+                MIN_LOOKBACK_DAYS,
+                MAX_LOOKBACK_DAYS,
+                self.lookback_days
+            );
+        }
+        let scan_started_naive = self.scan_started_utc.naive_utc();
+        let cutoff = scan_started_naive
+            .checked_sub_signed(Duration::days(i64::from(self.lookback_days)))
+            .context("corruption lookback cutoff is outside the supported timestamp range")?;
 
         let log_dir = log_dir.as_ref();
         let log_files = crate::log_discovery::discover_log_files(log_dir, log_base_name)?;
@@ -297,6 +420,7 @@ impl CorruptionDetector {
         let parser = LogParser::new(timezone);
         let mut interner = StringInterner::default();
         let mut trackers: HashMap<EvidenceKey, EvidenceAccumulator> = HashMap::new();
+        let mut missing_proofs: HashMap<MissingProofKey, LatestProofAccumulator> = HashMap::new();
         let mut eligible_entries = 0usize;
 
         for (file_index, log_file) in log_files.iter().enumerate() {
@@ -396,7 +520,15 @@ impl CorruptionDetector {
                     DetectionMode::LogsOnly | DetectionMode::CacheAndLogs => "MISS",
                     DetectionMode::Redownload => "HIT",
                 };
-                if entry.cache_status != required_cache_status {
+                let inside_evidence_window =
+                    entry.timestamp >= cutoff && entry.timestamp <= scan_started_naive;
+                let qualifies_for_burst = entry.cache_status == required_cache_status
+                    && (mode != DetectionMode::Redownload || inside_evidence_window);
+                let may_qualify_for_missing = mode == DetectionMode::CacheAndLogs
+                    && inside_evidence_window
+                    && entry.status_code == 206
+                    && entry.cache_status == "HIT";
+                if !qualifies_for_burst && !may_qualify_for_missing {
                     continue;
                 }
 
@@ -408,9 +540,27 @@ impl CorruptionDetector {
                 ) else {
                     continue;
                 };
-                if mode == DetectionMode::Redownload
-                    && mapping.observed_range == (ObservedByteRange::Inclusive { start: 0, end: 0 })
-                {
+                let qualifies_for_burst = qualifies_for_burst
+                    && !(mode == DetectionMode::Redownload
+                        && mapping.observed_range
+                            == (ObservedByteRange::Inclusive { start: 0, end: 0 }));
+                let missing_slice = if may_qualify_for_missing && mapping.slices.len() == 1 {
+                    match &mapping.observed_range {
+                        ObservedByteRange::Inclusive { start, end } => end
+                            .checked_sub(*start)
+                            .and_then(|length_minus_one| length_minus_one.checked_add(1))
+                            .and_then(|length| i64::try_from(length).ok())
+                            .filter(|length| *length > 0 && *length == entry.bytes_served)
+                            .and_then(|_| match &mapping.slices[0].kind {
+                                ranged @ CacheSliceKind::Ranged { .. } => Some(ranged.clone()),
+                                CacheSliceKind::NoRange | CacheSliceKind::Noslice => None,
+                            }),
+                        ObservedByteRange::NoRange => None,
+                    }
+                } else {
+                    None
+                };
+                if !qualifies_for_burst && missing_slice.is_none() {
                     continue;
                 }
 
@@ -430,29 +580,46 @@ impl CorruptionDetector {
                     client_id,
                     raw_url_id,
                     http_status: entry.status_code,
+                    bytes_served: entry.bytes_served,
                     raw_range_id,
-                    observed_range: mapping.observed_range,
+                    observed_range: mapping.observed_range.clone(),
                 };
 
-                // A no-range log line is one logical observation with two possible cache-key
-                // locations. Ranged requests are counted once for every physical slice they cover.
-                let slice_kinds: Vec<CacheSliceKind> = match observation.observed_range {
-                    ObservedByteRange::NoRange => vec![CacheSliceKind::NoRange],
-                    ObservedByteRange::Inclusive { .. } => {
-                        mapping.slices.into_iter().map(|slice| slice.kind).collect()
-                    }
-                };
-                for cache_slice in slice_kinds {
-                    let key = EvidenceKey {
+                if let Some(cache_slice) = missing_slice {
+                    let key = MissingProofKey {
                         service_id,
                         normalized_uri_id,
                         cache_slice,
-                        retry_client_id,
                     };
-                    trackers
+                    missing_proofs
                         .entry(key)
                         .or_default()
-                        .record(observation.clone(), self.miss_threshold);
+                        .record(observation.clone());
+                }
+
+                if qualifies_for_burst {
+                    // A no-range log line is one logical observation with two possible cache-key
+                    // locations. Ranged requests are counted once for every physical slice they cover.
+                    let slice_kinds: Vec<CacheSliceKind> = match observation.observed_range {
+                        ObservedByteRange::NoRange => vec![CacheSliceKind::NoRange],
+                        ObservedByteRange::Inclusive { .. } => mapping
+                            .slices
+                            .iter()
+                            .map(|slice| slice.kind.clone())
+                            .collect(),
+                    };
+                    for cache_slice in slice_kinds {
+                        let key = EvidenceKey {
+                            service_id,
+                            normalized_uri_id,
+                            cache_slice,
+                            retry_client_id,
+                        };
+                        trackers
+                            .entry(key)
+                            .or_default()
+                            .record(observation.clone(), self.miss_threshold);
+                    }
                 }
 
                 eligible_entries += 1;
@@ -460,7 +627,7 @@ impl CorruptionDetector {
                     eprintln!(
                         "  Processed {} eligible entries across {} physical evidence keys",
                         eligible_entries,
-                        trackers.len()
+                        trackers.len() + missing_proofs.len()
                     );
                 }
             }
@@ -478,14 +645,57 @@ impl CorruptionDetector {
             );
         }
 
+        let mut qualified_winners = trackers
+            .into_iter()
+            .filter_map(|(key, accumulator)| accumulator.winning.map(|winning| (key, winning)))
+            .collect::<Vec<_>>();
+        if mode == DetectionMode::Redownload {
+            // Client remains part of the accumulator key so retry bursts qualify independently.
+            // Once qualified, collapse by the immutable physical slice before constructing
+            // candidates so report counts and destructive evidence cannot duplicate a path.
+            let mut by_physical_slice: BTreeMap<
+                (u32, u32, CacheSliceKind),
+                (EvidenceKey, Vec<InternalObservation>),
+            > = BTreeMap::new();
+            for (key, winning) in qualified_winners {
+                let physical_identity = (
+                    key.service_id,
+                    key.normalized_uri_id,
+                    key.cache_slice.clone(),
+                );
+                if let Some((selected_key, selected_winning)) =
+                    by_physical_slice.get_mut(&physical_identity)
+                {
+                    if compare_qualified_winners(
+                        &interner,
+                        &key,
+                        &winning,
+                        selected_key,
+                        selected_winning,
+                    )? == Ordering::Less
+                    {
+                        *selected_key = key;
+                        *selected_winning = winning;
+                    }
+                } else {
+                    by_physical_slice.insert(physical_identity, (key, winning));
+                }
+            }
+            qualified_winners = by_physical_slice.into_values().collect();
+        }
+
         let mut candidates = Vec::new();
-        for (key, accumulator) in trackers {
-            let Some(winning) = accumulator.winning else {
-                continue;
-            };
+        for (key, winning) in qualified_winners {
             if let Some(candidate) = self.build_candidate(mode, &interner, key, winning)? {
                 candidates.push(candidate);
             }
+        }
+        if mode == DetectionMode::CacheAndLogs {
+            candidates.extend(self.build_missing_slice_candidates(
+                &interner,
+                missing_proofs,
+                &mut inspect_path,
+            )?);
         }
         candidates.sort_by(|left, right| {
             (
@@ -618,6 +828,7 @@ impl CorruptionDetector {
                     raw_url: interner.get(observation.raw_url_id)?.to_string(),
                     method: "GET".to_string(),
                     http_status: observation.http_status,
+                    bytes_served: observation.bytes_served,
                     cache_status: cache_status.to_string(),
                     raw_range: observation
                         .raw_range_id
@@ -662,8 +873,149 @@ impl CorruptionDetector {
             reason,
             validation_state,
             removal_allowed,
+            supporting_sibling: None,
             observations,
         }))
+    }
+
+    fn build_missing_slice_candidates<F>(
+        &self,
+        interner: &StringInterner,
+        missing_proofs: HashMap<MissingProofKey, LatestProofAccumulator>,
+        inspect_path: &mut F,
+    ) -> Result<Vec<CorruptionCandidate>>
+    where
+        F: FnMut(&Path) -> MappedPathState,
+    {
+        let mut groups: BTreeMap<(u32, u32), Vec<(CacheSliceKind, InternalObservation)>> =
+            BTreeMap::new();
+        for (key, accumulator) in missing_proofs {
+            let Some(observation) = accumulator.latest else {
+                continue;
+            };
+            groups
+                .entry((key.service_id, key.normalized_uri_id))
+                .or_default()
+                .push((key.cache_slice, observation));
+        }
+
+        let mut candidates = Vec::new();
+        for ((service_id, normalized_uri_id), mut proofs) in groups {
+            proofs.sort_by(|left, right| left.0.cmp(&right.0));
+            let service = interner.get(service_id)?.to_string();
+            let normalized_uri = interner.get(normalized_uri_id)?.to_string();
+
+            // Resolve and inspect each proven slice once up front. Besides keeping sibling
+            // selection deterministic, this avoids repeatedly walking every sibling when a URI
+            // has many missing slices and no present support.
+            let mut resolved_proofs = Vec::with_capacity(proofs.len());
+            for (cache_slice, observation) in proofs {
+                let paths = self.paths_for_slice(&service, &normalized_uri, &cache_slice);
+                let [(resolved_slice, exact_path)] = paths.as_slice() else {
+                    continue;
+                };
+                if resolved_slice != &cache_slice {
+                    continue;
+                }
+                resolved_proofs.push(ResolvedMissingProof {
+                    cache_slice,
+                    observation,
+                    exact_path: exact_path.clone(),
+                    initial_path_state: inspect_path(exact_path),
+                });
+            }
+            let present_support_indices = resolved_proofs
+                .iter()
+                .enumerate()
+                .filter_map(|(index, proof)| {
+                    (proof.initial_path_state == MappedPathState::PresentSafeRegular)
+                        .then_some(index)
+                })
+                .collect::<Vec<_>>();
+
+            for target in resolved_proofs
+                .iter()
+                .filter(|proof| proof.initial_path_state == MappedPathState::MissingSafe)
+            {
+                let Some(sibling) = present_support_indices.iter().find_map(|index| {
+                    let sibling = &resolved_proofs[*index];
+                    (sibling.cache_slice != target.cache_slice
+                        && sibling.exact_path != target.exact_path)
+                        .then_some(sibling)
+                }) else {
+                    continue;
+                };
+
+                // Revalidate the selected support immediately before the target absence check.
+                // Both sides can change while a large scan is resolving candidates.
+                if inspect_path(&sibling.exact_path) != MappedPathState::PresentSafeRegular {
+                    continue;
+                }
+                let supporting_sibling = SupportingSiblingEvidence {
+                    cache_slice: sibling.cache_slice.clone(),
+                    exact_path: sibling.exact_path.display().to_string(),
+                };
+
+                // The filesystem can change while the sibling is inspected. Absence is evidence
+                // only if the exact mapped target is still safely NotFound afterwards.
+                if inspect_path(&target.exact_path) != MappedPathState::MissingSafe {
+                    continue;
+                }
+
+                let observation = CandidateObservation {
+                    timestamp: format_timestamp(target.observation.timestamp),
+                    client_ip: interner.get(target.observation.client_id)?.to_string(),
+                    raw_url: interner.get(target.observation.raw_url_id)?.to_string(),
+                    method: "GET".to_string(),
+                    http_status: target.observation.http_status,
+                    bytes_served: target.observation.bytes_served,
+                    cache_status: "HIT".to_string(),
+                    raw_range: target
+                        .observation
+                        .raw_range_id
+                        .map(|id| interner.get(id).map(str::to_string))
+                        .transpose()?,
+                };
+                let observations = vec![observation];
+                let first_seen = observations[0].timestamp.clone();
+                let last_seen = first_seen.clone();
+                let raw_url = observations[0].raw_url.clone();
+                let reason = DetectionReason::MissingCachedSlice;
+                let candidate_id = stable_candidate_id(
+                    DetectionMode::CacheAndLogs,
+                    self.miss_threshold,
+                    &service,
+                    &normalized_uri,
+                    &target.cache_slice,
+                    None,
+                    reason,
+                    &observations,
+                );
+
+                candidates.push(CorruptionCandidate {
+                    candidate_id,
+                    mode: DetectionMode::CacheAndLogs,
+                    threshold: self.miss_threshold,
+                    service: service.clone(),
+                    raw_url,
+                    normalized_uri: normalized_uri.clone(),
+                    observed_range: target.observation.observed_range.clone(),
+                    cache_slice: target.cache_slice.clone(),
+                    exact_paths: vec![target.exact_path.display().to_string()],
+                    evidence_count: 1,
+                    first_seen,
+                    last_seen,
+                    retry_client: None,
+                    reason,
+                    validation_state: ValidationState::ExactPathMissing,
+                    removal_allowed: false,
+                    supporting_sibling: Some(supporting_sibling),
+                    observations,
+                });
+            }
+        }
+
+        Ok(candidates)
     }
 
     fn paths_for_slice(
@@ -714,23 +1066,54 @@ impl CorruptionDetector {
         candidates: Vec<CorruptionCandidate>,
     ) -> CorruptionReport {
         let mut service_counts = BTreeMap::new();
+        let mut removable_service_counts = BTreeMap::new();
+        let mut review_only_service_counts = BTreeMap::new();
+        let mut removable_total = 0usize;
+        let mut review_only_total = 0usize;
         for candidate in &candidates {
             *service_counts.entry(candidate.service.clone()).or_insert(0) += 1;
+            if candidate.removal_allowed {
+                *removable_service_counts
+                    .entry(candidate.service.clone())
+                    .or_insert(0) += 1;
+                removable_total += 1;
+            } else {
+                *review_only_service_counts
+                    .entry(candidate.service.clone())
+                    .or_insert(0) += 1;
+                review_only_total += 1;
+            }
         }
         let total = candidates.len();
+        debug_assert_eq!(total, removable_total + review_only_total);
+        let scan_started_utc = self
+            .scan_started_utc
+            .to_rfc3339_opts(SecondsFormat::AutoSi, true);
         let summary = CorruptionSummary {
             contract_version: CORRUPTION_CONTRACT_VERSION,
             mode,
             threshold: self.miss_threshold,
+            lookback_days: self.lookback_days,
+            scan_started_utc: scan_started_utc.clone(),
             service_counts: service_counts.clone(),
+            removable_service_counts: removable_service_counts.clone(),
+            review_only_service_counts: review_only_service_counts.clone(),
             total_corrupted: total,
+            removable_total,
+            review_only_total,
         };
         CorruptionReport {
             contract_version: CORRUPTION_CONTRACT_VERSION,
             mode,
             threshold: self.miss_threshold,
+            lookback_days: self.lookback_days,
+            scan_started_utc,
             service_counts,
+            removable_service_counts,
+            review_only_service_counts,
             total,
+            removable_total,
+            review_only_total,
             candidates,
             summary,
         }
@@ -859,8 +1242,173 @@ impl CorruptionDetector {
     }
 }
 
+fn canonical_cache_root(cache_dir: &Path) -> Option<PathBuf> {
+    let metadata = std::fs::metadata(cache_dir).ok()?;
+    if !metadata.is_dir() {
+        return None;
+    }
+    std::fs::canonicalize(cache_dir).ok()
+}
+
+fn inspect_mapped_path(
+    cache_dir: &Path,
+    canonical_root: Option<&Path>,
+    mapped_path: &Path,
+) -> MappedPathState {
+    let Some(canonical_root) = canonical_root else {
+        return MappedPathState::Unverifiable;
+    };
+    match (
+        std::fs::metadata(cache_dir),
+        std::fs::canonicalize(cache_dir),
+    ) {
+        (Ok(metadata), Ok(current_root)) if metadata.is_dir() && current_root == canonical_root => {
+        }
+        _ => return MappedPathState::Unverifiable,
+    }
+    let Ok(relative) = mapped_path.strip_prefix(cache_dir) else {
+        return MappedPathState::Unverifiable;
+    };
+    let mut components = relative.components().peekable();
+    if components.peek().is_none() {
+        return MappedPathState::Unverifiable;
+    }
+
+    let mut current = cache_dir.to_path_buf();
+    while let Some(component) = components.next() {
+        let Component::Normal(part) = component else {
+            return MappedPathState::Unverifiable;
+        };
+        current.push(part);
+        let is_leaf = components.peek().is_none();
+        match std::fs::symlink_metadata(&current) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() {
+                    return MappedPathState::Unverifiable;
+                }
+                if is_leaf {
+                    if !metadata.is_file() {
+                        return MappedPathState::Unverifiable;
+                    }
+                    return match cache_utils::safe_path_under_root(cache_dir, &current) {
+                        Ok(canonical) if canonical.starts_with(canonical_root) => {
+                            MappedPathState::PresentSafeRegular
+                        }
+                        Ok(_) | Err(_) => MappedPathState::Unverifiable,
+                    };
+                }
+                if !metadata.is_dir() {
+                    return MappedPathState::Unverifiable;
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return MappedPathState::MissingSafe;
+            }
+            Err(_) => return MappedPathState::Unverifiable,
+        }
+    }
+
+    MappedPathState::Unverifiable
+}
+
 fn format_timestamp(timestamp: NaiveDateTime) -> String {
     timestamp.format("%Y-%m-%dT%H:%M:%SZ").to_string()
+}
+
+fn compare_qualified_winners(
+    interner: &StringInterner,
+    left_key: &EvidenceKey,
+    left: &[InternalObservation],
+    right_key: &EvidenceKey,
+    right: &[InternalObservation],
+) -> Result<Ordering> {
+    let left_first = left
+        .first()
+        .context("qualified Re-download winner had no first observation")?;
+    let right_first = right
+        .first()
+        .context("qualified Re-download winner had no first observation")?;
+    let mut order = left_first.timestamp.cmp(&right_first.timestamp);
+    if order != Ordering::Equal {
+        return Ok(order);
+    }
+
+    let left_last = left
+        .last()
+        .context("qualified Re-download winner had no last observation")?;
+    let right_last = right
+        .last()
+        .context("qualified Re-download winner had no last observation")?;
+    order = left_last.timestamp.cmp(&right_last.timestamp);
+    if order != Ordering::Equal {
+        return Ok(order);
+    }
+
+    let left_client = left_key
+        .retry_client_id
+        .context("qualified Re-download winner had no client")?;
+    let right_client = right_key
+        .retry_client_id
+        .context("qualified Re-download winner had no client")?;
+    order = interner.get(left_client)?.cmp(interner.get(right_client)?);
+    if order != Ordering::Equal {
+        return Ok(order);
+    }
+
+    compare_observation_sequences(interner, left, right)
+}
+
+fn compare_observation_sequences(
+    interner: &StringInterner,
+    left: &[InternalObservation],
+    right: &[InternalObservation],
+) -> Result<Ordering> {
+    for (left, right) in left.iter().zip(right) {
+        let mut order = left.timestamp.cmp(&right.timestamp);
+        if order != Ordering::Equal {
+            return Ok(order);
+        }
+        order = interner
+            .get(left.client_id)?
+            .cmp(interner.get(right.client_id)?);
+        if order != Ordering::Equal {
+            return Ok(order);
+        }
+        order = interner
+            .get(left.raw_url_id)?
+            .cmp(interner.get(right.raw_url_id)?);
+        if order != Ordering::Equal {
+            return Ok(order);
+        }
+        order = left.http_status.cmp(&right.http_status);
+        if order != Ordering::Equal {
+            return Ok(order);
+        }
+        order = left.bytes_served.cmp(&right.bytes_served);
+        if order != Ordering::Equal {
+            return Ok(order);
+        }
+        let left_raw_range = left.raw_range_id.map(|id| interner.get(id)).transpose()?;
+        let right_raw_range = right.raw_range_id.map(|id| interner.get(id)).transpose()?;
+        order = left_raw_range.cmp(&right_raw_range);
+        if order != Ordering::Equal {
+            return Ok(order);
+        }
+        order = observed_range_order_key(&left.observed_range)
+            .cmp(&observed_range_order_key(&right.observed_range));
+        if order != Ordering::Equal {
+            return Ok(order);
+        }
+    }
+
+    Ok(left.len().cmp(&right.len()))
+}
+
+fn observed_range_order_key(range: &ObservedByteRange) -> (u8, u64, u64) {
+    match range {
+        ObservedByteRange::NoRange => (0, 0, 0),
+        ObservedByteRange::Inclusive { start, end } => (1, *start, *end),
+    }
 }
 
 fn stable_candidate_id(
@@ -897,6 +1445,7 @@ fn stable_candidate_id(
         append_field(&mut identity, &observation.client_ip);
         append_field(&mut identity, &observation.raw_url);
         append_field(&mut identity, &observation.http_status.to_string());
+        append_field(&mut identity, &observation.bytes_served.to_string());
         append_field(&mut identity, &observation.cache_status);
         append_field(
             &mut identity,
@@ -909,8 +1458,10 @@ fn stable_candidate_id(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{Duration, NaiveDateTime};
+    use chrono::{DateTime, Duration, NaiveDateTime, Utc};
     use std::fs;
+
+    const FIXED_SCAN_SECOND: i64 = 30 * 24 * 60 * 60;
 
     fn log_line(
         second: i64,
@@ -921,18 +1472,51 @@ mod tests {
         url: &str,
         range: Option<&str>,
     ) -> String {
+        log_line_with_bytes(
+            second,
+            client,
+            method,
+            status,
+            "1024",
+            cache_status,
+            url,
+            range,
+        )
+    }
+
+    fn log_line_with_bytes(
+        second: i64,
+        client: &str,
+        method: &str,
+        status: i32,
+        bytes_served: &str,
+        cache_status: &str,
+        url: &str,
+        range: Option<&str>,
+    ) -> String {
         let base = NaiveDateTime::parse_from_str("2024-01-01 00:00:00", "%Y-%m-%d %H:%M:%S")
             .expect("valid base time");
         let timestamp = (base + Duration::seconds(second)).format("%d/%b/%Y:%H:%M:%S");
         format!(
-            "[steam] {client} / - - - [{timestamp} +0000] \"{method} {url} HTTP/1.1\" {status} 1024 \"-\" \"Test\" \"{cache_status}\" \"cdn.test\" \"{}\"",
+            "[steam] {client} / - - - [{timestamp} +0000] \"{method} {url} HTTP/1.1\" {status} {bytes_served} \"-\" \"Test\" \"{cache_status}\" \"cdn.test\" \"{}\"",
             range.unwrap_or("-")
         )
+    }
+
+    fn fixed_scan_start() -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339("2024-01-31T00:00:00Z")
+            .expect("valid fixed scan start")
+            .with_timezone(&Utc)
     }
 
     fn write_log(log_dir: &Path, lines: &[String]) {
         fs::create_dir_all(log_dir).expect("create log dir");
         fs::write(log_dir.join("access.log"), lines.join("\n") + "\n").expect("write log");
+    }
+
+    fn write_slice(path: &Path) {
+        fs::create_dir_all(path.parent().expect("cache path parent")).expect("create cache path");
+        fs::write(path, b"slice").expect("write cache slice");
     }
 
     fn report(
@@ -941,8 +1525,26 @@ mod tests {
         threshold: usize,
         mode: DetectionMode,
     ) -> CorruptionReport {
+        report_at(
+            cache_dir,
+            log_dir,
+            threshold,
+            mode,
+            DEFAULT_LOOKBACK_DAYS,
+            fixed_scan_start(),
+        )
+    }
+
+    fn report_at(
+        cache_dir: &Path,
+        log_dir: &Path,
+        threshold: usize,
+        mode: DetectionMode,
+        lookback_days: u32,
+        scan_started_utc: DateTime<Utc>,
+    ) -> CorruptionReport {
         fs::create_dir_all(cache_dir).expect("create cache dir");
-        CorruptionDetector::new(cache_dir, threshold)
+        CorruptionDetector::new(cache_dir, threshold, lookback_days, scan_started_utc)
             .generate_report_for_mode(mode, log_dir, "access.log", chrono_tz::UTC, None)
             .expect("generate report")
     }
@@ -1187,6 +1789,109 @@ mod tests {
     }
 
     #[test]
+    fn redownload_collapses_qualified_clients_by_physical_slice() {
+        let fixture = tempfile::tempdir().expect("fixture");
+        let log_dir = fixture.path().join("logs");
+        let cache_dir = fixture.path().join("cache");
+        let mut lines = Vec::new();
+        for second in [10, 20, 30] {
+            // Both clients independently reach threshold for the same physical slice. Their
+            // first/last timestamps tie, so lexical client order must select 10.0.0.1 even though
+            // the other client is encountered first in the log.
+            lines.push(log_line(
+                second,
+                "10.0.0.9",
+                "GET",
+                206,
+                "HIT",
+                "/dedupe.bin?winner=z",
+                Some("bytes=100-200"),
+            ));
+            lines.push(log_line(
+                second,
+                "10.0.0.1",
+                "GET",
+                206,
+                "HIT",
+                "/dedupe.bin?winner=a",
+                Some("bytes=100-200"),
+            ));
+            // A distinct physical slice for the same normalized URI remains independent.
+            lines.push(log_line(
+                second + 1,
+                "10.0.0.5",
+                "GET",
+                206,
+                "HIT",
+                "/dedupe.bin?winner=second-slice",
+                Some("bytes=1048600-1048700"),
+            ));
+        }
+        write_log(&log_dir, &lines);
+
+        let first_path =
+            cache_utils::calculate_cache_path(&cache_dir, "steam", "/dedupe.bin", 0, 1_048_575);
+        let second_path = cache_utils::calculate_cache_path(
+            &cache_dir,
+            "steam",
+            "/dedupe.bin",
+            1_048_576,
+            2_097_151,
+        );
+        write_slice(&first_path);
+        write_slice(&second_path);
+
+        let result = report(&cache_dir, &log_dir, 3, DetectionMode::Redownload);
+        assert_eq!(result.total, 2);
+        assert_eq!(result.removable_total, 2);
+        assert_eq!(result.review_only_total, 0);
+        assert_eq!(result.service_counts.get("steam"), Some(&2));
+        assert_eq!(result.removable_service_counts.get("steam"), Some(&2));
+        assert_eq!(result.candidates.len(), 2);
+
+        let first = &result.candidates[0];
+        assert_eq!(
+            first.cache_slice,
+            CacheSliceKind::Ranged {
+                start: 0,
+                end: 1_048_575
+            }
+        );
+        assert_eq!(first.retry_client.as_deref(), Some("10.0.0.1"));
+        assert_eq!(first.raw_url, "/dedupe.bin?winner=a");
+        assert!(first
+            .observations
+            .iter()
+            .all(|observation| observation.client_ip == "10.0.0.1"));
+
+        assert_eq!(
+            result.candidates[1].cache_slice,
+            CacheSliceKind::Ranged {
+                start: 1_048_576,
+                end: 2_097_151
+            }
+        );
+        assert_eq!(
+            result.candidates[1].retry_client.as_deref(),
+            Some("10.0.0.5")
+        );
+
+        let removal_paths = result
+            .candidates
+            .iter()
+            .filter(|candidate| candidate.removal_allowed)
+            .flat_map(|candidate| candidate.exact_paths.iter().cloned())
+            .collect::<Vec<_>>();
+        let unique_removal_paths = removal_paths
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(removal_paths.len(), 2);
+        assert_eq!(unique_removal_paths.len(), removal_paths.len());
+        assert!(removal_paths.contains(&first_path.display().to_string()));
+        assert!(removal_paths.contains(&second_path.display().to_string()));
+    }
+
+    #[test]
     fn redownload_excludes_ineligible_observations_and_keeps_missing_path_review_only() {
         let fixture = tempfile::tempdir().expect("fixture");
         let log_dir = fixture.path().join("logs");
@@ -1296,6 +2001,717 @@ mod tests {
     }
 
     #[test]
+    fn redownload_uses_closed_caller_supplied_lookback_window() {
+        let fixture = tempfile::tempdir().expect("fixture");
+        let log_dir = fixture.path().join("logs");
+        let cache_dir = fixture.path().join("cache");
+        let mut lines = Vec::new();
+
+        for second in [-1, 0, 1] {
+            lines.push(log_line(
+                second,
+                "old",
+                "GET",
+                206,
+                "HIT",
+                "/before-cutoff.bin",
+                Some("bytes=10-20"),
+            ));
+        }
+        for second in [0, 1, 2] {
+            lines.push(log_line(
+                second,
+                "cutoff",
+                "GET",
+                206,
+                "HIT",
+                "/at-cutoff.bin",
+                Some("bytes=10-20"),
+            ));
+        }
+        for second in [
+            FIXED_SCAN_SECOND - 2,
+            FIXED_SCAN_SECOND - 1,
+            FIXED_SCAN_SECOND,
+        ] {
+            lines.push(log_line(
+                second,
+                "start",
+                "GET",
+                206,
+                "HIT",
+                "/at-scan-start.bin",
+                Some("bytes=10-20"),
+            ));
+        }
+        for second in [
+            FIXED_SCAN_SECOND,
+            FIXED_SCAN_SECOND + 1,
+            FIXED_SCAN_SECOND + 2,
+        ] {
+            lines.push(log_line(
+                second,
+                "future",
+                "GET",
+                206,
+                "HIT",
+                "/future.bin",
+                Some("bytes=10-20"),
+            ));
+        }
+        write_log(&log_dir, &lines);
+
+        let result = report(&cache_dir, &log_dir, 3, DetectionMode::Redownload);
+        assert_eq!(result.lookback_days, 30);
+        assert_eq!(result.scan_started_utc, "2024-01-31T00:00:00Z");
+        assert_eq!(result.total, 2);
+        let urls: Vec<&str> = result
+            .candidates
+            .iter()
+            .map(|candidate| candidate.raw_url.as_str())
+            .collect();
+        assert_eq!(urls, vec!["/at-cutoff.bin", "/at-scan-start.bin"]);
+    }
+
+    #[test]
+    fn missing_cached_slice_requires_full_single_slice_hit_and_safe_proven_sibling() {
+        let fixture = tempfile::tempdir().expect("fixture");
+        let log_dir = fixture.path().join("logs");
+        let cache_dir = fixture.path().join("cache");
+        let url = "/partial.bin";
+        let target_range = "bytes=1048600-1048700";
+        let sibling_range = "bytes=2097200-2097300";
+        write_log(
+            &log_dir,
+            &[
+                log_line_with_bytes(
+                    FIXED_SCAN_SECOND - 20,
+                    "target",
+                    "GET",
+                    206,
+                    "101",
+                    "HIT",
+                    url,
+                    Some(target_range),
+                ),
+                log_line_with_bytes(
+                    FIXED_SCAN_SECOND - 19,
+                    "sibling",
+                    "GET",
+                    206,
+                    "101",
+                    "HIT",
+                    url,
+                    Some(sibling_range),
+                ),
+                log_line_with_bytes(
+                    FIXED_SCAN_SECOND - 18,
+                    "earlier-sibling",
+                    "GET",
+                    206,
+                    "11",
+                    "HIT",
+                    url,
+                    Some("bytes=10-20"),
+                ),
+            ],
+        );
+        let sibling_path =
+            cache_utils::calculate_cache_path(&cache_dir, "steam", url, 2_097_152, 3_145_727);
+        write_slice(&sibling_path);
+        let earlier_sibling_path =
+            cache_utils::calculate_cache_path(&cache_dir, "steam", url, 0, 1_048_575);
+        write_slice(&earlier_sibling_path);
+        let target_path =
+            cache_utils::calculate_cache_path(&cache_dir, "steam", url, 1_048_576, 2_097_151);
+
+        let result = report(&cache_dir, &log_dir, 3, DetectionMode::CacheAndLogs);
+        assert_eq!(result.total, 1);
+        assert_eq!(result.removable_total, 0);
+        assert_eq!(result.review_only_total, 1);
+        assert_eq!(result.service_counts.get("steam"), Some(&1));
+        assert_eq!(result.review_only_service_counts.get("steam"), Some(&1));
+        assert!(result.removable_service_counts.is_empty());
+
+        let candidate = &result.candidates[0];
+        assert_eq!(candidate.mode, DetectionMode::CacheAndLogs);
+        assert_eq!(candidate.reason, DetectionReason::MissingCachedSlice);
+        assert_eq!(
+            candidate.validation_state,
+            ValidationState::ExactPathMissing
+        );
+        assert!(!candidate.removal_allowed);
+        assert_eq!(candidate.evidence_count, 1);
+        assert_eq!(
+            candidate.exact_paths,
+            vec![target_path.display().to_string()]
+        );
+        assert_eq!(candidate.observations.len(), 1);
+        assert_eq!(candidate.observations[0].bytes_served, 101);
+        assert_eq!(candidate.observations[0].cache_status, "HIT");
+        let support = candidate
+            .supporting_sibling
+            .as_ref()
+            .expect("missing-slice support");
+        assert_eq!(
+            support.cache_slice,
+            CacheSliceKind::Ranged {
+                start: 0,
+                end: 1_048_575
+            }
+        );
+        assert_eq!(
+            support.exact_path,
+            earlier_sibling_path.display().to_string()
+        );
+        let wire = serde_json::to_value(candidate).expect("serialize missing candidate");
+        assert_eq!(wire["reason"], "missing_cached_slice");
+        assert_eq!(wire["supporting_sibling"]["cache_slice"]["kind"], "ranged");
+        assert_eq!(wire["supporting_sibling"]["exact_path"], support.exact_path);
+        assert_eq!(
+            serde_json::from_value::<CorruptionCandidate>(wire.clone())
+                .expect("round-trip candidate"),
+            *candidate
+        );
+        let mut missing_sibling_path = wire;
+        missing_sibling_path["supporting_sibling"]
+            .as_object_mut()
+            .expect("sibling object")
+            .remove("exact_path");
+        assert!(serde_json::from_value::<CorruptionCandidate>(missing_sibling_path).is_err());
+    }
+
+    #[test]
+    fn missing_cached_slice_rejects_ineligible_target_proof() {
+        struct Case {
+            name: &'static str,
+            second: i64,
+            method: &'static str,
+            status: i32,
+            bytes: &'static str,
+            cache_status: &'static str,
+            range: Option<&'static str>,
+        }
+
+        let cases = [
+            Case {
+                name: "miss",
+                second: FIXED_SCAN_SECOND - 100,
+                method: "GET",
+                status: 206,
+                bytes: "101",
+                cache_status: "MISS",
+                range: Some("bytes=1048600-1048700"),
+            },
+            Case {
+                name: "status-200",
+                second: FIXED_SCAN_SECOND - 99,
+                method: "GET",
+                status: 200,
+                bytes: "101",
+                cache_status: "HIT",
+                range: Some("bytes=1048600-1048700"),
+            },
+            Case {
+                name: "partial",
+                second: FIXED_SCAN_SECOND - 98,
+                method: "GET",
+                status: 206,
+                bytes: "100",
+                cache_status: "HIT",
+                range: Some("bytes=1048600-1048700"),
+            },
+            Case {
+                name: "zero",
+                second: FIXED_SCAN_SECOND - 97,
+                method: "GET",
+                status: 206,
+                bytes: "0",
+                cache_status: "HIT",
+                range: Some("bytes=1048600-1048700"),
+            },
+            Case {
+                name: "dash",
+                second: FIXED_SCAN_SECOND - 96,
+                method: "GET",
+                status: 206,
+                bytes: "-",
+                cache_status: "HIT",
+                range: Some("bytes=1048600-1048700"),
+            },
+            Case {
+                name: "multi-slice",
+                second: FIXED_SCAN_SECOND - 95,
+                method: "GET",
+                status: 206,
+                bytes: "2",
+                cache_status: "HIT",
+                range: Some("bytes=1048575-1048576"),
+            },
+            Case {
+                name: "no-range",
+                second: FIXED_SCAN_SECOND - 94,
+                method: "GET",
+                status: 206,
+                bytes: "101",
+                cache_status: "HIT",
+                range: None,
+            },
+            Case {
+                name: "invalid-range",
+                second: FIXED_SCAN_SECOND - 93,
+                method: "GET",
+                status: 206,
+                bytes: "101",
+                cache_status: "HIT",
+                range: Some("bytes=10-"),
+            },
+            Case {
+                name: "old",
+                second: -1,
+                method: "GET",
+                status: 206,
+                bytes: "101",
+                cache_status: "HIT",
+                range: Some("bytes=1048600-1048700"),
+            },
+            Case {
+                name: "future",
+                second: FIXED_SCAN_SECOND + 1,
+                method: "GET",
+                status: 206,
+                bytes: "101",
+                cache_status: "HIT",
+                range: Some("bytes=1048600-1048700"),
+            },
+            Case {
+                name: "head",
+                second: FIXED_SCAN_SECOND - 92,
+                method: "HEAD",
+                status: 206,
+                bytes: "101",
+                cache_status: "HIT",
+                range: Some("bytes=1048600-1048700"),
+            },
+            Case {
+                name: "bypass",
+                second: FIXED_SCAN_SECOND - 91,
+                method: "GET",
+                status: 206,
+                bytes: "101",
+                cache_status: "BYPASS",
+                range: Some("bytes=1048600-1048700"),
+            },
+            Case {
+                name: "stale",
+                second: FIXED_SCAN_SECOND - 90,
+                method: "GET",
+                status: 206,
+                bytes: "101",
+                cache_status: "STALE",
+                range: Some("bytes=1048600-1048700"),
+            },
+            Case {
+                name: "unknown",
+                second: FIXED_SCAN_SECOND - 89,
+                method: "GET",
+                status: 206,
+                bytes: "101",
+                cache_status: "UNKNOWN",
+                range: Some("bytes=1048600-1048700"),
+            },
+        ];
+
+        let fixture = tempfile::tempdir().expect("fixture");
+        let log_dir = fixture.path().join("logs");
+        let cache_dir = fixture.path().join("cache");
+        let mut lines = Vec::new();
+        for case in &cases {
+            let url = format!("/invalid-{}.bin", case.name);
+            lines.push(log_line_with_bytes(
+                case.second,
+                "target",
+                case.method,
+                case.status,
+                case.bytes,
+                case.cache_status,
+                &url,
+                case.range,
+            ));
+            lines.push(log_line_with_bytes(
+                FIXED_SCAN_SECOND - 10,
+                "sibling",
+                "GET",
+                206,
+                "101",
+                "HIT",
+                &url,
+                Some("bytes=2097200-2097300"),
+            ));
+            write_slice(&cache_utils::calculate_cache_path(
+                &cache_dir, "steam", &url, 2_097_152, 3_145_727,
+            ));
+        }
+        write_log(&log_dir, &lines);
+
+        let result = report(&cache_dir, &log_dir, 3, DetectionMode::CacheAndLogs);
+        assert!(result.candidates.is_empty());
+    }
+
+    #[test]
+    fn unproven_and_no_range_forms_do_not_support_a_missing_ranged_slice() {
+        let fixture = tempfile::tempdir().expect("fixture");
+        let log_dir = fixture.path().join("logs");
+        let cache_dir = fixture.path().join("cache");
+        let url = "/range-with-whole-object.bin";
+        write_log(
+            &log_dir,
+            &[log_line_with_bytes(
+                FIXED_SCAN_SECOND - 1,
+                "target",
+                "GET",
+                206,
+                "101",
+                "HIT",
+                url,
+                Some("bytes=1048600-1048700"),
+            )],
+        );
+        write_slice(&cache_utils::calculate_cache_path_no_range(
+            &cache_dir, "steam", url,
+        ));
+        write_slice(&cache_utils::calculate_cache_path_noslice(
+            &cache_dir, "steam", url,
+        ));
+        write_slice(&cache_utils::calculate_cache_path(
+            &cache_dir, "steam", url, 2_097_152, 3_145_727,
+        ));
+
+        assert!(report(&cache_dir, &log_dir, 3, DetectionMode::CacheAndLogs)
+            .candidates
+            .is_empty());
+    }
+
+    #[test]
+    fn missing_cached_slice_rechecks_absence_after_sibling_validation() {
+        let fixture = tempfile::tempdir().expect("fixture");
+        let log_dir = fixture.path().join("logs");
+        let cache_dir = fixture.path().join("cache");
+        fs::create_dir_all(&cache_dir).expect("cache root");
+        let url = "/racy.bin";
+        write_log(
+            &log_dir,
+            &[
+                log_line_with_bytes(
+                    FIXED_SCAN_SECOND - 2,
+                    "target",
+                    "GET",
+                    206,
+                    "101",
+                    "HIT",
+                    url,
+                    Some("bytes=1048600-1048700"),
+                ),
+                log_line_with_bytes(
+                    FIXED_SCAN_SECOND - 1,
+                    "sibling",
+                    "GET",
+                    206,
+                    "101",
+                    "HIT",
+                    url,
+                    Some("bytes=2097200-2097300"),
+                ),
+            ],
+        );
+        let target_path =
+            cache_utils::calculate_cache_path(&cache_dir, "steam", url, 1_048_576, 2_097_151);
+        let sibling_path =
+            cache_utils::calculate_cache_path(&cache_dir, "steam", url, 2_097_152, 3_145_727);
+        let detector =
+            CorruptionDetector::new(&cache_dir, 3, DEFAULT_LOOKBACK_DAYS, fixed_scan_start());
+        let mut target_checks = 0usize;
+        let result = detector
+            .generate_report_for_mode_with_path_inspector(
+                DetectionMode::CacheAndLogs,
+                &log_dir,
+                "access.log",
+                chrono_tz::UTC,
+                None,
+                |path| {
+                    if path == target_path {
+                        target_checks += 1;
+                        if target_checks == 1 {
+                            MappedPathState::MissingSafe
+                        } else {
+                            MappedPathState::PresentSafeRegular
+                        }
+                    } else if path == sibling_path {
+                        MappedPathState::PresentSafeRegular
+                    } else {
+                        MappedPathState::Unverifiable
+                    }
+                },
+            )
+            .expect("report");
+        assert!(result.candidates.is_empty());
+        assert_eq!(target_checks, 2);
+    }
+
+    #[test]
+    fn missing_cached_slice_abstains_for_unavailable_or_unverifiable_paths() {
+        let fixture = tempfile::tempdir().expect("fixture");
+        let log_dir = fixture.path().join("logs");
+        let missing_root = fixture.path().join("offline-cache");
+        let url = "/offline.bin";
+        write_log(
+            &log_dir,
+            &[
+                log_line_with_bytes(
+                    FIXED_SCAN_SECOND - 2,
+                    "target",
+                    "GET",
+                    206,
+                    "101",
+                    "HIT",
+                    url,
+                    Some("bytes=1048600-1048700"),
+                ),
+                log_line_with_bytes(
+                    FIXED_SCAN_SECOND - 1,
+                    "sibling",
+                    "GET",
+                    206,
+                    "101",
+                    "HIT",
+                    url,
+                    Some("bytes=2097200-2097300"),
+                ),
+            ],
+        );
+        let detector =
+            CorruptionDetector::new(&missing_root, 3, DEFAULT_LOOKBACK_DAYS, fixed_scan_start());
+        let unavailable = detector
+            .generate_report_for_mode(
+                DetectionMode::CacheAndLogs,
+                &log_dir,
+                "access.log",
+                chrono_tz::UTC,
+                None,
+            )
+            .expect("unavailable root report");
+        assert!(unavailable.candidates.is_empty());
+
+        fs::create_dir_all(&missing_root).expect("cache root");
+        let unknown = detector
+            .generate_report_for_mode_with_path_inspector(
+                DetectionMode::CacheAndLogs,
+                &log_dir,
+                "access.log",
+                chrono_tz::UTC,
+                None,
+                |_| MappedPathState::Unverifiable,
+            )
+            .expect("unverifiable path report");
+        assert!(unknown.candidates.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_sibling_cannot_support_a_missing_cached_slice() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = tempfile::tempdir().expect("fixture");
+        let log_dir = fixture.path().join("logs");
+        let cache_dir = fixture.path().join("cache");
+        let url = "/symlink.bin";
+        write_log(
+            &log_dir,
+            &[
+                log_line_with_bytes(
+                    FIXED_SCAN_SECOND - 2,
+                    "target",
+                    "GET",
+                    206,
+                    "101",
+                    "HIT",
+                    url,
+                    Some("bytes=1048600-1048700"),
+                ),
+                log_line_with_bytes(
+                    FIXED_SCAN_SECOND - 1,
+                    "sibling",
+                    "GET",
+                    206,
+                    "101",
+                    "HIT",
+                    url,
+                    Some("bytes=2097200-2097300"),
+                ),
+            ],
+        );
+        let sibling_path =
+            cache_utils::calculate_cache_path(&cache_dir, "steam", url, 2_097_152, 3_145_727);
+        fs::create_dir_all(sibling_path.parent().expect("sibling parent")).expect("mkdir");
+        let outside = fixture.path().join("outside");
+        fs::write(&outside, b"outside").expect("outside file");
+        symlink(&outside, &sibling_path).expect("symlink sibling");
+
+        assert!(report(&cache_dir, &log_dir, 3, DetectionMode::CacheAndLogs)
+            .candidates
+            .is_empty());
+        assert_eq!(fs::read(outside).expect("outside remains"), b"outside");
+    }
+
+    #[test]
+    fn repeated_miss_modes_are_not_filtered_by_the_new_lookback() {
+        let fixture = tempfile::tempdir().expect("fixture");
+        let log_dir = fixture.path().join("logs");
+        let cache_dir = fixture.path().join("cache");
+        let url = "/old-repeated-miss.bin";
+        let lines: Vec<String> = [-100, -99, -98]
+            .into_iter()
+            .map(|second| {
+                log_line(
+                    second,
+                    "client",
+                    "GET",
+                    206,
+                    "MISS",
+                    url,
+                    Some("bytes=1048600-1048700"),
+                )
+            })
+            .collect();
+        write_log(&log_dir, &lines);
+        write_slice(&cache_utils::calculate_cache_path(
+            &cache_dir, "steam", url, 1_048_576, 2_097_151,
+        ));
+
+        assert_eq!(
+            report(&cache_dir, &log_dir, 3, DetectionMode::LogsOnly).total,
+            1
+        );
+        assert_eq!(
+            report(&cache_dir, &log_dir, 3, DetectionMode::CacheAndLogs).total,
+            1
+        );
+    }
+
+    #[test]
+    fn mixed_service_report_partitions_removable_and_review_counts() {
+        let fixture = tempfile::tempdir().expect("fixture");
+        let log_dir = fixture.path().join("logs");
+        let cache_dir = fixture.path().join("cache");
+        let mut lines: Vec<String> = (0..3)
+            .map(|second| {
+                log_line(
+                    second,
+                    "miss",
+                    "GET",
+                    206,
+                    "MISS",
+                    "/removable.bin",
+                    Some("bytes=1048600-1048700"),
+                )
+            })
+            .collect();
+        lines.extend([
+            log_line_with_bytes(
+                FIXED_SCAN_SECOND - 2,
+                "target",
+                "GET",
+                206,
+                "101",
+                "HIT",
+                "/review.bin",
+                Some("bytes=1048600-1048700"),
+            ),
+            log_line_with_bytes(
+                FIXED_SCAN_SECOND - 1,
+                "sibling",
+                "GET",
+                206,
+                "101",
+                "HIT",
+                "/review.bin",
+                Some("bytes=2097200-2097300"),
+            ),
+        ]);
+        write_log(&log_dir, &lines);
+        write_slice(&cache_utils::calculate_cache_path(
+            &cache_dir,
+            "steam",
+            "/removable.bin",
+            1_048_576,
+            2_097_151,
+        ));
+        write_slice(&cache_utils::calculate_cache_path(
+            &cache_dir,
+            "steam",
+            "/review.bin",
+            2_097_152,
+            3_145_727,
+        ));
+
+        let report = report(&cache_dir, &log_dir, 3, DetectionMode::CacheAndLogs);
+        assert_eq!(report.total, 2);
+        assert_eq!(report.removable_total, 1);
+        assert_eq!(report.review_only_total, 1);
+        assert_eq!(report.service_counts.get("steam"), Some(&2));
+        assert_eq!(report.removable_service_counts.get("steam"), Some(&1));
+        assert_eq!(report.review_only_service_counts.get("steam"), Some(&1));
+        assert_eq!(
+            report.removable_total + report.review_only_total,
+            report.total
+        );
+    }
+
+    #[test]
+    fn empty_report_preserves_v2_scan_identity_and_zero_projections() {
+        let fixture = tempfile::tempdir().expect("fixture");
+        let report = report_at(
+            &fixture.path().join("cache"),
+            &fixture.path().join("logs"),
+            3,
+            DetectionMode::Redownload,
+            365,
+            fixed_scan_start(),
+        );
+        assert_eq!(report.contract_version, 2);
+        assert_eq!(report.lookback_days, 365);
+        assert_eq!(report.scan_started_utc, "2024-01-31T00:00:00Z");
+        assert!(report.service_counts.is_empty());
+        assert!(report.removable_service_counts.is_empty());
+        assert!(report.review_only_service_counts.is_empty());
+        assert_eq!(report.total, 0);
+        assert_eq!(report.removable_total, 0);
+        assert_eq!(report.review_only_total, 0);
+    }
+
+    #[test]
+    fn detector_rejects_out_of_range_lookback() {
+        let fixture = tempfile::tempdir().expect("fixture");
+        for lookback_days in [0, 366] {
+            let detector = CorruptionDetector::new(
+                fixture.path().join("cache"),
+                3,
+                lookback_days,
+                fixed_scan_start(),
+            );
+            assert!(detector
+                .generate_report_for_mode(
+                    DetectionMode::Redownload,
+                    fixture.path().join("logs"),
+                    "access.log",
+                    chrono_tz::UTC,
+                    None,
+                )
+                .is_err());
+        }
+    }
+
+    #[test]
     fn report_ids_order_and_wire_shape_are_deterministic() {
         let fixture = tempfile::tempdir().expect("fixture");
         let log_dir = fixture.path().join("logs");
@@ -1324,23 +2740,73 @@ mod tests {
 
         let value = serde_json::to_value(&first).expect("serialize report");
         let object = value.as_object().expect("report object");
-        assert_eq!(object.len(), 6);
+        assert_eq!(object.len(), 12);
         for field in [
             "contract_version",
             "mode",
             "threshold",
+            "lookback_days",
+            "scan_started_utc",
             "service_counts",
+            "removable_service_counts",
+            "review_only_service_counts",
             "total",
+            "removable_total",
+            "review_only_total",
             "candidates",
         ] {
             assert!(object.contains_key(field), "missing {field}");
         }
+        assert_eq!(value["contract_version"], 2);
+        assert_eq!(value["lookback_days"], 30);
+        assert_eq!(value["scan_started_utc"], "2024-01-31T00:00:00Z");
+        assert_eq!(value["removable_total"], 0);
+        assert_eq!(value["review_only_total"], 2);
         assert_eq!(value["mode"], "logs_only");
         assert_eq!(value["candidates"][0]["validation_state"], "log_suspect");
+        assert_eq!(
+            value["candidates"][0]["supporting_sibling"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            value["candidates"][0]["observations"][0]["bytes_served"],
+            1024
+        );
         assert_eq!(
             value["candidates"][0]["observed_range"]["kind"],
             "inclusive"
         );
         assert_eq!(value["candidates"][0]["cache_slice"]["kind"], "ranged");
+
+        for required in [
+            "lookback_days",
+            "scan_started_utc",
+            "removable_service_counts",
+            "review_only_service_counts",
+            "removable_total",
+            "review_only_total",
+        ] {
+            let mut missing = value.clone();
+            missing
+                .as_object_mut()
+                .expect("report object")
+                .remove(required);
+            assert!(
+                serde_json::from_value::<CorruptionReport>(missing).is_err(),
+                "missing {required} must fail"
+            );
+        }
+        let mut missing_supporting_sibling = value.clone();
+        missing_supporting_sibling["candidates"][0]
+            .as_object_mut()
+            .expect("candidate object")
+            .remove("supporting_sibling");
+        assert!(serde_json::from_value::<CorruptionReport>(missing_supporting_sibling).is_err());
+        let mut missing_bytes = value;
+        missing_bytes["candidates"][0]["observations"][0]
+            .as_object_mut()
+            .expect("observation object")
+            .remove("bytes_served");
+        assert!(serde_json::from_value::<CorruptionReport>(missing_bytes).is_err());
     }
 }

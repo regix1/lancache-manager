@@ -2440,6 +2440,8 @@
       "normalizedUri": "规范化 URI：",
       "observedRange": "请求范围：",
       "physicalSlice": "物理切片：",
+      "expectedMissingPath": "预期缺失路径：",
+      "supportingSibling": "扫描时存在的同级切片：",
       "noRange": "无范围",
       "noExactPath": "未验证精确缓存路径；此候选项仅供审核。",
       "reason": "原因：",
@@ -2448,8 +2450,12 @@
       "retryEvidence": "{{client}} · {{first}}–{{last}}",
       "reviewOnlyTitle": "仅供审核的扫描",
       "reviewOnlyShort": "仅供审核",
-      "reviewOnlyDescription": "这些发现没有后端批准的精确移除路径。请审核证据或运行“缓存 + 日志”；此扫描不提供破坏性操作。",
-      "reviewOnlyAction": "此已存储扫描仅供审核，不能移除缓存文件。",
+      "reviewOnlyDescription": "这 {{count}} 个审核发现仅供检查证据，不能对其执行破坏性操作。",
+      "reviewOnlyAction": "此已存储扫描选择中没有可移除的嫌疑项。",
+      "mixedReviewTitle": "部分发现需要审核",
+      "mixedReviewDescription": "这 {{count}} 个审核发现仍可供检查，并会从所有移除操作中排除。",
+      "removableCount": "{{count}} 个可移除",
+      "reviewCount": "{{count}} 个待审核",
       "sliceKinds": {
         "no_range": "无范围缓存键",
         "noslice": "非切片缓存键",
@@ -2457,7 +2463,8 @@
       },
       "reasons": {
         "repeated_miss_burst": "一个物理切片上的字面 MISS 突发",
-        "same_client_hit_retry_burst": "同一客户端在一个物理切片上的 HIT 重试突发"
+        "same_client_hit_retry_burst": "同一客户端在一个物理切片上的 HIT 重试突发",
+        "missing_cached_slice": "扫描时存在同级切片的缓存切片缺失"
       },
       "validationStates": {
         "log_suspect": "仅有日志证据",
@@ -2474,7 +2481,7 @@
       "detectionModeCacheLogsDesc": "一个物理切片在 60 秒内出现 {{threshold}}+ 次字面 MISS，且其精确映射缓存路径存在时才会标记。这是强烈嫌疑，并非校验和证明。",
       "detectionModeLogsOnly": "仅日志",
       "detectionModeLogsOnlyShort": "仅日志",
-      "detectionModeLogsOnlyDesc": "一个物理切片在 60 秒内出现 {{threshold}}+ 次字面 MISS 时标记。日志证据仅供审核；不会验证或移除缓存路径。",
+      "detectionModeLogsOnlyDesc": "一个物理切片在 60 秒内出现 {{threshold}}+ 次字面 MISS 时标记。日志证据仅供审核；证据回溯不适用，也不会验证或移除缓存路径。",
       "detectionModeRedownload": "重新下载检测",
       "detectionModeRedownloadShort": "重新下载",
       "detectionModeRedownloadDesc": "同一客户端在 60 秒内以 HIT 收到同一物理切片 {{threshold}}+ 次时标记。这表示可疑重试，并不能证明内容验证失败。",
@@ -2490,6 +2497,14 @@
       "sensitivityLow": "低灵敏度",
       "sensitivityLowShort": "低",
       "sensitivityLowDesc": "要求一个切片在 60 秒内有 10 次合格观察（更少嫌疑项）",
+      "evidenceLookbackTitle": "证据回溯",
+      "evidenceLookbackDescription": "包含从扫描开始时间向前此窗口内的合格历史证据。",
+      "evidenceWindow": "{{days}} 天证据回溯窗口",
+      "lookback1Day": "1 天",
+      "lookback7Days": "7 天",
+      "lookback30Days": "30 天",
+      "lookback90Days": "90 天",
+      "lookback365Days": "365 天",
       "help": {
         "whatThisDoes": {
           "title": "功能说明",
@@ -2536,7 +2551,7 @@
         }
       },
       "notifications": {
-        "loadedResults": "已加载之前的结果：{{chunks}} 个可疑切片，涉及 {{services}} 个服务",
+        "loadedResults": "已加载之前的结果：{{removable}} 个可移除嫌疑项和 {{review}} 个审核发现，涉及 {{services}} 个服务",
         "noCorruptedInPrevious": "上次扫描中未找到可疑切片",
         "noPreviousResults": "未找到之前的损坏扫描结果"
       },
@@ -2564,7 +2579,8 @@
         "deleteCacheAndLogs": "删除缓存和日志",
         "deleteLogsOnly": "仅删除日志",
         "removeAllTitle": "移除所有已验证的可疑切片",
-        "confirmRemoveAll": "移除 {{count}} 个服务中的后端批准精确缓存路径？",
+        "confirmRemoveAll": "移除 {{services}} 个服务中的 {{candidates}} 个可移除嫌疑项？",
+        "confirmRemoveSelected": "移除 {{services}} 个所选服务中的 {{candidates}} 个可移除嫌疑项？",
         "removeAllAcrossAllServices": "移除将按顺序在所有受影响的服务上运行",
         "removeAllConfirm": "移除所有已验证项"
       }
@@ -6340,7 +6356,7 @@
     "corruptionDetect": {
       "starting": "开始损坏检测扫描…",
       "scanningLogs": "正在扫描日志文件…",
-      "complete": "检测完成。在 {{count}} 个服务中发现可疑切片。",
+      "complete": "检测完成：{{removable}} 个可移除嫌疑项，{{reviewOnly}} 个审核发现。",
       "cancelled": "用户已取消检测",
       "failed": "损坏检测失败: {{errorDetail}}"
     },

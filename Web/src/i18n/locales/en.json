@@ -2440,6 +2440,8 @@
       "normalizedUri": "Normalized URI:",
       "observedRange": "Request range:",
       "physicalSlice": "Physical slice:",
+      "expectedMissingPath": "Expected missing path:",
+      "supportingSibling": "Present sibling at scan time:",
       "noRange": "no range",
       "noExactPath": "No exact cache path was validated; this candidate is review-only.",
       "reason": "Reason:",
@@ -2448,8 +2450,12 @@
       "retryEvidence": "{{client}} · {{first}}–{{last}}",
       "reviewOnlyTitle": "Review-only scan",
       "reviewOnlyShort": "Review only",
-      "reviewOnlyDescription": "These findings do not have backend-approved exact paths for removal. Review the evidence or run Cache + Logs; no destructive action is available for this scan.",
-      "reviewOnlyAction": "This stored scan is review-only and cannot remove cache files.",
+      "reviewOnlyDescription": "These {{count}} review findings are evidence for inspection only. No destructive action is available for them.",
+      "reviewOnlyAction": "No removable suspects are available in this stored scan selection.",
+      "mixedReviewTitle": "Some findings require review",
+      "mixedReviewDescription": "These {{count}} review findings remain available for inspection and are excluded from every removal action.",
+      "removableCount": "{{count}} removable",
+      "reviewCount": "{{count}} review",
       "sliceKinds": {
         "no_range": "no-range cache key",
         "noslice": "noslice cache key",
@@ -2457,7 +2463,8 @@
       },
       "reasons": {
         "repeated_miss_burst": "literal MISS burst on one physical slice",
-        "same_client_hit_retry_burst": "same-client HIT retry burst on one physical slice"
+        "same_client_hit_retry_burst": "same-client HIT retry burst on one physical slice",
+        "missing_cached_slice": "missing cached slice with a present sibling at scan time"
       },
       "validationStates": {
         "log_suspect": "log evidence only",
@@ -2474,7 +2481,7 @@
       "detectionModeCacheLogsDesc": "Flags one physical slice after {{threshold}}+ literal MISS observations within 60 seconds, only when its exact mapped cache path exists. Strong suspicion, not checksum proof.",
       "detectionModeLogsOnly": "Logs Only",
       "detectionModeLogsOnlyShort": "Logs Only",
-      "detectionModeLogsOnlyDesc": "Flags one physical slice after {{threshold}}+ literal MISS observations within 60 seconds. Log evidence is review-only; no cache path is validated or removed.",
+      "detectionModeLogsOnlyDesc": "Flags one physical slice after {{threshold}}+ literal MISS observations within 60 seconds. Log evidence is review-only; evidence lookback does not apply and no cache path is validated or removed.",
       "detectionModeRedownload": "Re-download Detection",
       "detectionModeRedownloadShort": "Re-download",
       "detectionModeRedownloadDesc": "Flags one physical slice when the same client receives it as a HIT {{threshold}}+ times within 60 seconds. This is a retry suspicion, not proof that content validation failed.",
@@ -2490,6 +2497,14 @@
       "sensitivityLow": "Low Sensitivity",
       "sensitivityLowShort": "Low",
       "sensitivityLowDesc": "Requires 10 qualifying observations on one slice within 60 seconds (fewer suspects)",
+      "evidenceLookbackTitle": "Evidence Lookback",
+      "evidenceLookbackDescription": "Includes qualifying historical evidence within this window before the scan start.",
+      "evidenceWindow": "{{days}}-day evidence window",
+      "lookback1Day": "1 day",
+      "lookback7Days": "7 days",
+      "lookback30Days": "30 days",
+      "lookback90Days": "90 days",
+      "lookback365Days": "365 days",
       "help": {
         "whatThisDoes": {
           "title": "What This Does",
@@ -2536,7 +2551,7 @@
         }
       },
       "notifications": {
-        "loadedResults": "Loaded previous results: {{chunks}} suspect slices across {{services}} services",
+        "loadedResults": "Loaded previous results: {{removable}} removable suspects and {{review}} review findings across {{services}} services",
         "noCorruptedInPrevious": "No suspect slices found in the previous scan",
         "noPreviousResults": "No previous corruption scan results found"
       },
@@ -2564,7 +2579,8 @@
         "deleteCacheAndLogs": "Delete Cache & Logs",
         "deleteLogsOnly": "Delete Logs Only",
         "removeAllTitle": "Remove All Validated Suspect Slices",
-        "confirmRemoveAll": "Remove backend-approved exact cache paths across {{count}} services?",
+        "confirmRemoveAll": "Remove {{candidates}} removable suspects across {{services}} services?",
+        "confirmRemoveSelected": "Remove {{candidates}} removable suspects across {{services}} selected services?",
         "removeAllAcrossAllServices": "Removal will run across all affected services in sequence",
         "removeAllConfirm": "Remove All Validated"
       }
@@ -6371,7 +6387,7 @@
     "corruptionDetect": {
       "starting": "Starting corruption detection scan…",
       "scanningLogs": "Scanning log files…",
-      "complete": "Detection complete. Found suspect slices in {{count}} services.",
+      "complete": "Detection complete: {{removable}} removable suspects and {{reviewOnly}} review findings.",
       "cancelled": "Detection cancelled by user",
       "failed": "Corruption detection failed: {{errorDetail}}"
     },

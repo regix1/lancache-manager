@@ -26,7 +26,7 @@ mod tact_products;
 
 use cache_corruption_detector::{
     CorruptionCandidate, CorruptionDetector, DetectionMode, DetectionReason, ValidationState,
-    CORRUPTION_CONTRACT_VERSION,
+    CORRUPTION_CONTRACT_VERSION, DEFAULT_LOOKBACK_DAYS,
 };
 use cache_utils::{CacheSliceKind, ObservedByteRange};
 use log_purge::{ExactLogMatcher, ExactLogObservation};
@@ -65,6 +65,15 @@ enum Commands {
         timezone: String,
         #[arg(default_value_t = 3)]
         threshold: usize,
+        #[arg(
+            long,
+            default_value_t = DEFAULT_LOOKBACK_DAYS,
+            value_parser = clap::value_parser!(u32).range(1..=365)
+        )]
+        lookback_days: u32,
+        /// Shared UTC scan anchor. Standalone callers may omit it to capture UTC now once.
+        #[arg(long)]
+        scan_started_utc: Option<String>,
         /// Canonical mode: logs_only, cache_and_logs, or redownload.
         #[arg(long)]
         mode: Option<String>,
@@ -89,6 +98,15 @@ enum Commands {
         timezone: String,
         #[arg(default_value_t = 3)]
         threshold: usize,
+        #[arg(
+            long,
+            default_value_t = DEFAULT_LOOKBACK_DAYS,
+            value_parser = clap::value_parser!(u32).range(1..=365)
+        )]
+        lookback_days: u32,
+        /// Shared UTC scan anchor. Standalone callers may omit it to capture UTC now once.
+        #[arg(long)]
+        scan_started_utc: Option<String>,
         #[arg(long)]
         mode: Option<String>,
         #[arg(long, default_value_t = false)]
@@ -167,6 +185,18 @@ fn parse_timezone(value: &str) -> Result<chrono_tz::Tz> {
     value
         .parse()
         .with_context(|| format!("invalid timezone '{value}'"))
+}
+
+fn parse_scan_started_utc(value: Option<&str>) -> Result<DateTime<Utc>> {
+    let Some(value) = value else {
+        return Ok(Utc::now());
+    };
+    let parsed = DateTime::parse_from_rfc3339(value)
+        .with_context(|| format!("invalid scan_started_utc '{value}'"))?;
+    if parsed.offset().local_minus_utc() != 0 {
+        bail!("scan_started_utc must use the UTC offset");
+    }
+    Ok(parsed.with_timezone(&Utc))
 }
 
 fn parse_detection_mode(value: &str) -> Result<DetectionMode> {
@@ -418,6 +448,9 @@ fn load_and_validate_removal_evidence(
 
     for wrapped in envelope.candidates {
         let candidate = wrapped.candidate;
+        if candidate.reason == DetectionReason::MissingCachedSlice {
+            bail!("missing_cached_slice evidence is review-only and cannot be removed");
+        }
         if !wrapped
             .datasource
             .eq_ignore_ascii_case(&envelope.datasource)
@@ -759,10 +792,12 @@ fn generate_report(
     cache_dir: &Path,
     timezone: chrono_tz::Tz,
     threshold: usize,
+    lookback_days: u32,
+    scan_started_utc: DateTime<Utc>,
     mode: DetectionMode,
     progress_path: Option<&Path>,
 ) -> Result<cache_corruption_detector::CorruptionReport> {
-    CorruptionDetector::new(cache_dir, threshold)
+    CorruptionDetector::new(cache_dir, threshold, lookback_days, scan_started_utc)
         .generate_report_for_mode(mode, log_dir, "access.log", timezone, progress_path)
         .with_context(|| format!("failed to generate {mode:?} corruption report"))
 }
@@ -904,6 +939,8 @@ async fn main() -> Result<()> {
             output_json,
             timezone,
             threshold,
+            lookback_days,
+            scan_started_utc,
             mode,
             no_cache_check,
             detect_redownloads,
@@ -914,6 +951,7 @@ async fn main() -> Result<()> {
             let result: Result<()> = (|| {
                 let mode = resolve_scan_mode(mode.as_deref(), no_cache_check, detect_redownloads)?;
                 let timezone = parse_timezone(&timezone)?;
+                let scan_started_utc = parse_scan_started_utc(scan_started_utc.as_deref())?;
                 let progress_path = progress_json.as_deref().map(Path::new);
                 seed_scan_progress(progress_path);
                 reporter.emit_started("signalr.corruptionRemove.scanningFiles", json!({}));
@@ -922,13 +960,22 @@ async fn main() -> Result<()> {
                     Path::new(&cache_dir),
                     timezone,
                     threshold,
+                    lookback_days,
+                    scan_started_utc,
                     mode,
                     progress_path,
                 )?;
                 write_pretty_json(Path::new(&output_json), &report)?;
                 reporter.emit_complete(
                     "signalr.corruptionRemove.complete",
-                    json!({ "totalCorrupted": report.total, "serviceCounts": report.service_counts }),
+                    json!({
+                        "totalCorrupted": report.total,
+                        "serviceCounts": report.service_counts,
+                        "removableTotal": report.removable_total,
+                        "reviewOnlyTotal": report.review_only_total,
+                        "removableServiceCounts": report.removable_service_counts,
+                        "reviewOnlyServiceCounts": report.review_only_service_counts
+                    }),
                 );
                 Ok(())
             })();
@@ -944,6 +991,8 @@ async fn main() -> Result<()> {
             progress_json,
             timezone,
             threshold,
+            lookback_days,
+            scan_started_utc,
             mode,
             no_cache_check,
             detect_redownloads,
@@ -953,6 +1002,7 @@ async fn main() -> Result<()> {
             let result: Result<()> = (|| {
                 let mode = resolve_scan_mode(mode.as_deref(), no_cache_check, detect_redownloads)?;
                 let timezone = parse_timezone(&timezone)?;
+                let scan_started_utc = parse_scan_started_utc(scan_started_utc.as_deref())?;
                 let progress_path = (progress_json != "none" && !progress_json.is_empty())
                     .then(|| Path::new(&progress_json));
                 seed_scan_progress(progress_path);
@@ -962,12 +1012,21 @@ async fn main() -> Result<()> {
                     Path::new(&cache_dir),
                     timezone,
                     threshold,
+                    lookback_days,
+                    scan_started_utc,
                     mode,
                     progress_path,
                 )?;
                 reporter.emit_complete(
                     "signalr.corruptionRemove.complete",
-                    json!({ "totalCorrupted": report.total, "serviceCounts": report.service_counts }),
+                    json!({
+                        "totalCorrupted": report.total,
+                        "serviceCounts": report.service_counts,
+                        "removableTotal": report.removable_total,
+                        "reviewOnlyTotal": report.review_only_total,
+                        "removableServiceCounts": report.removable_service_counts,
+                        "reviewOnlyServiceCounts": report.review_only_service_counts
+                    }),
                 );
                 println!("{}", serde_json::to_string(&report)?);
                 Ok(())
@@ -1009,7 +1068,7 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cache_corruption_detector::CandidateObservation;
+    use cache_corruption_detector::{CandidateObservation, SupportingSiblingEvidence};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn make_candidate(
@@ -1041,6 +1100,7 @@ mod tests {
                 raw_url: raw_url.to_string(),
                 method: "GET".to_string(),
                 http_status: 206,
+                bytes_served: 1024,
                 cache_status: cache_status.to_string(),
                 raw_range: Some("bytes=2097200-2097300".to_string()),
             })
@@ -1068,6 +1128,7 @@ mod tests {
                 },
                 validation_state: ValidationState::ExactPathPresent,
                 removal_allowed: mode != DetectionMode::LogsOnly,
+                supporting_sibling: None,
                 observations,
             },
         }
@@ -1111,8 +1172,48 @@ mod tests {
             "5",
             "--mode",
             "redownload",
-        ]);
-        assert!(summary.is_ok());
+            "--lookback-days",
+            "30",
+            "--scan-started-utc",
+            "2024-01-31T00:00:00Z",
+        ])
+        .expect("summary CLI");
+        match summary.command {
+            Commands::Summary {
+                lookback_days,
+                scan_started_utc,
+                ..
+            } => {
+                assert_eq!(lookback_days, 30);
+                assert_eq!(scan_started_utc.as_deref(), Some("2024-01-31T00:00:00Z"));
+            }
+            _ => panic!("expected summary"),
+        }
+        let detect = Args::try_parse_from([
+            "cache_corruption",
+            "detect",
+            "logs",
+            "cache",
+            "report.json",
+            "UTC",
+            "3",
+            "--lookback-days",
+            "30",
+            "--scan-started-utc",
+            "2024-01-31T00:00:00Z",
+        ])
+        .expect("detect CLI");
+        match detect.command {
+            Commands::Detect {
+                lookback_days,
+                scan_started_utc,
+                ..
+            } => {
+                assert_eq!(lookback_days, 30);
+                assert_eq!(scan_started_utc.as_deref(), Some("2024-01-31T00:00:00Z"));
+            }
+            _ => panic!("expected detect"),
+        }
         let removal = Args::try_parse_from([
             "cache_corruption",
             "remove",
@@ -1125,6 +1226,99 @@ mod tests {
             "--progress",
         ]);
         assert!(removal.is_ok());
+    }
+
+    #[test]
+    fn lookback_days_cli_accepts_bounds_defaults_and_rejects_out_of_range() {
+        for value in ["1", "30", "365"] {
+            let detect = Args::try_parse_from([
+                "cache_corruption",
+                "detect",
+                "logs",
+                "cache",
+                "report.json",
+                "UTC",
+                "3",
+                "--lookback-days",
+                value,
+            ])
+            .expect("valid detect lookback");
+            let Commands::Detect { lookback_days, .. } = detect.command else {
+                panic!("expected detect")
+            };
+            assert_eq!(lookback_days.to_string(), value);
+
+            let summary = Args::try_parse_from([
+                "cache_corruption",
+                "summary",
+                "logs",
+                "cache",
+                "none",
+                "UTC",
+                "3",
+                "--lookback-days",
+                value,
+            ])
+            .expect("valid summary lookback");
+            let Commands::Summary { lookback_days, .. } = summary.command else {
+                panic!("expected summary")
+            };
+            assert_eq!(lookback_days.to_string(), value);
+        }
+
+        for value in ["0", "366"] {
+            assert!(Args::try_parse_from([
+                "cache_corruption",
+                "detect",
+                "logs",
+                "cache",
+                "report.json",
+                "UTC",
+                "3",
+                "--lookback-days",
+                value,
+            ])
+            .is_err());
+            assert!(Args::try_parse_from([
+                "cache_corruption",
+                "summary",
+                "logs",
+                "cache",
+                "none",
+                "UTC",
+                "3",
+                "--lookback-days",
+                value,
+            ])
+            .is_err());
+        }
+
+        let detect_default =
+            Args::try_parse_from(["cache_corruption", "detect", "logs", "cache", "report.json"])
+                .expect("default detect");
+        let Commands::Detect { lookback_days, .. } = detect_default.command else {
+            panic!("expected detect")
+        };
+        assert_eq!(lookback_days, DEFAULT_LOOKBACK_DAYS);
+
+        let summary_default =
+            Args::try_parse_from(["cache_corruption", "summary", "logs", "cache"])
+                .expect("default summary");
+        let Commands::Summary { lookback_days, .. } = summary_default.command else {
+            panic!("expected summary")
+        };
+        assert_eq!(lookback_days, DEFAULT_LOOKBACK_DAYS);
+    }
+
+    #[test]
+    fn scan_started_utc_parser_requires_utc_and_preserves_the_instant() {
+        let parsed = parse_scan_started_utc(Some("2024-01-31T00:00:00Z")).expect("UTC start");
+        assert_eq!(
+            parsed.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            "2024-01-31T00:00:00Z"
+        );
+        assert!(parse_scan_started_utc(Some("2024-01-31T01:00:00+01:00")).is_err());
+        assert!(parse_scan_started_utc(Some("not-a-time")).is_err());
     }
 
     #[test]
@@ -1167,6 +1361,54 @@ mod tests {
             vec![candidate],
         );
         assert!(load_and_validate_removal_evidence(&path, &cache_dir, "steam").is_err());
+    }
+
+    #[test]
+    fn forged_missing_cached_slice_is_rejected_before_removal() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_dir = fixture.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let mut base = make_candidate(&cache_dir, "default", DetectionMode::CacheAndLogs, 3);
+        base.candidate.reason = DetectionReason::MissingCachedSlice;
+        base.candidate.supporting_sibling = Some(SupportingSiblingEvidence {
+            cache_slice: CacheSliceKind::Ranged {
+                start: 3_145_728,
+                end: 4_194_303,
+            },
+            exact_path: cache_utils::calculate_cache_path(
+                &cache_dir,
+                "steam",
+                "/middle.bin",
+                3_145_728,
+                4_194_303,
+            )
+            .display()
+            .to_string(),
+        });
+        let exact_path = PathBuf::from(&base.candidate.exact_paths[0]);
+        std::fs::create_dir_all(exact_path.parent().unwrap()).unwrap();
+        std::fs::write(&exact_path, b"must remain").unwrap();
+
+        for (removal_allowed, validation_state) in [
+            (true, ValidationState::ExactPathPresent),
+            (true, ValidationState::ExactPathMissing),
+            (false, ValidationState::ExactPathPresent),
+        ] {
+            let mut candidate = base.clone();
+            candidate.candidate.removal_allowed = removal_allowed;
+            candidate.candidate.validation_state = validation_state;
+            let evidence_path = write_evidence(
+                fixture.path(),
+                "default",
+                DetectionMode::CacheAndLogs,
+                3,
+                vec![candidate],
+            );
+            let error = load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam")
+                .expect_err("missing slice must never be removable");
+            assert!(format!("{error:#}").contains("review-only"));
+            assert_eq!(std::fs::read(&exact_path).unwrap(), b"must remain");
+        }
     }
 
     #[test]

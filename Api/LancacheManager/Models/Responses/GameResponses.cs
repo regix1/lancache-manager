@@ -85,10 +85,15 @@ public class CachedCorruptionResponse
     public Guid? ScanId { get; set; }
     public CorruptionDetectionMode? DetectionMode { get; set; }
     public int? Threshold { get; set; }
+    public int? LookbackDays { get; set; }
     public int? ContractVersion { get; set; }
     public Dictionary<string, long>? CorruptionCounts { get; set; }
+    public Dictionary<string, long>? RemovableServiceCounts { get; set; }
+    public Dictionary<string, long>? ReviewOnlyServiceCounts { get; set; }
     public int TotalServicesWithCorruption { get; set; }
     public long TotalCorruptedChunks { get; set; }
+    public long RemovableTotal { get; set; }
+    public long ReviewOnlyTotal { get; set; }
     public string? LastDetectionTime { get; set; }
     public bool RemovalAllowed { get; set; }
     public Dictionary<string, bool>? ServiceRemovalAllowed { get; set; }

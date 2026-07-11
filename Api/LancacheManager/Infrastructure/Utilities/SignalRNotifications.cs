@@ -291,8 +291,8 @@ public static class SignalRNotifications
     /// One record for ALL terminal paths (replaces the prior anon success object + the separate
     /// force-kill <c>CorruptionDetectionCancelled</c> record). Property names mirror the frontend
     /// <c>CorruptionDetectionCompleteEvent</c> contract (status / cancelled / error /
-    /// totalServicesWithCorruption / totalCorruptedChunks). Emitted from a single place via
-    /// <c>OperationInfo.OnTerminalEmit</c>.
+    /// totalServicesWithCorruption / totalCorruptedChunks) and add the v2 removable/review-only
+    /// maps and totals. Emitted from a single place via <c>OperationInfo.OnTerminalEmit</c>.
     /// </summary>
     public record CorruptionDetectionComplete(
         bool Success,
@@ -303,6 +303,10 @@ public static class SignalRNotifications
         string? Error = null,
         int TotalServicesWithCorruption = 0,
         int TotalCorruptedChunks = 0,
+        Dictionary<string, long>? RemovableServiceCounts = null,
+        Dictionary<string, long>? ReviewOnlyServiceCounts = null,
+        long RemovableTotal = 0,
+        long ReviewOnlyTotal = 0,
         Dictionary<string, object?>? Context = null
     ) : ICompletionNotification, IOperationComplete
     {

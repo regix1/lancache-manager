@@ -1335,7 +1335,8 @@ class ApiService {
   // Start background corruption detection scan
   static async startCorruptionDetection(
     threshold = 3,
-    detectionMode: CorruptionDetectionMode = 'cache_and_logs'
+    detectionMode: CorruptionDetectionMode = 'cache_and_logs',
+    lookbackDays = 30
   ): Promise<{
     operationId: string;
     message: string;
@@ -1347,6 +1348,7 @@ class ApiService {
       const params = new URLSearchParams();
       params.set('threshold', String(threshold));
       params.set('detectionMode', detectionMode);
+      params.set('lookbackDays', String(lookbackDays));
       const res = await fetch(
         `${API_BASE}/cache/corruption/detect?${params.toString()}`,
         this.getFetchOptions({
