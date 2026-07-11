@@ -58,6 +58,10 @@ export function ScheduledPrefillPlatformSection({
     onChange({ ...config, enabled: value === 'enabled' });
   };
 
+  const handleNotificationChange = (value: string) => {
+    onChange({ ...config, showNotification: value === 'visible' });
+  };
+
   return (
     <section
       className={`scheduled-prefill-platform-section ${platformMeta.rowClassName}`}
@@ -105,6 +109,34 @@ export function ScheduledPrefillPlatformSection({
             disabled={disabled || !config.enabled}
             onChange={onChange}
           />
+          <div className="scheduled-prefill-notification-setting">
+            <div className="scheduled-prefill-notification-setting__copy">
+              <span className="scheduled-prefill-notification-setting__label">
+                {t(`${baseKey}.fields.notifications`)}
+              </span>
+              <span className="scheduled-prefill-notification-setting__help">
+                {t(`${baseKey}.fields.notificationsHelp`)}
+              </span>
+            </div>
+            <ToggleSwitch
+              options={[
+                {
+                  value: 'silent',
+                  label: t(`${baseKey}.fields.silent`),
+                  activeColor: 'default'
+                },
+                {
+                  value: 'visible',
+                  label: t(`${baseKey}.fields.visible`),
+                  activeColor: 'info'
+                }
+              ]}
+              value={config.showNotification !== false ? 'visible' : 'silent'}
+              onChange={handleNotificationChange}
+              disabled={disabled}
+              title={t(`${baseKey}.fields.notifications`)}
+            />
+          </div>
         </Card>
 
         <ScheduledPrefillPersistentCard

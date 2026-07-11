@@ -1550,7 +1550,7 @@
 .scheduled-prefill-platforms__nav-badge {
   font-size: var(--font-size-2xs);
   /* Equal-width pills: floor sized to the widest settled label
-     (Enabled/Disabled/Running/Stopped) so the stacked pair reads as one column. */
+     (Enabled/Disabled/Running/Stopped/Visible/Silent) so the stack reads as one column. */
   min-width: 4rem;
   justify-content: center;
   text-align: center;
@@ -1626,6 +1626,35 @@
   font-size: var(--font-size-md);
   font-weight: 700;
   color: var(--theme-text-primary);
+}
+
+.scheduled-prefill-notification-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+.scheduled-prefill-notification-setting__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.scheduled-prefill-notification-setting__label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--theme-text-primary);
+}
+
+.scheduled-prefill-notification-setting__help {
+  max-width: 36rem;
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+  color: var(--theme-text-muted);
 }
 
 .scheduled-prefill-schedule-fields {
@@ -1799,13 +1828,14 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* The nav keeps its desktop full-width rows here (one per platform) - the old
-     content-width wrapping chips left ragged widths and a hanging badge line on
-     phones. Only the badges change: inline on the row's right instead of the
-     desktop rail's stacked column. */
+  /* The nav keeps its desktop full-width rows here (one per platform). Two badges
+     share the first line and the notification badge wraps beneath them. */
   .scheduled-prefill-platforms__nav-badges {
     flex-direction: row;
     align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    max-width: 8.25rem;
   }
 
   /* The active nav item already shows the platform icon + name, so repeating
@@ -1850,6 +1880,11 @@
 }
 
 @media (max-width: 639px) {
+  .scheduled-prefill-notification-setting {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .scheduled-prefill-config-modal__section-header,
   .scheduled-prefill-service-row__toggle-row,
   .scheduled-prefill-persistent-card__header,

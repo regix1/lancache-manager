@@ -84,14 +84,61 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/cache/size - Calculate cache size with deletion time estimates
+    /// GET /api/cache/size - Read the cached size or start an asynchronous queued rescan when force=true
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("size")]
     [Authorize]
-    public async Task<IActionResult> GetCacheSizeAsync([FromQuery] string? datasource = null, [FromQuery] bool force = false)
+    public async Task<IActionResult> GetCacheSizeAsync(
+        [FromQuery] string? datasource = null,
+        [FromQuery] bool force = false,
+        CancellationToken cancellationToken = default)
     {
-        var result = await _cacheService.GetCacheSizeAsync(force, datasource);
+        if (force && string.IsNullOrEmpty(datasource))
+        {
+            // An explicit full rescan is a heavy operation. Always enter through the queue so
+            // a conflicting game detection / eviction / log operation produces a real purple
+            // waiting card and promotes automatically instead of turning a null scan into a 500.
+            // The singleton service owns the promoted worker; it must outlive this HTTP request.
+            Task<Guid?> StartCacheSizeScanAsync() => _cacheService.StartCacheSizeScanInBackgroundAsync();
+
+            var scope = ConflictScope.Bulk();
+            var conflict = await _conflictChecker.CheckAsync(
+                OperationType.CacheSizeScan,
+                scope,
+                cancellationToken);
+            if (conflict != null)
+            {
+                return Accepted(await _operationQueue.EnqueueAsync(
+                    OperationType.CacheSizeScan,
+                    scope,
+                    "Cache File Scan",
+                    StartCacheSizeScanAsync,
+                    cancellationToken));
+            }
+
+            var operationId = await StartCacheSizeScanAsync();
+            if (!operationId.HasValue)
+            {
+                // A heavy operation won the race between the pre-check and registration.
+                // Re-enter through the queue so the request still becomes a waiting card.
+                return Accepted(await _operationQueue.EnqueueAsync(
+                    OperationType.CacheSizeScan,
+                    scope,
+                    "Cache File Scan",
+                    StartCacheSizeScanAsync,
+                    cancellationToken));
+            }
+
+            return Accepted(new QueuedOperationResponse
+            {
+                OperationId = operationId.Value,
+                Queued = false,
+                Status = "started"
+            });
+        }
+
+        var result = await _cacheService.GetCacheSizeAsync(force, datasource, cancellationToken);
         if (result == null)
         {
             // Graceful fallback only applies to the cached "all datasources" scan - a
@@ -115,11 +162,6 @@ public class CacheController : ControllerBase
             }
 
             return StatusCode(500, new ErrorResponse { Error = "Failed to calculate cache size" });
-        }
-
-        if (force && string.IsNullOrEmpty(datasource))
-        {
-            await _notifications.NotifyAllAsync(SignalREvents.CacheScanComplete, new CacheScanComplete(Success: true));
         }
 
         return Ok(result);

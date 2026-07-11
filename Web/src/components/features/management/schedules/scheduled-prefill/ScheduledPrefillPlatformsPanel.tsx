@@ -117,8 +117,8 @@ export function ScheduledPrefillPlatformsPanel({
                   )}
                 </span>
                 <span className="scheduled-prefill-platforms__nav-badges">
-                  {/* Both badges always render as color-coded status pills (green = active,
-                      red = inactive) so every platform reads the same at a glance. */}
+                  {/* Operational state stays color-coded (green = active, red = inactive), while
+                      notification visibility uses a quieter informational/neutral pair. */}
                   <Badge
                     variant={serviceConfig.enabled ? 'success' : 'error'}
                     className="scheduled-prefill-platforms__nav-badge"
@@ -141,6 +141,14 @@ export function ScheduledPrefillPlatformsPanel({
                       : container?.isRunning
                         ? t('prefill.persistent.states.running')
                         : t('prefill.persistent.states.stopped')}
+                  </Badge>
+                  <Badge
+                    variant={serviceConfig.showNotification !== false ? 'info' : 'neutral'}
+                    className="scheduled-prefill-platforms__nav-badge"
+                  >
+                    {serviceConfig.showNotification !== false
+                      ? t(`${baseKey}.platforms.status.visible`)
+                      : t(`${baseKey}.platforms.status.silent`)}
                   </Badge>
                 </span>
               </button>

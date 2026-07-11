@@ -47,6 +47,17 @@ export interface CacheSizeScanningInfo {
   operationId?: string;
 }
 
+/**
+ * Accepted response for an explicit cache-size rescan. The operation either started immediately,
+ * was parked in the wait queue, or was deduplicated against an existing scan.
+ */
+export interface CacheSizeScanStartInfo {
+  operationId: string;
+  queued: boolean;
+  alreadyRunning: boolean;
+  status: 'waiting' | 'started' | 'alreadyRunning';
+}
+
 export interface Download {
   id: number;
   service: string;

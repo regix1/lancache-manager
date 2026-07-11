@@ -19,6 +19,7 @@ public class ScheduledPrefillConfigFactoryTests
         foreach (var service in config.GetServicesInRunOrder())
         {
             Assert.Equal(ScheduledPrefillConfigFactory.DefaultIntervalHours, service.IntervalHours);
+            Assert.True(service.ShowNotification);
         }
 
         // Default config must always pass its own validation.
@@ -97,6 +98,20 @@ public class ScheduledPrefillConfigFactoryTests
         Assert.Same(current, migrated);
     }
 
+    [Fact]
+    public void Migrate_PreservesSilentNotificationSetting()
+    {
+        var v1 = WithBattleNetPreset(
+            BuildV1Config(),
+            ScheduledPrefillPreset.All,
+            topCount: null,
+            showNotification: false);
+
+        var migrated = ScheduledPrefillConfigFactory.Migrate(v1, legacyGlobalIntervalHours: 24d);
+
+        Assert.False(migrated.BattleNet.ShowNotification);
+    }
+
     [Theory]
     [InlineData(-1d, true)]
     [InlineData(0d, true)]
@@ -134,6 +149,22 @@ public class ScheduledPrefillConfigFactoryTests
 
         Assert.Equal(ScheduledPrefillPreset.All, validated.BattleNet.Preset);
         Assert.Null(validated.BattleNet.TopCount);
+    }
+
+    [Fact]
+    public void Validate_ReconcilesPresetWithoutLosingSilentNotificationSetting()
+    {
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+        var stale = WithBattleNetPreset(
+            config,
+            ScheduledPrefillPreset.Top,
+            topCount: 50,
+            showNotification: false);
+
+        var validated = ScheduledPrefillConfigFactory.Validate(stale);
+
+        Assert.Equal(ScheduledPrefillPreset.All, validated.BattleNet.Preset);
+        Assert.False(validated.BattleNet.ShowNotification);
     }
 
     [Fact]
@@ -218,7 +249,10 @@ public class ScheduledPrefillConfigFactoryTests
     }
 
     private static ScheduledPrefillConfigDto WithBattleNetPreset(
-        ScheduledPrefillConfigDto config, ScheduledPrefillPreset preset, int? topCount)
+        ScheduledPrefillConfigDto config,
+        ScheduledPrefillPreset preset,
+        int? topCount,
+        bool? showNotification = null)
     {
         return new ScheduledPrefillConfigDto
         {
@@ -232,6 +266,7 @@ public class ScheduledPrefillConfigFactoryTests
             {
                 ServiceId = config.BattleNet.ServiceId,
                 Enabled = config.BattleNet.Enabled,
+                ShowNotification = showNotification ?? config.BattleNet.ShowNotification,
                 IntervalHours = config.BattleNet.IntervalHours,
                 Preset = preset,
                 TopCount = topCount,

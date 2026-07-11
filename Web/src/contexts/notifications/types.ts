@@ -219,6 +219,9 @@ export type RemoveNotification = (notificationId: string) => void;
  * Configuration for a started event handler within a registry entry.
  */
 export interface RegistryStartedConfig {
+  /** Optional gate that suppresses and removes the notification for this event */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  shouldDisplay?: (event: any) => boolean;
   /** Default message shown when the operation starts */
   defaultMessage: string;
   /** Optional function to get a custom message from the event */
@@ -237,6 +240,9 @@ export interface RegistryStartedConfig {
  * Configuration for a progress event handler within a registry entry.
  */
 export interface RegistryProgressConfig {
+  /** Optional gate that suppresses and removes the notification for this event */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  shouldDisplay?: (event: any) => boolean;
   /** Function to get the progress message from the event */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getMessage: (event: any) => string;
@@ -263,6 +269,9 @@ export interface RegistryProgressConfig {
  * Configuration for a completion event handler within a registry entry.
  */
 export interface RegistryCompleteConfig {
+  /** Optional gate that suppresses and removes the notification for this event */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  shouldDisplay?: (event: any) => boolean;
   /** Optional function to get the success message */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getSuccessMessage?: (event: any, existing?: UnifiedNotification) => string;

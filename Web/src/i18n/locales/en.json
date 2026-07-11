@@ -3532,7 +3532,9 @@
                 "containerRunning": "Container needs login",
                 "containerShort": "Container",
                 "loggedIn": "Logged in",
-                "loginRequired": "Login required"
+                "loginRequired": "Login required",
+                "visible": "Visible",
+                "silent": "Silent"
               }
             },
             "services": {
@@ -3553,7 +3555,11 @@
               "maxConcurrency": "Connections",
               "maxConcurrencyValue": "Fixed connection count",
               "interval": "Run every",
-              "intervalHelp": "How often this platform runs. Each platform schedules independently."
+              "intervalHelp": "How often this platform runs. Each platform schedules independently.",
+              "notifications": "Universal notifications",
+              "notificationsHelp": "Show this platform's prefill progress in the universal notification bar. Silent runs continue in the background.",
+              "visible": "Visible",
+              "silent": "Silent"
             },
             "presets": {
               "all": "All",

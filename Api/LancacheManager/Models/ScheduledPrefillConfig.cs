@@ -54,6 +54,13 @@ public sealed class ScheduledPrefillServiceConfigDto
     public required bool Enabled { get; init; }
 
     /// <summary>
+    /// Whether this service's run progress is shown in the universal notification bar. This is
+    /// intentionally not required so configurations saved before the setting existed deserialize
+    /// as visible instead of silently changing existing behavior.
+    /// </summary>
+    public bool ShowNotification { get; init; } = true;
+
+    /// <summary>
     /// Per-service schedule cadence in hours, driving the independent due-check in
     /// <c>ScheduledPrefillService</c>. Follows the shared <c>ScheduleIntervalPicker</c> convention:
     /// <c>&gt; 0</c> = run every N hours, <c>0</c> = paused, <c>-1</c> = run once on startup only.
@@ -197,6 +204,7 @@ public static class ScheduledPrefillConfigFactory
         {
             ServiceId = service.ServiceId,
             Enabled = service.Enabled,
+            ShowNotification = service.ShowNotification,
             IntervalHours = intervalHours,
             Preset = service.Preset,
             TopCount = service.TopCount,
@@ -220,6 +228,7 @@ public static class ScheduledPrefillConfigFactory
         {
             ServiceId = serviceId,
             Enabled = enabled,
+            ShowNotification = true,
             IntervalHours = DefaultIntervalHours,
             Preset = ScheduledPrefillPreset.All,
             TopCount = null,
@@ -343,6 +352,7 @@ public static class ScheduledPrefillConfigFactory
         {
             ServiceId = service.ServiceId,
             Enabled = service.Enabled,
+            ShowNotification = service.ShowNotification,
             IntervalHours = service.IntervalHours,
             Preset = ScheduledPrefillPreset.All,
             TopCount = null,
@@ -404,6 +414,7 @@ public static class ScheduledPrefillConfigFactory
         {
             ServiceId = service.ServiceId,
             Enabled = service.Enabled,
+            ShowNotification = service.ShowNotification,
             IntervalHours = service.IntervalHours,
             Preset = service.Preset,
             TopCount = service.TopCount,

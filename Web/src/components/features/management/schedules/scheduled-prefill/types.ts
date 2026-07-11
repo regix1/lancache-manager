@@ -28,6 +28,11 @@ export interface ScheduledPrefillServiceConfigDto {
   serviceId: ScheduledPrefillServiceId;
   enabled: boolean;
   /**
+   * Whether this platform's run appears in the universal notification bar.
+   * Optional for compatibility with configurations saved before this setting existed.
+   */
+  showNotification?: boolean;
+  /**
    * Per-service run interval in hours. `>0` = every N hours, `0` = paused,
    * `-1` = run on startup only. Saved via the whole-config round-trip.
    */

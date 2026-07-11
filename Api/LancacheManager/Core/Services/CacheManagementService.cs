@@ -1421,7 +1421,10 @@ public partial class CacheManagementService
     /// are blocked by <see cref="OperationConflictChecker"/> while the scan runs.
     /// Callers must hold _scanCacheLock so at most one tracked scan is registered at a time.
     /// </summary>
-    private async Task<CacheSizeResponse?> RunFullScanAsync(string cachePath, CancellationToken callerToken)
+    private async Task<CacheSizeResponse?> RunFullScanAsync(
+        string cachePath,
+        CancellationToken callerToken,
+        Action<Guid>? onScanStarted = null)
     {
         // Heavy data ops run one at a time (OperationConflictChecker section 1a). Every caller
         // funnels through here before the rust walker spawns (controller GET force-rescan,
@@ -1498,6 +1501,7 @@ public partial class CacheManagementService
             // line production logs cannot distinguish "Started was emitted but the browser runs a
             // stale bundle" from "Started was never emitted".
             _logger.LogInformation("[CacheSizeScan] Emitted CacheSizeScanStarted for operation {OperationId}", operationId);
+            onScanStarted?.Invoke(operationId);
 
             var result = await RunCacheSizeScanAsync(
                 cachePath,
@@ -1546,6 +1550,59 @@ public partial class CacheManagementService
     }
 
     /// <summary>
+    /// Starts an explicit full cache-size scan without tying its lifetime to the initiating HTTP
+    /// request. Returns as soon as the tracked operation has emitted its Started event; the singleton
+    /// service continues the scan, persists the result, and emits <see cref="SignalREvents.CacheScanComplete"/>
+    /// after the cached result is ready for readers. Intended for <see cref="IOperationQueue"/> promotion.
+    /// </summary>
+    public Task<Guid?> StartCacheSizeScanInBackgroundAsync()
+    {
+        var started = new TaskCompletionSource<Guid?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ = RunCacheSizeScanInBackgroundAsync(started);
+        return started.Task;
+    }
+
+    private async Task RunCacheSizeScanInBackgroundAsync(TaskCompletionSource<Guid?> started)
+    {
+        Guid? operationId = null;
+        try
+        {
+            var result = await GetCacheSizeAsync(
+                force: true,
+                datasource: null,
+                cancellationToken: CancellationToken.None,
+                onScanStarted: id =>
+                {
+                    operationId = id;
+                    started.TrySetResult(id);
+                });
+
+            // A last-moment conflict can still make the start path decline after the queue's
+            // eligibility check. Returning null lets OperationQueue terminate the waiting card
+            // as a failed promotion instead of leaving a ghost operation behind.
+            started.TrySetResult(null);
+
+            if (operationId.HasValue && result is { IsCached: false })
+            {
+                // GetCacheSizeAsync persists the fresh result before returning. This separate event
+                // tells cache-data consumers it is now safe to fetch without racing the final save.
+                await _notifications.NotifyAllAsync(
+                    SignalREvents.CacheScanComplete,
+                    new CacheScanComplete(Success: true));
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!started.TrySetException(ex))
+            {
+                // The operation already started, so no request/queue caller remains to observe a
+                // later cache-persistence or notification failure.
+                _logger.LogError(ex, "Background cache size scan failed after operation {OperationId} started", operationId);
+            }
+        }
+    }
+
+    /// <summary>
     /// Returns a cache size result, using the server-side cache when possible.
     /// Per-datasource scans are always live (not cached).
     /// The "all datasources" scan is cached and only re-run when:
@@ -1553,7 +1610,11 @@ public partial class CacheManagementService
     ///   - no cached scan exists
     ///   - the drive's used space has changed by >= 50 GB since the last scan
     /// </summary>
-    public async Task<CacheSizeResponse?> GetCacheSizeAsync(bool force = false, string? datasource = null, CancellationToken cancellationToken = default)
+    public async Task<CacheSizeResponse?> GetCacheSizeAsync(
+        bool force = false,
+        string? datasource = null,
+        CancellationToken cancellationToken = default,
+        Action<Guid>? onScanStarted = null)
     {
         // Per-datasource scans are always live - no caching
         if (!string.IsNullOrEmpty(datasource))
@@ -1576,7 +1637,7 @@ public partial class CacheManagementService
             {
                 _autoRescanSuppressed = false;
                 _logger.LogInformation("Force rescan requested - running fresh cache size scan");
-                var freshResult = await RunFullScanAsync(allCachePath, cancellationToken);
+                var freshResult = await RunFullScanAsync(allCachePath, cancellationToken, onScanStarted);
                 if (freshResult != null)
                 {
                     var cacheInfo = await GetCacheInfoAsync();
@@ -1603,7 +1664,7 @@ public partial class CacheManagementService
                     return null;
                 }
                 _logger.LogInformation("No cached cache scan found - running fresh scan");
-                var freshResult = await RunFullScanAsync(allCachePath, cancellationToken);
+                var freshResult = await RunFullScanAsync(allCachePath, cancellationToken, onScanStarted);
                 if (freshResult != null)
                 {
                     var cacheInfo = await GetCacheInfoAsync();
@@ -1625,7 +1686,7 @@ public partial class CacheManagementService
                 _logger.LogInformation(
                     "Cache usage changed by {DeltaGb:F1} GB since last scan - running fresh scan",
                     delta / (1024.0 * 1024.0 * 1024.0));
-                var freshResult = await RunFullScanAsync(allCachePath, cancellationToken);
+                var freshResult = await RunFullScanAsync(allCachePath, cancellationToken, onScanStarted);
                 if (freshResult != null)
                 {
                     await SaveCachedScanAsync(freshResult, currentInfo.UsedCacheSize);

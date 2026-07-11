@@ -226,6 +226,7 @@ interface LogRemovalStatusResponse {
 interface ScheduledPrefillRunStatusResponse {
   isRunning: boolean;
   operationId?: string | null;
+  showNotification?: boolean;
 }
 
 /** GET /api/games/detect/active - ActiveDetectionResponse */
@@ -1043,7 +1044,10 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     recovery: {
       kind: 'simple',
       apiEndpoint: '/api/system/schedules/scheduledPrefill/run-status',
-      isProcessing: (data: ScheduledPrefillRunStatusResponse) => data.isRunning,
+      isProcessing: (data: ScheduledPrefillRunStatusResponse) =>
+        data.isRunning && data.showNotification !== false,
+      shouldSkip: (data: ScheduledPrefillRunStatusResponse) =>
+        data.isRunning && data.showNotification === false,
       createNotification: (data: ScheduledPrefillRunStatusResponse) => ({
         message: i18n.t('management.schedules.services.scheduledPrefill.events.started'),
         details: { operationId: data.operationId ?? undefined }
@@ -1056,6 +1060,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       complete: 'ScheduledPrefillCompleted'
     },
     started: {
+      shouldDisplay: (event: ScheduledPrefillStartedEvent) => event.showNotification !== false,
       defaultMessage: 'Scheduled prefill started',
       getMessage: () => i18n.t('management.schedules.services.scheduledPrefill.events.started'),
       getDetails: (event: ScheduledPrefillStartedEvent) => ({ operationId: event.operationId }),
@@ -1063,6 +1068,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       additionalIdsToRemove: [SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID]
     },
     progress: {
+      shouldDisplay: (event: ScheduledPrefillProgressEvent) => event.showNotification !== false,
       getMessage: (event: ScheduledPrefillProgressEvent) => {
         const serviceKey =
           SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY[event.serviceId] ?? event.serviceId;
@@ -1104,6 +1110,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getDetails: (event: ScheduledPrefillProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
+      shouldDisplay: (event: ScheduledPrefillCompletedEvent) => event.showNotification !== false,
       getSuccessMessage: () =>
         i18n.t('management.schedules.services.scheduledPrefill.events.completed'),
       getFailureMessage: (event: ScheduledPrefillCompletedEvent) =>

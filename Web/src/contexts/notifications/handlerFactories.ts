@@ -73,6 +73,8 @@ import {
  * @template T - The type of the SignalR event
  */
 interface StartedHandlerConfig<T> {
+  /** Optional gate that suppresses and removes the notification for this event */
+  shouldDisplay?: (event: T) => boolean;
   /** The notification type this handler creates */
   type: NotificationType;
   /** Function to extract the notification ID from the event */
@@ -123,6 +125,16 @@ export function createStartedHandler<T>(
 ): (event: T) => void {
   return (event: T): void => {
     const notificationId = config.getId(event);
+
+    if (config.shouldDisplay?.(event) === false) {
+      localStorage.removeItem(config.storageKey);
+      cancelAutoDismissTimer?.(notificationId);
+      const idsToRemove = new Set([notificationId, ...(config.additionalIdsToRemove ?? [])]);
+      setNotifications((prev: UnifiedNotification[]) =>
+        prev.filter((notification) => !idsToRemove.has(notification.id))
+      );
+      return;
+    }
 
     // Cancel any existing auto-dismiss timer for this notification
     cancelAutoDismissTimer?.(notificationId);
@@ -178,6 +190,8 @@ export function createStartedHandler<T>(
  * @template T - The type of the SignalR event (must have success and optional message)
  */
 interface CompletionHandlerConfig<T> {
+  /** Optional gate that suppresses and removes the notification for this event */
+  shouldDisplay?: (event: T) => boolean;
   /** The notification type this handler completes */
   type: NotificationType;
   /** Function to extract the notification ID from the event */
@@ -244,6 +258,15 @@ export function createCompletionHandler<
 ): (event: T) => void {
   return (event: T): void => {
     const notificationId = config.getId(event);
+
+    if (config.shouldDisplay?.(event) === false) {
+      localStorage.removeItem(config.storageKey);
+      setNotifications((prev: UnifiedNotification[]) =>
+        prev.filter((notification) => notification.id !== notificationId)
+      );
+      return;
+    }
+
     const isCancelled = event.cancelled === true;
 
     const resolveFailureMessage = (existing?: UnifiedNotification): string => {
@@ -416,6 +439,8 @@ export function createCompletionHandler<
  * @template T - The type of the SignalR event (must have optional status field)
  */
 interface StatusAwareProgressConfig<T> {
+  /** Optional gate that suppresses and removes the notification for this event */
+  shouldDisplay?: (event: T) => boolean;
   /** The notification type this handler updates */
   type: NotificationType;
   /** Function to extract the notification ID from the event */
@@ -478,6 +503,16 @@ export function createStatusAwareProgressHandler<T>(
 ): (event: T) => void {
   return (event: T): void => {
     const notificationId = config.getId(event);
+
+    if (config.shouldDisplay?.(event) === false) {
+      localStorage.removeItem(config.storageKey);
+      cancelAutoDismissTimer?.(notificationId);
+      setNotifications((prev: UnifiedNotification[]) =>
+        prev.filter((notification) => notification.id !== notificationId)
+      );
+      return;
+    }
+
     const status = config.getStatus(event);
 
     if (status?.toLowerCase() === 'completed') {

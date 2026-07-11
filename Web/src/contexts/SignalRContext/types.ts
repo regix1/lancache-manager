@@ -936,6 +936,7 @@ export interface XboxMappingProgressEvent {
 export interface ScheduledPrefillStartedEvent {
   operationId: string;
   serviceCount: number;
+  showNotification?: boolean;
 }
 
 export interface ScheduledPrefillProgressEvent {
@@ -947,12 +948,14 @@ export interface ScheduledPrefillProgressEvent {
   bytesDownloaded?: number | null;
   downloadSessionId?: string | null;
   percentComplete?: number | null;
+  showNotification?: boolean;
 }
 
 export interface ScheduledPrefillCompletedEvent {
   operationId: string | null;
   success: boolean;
   error?: string | null;
+  showNotification?: boolean;
 }
 
 // Mirrors the backend payload emitted by XboxMappingService.MergeDaemonCatalogCoreAsync

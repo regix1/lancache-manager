@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef, useEffect, type ReactNode } from 
 import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
 import type { CacheSizeInfo } from '@/types';
+import { useSignalR } from './SignalRContext/useSignalR';
 import { CacheSizeContext, type CacheSizeContextType } from './CacheSizeContext.types';
 
 interface CacheSizeProviderProps {
@@ -9,6 +10,7 @@ interface CacheSizeProviderProps {
 }
 
 export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }) => {
+  const { on, off } = useSignalR();
   const [cacheSize, setCacheSize] = useState<CacheSizeInfo | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,10 +37,10 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
 
       try {
         const size = await ApiService.getCacheSize(undefined, force, controller.signal);
-        if ('scanning' in size) {
-          // A scan is already running elsewhere (e.g. the scheduled service holds the
-          // scan lock) - a waiting state, not an error. Keep showing whatever cache size
-          // is already loaded instead of clearing it or surfacing an error toast.
+        if ('scanning' in size || 'queued' in size) {
+          // A scan is running or the explicit refresh was started/queued. SignalR owns its
+          // running/waiting card, and CacheScanComplete reloads the persisted result afterward.
+          // Keep showing the last size instead of treating the accepted response as data/error.
           return;
         }
         setCacheSize(size);
@@ -76,6 +78,17 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
     },
     [isLoading]
   );
+
+  // Explicit and scheduled scans emit this only after the new result has been persisted.
+  // Keep the global cache-size state current even when the management cache panel is unmounted.
+  useEffect(() => {
+    const handleCacheScanComplete = () => {
+      void fetchCacheSize();
+    };
+
+    on('CacheScanComplete', handleCacheScanComplete);
+    return () => off('CacheScanComplete', handleCacheScanComplete);
+  }, [on, off, fetchCacheSize]);
 
   // Clear cache size data (useful after cache clearing operations)
   const clearCacheSize = useCallback(() => {

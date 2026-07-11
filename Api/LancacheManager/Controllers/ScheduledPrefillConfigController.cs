@@ -110,7 +110,10 @@ public class ScheduledPrefillConfigController : ControllerBase
         return Ok(new ScheduledPrefillRunStatusDto
         {
             IsRunning = operation is not null,
-            OperationId = operation?.Id.ToString()
+            OperationId = operation?.Id.ToString(),
+            ShowNotification = operation?.Metadata is ScheduledPrefillOperationMetadata metadata
+                ? metadata.ShowNotification
+                : true
         });
     }
 }
@@ -125,6 +128,9 @@ public sealed class ScheduledPrefillRunStatusDto
 
     /// <summary>Operation id of the active run (for cancel wiring), or null when idle.</summary>
     public string? OperationId { get; init; }
+
+    /// <summary>Whether the platform currently running should have a universal notification.</summary>
+    public required bool ShowNotification { get; init; }
 }
 
 /// <summary>

@@ -3531,7 +3531,9 @@
                 "containerRunning": "容器需要登录",
                 "containerShort": "容器",
                 "loggedIn": "已登录",
-                "loginRequired": "需要登录"
+                "loginRequired": "需要登录",
+                "visible": "显示",
+                "silent": "静默"
               }
             },
             "services": {
@@ -3552,7 +3554,11 @@
               "maxConcurrency": "连接数",
               "maxConcurrencyValue": "固定连接数",
               "interval": "运行频率",
-              "intervalHelp": "该平台的运行频率。每个平台独立排程。"
+              "intervalHelp": "该平台的运行频率。每个平台独立排程。",
+              "notifications": "通用通知",
+              "notificationsHelp": "在通用通知栏中显示此平台的预填充进度。静默运行仍会在后台继续。",
+              "visible": "显示",
+              "silent": "静默"
             },
             "presets": {
               "all": "全部",

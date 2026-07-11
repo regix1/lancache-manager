@@ -54,6 +54,7 @@ public class ScheduledPrefillAnonymousRunPathTests
         {
             ServiceId = platform,
             Enabled = true,
+            ShowNotification = false,
             IntervalHours = 24,
             Preset = ScheduledPrefillPreset.All,
             TopCount = null,
@@ -81,6 +82,8 @@ public class ScheduledPrefillAnonymousRunPathTests
         Assert.Equal(ScheduledPrefillServiceRunResult.Ran, result);
         Assert.DoesNotContain("needs-login", recorder.Stages);
         Assert.Contains("completed", recorder.Stages);
+        Assert.NotEmpty(recorder.ShowNotificationValues);
+        Assert.All(recorder.ShowNotificationValues, Assert.False);
 
         // The selection must actually reach the daemon, and the preset must be forced off in favor
         // of it (ScheduledPrefillService.cs:338-348's hasSelectedApps branch).
@@ -245,6 +248,7 @@ public class ScheduledPrefillAnonymousRunPathTests
     private class RecordingNotificationsProxy : DispatchProxy
     {
         public List<string> Stages { get; } = new();
+        public List<bool> ShowNotificationValues { get; } = new();
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
@@ -254,6 +258,12 @@ public class ScheduledPrefillAnonymousRunPathTests
                 if (stageProperty?.GetValue(args[1]) is string stage)
                 {
                     Stages.Add(stage);
+                }
+
+                var showNotificationProperty = args[1]?.GetType().GetProperty("showNotification");
+                if (showNotificationProperty?.GetValue(args[1]) is bool showNotification)
+                {
+                    ShowNotificationValues.Add(showNotification);
                 }
             }
 
