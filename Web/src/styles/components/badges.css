@@ -112,13 +112,14 @@
     border: 1px solid var(--theme-border-secondary);
   }
 
-  /* Notification-visibility pill — one purple hue, two treatments, so the pair
-   * reads as a single on/off axis distinct from the green/red operational badges.
-   * Filled solid = the run is VISIBLE (present in the notification bar); a dotted
-   * outline = SILENT (ghosted / it won't surface). Both are border-box so the
-   * dotted border never changes the pill's box vs its filled sibling in a row. */
+  /* Notification-visibility pill — one soft violet hue, two treatments, so the
+   * pair reads as a single on/off axis distinct from the green/red operational
+   * badges. A soft violet fill = the run is VISIBLE (present in the notification
+   * bar); a dotted outline = SILENT (ghosted / it won't surface). The muted tint
+   * matches the toggle's active Visible side, and both variants are border-box so
+   * the dotted border never changes the pill's box vs its filled sibling in a row. */
   .status-badge-waiting {
-    background-color: var(--theme-waiting-bg);
+    background-color: var(--theme-waiting-muted);
     color: var(--theme-waiting-text);
   }
 
