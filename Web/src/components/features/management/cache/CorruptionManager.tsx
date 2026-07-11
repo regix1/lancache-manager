@@ -36,6 +36,7 @@ import Badge from '@components/ui/Badge';
 import { useFormattedDateTime } from '@/hooks/useFormattedDateTime';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
+import CorruptionChunkList from './CorruptionChunkList';
 import type { CorruptedChunkDetail } from '@/types';
 
 interface CorruptionManagerProps {
@@ -990,41 +991,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                               />
                             ) : corruptionDetails[service] &&
                               corruptionDetails[service].length > 0 ? (
-                              <div className="max-h-96 overflow-y-auto divide-y divide-[var(--theme-border-secondary)]">
-                                {corruptionDetails[service].map((chunk, idx) => (
-                                  <div
-                                    key={idx}
-                                    className="flex items-start justify-between gap-3 py-2 first:pt-0 last:pb-0"
-                                  >
-                                    <div className="flex-1 min-w-0">
-                                      <Tooltip content={chunk.url}>
-                                        <span className="block font-mono text-xs text-themed-primary truncate">
-                                          {chunk.url}
-                                        </span>
-                                      </Tooltip>
-                                      {chunk.cache_file_path && (
-                                        <Tooltip content={chunk.cache_file_path}>
-                                          <span className="block text-xs text-themed-muted truncate">
-                                            {t('management.corruption.cache')}{' '}
-                                            <code>
-                                              {chunk.cache_file_path.split('/').pop() ||
-                                                chunk.cache_file_path.split('\\').pop()}
-                                            </code>
-                                          </span>
-                                        </Tooltip>
-                                      )}
-                                    </div>
-                                    <span className="text-xs text-themed-muted flex-shrink-0">
-                                      {isRedownloadMode
-                                        ? t('management.corruption.redownloadCount')
-                                        : t('management.corruption.missCount')}{' '}
-                                      <strong className="text-themed-error">
-                                        {chunk.miss_count || 0}
-                                      </strong>
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
+                              <CorruptionChunkList
+                                chunks={corruptionDetails[service]}
+                                isRedownloadMode={isRedownloadMode}
+                              />
                             ) : (
                               <p className="py-4 text-center text-sm text-themed-muted">
                                 {t('management.corruption.noDetailsAvailable')}
