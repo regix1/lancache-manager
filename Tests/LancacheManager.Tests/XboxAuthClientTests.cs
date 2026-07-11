@@ -79,6 +79,29 @@ public sealed class XboxAuthClientTests
     }
 
     [Fact]
+    public async Task RefreshAccessTokenAsync_SendsScopeSoLegacyEndpointDoesNotRejectWithInvalidScope()
+    {
+        string? requestBody = null;
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(async (request, ct) =>
+        {
+            requestBody = await request.Content!.ReadAsStringAsync(ct);
+            return JsonResponse("""
+                { "token_type": "bearer", "expires_in": 3600, "access_token": "ACCESS", "refresh_token": "ROTATED" }
+                """);
+        }));
+        var client = new XboxAuthClient(httpClient, NullLogger<XboxAuthClient>.Instance);
+
+        await client.RefreshAccessTokenAsync("SAVED-REFRESH-TOKEN");
+
+        Assert.NotNull(requestBody);
+        var decodedBody = Uri.UnescapeDataString(requestBody!.Replace('+', ' '));
+        // The legacy login.live.com refresh grant requires the scope; without it the endpoint returns
+        // invalid_scope and the saved Xbox login is wiped on every restart.
+        Assert.Contains("grant_type=refresh_token", decodedBody);
+        Assert.Contains("scope=service::user.auth.xboxlive.com::MBI_SSL", decodedBody);
+    }
+
+    [Fact]
     public void SignatureBuffer_HasExactGoldenLayout()
     {
         byte[] buffer = XblRequestSigner.BuildSignatureBuffer(

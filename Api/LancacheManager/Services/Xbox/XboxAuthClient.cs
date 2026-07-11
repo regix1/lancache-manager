@@ -136,9 +136,14 @@ public class XboxAuthClient
     /// </summary>
     internal async Task<XboxMsaTokenResponse> RefreshAccessTokenAsync(string refreshToken, CancellationToken ct = default)
     {
+        // The legacy login.live.com refresh grant REQUIRES the scope parameter (the same MBI_SSL scope the
+        // refresh token was issued under). Omitting it makes the endpoint return invalid_scope, which the
+        // startup auto-reconnect then mistakes for an expired token and clears the saved login, so the user
+        // is silently logged out on every restart. See the msndevs MSA protocol docs (oauth20_token.srf).
         var form = new Dictionary<string, string>
         {
             ["client_id"] = XboxAuthConstants.ClientId,
+            ["scope"] = XboxAuthConstants.AuthScope,
             ["grant_type"] = "refresh_token",
             ["refresh_token"] = refreshToken
         };
