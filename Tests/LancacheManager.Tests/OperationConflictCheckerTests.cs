@@ -2,12 +2,29 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
 
 public class OperationConflictCheckerTests
 {
+    [Fact]
+    public async Task ExpectedConflict_IsLoggedAtDebug_NotInformationAsync()
+    {
+        var logger = new CapturingLogger<OperationConflictChecker>();
+        using var tracker = new TrackerHarness(logger);
+        RegisterBulkOperation(tracker.Tracker, OperationType.CacheSizeScan, "Cache Size Scan");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.LogProcessing,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal([LogLevel.Debug], logger.Levels);
+    }
+
     [Fact]
     public async Task Blocks_ServiceRemoval_When_ServiceScopedEvictionRemoval_IsActive_ForSameServiceAsync()
     {
@@ -438,14 +455,14 @@ public class OperationConflictCheckerTests
 
         public OperationConflictChecker Checker { get; }
 
-        public TrackerHarness()
+        public TrackerHarness(ILogger<OperationConflictChecker>? logger = null)
         {
             var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
             var tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
             Tracker = tracker;
             Checker = new OperationConflictChecker(
                 tracker,
-                NullLogger<OperationConflictChecker>.Instance);
+                logger ?? NullLogger<OperationConflictChecker>.Instance);
         }
 
         public void Dispose()
@@ -454,6 +471,25 @@ public class OperationConflictCheckerTests
             {
                 Tracker.CompleteOperation(operation.Id, success: false, error: "Disposed test harness");
             }
+        }
+    }
+
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public List<LogLevel> Levels { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            Levels.Add(logLevel);
         }
     }
 }

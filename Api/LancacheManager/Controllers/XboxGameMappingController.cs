@@ -23,16 +23,13 @@ public class XboxGameMappingController : ControllerBase
 {
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly XboxCatalogMappingService _xboxCatalogMappingService;
-    private readonly ILogger<XboxGameMappingController> _logger;
 
     public XboxGameMappingController(
         IDbContextFactory<AppDbContext> dbContextFactory,
-        XboxCatalogMappingService xboxCatalogMappingService,
-        ILogger<XboxGameMappingController> logger)
+        XboxCatalogMappingService xboxCatalogMappingService)
     {
         _dbContextFactory = dbContextFactory;
         _xboxCatalogMappingService = xboxCatalogMappingService;
-        _logger = logger;
     }
 
     /// <summary>
@@ -109,25 +106,18 @@ public class XboxGameMappingController : ControllerBase
     [HttpPost("auth/login")]
     public async Task<ActionResult> StartLoginAsync(CancellationToken ct = default)
     {
-        try
+        // Cancellation can come from the initiating request, a superseding login, logout, or
+        // modal close. Let the global exception middleware classify it as a quiet 499 instead of
+        // logging the expected TaskCanceledException as a failed login here.
+        var challenge = await _xboxCatalogMappingService.StartLoginAsync(ct);
+        return Ok(new
         {
-            // A stale in-flight login is superseded inside StartLoginAsync (last-writer-wins), so
-            // re-clicking Login after abandoning a prior attempt always starts fresh - it never 409s.
-            var challenge = await _xboxCatalogMappingService.StartLoginAsync(ct);
-            return Ok(new
-            {
-                userCode = challenge.UserCode,
-                verificationUri = challenge.VerificationUri,
-                expiresIn = challenge.ExpiresIn,
-                interval = challenge.Interval,
-                operationId = challenge.OperationId
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to start Xbox mapping login");
-            throw; // -> GlobalExceptionMiddleware -> 500 safe { error, details?, statusCode, traceId }
-        }
+            userCode = challenge.UserCode,
+            verificationUri = challenge.VerificationUri,
+            expiresIn = challenge.ExpiresIn,
+            interval = challenge.Interval,
+            operationId = challenge.OperationId
+        });
     }
 
     /// <summary>

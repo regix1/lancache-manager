@@ -52,7 +52,10 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
             var verdict = Evaluate(newType, newScope, op);
             if (verdict != null)
             {
-                _logger.LogInformation(
+                // A conflict is an expected policy result, and background services may probe this
+                // checker frequently while waiting for a heavy operation to finish. Keep the detail
+                // available for diagnostics without flooding the normal Information-level console.
+                _logger.LogDebug(
                     "Conflict: new {NewType}/{NewScope} blocked by active {ActiveType} (Id={ActiveId}, Scope={ActiveScope}, StageKey={StageKey})",
                     newType, newScope.ToTrackerKey(), op.Type, op.Id, verdict.ActiveOperationScope, verdict.StageKey);
                 return Task.FromResult<OperationConflictResponse?>(verdict);
