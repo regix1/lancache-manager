@@ -22,6 +22,32 @@ public class DatabaseService : IDatabaseService
     private readonly StateService _stateRepository;
     private readonly DatasourceService _datasourceService;
     private readonly IUnifiedOperationTracker _operationTracker;
+    private const string CachedCorruptionDetectionsTable = "CachedCorruptionDetections";
+    private const string CachedCorruptionScansTable = "CachedCorruptionScans";
+    private static readonly HashSet<string> _validResetTables =
+    [
+        "LogEntries",
+        "Downloads",
+        "ClientStats",
+        "ServiceStats",
+        "SteamDepotMappings",
+        "CachedGameDetections",
+        "CachedServiceDetections",
+        CachedCorruptionDetectionsTable,
+        CachedCorruptionScansTable,
+        "ClientGroups",
+        "UserSessions",
+        "UserPreferences",
+        "Events",
+        "EventDownloads",
+        "PrefillSessions",
+        "PrefillHistoryEntries",
+        "PrefillCachedDepots",
+        "BannedSteamUsers",
+        "CacheSnapshots",
+        "EpicGameMappings",
+        "EpicCdnPatterns"
+    ];
     private static readonly ConcurrentDictionary<Guid, bool> _activeResetOperations = new();
     private static Guid? _currentResetOperationId;
     private static ResetProgressInfo _currentResetProgress = new();
@@ -197,9 +223,10 @@ public class DatabaseService : IDatabaseService
                 timestamp = DateTime.UtcNow
             });
 
-            // Validate table names to prevent SQL injection
-            var validTables = new HashSet<string> { "LogEntries", "Downloads", "ClientStats", "ServiceStats", "SteamDepotMappings", "CachedGameDetections", "CachedServiceDetections", "CachedCorruptionDetections", "ClientGroups", "UserSessions", "UserPreferences", "Events", "EventDownloads", "PrefillSessions", "PrefillHistoryEntries", "PrefillCachedDepots", "BannedSteamUsers", "CacheSnapshots", "EpicGameMappings", "EpicCdnPatterns" };
-            var tablesToClear = tableNames.Where(t => validTables.Contains(t)).ToList();
+            // Validate table names to prevent SQL injection. Corruption evidence is one logical
+            // snapshot: clearing logs or either physical table must clear both candidate rows and
+            // the scan header, including a zero-result header with no candidate rows.
+            var tablesToClear = ResolveResetTables(tableNames);
 
             if (tablesToClear.Count == 0)
             {
@@ -228,30 +255,10 @@ public class DatabaseService : IDatabaseService
                     {
                         foreach (var tableName in tablesToClear)
                         {
-                            var count = tableName switch
-                            {
-                                "LogEntries" => await context.LogEntries.CountAsync(cancellationToken),
-                                "Downloads" => await context.Downloads.CountAsync(cancellationToken),
-                                "ClientStats" => await context.ClientStats.CountAsync(cancellationToken),
-                                "ServiceStats" => await context.ServiceStats.CountAsync(cancellationToken),
-                                "SteamDepotMappings" => await context.SteamDepotMappings.CountAsync(cancellationToken),
-                                "CachedGameDetections" => await context.CachedGameDetections.CountAsync(cancellationToken),
-                                "CachedServiceDetections" => await context.CachedServiceDetections.CountAsync(cancellationToken),
-                                "CachedCorruptionDetections" => await context.CachedCorruptionDetections.CountAsync(cancellationToken),
-                                "ClientGroups" => await context.ClientGroups.CountAsync(cancellationToken),
-                                "UserSessions" => await context.UserSessions.CountAsync(cancellationToken),
-                                "UserPreferences" => await context.UserPreferences.CountAsync(cancellationToken),
-                                "Events" => await context.Events.CountAsync(cancellationToken),
-                                "EventDownloads" => await context.EventDownloads.CountAsync(cancellationToken),
-                                "PrefillSessions" => await context.PrefillSessions.CountAsync(cancellationToken),
-                                "PrefillHistoryEntries" => await context.PrefillHistoryEntries.CountAsync(cancellationToken),
-                                "PrefillCachedDepots" => await context.PrefillCachedDepots.CountAsync(cancellationToken),
-                                "BannedSteamUsers" => await context.BannedSteamUsers.CountAsync(cancellationToken),
-                                "CacheSnapshots" => await context.CacheSnapshots.CountAsync(cancellationToken),
-                                "EpicGameMappings" => await context.EpicGameMappings.CountAsync(cancellationToken),
-                                "EpicCdnPatterns" => await context.EpicCdnPatterns.CountAsync(cancellationToken),
-                                _ => 0
-                            };
+                            var count = await CountResetTableRowsAsync(
+                                context,
+                                tableName,
+                                cancellationToken);
                             totalRows += count;
                         }
 
@@ -319,6 +326,8 @@ public class DatabaseService : IDatabaseService
                     await context.LogEntries.Where(le => le.DownloadId != null)
                         .ExecuteUpdateAsync(s => s.SetProperty(le => le.DownloadId, (int?)null), cancellationToken);
                 }
+
+                var corruptionEvidenceCleared = false;
 
                 foreach (var tableName in orderedTables)
                 {
@@ -638,11 +647,21 @@ public class DatabaseService : IDatabaseService
                             });
                             break;
 
-                        case "CachedCorruptionDetections":
-                            // Use ExecuteDeleteAsync for direct deletion
-                            var corruptionDetectionCount = await context.CachedCorruptionDetections.ExecuteDeleteAsync(cancellationToken);
-                            _logger.LogInformation($"Cleared {corruptionDetectionCount:N0} cached corruption detections");
-                            deletedRows += corruptionDetectionCount;
+                        case CachedCorruptionDetectionsTable:
+                        case CachedCorruptionScansTable:
+                            if (corruptionEvidenceCleared)
+                            {
+                                break;
+                            }
+
+                            var (corruptionDetectionCount, corruptionScanCount) =
+                                await DeleteCachedCorruptionEvidenceAsync(context, cancellationToken);
+                            corruptionEvidenceCleared = true;
+                            _logger.LogInformation(
+                                "Cleared {Candidates:N0} cached corruption candidates and {Scans:N0} scan headers",
+                                corruptionDetectionCount,
+                                corruptionScanCount);
+                            deletedRows += corruptionDetectionCount + corruptionScanCount;
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
@@ -650,7 +669,7 @@ public class DatabaseService : IDatabaseService
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
-                                message = $"Cleared corruption detection cache ({corruptionDetectionCount:N0} rows)",
+                                message = $"Cleared corruption detection cache ({corruptionDetectionCount + corruptionScanCount:N0} rows)",
                                 timestamp = DateTime.UtcNow
                             });
                             break;
@@ -963,6 +982,115 @@ public class DatabaseService : IDatabaseService
 
             _logger.LogInformation("Reset operation {OperationId} {Outcome}", operationId, wasCancelled ? "cancelled" : "completed");
         }
+    }
+
+    /// <summary>
+    /// Validates reset-table input and expands every corruption-evidence invalidation to the
+    /// candidate/header pair. Log entries are qualifying scan evidence, so clearing them also
+    /// invalidates the stored corruption snapshot.
+    /// </summary>
+    internal static List<string> ResolveResetTables(IEnumerable<string> tableNames)
+    {
+        var tables = tableNames
+            .Where(_validResetTables.Contains)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (tables.Contains("LogEntries", StringComparer.Ordinal) ||
+            tables.Contains(CachedCorruptionDetectionsTable, StringComparer.Ordinal) ||
+            tables.Contains(CachedCorruptionScansTable, StringComparer.Ordinal))
+        {
+            if (!tables.Contains(CachedCorruptionDetectionsTable, StringComparer.Ordinal))
+            {
+                tables.Add(CachedCorruptionDetectionsTable);
+            }
+
+            if (!tables.Contains(CachedCorruptionScansTable, StringComparer.Ordinal))
+            {
+                tables.Add(CachedCorruptionScansTable);
+            }
+        }
+
+        return tables;
+    }
+
+    /// <summary>
+    /// Returns the row count used by selective-reset progress. Kept as an internal seam so every
+    /// allowlisted table, including the corruption scan header, has direct relational-provider
+    /// coverage.
+    /// </summary>
+    internal static async Task<int> CountResetTableRowsAsync(
+        AppDbContext context,
+        string tableName,
+        CancellationToken cancellationToken)
+    {
+        return tableName switch
+        {
+            "LogEntries" => await context.LogEntries.CountAsync(cancellationToken),
+            "Downloads" => await context.Downloads.CountAsync(cancellationToken),
+            "ClientStats" => await context.ClientStats.CountAsync(cancellationToken),
+            "ServiceStats" => await context.ServiceStats.CountAsync(cancellationToken),
+            "SteamDepotMappings" => await context.SteamDepotMappings.CountAsync(cancellationToken),
+            "CachedGameDetections" => await context.CachedGameDetections.CountAsync(cancellationToken),
+            "CachedServiceDetections" => await context.CachedServiceDetections.CountAsync(cancellationToken),
+            CachedCorruptionDetectionsTable => await context.CachedCorruptionDetections.CountAsync(cancellationToken),
+            CachedCorruptionScansTable => await context.CachedCorruptionScans.CountAsync(cancellationToken),
+            "ClientGroups" => await context.ClientGroups.CountAsync(cancellationToken),
+            "UserSessions" => await context.UserSessions.CountAsync(cancellationToken),
+            "UserPreferences" => await context.UserPreferences.CountAsync(cancellationToken),
+            "Events" => await context.Events.CountAsync(cancellationToken),
+            "EventDownloads" => await context.EventDownloads.CountAsync(cancellationToken),
+            "PrefillSessions" => await context.PrefillSessions.CountAsync(cancellationToken),
+            "PrefillHistoryEntries" => await context.PrefillHistoryEntries.CountAsync(cancellationToken),
+            "PrefillCachedDepots" => await context.PrefillCachedDepots.CountAsync(cancellationToken),
+            "BannedSteamUsers" => await context.BannedSteamUsers.CountAsync(cancellationToken),
+            "CacheSnapshots" => await context.CacheSnapshots.CountAsync(cancellationToken),
+            "EpicGameMappings" => await context.EpicGameMappings.CountAsync(cancellationToken),
+            "EpicCdnPatterns" => await context.EpicCdnPatterns.CountAsync(cancellationToken),
+            _ => 0
+        };
+    }
+
+    /// <summary>
+    /// Invalidates the authoritative corruption snapshot in its own transaction. Callers use
+    /// this at a successful evidence-changing operation boundary so a failed or cancelled
+    /// invalidation retains both the scan header and all candidate rows.
+    /// </summary>
+    internal static async Task<(int Candidates, int Scans)> InvalidateCachedCorruptionEvidenceAsync(
+        AppDbContext context,
+        CancellationToken cancellationToken)
+    {
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync(
+                IsolationLevel.ReadCommitted,
+                cancellationToken);
+            try
+            {
+                var deleted = await DeleteCachedCorruptionEvidenceAsync(context, cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                return deleted;
+            }
+            catch
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                throw;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Deletes one authoritative corruption snapshot in FK-safe order. The caller owns the
+    /// transaction so this composes with selective reset and cache-clearing invalidation.
+    /// </summary>
+    internal static async Task<(int Candidates, int Scans)> DeleteCachedCorruptionEvidenceAsync(
+        AppDbContext context,
+        CancellationToken cancellationToken)
+    {
+        var candidates = await context.CachedCorruptionDetections.ExecuteDeleteAsync(cancellationToken);
+        var scans = await context.CachedCorruptionScans.ExecuteDeleteAsync(cancellationToken);
+        return (candidates, scans);
     }
 
 }

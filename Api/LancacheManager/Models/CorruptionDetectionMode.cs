@@ -4,9 +4,8 @@ using System.Text.Json.Serialization;
 namespace LancacheManager.Models;
 
 /// <summary>
-/// Corruption detection mode - controls which detection strategy the corruption service uses.
-/// Serialized as snake_case strings on the wire ("miss_count", "redownload") to preserve the
-/// pre-existing JSON / query-string contract with the frontend and CacheController.
+/// Corruption detection mode used from scan input through persisted evidence and removal.
+/// Serialized as canonical snake_case strings on the wire.
 /// </summary>
 [JsonConverter(typeof(CorruptionDetectionModeJsonConverter))]
 public enum CorruptionDetectionMode
@@ -14,15 +13,18 @@ public enum CorruptionDetectionMode
     /// <summary>Fallback for unrecognized wire values (never used as a valid input).</summary>
     Unknown,
 
-    /// <summary>Detect corruption by counting repeated cache misses for the same chunk.</summary>
-    MissCount,
+    /// <summary>Review bounded MISS evidence without requiring a cache file on disk.</summary>
+    LogsOnly,
+
+    /// <summary>Require the exact MISS-evidence cache slice to exist on disk.</summary>
+    CacheAndLogs,
 
     /// <summary>Detect corruption by flagging chunks that have been re-downloaded.</summary>
     Redownload
 }
 
 /// <summary>
-/// Serializes <see cref="CorruptionDetectionMode"/> as snake_case strings ("miss_count", "redownload")
+/// Serializes <see cref="CorruptionDetectionMode"/> as canonical snake_case strings
 /// and accepts any casing on deserialization. Unrecognized values deserialize to
 /// <see cref="CorruptionDetectionMode.Unknown"/>.
 /// </summary>
@@ -51,11 +53,12 @@ internal sealed class CorruptionDetectionModeJsonConverter : JsonConverter<Corru
 public static class CorruptionDetectionModeExtensions
 {
     /// <summary>
-    /// Returns the canonical snake_case wire value ("miss_count", "redownload", "unknown").
+    /// Returns the canonical snake_case wire value.
     /// </summary>
     public static string ToWireString(this CorruptionDetectionMode mode) => mode switch
     {
-        CorruptionDetectionMode.MissCount => "miss_count",
+        CorruptionDetectionMode.LogsOnly => "logs_only",
+        CorruptionDetectionMode.CacheAndLogs => "cache_and_logs",
         CorruptionDetectionMode.Redownload => "redownload",
         CorruptionDetectionMode.Unknown => "unknown",
         _ => "unknown"
@@ -74,8 +77,14 @@ public static class CorruptionDetectionModeExtensions
 
         return value.Trim().ToLowerInvariant() switch
         {
-            "miss_count" => CorruptionDetectionMode.MissCount,
-            "misscount" => CorruptionDetectionMode.MissCount,
+            "logs_only" => CorruptionDetectionMode.LogsOnly,
+            "logsonly" => CorruptionDetectionMode.LogsOnly,
+            "cache_and_logs" => CorruptionDetectionMode.CacheAndLogs,
+            "cacheandlogs" => CorruptionDetectionMode.CacheAndLogs,
+            // Backward-compatible scan-input alias. Persisted scans always use
+            // the canonical cache_and_logs value.
+            "miss_count" => CorruptionDetectionMode.CacheAndLogs,
+            "misscount" => CorruptionDetectionMode.CacheAndLogs,
             "redownload" => CorruptionDetectionMode.Redownload,
             _ => CorruptionDetectionMode.Unknown
         };

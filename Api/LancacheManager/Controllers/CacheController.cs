@@ -4,11 +4,13 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Hubs;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace LancacheManager.Controllers;
@@ -380,10 +382,16 @@ public class CacheController : ControllerBase
         return Ok(new CachedCorruptionResponse
         {
             HasCachedResults = true,
+            ScanId = cachedResults.ScanId,
+            DetectionMode = cachedResults.DetectionMode,
+            Threshold = cachedResults.Threshold,
+            ContractVersion = cachedResults.ContractVersion,
             CorruptionCounts = cachedResults.CorruptionCounts,
             TotalServicesWithCorruption = cachedResults.TotalServicesWithCorruption,
             TotalCorruptedChunks = cachedResults.TotalCorruptedChunks,
-            LastDetectionTime = lastDetectionTimeUtc.ToString("o")
+            LastDetectionTime = lastDetectionTimeUtc.ToString("o"),
+            RemovalAllowed = cachedResults.RemovalAllowed,
+            ServiceRemovalAllowed = cachedResults.ServiceRemovalAllowed
         });
     }
 
@@ -395,17 +403,18 @@ public class CacheController : ControllerBase
     [HttpPost("corruption/detect")]
     public async Task<IActionResult> StartCorruptionDetectionAsync(
         [FromQuery] int threshold = 3,
-        [FromQuery] bool compareToCacheLogs = true,
-        [FromQuery] string detectionMode = "miss_count",
+        [FromQuery] string detectionMode = "cache_and_logs",
         CancellationToken cancellationToken = default)
     {
+        var mode = CorruptionDetectionService.ValidateScanInput(detectionMode, threshold);
+
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
         // The bulk corruption scan is a heavy data op (OperationConflictChecker section 1a), so
         // it queues behind any other active heavy operation instead of running alongside it.
         // Deliberately no request token in the delegate: it may run at queue promotion, long
         // after this HTTP request completed (the operation owns its own CTS via the tracker).
         async Task<Guid?> StartDetectionAsync() =>
-            await _corruptionDetectionService.StartDetectionAsync(threshold, compareToCacheLogs, detectionMode);
+            await _corruptionDetectionService.StartDetectionAsync(threshold, mode.ToWireString());
 
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.CorruptionDetection,
@@ -447,68 +456,27 @@ public class CacheController : ControllerBase
 
     /// <summary>
     /// GET /api/cache/services/{name}/corruption - Get detailed corruption info for specific service
-    /// Returns array of corrupted chunks with URLs, miss counts, and cache file paths
+    /// Returns the exact stored candidates from the requested completed scan.
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("services/{service}/corruption")]
     public async Task<IActionResult> GetCorruptionDetailsAsync(
         string service,
         CancellationToken cancellationToken,
-        [FromQuery] bool forceRefresh = false,
-        [FromQuery] int threshold = 3,
-        [FromQuery] bool compareToCacheLogs = true,
-        [FromQuery] string detectionMode = "miss_count")
+        [FromQuery] Guid scanId)
     {
         if (!_serviceNameRegex.IsMatch(service))
         {
-            return BadRequest(new ErrorResponse { Error = "Invalid service name" });
+            throw new ValidationException("Invalid service name");
         }
 
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.CorruptionDetection,
-            ConflictScope.Service(service),
-            cancellationToken);
-        if (conflict != null)
+        if (scanId == Guid.Empty)
         {
-            return Conflict(conflict);
+            throw new ValidationException("A corruption scan ID is required");
         }
 
-        var detectRedownloads = detectionMode == "redownload";
-        var cts = new CancellationTokenSource();
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cts.Token);
-
-        var operationId = _operationTracker.RegisterOperation(
-            OperationType.CorruptionDetection,
-            $"Corruption Details ({service})",
-            cts,
-            new CorruptionDetectionMetrics { ServiceName = service });
-
-        try
-        {
-            var details = await _cacheService.GetCorruptionDetailsAsync(
-                service,
-                forceRefresh,
-                threshold,
-                compareToCacheLogs,
-                operationId,
-                linkedCts.Token,
-                detectRedownloads);
-
-            _operationTracker.CompleteOperation(operationId, success: true);
-            return Ok(details);
-        }
-        catch (OperationCanceledException) when (linkedCts.Token.IsCancellationRequested)
-        {
-            _logger.LogInformation("Corruption details request cancelled for service: {Service}", service);
-            _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled");
-            throw; // -> GlobalExceptionMiddleware -> 499, no body
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving corruption details for service: {Service}", service);
-            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
-            throw;
-        }
+        var details = await _corruptionDetectionService.GetDetailsAsync(scanId, service, cancellationToken);
+        return Ok(details);
     }
 
     /// <summary>
@@ -517,68 +485,89 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("services/{service}/corruption")]
-    public async Task<IActionResult> RemoveCorruptedChunksAsync(string service, CancellationToken cancellationToken, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
+    public async Task<IActionResult> RemoveCorruptedChunksAsync(
+        string service,
+        CancellationToken cancellationToken,
+        [FromQuery] Guid scanId,
+        [FromQuery] string? candidateIds = null)
     {
         if (!_serviceNameRegex.IsMatch(service))
         {
-            return BadRequest(new ErrorResponse { Error = "Invalid service name" });
+            throw new ValidationException("Invalid service name");
         }
 
-        var datasources = _datasourceService.GetDatasources();
+        if (scanId == Guid.Empty)
+        {
+            throw new ValidationException("A corruption scan ID is required");
+        }
+
+        var requestedCandidateIds = ParseCsvValues(candidateIds, StringComparer.Ordinal);
+        var previewSelection = await _corruptionDetectionService.GetRemovalSelectionAsync(
+            scanId,
+            service,
+            requestedCandidateIds,
+            cancellationToken);
+        var datasources = ResolveDatasourcesForSelection(
+            previewSelection,
+            _datasourceService.GetDatasources());
 
         // CRITICAL: Check write permissions BEFORE starting (or queueing) the operation
         // This prevents the DB/filesystem state mismatch when PUID/PGID is wrong
         var permissionError = CheckDatasourcesWritable(datasources, service);
         if (permissionError != null)
         {
-            return BadRequest(new ErrorResponse { Error = permissionError });
+            throw new ValidationException(permissionError);
         }
 
         // The whole start path lives in this local function so the wait-queue can run it
         // verbatim at promotion time (captures only singleton services + this controller).
         async Task<Guid?> StartCorruptionRemovalAsync()
         {
-        _cacheService.InvalidateCachedScan();
-
-        // Optimistically delete the cached detection row immediately so app restarts don't resurface stale data
-        await _corruptionDetectionService.ClearServiceCacheAsync(service);
-
-        // Register synchronously (inside the core) but surface the operationId to this
-        // request thread so it can be returned in the HTTP response.
-        var operationIdReady = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        _ = Task.Run(async () =>
-        {
-            try
+            // A queued request may be promoted after a new scan replaces the preview.
+            // Resolve the exact scope again at start time and fail closed if it is stale.
+            var selection = await _corruptionDetectionService.GetRemovalSelectionAsync(
+                scanId,
+                service,
+                requestedCandidateIds);
+            var currentDatasources = ResolveDatasourcesForSelection(
+                selection,
+                _datasourceService.GetDatasources());
+            var currentPermissionError = CheckDatasourcesWritable(currentDatasources, service);
+            if (currentPermissionError != null)
             {
-                // Pause LiveLogMonitorService to prevent file locking issues.
-                // Pause MUST be inside this try so the finally below always resumes,
-                // even if a cancel/throw happens between Pause and the work loop.
-                await LiveLogMonitorService.PauseAsync();
-                _logger.LogInformation("Paused LiveLogMonitorService for corruption removal");
+                throw new ValidationException(currentPermissionError);
+            }
 
+            _cacheService.InvalidateCachedScan();
+            var operationIdReady = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _ = Task.Run(async () =>
+            {
                 try
                 {
-                    await RunCorruptionRemovalCoreAsync(
-                        service, threshold, compareToCacheLogs, detectionMode, datasources,
-                        onRegistered: id => operationIdReady.TrySetResult(id));
+                    await LiveLogMonitorService.PauseAsync();
+                    _logger.LogInformation("Paused LiveLogMonitorService for corruption removal");
+                    try
+                    {
+                        await RunCorruptionRemovalCoreAsync(
+                            selection,
+                            currentDatasources,
+                            onRegistered: id => operationIdReady.TrySetResult(id));
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // The core already completed the operation as cancelled.
+                    }
                 }
-                catch (OperationCanceledException)
+                finally
                 {
-                    // The core already completed the operation as cancelled.
+                    await LiveLogMonitorService.ResumeAsync();
+                    _logger.LogInformation("Resumed LiveLogMonitorService after corruption removal");
+                    operationIdReady.TrySetResult(Guid.Empty);
                 }
-            }
-            finally
-            {
-                // Always resume LiveLogMonitorService
-                await LiveLogMonitorService.ResumeAsync();
-                _logger.LogInformation("Resumed LiveLogMonitorService after corruption removal");
-                operationIdReady.TrySetResult(Guid.Empty);
-            }
-        });
+            });
 
-        var startedId = await operationIdReady.Task;
-        return startedId == Guid.Empty ? null : startedId;
+            var startedId = await operationIdReady.Task;
+            return startedId == Guid.Empty ? null : startedId;
         }
 
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
@@ -617,49 +606,80 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("corruption")]
-    public async Task<IActionResult> RemoveAllCorruptedChunksAsync(CancellationToken cancellationToken, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count", [FromQuery] string? services = null)
+    public async Task<IActionResult> RemoveAllCorruptedChunksAsync(
+        CancellationToken cancellationToken,
+        [FromQuery] Guid scanId,
+        [FromQuery] string? services = null)
     {
-        // Query which services currently have corruption data
-        var cachedDetection = await _corruptionDetectionService.GetDetectionAsync();
-        if (cachedDetection == null || cachedDetection.CorruptionCounts == null || cachedDetection.CorruptionCounts.Count == 0)
+        if (scanId == Guid.Empty)
+        {
+            throw new ValidationException("A corruption scan ID is required");
+        }
+
+        var cachedDetection = await _corruptionDetectionService.GetDetectionAsync(cancellationToken);
+        if (cachedDetection == null)
+        {
+            throw new NotFoundException("Corruption scan");
+        }
+
+        if (cachedDetection.ScanId != scanId)
+        {
+            throw new ConflictException("The corruption scan is stale. Reload results and try again");
+        }
+
+        if (cachedDetection.CorruptionCounts.Count == 0)
         {
             return Ok(new { Message = "No corruption data found. Run a corruption detection scan first." });
         }
 
-        var servicesWithCorruption = cachedDetection.CorruptionCounts.Keys.ToList();
-
-        // Optional subset filter: when 'services' is provided (comma-separated), restrict the
-        // removal to only those services. Absent/empty preserves the all-services behavior
-        // byte-for-byte. Unknown names (no corruption data in the current summary) are skipped
-        // with a warning rather than failing, since the summary may have changed since the UI
-        // loaded. The existing bulk machinery below still emits a single Service="all" terminal.
-        if (!string.IsNullOrWhiteSpace(services))
+        var availableServices = new HashSet<string>(
+            cachedDetection.CorruptionCounts.Keys,
+            StringComparer.OrdinalIgnoreCase);
+        var requestedServices = ParseCsvValues(services, StringComparer.OrdinalIgnoreCase);
+        List<string> servicesToRemove;
+        if (requestedServices is { Count: > 0 })
         {
-            var requested = services
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            var unknown = requestedServices.Where(service => !availableServices.Contains(service)).ToList();
+            if (unknown.Count > 0)
+            {
+                throw new ValidationException(
+                    "One or more requested services are not part of the stored corruption scan");
+            }
+
+            servicesToRemove = cachedDetection.CorruptionCounts.Keys
+                .Where(requestedServices.Contains)
                 .ToList();
-            var available = new HashSet<string>(servicesWithCorruption, StringComparer.OrdinalIgnoreCase);
-            foreach (var name in requested.Where(name => !available.Contains(name)))
-            {
-                _logger.LogWarning("[CorruptionRemoval] Requested service '{Service}' has no corruption data and was skipped", name);
-            }
-
-            var requestedSet = new HashSet<string>(requested, StringComparer.OrdinalIgnoreCase);
-            servicesWithCorruption = servicesWithCorruption.Where(s => requestedSet.Contains(s)).ToList();
-
-            if (servicesWithCorruption.Count == 0)
-            {
-                return Ok(new { Message = "No matching services with corruption data to remove." });
-            }
+        }
+        else
+        {
+            servicesToRemove = cachedDetection.CorruptionCounts.Keys
+                .Where(service => cachedDetection.ServiceRemovalAllowed.GetValueOrDefault(service))
+                .ToList();
         }
 
-        var datasources = _datasourceService.GetDatasources();
+        if (servicesToRemove.Count == 0)
+        {
+            throw new ForbiddenException("This stored corruption scan has no removable candidates");
+        }
+
+        var previewSelections = new List<CorruptionRemovalSelection>();
+        foreach (var service in servicesToRemove)
+        {
+            previewSelections.Add(await _corruptionDetectionService.GetRemovalSelectionAsync(
+                scanId,
+                service,
+                cancellationToken: cancellationToken));
+        }
+
+        var datasources = ResolveDatasourcesForSelections(
+            previewSelections,
+            _datasourceService.GetDatasources());
 
         // CRITICAL: Check write permissions BEFORE starting (or queueing) the operation
         var permissionError = CheckDatasourcesWritable(datasources, service: null);
         if (permissionError != null)
         {
-            return BadRequest(new ErrorResponse { Error = permissionError });
+            throw new ValidationException(permissionError);
         }
 
         // The whole start path lives in this local function so the wait-queue can run it
@@ -667,107 +687,105 @@ public class CacheController : ControllerBase
         // register their own per-service operations once running).
         async Task<Guid?> StartAllCorruptionRemovalAsync()
         {
-        _logger.LogInformation("[CorruptionRemoval] Starting all-services corruption removal for {Count} service(s): {Services}",
-            servicesWithCorruption.Count, string.Join(", ", servicesWithCorruption));
-
-        _cacheService.InvalidateCachedScan();
-
-        // Delete cached detection rows per-service and activate grace period to prevent immediate reappearance
-        foreach (var service in servicesWithCorruption)
-        {
-            await _corruptionDetectionService.ClearServiceCacheAsync(service);
-        }
-
-        _ = Task.Run(async () =>
-        {
-            try
+            var selections = new List<CorruptionRemovalSelection>();
+            foreach (var service in servicesToRemove)
             {
-                // Pause LiveLogMonitorService ONCE to prevent file locking issues across all services.
-                // Pause MUST be inside this try so the finally below always resumes,
-                // even if a cancel/throw happens between Pause and the work loop.
-                await LiveLogMonitorService.PauseAsync();
-                _logger.LogInformation("Paused LiveLogMonitorService for all-services corruption removal");
+                selections.Add(await _corruptionDetectionService.GetRemovalSelectionAsync(scanId, service));
+            }
 
-                // One shared state for the whole run: per-service cores suppress their terminal
-                // emits and report in here, so the notification card advances service by service
-                // and completes exactly once below with aggregated totals.
-                var bulkState = new BulkCorruptionRemovalState { ServiceCount = servicesWithCorruption.Count };
-                var cancelled = false;
+            var currentDatasources = ResolveDatasourcesForSelections(
+                selections,
+                _datasourceService.GetDatasources());
+            var currentPermissionError = CheckDatasourcesWritable(currentDatasources, service: null);
+            if (currentPermissionError != null)
+            {
+                throw new ValidationException(currentPermissionError);
+            }
 
-                for (var serviceIndex = 0; serviceIndex < servicesWithCorruption.Count; serviceIndex++)
+            _logger.LogInformation(
+                "[CorruptionRemoval] Starting scan-bound removal for {Count} service(s): {Services}",
+                selections.Count,
+                string.Join(", ", selections.Select(selection => selection.Service)));
+            _cacheService.InvalidateCachedScan();
+
+            _ = Task.Run(async () =>
+            {
+                try
                 {
-                    var service = servicesWithCorruption[serviceIndex];
-                    bulkState.ServiceIndex = serviceIndex + 1;
-                    try
+                    await LiveLogMonitorService.PauseAsync();
+                    _logger.LogInformation("Paused LiveLogMonitorService for all-services corruption removal");
+                    var bulkState = new BulkCorruptionRemovalState { ServiceCount = selections.Count };
+                    var cancelled = false;
+
+                    for (var serviceIndex = 0; serviceIndex < selections.Count; serviceIndex++)
                     {
-                        await RunCorruptionRemovalCoreAsync(
-                            service, threshold, compareToCacheLogs, detectionMode, datasources,
-                            bulk: bulkState);
+                        var selection = selections[serviceIndex];
+                        bulkState.ServiceIndex = serviceIndex + 1;
+                        var serviceDatasources = ResolveDatasourcesForSelection(selection, currentDatasources);
+                        try
+                        {
+                            await RunCorruptionRemovalCoreAsync(selection, serviceDatasources, bulk: bulkState);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            cancelled = true;
+                            break;
+                        }
                     }
-                    catch (OperationCanceledException)
+
+                    var processedCount = bulkState.SucceededServices + bulkState.FailedServices;
+                    if (cancelled)
                     {
-                        // The core already completed this service's operation as cancelled.
-                        // Stop processing further services on cancellation.
-                        cancelled = true;
-                        break;
+                        await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                            new CorruptionRemovalComplete(false, "all",
+                                StageKey: "signalr.corruptionRemove.allCancelled",
+                                OperationId: bulkState.LastOperationId,
+                                Context: new Dictionary<string, object?>
+                                {
+                                    ["completedCount"] = processedCount,
+                                    ["serviceCount"] = bulkState.ServiceCount
+                                }));
+                    }
+                    else if (bulkState.FailedServices > 0)
+                    {
+                        var context = bulkState.Totals.ToContext("all");
+                        context["failedCount"] = bulkState.FailedServices;
+                        context["serviceCount"] = bulkState.ServiceCount;
+                        await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                            new CorruptionRemovalComplete(false, "all",
+                                StageKey: "signalr.corruptionRemove.allCompleteWithFailures",
+                                OperationId: bulkState.LastOperationId,
+                                Context: context));
+                    }
+                    else
+                    {
+                        var context = bulkState.Totals.ToContext("all");
+                        context["serviceCount"] = bulkState.ServiceCount;
+                        await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
+                            new CorruptionRemovalComplete(true, "all",
+                                StageKey: "signalr.corruptionRemove.allComplete",
+                                OperationId: bulkState.LastOperationId,
+                                Context: context));
                     }
                 }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Unhandled error during all-services corruption removal");
+                }
+                finally
+                {
+                    await LiveLogMonitorService.ResumeAsync();
+                    _logger.LogInformation("Resumed LiveLogMonitorService after all-services corruption removal");
+                }
+            });
 
-                // The run's single terminal emit.
-                var processedCount = bulkState.SucceededServices + bulkState.FailedServices;
-                if (cancelled)
-                {
-                    await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                        new CorruptionRemovalComplete(false, "all",
-                            StageKey: "signalr.corruptionRemove.allCancelled",
-                            OperationId: bulkState.LastOperationId,
-                            Context: new Dictionary<string, object?>
-                            {
-                                ["completedCount"] = processedCount,
-                                ["serviceCount"] = bulkState.ServiceCount
-                            }));
-                }
-                else if (bulkState.FailedServices > 0)
-                {
-                    var context = bulkState.Totals.ToContext("all");
-                    context["failedCount"] = bulkState.FailedServices;
-                    context["serviceCount"] = bulkState.ServiceCount;
-                    await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                        new CorruptionRemovalComplete(false, "all",
-                            StageKey: "signalr.corruptionRemove.allCompleteWithFailures",
-                            OperationId: bulkState.LastOperationId,
-                            Context: context));
-                }
-                else
-                {
-                    var context = bulkState.Totals.ToContext("all");
-                    context["serviceCount"] = bulkState.ServiceCount;
-                    await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                        new CorruptionRemovalComplete(true, "all",
-                            StageKey: "signalr.corruptionRemove.allComplete",
-                            OperationId: bulkState.LastOperationId,
-                            Context: context));
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Unhandled error during all-services corruption removal");
-            }
-            finally
-            {
-                // Always resume LiveLogMonitorService
-                await LiveLogMonitorService.ResumeAsync();
-                _logger.LogInformation("Resumed LiveLogMonitorService after all-services corruption removal");
-            }
-        });
-
-        return Guid.NewGuid();
+            return Guid.NewGuid();
         }
 
         // Wait-queue model: if any service is blocked, park the whole all-services run behind
         // the FIRST conflicting service's scope (promotion re-checks that scope; see report -
         // other services' conflicts are handled per-service by the cores once running).
-        foreach (var svc in servicesWithCorruption)
+        foreach (var svc in servicesToRemove)
         {
             var conflict = await _conflictChecker.CheckAsync(
                 OperationType.CorruptionRemoval,
@@ -786,6 +804,55 @@ public class CacheController : ControllerBase
         await StartAllCorruptionRemovalAsync();
 
         return Accepted(new { Message = "Corruption removal started for all services" });
+    }
+
+    private static HashSet<string>? ParseCsvValues(
+        string? value,
+        IEqualityComparer<string> comparer)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var values = value
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .ToHashSet(comparer);
+        return values.Count == 0 ? null : values;
+    }
+
+    private static List<ResolvedDatasource> ResolveDatasourcesForSelection(
+        CorruptionRemovalSelection selection,
+        IReadOnlyList<ResolvedDatasource> configuredDatasources) =>
+        ResolveDatasources(selection.CandidatesByDatasource.Keys, configuredDatasources);
+
+    private static List<ResolvedDatasource> ResolveDatasourcesForSelections(
+        IEnumerable<CorruptionRemovalSelection> selections,
+        IReadOnlyList<ResolvedDatasource> configuredDatasources) =>
+        ResolveDatasources(
+            selections.SelectMany(selection => selection.CandidatesByDatasource.Keys),
+            configuredDatasources);
+
+    private static List<ResolvedDatasource> ResolveDatasources(
+        IEnumerable<string> datasourceNames,
+        IReadOnlyList<ResolvedDatasource> configuredDatasources)
+    {
+        var configuredByName = configuredDatasources.ToDictionary(
+            datasource => datasource.Name,
+            StringComparer.OrdinalIgnoreCase);
+        var requestedNames = datasourceNames
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var missing = requestedNames.Where(name => !configuredByName.ContainsKey(name)).ToList();
+        if (missing.Count > 0)
+        {
+            throw new ConflictException(
+                "One or more corruption candidates belong to a datasource that is no longer configured");
+        }
+
+        return requestedNames.Select(name => configuredByName[name]).ToList();
     }
 
     /// <summary>
@@ -909,7 +976,7 @@ public class CacheController : ControllerBase
     /// Shared per-service corruption-removal core: registers a tracked operation, emits the
     /// start notification, runs the corruption-remove Rust binary across every datasource with
     /// progress monitoring, and completes the operation. Caller responsibilities (NOT done here):
-    /// conflict/permission checks, the optimistic <c>RemoveCachedServiceAsync</c> row delete,
+    /// conflict/permission checks,
     /// LiveLogMonitorService Pause/Resume (the all-services path pauses ONCE around its loop),
     /// and the HTTP response. On cancellation the operation is completed as cancelled and an
     /// <see cref="OperationCanceledException"/> is rethrown so the all-services loop can break;
@@ -923,14 +990,12 @@ public class CacheController : ControllerBase
     /// succeeded for this service.
     /// </summary>
     private async Task<bool> RunCorruptionRemovalCoreAsync(
-        string service,
-        int threshold,
-        bool compareToCacheLogs,
-        string detectionMode,
-        IReadOnlyList<ResolvedDatasource> datasources,
+        CorruptionRemovalSelection selection,
+        List<ResolvedDatasource> datasources,
         Action<Guid>? onRegistered = null,
         BulkCorruptionRemovalState? bulk = null)
     {
+        var service = selection.Service;
         // Create CancellationTokenSource and register with unified operation tracker for cancel support
         var cts = new CancellationTokenSource();
         var metadata = new RemovalMetrics { EntityKey = service.ToLowerInvariant(), EntityName = service };
@@ -1007,6 +1072,15 @@ public class CacheController : ControllerBase
 
         try
         {
+            // Revalidate the scan-bound candidate IDs at operation start. This closes
+            // the queue-promotion window and prevents a newly completed scan from
+            // being interpreted through an older in-memory selection.
+            selection = await _corruptionDetectionService.GetRemovalSelectionAsync(
+                selection.ScanId,
+                service,
+                selection.CandidateIds,
+                cts.Token);
+
             // Update tracking
             _operationTracker.UpdateProgress(operationId, 0, "signalr.corruptionRemove.starting");
 
@@ -1029,12 +1103,29 @@ public class CacheController : ControllerBase
                 var cachePath = datasource.CachePath;
                 var progressFilePath = Path.Combine(_pathResolver.GetOperationsDirectory(),
                     $"corruption_removal_{operationId}_{datasource.Name}.json");
+                var evidenceFilePath = Path.Combine(_pathResolver.GetOperationsDirectory(),
+                    $"corruption_evidence_{operationId}_{datasource.Name}.json");
 
                 _logger.LogInformation("[CorruptionRemoval] Processing datasource '{Datasource}' (logs: {LogsPath}, cache: {CachePath})",
                     datasource.Name, logsPath, cachePath);
 
                 try
                 {
+                    var evidence = new CorruptionRemovalEvidence
+                    {
+                        ContractVersion = selection.ContractVersion,
+                        ScanId = selection.ScanId,
+                        Mode = selection.Mode,
+                        Threshold = selection.Threshold,
+                        Datasource = datasource.Name,
+                        Candidates = selection.CandidatesByDatasource[datasource.Name].ToList()
+                    };
+                    Directory.CreateDirectory(_pathResolver.GetOperationsDirectory());
+                    await System.IO.File.WriteAllTextAsync(
+                        evidenceFilePath,
+                        JsonSerializer.Serialize(evidence),
+                        cts.Token);
+
                     // Hybrid transport (mirrors CacheClearingService): the stdout progress event
                     // from corruption_manager is a zero-latency wake-up that triggers exactly one
                     // read of the (Rust-side-unchanged) progress file, replacing the previous
@@ -1044,11 +1135,9 @@ public class CacheController : ControllerBase
                         logsPath,
                         cachePath,
                         service: service,
+                        evidenceFile: evidenceFilePath,
                         progressFile: progressFilePath,
                         cancellationToken: cts.Token,
-                        threshold: threshold,
-                        compareToCacheLogs: compareToCacheLogs,
-                        detectRedownloads: detectionMode == "redownload",
                         operationId: operationId,
                         onProgressEvent: async _ =>
                         {
@@ -1137,8 +1226,8 @@ public class CacheController : ControllerBase
                 }
                 finally
                 {
-                    // Clean up progress file for this datasource
-                    try { if (System.IO.File.Exists(progressFilePath)) System.IO.File.Delete(progressFilePath); } catch (Exception ex) { _logger.LogDebug(ex, "Failed to clean up progress file"); }
+                    await _rustProcessHelper.DeleteTempFileAsync(progressFilePath);
+                    await _rustProcessHelper.DeleteTempFileAsync(evidenceFilePath);
                 }
             }
 
@@ -1151,6 +1240,13 @@ public class CacheController : ControllerBase
 
                 // Invalidate service count cache since corruption removal affects counts
                 await _cacheService.InvalidateServiceCountsAsync();
+
+                // Only a fully successful service run can prune persisted evidence.
+                // Any partial/permission/process failure leaves the authoritative scope intact.
+                await _corruptionDetectionService.ApplyRemovalSuccessAsync(
+                    selection.ScanId,
+                    selection.CandidateIds,
+                    cts.Token);
 
                 // Terminal SignalR emit is centralized in the onTerminalEmit closure
                 // registered with RegisterOperation (fires exactly once from CompleteOperation).

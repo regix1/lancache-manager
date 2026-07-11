@@ -2,9 +2,9 @@ use anyhow::Result;
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use clap::Parser;
+use serde::Serialize;
 use sqlx::PgPool;
 use sqlx::Row;
-use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::PathBuf;
@@ -63,6 +63,8 @@ use session::SessionTracker;
 const BULK_BATCH_SIZE: usize = 5_000;
 const SESSION_GAP_MINUTES: i64 = 5;
 const LINE_BUFFER_CAPACITY: usize = 1024;
+const LOG_ENTRY_INSERT_SQL: &str = r#"INSERT INTO "LogEntries" ("Timestamp", "ClientIp", "Service", "Method", "HttpRange", "Url", "StatusCode", "BytesServed", "CacheStatus", "DepotId", "DownloadId", "CreatedAt", "Datasource")
+       SELECT * FROM UNNEST($1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::int[], $8::bigint[], $9::text[], $10::bigint[], $11::bigint[], $12::timestamptz[], $13::text[])"#;
 /// Throttle interval for reloading the Xbox CDN fragment patterns from the DB during a run.
 const XBOX_PATTERN_RELOAD: Duration = Duration::from_secs(60);
 
@@ -71,6 +73,8 @@ struct PendingLogEntry {
     timestamp: chrono::DateTime<Utc>,
     client_ip: String,
     service: String,
+    method: String,
+    http_range: String,
     url: String,
     status_code: i32,
     bytes_served: i64,
@@ -101,7 +105,6 @@ struct Progress {
     // and are NOT displayed in UI. Keeping them caused unbounded memory growth.
 }
 
-
 struct Processor {
     pool: PgPool,
     log_dir: PathBuf,
@@ -124,7 +127,7 @@ struct Processor {
     local_tz: Tz,
     auto_map_depots: bool,
     last_logged_percent: AtomicU64, // Store as integer (0-100) for atomic operations
-    logged_depots: HashSet<u32>, // Track depots that have already been logged
+    logged_depots: HashSet<u32>,    // Track depots that have already been logged
     logged_tact_products: HashSet<String>, // Track Blizzard TACT products already logged
     logged_riot_hosts: HashSet<String>, // Track Riot CDN hosts already logged
     datasource_name: String,
@@ -179,7 +182,9 @@ impl Processor {
             progress_path,
             start_position,
             parser: LogParser::new(local_tz),
-            session_tracker: SessionTracker::new(Duration::from_secs(SESSION_GAP_MINUTES as u64 * 60)),
+            session_tracker: SessionTracker::new(Duration::from_secs(
+                SESSION_GAP_MINUTES as u64 * 60,
+            )),
             total_lines: AtomicU64::new(0),
             lines_parsed: AtomicU64::new(0),
             entries_saved: AtomicU64::new(0),
@@ -267,7 +272,10 @@ impl Processor {
         let log_files = discover_log_files(&self.log_dir, &self.log_base_name)?;
 
         if log_files.is_empty() {
-            eprintln!("No log files found matching pattern: {}", self.log_base_name);
+            eprintln!(
+                "No log files found matching pattern: {}",
+                self.log_base_name
+            );
             self.write_progress("completed", "No log files found")?;
             return Ok(());
         }
@@ -283,7 +291,12 @@ impl Processor {
                 Some(num) => format!(" [rotation {}]", num),
                 None => " [current]".to_string(),
             };
-            eprintln!("  - {}{}{}", log_file.path.display(), rotation_info, compression_info);
+            eprintln!(
+                "  - {}{}{}",
+                log_file.path.display(),
+                rotation_info,
+                compression_info
+            );
         }
 
         // Progress denominator: sum of on-disk file sizes (instant). This replaces
@@ -317,15 +330,17 @@ impl Processor {
 
         // Check if this is a fresh database - skip dedup for maximum speed
         if self.start_position == 0 {
-            let is_empty: bool = sqlx::query_scalar(
-                r#"SELECT NOT EXISTS(SELECT 1 FROM "LogEntries" LIMIT 1)"#
-            )
-            .fetch_one(&self.pool)
-            .await
-            .unwrap_or_else(|e| {
-                eprintln!("[log_processor] Warning: failed to check if database is empty: {}", e);
-                false
-            });
+            let is_empty: bool =
+                sqlx::query_scalar(r#"SELECT NOT EXISTS(SELECT 1 FROM "LogEntries" LIMIT 1)"#)
+                    .fetch_one(&self.pool)
+                    .await
+                    .unwrap_or_else(|e| {
+                        eprintln!(
+                            "[log_processor] Warning: failed to check if database is empty: {}",
+                            e
+                        );
+                        false
+                    });
             if is_empty {
                 eprintln!("Fresh database detected - skipping duplicate checks for maximum speed");
                 self.skip_dedup = true;
@@ -341,10 +356,17 @@ impl Processor {
         let mut files_with_errors = Vec::new();
 
         for (file_index, log_file) in log_files.iter().enumerate() {
-            eprintln!("\nProcessing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
+            eprintln!(
+                "\nProcessing file {}/{}: {}",
+                file_index + 1,
+                log_files.len(),
+                log_file.path.display()
+            );
 
             let file_size = file_sizes[file_index];
-            let file_result = self.process_single_file(log_file, file_size, &mut lines_to_skip).await;
+            let file_result = self
+                .process_single_file(log_file, file_size, &mut lines_to_skip)
+                .await;
 
             // Whether the file completed or was skipped with an error, its bytes are
             // consumed work: fold them into the completed total so percent stays monotone.
@@ -369,12 +391,20 @@ impl Processor {
                     || error_str.contains("operator does not exist");
 
                 if is_db_error {
-                    eprintln!("ERROR: Database error processing {}: {}", log_file.path.display(), e);
+                    eprintln!(
+                        "ERROR: Database error processing {}: {}",
+                        log_file.path.display(),
+                        e
+                    );
                     files_with_errors.push((log_file.path.display().to_string(), error_str));
                     // Database errors affect ALL files, no point continuing
                     break;
                 } else {
-                    eprintln!("⚠ Warning: Skipping corrupted file {}: {}", log_file.path.display(), e);
+                    eprintln!(
+                        "⚠ Warning: Skipping corrupted file {}: {}",
+                        log_file.path.display(),
+                        e
+                    );
                     eprintln!("  Continuing with remaining files...");
                     files_with_errors.push((log_file.path.display().to_string(), error_str));
                     continue;
@@ -438,7 +468,10 @@ impl Processor {
 
         // Skip lines if we haven't reached the start position yet
         if *lines_to_skip > 0 {
-            eprintln!("Skipping {} lines in this file to reach start position", lines_to_skip);
+            eprintln!(
+                "Skipping {} lines in this file to reach start position",
+                lines_to_skip
+            );
             let mut line = String::new();
             let mut skipped = 0u64;
 
@@ -460,7 +493,10 @@ impl Processor {
         let mut batch = Vec::with_capacity(BULK_BATCH_SIZE);
         let mut line_buffer = String::with_capacity(LINE_BUFFER_CAPACITY);
 
-        self.write_progress("processing", &format!("Reading {}...", log_file.path.display()))?;
+        self.write_progress(
+            "processing",
+            &format!("Reading {}...", log_file.path.display()),
+        )?;
 
         loop {
             line_buffer.clear();
@@ -502,7 +538,8 @@ impl Processor {
 
                     // Only log when we cross a 5% boundary
                     if current_percent_bucket > last_logged {
-                        self.last_logged_percent.store(current_percent_bucket, Ordering::Relaxed);
+                        self.last_logged_percent
+                            .store(current_percent_bucket, Ordering::Relaxed);
                         eprintln!(
                             "Progress: {} lines ({:.1}%), {} entries saved",
                             parsed, percent, saved
@@ -519,7 +556,10 @@ impl Processor {
                         eprintln!("Cancel requested — stopping after batch flush ({} lines, {} entries saved)", parsed, saved);
                         self.write_progress(
                             "cancelled",
-                            &format!("Cancelled: {} lines parsed, {} entries saved", parsed, saved),
+                            &format!(
+                                "Cancelled: {} lines parsed, {} entries saved",
+                                parsed, saved
+                            ),
                         )?;
                         // Return cleanly instead of force-exiting the whole process from
                         // mid-stack; the caller's file loop (see `process()`) checks
@@ -563,7 +603,11 @@ impl Processor {
         let mut entry_xbox_titles: Vec<Option<String>> = Vec::with_capacity(entries.len());
         for entry in entries {
             if Self::is_xbox_cache_service(&entry.service) {
-                entry_xbox_titles.push(self.lookup_xbox_game(&entry.url).await.map(|(title, _pid)| title));
+                entry_xbox_titles.push(
+                    self.lookup_xbox_game(&entry.url)
+                        .await
+                        .map(|(title, _pid)| title),
+                );
             } else {
                 entry_xbox_titles.push(None);
             }
@@ -615,7 +659,7 @@ impl Processor {
             } else {
                 "_nodepot".to_string()
             };
-            let key = format!("{}_{}{}",  entry.client_ip, entry.service, depot_suffix);
+            let key = format!("{}_{}{}", entry.client_ip, entry.service, depot_suffix);
             grouped.entry(key).or_insert_with(Vec::new).push(entry);
         }
 
@@ -623,7 +667,8 @@ impl Processor {
         // Collect entries to insert into a shared buffer for ONE bulk INSERT
         let mut pending_inserts: Vec<PendingLogEntry> = Vec::with_capacity(entries.len());
         for (session_key, group_entries) in &grouped {
-            self.process_session_group(&mut tx, session_key, group_entries, &mut pending_inserts).await?;
+            self.process_session_group(&mut tx, session_key, group_entries, &mut pending_inserts)
+                .await?;
         }
 
         // ONE bulk INSERT for ALL entries across ALL session groups
@@ -727,7 +772,9 @@ impl Processor {
                             // URLs and relabel Windows Update traffic as a game — same shape guard the
                             // C# resolver (XboxMappingService.IsValidFragment) applies. This Rust path
                             // is the PRIMARY canonicalizer, so the guard MUST live here too.
-                            (Some(frag), Some(name), Some(pid)) if cache_utils::is_valid_xbox_fragment(&frag) => {
+                            (Some(frag), Some(name), Some(pid))
+                                if cache_utils::is_valid_xbox_fragment(&frag) =>
+                            {
                                 Some((frag, name, pid))
                             }
                             _ => None,
@@ -848,7 +895,8 @@ impl Processor {
             // Bulk duplicate detection - single query for the whole group
             let mut check_client_ips: Vec<&str> = Vec::with_capacity(entries.len());
             let mut check_services: Vec<&str> = Vec::with_capacity(entries.len());
-            let mut check_timestamps: Vec<chrono::DateTime<Utc>> = Vec::with_capacity(entries.len());
+            let mut check_timestamps: Vec<chrono::DateTime<Utc>> =
+                Vec::with_capacity(entries.len());
             let mut check_urls: Vec<&str> = Vec::with_capacity(entries.len());
             let mut check_bytes: Vec<i64> = Vec::with_capacity(entries.len());
 
@@ -882,7 +930,13 @@ impl Processor {
                     let ts: chrono::DateTime<Utc> = row.get("Timestamp");
                     let url: String = row.get("Url");
                     let bytes: i64 = row.get("BytesServed");
-                    (client_ip, service, ts.timestamp_nanos_opt().unwrap_or(0), url, bytes)
+                    (
+                        client_ip,
+                        service,
+                        ts.timestamp_nanos_opt().unwrap_or(0),
+                        url,
+                        bytes,
+                    )
                 })
                 .collect();
 
@@ -890,7 +944,10 @@ impl Processor {
             let mut skip_count = 0usize;
 
             for entry in entries {
-                let ts_nanos = Utc.from_utc_datetime(&entry.timestamp).timestamp_nanos_opt().unwrap_or(0);
+                let ts_nanos = Utc
+                    .from_utc_datetime(&entry.timestamp)
+                    .timestamp_nanos_opt()
+                    .unwrap_or(0);
                 let key = (
                     entry.client_ip.clone(),
                     entry.service.clone(),
@@ -980,8 +1037,9 @@ impl Processor {
         // batches (deterministic per-URL resolution → no mid-session split). Unmatched `wsus` keeps
         // `service` and is generic Windows Update. Backfilling already-ingested still-`wsus` rows is
         // the C# post-pass's job, not ours.
-        let (download_service_owned, xbox_game_name, xbox_product_id) =
-            self.resolve_xbox_canonicalization(service, &new_entries).await;
+        let (download_service_owned, xbox_game_name, xbox_product_id) = self
+            .resolve_xbox_canonicalization(service, &new_entries)
+            .await;
         let download_service: &str = &download_service_owned;
 
         // Lookup depot mappings during log processing (auto_map_depots = true)
@@ -997,15 +1055,17 @@ impl Processor {
                     Some((app_id, app_name)) => {
                         // Only log each depot mapping once to avoid log spam
                         if !self.logged_depots.contains(&depot_id) {
-                            let game_display = app_name.as_ref().map(|n| n.as_str()).unwrap_or("Unknown");
-                            eprintln!("Mapped depot {} -> App {} ({})", depot_id, app_id, game_display);
+                            let game_display =
+                                app_name.as_ref().map(|n| n.as_str()).unwrap_or("Unknown");
+                            eprintln!(
+                                "Mapped depot {} -> App {} ({})",
+                                depot_id, app_id, game_display
+                            );
                             self.logged_depots.insert(depot_id);
                         }
                         (Some(app_id), app_name)
-                    },
-                    None => {
-                        (None, None)
-                    },
+                    }
+                    None => (None, None),
                 }
             } else {
                 (None, None)
@@ -1206,7 +1266,8 @@ impl Processor {
                 .map(|r| r.get::<i64, _>("Id"))
             } else if service.to_lowercase().contains("epic") {
                 // For Epic services, match by URL path prefix to find the correct game session
-                if let Some(path_prefix) = last_url.and_then(|u| Self::extract_epic_path_prefix(u)) {
+                if let Some(path_prefix) = last_url.and_then(|u| Self::extract_epic_path_prefix(u))
+                {
                     let like_pattern = format!("{}%", path_prefix);
                     sqlx::query(
                         "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"LastUrl\" LIKE $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
@@ -1405,6 +1466,8 @@ impl Processor {
                 timestamp: Utc.from_utc_datetime(&entry.timestamp),
                 client_ip: entry.client_ip.clone(),
                 service: entry.service.clone(),
+                method: entry.method.clone(),
+                http_range: entry.http_range.clone(),
                 url: entry.url.clone(),
                 status_code: entry.status_code,
                 bytes_served: entry.bytes_served,
@@ -1442,6 +1505,7 @@ impl Processor {
         let mut client_ip_vec: Vec<&str> = Vec::with_capacity(entries.len());
         let mut service_vec: Vec<&str> = Vec::with_capacity(entries.len());
         let mut method_vec: Vec<&str> = Vec::with_capacity(entries.len());
+        let mut http_range_vec: Vec<&str> = Vec::with_capacity(entries.len());
         let mut url_vec: Vec<&str> = Vec::with_capacity(entries.len());
         let mut status_code_vec: Vec<i32> = Vec::with_capacity(entries.len());
         let mut bytes_served_vec: Vec<i64> = Vec::with_capacity(entries.len());
@@ -1455,7 +1519,8 @@ impl Processor {
             ts_vec.push(&entry.timestamp);
             client_ip_vec.push(&entry.client_ip);
             service_vec.push(&entry.service);
-            method_vec.push("GET");
+            method_vec.push(&entry.method);
+            http_range_vec.push(&entry.http_range);
             url_vec.push(&entry.url);
             status_code_vec.push(entry.status_code);
             bytes_served_vec.push(entry.bytes_served);
@@ -1466,30 +1531,28 @@ impl Processor {
             datasource_vec.push(&entry.datasource);
         }
 
-        // PostgreSQL parameter limit is 65535; 12 columns → max 5461 rows per call
+        // UNNEST uses one array bind per column, so row count does not multiply bind parameters.
         const MAX_ROWS: usize = 5000;
         let n = entries.len();
         let mut offset = 0usize;
         while offset < n {
             let end = std::cmp::min(offset + MAX_ROWS, n);
-            sqlx::query(
-                r#"INSERT INTO "LogEntries" ("Timestamp", "ClientIp", "Service", "Method", "Url", "StatusCode", "BytesServed", "CacheStatus", "DepotId", "DownloadId", "CreatedAt", "Datasource")
-                   SELECT * FROM UNNEST($1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[], $6::int[], $7::bigint[], $8::text[], $9::bigint[], $10::bigint[], $11::timestamptz[], $12::text[])"#
-            )
-            .bind(&ts_vec[offset..end])
-            .bind(&client_ip_vec[offset..end])
-            .bind(&service_vec[offset..end])
-            .bind(&method_vec[offset..end])
-            .bind(&url_vec[offset..end])
-            .bind(&status_code_vec[offset..end])
-            .bind(&bytes_served_vec[offset..end])
-            .bind(&cache_status_vec[offset..end])
-            .bind(&depot_id_vec[offset..end])
-            .bind(&download_id_vec[offset..end])
-            .bind(&created_at_vec[offset..end])
-            .bind(&datasource_vec[offset..end])
-            .execute(&mut **tx)
-            .await?;
+            sqlx::query(LOG_ENTRY_INSERT_SQL)
+                .bind(&ts_vec[offset..end])
+                .bind(&client_ip_vec[offset..end])
+                .bind(&service_vec[offset..end])
+                .bind(&method_vec[offset..end])
+                .bind(&http_range_vec[offset..end])
+                .bind(&url_vec[offset..end])
+                .bind(&status_code_vec[offset..end])
+                .bind(&bytes_served_vec[offset..end])
+                .bind(&cache_status_vec[offset..end])
+                .bind(&depot_id_vec[offset..end])
+                .bind(&download_id_vec[offset..end])
+                .bind(&created_at_vec[offset..end])
+                .bind(&datasource_vec[offset..end])
+                .execute(&mut **tx)
+                .await?;
             offset = end;
         }
 
@@ -1508,7 +1571,9 @@ async fn main() -> Result<()> {
     let progress_path = PathBuf::from(&args.progress_path);
     let start_position = args.start_position;
     let auto_map_depots = args.auto_map_depots == 1;
-    let datasource_name = args.datasource_name.unwrap_or_else(|| "default".to_string());
+    let datasource_name = args
+        .datasource_name
+        .unwrap_or_else(|| "default".to_string());
 
     // Log file base name (hardcoded for now, could be made configurable)
     let log_base_name = "access.log".to_string();
@@ -1568,13 +1633,22 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod xbox_fragment_guard_tests {
-    use super::Processor;
+    use super::{Processor, LOG_ENTRY_INSERT_SQL};
     // The shape guard now lives in the shared `cache_utils` module so `log_processor` and
     // `speed_tracker` apply ONE identical check. These tests exercise it through the same path
     // the log_processor pattern loader uses.
     use crate::cache_utils::is_valid_xbox_fragment;
 
     const GUID: &str = "12345678-90ab-cdef-1234-567890abcdef";
+
+    #[test]
+    fn log_entry_insert_persists_real_method_and_http_range() {
+        assert!(LOG_ENTRY_INSERT_SQL.contains("\"Method\", \"HttpRange\""));
+        assert!(LOG_ENTRY_INSERT_SQL.contains("$4::text[]"));
+        assert!(LOG_ENTRY_INSERT_SQL.contains("$5::text[]"));
+        assert!(LOG_ENTRY_INSERT_SQL.contains("$13::text[]"));
+        assert!(!LOG_ENTRY_INSERT_SQL.contains("'GET'"));
+    }
 
     #[test]
     fn accepts_filestreaming_files_guid() {
@@ -1608,9 +1682,13 @@ mod xbox_fragment_guard_tests {
 
     #[test]
     fn rejects_filestreaming_without_a_valid_guid() {
-        assert!(!is_valid_xbox_fragment("/filestreamingservice/files/not-a-guid"));
+        assert!(!is_valid_xbox_fragment(
+            "/filestreamingservice/files/not-a-guid"
+        ));
         // Truncated GUID (too short).
-        assert!(!is_valid_xbox_fragment("/filestreamingservice/files/12345678-90ab"));
+        assert!(!is_valid_xbox_fragment(
+            "/filestreamingservice/files/12345678-90ab"
+        ));
         // Hyphens in the wrong positions.
         assert!(!is_valid_xbox_fragment(
             "/filestreamingservice/files/1234567890-ab-cdef-1234-567890abcdef"
@@ -1652,7 +1730,10 @@ mod xbox_fragment_guard_tests {
         )];
         let url = "http://assets1.xboxlive.com/filestreamingservice/files/ABCDEF12-3456-7890-ABCD-EF1234567890?P1=1";
         let m = Processor::match_xbox_fragment(&patterns, url);
-        assert!(m.is_some(), "uppercase-URL vs lowercase-fragment must match");
+        assert!(
+            m.is_some(),
+            "uppercase-URL vs lowercase-fragment must match"
+        );
         assert_eq!(m.unwrap().1, "Halo");
     }
 
@@ -1663,7 +1744,10 @@ mod xbox_fragment_guard_tests {
             "Forza",
         )];
         let url = "http://cdn/filestreamingservice/files/abcdef12-3456-7890-abcd-ef1234567890";
-        assert_eq!(Processor::match_xbox_fragment(&patterns, url).unwrap().1, "Forza");
+        assert_eq!(
+            Processor::match_xbox_fragment(&patterns, url).unwrap().1,
+            "Forza"
+        );
     }
 
     #[test]
@@ -1680,7 +1764,10 @@ mod xbox_fragment_guard_tests {
             ),
         ];
         let url = "/FILESTREAMINGSERVICE/FILES/ABCDEF12-3456-7890-ABCD-EF1234567890/EXTRA";
-        assert_eq!(Processor::match_xbox_fragment(&patterns, url).unwrap().1, "Specific");
+        assert_eq!(
+            Processor::match_xbox_fragment(&patterns, url).unwrap().1,
+            "Specific"
+        );
     }
 
     #[test]
@@ -1717,7 +1804,9 @@ mod xbox_fragment_guard_tests {
         assert!(!is_valid_xbox_fragment("/4/foo/bar/baz"));
         assert!(!is_valid_xbox_fragment("/c/msdownload/update/abc"));
         // Exactly ONE GUID and no filestreamingservice marker is still not enough.
-        assert!(!is_valid_xbox_fragment("/4/e4393384-8ff0-4d92-aac1-bad1fb53178a/pkg"));
+        assert!(!is_valid_xbox_fragment(
+            "/4/e4393384-8ff0-4d92-aac1-bad1fb53178a/pkg"
+        ));
     }
 
     #[test]
@@ -1727,7 +1816,10 @@ mod xbox_fragment_guard_tests {
         let patterns = vec![pattern(BO4_FRAGMENT, BO4_TITLE)];
         let url = format!("http://assets1.xboxlive.com{}?P1=1", BO4_FRAGMENT);
         let m = Processor::match_xbox_fragment(&patterns, &url);
-        assert!(m.is_some(), "stored BO4 fragment must match the same access-log URL");
+        assert!(
+            m.is_some(),
+            "stored BO4 fragment must match the same access-log URL"
+        );
         assert_eq!(m.unwrap().1, BO4_TITLE);
     }
 

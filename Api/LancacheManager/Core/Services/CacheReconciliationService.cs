@@ -1504,6 +1504,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     }));
             _logger.LogDebug("[EvictedRemoval] Detection cache refreshed after bulk removal");
 
+            // Corruption findings are snapshots of the cache files and access-log evidence this
+            // operation just changed. Invalidate the candidate/header pair only after every
+            // removal and derived-summary step has succeeded, immediately before publishing the
+            // successful terminal state. The helper owns one transaction, so failure or
+            // cancellation retains the previously authoritative scan.
+            await DatabaseService.InvalidateCachedCorruptionEvidenceAsync(context, stoppingToken);
+
             await CompleteRemovalAsync(
                 opId,
                 success: true,
@@ -2286,6 +2293,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     detectionService.InvalidateDetectionCache();
                 }
             }
+
+            // Keep the corruption scan aligned with the targeted cache/log evidence mutation.
+            // This is deliberately the last fallible step before success is published; the
+            // transactional helper retains the prior scan if invalidation fails or is cancelled.
+            await DatabaseService.InvalidateCachedCorruptionEvidenceAsync(context, stoppingToken);
 
             await CompleteRemovalAsync(
                 opId,

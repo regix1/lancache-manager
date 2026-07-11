@@ -14,6 +14,7 @@ public class AppDbContext : DbContext
     public DbSet<CachedGameDetection> CachedGameDetections { get; set; }
     public DbSet<CachedServiceDetection> CachedServiceDetections { get; set; }
     public DbSet<CachedDetectionSummary> CachedDetectionSummaries { get; set; }
+    public DbSet<CachedCorruptionScan> CachedCorruptionScans { get; set; }
     public DbSet<CachedCorruptionDetection> CachedCorruptionDetections { get; set; }
     public DbSet<UserSession> UserSessions { get; set; }
     public DbSet<UserPreferences> UserPreferences { get; set; }
@@ -159,6 +160,32 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<CachedServiceDetection>()
             .HasIndex(c => c.LastDetectedUtc)
             .HasDatabaseName("IX_CachedServiceDetection_LastDetectedUtc");
+
+        // Corruption results are one immutable completed scan header plus
+        // per-service/datasource candidate evidence rows. Deleting/replacing a
+        // header cascades to its evidence inside the scan transaction.
+        modelBuilder.Entity<CachedCorruptionScan>()
+            .Property(s => s.DetectionMode)
+            .HasConversion(
+                mode => mode.ToWireString(),
+                value => CorruptionDetectionModeExtensions.Parse(value))
+            .HasMaxLength(32);
+
+        modelBuilder.Entity<CachedCorruptionScan>()
+            .HasIndex(s => s.CompletedAtUtc)
+            .HasDatabaseName("IX_CachedCorruptionScans_CompletedAtUtc")
+            .IsDescending();
+
+        modelBuilder.Entity<CachedCorruptionDetection>()
+            .HasOne(c => c.Scan)
+            .WithMany(s => s.Candidates)
+            .HasForeignKey(c => c.ScanId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<CachedCorruptionDetection>()
+            .HasIndex(c => new { c.ScanId, c.ServiceName, c.DatasourceName })
+            .HasDatabaseName("IX_CachedCorruptionDetections_Scan_Service_Datasource")
+            .IsUnique();
 
         // UserSession - persist SessionType enum as LOWERCASE string (existing rows use "admin"/"guest").
         modelBuilder.Entity<UserSession>()

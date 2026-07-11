@@ -56,7 +56,6 @@ impl LogParser {
         result
     }
 
-
     pub(crate) fn parse_line(&self, line: &str) -> Option<LogEntry> {
         let captures = self.main_regex.captures(line)?;
 
@@ -66,8 +65,10 @@ impl LogParser {
             .unwrap_or_else(|| "unknown".to_string());
 
         let client_ip = captures.name("ip")?.as_str().to_string();
+        let method = captures.name("method")?.as_str().to_string();
         let time_str = captures.name("time")?.as_str();
-        let url = Self::normalize_url(captures.name("url")?.as_str());
+        let raw_url = captures.name("url")?.as_str().to_string();
+        let url = Self::normalize_url(&raw_url);
         let status_code = captures.name("status")?.as_str().parse::<i32>().ok()?;
 
         let bytes_str = captures.name("bytes")?.as_str();
@@ -125,7 +126,9 @@ impl LogParser {
         Some(LogEntry {
             timestamp,
             client_ip,
+            method,
             service,
+            raw_url,
             url,
             status_code,
             bytes_served,
@@ -173,7 +176,11 @@ impl LogParser {
         None
     }
 
-    fn convert_to_utc(&self, naive_dt: NaiveDateTime, tz_offset_secs: Option<i32>) -> NaiveDateTime {
+    fn convert_to_utc(
+        &self,
+        naive_dt: NaiveDateTime,
+        tz_offset_secs: Option<i32>,
+    ) -> NaiveDateTime {
         if let Some(offset_secs) = tz_offset_secs {
             // Create a DateTime with the timezone offset
             if let Some(offset) = FixedOffset::east_opt(offset_secs) {
@@ -196,7 +203,7 @@ impl LogParser {
     /// Returns empty string if the field doesn't exist or is "-".
     fn extract_quoted_field(&self, rest: &str, field_number: usize) -> String {
         let target_open = (field_number - 1) * 2 + 1; // Quote that opens the field
-        let target_close = target_open + 1;            // Quote that closes the field
+        let target_close = target_open + 1; // Quote that closes the field
         let mut quote_count = 0usize;
         let mut start_idx = None;
 
@@ -222,30 +229,15 @@ impl LogParser {
     }
 
     fn extract_cache_status(&self, rest: &str) -> String {
-        // Extract 3rd quoted field: "HIT" or "MISS"
-        let mut quote_count = 0;
-        let mut start_idx = None;
-
-        for (i, ch) in rest.char_indices() {
-            if ch == '"' {
-                quote_count += 1;
-                if quote_count == 5 {
-                    // Start of 3rd quoted field
-                    start_idx = Some(i + 1);
-                } else if quote_count == 6 {
-                    // End of 3rd quoted field
-                    if let Some(start) = start_idx {
-                        let status = &rest[start..i];
-                        if status == "HIT" || status == "MISS" {
-                            return status.to_string();
-                        }
-                    }
-                    break;
-                }
-            }
+        // Preserve the literal 3rd quoted field. Detector eligibility is deliberately strict
+        // (`MISS` or `HIT` depending on mode), so BYPASS/EXPIRED/STALE must never be collapsed
+        // into a value that could later be mistaken for corruption evidence.
+        let status = self.extract_quoted_field(rest, 3);
+        if status.is_empty() {
+            "UNKNOWN".to_string()
+        } else {
+            status
         }
-
-        "UNKNOWN".to_string()
     }
 
     fn extract_depot_id(&self, url: &str) -> Option<u32> {
@@ -285,7 +277,9 @@ mod tests {
         let line = "[steam] 192.168.1.50 / - - - [01/Jan/2024:00:00:00 +0000] \"GET /depot/123456//chunk/abcdef HTTP/1.1\" 200 1024 \"-\" \"Valve/Steam\" \"HIT\" \"-\" \"-\"";
         let entry = parser.parse_line(line).expect("line should parse");
         assert_eq!(entry.url, "/depot/123456/chunk/abcdef");
+        assert_eq!(entry.raw_url, "/depot/123456//chunk/abcdef");
         assert_eq!(entry.service, "steam");
+        assert_eq!(entry.method, "GET");
         assert_eq!(entry.cache_status, "HIT");
     }
 
@@ -305,5 +299,39 @@ mod tests {
         assert!(service_utils::should_skip_url("/lancache-heartbeat"));
         assert!(!service_utils::should_skip_url("/"));
         assert!(!service_utils::should_skip_url("/depot/123/chunk/abc"));
+    }
+
+    #[test]
+    fn parse_line_preserves_method_status_cache_status_and_range() {
+        let parser = LogParser::new(chrono_tz::UTC);
+        let line = "[wsus] 192.168.1.60 / - - - [01/Jan/2024:00:00:00 +0000] \"HEAD /content/file.bin HTTP/1.1\" 504 0 \"-\" \"BITS\" \"BYPASS\" \"download.windowsupdate.com\" \"bytes=1048576-2097151\"";
+        let entry = parser.parse_line(line).expect("line should parse");
+
+        assert_eq!(entry.method, "HEAD");
+        assert_eq!(entry.status_code, 504);
+        assert_eq!(entry.cache_status, "BYPASS");
+        assert_eq!(entry.http_range, "bytes=1048576-2097151");
+    }
+
+    #[test]
+    fn parse_line_keeps_literal_unknown_without_aliasing_other_statuses() {
+        let parser = LogParser::new(chrono_tz::UTC);
+        let unknown = "[steam] 192.168.1.50 / - - - [01/Jan/2024:00:00:00 +0000] \"GET /depot/1/chunk/a HTTP/1.1\" 200 1 \"-\" \"Steam\" \"UNKNOWN\" \"host\" \"-\"";
+        let missing = "[steam] 192.168.1.50 / - - - [01/Jan/2024:00:00:00 +0000] \"GET /depot/1/chunk/a HTTP/1.1\" 200 1 \"-\" \"Steam\" \"-\" \"host\" \"-\"";
+
+        assert_eq!(
+            parser
+                .parse_line(unknown)
+                .expect("unknown line")
+                .cache_status,
+            "UNKNOWN"
+        );
+        assert_eq!(
+            parser
+                .parse_line(missing)
+                .expect("missing line")
+                .cache_status,
+            "UNKNOWN"
+        );
     }
 }

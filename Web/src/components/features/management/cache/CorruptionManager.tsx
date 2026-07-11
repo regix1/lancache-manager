@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useOptimisticPending } from '@/hooks/useOptimisticPending';
 import { useSelectionSet } from '@/hooks/useSelectionSet';
 import { useTranslation } from 'react-i18next';
@@ -37,7 +37,12 @@ import { useFormattedDateTime } from '@/hooks/useFormattedDateTime';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import CorruptionChunkList from './CorruptionChunkList';
-import type { CorruptedChunkDetail } from '@/types';
+import CorruptionRemovalWarning from './CorruptionRemovalWarning';
+import type {
+  CachedCorruptionDetectionResponse,
+  CorruptedChunkDetail,
+  CorruptionDetectionMode
+} from '@/types';
 
 interface CorruptionManagerProps {
   authMode: AuthMode;
@@ -93,6 +98,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   // modal and an optimistic "starting" flag mirroring the Remove All flow (both hit the
   // same endpoint and share the single corruption_removal notification lifecycle).
   const selection = useSelectionSet<string>();
+  const clearSelection = selection.clear;
   const [pendingRemoveSelected, setPendingRemoveSelected] = useState(false);
   const {
     anyPending: startingRemoveSelected,
@@ -104,16 +110,16 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   // Directory permissions are provided by StorageSection to avoid duplicate API calls.
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [hasCachedResults, setHasCachedResults] = useState(false);
+  const [scanId, setScanId] = useState<string | null>(null);
+  const [scanRemovalAllowed, setScanRemovalAllowed] = useState(false);
+  const [serviceRemovalAllowed, setServiceRemovalAllowed] = useState<Record<string, boolean>>({});
   const [missThreshold, setMissThreshold] = useState(3);
-  const [detectionMode, setDetectionMode] = useState('cache_and_logs');
+  const [detectionMode, setDetectionMode] = useState<CorruptionDetectionMode>('cache_and_logs');
+  const resultEpochRef = useRef(0);
   const [sectionExpanded, setSectionExpanded] = useState(() => {
     const saved = localStorage.getItem('management-corruption-expanded');
     return saved !== null ? saved === 'true' : false;
   });
-
-  // Derive legacy boolean from detection mode for backward-compatible API calls
-  const compareToCacheLogs = detectionMode === 'cache_and_logs';
-  const isRedownloadMode = detectionMode === 'redownload';
 
   useEffect(() => {
     localStorage.setItem('management-corruption-expanded', String(sectionExpanded));
@@ -169,6 +175,70 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
   const formattedLastDetection = useFormattedDateTime(lastDetectionTime);
 
+  const clearLoadedResults = useCallback(() => {
+    resultEpochRef.current += 1;
+    setCorruptionSummary({});
+    setCorruptionDetails({});
+    setExpandedCorruptionService(null);
+    setLoadingDetailsServices(new Set());
+    setDetailsProgress({});
+    setLastDetectionTime(null);
+    setHasCachedResults(false);
+    setScanId(null);
+    setScanRemovalAllowed(false);
+    setServiceRemovalAllowed({});
+    setPendingCorruptionRemoval(null);
+    setPendingRemoveAll(false);
+    setPendingRemoveSelected(false);
+    clearSelection();
+  }, [clearSelection]);
+
+  const applyCachedScan = useCallback(
+    (cached: CachedCorruptionDetectionResponse) => {
+      clearLoadedResults();
+
+      if (
+        !cached.hasCachedResults ||
+        !cached.scanId ||
+        !cached.detectionMode ||
+        cached.threshold == null
+      ) {
+        return false;
+      }
+
+      setCorruptionSummary(cached.corruptionCounts ?? {});
+      setLastDetectionTime(cached.lastDetectionTime ?? null);
+      setHasCachedResults(true);
+      setScanId(cached.scanId);
+      setDetectionMode(cached.detectionMode);
+      setMissThreshold(cached.threshold);
+      setScanRemovalAllowed(cached.removalAllowed === true);
+      setServiceRemovalAllowed(cached.serviceRemovalAllowed ?? {});
+      return true;
+    },
+    [clearLoadedResults]
+  );
+
+  const handleDetectionModeChange = useCallback(
+    (value: string) => {
+      const mode = value as CorruptionDetectionMode;
+      if (mode === detectionMode) return;
+      clearLoadedResults();
+      setDetectionMode(mode);
+    },
+    [clearLoadedResults, detectionMode]
+  );
+
+  const handleThresholdChange = useCallback(
+    (value: string) => {
+      const threshold = Number(value);
+      if (threshold === missThreshold) return;
+      clearLoadedResults();
+      setMissThreshold(threshold);
+    },
+    [clearLoadedResults, missThreshold]
+  );
+
   // Derive active corruption removal from notifications
   const activeCorruptionRemovalNotification = notifications.find(
     (n) => n.type === 'corruption_removal' && n.status === 'running'
@@ -187,19 +257,24 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const loadCachedData = useCallback(
     async (showNotification = false) => {
       beginLoad(showNotification);
+      const requestEpoch = resultEpochRef.current;
       try {
         const cached = await ApiService.getCachedCorruptionDetection();
-        if (cached.hasCachedResults && cached.corruptionCounts) {
-          setCorruptionSummary(cached.corruptionCounts);
-          setLastDetectionTime(cached.lastDetectionTime || null);
-          setHasCachedResults(true);
+        if (requestEpoch !== resultEpochRef.current) {
+          markLoaded();
+          return;
+        }
+
+        const loaded = applyCachedScan(cached);
+        if (loaded) {
+          const corruptionCounts = cached.corruptionCounts ?? {};
 
           // Show notification only when explicitly requested or once per session
           const sessionKey = 'corruptionManager_loadedNotificationShown';
           const alreadyShownThisSession = sessionStorage.getItem(sessionKey) === 'true';
-          const totalCorrupted = Object.values(cached.corruptionCounts).reduce((a, b) => a + b, 0);
-          const serviceCount = Object.keys(cached.corruptionCounts).filter(
-            (k) => cached.corruptionCounts![k] > 0
+          const totalCorrupted = Object.values(corruptionCounts).reduce((a, b) => a + b, 0);
+          const serviceCount = Object.keys(corruptionCounts).filter(
+            (key) => corruptionCounts[key] > 0
           ).length;
 
           if (showNotification || !alreadyShownThisSession) {
@@ -224,10 +299,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             sessionStorage.setItem(sessionKey, 'true');
           }
         } else {
-          setCorruptionSummary({});
-          setLastDetectionTime(null);
-          setHasCachedResults(false);
-
           if (showNotification) {
             addNotification({
               type: 'generic',
@@ -249,7 +320,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         markFailed();
       }
     },
-    [addNotification, t, beginLoad, markLoaded, markFailed, notifyError]
+    [addNotification, t, beginLoad, markLoaded, markFailed, notifyError, applyCachedScan]
   );
 
   // Start a background scan
@@ -260,17 +331,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     // when a new operation starts, so manual dismissal is not needed
 
     setIsStartingScan(true);
-    setCorruptionSummary({});
-    setLastDetectionTime(null);
-    setHasCachedResults(false);
+    clearLoadedResults();
 
     try {
       // Start background detection - SignalR will send CorruptionDetectionStarted event
-      const result = await ApiService.startCorruptionDetection(
-        missThreshold,
-        compareToCacheLogs,
-        detectionMode
-      );
+      const result = await ApiService.startCorruptionDetection(missThreshold, detectionMode);
       // Wait-queue model: queued/deduplicated responses must not seed a running card -
       // the OperationWaiting event (purple waiting card) owns the UI until promotion.
       if (result.operationId && !result.queued && !result.alreadyRunning) {
@@ -296,8 +361,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     isScanning,
     mockMode,
     missThreshold,
-    compareToCacheLogs,
     detectionMode,
+    clearLoadedResults,
     addNotification,
     t,
     notifyError
@@ -317,23 +382,16 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       }
 
       beginLoad(true);
+      const requestEpoch = resultEpochRef.current;
 
       // Load fresh results from the database (backend already saved them)
       const loadResults = async () => {
         try {
           const result = await ApiService.getCachedCorruptionDetection();
-          if (result.hasCachedResults && result.corruptionCounts) {
-            setCorruptionSummary(result.corruptionCounts);
-            setLastDetectionTime(result.lastDetectionTime || null);
-            setHasCachedResults(true);
-          } else {
-            // Scan completed but found zero corruption
-            // Still mark as "has results" so UI shows "No corrupted chunks detected"
-            setCorruptionSummary({});
-            setLastDetectionTime(new Date().toISOString());
-            setHasCachedResults(true);
-          }
+          if (requestEpoch !== resultEpochRef.current) return;
+          applyCachedScan(result);
         } catch (err) {
+          if (requestEpoch !== resultEpochRef.current) return;
           // Background auto-refresh after a SignalR-confirmed scan; the manual Load action
           // remains available, so a transient reload failure here is explicit background noise.
           notifyError(
@@ -352,7 +410,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     return () => {
       off('CorruptionDetectionComplete', handleDetectionComplete);
     };
-  }, [on, off, beginLoad, markLoaded, notifyError, t]);
+  }, [on, off, beginLoad, markLoaded, notifyError, t, applyCachedScan]);
 
   // Listen for corruption removal completion via SignalR directly. Subscribing to the
   // raw event (instead of deriving from notifications.filter(status === 'completed'))
@@ -366,66 +424,40 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       const serviceName = event.service;
       if (!serviceName) return;
 
-      // A bulk removal (all services OR a selected subset) emits exactly ONE terminal
-      // event with service === 'all' (per-service completes are suppressed by the
-      // backend). Reload from the database rather than blindly clearing, so a SUBSET
-      // removal keeps showing the services that were not selected; a full Remove All
-      // simply comes back empty. Single-service removals still arrive per service below.
-      if (serviceName === 'all') {
-        setExpandedCorruptionService(null);
-        setCorruptionDetails({});
-        void (async () => {
-          try {
-            const result = await ApiService.getCachedCorruptionDetection();
-            if (result.hasCachedResults && result.corruptionCounts) {
-              setCorruptionSummary(result.corruptionCounts);
-              setLastDetectionTime(result.lastDetectionTime || null);
-            } else {
-              setCorruptionSummary({});
+      // The backend updates the immutable scan snapshot after successful exact-path
+      // removal. Reload it for both service and bulk completions instead of guessing
+      // which candidates remain locally.
+      const requestEpoch = resultEpochRef.current;
+      void (async () => {
+        try {
+          const result = await ApiService.getCachedCorruptionDetection();
+          if (requestEpoch !== resultEpochRef.current) return;
+          applyCachedScan(result);
+        } catch (err) {
+          if (requestEpoch !== resultEpochRef.current) return;
+          notifyError(
+            t('management.corruption.errors.loadCachedData', 'Failed to load corruption data'),
+            err,
+            {
+              silent: true,
+              logLabel: '[CorruptionManager] Failed to reload after corruption removal'
             }
-          } catch (err) {
-            // Background auto-refresh after a SignalR-confirmed removal; already falls back to
-            // an empty summary, so this is explicit background noise rather than a blocking error.
-            notifyError(
-              t('management.corruption.errors.loadCachedData', 'Failed to load corruption data'),
-              err,
-              {
-                silent: true,
-                logLabel: '[CorruptionManager] Failed to reload after bulk corruption removal'
-              }
-            );
-            setCorruptionSummary({});
-          }
-        })();
-        return;
-      }
-
-      setCorruptionSummary((prev) => {
-        if (!(serviceName in prev)) return prev;
-        const updated = { ...prev };
-        delete updated[serviceName];
-        return updated;
-      });
-
-      setExpandedCorruptionService((prev) => (prev === serviceName ? null : prev));
-
-      setCorruptionDetails((prev) => {
-        if (!(serviceName in prev)) return prev;
-        const updated = { ...prev };
-        delete updated[serviceName];
-        return updated;
-      });
+          );
+          clearLoadedResults();
+        }
+      })();
     };
 
     on('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
     return () => {
       off('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
     };
-  }, [on, off, notifyError, t]);
+  }, [on, off, notifyError, t, applyCachedScan, clearLoadedResults]);
 
   // Live percent for the per-service "view details" fetch. Deliberately a separate event from
   // the bulk scan's CorruptionDetectionProgress so this never surfaces as a global notification.
   useEffect(() => {
+    if (!scanId) return;
     const handleDetailsProgress = (event: CorruptionDetailsProgressEvent) => {
       setDetailsProgress((prev) => ({ ...prev, [event.service]: event.percentComplete }));
     };
@@ -434,7 +466,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     return () => {
       off('CorruptionDetailsProgress', handleDetailsProgress);
     };
-  }, [on, off]);
+  }, [on, off, scanId]);
 
   // Clear optimistic pending state when matching running SignalR notifications arrive
   useEffect(() => {
@@ -474,14 +506,16 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   // clear for services that were removed. Keys are the corruption service tags.
   useEffect(() => {
     const validKeys = new Set(
-      Object.keys(corruptionSummary).filter((k) => corruptionSummary[k] > 0)
+      Object.keys(corruptionSummary).filter(
+        (key) => corruptionSummary[key] > 0 && serviceRemovalAllowed[key] === true
+      )
     );
     const stale = [...selection.selected].filter((key) => !validKeys.has(key));
     if (stale.length > 0) {
       selection.setMany(stale, false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [corruptionSummary]);
+  }, [corruptionSummary, serviceRemovalAllowed]);
 
   // Initial load - load cached data without auto-scanning (matches GameCacheDetector pattern)
   // Note: Directory permissions are now handled by useDirectoryPermissions hook
@@ -492,28 +526,39 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     }
   }, [hasInitiallyLoaded, loadCachedData]);
 
+  const isServiceRemovable = useCallback(
+    (service: string) =>
+      Boolean(scanId && scanRemovalAllowed && serviceRemovalAllowed[service] === true),
+    [scanId, scanRemovalAllowed, serviceRemovalAllowed]
+  );
+
   const handleRemoveCorruption = (service: string) => {
     if (authMode !== 'authenticated') {
       onError?.(t('common.fullAuthRequired'));
+      return;
+    }
+    if (!isServiceRemovable(service)) {
+      onError?.(t('management.corruption.reviewOnlyAction'));
       return;
     }
     setPendingCorruptionRemoval(service);
   };
 
   const confirmRemoveCorruption = async () => {
-    if (!pendingCorruptionRemoval || authMode !== 'authenticated') return;
+    if (
+      !pendingCorruptionRemoval ||
+      authMode !== 'authenticated' ||
+      !scanId ||
+      !isServiceRemovable(pendingCorruptionRemoval)
+    )
+      return;
 
     const service = pendingCorruptionRemoval;
     setPendingCorruptionRemoval(null);
     markCorruptionRemovalStarting(service);
 
     try {
-      const result = await ApiService.removeCorruptedChunks(
-        service,
-        missThreshold,
-        compareToCacheLogs,
-        detectionMode
-      );
+      const result = await ApiService.removeCorruptedChunks(service, scanId);
       // Wait-queue model: queued/deduplicated responses must not seed a running card -
       // the OperationWaiting event (or the already-visible card) owns the UI.
       if (result.operationId && !result.queued && !result.alreadyRunning) {
@@ -544,17 +589,21 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       onError?.(t('common.fullAuthRequired'));
       return;
     }
+    if (!scanId || !scanRemovalAllowed) {
+      onError?.(t('management.corruption.reviewOnlyAction'));
+      return;
+    }
     setPendingRemoveAll(true);
   };
 
   const confirmRemoveAll = async () => {
-    if (authMode !== 'authenticated') return;
+    if (authMode !== 'authenticated' || !scanId || !scanRemovalAllowed) return;
 
     setPendingRemoveAll(false);
     markRemoveAllStarting('removeAll');
 
     try {
-      await ApiService.removeAllCorruptedChunks(missThreshold, compareToCacheLogs, detectionMode);
+      await ApiService.removeAllCorruptedChunks(scanId);
       // SignalR will handle progress; clearOnNotification (in notifications useEffect) will clear pending
     } catch (err: unknown) {
       console.error('Remove all corrupted failed:', err);
@@ -568,27 +617,25 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       onError?.(t('common.fullAuthRequired'));
       return;
     }
-    if (selection.count === 0) return;
+    if (!scanId || !scanRemovalAllowed || selection.count === 0) {
+      if (!scanRemovalAllowed) onError?.(t('management.corruption.reviewOnlyAction'));
+      return;
+    }
     setPendingRemoveSelected(true);
   };
 
   const confirmRemoveSelected = async () => {
     if (authMode !== 'authenticated') return;
 
-    const selectedServices = [...selection.selected];
+    const selectedServices = [...selection.selected].filter(isServiceRemovable);
     setPendingRemoveSelected(false);
-    if (selectedServices.length === 0) return;
+    if (selectedServices.length === 0 || !scanId || !scanRemovalAllowed) return;
     markRemoveSelectedStarting('removeSelected');
 
     try {
       // Reuses the bulk endpoint with a subset filter; the backend emits the same single
       // Service="all" aggregate terminal, so notification handling is unchanged.
-      const result = await ApiService.removeAllCorruptedChunks(
-        missThreshold,
-        compareToCacheLogs,
-        detectionMode,
-        selectedServices
-      );
+      const result = await ApiService.removeAllCorruptedChunks(scanId, selectedServices);
       // No-op response (e.g. the selected services no longer have corruption data): no
       // SignalR notification will arrive to clear the gate, so release it now instead of
       // waiting for the ~5s safety timeout.
@@ -611,18 +658,15 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
     setExpandedCorruptionService(service);
 
-    if (!corruptionDetails[service] && !loadingDetailsServices.has(service)) {
+    if (scanId && !corruptionDetails[service] && !loadingDetailsServices.has(service)) {
+      const requestEpoch = resultEpochRef.current;
       setLoadingDetailsServices((prev) => new Set(prev).add(service));
       try {
-        const details = await ApiService.getCorruptionDetails(
-          service,
-          false,
-          missThreshold,
-          compareToCacheLogs,
-          detectionMode
-        );
+        const details = await ApiService.getCorruptionDetails(service, scanId);
+        if (requestEpoch !== resultEpochRef.current) return;
         setCorruptionDetails((prev) => ({ ...prev, [service]: details }));
       } catch (err: unknown) {
+        if (requestEpoch !== resultEpochRef.current) return;
         onError?.(
           getErrorMessage(err) ||
             t('management.corruption.errors.loadDetails', {
@@ -631,17 +675,19 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         );
         setExpandedCorruptionService((prev) => (prev === service ? null : prev));
       } finally {
-        setLoadingDetailsServices((prev) => {
-          const next = new Set(prev);
-          next.delete(service);
-          return next;
-        });
-        setDetailsProgress((prev) => {
-          if (!(service in prev)) return prev;
-          const next = { ...prev };
-          delete next[service];
-          return next;
-        });
+        if (requestEpoch === resultEpochRef.current) {
+          setLoadingDetailsServices((prev) => {
+            const next = new Set(prev);
+            next.delete(service);
+            return next;
+          });
+          setDetailsProgress((prev) => {
+            if (!(service in prev)) return prev;
+            const next = { ...prev };
+            delete next[service];
+            return next;
+          });
+        }
       }
     }
   };
@@ -652,11 +698,14 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
   // Batch selection derives from the CURRENTLY VISIBLE list, matching Remove All semantics.
   const visibleServiceKeys = corruptionList.map(([service]) => service);
-  const allVisibleSelected = selection.allSelected(visibleServiceKeys);
+  const removableServiceKeys = visibleServiceKeys.filter(isServiceRemovable);
+  const allVisibleSelected = selection.allSelected(removableServiceKeys);
   // Shared busy gate for every batch control (same conditions Remove All disables on, plus
   // the optimistic "starting" flags so a second click can't fire mid-start).
   const batchGateActive =
     (isLoading && !hasInitiallyLoaded) ||
+    !scanId ||
+    !scanRemovalAllowed ||
     mockMode ||
     anyCorruptionRemovalPending ||
     isCorruptionRemovalActive ||
@@ -684,7 +733,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             variant="button"
             options={detectionModeOptions}
             value={detectionMode}
-            onChange={(val: string) => setDetectionMode(val)}
+            onChange={handleDetectionModeChange}
             disabled={isScanning || isAnyRemovalRunning}
             dropdownWidth="w-72"
             alignRight={true}
@@ -697,7 +746,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             variant="button"
             options={thresholdOptions}
             value={String(missThreshold)}
-            onChange={(val: string) => setMissThreshold(Number(val))}
+            onChange={handleThresholdChange}
             disabled={isScanning || isAnyRemovalRunning}
             dropdownWidth="w-72"
             alignRight={true}
@@ -768,6 +817,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               icon={<Trash2 className="w-3.5 h-3.5" />}
               disabled={
                 (isLoading && !hasInitiallyLoaded) ||
+                !scanId ||
+                !scanRemovalAllowed ||
                 corruptionList.length === 0 ||
                 mockMode ||
                 anyCorruptionRemovalPending ||
@@ -808,6 +859,15 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
           {/* Scanning Status */}
           {isScanning && <LoadingState message={t('management.corruption.scanningMessage')} />}
+
+          {hasCachedResults && corruptionList.length > 0 && !scanRemovalAllowed && (
+            <Alert color="yellow">
+              <div>
+                <p className="font-medium">{t('management.corruption.reviewOnlyTitle')}</p>
+                <p className="text-sm mt-1">{t('management.corruption.reviewOnlyDescription')}</p>
+              </div>
+            </Alert>
+          )}
 
           {/* Directory Missing Warning */}
           {directoryMissing && (
@@ -902,8 +962,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                   <div className="flex flex-wrap items-center gap-3">
                     <Checkbox
                       checked={allVisibleSelected}
-                      onChange={() => selection.setMany(visibleServiceKeys, !allVisibleSelected)}
-                      disabled={batchGateActive || visibleServiceKeys.length === 0}
+                      onChange={() => selection.setMany(removableServiceKeys, !allVisibleSelected)}
+                      disabled={batchGateActive || removableServiceKeys.length === 0}
                       label={
                         allVisibleSelected
                           ? t('management.batchSelect.deselectAll')
@@ -916,13 +976,14 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                       const isRowExpanded = expandedCorruptionService === service;
                       const isRowRemoving =
                         removingCorruption === service || isCorruptionRemovalPending(service);
+                      const serviceCanRemove = isServiceRemovable(service);
                       return (
                         <div key={`corruption-${service}`}>
                           <div className="mgmt-row mgmt-row--interactive flex-wrap">
                             <Checkbox
                               checked={selection.isSelected(service)}
                               onChange={() => selection.toggle(service)}
-                              disabled={batchGateActive || isRowRemoving}
+                              disabled={batchGateActive || isRowRemoving || !serviceCanRemove}
                               aria-label={t('management.batchSelect.selectItem', {
                                 name: getServiceDisplayName(service)
                               })}
@@ -937,6 +998,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                               <Badge variant="neutral" className="badge-count badge-count-warning">
                                 {formatCount(count)}
                               </Badge>
+                              {!serviceCanRemove && (
+                                <Badge variant="neutral" className="badge-count">
+                                  {t('management.corruption.reviewOnlyShort')}
+                                </Badge>
+                              )}
                               <Button
                                 variant="filled"
                                 color="gray"
@@ -950,7 +1016,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                   <ChevronDown className="w-4 h-4" />
                                 )}
                               </Button>
-                              <Tooltip content={t('management.corruption.deleteCorrupted')}>
+                              <Tooltip
+                                content={
+                                  serviceCanRemove
+                                    ? t('management.corruption.deleteCorrupted')
+                                    : t('management.corruption.reviewOnlyAction')
+                                }
+                              >
                                 <Button
                                   onClick={() => handleRemoveCorruption(service)}
                                   awaitPermissions
@@ -963,7 +1035,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                     authMode !== 'authenticated' ||
                                     logsReadOnly ||
                                     cacheReadOnly ||
-                                    !isDockerAvailable
+                                    !isDockerAvailable ||
+                                    !serviceCanRemove
                                   }
                                   variant="filled"
                                   color="red"
@@ -991,10 +1064,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                               />
                             ) : corruptionDetails[service] &&
                               corruptionDetails[service].length > 0 ? (
-                              <CorruptionChunkList
-                                chunks={corruptionDetails[service]}
-                                isRedownloadMode={isRedownloadMode}
-                              />
+                              <CorruptionChunkList chunks={corruptionDetails[service]} />
                             ) : (
                               <p className="py-4 text-center text-sm text-themed-muted">
                                 {t('management.corruption.noDetailsAvailable')}
@@ -1048,44 +1118,20 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             })}
           </p>
 
-          <Alert color="red">
-            <div>
-              <p className="text-sm font-medium mb-2">
-                {t('management.corruption.modal.willDelete')}
-              </p>
-              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>
-                  <strong>{t('management.corruption.modal.cacheFilesLabel')}</strong>{' '}
-                  {t('management.corruption.modal.cacheFilesDesc')}
-                </li>
-                <li>
-                  <strong>{t('management.corruption.modal.logEntriesLabel')}</strong>{' '}
-                  {t('management.corruption.modal.logEntriesDesc')}
-                </li>
-                <li>
-                  <strong>{t('management.corruption.modal.databaseRecordsLabel')}</strong>{' '}
-                  {t('management.corruption.modal.databaseRecordsDesc')}
-                </li>
-              </ul>
-            </div>
-          </Alert>
-
-          <Alert color="yellow">
-            <div>
-              <p className="text-sm font-medium mb-2">{t('management.cache.alerts.important')}</p>
-              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>{t('management.corruption.modal.cannotBeUndone')}</li>
-                <li>{t('management.corruption.modal.mayTakeSeveralMinutes')}</li>
-                <li>{t('management.corruption.modal.removeAllAcrossAllServices')}</li>
-              </ul>
-            </div>
-          </Alert>
+          <CorruptionRemovalWarning
+            extraCautions={<li>{t('management.corruption.modal.removeAllAcrossAllServices')}</li>}
+          />
 
           <div className="flex justify-end space-x-3 pt-2">
             <Button variant="default" onClick={() => setPendingRemoveAll(false)}>
               {t('common.cancel')}
             </Button>
-            <Button variant="filled" color="red" onClick={confirmRemoveAll}>
+            <Button
+              variant="filled"
+              color="red"
+              onClick={confirmRemoveAll}
+              disabled={!scanId || !scanRemovalAllowed}
+            >
               {t('management.corruption.modal.removeAllConfirm')}
             </Button>
           </div>
@@ -1108,43 +1154,18 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             {t('management.batchSelect.confirmBody', { count: selection.count })}
           </p>
 
-          <Alert color="red">
-            <div>
-              <p className="text-sm font-medium mb-2">
-                {t('management.corruption.modal.willDelete')}
-              </p>
-              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>
-                  <strong>{t('management.corruption.modal.cacheFilesLabel')}</strong>{' '}
-                  {t('management.corruption.modal.cacheFilesDesc')}
-                </li>
-                <li>
-                  <strong>{t('management.corruption.modal.logEntriesLabel')}</strong>{' '}
-                  {t('management.corruption.modal.logEntriesDesc')}
-                </li>
-                <li>
-                  <strong>{t('management.corruption.modal.databaseRecordsLabel')}</strong>{' '}
-                  {t('management.corruption.modal.databaseRecordsDesc')}
-                </li>
-              </ul>
-            </div>
-          </Alert>
-
-          <Alert color="yellow">
-            <div>
-              <p className="text-sm font-medium mb-2">{t('management.cache.alerts.important')}</p>
-              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>{t('management.corruption.modal.cannotBeUndone')}</li>
-                <li>{t('management.corruption.modal.mayTakeSeveralMinutes')}</li>
-              </ul>
-            </div>
-          </Alert>
+          <CorruptionRemovalWarning />
 
           <div className="flex justify-end space-x-3 pt-2">
             <Button variant="default" onClick={() => setPendingRemoveSelected(false)}>
               {t('common.cancel')}
             </Button>
-            <Button variant="filled" color="red" onClick={confirmRemoveSelected}>
+            <Button
+              variant="filled"
+              color="red"
+              onClick={confirmRemoveSelected}
+              disabled={!scanId || !scanRemovalAllowed || selection.count === 0}
+            >
               {t('management.batchSelect.removeSelected', { count: selection.count })}
             </Button>
           </div>
@@ -1171,34 +1192,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             })}
           </p>
 
-          <Alert color="red">
-            <div>
-              <p className="text-sm font-medium mb-2">
-                {t('management.corruption.modal.willDelete')}
-              </p>
-              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>
-                  <strong>{t('management.corruption.modal.cacheFilesLabel')}</strong>{' '}
-                  {t('management.corruption.modal.cacheFilesDesc')}
-                </li>
-                <li>
-                  <strong>{t('management.corruption.modal.logEntriesLabel')}</strong>{' '}
-                  {t('management.corruption.modal.logEntriesDesc')}
-                </li>
-                <li>
-                  <strong>{t('management.corruption.modal.databaseRecordsLabel')}</strong>{' '}
-                  {t('management.corruption.modal.databaseRecordsDesc')}
-                </li>
-              </ul>
-            </div>
-          </Alert>
-
-          <Alert color="yellow">
-            <div>
-              <p className="text-sm font-medium mb-2">{t('management.cache.alerts.important')}</p>
-              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>{t('management.corruption.modal.cannotBeUndone')}</li>
-                <li>{t('management.corruption.modal.mayTakeSeveralMinutes')}</li>
+          <CorruptionRemovalWarning
+            extraCautions={
+              <>
                 <li>
                   {t('management.corruption.modal.validFilesRemain', {
                     service: pendingCorruptionRemoval
@@ -1211,15 +1207,20 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                     count: corruptionSummary[pendingCorruptionRemoval || ''] || 0
                   })}
                 </li>
-              </ul>
-            </div>
-          </Alert>
+              </>
+            }
+          />
 
           <div className="flex justify-end space-x-3 pt-2">
             <Button variant="default" onClick={() => setPendingCorruptionRemoval(null)}>
               {t('common.cancel')}
             </Button>
-            <Button variant="filled" color="red" onClick={confirmRemoveCorruption}>
+            <Button
+              variant="filled"
+              color="red"
+              onClick={confirmRemoveCorruption}
+              disabled={!pendingCorruptionRemoval || !isServiceRemovable(pendingCorruptionRemoval)}
+            >
               {t('management.corruption.modal.deleteCacheAndLogs')}
             </Button>
           </div>

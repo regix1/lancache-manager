@@ -24,20 +24,22 @@
 //    rotated logs are archival, slightly larger output is accepted).
 
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use std::borrow::Cow;
 use std::collections::HashSet;
+use std::fs::File;
 use std::io::{BufWriter, Write as IoWrite};
 use std::path::Path;
 
 use aho_corasick::AhoCorasick;
-use tempfile::NamedTempFile;
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use tempfile::NamedTempFile;
 
 use crate::cache_utils;
-use crate::parser::LogParser;
 use crate::log_reader::LogFileReader;
 use crate::models::LogEntry;
+use crate::parser::LogParser;
 use crate::{log_discovery, service_utils};
 
 /// Byte-level prefilter for removal candidates. A line that fails
@@ -45,6 +47,108 @@ use crate::{log_discovery, service_utils};
 /// through without UTF-8 validation or regex parsing.
 pub(crate) struct RemovalPrefilter {
     automaton: AhoCorasick,
+}
+
+/// One exact stored corruption observation. Matching every field keeps log cleanup inside the
+/// immutable evidence window; a URL match alone is intentionally insufficient.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ExactLogObservation {
+    pub service: String,
+    pub raw_url: String,
+    pub timestamp: DateTime<Utc>,
+    pub client_ip: String,
+    pub method: String,
+    pub http_status: i32,
+    pub cache_status: String,
+    pub raw_range: Option<String>,
+}
+
+/// Hash-set matcher and safe raw-line prefilter derived from exact observations.
+pub(crate) struct ExactLogMatcher {
+    observations: HashSet<ExactLogObservation>,
+}
+
+impl ExactLogMatcher {
+    pub(crate) fn new<I>(observations: I) -> Self
+    where
+        I: IntoIterator<Item = ExactLogObservation>,
+    {
+        Self {
+            observations: observations.into_iter().collect(),
+        }
+    }
+
+    pub(crate) fn prefilter(&self) -> Result<RemovalPrefilter> {
+        RemovalPrefilter::new(
+            self.observations
+                .iter()
+                .map(|observation| observation.raw_url.as_bytes()),
+        )
+    }
+
+    pub(crate) fn matches(&self, entry: &LogEntry) -> bool {
+        let raw_range = (!entry.http_range.is_empty()).then_some(entry.http_range.clone());
+        self.observations.contains(&ExactLogObservation {
+            service: entry.service.clone(),
+            raw_url: entry.raw_url.clone(),
+            timestamp: DateTime::<Utc>::from_naive_utc_and_offset(entry.timestamp, Utc),
+            client_ip: entry.client_ip.clone(),
+            method: entry.method.clone(),
+            http_status: entry.status_code,
+            cache_status: entry.cache_status.clone(),
+            raw_range,
+        })
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.observations.len()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LogRewriteOutcome {
+    pub lines_removed: u64,
+    pub permission_errors: usize,
+    pub other_errors: usize,
+}
+
+/// Owns the concrete output encoder so compressed streams can be finalized before the
+/// temporary file is persisted. A trait-object `flush()` is not sufficient for zstd because
+/// it does not write the end-of-frame marker.
+enum LogRewriteWriter {
+    Plain(BufWriter<File>),
+    Gzip(GzEncoder<BufWriter<File>>),
+    Zstd(zstd::Encoder<'static, BufWriter<File>>),
+}
+
+impl IoWrite for LogRewriteWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            Self::Plain(writer) => writer.write(buf),
+            Self::Gzip(writer) => writer.write(buf),
+            Self::Zstd(writer) => writer.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            Self::Plain(writer) => writer.flush(),
+            Self::Gzip(writer) => writer.flush(),
+            Self::Zstd(writer) => writer.flush(),
+        }
+    }
+}
+
+impl LogRewriteWriter {
+    fn finish(self) -> Result<()> {
+        match self {
+            Self::Plain(mut writer) => writer.flush()?,
+            Self::Gzip(writer) => writer.finish()?.flush()?,
+            Self::Zstd(writer) => writer.finish()?.flush()?,
+        }
+        Ok(())
+    }
 }
 
 impl RemovalPrefilter {
@@ -56,8 +160,8 @@ impl RemovalPrefilter {
         I: IntoIterator<Item = P>,
         P: AsRef<[u8]>,
     {
-        let automaton = AhoCorasick::new(patterns)
-            .context("Failed to build Aho-Corasick removal prefilter")?;
+        let automaton =
+            AhoCorasick::new(patterns).context("Failed to build Aho-Corasick removal prefilter")?;
         Ok(Self { automaton })
     }
 
@@ -95,9 +199,7 @@ where
     };
 
     match parser.parse_line(text.trim()) {
-        Some(entry) => {
-            !service_utils::should_skip_url(&entry.url) && should_remove_entry(&entry)
-        }
+        Some(entry) => !service_utils::should_skip_url(&entry.url) && should_remove_entry(&entry),
         None => false,
     }
 }
@@ -134,13 +236,13 @@ where
     Ok((lines_total, lines_matched))
 }
 
-pub(crate) fn rewrite_matching_log_entries<F>(
+fn rewrite_matching_log_entries_outcome<F>(
     log_dir: &Path,
     description: &str,
     prefilter: &RemovalPrefilter,
     should_remove_entry: F,
     on_file_processed: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
-) -> Result<(u64, usize)>
+) -> Result<LogRewriteOutcome>
 where
     F: Fn(&LogEntry) -> bool + Send + Sync,
 {
@@ -155,146 +257,222 @@ where
 
     let total_lines_removed = AtomicU64::new(0);
     let permission_errors = AtomicUsize::new(0);
+    let other_errors = AtomicUsize::new(0);
     let files_done = AtomicUsize::new(0);
 
-    log_files.par_iter().enumerate().for_each(|(file_index, log_file)| {
-        eprintln!(
-            "  Processing file {}/{}: {}",
-            file_index + 1,
-            log_files.len(),
-            log_file.path.display()
-        );
+    log_files
+        .par_iter()
+        .enumerate()
+        .for_each(|(file_index, log_file)| {
+            eprintln!(
+                "  Processing file {}/{}: {}",
+                file_index + 1,
+                log_files.len(),
+                log_file.path.display()
+            );
 
-        let file_result = (|| -> Result<u64> {
-            // Pass 1: read-only scan. Files with zero confirmed matches are left
-            // completely untouched (no temp file, no recompression).
-            let (lines_total, lines_matched) =
-                scan_file_for_matches(&log_file.path, prefilter, &parser, &should_remove_entry)?;
+            let file_result = (|| -> Result<u64> {
+                // Pass 1: read-only scan. Files with zero confirmed matches are left
+                // completely untouched (no temp file, no recompression).
+                let (lines_total, lines_matched) = scan_file_for_matches(
+                    &log_file.path,
+                    prefilter,
+                    &parser,
+                    &should_remove_entry,
+                )?;
 
-            if lines_matched == 0 {
-                return Ok(0);
-            }
-
-            if lines_matched == lines_total {
-                // Every line matched: delete the file entirely (same semantics as
-                // the previous single-pass implementation, minus the wasted temp write).
-                eprintln!(
-                    "  INFO: All {} lines from this file matched, deleting file entirely",
-                    lines_total
-                );
-                match cache_utils::safe_path_under_root(log_dir, &log_file.path) {
-                    Ok(_) => {
-                        std::fs::remove_file(&log_file.path).ok();
-                    }
-                    Err(e) => {
-                        eprintln!("skipping unsafe path {}: {}", log_file.path.display(), e);
-                    }
+                if lines_matched == 0 {
+                    return Ok(0);
                 }
-                return Ok(lines_matched);
-            }
 
-            // Pass 2: rewrite the file without the matching lines.
-            let file_dir = log_file.path.parent().context("Failed to get file directory")?;
-            let temp_file = NamedTempFile::new_in(file_dir)?;
+                if lines_matched == lines_total {
+                    // Every line matched: delete the file entirely (same semantics as
+                    // the previous single-pass implementation, minus the wasted temp write).
+                    eprintln!(
+                        "  INFO: All {} lines from this file matched, deleting file entirely",
+                        lines_total
+                    );
+                    match cache_utils::safe_path_under_root(log_dir, &log_file.path) {
+                        Ok(_) => {
+                            std::fs::remove_file(&log_file.path)?;
+                        }
+                        Err(e) => {
+                            return Err(e).with_context(|| {
+                                format!("unsafe log path {}", log_file.path.display())
+                            });
+                        }
+                    }
+                    return Ok(lines_matched);
+                }
 
-            let mut lines_removed: u64 = 0;
+                // Pass 2: rewrite the file without the matching lines.
+                let file_dir = log_file
+                    .path
+                    .parent()
+                    .context("Failed to get file directory")?;
+                let temp_file = NamedTempFile::new_in(file_dir)?;
 
-            {
-                let mut log_reader = LogFileReader::open(&log_file.path)?;
+                let mut lines_removed: u64 = 0;
 
-                let mut writer: Box<dyn std::io::Write> = if log_file.is_compressed {
-                    let path_str = log_file.path.to_string_lossy();
-                    if path_str.ends_with(".gz") {
-                        Box::new(BufWriter::with_capacity(
-                            1024 * 1024,
-                            GzEncoder::new(temp_file.as_file().try_clone()?, Compression::fast()),
-                        ))
-                    } else if path_str.ends_with(".zst") {
-                        Box::new(BufWriter::with_capacity(
-                            1024 * 1024,
-                            zstd::Encoder::new(temp_file.as_file().try_clone()?, 3)?,
-                        ))
+                {
+                    let mut log_reader = LogFileReader::open(&log_file.path)?;
+
+                    let mut writer = if log_file.is_compressed {
+                        let path_str = log_file.path.to_string_lossy();
+                        if path_str.ends_with(".gz") {
+                            LogRewriteWriter::Gzip(GzEncoder::new(
+                                BufWriter::with_capacity(
+                                    1024 * 1024,
+                                    temp_file.as_file().try_clone()?,
+                                ),
+                                Compression::fast(),
+                            ))
+                        } else if path_str.ends_with(".zst") {
+                            LogRewriteWriter::Zstd(zstd::Encoder::new(
+                                BufWriter::with_capacity(
+                                    1024 * 1024,
+                                    temp_file.as_file().try_clone()?,
+                                ),
+                                3,
+                            )?)
+                        } else {
+                            LogRewriteWriter::Plain(BufWriter::with_capacity(
+                                1024 * 1024,
+                                temp_file.as_file().try_clone()?,
+                            ))
+                        }
                     } else {
-                        Box::new(BufWriter::with_capacity(
+                        LogRewriteWriter::Plain(BufWriter::with_capacity(
                             1024 * 1024,
                             temp_file.as_file().try_clone()?,
                         ))
+                    };
+
+                    let mut line: Vec<u8> = Vec::with_capacity(1024);
+
+                    loop {
+                        line.clear();
+                        let bytes_read = log_reader.read_until_newline(&mut line)?;
+                        if bytes_read == 0 {
+                            break;
+                        }
+
+                        if line_should_be_removed(&line, prefilter, &parser, &should_remove_entry) {
+                            lines_removed += 1;
+                        } else {
+                            writer.write_all(&line)?;
+                        }
                     }
-                } else {
-                    Box::new(BufWriter::with_capacity(
-                        1024 * 1024,
-                        temp_file.as_file().try_clone()?,
-                    ))
-                };
 
-                let mut line: Vec<u8> = Vec::with_capacity(1024);
+                    writer.finish()?;
+                }
 
-                loop {
-                    line.clear();
-                    let bytes_read = log_reader.read_until_newline(&mut line)?;
-                    if bytes_read == 0 {
-                        break;
+                let temp_path = temp_file.into_temp_path();
+
+                if let Err(persist_err) = temp_path.persist(&log_file.path) {
+                    eprintln!(
+                        "    persist() failed ({}), using copy fallback...",
+                        persist_err
+                    );
+                    std::fs::copy(&persist_err.path, &log_file.path)?;
+                    match cache_utils::safe_path_under_root(log_dir, &persist_err.path) {
+                        Ok(_) => {
+                            std::fs::remove_file(&persist_err.path).ok();
+                        }
+                        Err(e) => {
+                            eprintln!("skipping unsafe path {}: {}", persist_err.path.display(), e);
+                        }
                     }
+                }
 
-                    if line_should_be_removed(&line, prefilter, &parser, &should_remove_entry) {
-                        lines_removed += 1;
+                Ok(lines_removed)
+            })();
+
+            match file_result {
+                Ok(lines_removed) => {
+                    eprintln!("    Removed {} log lines from this file", lines_removed);
+                    total_lines_removed.fetch_add(lines_removed, Ordering::Relaxed);
+                }
+                Err(e) => {
+                    let error_str = e.to_string();
+                    if error_str.contains("Permission denied") || error_str.contains("os error 13")
+                    {
+                        permission_errors.fetch_add(1, Ordering::Relaxed);
+                        eprintln!(
+                            "  ERROR: Permission denied for file {}: {}",
+                            log_file.path.display(),
+                            e
+                        );
                     } else {
-                        writer.write_all(&line)?;
-                    }
-                }
-
-                writer.flush()?;
-                drop(writer);
-            }
-
-            let temp_path = temp_file.into_temp_path();
-
-            if let Err(persist_err) = temp_path.persist(&log_file.path) {
-                eprintln!("    persist() failed ({}), using copy fallback...", persist_err);
-                std::fs::copy(&persist_err.path, &log_file.path)?;
-                match cache_utils::safe_path_under_root(log_dir, &persist_err.path) {
-                    Ok(_) => {
-                        std::fs::remove_file(&persist_err.path).ok();
-                    }
-                    Err(e) => {
-                        eprintln!("skipping unsafe path {}: {}", persist_err.path.display(), e);
+                        other_errors.fetch_add(1, Ordering::Relaxed);
+                        eprintln!(
+                            "  WARNING: Skipping file {}: {}",
+                            log_file.path.display(),
+                            e
+                        );
                     }
                 }
             }
 
-            Ok(lines_removed)
-        })();
-
-        match file_result {
-            Ok(lines_removed) => {
-                eprintln!("    Removed {} log lines from this file", lines_removed);
-                total_lines_removed.fetch_add(lines_removed, Ordering::Relaxed);
+            if let Some(cb) = on_file_processed {
+                let done = files_done.fetch_add(1, Ordering::Relaxed) + 1;
+                cb(done, total_files);
             }
-            Err(e) => {
-                let error_str = e.to_string();
-                if error_str.contains("Permission denied") || error_str.contains("os error 13") {
-                    permission_errors.fetch_add(1, Ordering::Relaxed);
-                    eprintln!("  ERROR: Permission denied for file {}: {}", log_file.path.display(), e);
-                } else {
-                    eprintln!("  WARNING: Skipping file {}: {}", log_file.path.display(), e);
-                }
-            }
-        }
-
-        if let Some(cb) = on_file_processed {
-            let done = files_done.fetch_add(1, Ordering::Relaxed) + 1;
-            cb(done, total_files);
-        }
-    });
+        });
 
     let final_removed = total_lines_removed.load(Ordering::Relaxed);
     let final_permission_errors = permission_errors.load(Ordering::Relaxed);
+    let final_other_errors = other_errors.load(Ordering::Relaxed);
     eprintln!(
         "Total log entries removed: {}, permission errors: {}",
-        final_removed,
-        final_permission_errors
+        final_removed, final_permission_errors
     );
-    Ok((final_removed, final_permission_errors))
+    Ok(LogRewriteOutcome {
+        lines_removed: final_removed,
+        permission_errors: final_permission_errors,
+        other_errors: final_other_errors,
+    })
+}
+
+pub(crate) fn rewrite_matching_log_entries<F>(
+    log_dir: &Path,
+    description: &str,
+    prefilter: &RemovalPrefilter,
+    should_remove_entry: F,
+    on_file_processed: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
+) -> Result<(u64, usize)>
+where
+    F: Fn(&LogEntry) -> bool + Send + Sync,
+{
+    let outcome = rewrite_matching_log_entries_outcome(
+        log_dir,
+        description,
+        prefilter,
+        should_remove_entry,
+        on_file_processed,
+    )?;
+    Ok((outcome.lines_removed, outcome.permission_errors))
+}
+
+/// Strict corruption-evidence variant: reports both permission and non-permission file failures so
+/// the caller can retain database/persisted evidence after any partial log rewrite.
+pub(crate) fn rewrite_matching_log_entries_strict<F>(
+    log_dir: &Path,
+    description: &str,
+    prefilter: &RemovalPrefilter,
+    should_remove_entry: F,
+    on_file_processed: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
+) -> Result<LogRewriteOutcome>
+where
+    F: Fn(&LogEntry) -> bool + Send + Sync,
+{
+    rewrite_matching_log_entries_outcome(
+        log_dir,
+        description,
+        prefilter,
+        should_remove_entry,
+        on_file_processed,
+    )
 }
 
 /// Rewrite every nginx access.log file under `log_dir` to drop entries whose
@@ -336,7 +514,8 @@ pub(crate) fn remove_log_entries_for_game(
                 return true;
             }
 
-            entry.depot_id
+            entry
+                .depot_id
                 .map(|depot_id| valid_depot_ids.contains(&depot_id))
                 .unwrap_or(false)
         },
@@ -381,13 +560,173 @@ pub(crate) fn remove_log_entries_for_service(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::DateTime;
     use std::fs;
+    use std::io::Write;
 
     fn log_line(url: &str, cache_status: &str) -> String {
         format!(
             "[steam] 192.168.1.50 / - - - [01/Jan/2024:00:00:00 +0000] \"GET {} HTTP/1.1\" 200 1024 \"-\" \"Valve/Steam\" \"{}\" \"-\" \"-\"",
             url, cache_status
         )
+    }
+
+    fn exact_log_line(
+        client: &str,
+        method: &str,
+        status: i32,
+        url: &str,
+        cache_status: &str,
+        range: &str,
+    ) -> String {
+        format!(
+            "[steam] {client} / - - - [01/Jan/2024:00:00:00 +0000] \"{method} {url} HTTP/1.1\" {status} 1024 \"-\" \"Valve/Steam\" \"{cache_status}\" \"cdn.test\" \"{range}\""
+        )
+    }
+
+    fn target_observation() -> ExactLogObservation {
+        ExactLogObservation {
+            service: "steam".to_string(),
+            raw_url: "/same.bin".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            client_ip: "192.168.1.50".to_string(),
+            method: "GET".to_string(),
+            http_status: 206,
+            cache_status: "MISS".to_string(),
+            raw_range: Some("bytes=1048576-2097151".to_string()),
+        }
+    }
+
+    fn read_log_file(path: &Path) -> String {
+        let mut reader = LogFileReader::open(path).unwrap();
+        let mut output = String::new();
+        let mut line = String::new();
+        loop {
+            line.clear();
+            if reader.read_line(&mut line).unwrap() == 0 {
+                break;
+            }
+            output.push_str(&line);
+        }
+        output
+    }
+
+    #[test]
+    fn exact_matcher_keeps_same_url_with_different_observation_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("access.log");
+        let target = exact_log_line(
+            "192.168.1.50",
+            "GET",
+            206,
+            "/same.bin",
+            "MISS",
+            "bytes=1048576-2097151",
+        );
+        let keep_range = exact_log_line(
+            "192.168.1.50",
+            "GET",
+            206,
+            "/same.bin",
+            "MISS",
+            "bytes=2097152-3145727",
+        );
+        let keep_status = exact_log_line(
+            "192.168.1.50",
+            "GET",
+            206,
+            "/same.bin",
+            "HIT",
+            "bytes=1048576-2097151",
+        );
+        let keep_client = exact_log_line(
+            "192.168.1.51",
+            "GET",
+            206,
+            "/same.bin",
+            "MISS",
+            "bytes=1048576-2097151",
+        );
+        fs::write(
+            &log_path,
+            format!("{target}\n{keep_range}\n{keep_status}\n{keep_client}\n"),
+        )
+        .unwrap();
+
+        let matcher = ExactLogMatcher::new([target_observation()]);
+        assert_eq!(matcher.len(), 1);
+        let prefilter = matcher.prefilter().unwrap();
+        let outcome = rewrite_matching_log_entries_strict(
+            dir.path(),
+            "exact corruption evidence",
+            &prefilter,
+            |entry| matcher.matches(entry),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(outcome.lines_removed, 1);
+        assert_eq!(outcome.permission_errors, 0);
+        assert_eq!(outcome.other_errors, 0);
+        let remaining = fs::read_to_string(log_path).unwrap();
+        assert!(!remaining.contains(&target));
+        assert!(remaining.contains(&keep_range));
+        assert!(remaining.contains(&keep_status));
+        assert!(remaining.contains(&keep_client));
+    }
+
+    #[test]
+    fn exact_matcher_preserves_scope_in_gzip_and_zstd_logs() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = exact_log_line(
+            "192.168.1.50",
+            "GET",
+            206,
+            "/same.bin",
+            "MISS",
+            "bytes=1048576-2097151",
+        );
+        let keep = exact_log_line(
+            "192.168.1.50",
+            "GET",
+            206,
+            "/same.bin",
+            "MISS",
+            "bytes=2097152-3145727",
+        );
+        let contents = format!("{target}\n{keep}\n");
+        let gzip_path = dir.path().join("access.log.1.gz");
+        let zstd_path = dir.path().join("access.log.2.zst");
+
+        {
+            let file = fs::File::create(&gzip_path).unwrap();
+            let mut encoder = flate2::write::GzEncoder::new(file, flate2::Compression::fast());
+            encoder.write_all(contents.as_bytes()).unwrap();
+            encoder.finish().unwrap();
+        }
+        {
+            let file = fs::File::create(&zstd_path).unwrap();
+            let mut encoder = zstd::Encoder::new(file, 1).unwrap();
+            encoder.write_all(contents.as_bytes()).unwrap();
+            encoder.finish().unwrap();
+        }
+
+        let matcher = ExactLogMatcher::new([target_observation()]);
+        let prefilter = matcher.prefilter().unwrap();
+        let outcome = rewrite_matching_log_entries_strict(
+            dir.path(),
+            "compressed exact corruption evidence",
+            &prefilter,
+            |entry| matcher.matches(entry),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(outcome.lines_removed, 2);
+        assert_eq!(read_log_file(&gzip_path), format!("{keep}\n"));
+        assert_eq!(read_log_file(&zstd_path), format!("{keep}\n"));
     }
 
     #[test]
@@ -447,7 +786,9 @@ mod tests {
         fs::write(&log_path, &contents).unwrap();
         let mtime_before = fs::metadata(&log_path).unwrap().modified().unwrap();
 
-        let urls: HashSet<String> = ["/depot/999999/chunk/zzz".to_string()].into_iter().collect();
+        let urls: HashSet<String> = ["/depot/999999/chunk/zzz".to_string()]
+            .into_iter()
+            .collect();
         let depot_ids: HashSet<u32> = HashSet::new();
         let calls = std::sync::atomic::AtomicUsize::new(0);
         let cb = |done: usize, total: usize| {
@@ -465,7 +806,10 @@ mod tests {
         );
 
         let mtime_after = fs::metadata(&log_path).unwrap().modified().unwrap();
-        assert_eq!(mtime_before, mtime_after, "untouched file must not be rewritten");
+        assert_eq!(
+            mtime_before, mtime_after,
+            "untouched file must not be rewritten"
+        );
         assert_eq!(fs::read_to_string(&log_path).unwrap(), contents);
     }
 
@@ -477,7 +821,11 @@ mod tests {
         let target_url = "/depot/123456/chunk/abc";
         fs::write(
             &log_path,
-            format!("{}\n{}\n", log_line(target_url, "HIT"), log_line(target_url, "MISS")),
+            format!(
+                "{}\n{}\n",
+                log_line(target_url, "HIT"),
+                log_line(target_url, "MISS")
+            ),
         )
         .unwrap();
 

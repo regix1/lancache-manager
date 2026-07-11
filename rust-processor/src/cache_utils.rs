@@ -2,6 +2,8 @@ use std::collections::{BTreeSet, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 #[allow(dead_code)]
 pub const DEFAULT_SLICE_SIZE: u64 = 1_048_576;
 
@@ -29,6 +31,133 @@ pub const DEFAULT_MAX_CHUNKS: usize = 100;
 // scan-wide (memoized), and the present case still short-circuits on the first hit.
 #[allow(dead_code)]
 pub const MAX_PROBE_CHUNKS: usize = 4096;
+
+/// The byte-range shape observed in an access log. Only a complete, single inclusive HTTP
+/// range is accepted for sliced cache inference; unsupported range forms fail closed.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ObservedByteRange {
+    NoRange,
+    Inclusive { start: u64, end: u64 },
+}
+
+/// Exact nginx cache-key form for a physical cache object.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CacheSliceKind {
+    NoRange,
+    Noslice,
+    Ranged { start: u64, end: u64 },
+}
+
+/// One exact cache-key/path alternative produced from an observed request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PhysicalCacheSlice {
+    pub kind: CacheSliceKind,
+    pub exact_path: PathBuf,
+}
+
+/// Canonical request-to-cache mapping shared by detection and evidence-driven removal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestSliceMapping {
+    pub normalized_uri: String,
+    pub observed_range: ObservedByteRange,
+    pub slices: Vec<PhysicalCacheSlice>,
+}
+
+/// Parse a single inclusive HTTP byte range. Empty/`-` means the request had no Range header.
+/// Suffix, open-ended, reversed, multi-range, non-decimal, and overflowing values are rejected.
+pub fn parse_http_byte_range(raw: &str) -> Option<ObservedByteRange> {
+    let raw = raw.trim();
+    if raw.is_empty() || raw == "-" {
+        return Some(ObservedByteRange::NoRange);
+    }
+
+    let value = raw.strip_prefix("bytes=")?;
+    if value.contains(',') {
+        return None;
+    }
+    let (start, end) = value.split_once('-')?;
+    if start.is_empty()
+        || end.is_empty()
+        || !start.bytes().all(|byte| byte.is_ascii_digit())
+        || !end.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+
+    let start = start.parse::<u64>().ok()?;
+    let end = end.parse::<u64>().ok()?;
+    (start <= end).then_some(ObservedByteRange::Inclusive { start, end })
+}
+
+/// Align an inclusive observed range to every containing 1 MiB nginx slice, including both
+/// endpoint slices. Arithmetic and unreasonably large mappings fail closed.
+pub fn aligned_slice_ranges(range: &ObservedByteRange) -> Option<Vec<(u64, u64)>> {
+    let ObservedByteRange::Inclusive { start, end } = range else {
+        return Some(Vec::new());
+    };
+
+    let first_start = (start / DEFAULT_SLICE_SIZE) * DEFAULT_SLICE_SIZE;
+    let last_start = (end / DEFAULT_SLICE_SIZE) * DEFAULT_SLICE_SIZE;
+    let count = last_start
+        .checked_sub(first_start)?
+        .checked_div(DEFAULT_SLICE_SIZE)?
+        .checked_add(1)?;
+    let count = usize::try_from(count).ok()?;
+    if count > MAX_PROBE_CHUNKS {
+        return None;
+    }
+
+    let mut ranges = Vec::with_capacity(count);
+    for index in 0..count {
+        let offset = (index as u64).checked_mul(DEFAULT_SLICE_SIZE)?;
+        let slice_start = first_start.checked_add(offset)?;
+        let slice_end = slice_start.checked_add(DEFAULT_SLICE_SIZE - 1)?;
+        ranges.push((slice_start, slice_end));
+    }
+    Some(ranges)
+}
+
+/// Resolve an observed request to its exact nginx cache-key path(s). A range maps to each
+/// containing physical slice. A range-less request retains the no-range and `::noslice`
+/// alternatives because the access log alone cannot distinguish those locations.
+pub fn physical_slices_for_request(
+    cache_dir: &Path,
+    service: &str,
+    raw_url: &str,
+    raw_http_range: &str,
+) -> Option<RequestSliceMapping> {
+    let observed_range = parse_http_byte_range(raw_http_range)?;
+    let normalized_uri = nginx_cache_uri(raw_url).into_owned();
+    let service = service_name_lowercase(service);
+
+    let slices = match &observed_range {
+        ObservedByteRange::NoRange => vec![
+            PhysicalCacheSlice {
+                kind: CacheSliceKind::NoRange,
+                exact_path: calculate_cache_path_no_range(cache_dir, &service, &normalized_uri),
+            },
+            PhysicalCacheSlice {
+                kind: CacheSliceKind::Noslice,
+                exact_path: calculate_cache_path_noslice(cache_dir, &service, &normalized_uri),
+            },
+        ],
+        ObservedByteRange::Inclusive { .. } => aligned_slice_ranges(&observed_range)?
+            .into_iter()
+            .map(|(start, end)| PhysicalCacheSlice {
+                kind: CacheSliceKind::Ranged { start, end },
+                exact_path: calculate_cache_path(cache_dir, &service, &normalized_uri, start, end),
+            })
+            .collect(),
+    };
+
+    Some(RequestSliceMapping {
+        normalized_uri,
+        observed_range,
+        slices,
+    })
+}
 
 /// Derives the probe chunk count for a URL from its observed byte size, clamped to
 /// `[DEFAULT_MAX_CHUNKS, MAX_PROBE_CHUNKS]`.
@@ -388,11 +517,7 @@ pub fn calculate_cache_path(
 ///
 /// Note: This function is used by multiple binaries but not all, hence the allow(dead_code)
 #[allow(dead_code)]
-pub fn calculate_cache_path_no_range(
-    cache_dir: &Path,
-    service: &str,
-    url: &str,
-) -> PathBuf {
+pub fn calculate_cache_path_no_range(cache_dir: &Path, service: &str, url: &str) -> PathBuf {
     // Transform the stored URL into nginx's `$uri` so the md5 matches the on-disk filename.
     let url = nginx_cache_uri(url);
     let cache_key = format!("{}{}", service, url);
@@ -416,11 +541,7 @@ pub fn calculate_cache_path_no_range(
 ///
 /// Note: This function is used by multiple binaries but not all, hence the allow(dead_code)
 #[allow(dead_code)]
-pub fn calculate_cache_path_noslice(
-    cache_dir: &Path,
-    service: &str,
-    url: &str,
-) -> PathBuf {
+pub fn calculate_cache_path_noslice(cache_dir: &Path, service: &str, url: &str) -> PathBuf {
     // Transform the stored URL into nginx's `$uri` so the md5 matches the on-disk filename.
     let url = nginx_cache_uri(url);
     let cache_key = format!("{}{}::noslice", service, url);
@@ -500,11 +621,15 @@ pub fn cache_hash_candidates_iter(
     let no_range_hash = calculate_md5(&format!("{}{}", service, url));
     let noslice_hash = calculate_md5(&format!("{}{}::noslice", service, url));
 
-    std::iter::once(no_range_hash).chain(std::iter::once(noslice_hash)).chain(
-        chunk_ranges_for_probe(max_chunks).into_iter().map(move |(start, end)| {
-            calculate_md5(&format!("{}{}bytes={}-{}", service, url, start, end))
-        }),
-    )
+    std::iter::once(no_range_hash)
+        .chain(std::iter::once(noslice_hash))
+        .chain(
+            chunk_ranges_for_probe(max_chunks)
+                .into_iter()
+                .map(move |(start, end)| {
+                    calculate_md5(&format!("{}{}bytes={}-{}", service, url, start, end))
+                }),
+        )
 }
 
 #[allow(dead_code)]
@@ -530,13 +655,17 @@ pub fn cache_digest_candidates_iter(
     let noslice = calculate_md5_digest(&format!("{}{}::noslice", service, url));
 
     let mut key_buf = String::with_capacity(service.len() + url.len() + 40);
-    std::iter::once(no_range).chain(std::iter::once(noslice)).chain(
-        chunk_ranges_for_probe(max_chunks).into_iter().map(move |(start, end)| {
-            key_buf.clear();
-            let _ = write!(key_buf, "{}{}bytes={}-{}", service, url, start, end);
-            calculate_md5_digest(&key_buf)
-        }),
-    )
+    std::iter::once(no_range)
+        .chain(std::iter::once(noslice))
+        .chain(
+            chunk_ranges_for_probe(max_chunks)
+                .into_iter()
+                .map(move |(start, end)| {
+                    key_buf.clear();
+                    let _ = write!(key_buf, "{}{}bytes={}-{}", service, url, start, end);
+                    calculate_md5_digest(&key_buf)
+                }),
+        )
 }
 
 /// Digest twin of [`existing_cache_hashes_for_url`]: collects every EXISTING slice digest for
@@ -568,7 +697,14 @@ where
     while chunk < MAX_PROBE_CHUNKS {
         let start = chunk as u64 * DEFAULT_SLICE_SIZE;
         key_buf.clear();
-        let _ = write!(key_buf, "{}{}bytes={}-{}", service, url, start, chunk_end(start));
+        let _ = write!(
+            key_buf,
+            "{}{}bytes={}-{}",
+            service,
+            url,
+            start,
+            chunk_end(start)
+        );
         let digest = calculate_md5_digest(&key_buf);
         if exists(digest) {
             hits.push(digest);
@@ -636,7 +772,13 @@ where
     let mut chunk = 0usize;
     while chunk < MAX_PROBE_CHUNKS {
         let start = chunk as u64 * DEFAULT_SLICE_SIZE;
-        let hash = calculate_md5(&format!("{}{}bytes={}-{}", service, url, start, chunk_end(start)));
+        let hash = calculate_md5(&format!(
+            "{}{}bytes={}-{}",
+            service,
+            url,
+            start,
+            chunk_end(start)
+        ));
         if exists(&hash) {
             hits.push(hash);
             consecutive_misses = 0;
@@ -761,7 +903,10 @@ fn chunk_end(start: u64) -> u64 {
 /// one level up (stopping at `cache_dir`). Uses `safe_path_under_root` as a guard before
 /// any removal. Returns the count of directories successfully removed.
 #[allow(dead_code)]
-pub(crate) fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet<PathBuf>) -> usize {
+pub(crate) fn cleanup_empty_directories(
+    cache_dir: &Path,
+    dirs_to_check: HashSet<PathBuf>,
+) -> usize {
     let mut removed_count = 0;
 
     let mut sorted_dirs: Vec<PathBuf> = dirs_to_check.into_iter().collect();
@@ -791,7 +936,11 @@ pub(crate) fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet
                                     }
                                 }
                                 Err(e) => {
-                                    eprintln!("  skipping unsafe parent {}: {}", parent.display(), e);
+                                    eprintln!(
+                                        "  skipping unsafe parent {}: {}",
+                                        parent.display(),
+                                        e
+                                    );
                                 }
                             }
                         }
@@ -900,6 +1049,137 @@ mod tests {
     use std::path::Path;
 
     #[test]
+    fn http_range_parser_accepts_only_single_closed_inclusive_ranges() {
+        assert_eq!(parse_http_byte_range(""), Some(ObservedByteRange::NoRange));
+        assert_eq!(parse_http_byte_range("-"), Some(ObservedByteRange::NoRange));
+        assert_eq!(
+            parse_http_byte_range("bytes=0-0"),
+            Some(ObservedByteRange::Inclusive { start: 0, end: 0 })
+        );
+        assert_eq!(
+            parse_http_byte_range("bytes=1048575-1048576"),
+            Some(ObservedByteRange::Inclusive {
+                start: 1_048_575,
+                end: 1_048_576,
+            })
+        );
+
+        for malformed in [
+            "bytes=",
+            "bytes=-10",
+            "bytes=10-",
+            "bytes=10-9",
+            "bytes=0-1,2-3",
+            "bytes=+0-1",
+            "bytes=0x0-1",
+            "items=0-1",
+            "bytes=18446744073709551616-18446744073709551617",
+        ] {
+            assert_eq!(parse_http_byte_range(malformed), None, "{malformed}");
+        }
+    }
+
+    #[test]
+    fn inclusive_alignment_handles_single_bytes_and_exact_boundaries() {
+        assert_eq!(
+            aligned_slice_ranges(&ObservedByteRange::Inclusive { start: 0, end: 0 }),
+            Some(vec![(0, 1_048_575)])
+        );
+        assert_eq!(
+            aligned_slice_ranges(&ObservedByteRange::Inclusive {
+                start: 1_048_575,
+                end: 1_048_576,
+            }),
+            Some(vec![(0, 1_048_575), (1_048_576, 2_097_151)])
+        );
+        assert_eq!(
+            aligned_slice_ranges(&ObservedByteRange::Inclusive {
+                start: u64::MAX,
+                end: u64::MAX,
+            }),
+            Some(vec![(u64::MAX - (DEFAULT_SLICE_SIZE - 1), u64::MAX)]),
+            "the final representable slice ends exactly at u64::MAX"
+        );
+    }
+
+    #[test]
+    fn blizzard_reference_vectors_map_to_exact_levels_2_2_paths() {
+        let cache_dir = Path::new("/cache");
+        let first = physical_slices_for_request(
+            cache_dir,
+            "blizzard",
+            "/tpr/sc1live/data/c9/7e/c97e6071294fb69f542c57874d8433c5",
+            "bytes=0-99699",
+        )
+        .expect("first vector");
+        assert_eq!(first.slices.len(), 1);
+        assert_eq!(
+            first.slices[0]
+                .exact_path
+                .strip_prefix(cache_dir)
+                .expect("relative path")
+                .to_string_lossy()
+                .replace('\\', "/"),
+            "5f/6a/32fc9098be7edf9ae705aeb659836a5f"
+        );
+
+        let middle = physical_slices_for_request(
+            cache_dir,
+            "blizzard",
+            "/tpr/zeus/data/c1/94/c1942d6badb10a911d3e617bac1e7be0",
+            "bytes=26380013-32837297",
+        )
+        .expect("mid-object vector");
+        let actual: Vec<String> = middle
+            .slices
+            .iter()
+            .map(|slice| {
+                slice
+                    .exact_path
+                    .strip_prefix(cache_dir)
+                    .expect("relative path")
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        assert_eq!(
+            actual,
+            [
+                "0d/0e/6ace2ce71c04d335965ee2dc70550e0d",
+                "69/c2/4b91e8e526be6e04d040aa199df9c269",
+                "e0/4d/a9b3583eee3d4111af9d7c54fbf74de0",
+                "5f/0b/d095893c2cdbb4ba37d00d9b12520b5f",
+                "3c/c6/2cfb5b84a9fad3e5c0f62fbaee57c63c",
+                "21/b7/90dd1966e01fa49a9d49f9200551b721",
+                "90/a7/da189ae006772318633d6ebe04f1a790",
+            ]
+        );
+        assert!(middle.slices.iter().all(|slice| {
+            !matches!(
+                slice.kind,
+                CacheSliceKind::Ranged {
+                    start: 0,
+                    end: 1_048_575
+                }
+            )
+        }));
+    }
+
+    #[test]
+    fn no_range_mapping_keeps_no_range_and_noslice_alternatives() {
+        let cache_dir = Path::new("/cache");
+        let mapping =
+            physical_slices_for_request(cache_dir, "Steam", "/depot/1/chunk/a?token=ignored", "-")
+                .expect("no-range mapping");
+        assert_eq!(mapping.normalized_uri, "/depot/1/chunk/a");
+        assert_eq!(mapping.observed_range, ObservedByteRange::NoRange);
+        assert_eq!(mapping.slices.len(), 2);
+        assert_eq!(mapping.slices[0].kind, CacheSliceKind::NoRange);
+        assert_eq!(mapping.slices[1].kind, CacheSliceKind::Noslice);
+        assert_ne!(mapping.slices[0].exact_path, mapping.slices[1].exact_path);
+    }
+
+    #[test]
     fn sorted_sample_urls_matches_full_sort_and_dedup() {
         let urls = [
             "z", "beta", "alpha", "beta", "m", "aa", "delta", "alpha", "é", "c",
@@ -929,8 +1209,14 @@ mod tests {
         // Rejected: things the weak len>1 guard let through.
         assert!(!is_valid_xbox_fragment(""), "empty must be rejected");
         assert!(!is_valid_xbox_fragment("/"), "root must be rejected");
-        assert!(!is_valid_xbox_fragment("/files/"), "short generic path must be rejected");
-        assert!(!is_valid_xbox_fragment("/c/msdownload/update/abc"), "generic wsus path must be rejected");
+        assert!(
+            !is_valid_xbox_fragment("/files/"),
+            "short generic path must be rejected"
+        );
+        assert!(
+            !is_valid_xbox_fragment("/c/msdownload/update/abc"),
+            "generic wsus path must be rejected"
+        );
         assert!(
             !is_valid_xbox_fragment("/filestreamingservice/files/not-a-guid"),
             "marker without a valid GUID must be rejected"
@@ -942,7 +1228,9 @@ mod tests {
 
         // Accepted: a well-formed fragment and one embedded in a full access-log URL, both
         // lower- and upper-case hex (speed_tracker / log_processor lowercase before matching).
-        assert!(is_valid_xbox_fragment(&format!("/filestreamingservice/files/{GUID}")));
+        assert!(is_valid_xbox_fragment(&format!(
+            "/filestreamingservice/files/{GUID}"
+        )));
         assert!(is_valid_xbox_fragment(&format!(
             "http://assets1.xboxlive.com/filestreamingservice/files/{GUID}?P1=1"
         )));
@@ -962,19 +1250,32 @@ mod tests {
     #[test]
     fn hash_candidates_match_probe_path_file_names() {
         let cases: [(&str, &str); 4] = [
-            ("steam", "/depot/881100/chunk/9b5af6c1d3e8a2f4b7c0d9e8f1a2b3c4d5e6f708"),
-            ("Epic", "/Builds/Org/CloudDir/ChunksV4/12/ABCD_0123456789abcdef.chunk"),
-            ("blizzard", "/tpr/bnt001/data/05/d6/05d6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"),
+            (
+                "steam",
+                "/depot/881100/chunk/9b5af6c1d3e8a2f4b7c0d9e8f1a2b3c4d5e6f708",
+            ),
+            (
+                "Epic",
+                "/Builds/Org/CloudDir/ChunksV4/12/ABCD_0123456789abcdef.chunk",
+            ),
+            (
+                "blizzard",
+                "/tpr/bnt001/data/05/d6/05d6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+            ),
             // The `?range=1` query is now stripped by nginx_cache_uri (nginx keys on `$uri`,
             // not `$request_uri`). Both the hash form and the path form apply the SAME transform,
             // so this test still proves internal consistency — only the absolute md5 changed (to
             // the nginx-correct, query-stripped value).
-            ("wsus", "/c/upgr/2021/01/windows10-kb5000802-x64_abc123.psf?range=1"),
+            (
+                "wsus",
+                "/c/upgr/2021/01/windows10-kb5000802-x64_abc123.psf?range=1",
+            ),
         ];
         let cache_dir = Path::new("/cache");
 
         for (service, url) in cases {
-            let paths = cache_path_candidates_for_probe(cache_dir, service, url, DEFAULT_MAX_CHUNKS);
+            let paths =
+                cache_path_candidates_for_probe(cache_dir, service, url, DEFAULT_MAX_CHUNKS);
             let hashes = cache_hash_candidates_for_probe(service, url, DEFAULT_MAX_CHUNKS);
 
             assert_eq!(
@@ -1033,10 +1334,19 @@ mod tests {
     fn parse_cache_file_digest_rejects_non_hex_names() {
         assert_eq!(parse_cache_file_digest("tmp1234"), None);
         assert_eq!(parse_cache_file_digest(""), None);
-        assert_eq!(parse_cache_file_digest("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"), None);
+        assert_eq!(
+            parse_cache_file_digest("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"),
+            None
+        );
         // 31 and 33 chars must both fail even if all-hex.
-        assert_eq!(parse_cache_file_digest("0123456789abcdef0123456789abcde"), None);
-        assert_eq!(parse_cache_file_digest("0123456789abcdef0123456789abcdef0"), None);
+        assert_eq!(
+            parse_cache_file_digest("0123456789abcdef0123456789abcde"),
+            None
+        );
+        assert_eq!(
+            parse_cache_file_digest("0123456789abcdef0123456789abcdef0"),
+            None
+        );
         // Case-insensitive accept, mirroring the Windows casing normalization.
         assert_eq!(
             parse_cache_file_digest("00000000000000000000000000000ABC"),
@@ -1068,20 +1378,25 @@ mod tests {
     fn existing_digests_walk_matches_hex_walk() {
         let service = "blizzard";
         let url = "/tpr/x//archive%41?q=1";
-        let member: std::collections::HashSet<String> = cache_hash_candidates_for_probe(service, url, 12)
-            .into_iter()
-            .skip(1)
-            .step_by(3)
-            .collect();
+        let member: std::collections::HashSet<String> =
+            cache_hash_candidates_for_probe(service, url, 12)
+                .into_iter()
+                .skip(1)
+                .step_by(3)
+                .collect();
         let hex_hits = existing_cache_hashes_for_url(service, url, |h| member.contains(h));
-        let digest_hits =
-            existing_cache_digests_for_url(service, url, |d| member.contains(&format!("{:032x}", d)));
+        let digest_hits = existing_cache_digests_for_url(service, url, |d| {
+            member.contains(&format!("{:032x}", d))
+        });
         let hex_as_digests: Vec<u128> = hex_hits
             .iter()
             .map(|h| parse_cache_file_digest(h).expect("hex hit must parse"))
             .collect();
         assert_eq!(hex_as_digests, digest_hits);
-        assert!(!digest_hits.is_empty(), "membership set must produce hits for the gate to mean anything");
+        assert!(
+            !digest_hits.is_empty(),
+            "membership set must produce hits for the gate to mean anything"
+        );
     }
 
     /// The probe-list iterator and the eager Vec form must agree (the scan probes via the
@@ -1090,7 +1405,8 @@ mod tests {
     fn hash_candidates_iter_matches_vec_form() {
         let collected: Vec<String> =
             cache_hash_candidates_iter("steam", "/depot/1/chunk/aa", DEFAULT_MAX_CHUNKS).collect();
-        let eager = cache_hash_candidates_for_probe("steam", "/depot/1/chunk/aa", DEFAULT_MAX_CHUNKS);
+        let eager =
+            cache_hash_candidates_for_probe("steam", "/depot/1/chunk/aa", DEFAULT_MAX_CHUNKS);
         assert_eq!(collected, eager);
         // no_range + noslice + MAX_CHUNKS ranged slices.
         assert_eq!(collected.len(), DEFAULT_MAX_CHUNKS + 2);
@@ -1125,8 +1441,14 @@ mod tests {
             service_name_lowercase(service),
             nginx_cache_uri(url)
         ));
-        assert_eq!(hashes[0], expected_no_range, "first candidate must be no_range");
-        assert_eq!(hashes[1], expected_noslice, "second candidate must be ::noslice");
+        assert_eq!(
+            hashes[0], expected_no_range,
+            "first candidate must be no_range"
+        );
+        assert_eq!(
+            hashes[1], expected_noslice,
+            "second candidate must be ::noslice"
+        );
     }
 
     /// `probe_chunks_for_bytes` sizes the probe chunk count from the URL's byte size, never
@@ -1158,7 +1480,10 @@ mod tests {
         // ceil rounding: floor + half a slice rounds UP to floor + 1.
         let just_over_floor =
             DEFAULT_MAX_CHUNKS as i64 * DEFAULT_SLICE_SIZE as i64 + DEFAULT_SLICE_SIZE as i64 / 2;
-        assert_eq!(probe_chunks_for_bytes(just_over_floor), DEFAULT_MAX_CHUNKS + 1);
+        assert_eq!(
+            probe_chunks_for_bytes(just_over_floor),
+            DEFAULT_MAX_CHUNKS + 1
+        );
 
         // A huge (e.g. mis-attributed 100 GB) size is capped at MAX_PROBE_CHUNKS so the
         // all-miss eviction scan stays bounded.
@@ -1186,7 +1511,7 @@ mod tests {
         assert_eq!(nginx_cache_uri("/a%20b"), "/a b"); // %20 -> space
         assert_eq!(nginx_cache_uri("/a%2Fb"), "/a/b"); // %2F -> '/'
         assert_eq!(nginx_cache_uri("/a%2fb"), "/a/b"); // lowercase hex
-        // Query stripped THEN decoded: the decode operates on the path only.
+                                                       // Query stripped THEN decoded: the decode operates on the path only.
         assert_eq!(nginx_cache_uri("/a%20b?token=%2F"), "/a b");
     }
 
@@ -1241,7 +1566,7 @@ mod tests {
         let service: &str = "REPLACE_ME_service"; // e.g. "steam"
         let url: &str = "REPLACE_ME_url"; // e.g. "/depot/123/chunk/abc?token=xyz"
         let expected_md5: &str = "REPLACE_ME_32_char_md5"; // the on-disk filename the script found
-        // -----------------------------------------------------------
+                                                           // -----------------------------------------------------------
 
         // Reproduce nginx's key the SHIPPED way: lower(service) + $uri + slice range, then md5.
         let uri = nginx_cache_uri(url);
@@ -1284,7 +1609,13 @@ mod tests {
         written.push(calculate_cache_path_no_range(cache_dir, service, url));
         for chunk in 0..n_slices {
             let start = chunk as u64 * DEFAULT_SLICE_SIZE;
-            written.push(calculate_cache_path(cache_dir, service, url, start, chunk_end(start)));
+            written.push(calculate_cache_path(
+                cache_dir,
+                service,
+                url,
+                start,
+                chunk_end(start),
+            ));
         }
         for path in &written {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();

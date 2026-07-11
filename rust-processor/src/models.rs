@@ -5,7 +5,14 @@ use chrono::NaiveDateTime;
 pub(crate) struct LogEntry {
     pub(crate) timestamp: NaiveDateTime,
     pub(crate) client_ip: String,
+    /// Request method captured from the access-log request line. Corruption detection only
+    /// accepts literal GET requests, but other consumers still receive the original value.
+    pub(crate) method: String,
     pub(crate) service: String,
+    /// URL exactly as captured from the request line. `url` below retains the parser's historic
+    /// slash-normalized form for existing consumers, while corruption evidence exposes this raw
+    /// value and derives nginx identity through `cache_utils::nginx_cache_uri`.
+    pub(crate) raw_url: String,
     pub(crate) url: String,
     pub(crate) status_code: i32,
     pub(crate) bytes_served: i64,

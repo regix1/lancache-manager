@@ -1,15 +1,17 @@
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
+use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
-use sqlx::PgPool;
-use sqlx::Row;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sqlx::{PgPool, Row};
+use std::collections::{BTreeSet, HashSet};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
-mod cache_utils;
 mod cache_corruption_detector;
+mod cache_utils;
 mod cancel;
 mod db;
 mod log_discovery;
@@ -22,10 +24,28 @@ mod progress_utils;
 mod service_utils;
 mod tact_products;
 
-use cache_corruption_detector::CorruptionDetector;
+use cache_corruption_detector::{
+    CorruptionCandidate, CorruptionDetector, DetectionMode, DetectionReason, ValidationState,
+    CORRUPTION_CONTRACT_VERSION,
+};
+use cache_utils::{CacheSliceKind, ObservedByteRange};
+use log_purge::{ExactLogMatcher, ExactLogObservation};
 use progress_events::ProgressReporter;
 
-/// Cache corruption detector and remover
+const EXACT_DB_DELETE_SQL: &str = r#"
+DELETE FROM "LogEntries"
+WHERE LOWER("Service") = LOWER($1)
+  AND "Datasource" = $2
+  AND "ClientIp" = $3
+  AND "Timestamp" = $4
+  AND "Method" = $5
+  AND "Url" = $6
+  AND "StatusCode" = $7
+  AND "CacheStatus" = $8
+  AND "HttpRange" = $9
+RETURNING "DownloadId"
+"#;
+
 #[derive(Parser, Debug)]
 #[command(name = "cache_corruption")]
 #[command(about = "Detects and removes corrupted cache chunks")]
@@ -36,78 +56,56 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Find corrupted chunks and output detailed JSON report
+    /// Find exact physical-slice candidates and write a detailed JSON report.
     Detect {
-        /// Directory containing log files
         log_dir: String,
-        /// Cache directory root path
         cache_dir: String,
-        /// Path to output JSON file
         output_json: String,
-        /// Timezone (default: UTC)
         #[arg(default_value = "UTC")]
-        timezone: Option<String>,
-        /// Miss threshold (default: 3)
-        #[arg(default_value = "3")]
-        threshold: Option<usize>,
-        /// Skip cache file existence check (logs-only mode)
-        #[arg(long, default_value = "false")]
+        timezone: String,
+        #[arg(default_value_t = 3)]
+        threshold: usize,
+        /// Canonical mode: logs_only, cache_and_logs, or redownload.
+        #[arg(long)]
+        mode: Option<String>,
+        /// Safe legacy scan-input alias for logs_only.
+        #[arg(long, default_value_t = false)]
         no_cache_check: bool,
-        /// Detect re-downloaded chunks (HIT retries) instead of MISS-based corruption
-        #[arg(long, default_value = "false")]
+        /// Safe legacy scan-input alias for redownload.
+        #[arg(long, default_value_t = false)]
         detect_redownloads: bool,
-        /// Path to progress JSON file (omit to skip progress-file writes)
         #[arg(long)]
         progress_json: Option<String>,
-        /// Emit JSON progress events to stdout
         #[arg(short, long)]
         progress: bool,
     },
-    /// Quick JSON summary of corrupted chunk counts per service
+    /// Emit the canonical full report as compact JSON on stdout.
     Summary {
-        /// Directory containing log files
         log_dir: String,
-        /// Cache directory root path
         cache_dir: String,
-        /// Path to progress JSON file (use "none" to skip)
         #[arg(default_value = "none")]
-        progress_json: Option<String>,
-        /// Timezone (default: UTC)
+        progress_json: String,
         #[arg(default_value = "UTC")]
-        timezone: Option<String>,
-        /// Miss threshold (default: 3)
-        #[arg(default_value = "3")]
-        threshold: Option<usize>,
-        /// Skip cache file existence check (logs-only mode)
-        #[arg(long, default_value = "false")]
+        timezone: String,
+        #[arg(default_value_t = 3)]
+        threshold: usize,
+        #[arg(long)]
+        mode: Option<String>,
+        #[arg(long, default_value_t = false)]
         no_cache_check: bool,
-        /// Detect re-downloaded chunks (HIT retries) instead of MISS-based corruption
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         detect_redownloads: bool,
-        /// Emit JSON progress events to stdout
         #[arg(short, long)]
         progress: bool,
     },
-    /// Delete database records, cache files, and log entries for corrupted chunks
+    /// Remove only exact paths and observations supplied by the persisted evidence file.
     Remove {
-        /// Directory containing log files
         log_dir: String,
-        /// Cache directory root path
         cache_dir: String,
-        /// Service name to remove corrupted chunks for
         service: String,
-        /// Path to progress JSON file
         progress_json: String,
-        /// Miss threshold - minimum MISS/UNKNOWN count to consider corrupted (default: 3)
-        #[arg(default_value = "3")]
-        threshold: Option<usize>,
-        /// Skip cache file existence check (logs-only mode)
-        #[arg(long, default_value = "false")]
-        no_cache_check: bool,
-        /// Detect re-downloaded chunks (HIT retries) and delete only cache files (not logs/DB)
-        #[arg(long, default_value = "false")]
-        detect_redownloads: bool,
-        /// Emit JSON progress events to stdout
+        #[arg(long)]
+        evidence_file: String,
         #[arg(short, long)]
         progress: bool,
     },
@@ -128,23 +126,103 @@ struct ProgressData {
     timestamp: String,
 }
 
-fn parse_timezone(tz_str: &str) -> chrono_tz::Tz {
-    tz_str.parse().unwrap_or(chrono_tz::UTC)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RemovalEvidenceEnvelope {
+    contract_version: u32,
+    scan_id: String,
+    mode: DetectionMode,
+    threshold: usize,
+    datasource: String,
+    candidates: Vec<RemovalCandidate>,
+}
+
+/// C# attaches datasource to Worker 1's canonical candidate. `flatten` consumes that one extra
+/// field while preserving the shared candidate type unchanged.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RemovalCandidate {
+    datasource: String,
+    #[serde(flatten)]
+    candidate: CorruptionCandidate,
+}
+
+#[derive(Debug)]
+struct ValidatedRemovalEvidence {
+    scan_id: Uuid,
+    mode: DetectionMode,
+    threshold: usize,
+    datasource: String,
+    candidates: Vec<CorruptionCandidate>,
+    exact_paths: Vec<PathBuf>,
+    observations: Vec<ExactLogObservation>,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct ExactPathRemovalOutcome {
+    deleted_files: usize,
+    already_missing: usize,
+    bytes_freed: u64,
+}
+
+fn parse_timezone(value: &str) -> Result<chrono_tz::Tz> {
+    value
+        .parse()
+        .with_context(|| format!("invalid timezone '{value}'"))
+}
+
+fn parse_detection_mode(value: &str) -> Result<DetectionMode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "logs_only" | "logsonly" => Ok(DetectionMode::LogsOnly),
+        "cache_and_logs" | "cacheandlogs" | "miss_count" | "misscount" => {
+            Ok(DetectionMode::CacheAndLogs)
+        }
+        "redownload" => Ok(DetectionMode::Redownload),
+        _ => bail!(
+            "invalid corruption mode '{value}'; expected logs_only, cache_and_logs, or redownload"
+        ),
+    }
+}
+
+fn resolve_scan_mode(
+    canonical: Option<&str>,
+    no_cache_check: bool,
+    detect_redownloads: bool,
+) -> Result<DetectionMode> {
+    if no_cache_check && detect_redownloads {
+        bail!("--no-cache-check and --detect-redownloads are inconsistent legacy aliases");
+    }
+
+    let legacy = if detect_redownloads {
+        Some(DetectionMode::Redownload)
+    } else if no_cache_check {
+        Some(DetectionMode::LogsOnly)
+    } else {
+        None
+    };
+
+    match (canonical, legacy) {
+        (Some(value), Some(alias)) => {
+            let mode = parse_detection_mode(value)?;
+            if mode != alias {
+                bail!("canonical --mode conflicts with a legacy scan alias");
+            }
+            Ok(mode)
+        }
+        (Some(value), None) => parse_detection_mode(value),
+        (None, Some(alias)) => Ok(alias),
+        (None, None) => Ok(DetectionMode::CacheAndLogs),
+    }
 }
 
 fn write_pretty_json<T: Serialize + ?Sized>(output_path: &Path, value: &T) -> Result<()> {
-    let output_file = File::create(output_path)?;
+    let output_file = File::create(output_path)
+        .with_context(|| format!("failed to create report {}", output_path.display()))?;
     let mut output_writer = BufWriter::new(output_file);
-    serde_json::to_writer_pretty(&mut output_writer, value)?;
+    serde_json::to_writer_pretty(&mut output_writer, value)
+        .context("failed to serialize corruption report")?;
     output_writer.flush()?;
     Ok(())
 }
 
-/// Writes the progress file exactly as before, then emits the matching stdout event via
-/// `reporter` (file write always first). Used by the `Remove` subcommand's own checkpoints;
-/// `Summary`'s granular ticks come from `cache_corruption_detector.rs` (out of this migration's
-/// lane) so `Summary` only brackets `started`/`complete` around that call - see the `Commands::Summary`
-/// arm in `main()`.
 fn write_progress(
     progress_path: &Path,
     reporter: &ProgressReporter,
@@ -164,147 +242,654 @@ fn write_progress(
         total_files,
         timestamp: progress_utils::current_timestamp(),
     };
-
-    // Use shared progress writing utility
     progress_utils::write_progress_json(progress_path, &progress)?;
 
     match status {
         "starting" => reporter.emit_started(stage_key, context),
         "completed" => reporter.emit_complete(stage_key, context),
         "failed" => {
-            let error_detail = context.get("errorDetail").and_then(|v| v.as_str()).map(|s| s.to_string());
-            reporter.emit_failed(stage_key, context, error_detail);
+            let detail = context
+                .get("errorDetail")
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
+            reporter.emit_failed(stage_key, context, detail);
         }
         _ => reporter.emit_progress(percent_complete, stage_key, context),
     }
-
     Ok(())
 }
 
-async fn delete_corrupted_from_database(
+fn parse_evidence_timestamp(value: &str) -> Result<DateTime<Utc>> {
+    Ok(DateTime::parse_from_rfc3339(value)
+        .with_context(|| format!("invalid evidence timestamp '{value}'"))?
+        .with_timezone(&Utc))
+}
+
+fn observed_range_header(range: &ObservedByteRange) -> String {
+    match range {
+        ObservedByteRange::NoRange => String::new(),
+        ObservedByteRange::Inclusive { start, end } => format!("bytes={start}-{end}"),
+    }
+}
+
+fn slice_is_mapped(candidate_slice: &CacheSliceKind, mapped_slice: &CacheSliceKind) -> bool {
+    match candidate_slice {
+        // A no-range observation can retain both no-range and ::noslice exact alternatives.
+        CacheSliceKind::NoRange => {
+            matches!(
+                mapped_slice,
+                CacheSliceKind::NoRange | CacheSliceKind::Noslice
+            )
+        }
+        other => other == mapped_slice,
+    }
+}
+
+fn expected_paths_for_candidate(
+    cache_dir: &Path,
+    candidate: &CorruptionCandidate,
+) -> Result<HashSet<PathBuf>> {
+    let mapping = cache_utils::physical_slices_for_request(
+        cache_dir,
+        &candidate.service,
+        &candidate.raw_url,
+        &observed_range_header(&candidate.observed_range),
+    )
+    .context("candidate observed range cannot be mapped to physical cache slices")?;
+
+    if mapping.normalized_uri != candidate.normalized_uri {
+        bail!("candidate normalized URI does not match its raw URL");
+    }
+
+    let paths: HashSet<PathBuf> = mapping
+        .slices
+        .into_iter()
+        .filter(|slice| slice_is_mapped(&candidate.cache_slice, &slice.kind))
+        .map(|slice| slice.exact_path)
+        .collect();
+    if paths.is_empty() {
+        bail!("candidate cache slice is not covered by its observed range");
+    }
+    Ok(paths)
+}
+
+fn validate_observation(
+    cache_dir: &Path,
+    candidate: &CorruptionCandidate,
+    observation: &cache_corruption_detector::CandidateObservation,
+    expected_status: &str,
+) -> Result<ExactLogObservation> {
+    if observation.raw_url.trim().is_empty() {
+        bail!("candidate observation raw_url is missing; legacy evidence cannot be removed safely");
+    }
+    if observation.method != "GET" {
+        bail!("candidate observation method must be GET");
+    }
+    if !matches!(observation.http_status, 200 | 206) {
+        bail!("candidate observation HTTP status must be 200 or 206");
+    }
+    if observation.cache_status != expected_status {
+        bail!("candidate observation cache status does not match removal mode");
+    }
+    if observation.raw_range.as_deref() == Some("") {
+        bail!("empty ranges must be represented as null in candidate observations");
+    }
+
+    let raw_range = observation.raw_range.as_deref().unwrap_or("");
+    let mapping = cache_utils::physical_slices_for_request(
+        cache_dir,
+        &candidate.service,
+        &observation.raw_url,
+        raw_range,
+    )
+    .context("candidate observation contains an unsupported range")?;
+    if mapping.normalized_uri != candidate.normalized_uri
+        || !mapping
+            .slices
+            .iter()
+            .any(|slice| slice_is_mapped(&candidate.cache_slice, &slice.kind))
+    {
+        bail!("candidate observation does not map to the stored physical slice");
+    }
+
+    Ok(ExactLogObservation {
+        service: candidate.service.clone(),
+        raw_url: observation.raw_url.clone(),
+        timestamp: parse_evidence_timestamp(&observation.timestamp)?,
+        client_ip: observation.client_ip.clone(),
+        method: observation.method.clone(),
+        http_status: observation.http_status,
+        cache_status: observation.cache_status.clone(),
+        raw_range: observation.raw_range.clone(),
+    })
+}
+
+fn load_and_validate_removal_evidence(
+    evidence_path: &Path,
+    cache_dir: &Path,
+    requested_service: &str,
+) -> Result<ValidatedRemovalEvidence> {
+    let file = File::open(evidence_path)
+        .with_context(|| format!("failed to open evidence file {}", evidence_path.display()))?;
+    let envelope: RemovalEvidenceEnvelope =
+        serde_json::from_reader(file).context("failed to deserialize removal evidence")?;
+
+    if envelope.contract_version != CORRUPTION_CONTRACT_VERSION {
+        bail!(
+            "unsupported corruption evidence contract version {}",
+            envelope.contract_version
+        );
+    }
+    let scan_id = Uuid::parse_str(&envelope.scan_id).context("invalid evidence scan_id")?;
+    if scan_id.is_nil() {
+        bail!("evidence scan_id must not be nil");
+    }
+    if envelope.mode == DetectionMode::LogsOnly {
+        bail!("logs_only evidence is review-only and cannot be removed");
+    }
+    if !matches!(envelope.threshold, 3 | 5 | 10) {
+        bail!("evidence threshold must be 3, 5, or 10");
+    }
+    if envelope.datasource.trim().is_empty() {
+        bail!("evidence datasource is required");
+    }
+    if envelope.candidates.is_empty() {
+        bail!("evidence file contains no removal candidates");
+    }
+
+    std::fs::canonicalize(cache_dir)
+        .with_context(|| format!("cache root is not accessible: {}", cache_dir.display()))?;
+
+    let expected_status = match envelope.mode {
+        DetectionMode::CacheAndLogs => "MISS",
+        DetectionMode::Redownload => "HIT",
+        DetectionMode::LogsOnly => unreachable!("logs_only rejected above"),
+    };
+    let expected_reason = match envelope.mode {
+        DetectionMode::CacheAndLogs => DetectionReason::RepeatedMissBurst,
+        DetectionMode::Redownload => DetectionReason::SameClientHitRetryBurst,
+        DetectionMode::LogsOnly => unreachable!("logs_only rejected above"),
+    };
+
+    let mut ids = HashSet::new();
+    let mut paths = BTreeSet::new();
+    let mut observations = Vec::new();
+    let mut candidates = Vec::with_capacity(envelope.candidates.len());
+
+    for wrapped in envelope.candidates {
+        let candidate = wrapped.candidate;
+        if !wrapped
+            .datasource
+            .eq_ignore_ascii_case(&envelope.datasource)
+        {
+            bail!("candidate datasource does not match evidence envelope");
+        }
+        if candidate.mode != envelope.mode || candidate.threshold != envelope.threshold {
+            bail!("candidate mode/threshold does not match evidence envelope");
+        }
+        if !candidate.service.eq_ignore_ascii_case(requested_service) {
+            bail!("candidate service is outside the requested service scope");
+        }
+        if !candidate.removal_allowed
+            || candidate.validation_state != ValidationState::ExactPathPresent
+        {
+            bail!("candidate is not exact-path-present removable evidence");
+        }
+        if candidate.reason != expected_reason {
+            bail!("candidate reason does not match evidence mode");
+        }
+        if candidate.candidate_id.trim().is_empty() || !ids.insert(candidate.candidate_id.clone()) {
+            bail!("candidate IDs must be non-empty and unique");
+        }
+        if candidate.exact_paths.is_empty() {
+            bail!("removable candidate has no exact paths");
+        }
+        if candidate.evidence_count != candidate.observations.len()
+            || candidate.evidence_count != envelope.threshold
+        {
+            bail!("candidate evidence count does not match its threshold/observations");
+        }
+
+        let first_seen = parse_evidence_timestamp(&candidate.first_seen)?;
+        let last_seen = parse_evidence_timestamp(&candidate.last_seen)?;
+        if last_seen < first_seen || (last_seen - first_seen).num_seconds() > 60 {
+            bail!("candidate evidence window must be ordered and no longer than 60 seconds");
+        }
+
+        let expected_paths = expected_paths_for_candidate(cache_dir, &candidate)?;
+        for exact_path in &candidate.exact_paths {
+            let exact_path = PathBuf::from(exact_path);
+            if !expected_paths.contains(&exact_path) {
+                bail!("stored exact path does not match the candidate slice under this cache root");
+            }
+            if !paths.insert(exact_path.clone()) {
+                bail!("duplicate exact path appears in removal evidence");
+            }
+
+            match std::fs::symlink_metadata(&exact_path) {
+                Ok(metadata) => {
+                    cache_utils::safe_path_under_root(cache_dir, &exact_path).with_context(
+                        || format!("unsafe stored exact path {}", exact_path.display()),
+                    )?;
+                    if !metadata.is_file() {
+                        bail!(
+                            "stored exact path is not a regular file: {}",
+                            exact_path.display()
+                        );
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    // The exact path may have been evicted after the scan. Its canonical mapping
+                    // was validated above; treating it as already absent is narrowing-only.
+                }
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("failed to inspect exact path {}", exact_path.display())
+                    });
+                }
+            }
+        }
+
+        let mut candidate_observations = Vec::with_capacity(candidate.observations.len());
+        for observation in &candidate.observations {
+            candidate_observations.push(validate_observation(
+                cache_dir,
+                &candidate,
+                observation,
+                expected_status,
+            )?);
+        }
+        candidate_observations.sort_by_key(|observation| observation.timestamp);
+        if candidate_observations
+            .first()
+            .map(|observation| observation.timestamp)
+            != Some(first_seen)
+            || candidate_observations
+                .last()
+                .map(|observation| observation.timestamp)
+                != Some(last_seen)
+        {
+            bail!("candidate first/last timestamps do not match its observations");
+        }
+        if candidate.observed_range
+            != cache_utils::parse_http_byte_range(
+                candidate
+                    .observations
+                    .first()
+                    .and_then(|observation| observation.raw_range.as_deref())
+                    .unwrap_or(""),
+            )
+            .context("candidate first observation has an invalid range")?
+        {
+            bail!("candidate observed range does not match its first observation");
+        }
+        match envelope.mode {
+            DetectionMode::Redownload => {
+                let retry_client = candidate
+                    .retry_client
+                    .as_deref()
+                    .context("redownload candidate is missing retry_client")?;
+                if candidate_observations
+                    .iter()
+                    .any(|observation| observation.client_ip != retry_client)
+                {
+                    bail!("redownload observations do not match retry_client");
+                }
+            }
+            DetectionMode::CacheAndLogs if candidate.retry_client.is_some() => {
+                bail!("cache_and_logs candidate must not carry retry_client");
+            }
+            _ => {}
+        }
+
+        observations.extend(candidate_observations);
+        candidates.push(candidate);
+    }
+
+    observations.sort_by(|left, right| {
+        (
+            left.timestamp,
+            &left.service,
+            &left.raw_url,
+            &left.client_ip,
+            &left.raw_range,
+        )
+            .cmp(&(
+                right.timestamp,
+                &right.service,
+                &right.raw_url,
+                &right.client_ip,
+                &right.raw_range,
+            ))
+    });
+    observations.dedup();
+
+    Ok(ValidatedRemovalEvidence {
+        scan_id,
+        mode: envelope.mode,
+        threshold: envelope.threshold,
+        datasource: envelope.datasource,
+        candidates,
+        exact_paths: paths.into_iter().collect(),
+        observations,
+    })
+}
+
+fn delete_exact_paths_with<F>(
+    cache_dir: &Path,
+    paths: &[PathBuf],
+    progress_path: &Path,
+    reporter: &ProgressReporter,
+    mut remove_file: F,
+) -> Result<ExactPathRemovalOutcome>
+where
+    F: FnMut(&Path) -> std::io::Result<()>,
+{
+    let mut outcome = ExactPathRemovalOutcome::default();
+    let mut parent_dirs = HashSet::new();
+
+    for (index, path) in paths.iter().enumerate() {
+        if cancel::is_cancelled() {
+            bail!("corruption removal cancelled before all exact paths were processed");
+        }
+        let percent = 10.0 + (index as f64 / paths.len().max(1) as f64) * 40.0;
+        write_progress(
+            progress_path,
+            reporter,
+            "removing_cache",
+            "signalr.corruptionRemove.removingCacheFile",
+            json!({ "fileIndex": index + 1, "totalFiles": paths.len() }),
+            percent,
+            index,
+            paths.len(),
+        )?;
+
+        let metadata = match std::fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                outcome.already_missing += 1;
+                continue;
+            }
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("failed to inspect exact path {}", path.display()));
+            }
+        };
+        cache_utils::safe_path_under_root(cache_dir, path)
+            .with_context(|| format!("unsafe exact path {}", path.display()))?;
+        if !metadata.is_file() {
+            bail!("exact path is not a regular file: {}", path.display());
+        }
+
+        remove_file(path)
+            .with_context(|| format!("failed to delete exact cache path {}", path.display()))?;
+        outcome.deleted_files += 1;
+        outcome.bytes_freed += metadata.len();
+        if let Some(parent) = path.parent() {
+            parent_dirs.insert(parent.to_path_buf());
+        }
+    }
+
+    cache_utils::cleanup_empty_directories(cache_dir, parent_dirs);
+    Ok(outcome)
+}
+
+fn delete_exact_paths(
+    cache_dir: &Path,
+    paths: &[PathBuf],
+    progress_path: &Path,
+    reporter: &ProgressReporter,
+) -> Result<ExactPathRemovalOutcome> {
+    delete_exact_paths_with(cache_dir, paths, progress_path, reporter, |path| {
+        std::fs::remove_file(path)
+    })
+}
+
+fn stored_log_url(raw_url: &str) -> String {
+    if !raw_url.as_bytes().windows(2).any(|pair| pair == b"//") {
+        return raw_url.to_string();
+    }
+    let mut normalized = String::with_capacity(raw_url.len());
+    let mut previous_slash = false;
+    for character in raw_url.chars() {
+        if character == '/' {
+            if !previous_slash {
+                normalized.push(character);
+            }
+            previous_slash = true;
+        } else {
+            normalized.push(character);
+            previous_slash = false;
+        }
+    }
+    normalized
+}
+
+fn database_http_range(observation: &ExactLogObservation) -> &str {
+    observation.raw_range.as_deref().unwrap_or("")
+}
+
+async fn delete_database_observations(
     pool: &PgPool,
-    service: &str,
-    corrupted_urls: &std::collections::HashSet<String>,
+    datasource: &str,
+    observations: &[ExactLogObservation],
 ) -> Result<(usize, usize)> {
-    eprintln!("Deleting corrupted database records for service: {}", service);
+    let mut transaction = pool
+        .begin()
+        .await
+        .context("failed to begin exact corruption database cleanup")?;
+    let mut affected_download_ids = HashSet::new();
+    let mut log_entries_deleted = 0usize;
 
-    let service_lower = service.to_lowercase();
-    let miss_status = "MISS";
-    let unknown_status = "UNKNOWN";
-
-    let mut total_log_entries_deleted = 0usize;
-    let mut total_downloads_deleted = 0usize;
-
-    // Process in batches to avoid query size limits
-    let batch_size = 400;
-    let urls: Vec<&String> = corrupted_urls.iter().collect();
-
-    // STEP 1: Collect all unique DownloadIds that have corrupted (MISS/UNKNOWN) log entries
-    let mut affected_download_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
-
-    for chunk in urls.chunks(batch_size) {
-        // Build $1, $2, ... placeholders for the IN clause
-        // Parameters: service_lower = $1, then urls = $2..$(n+1), miss = $n+2, unknown = $n+3
-        let url_placeholders: String = chunk.iter().enumerate()
-            .map(|(i, _)| format!("${}", i + 2))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let miss_idx = chunk.len() + 2;
-        let unknown_idx = chunk.len() + 3;
-
-        let query_str = format!(
-            "SELECT DISTINCT \"DownloadId\" FROM \"LogEntries\" WHERE LOWER(\"Service\") = $1 AND \"Url\" IN ({}) AND \"CacheStatus\" IN (${}, ${}) AND \"DownloadId\" IS NOT NULL",
-            url_placeholders, miss_idx, unknown_idx
-        );
-
-        let mut query = sqlx::query(&query_str).bind(&service_lower);
-        for url in chunk {
-            query = query.bind(url.as_str());
-        }
-        query = query.bind(miss_status).bind(unknown_status);
-
-        let rows = query.fetch_all(pool).await?;
+    for observation in observations {
+        let rows = sqlx::query(EXACT_DB_DELETE_SQL)
+            .bind(&observation.service)
+            .bind(datasource)
+            .bind(&observation.client_ip)
+            .bind(observation.timestamp)
+            .bind(&observation.method)
+            .bind(stored_log_url(&observation.raw_url))
+            .bind(observation.http_status)
+            .bind(&observation.cache_status)
+            // New no-range rows persist ""; historical nullable rows never match this predicate.
+            .bind(database_http_range(observation))
+            .fetch_all(&mut *transaction)
+            .await
+            .context("failed to delete exact corruption LogEntries")?;
+        log_entries_deleted += rows.len();
         for row in rows {
-            let download_id: i64 = row.get("DownloadId");
-            affected_download_ids.insert(download_id);
+            if let Some(download_id) = row.try_get::<Option<i64>, _>("DownloadId")? {
+                affected_download_ids.insert(download_id);
+            }
         }
     }
 
-    eprintln!("  Found {} download sessions with corrupted entries", affected_download_ids.len());
-
-    // STEP 2: Delete only MISS/UNKNOWN LogEntries for corrupted URLs
-    // IMPORTANT: Keep HIT entries intact to prevent snowball corruption detection
-    for chunk in urls.chunks(batch_size) {
-        let url_placeholders: String = chunk.iter().enumerate()
-            .map(|(i, _)| format!("${}", i + 2))
+    let mut downloads_deleted = 0usize;
+    let download_ids: Vec<i64> = affected_download_ids.into_iter().collect();
+    for chunk in download_ids.chunks(400) {
+        let placeholders = (1..=chunk.len())
+            .map(|index| format!("${index}"))
             .collect::<Vec<_>>()
             .join(", ");
-        let miss_idx = chunk.len() + 2;
-        let unknown_idx = chunk.len() + 3;
-
-        let log_query_str = format!(
-            "DELETE FROM \"LogEntries\" WHERE LOWER(\"Service\") = $1 AND \"Url\" IN ({}) AND \"CacheStatus\" IN (${}, ${})",
-            url_placeholders, miss_idx, unknown_idx
+        let delete_downloads = format!(
+            "DELETE FROM \"Downloads\" WHERE \"Id\" IN ({placeholders}) AND NOT EXISTS (SELECT 1 FROM \"LogEntries\" WHERE \"LogEntries\".\"DownloadId\" = \"Downloads\".\"Id\")"
         );
-
-        let mut query = sqlx::query(&log_query_str).bind(&service_lower);
-        for url in chunk {
-            query = query.bind(url.as_str());
-        }
-        query = query.bind(miss_status).bind(unknown_status);
-
-        let result = query.execute(pool).await?;
-        total_log_entries_deleted += result.rows_affected() as usize;
-    }
-
-    eprintln!("  Deleted {} log entry records", total_log_entries_deleted);
-
-    // STEP 3: Only delete Download sessions that have NO remaining LogEntries
-    let download_ids_vec: Vec<i64> = affected_download_ids.into_iter().collect();
-
-    for chunk in download_ids_vec.chunks(batch_size) {
-        let placeholders: String = chunk.iter().enumerate()
-            .map(|(i, _)| format!("${}", i + 1))
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        let downloads_query_str = format!(
-            "DELETE FROM \"Downloads\" WHERE \"Id\" IN ({}) AND NOT EXISTS (SELECT 1 FROM \"LogEntries\" WHERE \"LogEntries\".\"DownloadId\" = \"Downloads\".\"Id\")",
-            placeholders
-        );
-
-        let mut query = sqlx::query(&downloads_query_str);
+        let mut query = sqlx::query(&delete_downloads);
         for id in chunk {
             query = query.bind(*id);
         }
+        downloads_deleted += query.execute(&mut *transaction).await?.rows_affected() as usize;
 
-        let result = query.execute(pool).await?;
-        total_downloads_deleted += result.rows_affected() as usize;
-    }
-
-    eprintln!("  Deleted {} download records (sessions with only corrupted chunks)", total_downloads_deleted);
-
-    // STEP 4: Update CacheMissBytes on remaining Downloads that had some corrupted entries removed
-    for chunk in download_ids_vec.chunks(batch_size) {
-        let placeholders: String = chunk.iter().enumerate()
-            .map(|(i, _)| format!("${}", i + 1))
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        let update_query_str = format!(
-            "UPDATE \"Downloads\" SET \"CacheMissBytes\" = COALESCE((SELECT SUM(\"BytesServed\") FROM \"LogEntries\" WHERE \"LogEntries\".\"DownloadId\" = \"Downloads\".\"Id\" AND \"CacheStatus\" IN ('MISS', 'UNKNOWN')), 0) WHERE \"Id\" IN ({})",
-            placeholders
+        let update_downloads = format!(
+            "UPDATE \"Downloads\" SET \"CacheHitBytes\" = COALESCE((SELECT SUM(\"BytesServed\") FROM \"LogEntries\" WHERE \"LogEntries\".\"DownloadId\" = \"Downloads\".\"Id\" AND \"CacheStatus\" = 'HIT'), 0), \"CacheMissBytes\" = COALESCE((SELECT SUM(\"BytesServed\") FROM \"LogEntries\" WHERE \"LogEntries\".\"DownloadId\" = \"Downloads\".\"Id\" AND \"CacheStatus\" IN ('MISS', 'UNKNOWN')), 0) WHERE \"Id\" IN ({placeholders})"
         );
-
-        let mut query = sqlx::query(&update_query_str);
+        let mut query = sqlx::query(&update_downloads);
         for id in chunk {
             query = query.bind(*id);
         }
-
-        query.execute(pool).await?;
+        query.execute(&mut *transaction).await?;
     }
 
-    Ok((total_downloads_deleted, total_log_entries_deleted))
+    transaction
+        .commit()
+        .await
+        .context("failed to commit exact corruption database cleanup")?;
+    Ok((downloads_deleted, log_entries_deleted))
+}
+
+fn seed_scan_progress(progress_path: Option<&Path>) {
+    if let Some(path) = progress_path {
+        let starting = ProgressData {
+            status: "starting".to_string(),
+            stage_key: "signalr.corruptionRemove.scanningFiles".to_string(),
+            context: json!({}),
+            percent_complete: 0.0,
+            files_processed: 0,
+            total_files: 0,
+            timestamp: progress_utils::current_timestamp(),
+        };
+        if let Err(error) = progress_utils::write_progress_json(path, &starting) {
+            eprintln!("Warning: failed to seed progress file: {error:#}");
+        }
+    }
+}
+
+fn generate_report(
+    log_dir: &Path,
+    cache_dir: &Path,
+    timezone: chrono_tz::Tz,
+    threshold: usize,
+    mode: DetectionMode,
+    progress_path: Option<&Path>,
+) -> Result<cache_corruption_detector::CorruptionReport> {
+    CorruptionDetector::new(cache_dir, threshold)
+        .generate_report_for_mode(mode, log_dir, "access.log", timezone, progress_path)
+        .with_context(|| format!("failed to generate {mode:?} corruption report"))
+}
+
+async fn run_remove(
+    log_dir: &Path,
+    cache_dir: &Path,
+    service: &str,
+    progress_path: &Path,
+    evidence_path: &Path,
+    reporter: &ProgressReporter,
+) -> Result<()> {
+    write_progress(
+        progress_path,
+        reporter,
+        "starting",
+        "signalr.corruptionRemove.starting",
+        json!({ "service": service }),
+        0.0,
+        0,
+        0,
+    )?;
+
+    let evidence = load_and_validate_removal_evidence(evidence_path, cache_dir, service)?;
+    eprintln!(
+        "Validated scan {}: {} {:?} candidates for datasource '{}' at threshold {}",
+        evidence.scan_id,
+        evidence.candidates.len(),
+        evidence.mode,
+        evidence.datasource,
+        evidence.threshold
+    );
+
+    // Preflight every non-filesystem dependency before the first unlink. A later mutation error
+    // still retains persisted evidence, but avoid preventable partial work (bad log root/DB config).
+    crate::log_discovery::discover_log_files(log_dir, "access.log")
+        .context("failed to discover access logs before removal")?;
+    let matcher = ExactLogMatcher::new(evidence.observations.clone());
+    let prefilter = matcher.prefilter()?;
+    let pool = db::create_pool()
+        .await
+        .context("failed to connect to the database before corruption removal")?;
+
+    write_progress(
+        progress_path,
+        reporter,
+        "removing_cache",
+        "signalr.corruptionRemove.removingCacheFiles",
+        json!({ "totalFiles": evidence.exact_paths.len() }),
+        10.0,
+        0,
+        evidence.exact_paths.len(),
+    )?;
+    let cache_outcome =
+        delete_exact_paths(cache_dir, &evidence.exact_paths, progress_path, reporter)?;
+
+    write_progress(
+        progress_path,
+        reporter,
+        "filtering",
+        "signalr.corruptionRemove.filteringLogs",
+        json!({}),
+        55.0,
+        0,
+        0,
+    )?;
+    let filter_callback = |files_done: usize, total: usize| {
+        let percent = 55.0 + (files_done as f64 / total.max(1) as f64) * 25.0;
+        let _ = write_progress(
+            progress_path,
+            reporter,
+            "filtering",
+            "signalr.corruptionRemove.filteringFile",
+            json!({ "fileIndex": files_done, "totalFiles": total }),
+            percent,
+            files_done,
+            total,
+        );
+    };
+    let log_outcome = log_purge::rewrite_matching_log_entries_strict(
+        log_dir,
+        "exact corruption evidence",
+        &prefilter,
+        |entry| matcher.matches(entry),
+        Some(&filter_callback),
+    )?;
+    if log_outcome.permission_errors > 0 || log_outcome.other_errors > 0 {
+        bail!(
+            "access-log cleanup was partial ({} permission errors, {} other errors); database evidence was retained",
+            log_outcome.permission_errors,
+            log_outcome.other_errors
+        );
+    }
+
+    write_progress(
+        progress_path,
+        reporter,
+        "removing_database",
+        "signalr.corruptionRemove.deletingDb",
+        json!({}),
+        85.0,
+        0,
+        0,
+    )?;
+    let (downloads_deleted, log_entries_deleted) =
+        delete_database_observations(&pool, &evidence.datasource, &evidence.observations).await?;
+
+    write_progress(
+        progress_path,
+        reporter,
+        "completed",
+        "signalr.corruptionRemove.complete",
+        json!({
+            "count": evidence.candidates.len(),
+            "service": service,
+            "files": cache_outcome.deleted_files,
+            "alreadyMissing": cache_outcome.already_missing,
+            "bytesFreed": cache_outcome.bytes_freed,
+            "logLines": log_outcome.lines_removed,
+            "downloads": downloads_deleted,
+            "logEntries": log_entries_deleted
+        }),
+        100.0,
+        evidence.exact_paths.len(),
+        evidence.exact_paths.len(),
+    )?;
+    Ok(())
 }
 
 #[tokio::main]
@@ -313,768 +898,630 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     match args.command {
-        Commands::Detect { log_dir, cache_dir, output_json, timezone, threshold, no_cache_check, detect_redownloads, progress_json, progress } => {
-
-            let log_dir = PathBuf::from(&log_dir);
-            let cache_dir = PathBuf::from(&cache_dir);
-            let output_json = PathBuf::from(&output_json);
-            let timezone = timezone.map(|tz| parse_timezone(&tz)).unwrap_or(chrono_tz::UTC);
-            let threshold = threshold.unwrap_or(3);
+        Commands::Detect {
+            log_dir,
+            cache_dir,
+            output_json,
+            timezone,
+            threshold,
+            mode,
+            no_cache_check,
+            detect_redownloads,
+            progress_json,
+            progress,
+        } => {
             let reporter = ProgressReporter::new(progress);
-            let progress_path = progress_json.map(PathBuf::from);
-
-            // Whole arm routed through the single failure funnel: any `?`-propagated error
-            // below (not just the hand-checked report-generation call) now produces the
-            // structured stdout `failed` event via finish_or_exit instead of a bare exit.
-            let result: Result<()> = async {
-                if detect_redownloads {
-                    eprintln!("Detecting re-downloaded chunks (HIT retries)...");
-                } else {
-                    eprintln!("Detecting corrupted chunks...");
-                }
-                eprintln!("  Log directory: {}", log_dir.display());
-                eprintln!("  Cache directory: {}", cache_dir.display());
-                eprintln!("  Timezone: {}", timezone);
-                eprintln!("  Threshold: {}", threshold);
-                eprintln!("  Skip cache check: {}", no_cache_check);
-                eprintln!("  Detect redownloads: {}", detect_redownloads);
-
-                // Seed the (C#-pre-created, empty) progress file before the "started" event so an
-                // event-triggered read never sees empty JSON - mirrors the Summary subcommand's invariant.
-                if let Some(path) = progress_path.as_deref() {
-                    let starting = ProgressData {
-                        status: "starting".to_string(),
-                        stage_key: "signalr.corruptionRemove.scanningFiles".to_string(),
-                        context: json!({}),
-                        percent_complete: 0.0,
-                        files_processed: 0,
-                        total_files: 0,
-                        timestamp: progress_utils::current_timestamp(),
-                    };
-                    if let Err(e) = progress_utils::write_progress_json(path, &starting) {
-                        eprintln!("Warning: failed to seed progress file: {:#}", e);
-                    }
-                }
+            let result: Result<()> = (|| {
+                let mode = resolve_scan_mode(mode.as_deref(), no_cache_check, detect_redownloads)?;
+                let timezone = parse_timezone(&timezone)?;
+                let progress_path = progress_json.as_deref().map(Path::new);
+                seed_scan_progress(progress_path);
                 reporter.emit_started("signalr.corruptionRemove.scanningFiles", json!({}));
-
-                let detector = CorruptionDetector::new(&cache_dir, threshold)
-                    .with_skip_cache_check(no_cache_check);
-                // Granular scanning ticks come from cache_corruption_detector.rs's
-                // detect_*_chunks_with_progress (progress-file only); the stdout channel here
-                // brackets the coarse started/complete lifecycle, same split as Commands::Summary.
-                let report = if detect_redownloads {
-                    detector.generate_redownload_report(&log_dir, "access.log", timezone, progress_path.as_deref())
-                        .map_err(|e| anyhow::anyhow!("Failed to generate re-download report: {}", e))?
-                } else {
-                    detector.generate_report(&log_dir, "access.log", timezone, progress_path.as_deref())
-                        .map_err(|e| anyhow::anyhow!("Failed to generate corruption report: {}", e))?
-                };
-
-                eprintln!("Found {} corrupted chunks across {} services",
-                    report.summary.total_corrupted,
-                    report.summary.service_counts.len());
-
+                let report = generate_report(
+                    Path::new(&log_dir),
+                    Path::new(&cache_dir),
+                    timezone,
+                    threshold,
+                    mode,
+                    progress_path,
+                )?;
+                write_pretty_json(Path::new(&output_json), &report)?;
                 reporter.emit_complete(
                     "signalr.corruptionRemove.complete",
-                    json!({ "totalCorrupted": report.summary.total_corrupted, "serviceCounts": report.summary.service_counts }),
+                    json!({ "totalCorrupted": report.total, "serviceCounts": report.service_counts }),
                 );
-
-                // Write detailed report to JSON
-                write_pretty_json(&output_json, &report)?;
-
-                eprintln!("Report saved to: {}", output_json.display());
                 Ok(())
-            }.await;
-            progress_events::finish_or_exit(&reporter, "signalr.corruptionRemove.error.fatal", result);
+            })();
+            progress_events::finish_or_exit(
+                &reporter,
+                "signalr.corruptionRemove.error.fatal",
+                result,
+            );
         }
-
-        Commands::Summary { log_dir, cache_dir, progress_json, timezone, threshold, no_cache_check, detect_redownloads, progress } => {
-
-            let log_dir = PathBuf::from(&log_dir);
-            let cache_dir = PathBuf::from(&cache_dir);
+        Commands::Summary {
+            log_dir,
+            cache_dir,
+            progress_json,
+            timezone,
+            threshold,
+            mode,
+            no_cache_check,
+            detect_redownloads,
+            progress,
+        } => {
             let reporter = ProgressReporter::new(progress);
-
-            // Parse optional progress file - use "none" to skip progress
-            let progress_path = progress_json
-                .filter(|p| p != "none" && !p.is_empty())
-                .map(PathBuf::from);
-
-            let timezone = timezone.map(|tz| parse_timezone(&tz)).unwrap_or(chrono_tz::UTC);
-            let threshold = threshold.unwrap_or(3);
-
-            // Whole arm routed through the single failure funnel (see Commands::Detect).
-            let result: Result<()> = async {
-                // All diagnostic output to stderr so stdout only contains JSON
-                if detect_redownloads {
-                    eprintln!("Generating re-download detection summary...");
-                } else {
-                    eprintln!("Generating corruption summary...");
-                }
-                eprintln!("  Log directory: {}", log_dir.display());
-                eprintln!("  Cache directory: {}", cache_dir.display());
-                eprintln!("  Progress file: {}", progress_path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "none".to_string()));
-                eprintln!("  Timezone: {}", timezone);
-                eprintln!("  Threshold: {}", threshold);
-                eprintln!("  Skip cache check: {}", no_cache_check);
-                eprintln!("  Detect redownloads: {}", detect_redownloads);
-
-                // Granular scanning ticks for Summary come from cache_corruption_detector.rs's
-                // generate_*_summary_with_progress (progress-file only, outside this migration's
-                // lane) - the stdout channel here brackets the coarse started/complete lifecycle.
-                // File-write-before-stdout-emit invariant: seed the (C#-pre-created, empty)
-                // progress file before the "started" event so an event-triggered read never sees
-                // empty JSON.
-                if let Some(path) = progress_path.as_deref() {
-                    let starting = ProgressData {
-                        status: "starting".to_string(),
-                        stage_key: "signalr.corruptionRemove.scanningFiles".to_string(),
-                        context: json!({}),
-                        percent_complete: 0.0,
-                        files_processed: 0,
-                        total_files: 0,
-                        timestamp: progress_utils::current_timestamp(),
-                    };
-                    if let Err(e) = progress_utils::write_progress_json(path, &starting) {
-                        eprintln!("Warning: failed to seed progress file: {:#}", e);
-                    }
-                }
+            let result: Result<()> = (|| {
+                let mode = resolve_scan_mode(mode.as_deref(), no_cache_check, detect_redownloads)?;
+                let timezone = parse_timezone(&timezone)?;
+                let progress_path = (progress_json != "none" && !progress_json.is_empty())
+                    .then(|| Path::new(&progress_json));
+                seed_scan_progress(progress_path);
                 reporter.emit_started("signalr.corruptionRemove.scanningFiles", json!({}));
-
-                let detector = CorruptionDetector::new(&cache_dir, threshold)
-                    .with_skip_cache_check(no_cache_check);
-                let summary = if detect_redownloads {
-                    detector.generate_redownload_summary_with_progress(
-                        &log_dir, "access.log", timezone, progress_path.as_deref()
-                    ).map_err(|e| anyhow::anyhow!("Failed to generate re-download summary: {}", e))?
-                } else {
-                    detector.generate_summary_with_progress(
-                        &log_dir, "access.log", timezone, progress_path.as_deref()
-                    ).map_err(|e| anyhow::anyhow!("Failed to generate corruption summary: {}", e))?
-                };
-
-                // Real final counts (never hardcoded zeros).
+                let report = generate_report(
+                    Path::new(&log_dir),
+                    Path::new(&cache_dir),
+                    timezone,
+                    threshold,
+                    mode,
+                    progress_path,
+                )?;
                 reporter.emit_complete(
                     "signalr.corruptionRemove.complete",
-                    json!({ "totalCorrupted": summary.total_corrupted, "serviceCounts": summary.service_counts }),
+                    json!({ "totalCorrupted": report.total, "serviceCounts": report.service_counts }),
                 );
-
-                // Output JSON to stdout for C# to capture (ONLY stdout should be JSON)
-                let json = serde_json::to_string(&summary)?;
-                println!("{}", json);
+                println!("{}", serde_json::to_string(&report)?);
                 Ok(())
-            }.await;
-            progress_events::finish_or_exit(&reporter, "signalr.corruptionRemove.error.fatal", result);
+            })();
+            progress_events::finish_or_exit(
+                &reporter,
+                "signalr.corruptionRemove.error.fatal",
+                result,
+            );
         }
-
-        Commands::Remove { log_dir, cache_dir, service, progress_json, threshold, no_cache_check, detect_redownloads, progress } => {
-
-            let log_dir = PathBuf::from(&log_dir);
-            let cache_dir = PathBuf::from(&cache_dir);
-            let progress_path = PathBuf::from(&progress_json);
+        Commands::Remove {
+            log_dir,
+            cache_dir,
+            service,
+            progress_json,
+            evidence_file,
+            progress,
+        } => {
             let reporter = ProgressReporter::new(progress);
-
-            use log_reader::LogFileReader;
-            use parser::LogParser;
-            use std::collections::HashMap;
-
-            // Whole arm routed through the single failure funnel (see Commands::Detect):
-            // the two hand-checked "permission errors abort" sites below now just `bail!`
-            // with context instead of hand-emitting `failed` + `process::exit(1)`, so
-            // finish_or_exit is the ONE place this arm's failures get emitted.
-            let result: Result<()> = async {
-            if detect_redownloads {
-                eprintln!("Removing re-download corrupted cache files for service: {}", service);
-            } else {
-                eprintln!("Removing corrupted chunks for service: {}", service);
-            }
-            eprintln!("  Log directory: {}", log_dir.display());
-            eprintln!("  Cache directory: {}", cache_dir.display());
-
-            write_progress(&progress_path, &reporter, "starting", "signalr.corruptionRemove.starting", json!({ "service": service }), 0.0, 0, 0)?;
-
-            // Re-download mode: detect via HIT retries within 60s window, then remove cache files, log lines, and DB records
-            if detect_redownloads {
-                let miss_threshold: usize = threshold.unwrap_or(3);
-                let service_lower = service.to_lowercase();
-
-                eprintln!("Step 1: Detecting re-downloaded URLs for {}...", service);
-                write_progress(&progress_path, &reporter, "scanning", "signalr.corruptionRemove.scanningRedownload", json!({}), 5.0, 0, 0)?;
-
-                let detector = CorruptionDetector::new(&cache_dir, miss_threshold);
-                let timezone_tz: chrono_tz::Tz = chrono_tz::UTC;
-                let redownload_map = detector.detect_redownloaded_chunks_with_progress(
-                    &log_dir, "access.log", timezone_tz, Some(&progress_path)
-                )?;
-
-                // Filter to the requested service, capturing URL and response size
-                let service_urls_with_sizes: HashMap<String, i64> = redownload_map
-                    .into_iter()
-                    .filter(|((svc, _url), (_count, _size))| svc.to_lowercase() == service_lower)
-                    .map(|((_svc, url), (_count, size))| (url, size))
-                    .collect();
-
-                if service_urls_with_sizes.is_empty() {
-                    eprintln!("No re-download corrupted chunks found for {}, nothing to remove", service);
-                    write_progress(&progress_path, &reporter, "completed", "signalr.corruptionRemove.noChunksFound", json!({}), 100.0, 0, 0)?;
-                    return Ok(());
-                }
-
-                let corrupted_urls: std::collections::HashSet<String> = service_urls_with_sizes.keys().cloned().collect();
-                eprintln!("Found {} re-download corrupted URLs for {}", corrupted_urls.len(), service);
-
-                // PASS 2: Filter log files, removing HIT lines for corrupted URLs.
-                // Uses the shared scan-then-rewrite helper (Aho-Corasick prefilter,
-                // untouched files skip recompression entirely).
-                eprintln!("Step 2: Filtering log files to remove HIT entries for corrupted URLs...");
-
-                let log_files = crate::log_discovery::discover_log_files(&log_dir, "access.log")?;
-                let total_files = log_files.len();
-
-                write_progress(&progress_path, &reporter, "filtering", "signalr.corruptionRemove.filteringLogs", json!({ "totalFiles": total_files }), 30.0, 0, total_files)?;
-
-                let prefilter = log_purge::RemovalPrefilter::new(
-                    corrupted_urls.iter().map(|url| url.as_bytes()),
-                )?;
-                let filter_progress_cb = |files_done: usize, total: usize| {
-                    let filter_percent = 30.0 + (files_done as f64 / total.max(1) as f64) * 20.0;
-                    let _ = write_progress(
-                        &progress_path,
-                        &reporter,
-                        "filtering",
-                        "signalr.corruptionRemove.filteringFile",
-                        json!({ "fileIndex": files_done, "totalFiles": total }),
-                        filter_percent,
-                        files_done,
-                        total,
-                    );
-                };
-                // Remove HIT lines for corrupted URLs (re-download corruption serves bad HITs)
-                let (total_lines_removed, _log_filter_permission_errors) =
-                    log_purge::rewrite_matching_log_entries(
-                        &log_dir,
-                        "re-download corrupted",
-                        &prefilter,
-                        |entry| {
-                            entry.service == service_lower
-                                && corrupted_urls.contains(&entry.url)
-                                && entry.cache_status == "HIT"
-                        },
-                        Some(&filter_progress_cb),
-                    )?;
-
-                // Step 3: Delete ALL cache file chunks from disk (multi-slice aware)
-                let total_urls = service_urls_with_sizes.len();
-                eprintln!("Step 3: Deleting cache files for {} corrupted URLs...", total_urls);
-                write_progress(&progress_path, &reporter, "removing_cache", "signalr.corruptionRemove.removingCacheFiles", json!({ "totalUrls": total_urls }), 50.0, 0, total_urls)?;
-
-                let mut deleted_count = 0usize;
-                let mut permission_errors = 0usize;
-                let mut other_errors = 0usize;
-                let slice_size: i64 = 1_048_576; // 1MB
-
-                for (url_index, (url, response_size)) in service_urls_with_sizes.iter().enumerate() {
-                    // Cooperative cancellation: stop between chunks.
-                    if cancel::is_cancelled() {
-                        let percent = 50.0 + (url_index as f64 / total_urls.max(1) as f64) * 25.0;
-                        eprintln!("Cancellation requested at URL {}/{} — flushing partial progress.", url_index, total_urls);
-                        let _ = write_progress(&progress_path, &reporter, "removing_cache", "signalr.corruptionRemove.removingCacheFile", json!({ "urlIndex": url_index, "totalUrls": total_urls }), percent, url_index, total_urls);
-                        return Ok(());
-                    }
-
-                    if url_index % 50 == 0 || url_index == total_urls - 1 {
-                        let percent = 50.0 + (url_index as f64 / total_urls.max(1) as f64) * 25.0;
-                        write_progress(&progress_path, &reporter, "removing_cache", "signalr.corruptionRemove.removingCacheFile", json!({ "urlIndex": url_index + 1, "totalUrls": total_urls }), percent, url_index, total_urls)?;
-                    }
-
-                    // FIRST: Try the no-range format (standard lancache format)
-                    let cache_path_no_range = cache_utils::calculate_cache_path_no_range(&cache_dir, &service_lower, url);
-
-                    if cache_path_no_range.exists() {
-                        match cache_utils::safe_path_under_root(&cache_dir, &cache_path_no_range) {
-                            Ok(_) => match std::fs::remove_file(&cache_path_no_range) {
-                                Ok(_) => {
-                                    deleted_count += 1;
-                                    if deleted_count % 100 == 0 {
-                                        eprintln!("  Deleted {} cache files...", deleted_count);
-                                    }
-                                }
-                                Err(e) => {
-                                    if e.kind() == std::io::ErrorKind::PermissionDenied {
-                                        permission_errors += 1;
-                                        if permission_errors <= 5 {
-                                            eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path_no_range.display(), e);
-                                        }
-                                    } else {
-                                        other_errors += 1;
-                                        eprintln!("  Warning: Failed to delete {}: {}", cache_path_no_range.display(), e);
-                                    }
-                                }
-                            },
-                            Err(e) => {
-                                other_errors += 1;
-                                eprintln!("  skipping unsafe path {}: {}", cache_path_no_range.display(), e);
-                            }
-                        }
-                    } else {
-                        // FALLBACK: Try the chunked format with bytes range
-                        if *response_size == 0 {
-                            let cache_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, 0, 1_048_575);
-
-                            if cache_path.exists() {
-                                match cache_utils::safe_path_under_root(&cache_dir, &cache_path) {
-                                    Ok(_) => match std::fs::remove_file(&cache_path) {
-                                        Ok(_) => deleted_count += 1,
-                                        Err(e) => {
-                                            if e.kind() == std::io::ErrorKind::PermissionDenied {
-                                                permission_errors += 1;
-                                                if permission_errors <= 5 {
-                                                    eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
-                                                }
-                                            } else {
-                                                other_errors += 1;
-                                                eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
-                                            }
-                                        }
-                                    },
-                                    Err(e) => {
-                                        other_errors += 1;
-                                        eprintln!("  skipping unsafe path {}: {}", cache_path.display(), e);
-                                    }
-                                }
-                            }
-                        } else {
-                            let mut start: i64 = 0;
-                            while start < *response_size {
-                                let end = start + slice_size - 1;
-
-                                let cache_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, start as u64, end as u64);
-
-                                if cache_path.exists() {
-                                    match cache_utils::safe_path_under_root(&cache_dir, &cache_path) {
-                                        Ok(_) => match std::fs::remove_file(&cache_path) {
-                                            Ok(_) => {
-                                                deleted_count += 1;
-                                                if deleted_count % 100 == 0 {
-                                                    eprintln!("  Deleted {} cache files...", deleted_count);
-                                                }
-                                            }
-                                            Err(e) => {
-                                                if e.kind() == std::io::ErrorKind::PermissionDenied {
-                                                    permission_errors += 1;
-                                                    if permission_errors <= 5 {
-                                                        eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
-                                                    }
-                                                } else {
-                                                    other_errors += 1;
-                                                    eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
-                                                }
-                                            }
-                                        },
-                                        Err(e) => {
-                                            other_errors += 1;
-                                            eprintln!("  skipping unsafe path {}: {}", cache_path.display(), e);
-                                        }
-                                    }
-                                }
-
-                                start += slice_size;
-                            }
-                        }
-                    }
-                }
-
-                eprintln!("Deleted {} cache files", deleted_count);
-                if permission_errors > 0 {
-                    eprintln!("ERROR: {} files could not be deleted due to permission errors", permission_errors);
-                    if permission_errors > 5 {
-                        eprintln!("  (only first 5 errors shown)");
-                    }
-                }
-                if other_errors > 0 {
-                    eprintln!("WARNING: {} files could not be deleted due to other errors", other_errors);
-                }
-                eprintln!("Removed {} total log lines across {} files", total_lines_removed, log_files.len());
-
-                // CRITICAL: If we had permission errors, do NOT delete database records
-                if permission_errors > 0 {
-                    let puid = std::env::var("PUID").unwrap_or_else(|_| "1000".to_string());
-                    let pgid = std::env::var("PGID").unwrap_or_else(|_| "1000".to_string());
-                    let error_msg = format!(
-                        "ABORTED: Cannot delete database records because {} cache files could not be deleted due to permission errors. \
-                        This is likely caused by incorrect PUID/PGID settings. The lancache container is configured to run as UID/GID {}:{}. \
-                        Please check your docker-compose.yml and ensure PUID and PGID match the cache file ownership.",
-                        permission_errors, puid, pgid
-                    );
-                    eprintln!("\n{}", error_msg);
-                    anyhow::bail!("{}", error_msg);
-                }
-
-                // Step 4: Delete database records for corrupted downloads
-                eprintln!("Step 4: Deleting database records...");
-                write_progress(&progress_path, &reporter, "removing_database", "signalr.corruptionRemove.deletingDb", json!({}), 85.0, 0, 0)?;
-
-                let pool = db::create_pool().await?;
-                let (downloads_deleted, log_entries_deleted) = delete_corrupted_from_database(&pool, &service, &corrupted_urls).await?;
-
-                write_progress(&progress_path, &reporter, "completed", "signalr.corruptionRemove.redownload.complete", json!({ "count": service_urls_with_sizes.len(), "service": service, "files": deleted_count, "logLines": total_lines_removed, "downloads": downloads_deleted, "logEntries": log_entries_deleted }), 100.0, 0, 0)?;
-                eprintln!("\n=== Re-download Corruption Removal Summary ===");
-                eprintln!("Corrupted URLs detected: {}", service_urls_with_sizes.len());
-                eprintln!("Cache files deleted: {}", deleted_count);
-                eprintln!("Log lines removed: {}", total_lines_removed);
-                eprintln!("Database downloads deleted: {}", downloads_deleted);
-                eprintln!("Database log entries deleted: {}", log_entries_deleted);
-                eprintln!("Removal completed successfully");
-                return Ok(());
-            }
-
-            eprintln!("Step 1: Detecting corrupted URLs for {}...", service);
-
-            let service_lower = service.to_lowercase();
-            let parser = LogParser::new(chrono_tz::UTC);
-            let log_files = crate::log_discovery::discover_log_files(&log_dir, "access.log")?;
-
-            // PASS 1: Scan all logs to identify corrupted URLs AND their sizes.
-            // One map holds (miss_count, max response size) per URL - two separate URL-keyed
-            // maps stored every URL string twice.
-            let mut miss_tracker: HashMap<String, (usize, i64)> = HashMap::new();
-            let mut entries_processed: usize = 0;
-            let miss_threshold: usize = threshold.unwrap_or(3);
-
-            let total_files = log_files.len();
-            write_progress(&progress_path, &reporter, "scanning", "signalr.corruptionRemove.scanningFiles", json!({ "totalFiles": total_files }), 0.0, 0, total_files)?;
-
-            // First pass: identify all corrupted URLs AND track their response sizes
-            for (file_index, log_file) in log_files.iter().enumerate() {
-                // Update progress during scanning (0-30%)
-                let scan_percent = (file_index as f64 / total_files as f64) * 30.0;
-                write_progress(&progress_path, &reporter, "scanning", "signalr.corruptionRemove.scanningFile", json!({ "fileIndex": file_index + 1, "totalFiles": total_files }), scan_percent, file_index, total_files)?;
-                eprintln!("  Scanning file {}/{}: {}", file_index + 1, total_files, log_file.path.display());
-
-                let scan_result = (|| -> Result<()> {
-                    let mut log_reader = LogFileReader::open(&log_file.path)?;
-                    let mut line = String::new();
-
-                    loop {
-                        line.clear();
-                        let bytes_read = log_reader.read_line(&mut line)?;
-                        if bytes_read == 0 {
-                            break; // EOF
-                        }
-
-                        // Parse the line
-                        if let Some(entry) = parser.parse_line(line.trim()) {
-                            // Skip health check/heartbeat endpoints
-                            if !service_utils::should_skip_url(&entry.url) {
-                                // Track MISS/UNKNOWN for this service
-                                if entry.service == service_lower &&
-                                   (entry.cache_status == "MISS" || entry.cache_status == "UNKNOWN") {
-                                    let tracked = miss_tracker
-                                        .entry(entry.url.clone())
-                                        .or_insert((0usize, i64::MIN));
-                                    tracked.0 += 1;
-                                    // Track the maximum response size for this URL
-                                    tracked.1 = tracked.1.max(entry.bytes_served);
-                                    entries_processed += 1;
-
-                                    // Log progress periodically
-                                    if entries_processed % 500_000 == 0 {
-                                        eprintln!("    Processed {} MISS/UNKNOWN entries, tracking {} unique URLs",
-                                            entries_processed, miss_tracker.len());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Ok(())
-                })();
-
-                if let Err(e) = scan_result {
-                    eprintln!("  WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
-                    continue;
-                }
-            }
-
-            // Build map of candidate URLs with their response sizes (those with threshold+ misses)
-            let candidates: HashMap<String, i64> = miss_tracker
-                .into_iter()
-                .filter(|(_, (count, _))| *count >= miss_threshold)
-                .map(|(url, (_, max_size))| (url, max_size))
-                .collect();
-
-            let candidate_count = candidates.len();
-            eprintln!("Found {} URLs with {}+ MISS/UNKNOWN entries for {}", candidate_count, miss_threshold, service);
-
-            // Save all candidate URLs before filtering - needed for log/DB cleanup even when cache files are gone
-            let all_candidate_urls: std::collections::HashSet<String> = candidates.keys().cloned().collect();
-
-            let corrupted_urls_with_sizes: HashMap<String, i64> = if no_cache_check {
-                eprintln!("Skipping cache file existence check (logs-only mode)");
-                eprintln!("Using all {} candidate URLs", candidate_count);
-                candidates
-            } else {
-                let filtered: HashMap<String, i64> = candidates
-                    .into_iter()
-                    .filter(|(url, _response_size)| {
-                        let cache_path = cache_utils::calculate_cache_path_no_range(&cache_dir, &service_lower, url);
-                        if cache_path.exists() {
-                            return true;
-                        }
-                        let range_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, 0, 1_048_575);
-                        range_path.exists()
-                    })
-                    .collect();
-
-                let filtered_out = candidate_count - filtered.len();
-                if filtered_out > 0 {
-                    eprintln!("Filtered out {} URLs where cache file does not exist on disk (likely cold-cache misses)", filtered_out);
-                }
-                eprintln!("Confirmed {} corrupted URLs for {} (file exists on disk with {}+ MISS/UNKNOWN)", filtered.len(), service, miss_threshold);
-                filtered
-            };
-
-            if corrupted_urls_with_sizes.is_empty() && all_candidate_urls.is_empty() {
-                eprintln!("No corrupted chunks found, nothing to remove");
-                write_progress(&progress_path, &reporter, "completed", "signalr.corruptionRemove.noChunksFound", json!({}), 100.0, 0, 0)?;
-                return Ok(());
-            }
-
-            if corrupted_urls_with_sizes.is_empty() {
-                eprintln!("No cache files found on disk, but {} stale log entries detected - cleaning up logs and database", all_candidate_urls.len());
-            }
-
-            // Use all candidates for log/DB cleanup (includes stale entries where cache files are gone)
-            let corrupted_urls: std::collections::HashSet<String> = all_candidate_urls;
-
-            // PASS 2: Filter log files, removing MISS/UNKNOWN lines for corrupted URLs.
-            // Uses the shared scan-then-rewrite helper (Aho-Corasick prefilter,
-            // untouched files skip recompression entirely).
-            eprintln!("Step 2: Filtering log files to remove corrupted chunks...");
-
-            write_progress(&progress_path, &reporter, "filtering", "signalr.corruptionRemove.filteringLogs", json!({ "totalFiles": total_files }), 30.0, 0, total_files)?;
-
-            let prefilter = log_purge::RemovalPrefilter::new(
-                corrupted_urls.iter().map(|url| url.as_bytes()),
-            )?;
-            let filter_progress_cb = |files_done: usize, total: usize| {
-                // Update progress during filtering (30-70%)
-                let filter_percent = 30.0 + (files_done as f64 / total.max(1) as f64) * 40.0;
-                let _ = write_progress(
-                    &progress_path,
-                    &reporter,
-                    "filtering",
-                    "signalr.corruptionRemove.filteringFile",
-                    json!({ "fileIndex": files_done, "totalFiles": total }),
-                    filter_percent,
-                    files_done,
-                    total,
-                );
-            };
-            // Only remove MISS/UNKNOWN lines for corrupted URLs (HIT lines are kept
-            // intact to prevent snowball corruption detection)
-            let (total_lines_removed, _log_filter_permission_errors) =
-                log_purge::rewrite_matching_log_entries(
-                    &log_dir,
-                    "corrupted",
-                    &prefilter,
-                    |entry| {
-                        entry.service == service_lower
-                            && corrupted_urls.contains(&entry.url)
-                            && (entry.cache_status == "MISS" || entry.cache_status == "UNKNOWN")
-                    },
-                    Some(&filter_progress_cb),
-                )?;
-
-            let total_urls = corrupted_urls_with_sizes.len();
-            write_progress(&progress_path, &reporter, "removing_cache", "signalr.corruptionRemove.removingCacheFiles", json!({ "totalUrls": total_urls }), 70.0, 0, total_urls)?;
-
-            // Step 3: Delete ALL cache file chunks from disk
-            eprintln!("Step 3: Deleting cache files...");
-            let mut deleted_count = 0;
-            let mut permission_errors = 0;
-            let mut other_errors = 0;
-            let slice_size: i64 = 1_048_576; // 1MB
-
-            for (url_index, (url, response_size)) in corrupted_urls_with_sizes.iter().enumerate() {
-                // Cooperative cancellation: stop between chunks.
-                if cancel::is_cancelled() {
-                    let cache_percent = 70.0 + (url_index as f64 / total_urls.max(1) as f64) * 20.0;
-                    eprintln!("Cancellation requested at URL {}/{} — flushing partial progress.", url_index, total_urls);
-                    let _ = write_progress(&progress_path, &reporter, "removing_cache", "signalr.corruptionRemove.removingCacheFile", json!({ "urlIndex": url_index, "totalUrls": total_urls }), cache_percent, url_index, total_urls);
-                    return Ok(());
-                }
-
-                // Update progress during cache removal (70-95%)
-                if url_index % 50 == 0 || url_index == total_urls - 1 {
-                    let cache_percent = 70.0 + (url_index as f64 / total_urls.max(1) as f64) * 20.0;
-                    write_progress(&progress_path, &reporter, "removing_cache", "signalr.corruptionRemove.removingCacheFile", json!({ "urlIndex": url_index + 1, "totalUrls": total_urls }), cache_percent, url_index, total_urls)?;
-                }
-
-                // FIRST: Try the no-range format (standard lancache format)
-                let cache_path_no_range = cache_utils::calculate_cache_path_no_range(&cache_dir, &service_lower, url);
-
-                if cache_path_no_range.exists() {
-                    match cache_utils::safe_path_under_root(&cache_dir, &cache_path_no_range) {
-                        Ok(_) => match std::fs::remove_file(&cache_path_no_range) {
-                            Ok(_) => {
-                                deleted_count += 1;
-                                if deleted_count % 100 == 0 {
-                                    eprintln!("  Deleted {} cache files...", deleted_count);
-                                }
-                            }
-                            Err(e) => {
-                                if e.kind() == std::io::ErrorKind::PermissionDenied {
-                                    permission_errors += 1;
-                                    if permission_errors <= 5 {
-                                        eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path_no_range.display(), e);
-                                    }
-                                } else {
-                                    other_errors += 1;
-                                    eprintln!("  Warning: Failed to delete {}: {}", cache_path_no_range.display(), e);
-                                }
-                            }
-                        },
-                        Err(e) => {
-                            other_errors += 1;
-                            eprintln!("  skipping unsafe path {}: {}", cache_path_no_range.display(), e);
-                        }
-                    }
-                } else {
-                    // FALLBACK: Try the chunked format with bytes range
-                    if *response_size == 0 {
-                        let cache_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, 0, 1_048_575);
-
-                        if cache_path.exists() {
-                            match cache_utils::safe_path_under_root(&cache_dir, &cache_path) {
-                                Ok(_) => match std::fs::remove_file(&cache_path) {
-                                    Ok(_) => deleted_count += 1,
-                                    Err(e) => {
-                                        if e.kind() == std::io::ErrorKind::PermissionDenied {
-                                            permission_errors += 1;
-                                            if permission_errors <= 5 {
-                                                eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
-                                            }
-                                        } else {
-                                            other_errors += 1;
-                                            eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
-                                        }
-                                    }
-                                },
-                                Err(e) => {
-                                    other_errors += 1;
-                                    eprintln!("  skipping unsafe path {}: {}", cache_path.display(), e);
-                                }
-                            }
-                        }
-                    } else {
-                        let mut start: i64 = 0;
-                        while start < *response_size {
-                            let end = start + slice_size - 1;
-
-                            let cache_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, start as u64, end as u64);
-
-                            if cache_path.exists() {
-                                match cache_utils::safe_path_under_root(&cache_dir, &cache_path) {
-                                    Ok(_) => match std::fs::remove_file(&cache_path) {
-                                        Ok(_) => {
-                                            deleted_count += 1;
-                                            if deleted_count % 100 == 0 {
-                                                eprintln!("  Deleted {} cache files...", deleted_count);
-                                            }
-                                        }
-                                        Err(e) => {
-                                            if e.kind() == std::io::ErrorKind::PermissionDenied {
-                                                permission_errors += 1;
-                                                if permission_errors <= 5 {
-                                                    eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
-                                                }
-                                            } else {
-                                                other_errors += 1;
-                                                eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
-                                            }
-                                        }
-                                    },
-                                    Err(e) => {
-                                        other_errors += 1;
-                                        eprintln!("  skipping unsafe path {}: {}", cache_path.display(), e);
-                                    }
-                                }
-                            }
-
-                            start += slice_size;
-                        }
-                    }
-                }
-            }
-
-            eprintln!("Deleted {} cache files", deleted_count);
-            if permission_errors > 0 {
-                eprintln!("ERROR: {} files could not be deleted due to permission errors", permission_errors);
-                if permission_errors > 5 {
-                    eprintln!("  (only first 5 errors shown)");
-                }
-            }
-            if other_errors > 0 {
-                eprintln!("WARNING: {} files could not be deleted due to other errors", other_errors);
-            }
-            eprintln!("Removed {} total log lines across {} files", total_lines_removed, log_files.len());
-
-            // CRITICAL: If we had permission errors, do NOT delete database records
-            if permission_errors > 0 {
-                let puid = std::env::var("PUID").unwrap_or_else(|_| "1000".to_string());
-                let pgid = std::env::var("PGID").unwrap_or_else(|_| "1000".to_string());
-                let error_msg = format!(
-                    "ABORTED: Cannot delete database records because {} cache files could not be deleted due to permission errors. \
-                    This is likely caused by incorrect PUID/PGID settings. The lancache container is configured to run as UID/GID {}:{}. \
-                    Please check your docker-compose.yml and ensure PUID and PGID match the cache file ownership.",
-                    permission_errors, puid, pgid
-                );
-                eprintln!("\n{}", error_msg);
-                anyhow::bail!("{}", error_msg);
-            }
-
-            // Step 4: Delete database records for corrupted downloads
-            eprintln!("Step 4: Deleting database records...");
-            write_progress(&progress_path, &reporter, "removing_database", "signalr.corruptionRemove.deletingDb", json!({}), 90.0, 0, 0)?;
-
-            let pool = db::create_pool().await?;
-            let (downloads_deleted, log_entries_deleted) = delete_corrupted_from_database(&pool, &service, &corrupted_urls).await?;
-
-            write_progress(&progress_path, &reporter, "completed", "signalr.corruptionRemove.complete", json!({ "count": corrupted_urls_with_sizes.len(), "service": service, "files": deleted_count, "logLines": total_lines_removed, "downloads": downloads_deleted, "logEntries": log_entries_deleted }), 100.0, 0, 0)?;
-            eprintln!("\n=== Corruption Removal Summary ===");
-            eprintln!("Corrupted URLs removed: {}", corrupted_urls_with_sizes.len());
-            eprintln!("Cache files deleted: {}", deleted_count);
-            eprintln!("Log lines removed: {}", total_lines_removed);
-            eprintln!("Database downloads deleted: {}", downloads_deleted);
-            eprintln!("Database log entries deleted: {}", log_entries_deleted);
-            eprintln!("Removal completed successfully");
-            Ok(())
-            }.await;
-            progress_events::finish_or_exit(&reporter, "signalr.corruptionRemove.error.fatal", result);
+            let result = run_remove(
+                Path::new(&log_dir),
+                Path::new(&cache_dir),
+                &service,
+                Path::new(&progress_json),
+                Path::new(&evidence_file),
+                &reporter,
+            )
+            .await;
+            progress_events::finish_or_exit(
+                &reporter,
+                "signalr.corruptionRemove.error.fatal",
+                result,
+            );
         }
     }
-
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cache_corruption_detector::CandidateObservation;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn make_candidate(
+        cache_dir: &Path,
+        datasource: &str,
+        mode: DetectionMode,
+        threshold: usize,
+    ) -> RemovalCandidate {
+        let raw_url = "/middle.bin";
+        let observed_range = ObservedByteRange::Inclusive {
+            start: 2_097_200,
+            end: 2_097_300,
+        };
+        let cache_slice = CacheSliceKind::Ranged {
+            start: 2_097_152,
+            end: 3_145_727,
+        };
+        let exact_path =
+            cache_utils::calculate_cache_path(cache_dir, "steam", raw_url, 2_097_152, 3_145_727);
+        let cache_status = if mode == DetectionMode::Redownload {
+            "HIT"
+        } else {
+            "MISS"
+        };
+        let observations: Vec<CandidateObservation> = (0..threshold)
+            .map(|second| CandidateObservation {
+                timestamp: format!("2024-01-01T00:00:{second:02}Z"),
+                client_ip: "192.0.2.10".to_string(),
+                raw_url: raw_url.to_string(),
+                method: "GET".to_string(),
+                http_status: 206,
+                cache_status: cache_status.to_string(),
+                raw_range: Some("bytes=2097200-2097300".to_string()),
+            })
+            .collect();
+        RemovalCandidate {
+            datasource: datasource.to_string(),
+            candidate: CorruptionCandidate {
+                candidate_id: format!("{datasource}:candidate"),
+                mode,
+                threshold,
+                service: "steam".to_string(),
+                raw_url: raw_url.to_string(),
+                normalized_uri: raw_url.to_string(),
+                observed_range,
+                cache_slice,
+                exact_paths: vec![exact_path.display().to_string()],
+                evidence_count: threshold,
+                first_seen: "2024-01-01T00:00:00Z".to_string(),
+                last_seen: format!("2024-01-01T00:00:{:02}Z", threshold - 1),
+                retry_client: (mode == DetectionMode::Redownload).then(|| "192.0.2.10".to_string()),
+                reason: if mode == DetectionMode::Redownload {
+                    DetectionReason::SameClientHitRetryBurst
+                } else {
+                    DetectionReason::RepeatedMissBurst
+                },
+                validation_state: ValidationState::ExactPathPresent,
+                removal_allowed: mode != DetectionMode::LogsOnly,
+                observations,
+            },
+        }
+    }
+
+    fn write_evidence(
+        directory: &Path,
+        datasource: &str,
+        mode: DetectionMode,
+        threshold: usize,
+        candidates: Vec<RemovalCandidate>,
+    ) -> PathBuf {
+        let path = directory.join("evidence.json");
+        let envelope = RemovalEvidenceEnvelope {
+            contract_version: CORRUPTION_CONTRACT_VERSION,
+            scan_id: Uuid::new_v4().to_string(),
+            mode,
+            threshold,
+            datasource: datasource.to_string(),
+            candidates,
+        };
+        std::fs::write(&path, serde_json::to_vec(&envelope).unwrap()).unwrap();
+        path
+    }
+
+    fn observation_log_line(second: usize, raw_url: &str, raw_range: &str) -> String {
+        format!(
+            "[steam] 192.0.2.10 / - - - [01/Jan/2024:00:00:{second:02} +0000] \"GET {raw_url} HTTP/1.1\" 206 1024 \"-\" \"Test\" \"MISS\" \"cdn.test\" \"{raw_range}\""
+        )
+    }
 
     #[test]
-    fn streamed_pretty_json_matches_previous_serialization_bytes() {
-        let report = json!({
-            "summary": { "totalCorrupted": 2, "serviceCounts": { "steam": 1, "wsus": 1 } },
-            "corruptedChunks": [
-                { "service": "steam", "url": "/depot/1/chunk/a" },
-                { "service": "wsus", "url": "/content/file.psf" }
-            ]
+    fn canonical_cli_mode_and_evidence_file_match_csharp_calls() {
+        let summary = Args::try_parse_from([
+            "cache_corruption",
+            "summary",
+            "logs",
+            "cache",
+            "progress.json",
+            "UTC",
+            "5",
+            "--mode",
+            "redownload",
+        ]);
+        assert!(summary.is_ok());
+        let removal = Args::try_parse_from([
+            "cache_corruption",
+            "remove",
+            "logs",
+            "cache",
+            "steam",
+            "progress.json",
+            "--evidence-file",
+            "evidence.json",
+            "--progress",
+        ]);
+        assert!(removal.is_ok());
+    }
+
+    #[test]
+    fn canonical_mode_rejects_inconsistent_legacy_aliases() {
+        assert_eq!(
+            resolve_scan_mode(Some("redownload"), false, false).unwrap(),
+            DetectionMode::Redownload
+        );
+        assert_eq!(
+            resolve_scan_mode(Some("miss_count"), false, false).unwrap(),
+            DetectionMode::CacheAndLogs
+        );
+        assert!(resolve_scan_mode(Some("logs_only"), false, true).is_err());
+        assert!(resolve_scan_mode(None, true, true).is_err());
+    }
+
+    #[test]
+    fn logs_only_and_non_removable_evidence_are_rejected() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_dir = fixture.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let mut logs = make_candidate(&cache_dir, "default", DetectionMode::LogsOnly, 3);
+        logs.candidate.validation_state = ValidationState::LogSuspect;
+        let path = write_evidence(
+            fixture.path(),
+            "default",
+            DetectionMode::LogsOnly,
+            3,
+            vec![logs],
+        );
+        assert!(load_and_validate_removal_evidence(&path, &cache_dir, "steam").is_err());
+
+        let mut candidate = make_candidate(&cache_dir, "default", DetectionMode::CacheAndLogs, 3);
+        candidate.candidate.removal_allowed = false;
+        let path = write_evidence(
+            fixture.path(),
+            "default",
+            DetectionMode::CacheAndLogs,
+            3,
+            vec![candidate],
+        );
+        assert!(load_and_validate_removal_evidence(&path, &cache_dir, "steam").is_err());
+    }
+
+    #[test]
+    fn missing_or_empty_legacy_observation_raw_url_fails_closed() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_dir = fixture.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let candidate = make_candidate(&cache_dir, "default", DetectionMode::CacheAndLogs, 3);
+        let exact_path = PathBuf::from(&candidate.candidate.exact_paths[0]);
+        std::fs::create_dir_all(exact_path.parent().unwrap()).unwrap();
+        std::fs::write(&exact_path, b"must remain").unwrap();
+        let evidence_path = write_evidence(
+            fixture.path(),
+            "default",
+            DetectionMode::CacheAndLogs,
+            3,
+            vec![candidate],
+        );
+
+        let mut evidence_json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&evidence_path).unwrap()).unwrap();
+        evidence_json["candidates"][0]["observations"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("raw_url");
+        std::fs::write(&evidence_path, serde_json::to_vec(&evidence_json).unwrap()).unwrap();
+        let missing =
+            load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam").unwrap_err();
+        assert!(format!("{missing:#}").contains("observation raw_url is missing"));
+        assert!(exact_path.exists());
+
+        evidence_json["candidates"][0]["observations"][0]["raw_url"] = json!("");
+        std::fs::write(&evidence_path, serde_json::to_vec(&evidence_json).unwrap()).unwrap();
+        let empty =
+            load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam").unwrap_err();
+        assert!(format!("{empty:#}").contains("observation raw_url is missing"));
+        assert!(exact_path.exists());
+    }
+
+    #[test]
+    fn per_observation_raw_urls_scope_exact_log_and_database_cleanup() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_dir = fixture.path().join("cache");
+        let log_dir = fixture.path().join("logs");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        std::fs::create_dir_all(&log_dir).unwrap();
+
+        let first_url = "/content//file.bin?token=one";
+        let second_url = "/content/file.bin?token=two";
+        let unrelated_url = "/content/file.bin?token=three";
+        let evidence_range = "bytes=2097200-2097300";
+        let unrelated_range = "bytes=2097301-2097400";
+        let mut candidate = make_candidate(&cache_dir, "default", DetectionMode::CacheAndLogs, 3);
+        candidate.candidate.raw_url = first_url.to_string();
+        candidate.candidate.normalized_uri = "/content/file.bin".to_string();
+        candidate.candidate.exact_paths = vec![cache_utils::calculate_cache_path(
+            &cache_dir, "steam", first_url, 2_097_152, 3_145_727,
+        )
+        .display()
+        .to_string()];
+        for (observation, raw_url) in candidate
+            .candidate
+            .observations
+            .iter_mut()
+            .zip([first_url, second_url, first_url])
+        {
+            observation.raw_url = raw_url.to_string();
+        }
+        let exact_path = PathBuf::from(&candidate.candidate.exact_paths[0]);
+        std::fs::create_dir_all(exact_path.parent().unwrap()).unwrap();
+        std::fs::write(&exact_path, b"exact slice").unwrap();
+
+        let target_lines = [
+            observation_log_line(0, first_url, evidence_range),
+            observation_log_line(1, second_url, evidence_range),
+            observation_log_line(2, first_url, evidence_range),
+        ];
+        let unrelated_line = observation_log_line(3, unrelated_url, unrelated_range);
+        std::fs::write(
+            log_dir.join("access.log"),
+            format!(
+                "{}\n{}\n{}\n{}\n",
+                target_lines[0], target_lines[1], target_lines[2], unrelated_line
+            ),
+        )
+        .unwrap();
+        let evidence_path = write_evidence(
+            fixture.path(),
+            "default",
+            DetectionMode::CacheAndLogs,
+            3,
+            vec![candidate],
+        );
+        let evidence =
+            load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam").unwrap();
+        assert_eq!(
+            evidence
+                .observations
+                .iter()
+                .map(|observation| observation.raw_url.as_str())
+                .collect::<Vec<_>>(),
+            vec![first_url, second_url, first_url]
+        );
+
+        let matcher = ExactLogMatcher::new(evidence.observations.clone());
+        let prefilter = matcher.prefilter().unwrap();
+        let outcome = log_purge::rewrite_matching_log_entries_strict(
+            &log_dir,
+            "per-observation raw URL evidence",
+            &prefilter,
+            |entry| matcher.matches(entry),
+            None,
+        )
+        .unwrap();
+        assert_eq!(outcome.lines_removed, 3);
+        assert_eq!(
+            std::fs::read_to_string(log_dir.join("access.log")).unwrap(),
+            format!("{unrelated_line}\n")
+        );
+
+        // These are the exact URL values bound to EXACT_DB_DELETE_SQL after parser-compatible
+        // slash normalization. The unreviewed spelling/range has no deletion key.
+        let database_urls: HashSet<String> = evidence
+            .observations
+            .iter()
+            .map(|observation| stored_log_url(&observation.raw_url))
+            .collect();
+        assert_eq!(database_urls.len(), 2);
+        assert!(database_urls.contains("/content/file.bin?token=one"));
+        assert!(database_urls.contains(second_url));
+        assert!(!database_urls.contains(unrelated_url));
+    }
+
+    #[test]
+    fn evidence_rejects_datasource_threshold_and_root_mismatches() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_one = fixture.path().join("cache-one");
+        let cache_two = fixture.path().join("cache-two");
+        std::fs::create_dir_all(&cache_one).unwrap();
+        std::fs::create_dir_all(&cache_two).unwrap();
+        let mut candidate = make_candidate(&cache_one, "wrong", DetectionMode::CacheAndLogs, 3);
+        let path = write_evidence(
+            fixture.path(),
+            "default",
+            DetectionMode::CacheAndLogs,
+            3,
+            vec![candidate.clone()],
+        );
+        assert!(load_and_validate_removal_evidence(&path, &cache_one, "steam").is_err());
+
+        candidate.datasource = "default".to_string();
+        candidate.candidate.threshold = 5;
+        let path = write_evidence(
+            fixture.path(),
+            "default",
+            DetectionMode::CacheAndLogs,
+            3,
+            vec![candidate.clone()],
+        );
+        assert!(load_and_validate_removal_evidence(&path, &cache_one, "steam").is_err());
+
+        candidate.candidate.threshold = 3;
+        let path = write_evidence(
+            fixture.path(),
+            "default",
+            DetectionMode::CacheAndLogs,
+            3,
+            vec![candidate],
+        );
+        assert!(load_and_validate_removal_evidence(&path, &cache_two, "steam").is_err());
+    }
+
+    #[test]
+    fn evidence_rejects_a_handcrafted_root_escape_without_touching_it() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_dir = fixture.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let outside = fixture.path().join("outside-cache-file");
+        std::fs::write(&outside, b"must remain").unwrap();
+
+        let mut candidate = make_candidate(&cache_dir, "default", DetectionMode::CacheAndLogs, 3);
+        candidate.candidate.exact_paths = vec![outside.display().to_string()];
+        let path = write_evidence(
+            fixture.path(),
+            "default",
+            DetectionMode::CacheAndLogs,
+            3,
+            vec![candidate],
+        );
+
+        assert!(load_and_validate_removal_evidence(&path, &cache_dir, "steam").is_err());
+        assert_eq!(std::fs::read(outside).unwrap(), b"must remain");
+    }
+
+    #[test]
+    fn both_destructive_modes_require_and_accept_exact_path_present_evidence() {
+        for mode in [DetectionMode::CacheAndLogs, DetectionMode::Redownload] {
+            let fixture = tempfile::tempdir().unwrap();
+            let cache_dir = fixture.path().join("cache");
+            std::fs::create_dir_all(&cache_dir).unwrap();
+            let candidate = make_candidate(&cache_dir, "default", mode, 3);
+            let exact_path = PathBuf::from(&candidate.candidate.exact_paths[0]);
+            std::fs::create_dir_all(exact_path.parent().unwrap()).unwrap();
+            std::fs::write(&exact_path, b"exact slice").unwrap();
+            let path = write_evidence(fixture.path(), "default", mode, 3, vec![candidate]);
+
+            let evidence = load_and_validate_removal_evidence(&path, &cache_dir, "steam").unwrap();
+            assert_eq!(evidence.mode, mode);
+            assert_eq!(evidence.exact_paths, vec![exact_path]);
+        }
+    }
+
+    #[test]
+    fn exact_mid_object_delete_leaves_zero_sibling_and_unrelated_paths() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_dir = fixture.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let candidate = make_candidate(&cache_dir, "default", DetectionMode::CacheAndLogs, 3);
+        let exact = PathBuf::from(&candidate.candidate.exact_paths[0]);
+        let zero =
+            cache_utils::calculate_cache_path(&cache_dir, "steam", "/middle.bin", 0, 1_048_575);
+        let sibling = cache_utils::calculate_cache_path(
+            &cache_dir,
+            "steam",
+            "/middle.bin",
+            3_145_728,
+            4_194_303,
+        );
+        let unrelated = cache_utils::calculate_cache_path(
+            &cache_dir,
+            "steam",
+            "/other.bin",
+            2_097_152,
+            3_145_727,
+        );
+        for path in [&exact, &zero, &sibling, &unrelated] {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"slice").unwrap();
+        }
+        let path = write_evidence(
+            fixture.path(),
+            "default",
+            DetectionMode::CacheAndLogs,
+            3,
+            vec![candidate],
+        );
+        let evidence = load_and_validate_removal_evidence(&path, &cache_dir, "steam").unwrap();
+        let progress = fixture.path().join("progress.json");
+        let reporter = ProgressReporter::new(false);
+        let outcome =
+            delete_exact_paths(&cache_dir, &evidence.exact_paths, &progress, &reporter).unwrap();
+
+        assert_eq!(outcome.deleted_files, 1);
+        assert!(!exact.exists());
+        assert!(zero.exists());
+        assert!(sibling.exists());
+        assert!(unrelated.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn evidence_rejects_symlink_at_the_expected_exact_path() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_dir = fixture.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let candidate = make_candidate(&cache_dir, "default", DetectionMode::CacheAndLogs, 3);
+        let exact = PathBuf::from(&candidate.candidate.exact_paths[0]);
+        std::fs::create_dir_all(exact.parent().unwrap()).unwrap();
+        let outside = fixture.path().join("outside");
+        std::fs::write(&outside, b"outside").unwrap();
+        symlink(&outside, &exact).unwrap();
+        let path = write_evidence(
+            fixture.path(),
+            "default",
+            DetectionMode::CacheAndLogs,
+            3,
+            vec![candidate],
+        );
+        assert!(load_and_validate_removal_evidence(&path, &cache_dir, "steam").is_err());
+        assert_eq!(std::fs::read(outside).unwrap(), b"outside");
+    }
+
+    #[test]
+    fn partial_filesystem_failure_returns_error_before_other_cleanup_can_run() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_dir = fixture.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let no_range =
+            cache_utils::calculate_cache_path_no_range(&cache_dir, "steam", "/whole.bin");
+        let noslice = cache_utils::calculate_cache_path_noslice(&cache_dir, "steam", "/whole.bin");
+        for path in [&no_range, &noslice] {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"slice").unwrap();
+        }
+        let progress = fixture.path().join("progress.json");
+        let reporter = ProgressReporter::new(false);
+        let calls = AtomicUsize::new(0);
+        let paths = vec![no_range.clone(), noslice.clone()];
+        let result = delete_exact_paths_with(&cache_dir, &paths, &progress, &reporter, |path| {
+            let call = calls.fetch_add(1, Ordering::SeqCst);
+            if call == 0 {
+                std::fs::remove_file(path)
+            } else {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "fixture permission failure",
+                ))
+            }
         });
+        assert!(result.is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(paths.iter().filter(|path| path.exists()).count(), 1);
+    }
+
+    #[test]
+    fn database_scope_is_exact_and_preserves_historical_null_ranges() {
+        for required in [
+            "\"Datasource\" = $2",
+            "\"ClientIp\" = $3",
+            "\"Timestamp\" = $4",
+            "\"Method\" = $5",
+            "\"Url\" = $6",
+            "\"StatusCode\" = $7",
+            "\"CacheStatus\" = $8",
+            "\"HttpRange\" = $9",
+        ] {
+            assert!(EXACT_DB_DELETE_SQL.contains(required), "missing {required}");
+        }
+        let mut observation = ExactLogObservation {
+            service: "steam".to_string(),
+            raw_url: "/whole.bin".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            client_ip: "192.0.2.1".to_string(),
+            method: "GET".to_string(),
+            http_status: 200,
+            cache_status: "MISS".to_string(),
+            raw_range: None,
+        };
+        assert_eq!(database_http_range(&observation), "");
+        observation.raw_range = Some("bytes=1-2".to_string());
+        assert_eq!(database_http_range(&observation), "bytes=1-2");
+        assert!(!EXACT_DB_DELETE_SQL.contains("IS NULL"));
+    }
+
+    #[test]
+    fn streamed_pretty_json_matches_serde_serialization() {
+        let report = json!({ "contract_version": 1, "candidates": [] });
         let expected = serde_json::to_string_pretty(&report).unwrap().into_bytes();
         let temp_dir = tempfile::tempdir().unwrap();
         let output_path = temp_dir.path().join("report.json");
-
         write_pretty_json(&output_path, &report).unwrap();
-
         assert_eq!(std::fs::read(output_path).unwrap(), expected);
     }
 }

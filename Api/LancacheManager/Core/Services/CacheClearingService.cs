@@ -533,23 +533,25 @@ public class CacheClearingService : ScheduledBackgroundService
             _completionDatasourcesCleared = validCachePaths.Count;
             _completionDuration = duration;
 
+            // Clearing cache files invalidates every stored detection projection. Keep the
+            // corruption candidate rows and their scan header in the same transaction so a
+            // completed zero-result header cannot survive as the current scan.
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            var invalidated = await InvalidateCachedDetectionResultsAsync(
+                dbContext,
+                cancellationToken);
+            _logger.LogInformation(
+                "[CacheClearing] Cleared cached detection results: {Games} games, {Services} services, {CorruptionCandidates} corruption candidates, {CorruptionScans} corruption scan headers",
+                invalidated.Games,
+                invalidated.Services,
+                invalidated.CorruptionCandidates,
+                invalidated.CorruptionScans);
+
             // Mark operation as complete in unified tracker (emits CacheClearingComplete via onTerminalEmit)
             _operationTracker.CompleteOperation(operationId, success: true);
             _currentTrackerOperationId = null;
 
             _logger.LogInformation($"Cache clear completed in {duration:F1} seconds - Cleared {totalDirsProcessed} directories across {validCachePaths.Count} datasource(s)");
-
-            // Clear all cached detection results since all cache files were deleted
-            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-            // Direct DbContext deletes are deliberate: cache clear wipes whole detection tables, not the load/upsert flow GameCacheDetectionDataService owns.
-            var gamesDeleted = await dbContext.CachedGameDetections.ExecuteDeleteAsync();
-            var servicesDeleted = await dbContext.CachedServiceDetections.ExecuteDeleteAsync();
-            var corruptionDeleted = await dbContext.CachedCorruptionDetections.ExecuteDeleteAsync();
-            await dbContext.CachedDetectionSummaries
-                .Where(s => s.Id == CachedDetectionSummary.SingletonId)
-                .ExecuteDeleteAsync();
-            _logger.LogInformation("[CacheClearing] Cleared cached detection results: {Games} games, {Services} services, {Corruption} corruption entries",
-                gamesDeleted, servicesDeleted, corruptionDeleted);
 
             await NotifyProgressAsync(operationId);
 
@@ -602,6 +604,50 @@ public class CacheClearingService : ScheduledBackgroundService
 
             SaveOperationToState(trackerKey, operationId);
         }
+    }
+
+    /// <summary>
+    /// Invalidates all cache-derived detection projections after a successful filesystem clear.
+    /// Candidate rows are deleted before scan headers, and the caller sees either the complete
+    /// invalidation or the original snapshot because every delete shares one transaction.
+    /// </summary>
+    internal static async Task<(
+        int Games,
+        int Services,
+        int CorruptionCandidates,
+        int CorruptionScans)> InvalidateCachedDetectionResultsAsync(
+        AppDbContext context,
+        CancellationToken cancellationToken)
+    {
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync(
+                System.Data.IsolationLevel.ReadCommitted,
+                cancellationToken);
+            try
+            {
+                // Direct DbContext deletes are deliberate: cache clear wipes whole detection
+                // tables, not the load/upsert flow GameCacheDetectionDataService owns.
+                var games = await context.CachedGameDetections.ExecuteDeleteAsync(cancellationToken);
+                var services = await context.CachedServiceDetections.ExecuteDeleteAsync(cancellationToken);
+                var (corruptionCandidates, corruptionScans) =
+                    await DatabaseService.DeleteCachedCorruptionEvidenceAsync(
+                        context,
+                        cancellationToken);
+                await context.CachedDetectionSummaries
+                    .Where(summary => summary.Id == CachedDetectionSummary.SingletonId)
+                    .ExecuteDeleteAsync(cancellationToken);
+
+                await transaction.CommitAsync(cancellationToken);
+                return (games, services, corruptionCandidates, corruptionScans);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                throw;
+            }
+        });
     }
 
     /// <summary>

@@ -25,6 +25,8 @@ import type {
   CacheGrowthResponse,
   SparklineDataResponse,
   CacheSnapshotResponse,
+  CachedCorruptionDetectionResponse,
+  CorruptionDetectionMode,
   CorruptedChunkDetail,
   GameCacheInfo,
   ServiceCacheInfo,
@@ -1315,13 +1317,7 @@ class ApiService {
   }
 
   // Get cached corruption detection results (returns immediately without running a scan)
-  static async getCachedCorruptionDetection(): Promise<{
-    hasCachedResults: boolean;
-    corruptionCounts?: Record<string, number>;
-    totalServicesWithCorruption?: number;
-    totalCorruptedChunks?: number;
-    lastDetectionTime?: string;
-  }> {
+  static async getCachedCorruptionDetection(): Promise<CachedCorruptionDetectionResponse> {
     try {
       const res = await fetch(
         `${API_BASE}/cache/corruption/cached`,
@@ -1329,13 +1325,7 @@ class ApiService {
           signal: AbortSignal.timeout(30000) // 30 seconds for large datasets
         })
       );
-      return await this.handleResponse<{
-        hasCachedResults: boolean;
-        corruptionCounts?: Record<string, number>;
-        totalServicesWithCorruption?: number;
-        totalCorruptedChunks?: number;
-        lastDetectionTime?: string;
-      }>(res);
+      return await this.handleResponse<CachedCorruptionDetectionResponse>(res);
     } catch (error: unknown) {
       console.error('getCachedCorruptionDetection error:', error);
       throw error;
@@ -1345,8 +1335,7 @@ class ApiService {
   // Start background corruption detection scan
   static async startCorruptionDetection(
     threshold = 3,
-    compareToCacheLogs = true,
-    detectionMode = 'miss_count'
+    detectionMode: CorruptionDetectionMode = 'cache_and_logs'
   ): Promise<{
     operationId: string;
     message: string;
@@ -1355,8 +1344,11 @@ class ApiService {
     alreadyRunning?: boolean;
   }> {
     try {
+      const params = new URLSearchParams();
+      params.set('threshold', String(threshold));
+      params.set('detectionMode', detectionMode);
       const res = await fetch(
-        `${API_BASE}/cache/corruption/detect?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}&detectionMode=${detectionMode}`,
+        `${API_BASE}/cache/corruption/detect?${params.toString()}`,
         this.getFetchOptions({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' }
@@ -1380,9 +1372,8 @@ class ApiService {
   // Remove corrupted chunks for a specific service (requires auth)
   static async removeCorruptedChunks(
     service: string,
-    threshold = 3,
-    compareToCacheLogs = true,
-    detectionMode = 'miss_count'
+    scanId: string,
+    candidateIds?: string[]
   ): Promise<{
     message: string;
     service: string;
@@ -1392,8 +1383,13 @@ class ApiService {
     alreadyRunning?: boolean;
   }> {
     try {
+      const params = new URLSearchParams();
+      params.set('scanId', scanId);
+      if (candidateIds && candidateIds.length > 0) {
+        params.set('candidateIds', candidateIds.join(','));
+      }
       const res = await fetch(
-        `${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}&detectionMode=${detectionMode}`,
+        `${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption?${params.toString()}`,
         this.getFetchOptions({
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' }
@@ -1408,16 +1404,12 @@ class ApiService {
   }
 
   static async removeAllCorruptedChunks(
-    threshold = 3,
-    compareToCacheLogs = true,
-    detectionMode = 'miss_count',
+    scanId: string,
     services?: string[]
   ): Promise<{ message: string; started: boolean }> {
     try {
       const params = new URLSearchParams();
-      params.set('threshold', String(threshold));
-      params.set('compareToCacheLogs', String(compareToCacheLogs));
-      params.set('detectionMode', detectionMode);
+      params.set('scanId', scanId);
       // Optional subset filter: absent = remove corruption for all services (unchanged).
       if (services && services.length > 0) {
         params.set('services', services.join(','));
@@ -1443,17 +1435,11 @@ class ApiService {
   // Get detailed corruption information for a specific service
   static async getCorruptionDetails(
     service: string,
-    forceRefresh = false,
-    threshold = 3,
-    compareToCacheLogs = true,
-    detectionMode = 'miss_count'
+    scanId: string
   ): Promise<CorruptedChunkDetail[]> {
     try {
       const params = new URLSearchParams();
-      if (forceRefresh) params.set('forceRefresh', 'true');
-      params.set('threshold', String(threshold));
-      params.set('compareToCacheLogs', String(compareToCacheLogs));
-      params.set('detectionMode', detectionMode);
+      params.set('scanId', scanId);
       const url = `${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption?${params.toString()}`;
       const res = await fetch(
         url,

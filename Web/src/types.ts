@@ -331,11 +331,73 @@ export interface StatCardData {
   tooltip?: ReactNode;
 }
 
+export type CorruptionDetectionMode = 'logs_only' | 'cache_and_logs' | 'redownload';
+
+export type CorruptionValidationState = 'log_suspect' | 'exact_path_missing' | 'exact_path_present';
+
+export type CorruptionDetectionReason = 'repeated_miss_burst' | 'same_client_hit_retry_burst';
+
+type CorruptionSliceKind = 'no_range' | 'noslice' | 'ranged';
+
+export interface CorruptionObservedRange {
+  kind: 'no_range' | 'inclusive';
+  start?: number | null;
+  end?: number | null;
+}
+
+export interface CorruptionCacheSlice {
+  kind: CorruptionSliceKind;
+  start?: number | null;
+  end?: number | null;
+}
+
+export interface CorruptionCandidateObservation {
+  timestamp: string;
+  client_ip: string;
+  raw_url: string;
+  method: string;
+  http_status: number;
+  cache_status: string;
+  raw_range: string | null;
+}
+
+/**
+ * Immutable physical-slice evidence returned from a stored corruption scan.
+ * Field names intentionally mirror the Rust snake_case wire contract.
+ */
 export interface CorruptedChunkDetail {
+  candidate_id: string;
+  mode: CorruptionDetectionMode;
+  threshold: number;
+  datasource: string;
   service: string;
-  url: string;
-  miss_count: number;
-  cache_file_path: string;
+  raw_url: string;
+  normalized_uri: string;
+  observed_range: CorruptionObservedRange;
+  cache_slice: CorruptionCacheSlice;
+  exact_paths: string[];
+  evidence_count: number;
+  first_seen: string;
+  last_seen: string;
+  retry_client?: string | null;
+  reason: CorruptionDetectionReason;
+  validation_state: CorruptionValidationState;
+  removal_allowed: boolean;
+  observations: CorruptionCandidateObservation[];
+}
+
+export interface CachedCorruptionDetectionResponse {
+  hasCachedResults: boolean;
+  scanId?: string;
+  detectionMode?: CorruptionDetectionMode;
+  threshold?: number;
+  contractVersion?: number;
+  corruptionCounts?: Record<string, number>;
+  totalServicesWithCorruption?: number;
+  totalCorruptedChunks?: number;
+  lastDetectionTime?: string;
+  removalAllowed?: boolean;
+  serviceRemovalAllowed?: Record<string, boolean>;
 }
 
 export type CacheEntityVariant = 'active' | 'evicted';

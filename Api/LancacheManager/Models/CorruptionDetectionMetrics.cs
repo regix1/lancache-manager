@@ -6,6 +6,12 @@ namespace LancacheManager.Models;
 /// </summary>
 public class CorruptionDetectionMetrics
 {
+    public Guid? ScanId { get; set; }
+
+    public CorruptionDetectionMode DetectionMode { get; set; } = CorruptionDetectionMode.Unknown;
+
+    public int Threshold { get; set; }
+
     /// <summary>
     /// Corruption counts keyed by category or URL.
     /// </summary>

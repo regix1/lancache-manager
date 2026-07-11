@@ -1,20 +1,27 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
-using LancacheManager.Infrastructure.Data;
-using LancacheManager.Hubs;
+using System.Text.Json.Serialization;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
 
 /// <summary>
-/// Service for detecting corrupted cache chunks with caching and background processing.
-/// Similar pattern to GameCacheDetectionService.
+/// Runs corruption scans and owns the one authoritative persisted scan snapshot.
+/// Summary, details, and removal scopes are projections of that immutable evidence.
 /// </summary>
 public class CorruptionDetectionService
 {
+    private static readonly HashSet<int> _allowedThresholds = [3, 5, 10];
+    private static readonly JsonSerializerOptions _candidateJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     private readonly ILogger<CorruptionDetectionService> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly RustProcessHelper _rustProcessHelper;
@@ -23,16 +30,8 @@ public class CorruptionDetectionService
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly OperationStateService _operationStateService;
     private readonly IUnifiedOperationTracker _operationTracker;
-
     private readonly SemaphoreSlim _startLock = new(1, 1);
-    private readonly ConcurrentDictionary<string, DateTime> _recentlyRemovedServices = new();
-    private static readonly TimeSpan _removalGracePeriod = TimeSpan.FromMinutes(5);
 
-    /// <summary>
-    /// Key prefix used when persisting corruption-detection operation state. Derived from
-    /// <see cref="OperationType.CorruptionDetection"/> so the wire value stays in sync with
-    /// the enum (N6: no raw literal).
-    /// </summary>
     private static readonly string _operationStateKey = OperationType.CorruptionDetection.ToWireString();
 
     public CorruptionDetectionService(
@@ -55,26 +54,17 @@ public class CorruptionDetectionService
         _operationTracker = operationTracker;
     }
 
-    /// <summary>
-    /// Start a background corruption detection scan.
-    /// Returns immediately with an operation ID.
-    /// </summary>
-    /// <param name="detectionMode">Wire value of the detection mode ("miss_count" or "redownload").
-    /// Parsed into <see cref="CorruptionDetectionMode"/>; unrecognized values fall back to
-    /// <see cref="CorruptionDetectionMode.MissCount"/>.</param>
-    public async Task<Guid> StartDetectionAsync(int threshold = 3, bool compareToCacheLogs = true, string detectionMode = "miss_count", CancellationToken cancellationToken = default)
+    /// <summary>Starts a canonical three-mode corruption scan.</summary>
+    public async Task<Guid> StartDetectionAsync(
+        int threshold = 3,
+        string detectionMode = "cache_and_logs",
+        CancellationToken cancellationToken = default)
     {
-        // Parse wire value into the typed enum; unknown/null falls back to miss_count (legacy default).
-        var mode = CorruptionDetectionModeExtensions.Parse(detectionMode);
-        if (mode == CorruptionDetectionMode.Unknown)
-        {
-            mode = CorruptionDetectionMode.MissCount;
-        }
+        var mode = ValidateScanInput(detectionMode, threshold);
 
         await _startLock.WaitAsync(cancellationToken);
         try
         {
-            // Check if there's already an active detection
             var activeOp = _operationTracker.GetActiveOperations(OperationType.CorruptionDetection).FirstOrDefault();
             if (activeOp != null)
             {
@@ -82,16 +72,12 @@ public class CorruptionDetectionService
                 return activeOp.Id;
             }
 
-            // Create a new cancellation token source
-            // Note: Don't cancel/dispose old one here - it may have been disposed by CompleteOperation
             var cts = new CancellationTokenSource();
-
-            // Create metadata and register with unified operation tracker.
-            // The same metadata instance is mutated in-place by UpdateMetadata before CompleteOperation,
-            // so the onTerminalEmit closure reads the final CorruptionCounts by value off this capture.
-            // operationId is captured by the closure and is fully assigned before the closure can ever
-            // run (it only fires at terminal time, inside CompleteOperation).
-            var metadata = new CorruptionDetectionMetrics();
+            var metadata = new CorruptionDetectionMetrics
+            {
+                DetectionMode = mode,
+                Threshold = threshold
+            };
             Guid operationId = Guid.Empty;
             operationId = _operationTracker.RegisterOperation(
                 OperationType.CorruptionDetection,
@@ -100,7 +86,6 @@ public class CorruptionDetectionService
                 metadata,
                 onTerminalEmit: info => EmitTerminalAsync(info, operationId, metadata));
 
-            // Save operation state for recovery
             _operationStateService.SaveState($"{_operationStateKey}_{operationId}", new OperationState
             {
                 Key = $"{_operationStateKey}_{operationId}",
@@ -109,23 +94,17 @@ public class CorruptionDetectionService
                 Message = "Starting corruption detection..."
             });
 
-            // Send start notification via SignalR
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionStarted, new
             {
                 OperationId = operationId,
                 StageKey = "signalr.corruptionDetect.starting"
             });
 
-            // Run detection in background with the cancellation token
+            var startedAtUtc = DateTime.UtcNow;
             var token = cts.Token;
-            if (mode == CorruptionDetectionMode.Redownload)
-            {
-                _ = Task.Run(async () => await RunRedownloadDetectionAsync(operationId, threshold, token), token);
-            }
-            else
-            {
-                _ = Task.Run(async () => await RunDetectionAsync(operationId, threshold, compareToCacheLogs, token), token);
-            }
+            _ = Task.Run(
+                () => RunDetectionAsync(operationId, threshold, mode, startedAtUtc, token),
+                token);
 
             return operationId;
         }
@@ -135,14 +114,10 @@ public class CorruptionDetectionService
         }
     }
 
-    /// <summary>
-    /// Single terminal SignalR emitter for a corruption-detection operation. Invoked EXACTLY ONCE
-    /// from inside <c>CompleteOperation</c> (CompletedFlag-gated) via the registered
-    /// <c>OnTerminalEmit</c> closure, covering the success, cancel, and error paths. Reads the final
-    /// corruption totals by value off the captured <paramref name="metadata"/> (mutated in-place by
-    /// <c>UpdateMetadata</c> before completion); on cancel/error the counts are unset → totals are 0.
-    /// </summary>
-    private Task EmitTerminalAsync(OperationTerminalInfo info, Guid operationId, CorruptionDetectionMetrics metadata)
+    private Task EmitTerminalAsync(
+        OperationTerminalInfo info,
+        Guid operationId,
+        CorruptionDetectionMetrics metadata)
     {
         var counts = metadata.CorruptionCounts;
         var totalServicesWithCorruption = counts?.Count ?? 0;
@@ -172,7 +147,11 @@ public class CorruptionDetectionService
                     Cancelled: false,
                     TotalServicesWithCorruption: totalServicesWithCorruption,
                     TotalCorruptedChunks: totalCorruptedChunks,
-                    Context: new Dictionary<string, object?> { ["count"] = totalServicesWithCorruption }));
+                    Context: new Dictionary<string, object?>
+                    {
+                        ["count"] = totalServicesWithCorruption,
+                        ["scanId"] = metadata.ScanId
+                    }));
         }
 
         return _notifications.NotifyAllAsync(
@@ -187,13 +166,14 @@ public class CorruptionDetectionService
                 Context: new Dictionary<string, object?> { ["errorDetail"] = info.Error }));
     }
 
-    /// <summary>
-    /// Run the actual corruption detection scan.
-    /// </summary>
-    private async Task RunDetectionAsync(Guid operationId, int threshold, bool compareToCacheLogs, CancellationToken cancellationToken, bool detectRedownloads = false)
+    private async Task RunDetectionAsync(
+        Guid operationId,
+        int threshold,
+        CorruptionDetectionMode mode,
+        DateTime startedAtUtc,
+        CancellationToken cancellationToken)
     {
-        var operation = _operationTracker.GetOperation(operationId);
-        if (operation == null)
+        if (_operationTracker.GetOperation(operationId) == null)
         {
             _logger.LogWarning("[CorruptionDetection] Operation not found: {OperationId}", operationId);
             return;
@@ -201,110 +181,88 @@ public class CorruptionDetectionService
 
         try
         {
-            var aggregatedCounts = new Dictionary<string, long>();
+            var datasourceReports = new List<DatasourceCorruptionReport>();
             var datasources = _datasourceService.GetDatasources();
             var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
             var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
-
             _rustProcessHelper.EnsureBinaryExists(rustBinaryPath, "Corruption manager");
 
-            _logger.LogInformation("[CorruptionDetection] Starting detection for {Count} datasource(s)", datasources.Count);
+            _logger.LogInformation(
+                "[CorruptionDetection] Starting {Mode} detection for {Count} datasource(s)",
+                mode.ToWireString(),
+                datasources.Count);
 
-            // Check for cancellation at start
             cancellationToken.ThrowIfCancellationRequested();
-
-            // Process each datasource
             foreach (var datasource in datasources)
             {
-                // Check for cancellation before each datasource
                 cancellationToken.ThrowIfCancellationRequested();
-
-                var dsCounts = await GetSummaryForDatasourceAsync(
-                    datasource.LogPath, datasource.CachePath, timezone, rustBinaryPath,
-                    operationId, datasource.Name, threshold, compareToCacheLogs, cancellationToken, detectRedownloads);
-
-                // Aggregate counts
-                foreach (var kvp in dsCounts)
-                {
-                    if (aggregatedCounts.ContainsKey(kvp.Key))
-                    {
-                        aggregatedCounts[kvp.Key] += kvp.Value;
-                    }
-                    else
-                    {
-                        aggregatedCounts[kvp.Key] = kvp.Value;
-                    }
-                }
+                var report = await GetReportForDatasourceAsync(
+                    datasource.LogPath,
+                    datasource.CachePath,
+                    timezone,
+                    rustBinaryPath,
+                    operationId,
+                    datasource.Name,
+                    threshold,
+                    mode,
+                    cancellationToken);
+                datasourceReports.Add(new DatasourceCorruptionReport(datasource.Name, report));
             }
 
-            // Filter out services within grace period after removal
-            var expiredKeys = _recentlyRemovedServices.Where(kvp => DateTime.UtcNow - kvp.Value > _removalGracePeriod).Select(kvp => kvp.Key).ToList();
-            foreach (var key in expiredKeys)
-            {
-                _recentlyRemovedServices.TryRemove(key, out _);
-            }
+            var completedAtUtc = DateTime.UtcNow;
+            var scanId = Guid.NewGuid();
+            await PersistCompletedScanAsync(
+                scanId,
+                mode,
+                threshold,
+                startedAtUtc,
+                completedAtUtc,
+                datasourceReports,
+                cancellationToken);
 
-            foreach (var service in _recentlyRemovedServices.Keys)
-            {
-                if (aggregatedCounts.Remove(service))
-                {
-                    _logger.LogInformation("[CorruptionDetection] Skipping recently removed service '{Service}' (grace period)", service);
-                }
-            }
-
-            // Update operation via tracker
+            var counts = ProjectCounts(datasourceReports.SelectMany(report => report.Report.Candidates));
             _operationTracker.UpdateProgress(operationId, 100, "signalr.corruptionDetect.complete");
             _operationTracker.UpdateMetadata(operationId, metadata =>
             {
                 var metrics = (CorruptionDetectionMetrics)metadata;
-                metrics.CorruptionCounts = aggregatedCounts;
-                metrics.LastDetectionTime = DateTime.UtcNow;
+                metrics.ScanId = scanId;
+                metrics.DetectionMode = mode;
+                metrics.Threshold = threshold;
+                metrics.CorruptionCounts = counts;
+                metrics.LastDetectionTime = completedAtUtc;
             });
 
-            // Save results to database
-            await SaveToDatabaseAsync(aggregatedCounts);
-
-            // Clear operation state
             _operationStateService.RemoveState($"{_operationStateKey}_{operationId}");
-
-            // Complete unified operation tracker. The terminal CorruptionDetectionComplete event is
-            // emitted EXACTLY ONCE from inside CompleteOperation via the registered OnTerminalEmit
-            // closure (success path); metrics are read by value off the metadata updated just above.
             _operationTracker.CompleteOperation(operationId, success: true);
-
-            _logger.LogInformation("[CorruptionDetection] Detection complete: {Services}",
-                string.Join(", ", aggregatedCounts.Select(kvp => $"{kvp.Key}={kvp.Value}")));
+            _logger.LogInformation(
+                "[CorruptionDetection] Scan {ScanId} complete: {Services}",
+                scanId,
+                string.Join(", ", counts.Select(pair => $"{pair.Key}={pair.Value}")));
         }
         catch (OperationCanceledException)
         {
             _logger.LogInformation("[CorruptionDetection] Operation {OperationId} was cancelled", operationId);
-
-            // Clear operation state
             _operationStateService.RemoveState($"{_operationStateKey}_{operationId}");
-
-            // Complete unified operation tracker. The terminal cancelled event is emitted from the
-            // OnTerminalEmit closure (info.Cancelled branch) inside CompleteOperation.
             _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[CorruptionDetection] Detection failed for operation {OperationId}", operationId);
-
-            // Clear operation state
             _operationStateService.RemoveState($"{_operationStateKey}_{operationId}");
-
-            // Complete unified operation tracker. The terminal failed event is emitted from the
-            // OnTerminalEmit closure (error branch) inside CompleteOperation.
             _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
         }
     }
 
-    /// <summary>
-    /// Get corruption summary for a specific datasource with progress tracking.
-    /// </summary>
-    private async Task<Dictionary<string, long>> GetSummaryForDatasourceAsync(
-        string logDir, string cacheDir, string timezone, string rustBinaryPath,
-        Guid operationId, string datasourceName, int threshold, bool compareToCacheLogs, CancellationToken cancellationToken, bool detectRedownloads = false)
+    private async Task<CorruptionReport> GetReportForDatasourceAsync(
+        string logDir,
+        string cacheDir,
+        string timezone,
+        string rustBinaryPath,
+        Guid operationId,
+        string datasourceName,
+        int threshold,
+        CorruptionDetectionMode mode,
+        CancellationToken cancellationToken)
     {
         var operationsDir = _pathResolver.GetOperationsDirectory();
         Directory.CreateDirectory(operationsDir);
@@ -312,16 +270,13 @@ public class CorruptionDetectionService
 
         try
         {
-            var noCacheCheckFlag = !compareToCacheLogs ? " --no-cache-check" : "";
-            var redownloadFlag = detectRedownloads ? " --detect-redownloads" : "";
             var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                 rustBinaryPath,
-                $"summary \"{logDir}\" \"{cacheDir}\" \"{progressFile}\" \"{timezone}\" {threshold}{noCacheCheckFlag}{redownloadFlag}");
+                $"summary \"{logDir}\" \"{cacheDir}\" \"{progressFile}\" \"{timezone}\" {threshold} --mode {mode.ToWireString()}");
 
             var lastMessage = string.Empty;
             var lastPercent = 0.0;
             const double percentThreshold = 5.0;
-
             var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync<CorruptionDetectionProgressData>(
                 startInfo,
                 operationId,
@@ -331,7 +286,6 @@ public class CorruptionDetectionService
                 {
                     var keyChanged = progressData.StageKey != lastMessage;
                     var percentChanged = Math.Abs(progressData.PercentComplete - lastPercent) >= percentThreshold;
-
                     if (!keyChanged && !percentChanged)
                     {
                         return;
@@ -339,7 +293,6 @@ public class CorruptionDetectionService
 
                     lastMessage = progressData.StageKey ?? string.Empty;
                     lastPercent = progressData.PercentComplete;
-
                     await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionProgress, new
                     {
                         OperationId = operationId,
@@ -352,36 +305,23 @@ public class CorruptionDetectionService
                         currentFile = progressData.CurrentFile,
                         datasourceName
                     });
-
-                    _logger.LogDebug("[CorruptionDetection] Progress: {Percent:F1}% - {StageKey}",
-                        progressData.PercentComplete, progressData.StageKey);
                 },
                 "corruption_manager");
 
-            _logger.LogDebug("[CorruptionDetection] Rust process exit code: {Code}", result.ExitCode);
-
-            // Diagnostic stderr capture regardless of outcome - kept out of the exception message
-            // (EnsureSuccess below builds a safe, generic message) so raw process output never
-            // leaks to the client, but is still visible server-side for debugging.
             if (!string.IsNullOrEmpty(result.Error))
             {
-                _logger.LogDebug("[CorruptionDetection] corruption_manager stderr: {Error}", result.Error);
+                _logger.LogDebug(
+                    "[CorruptionDetection] corruption_manager stderr for {Datasource}: {Error}",
+                    datasourceName,
+                    result.Error);
             }
 
-            // No-op when ExitCode==0; otherwise throws a typed RustProcessException carrying the
-            // exit code and stderr. The caller's catch (Exception ex) below logs it with the
-            // exception object and completes the operation as a failure.
             result.EnsureSuccess("corruption_manager", datasourceName);
-
-            var summaryData = JsonSerializer.Deserialize<CorruptionSummaryData>(result.Output,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-            if (summaryData?.ServiceCounts == null)
-            {
-                return new Dictionary<string, long>();
-            }
-
-            return summaryData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
+            var report = JsonSerializer.Deserialize<CorruptionReport>(result.Output, _candidateJsonOptions)
+                ?? throw new InvalidDataException(
+                    $"corruption_manager returned an empty report for datasource '{datasourceName}'");
+            ValidateAndAttachDatasource(report, datasourceName, mode, threshold);
+            return report;
         }
         finally
         {
@@ -389,178 +329,467 @@ public class CorruptionDetectionService
         }
     }
 
-    /// <summary>
-    /// Save corruption detection results to database for caching.
-    /// </summary>
-    private async Task SaveToDatabaseAsync(Dictionary<string, long> corruptionCounts)
+    internal static void ValidateAndAttachDatasource(
+        CorruptionReport report,
+        string datasourceName,
+        CorruptionDetectionMode expectedMode,
+        int expectedThreshold)
     {
-        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+        if (report.ContractVersion != CorruptionReport.SupportedContractVersion)
+        {
+            throw new InvalidDataException(
+                $"Unsupported corruption report contract version {report.ContractVersion}");
+        }
 
-        // Use a transaction for atomicity - delete and insert as a single unit
-        // Wrap in execution strategy so EF Core can replay the transaction on transient failures
+        if (report.Mode != expectedMode || report.Threshold != expectedThreshold)
+        {
+            throw new InvalidDataException("Corruption report mode or threshold did not match the requested scan");
+        }
+
+        report.Candidates ??= [];
+        var candidateIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var candidate in report.Candidates)
+        {
+            if (string.IsNullOrWhiteSpace(candidate.CandidateId) || string.IsNullOrWhiteSpace(candidate.Service))
+            {
+                throw new InvalidDataException("Corruption report contained a candidate without an identity or service");
+            }
+
+            if (candidate.Mode != expectedMode || candidate.Threshold != expectedThreshold)
+            {
+                throw new InvalidDataException(
+                    "Corruption candidate mode or threshold did not match its report");
+            }
+
+            candidate.Datasource = datasourceName;
+            candidate.CandidateId = $"{datasourceName}:{candidate.CandidateId}";
+            candidate.ExactPaths ??= [];
+            candidate.Observations ??= [];
+            candidate.ExactPaths = candidate.ExactPaths
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(path => path, StringComparer.Ordinal)
+                .ToList();
+
+            var hasExactPath = candidate.ExactPaths.Count > 0
+                && candidate.ValidationState.Equals("exact_path_present", StringComparison.OrdinalIgnoreCase);
+            candidate.RemovalAllowed = expectedMode != CorruptionDetectionMode.LogsOnly
+                && candidate.RemovalAllowed
+                && hasExactPath;
+
+            if (expectedMode == CorruptionDetectionMode.CacheAndLogs && !candidate.RemovalAllowed)
+            {
+                throw new InvalidDataException(
+                    "Cache + Logs report contained a candidate without exact-path validation");
+            }
+
+            if (!candidateIds.Add(candidate.CandidateId))
+            {
+                throw new InvalidDataException($"Duplicate corruption candidate ID '{candidate.CandidateId}'");
+            }
+        }
+
+        report.Candidates = report.Candidates
+            .OrderBy(candidate => candidate.Service, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(candidate => candidate.CandidateId, StringComparer.Ordinal)
+            .ToList();
+        report.ServiceCounts = ProjectCounts(report.Candidates);
+        report.Total = report.Candidates.Count;
+    }
+
+    internal async Task PersistCompletedScanAsync(
+        Guid scanId,
+        CorruptionDetectionMode mode,
+        int threshold,
+        DateTime startedAtUtc,
+        DateTime completedAtUtc,
+        IReadOnlyList<DatasourceCorruptionReport> datasourceReports,
+        CancellationToken cancellationToken = default)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var strategy = dbContext.Database.CreateExecutionStrategy();
         await strategy.ExecuteAsync(async () =>
         {
-            await using var transaction = await dbContext.Database.BeginTransactionAsync();
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
             try
             {
-                // Use ExecuteDeleteAsync for bulk delete - avoids tracking and concurrency issues
-                // This is immune to DbUpdateConcurrencyException since it doesn't track entities
-                await dbContext.CachedCorruptionDetections.ExecuteDeleteAsync();
+                await dbContext.CachedCorruptionDetections.ExecuteDeleteAsync(cancellationToken);
+                await dbContext.CachedCorruptionScans.ExecuteDeleteAsync(cancellationToken);
 
-                // Add new corruption data
-                var now = DateTime.UtcNow;
-                foreach (var kvp in corruptionCounts)
+                var contractVersions = datasourceReports
+                    .Select(report => report.Report.ContractVersion)
+                    .Distinct()
+                    .ToList();
+                if (contractVersions.Count > 1)
                 {
-                    dbContext.CachedCorruptionDetections.Add(new CachedCorruptionDetection
-                    {
-                        ServiceName = kvp.Key,
-                        CorruptedChunkCount = kvp.Value,
-                        LastDetectedUtc = now,
-                        CreatedAtUtc = now
-                    });
+                    throw new InvalidDataException("Datasources returned different corruption contract versions");
                 }
 
-                await dbContext.SaveChangesAsync();
-                await transaction.CommitAsync();
-                _logger.LogInformation("[CorruptionDetection] Saved {ServiceCount} service record(s) covering {ChunkCount} corrupted chunk(s), replacing previous snapshot", corruptionCounts.Count, corruptionCounts.Values.Sum());
+                var contractVersion = contractVersions.SingleOrDefault(CorruptionReport.SupportedContractVersion);
+                dbContext.CachedCorruptionScans.Add(new CachedCorruptionScan
+                {
+                    ScanId = scanId,
+                    DetectionMode = mode,
+                    Threshold = threshold,
+                    ContractVersion = contractVersion,
+                    Status = OperationStatus.Completed.ToWireString(),
+                    StartedAtUtc = startedAtUtc,
+                    CompletedAtUtc = completedAtUtc,
+                    CreatedAtUtc = completedAtUtc
+                });
+
+                foreach (var datasourceReport in datasourceReports)
+                {
+                    foreach (var serviceGroup in datasourceReport.Report.Candidates
+                                 .GroupBy(candidate => candidate.Service, StringComparer.OrdinalIgnoreCase))
+                    {
+                        var candidates = serviceGroup.OrderBy(candidate => candidate.CandidateId, StringComparer.Ordinal).ToList();
+                        dbContext.CachedCorruptionDetections.Add(new CachedCorruptionDetection
+                        {
+                            ScanId = scanId,
+                            ServiceName = serviceGroup.Key,
+                            DatasourceName = datasourceReport.DatasourceName,
+                            CorruptedChunkCount = candidates.Count,
+                            CandidatesJson = SerializeCandidates(candidates),
+                            RemovalAllowed = candidates.Any(candidate => candidate.RemovalAllowed),
+                            LastDetectedUtc = completedAtUtc,
+                            CreatedAtUtc = completedAtUtc
+                        });
+                    }
+                }
+
+                await dbContext.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
-                _logger.LogError(ex, "[CorruptionDetection] Failed to save corruption records to database, rolling back");
+                await transaction.RollbackAsync(cancellationToken);
+                _logger.LogError(ex, "[CorruptionDetection] Failed to persist scan {ScanId}; rolling back", scanId);
                 throw;
             }
         });
     }
 
-    /// <summary>
-    /// Run re-download detection via the Rust binary - finds URLs with multiple HIT responses
-    /// from the same client by scanning access logs directly.
-    /// </summary>
-    private async Task RunRedownloadDetectionAsync(Guid operationId, int threshold, CancellationToken cancellationToken)
+    /// <summary>Returns the authoritative completed scan, including an empty scan.</summary>
+    public async Task<CachedCorruptionResult?> GetDetectionAsync(CancellationToken cancellationToken = default)
     {
-        // Reuse the same flow as RunDetectionAsync but with detectRedownloads=true
-        await RunDetectionAsync(operationId, threshold, compareToCacheLogs: true, cancellationToken, detectRedownloads: true);
-    }
-
-    /// <summary>
-    /// Get cached corruption detection results from database.
-    /// </summary>
-    public async Task<CachedCorruptionResult?> GetDetectionAsync()
-    {
-        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-        var cachedCorruption = await dbContext.CachedCorruptionDetections.AsNoTracking().ToListAsync();
-
-        if (cachedCorruption.Count == 0)
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var scan = await dbContext.CachedCorruptionScans
+            .AsNoTracking()
+            .OrderByDescending(item => item.CompletedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (scan == null)
         {
             return null;
         }
 
-        var corruptionCounts = cachedCorruption.ToDictionary(
-            c => c.ServiceName,
-            c => c.CorruptedChunkCount);
-
-        var lastDetectedTime = cachedCorruption.Max(c => c.LastDetectedUtc);
+        var rows = await dbContext.CachedCorruptionDetections
+            .AsNoTracking()
+            .Where(row => row.ScanId == scan.ScanId)
+            .ToListAsync(cancellationToken);
+        var candidates = rows.SelectMany(DeserializeCandidates).ToList();
+        var counts = ProjectCounts(candidates);
+        var serviceRemovalAllowed = candidates
+            .GroupBy(candidate => candidate.Service, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Any(candidate => candidate.RemovalAllowed),
+                StringComparer.OrdinalIgnoreCase);
 
         return new CachedCorruptionResult
         {
             HasCachedResults = true,
-            CorruptionCounts = corruptionCounts,
-            LastDetectionTime = lastDetectedTime,
-            TotalServicesWithCorruption = corruptionCounts.Count,
-            TotalCorruptedChunks = corruptionCounts.Values.Sum()
+            ScanId = scan.ScanId,
+            DetectionMode = scan.DetectionMode,
+            Threshold = scan.Threshold,
+            ContractVersion = scan.ContractVersion,
+            CorruptionCounts = counts,
+            LastDetectionTime = scan.CompletedAtUtc,
+            TotalServicesWithCorruption = counts.Count,
+            TotalCorruptedChunks = counts.Values.Sum(),
+            RemovalAllowed = candidates.Any(candidate => candidate.RemovalAllowed),
+            ServiceRemovalAllowed = serviceRemovalAllowed
+        };
+    }
+
+    /// <summary>Loads stored candidates for one service without rerunning detection.</summary>
+    public async Task<IReadOnlyList<CorruptionCandidate>> GetDetailsAsync(
+        Guid scanId,
+        string service,
+        CancellationToken cancellationToken = default)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await RequireCurrentScanAsync(dbContext, scanId, cancellationToken);
+        var rows = await dbContext.CachedCorruptionDetections
+            .AsNoTracking()
+            .Where(row => row.ScanId == scanId && row.ServiceName == service)
+            .OrderBy(row => row.DatasourceName)
+            .ToListAsync(cancellationToken);
+        return rows
+            .SelectMany(DeserializeCandidates)
+            .OrderBy(candidate => candidate.Datasource, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(candidate => candidate.CandidateId, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Resolves an exact, narrowing-only removal scope from server-stored evidence.
+    /// Client-provided IDs may only select a subset of the stored service candidates.
+    /// </summary>
+    public async Task<CorruptionRemovalSelection> GetRemovalSelectionAsync(
+        Guid scanId,
+        string service,
+        IReadOnlyCollection<string>? candidateIds = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var scan = await RequireCurrentScanAsync(dbContext, scanId, cancellationToken);
+        if (scan.DetectionMode == CorruptionDetectionMode.LogsOnly)
+        {
+            throw new ForbiddenException("Logs-only corruption findings are review-only and cannot be removed");
+        }
+
+        var rows = await dbContext.CachedCorruptionDetections
+            .AsNoTracking()
+            .Where(row => row.ScanId == scanId && row.ServiceName == service)
+            .ToListAsync(cancellationToken);
+        var allCandidates = rows.SelectMany(DeserializeCandidates).ToList();
+        if (allCandidates.Count == 0)
+        {
+            throw new NotFoundException("Corruption candidates");
+        }
+
+        List<CorruptionCandidate> selected;
+        if (candidateIds is { Count: > 0 })
+        {
+            var requestedIds = new HashSet<string>(candidateIds, StringComparer.Ordinal);
+            var storedIds = new HashSet<string>(
+                allCandidates.Select(candidate => candidate.CandidateId),
+                StringComparer.Ordinal);
+            var unknownIds = requestedIds.Where(id => !storedIds.Contains(id)).ToList();
+            if (unknownIds.Count > 0)
+            {
+                throw new ValidationException("One or more corruption candidate IDs are not part of the stored scan");
+            }
+
+            selected = allCandidates.Where(candidate => requestedIds.Contains(candidate.CandidateId)).ToList();
+            if (selected.Any(candidate => !candidate.RemovalAllowed))
+            {
+                throw new ForbiddenException("One or more selected corruption candidates are review-only");
+            }
+        }
+        else
+        {
+            selected = allCandidates.Where(candidate => candidate.RemovalAllowed).ToList();
+        }
+
+        if (selected.Count == 0)
+        {
+            throw new ForbiddenException("This stored corruption scope has no removable candidates");
+        }
+
+        var candidatesByDatasource = selected
+            .GroupBy(candidate => candidate.Datasource, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<CorruptionCandidate>)group
+                    .OrderBy(candidate => candidate.CandidateId, StringComparer.Ordinal)
+                    .ToList(),
+                StringComparer.OrdinalIgnoreCase);
+        return new CorruptionRemovalSelection
+        {
+            ScanId = scan.ScanId,
+            Mode = scan.DetectionMode,
+            Threshold = scan.Threshold,
+            ContractVersion = scan.ContractVersion,
+            Service = service,
+            CandidatesByDatasource = candidatesByDatasource
         };
     }
 
     /// <summary>
-    /// Remove a service's cached corruption detection entry after successful removal.
+    /// Prunes only candidates that Rust successfully processed. Failed/cancelled
+    /// operations never call this method, preserving authoritative evidence.
     /// </summary>
-    public async Task ClearServiceCacheAsync(string serviceName)
+    public async Task ApplyRemovalSuccessAsync(
+        Guid scanId,
+        IReadOnlyCollection<string> candidateIds,
+        CancellationToken cancellationToken = default)
     {
-        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-        var deleted = await dbContext.CachedCorruptionDetections
-            .Where(c => c.ServiceName == serviceName)
-            .ExecuteDeleteAsync();
+        if (candidateIds.Count == 0)
+        {
+            throw new ValidationException("At least one stored corruption candidate is required");
+        }
 
-        // Track service removal to prevent immediate reappearance
-        _recentlyRemovedServices[serviceName.ToLowerInvariant()] = DateTime.UtcNow;
+        var removedIds = new HashSet<string>(candidateIds, StringComparer.Ordinal);
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var strategy = dbContext.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+            try
+            {
+                await RequireCurrentScanAsync(dbContext, scanId, cancellationToken);
+                var rows = await dbContext.CachedCorruptionDetections
+                    .Where(row => row.ScanId == scanId)
+                    .ToListAsync(cancellationToken);
+                var matchedIds = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var row in rows)
+                {
+                    var remaining = new List<CorruptionCandidate>();
+                    foreach (var candidate in DeserializeCandidates(row))
+                    {
+                        if (removedIds.Contains(candidate.CandidateId))
+                        {
+                            matchedIds.Add(candidate.CandidateId);
+                        }
+                        else
+                        {
+                            remaining.Add(candidate);
+                        }
+                    }
 
-        _logger.LogInformation("[CorruptionDetection] Removed cached corruption entry for service: {Service} ({Deleted} rows). Grace period active for {Minutes} minutes.",
-            serviceName, deleted, _removalGracePeriod.TotalMinutes);
+                    if (remaining.Count == 0)
+                    {
+                        dbContext.CachedCorruptionDetections.Remove(row);
+                    }
+                    else
+                    {
+                        row.CandidatesJson = SerializeCandidates(remaining);
+                        row.CorruptedChunkCount = remaining.Count;
+                        row.RemovalAllowed = remaining.Any(candidate => candidate.RemovalAllowed);
+                    }
+                }
+
+                if (!matchedIds.SetEquals(removedIds))
+                {
+                    throw new ConflictException("The stored corruption scan changed before removal completed");
+                }
+
+                await dbContext.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                throw;
+            }
+        });
     }
 
-    /// <summary>
-    /// Get the status of the active detection operation.
-    /// </summary>
-    public OperationInfo? GetOperationStatus(Guid operationId)
-    {
-        return _operationTracker.GetOperation(operationId);
-    }
+    public OperationInfo? GetOperationStatus(Guid operationId) => _operationTracker.GetOperation(operationId);
 
-    /// <summary>
-    /// Get the currently active detection operation (if any).
-    /// </summary>
-    public OperationInfo? GetActiveOperation()
-    {
-        return _operationTracker.GetActiveOperations(OperationType.CorruptionDetection).FirstOrDefault();
-    }
+    public OperationInfo? GetActiveOperation() =>
+        _operationTracker.GetActiveOperations(OperationType.CorruptionDetection).FirstOrDefault();
 
-    /// <summary>
-    /// Cancel the currently running detection operation.
-    /// </summary>
     public bool CancelDetection()
     {
         var activeOp = GetActiveOperation();
-        if (activeOp != null)
+        if (activeOp == null)
         {
-            // If already cancelled or cancelling, return true (idempotent)
-            // This prevents 404 errors when user clicks cancel button multiple times
-            if (activeOp.Status == OperationStatus.Cancelled || activeOp.Status == OperationStatus.Cancelling)
-            {
-                _logger.LogDebug("[CorruptionDetection] Cancellation already in progress for operation {OperationId}", activeOp.Id);
-                return true;
-            }
+            return false;
+        }
 
-            _logger.LogInformation("[CorruptionDetection] Cancelling detection operation {OperationId}", activeOp.Id);
-            _operationTracker.CancelOperation(activeOp.Id);
+        if (activeOp.Status is OperationStatus.Cancelled or OperationStatus.Cancelling)
+        {
             return true;
         }
-        return false;
+
+        _logger.LogInformation("[CorruptionDetection] Cancelling detection operation {OperationId}", activeOp.Id);
+        _operationTracker.CancelOperation(activeOp.Id);
+        return true;
     }
 
-    /// <summary>
-    /// Invalidate the cached corruption detection results.
-    /// </summary>
-    public async Task InvalidateCacheAsync()
+    public async Task InvalidateCacheAsync(CancellationToken cancellationToken = default)
     {
-        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-        // Use ExecuteDeleteAsync for bulk delete - avoids tracking and concurrency issues
-        await dbContext.CachedCorruptionDetections.ExecuteDeleteAsync();
-        _logger.LogInformation("[CorruptionDetection] Cache invalidated");
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var strategy = dbContext.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+            await dbContext.CachedCorruptionDetections.ExecuteDeleteAsync(cancellationToken);
+            await dbContext.CachedCorruptionScans.ExecuteDeleteAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
+        _logger.LogInformation("[CorruptionDetection] Persisted scan invalidated");
+    }
+
+    internal static string SerializeCandidates(IReadOnlyList<CorruptionCandidate> candidates) =>
+        JsonSerializer.Serialize(candidates, _candidateJsonOptions);
+
+    internal static List<CorruptionCandidate> DeserializeCandidates(CachedCorruptionDetection row)
+    {
+        var candidates = JsonSerializer.Deserialize<List<CorruptionCandidate>>(
+                row.CandidatesJson,
+                _candidateJsonOptions)
+            ?? throw new InvalidDataException($"Stored corruption evidence row {row.Id} was null");
+        foreach (var candidate in candidates)
+        {
+            candidate.Datasource = row.DatasourceName;
+        }
+
+        return candidates;
+    }
+
+    private static Dictionary<string, long> ProjectCounts(IEnumerable<CorruptionCandidate> candidates) =>
+        candidates
+            .GroupBy(candidate => candidate.Service, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.LongCount(),
+                StringComparer.OrdinalIgnoreCase);
+
+    internal static CorruptionDetectionMode ValidateScanInput(string detectionMode, int threshold)
+    {
+        var mode = CorruptionDetectionModeExtensions.Parse(detectionMode);
+        if (mode == CorruptionDetectionMode.Unknown)
+        {
+            throw new ValidationException(
+                "Detection mode must be logs_only, cache_and_logs, or redownload");
+        }
+
+        if (!_allowedThresholds.Contains(threshold))
+        {
+            throw new ValidationException("Corruption threshold must be 3, 5, or 10");
+        }
+
+        return mode;
+    }
+
+    private static async Task<CachedCorruptionScan> RequireCurrentScanAsync(
+        AppDbContext dbContext,
+        Guid scanId,
+        CancellationToken cancellationToken)
+    {
+        var current = await dbContext.CachedCorruptionScans
+            .OrderByDescending(scan => scan.CompletedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (current == null)
+        {
+            throw new NotFoundException("Corruption scan");
+        }
+
+        if (current.ScanId != scanId)
+        {
+            throw new ConflictException("The corruption scan is stale. Reload results and try again");
+        }
+
+        return current;
     }
 }
 
-/// <summary>
-/// JSON model for Rust corruption manager output.
-/// </summary>
-public class CorruptionSummaryData
-{
-    [System.Text.Json.Serialization.JsonPropertyName("service_counts")]
-    public Dictionary<string, long>? ServiceCounts { get; set; }
-}
+internal sealed record DatasourceCorruptionReport(string DatasourceName, CorruptionReport Report);
 
-/// <summary>
-/// JSON model for Rust corruption detection progress.
-/// </summary>
+/// <summary>JSON model for Rust corruption detection progress.</summary>
 public class CorruptionDetectionProgressData
 {
     public string Status { get; set; } = string.Empty;
 
-    [System.Text.Json.Serialization.JsonPropertyName("stageKey")]
+    [JsonPropertyName("stageKey")]
     public string? StageKey { get; set; }
 
-    [System.Text.Json.Serialization.JsonPropertyName("context")]
+    [JsonPropertyName("context")]
     public Dictionary<string, object?>? Context { get; set; }
 
     public int FilesProcessed { get; set; }
@@ -570,41 +799,43 @@ public class CorruptionDetectionProgressData
     public string? Timestamp { get; set; }
 }
 
-/// <summary>
-/// JSON model for Rust corruption removal progress.
-/// </summary>
+/// <summary>JSON model for Rust corruption removal progress.</summary>
 internal class CorruptionRemovalProgressData
 {
-    [System.Text.Json.Serialization.JsonPropertyName("status")]
+    [JsonPropertyName("status")]
     public string Status { get; set; } = string.Empty;
 
-    [System.Text.Json.Serialization.JsonPropertyName("stageKey")]
+    [JsonPropertyName("stageKey")]
     public string? StageKey { get; set; }
 
-    [System.Text.Json.Serialization.JsonPropertyName("context")]
+    [JsonPropertyName("context")]
     public Dictionary<string, object?>? Context { get; set; }
 
-    [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
+    [JsonPropertyName("percentComplete")]
     public double PercentComplete { get; set; }
 
-    [System.Text.Json.Serialization.JsonPropertyName("filesProcessed")]
+    [JsonPropertyName("filesProcessed")]
     public int FilesProcessed { get; set; }
 
-    [System.Text.Json.Serialization.JsonPropertyName("totalFiles")]
+    [JsonPropertyName("totalFiles")]
     public int TotalFiles { get; set; }
 
-    [System.Text.Json.Serialization.JsonPropertyName("timestamp")]
+    [JsonPropertyName("timestamp")]
     public string? Timestamp { get; set; }
 }
 
-/// <summary>
-/// Result model for cached corruption detection.
-/// </summary>
+/// <summary>Projection of the authoritative cached corruption scan.</summary>
 public class CachedCorruptionResult
 {
     public bool HasCachedResults { get; set; }
-    public Dictionary<string, long>? CorruptionCounts { get; set; }
+    public Guid ScanId { get; set; }
+    public CorruptionDetectionMode DetectionMode { get; set; }
+    public int Threshold { get; set; }
+    public int ContractVersion { get; set; }
+    public Dictionary<string, long> CorruptionCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public DateTime LastDetectionTime { get; set; }
     public int TotalServicesWithCorruption { get; set; }
     public long TotalCorruptedChunks { get; set; }
+    public bool RemovalAllowed { get; set; }
+    public Dictionary<string, bool> ServiceRemovalAllowed { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }

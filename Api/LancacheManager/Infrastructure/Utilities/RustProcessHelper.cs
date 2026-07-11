@@ -840,11 +840,9 @@ public partial class RustProcessHelper
         string logsPath,
         string cachePath,
         string? service = null,
+        string? evidenceFile = null,
         string? progressFile = null,
         CancellationToken cancellationToken = default,
-        int threshold = 3,
-        bool compareToCacheLogs = true,
-        bool detectRedownloads = false,
         Guid? operationId = null,
         Func<RustProgressEvent, Task>? onProgressEvent = null)
     {
@@ -869,14 +867,14 @@ public partial class RustProcessHelper
             var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
             EnsureBinaryExists(rustBinaryPath, "corruption_manager");
 
-            // Build arguments based on command
-            var noCacheCheckFlag = !compareToCacheLogs ? " --no-cache-check" : "";
-            var redownloadFlag = detectRedownloads ? " --detect-redownloads" : "";
+            // Removal consumes the server-persisted evidence file. Mode, threshold,
+            // URLs, and paths are never reconstructed from caller-selected flags.
             var arguments = command switch
             {
-                "summary" => $"summary \"{logsPath}\" \"{cachePath}\" \"{progressArg ?? "none"}\" \"UTC\" {threshold}{noCacheCheckFlag}{redownloadFlag} --progress",
-                "remove" when !string.IsNullOrEmpty(service) =>
-                    $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressArg}\" {threshold}{noCacheCheckFlag}{redownloadFlag} --progress",
+                "remove" when !string.IsNullOrEmpty(service)
+                    && !string.IsNullOrEmpty(evidenceFile)
+                    && !string.IsNullOrEmpty(progressArg) =>
+                    $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressArg}\" --evidence-file \"{evidenceFile}\" --progress",
                 _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
             };
 
