@@ -119,6 +119,10 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
   });
 
   const handleLoginClick = async () => {
+    // Guard against a double-click: a second login-start would mint a second operationId and its own
+    // terminal notification, showing the card twice. The modal being open (or a start in flight) means
+    // one attempt already owns the flow.
+    if (showAuthModal || loginState.loading) return;
     setShowAuthModal(true);
     await startLogin();
   };
@@ -275,7 +279,14 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({
                     {t('management.sections.integrations.xboxDaemonStatus.logout', 'Logout')}
                   </Button>
                 ) : (
-                  <Button onClick={handleLoginClick} variant="filled" color="blue" size="sm">
+                  <Button
+                    onClick={handleLoginClick}
+                    loading={loginState.loading}
+                    disabled={showAuthModal || loginState.loading}
+                    variant="filled"
+                    color="blue"
+                    size="sm"
+                  >
                     {t(
                       'management.sections.integrations.xboxDaemonStatus.loginButton',
                       'Login with Xbox'

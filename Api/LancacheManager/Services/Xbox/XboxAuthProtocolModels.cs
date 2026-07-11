@@ -15,11 +15,13 @@ internal static class XboxAuthConstants
     public const string ClientId = "0000000048183522";
 
     /// <summary>
-    /// OAuth scopes requested for the device-code grant. The service scope yields the MBI_SSL
-    /// RpsTicket consumed by the XBL chain; <c>offline_access</c> is required for Microsoft to return
-    /// the refresh token that keeps the integration signed in after the manager restarts.
+    /// OAuth scope requested for the device-code grant (yields the MBI_SSL RpsTicket the XBL chain
+    /// consumes). This legacy <c>login.live.com</c> flow already returns a refresh token with this scope
+    /// alone (proven by the Xbox prefill daemon), which keeps the integration signed in after a restart.
+    /// Do NOT append the modern <c>offline_access</c> scope here: the legacy endpoint rejects the combined
+    /// scope for this client id and the device-code poll fails with <c>invalid_grant</c>.
     /// </summary>
-    public const string AuthScope = "service::user.auth.xboxlive.com::MBI_SSL offline_access";
+    public const string AuthScope = "service::user.auth.xboxlive.com::MBI_SSL";
 
     public const string DeviceCodeUrl = "https://login.live.com/oauth20_connect.srf";
     public const string TokenUrl = "https://login.live.com/oauth20_token.srf";

@@ -63,13 +63,17 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
       setLoading(false);
       if (event.status === 'completed' && !event.cancelled) {
         onSuccess?.();
-      } else {
-        onError?.(event.message ?? 'Xbox authentication failed.');
       }
+      // A failed/cancelled terminal event is deliberately NOT forwarded to onError here: the global
+      // xbox_game_mapping notification (handleXboxMappingProgress) already renders the canonical
+      // terminal card for this exact XboxMappingProgress event. Forwarding it produced a second,
+      // duplicate "Xbox login failed" card in the universal notification bar. onError still fires for
+      // a failed login-START request (the startLogin catch below), which emits no SignalR event and
+      // therefore has no registry card of its own.
     };
     on('XboxMappingProgress', handleProgress);
     return () => off('XboxMappingProgress', handleProgress);
-  }, [on, off, onSuccess, onError]);
+  }, [on, off, onSuccess]);
 
   const startLogin = useCallback(async () => {
     resetAuthForm();

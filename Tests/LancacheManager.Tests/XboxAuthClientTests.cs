@@ -35,7 +35,7 @@ public sealed class XboxAuthClientTests
     }
 
     [Fact]
-    public async Task RequestDeviceCodeAsync_RequestsOfflineAccessForRestartPersistence()
+    public async Task RequestDeviceCodeAsync_RequestsLegacyMbiSslScopeOnly()
     {
         string? requestBody = null;
         using var httpClient = new HttpClient(new StubHttpMessageHandler(async (request, ct) =>
@@ -51,7 +51,10 @@ public sealed class XboxAuthClientTests
 
         Assert.NotNull(requestBody);
         var decodedBody = Uri.UnescapeDataString(requestBody!.Replace('+', ' '));
-        Assert.Contains("scope=service::user.auth.xboxlive.com::MBI_SSL offline_access", decodedBody);
+        // The legacy login.live.com flow returns a refresh token with the MBI_SSL scope alone; appending
+        // the modern offline_access scope makes the device-code poll fail with invalid_grant.
+        Assert.Contains("scope=service::user.auth.xboxlive.com::MBI_SSL", decodedBody);
+        Assert.DoesNotContain("offline_access", decodedBody);
     }
 
     [Fact]
