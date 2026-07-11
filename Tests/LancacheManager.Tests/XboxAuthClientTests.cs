@@ -1,6 +1,9 @@
+using System.Net;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using LancacheManager.Services.Xbox;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
 
@@ -29,6 +32,47 @@ public sealed class XboxAuthClientTests
             bytes[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
         }
         return bytes;
+    }
+
+    [Fact]
+    public async Task RequestDeviceCodeAsync_RequestsOfflineAccessForRestartPersistence()
+    {
+        string? requestBody = null;
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(async (request, ct) =>
+        {
+            requestBody = await request.Content!.ReadAsStringAsync(ct);
+            return JsonResponse("""
+                { "user_code": "ABCD-EFGH", "device_code": "DEV", "verification_uri": "https://microsoft.com/link", "interval": 5, "expires_in": 900 }
+                """);
+        }));
+        var client = new XboxAuthClient(httpClient, NullLogger<XboxAuthClient>.Instance);
+
+        await client.RequestDeviceCodeAsync();
+
+        Assert.NotNull(requestBody);
+        var decodedBody = Uri.UnescapeDataString(requestBody!.Replace('+', ' '));
+        Assert.Contains("scope=service::user.auth.xboxlive.com::MBI_SSL offline_access", decodedBody);
+    }
+
+    [Fact]
+    public async Task PollForTokenAsync_RejectsEphemeralAccessTokenWithoutRefreshToken()
+    {
+        using var httpClient = new HttpClient(new StubHttpMessageHandler((_, _) =>
+            Task.FromResult(JsonResponse("""
+                { "token_type": "bearer", "expires_in": 3600, "access_token": "ACCESS" }
+                """))));
+        var client = new XboxAuthClient(httpClient, NullLogger<XboxAuthClient>.Instance);
+        var deviceCode = new XboxDeviceCodeResponse
+        {
+            DeviceCode = "DEV",
+            Interval = 0,
+            ExpiresIn = 5
+        };
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => client.PollForTokenAsync(deviceCode));
+
+        Assert.Contains("refresh token", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -233,5 +277,21 @@ public sealed class XboxAuthClientTests
             case 3: s += "="; break;
         }
         return Convert.FromBase64String(s);
+    }
+
+    private static HttpResponseMessage JsonResponse(string json)
+    {
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        };
+    }
+
+    private sealed class StubHttpMessageHandler(
+        Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) => send(request, cancellationToken);
     }
 }

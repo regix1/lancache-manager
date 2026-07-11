@@ -14,8 +14,12 @@ internal static class XboxAuthConstants
     /// <summary>MSA client id used for the device-code flow (legacy, device-code capable - PROVEN).</summary>
     public const string ClientId = "0000000048183522";
 
-    /// <summary>OAuth scope requested for the device-code grant (yields the MBI_SSL RpsTicket the XBL chain consumes).</summary>
-    public const string AuthScope = "service::user.auth.xboxlive.com::MBI_SSL";
+    /// <summary>
+    /// OAuth scopes requested for the device-code grant. The service scope yields the MBI_SSL
+    /// RpsTicket consumed by the XBL chain; <c>offline_access</c> is required for Microsoft to return
+    /// the refresh token that keeps the integration signed in after the manager restarts.
+    /// </summary>
+    public const string AuthScope = "service::user.auth.xboxlive.com::MBI_SSL offline_access";
 
     public const string DeviceCodeUrl = "https://login.live.com/oauth20_connect.srf";
     public const string TokenUrl = "https://login.live.com/oauth20_token.srf";

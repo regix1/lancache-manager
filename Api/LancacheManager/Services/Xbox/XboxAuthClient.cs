@@ -105,6 +105,14 @@ public class XboxAuthClient
             var token = await PostTokenFormAsync(form, ct);
             if (token.AccessToken != null)
             {
+                // A device-code access token by itself only keeps Xbox connected for this process.
+                // Never report a successful login unless it can be restored after restart.
+                if (string.IsNullOrWhiteSpace(token.RefreshToken))
+                {
+                    throw new InvalidOperationException(
+                        "Xbox sign-in did not return a refresh token; persistent login is unavailable.");
+                }
+
                 return token;
             }
 
