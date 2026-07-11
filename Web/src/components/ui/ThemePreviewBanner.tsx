@@ -45,9 +45,7 @@ export default function ThemePreviewBanner({ iconOnly = false }: ThemePreviewBan
   const label = t('management.themes.actions.stopPreview');
 
   return (
-    <Tooltip
-      content={t('management.themes.previewingBanner', { name: previewName || previewId })}
-    >
+    <Tooltip content={t('management.themes.previewingBanner', { name: previewName || previewId })}>
       <Button
         variant="filled"
         color="blue"
