@@ -140,15 +140,7 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
         </div>
 
         <div className="mgmt-evidence__tags">
-          <Badge
-            variant={
-              chunk.validation_state === 'exact_path_present'
-                ? 'success'
-                : chunk.validation_state === 'exact_path_missing'
-                  ? 'neutral'
-                  : 'info'
-            }
-          >
+          <Badge variant={chunk.validation_state === 'exact_path_present' ? 'success' : 'info'}>
             {validation}
           </Badge>
         </div>
@@ -297,7 +289,9 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
                 ) : (
                   <ChevronDown className="mgmt-evidence-grouptoggle__icon w-3.5 h-3.5" />
                 )}
-                <span>{t('management.corruption.reviewSectionTitle')}</span>
+                <span className="text-themed-info">
+                  {t('management.corruption.reviewSectionTitle')}
+                </span>
                 <span className="mgmt-evidence-grouphead__count">
                   {formatCount(reviewChunks.length)}
                 </span>
