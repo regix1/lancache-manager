@@ -11,6 +11,7 @@ import type {
   CacheInfo,
   CacheSizeInfo,
   CacheSizeScanningInfo,
+  CacheSizeUnavailableInfo,
   CacheSizeScanStartInfo,
   Download,
   ClientStat,
@@ -1282,13 +1283,15 @@ class ApiService {
   }
 
   // Get cache size with deletion time estimates. A force refresh is an asynchronous queued
-  // operation and returns CacheSizeScanStartInfo; a non-force read may return the legacy
-  // CacheSizeScanningInfo while another scan is already running.
+  // operation and returns CacheSizeScanStartInfo. A non-force read only reads the persisted
+  // result and may report an active scan or the expected not-yet-calculated empty state.
   static async getCacheSize(
     datasource?: string,
     force?: boolean,
     signal?: AbortSignal
-  ): Promise<CacheSizeInfo | CacheSizeScanningInfo | CacheSizeScanStartInfo> {
+  ): Promise<
+    CacheSizeInfo | CacheSizeScanningInfo | CacheSizeUnavailableInfo | CacheSizeScanStartInfo
+  > {
     try {
       const params = new URLSearchParams();
       if (datasource) params.set('datasource', datasource);
@@ -1299,7 +1302,7 @@ class ApiService {
       // optional signal lets a caller abort an in-flight request (e.g. superseded by a newer one).
       const res = await fetch(url, this.getFetchOptions(signal ? { signal } : {}));
       return await this.handleResponse<
-        CacheSizeInfo | CacheSizeScanningInfo | CacheSizeScanStartInfo
+        CacheSizeInfo | CacheSizeScanningInfo | CacheSizeUnavailableInfo | CacheSizeScanStartInfo
       >(res);
     } catch (error: unknown) {
       // A cancelled request (aborted via signal) is a distinct terminal outcome, not a failure -

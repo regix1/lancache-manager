@@ -10,16 +10,8 @@ namespace LancacheManager.Tests;
 public sealed class CacheSizeQueueTests
 {
     [Fact]
-    public async Task ForceFullScan_WhenHeavyOperationIsActive_EnqueuesCacheSizeScanAsync()
+    public async Task ForceFullScan_AlwaysEntersOperationQueueAsync()
     {
-        var blockerId = Guid.NewGuid();
-        var conflictChecker = new FixedConflictChecker(new OperationConflictResponse
-        {
-            StageKey = "errors.conflict.heavyOperationActive",
-            ActiveOperationId = blockerId,
-            ActiveOperationType = nameof(OperationType.GameDetection),
-            ActiveOperationScope = "bulk"
-        });
         var queuedResponse = new QueuedOperationResponse
         {
             OperationId = Guid.NewGuid(),
@@ -40,8 +32,8 @@ public sealed class CacheSizeQueueTests
             datasourceService: null!,
             dbContextFactory: null!,
             reconciliationService: null!,
-            conflictChecker,
-            queue);
+            conflictChecker: null!,
+            operationQueue: queue);
 
         var result = await controller.GetCacheSizeAsync(
             datasource: null,
@@ -55,21 +47,6 @@ public sealed class CacheSizeQueueTests
         Assert.Equal(ConflictScope.Bulk(), queue.Scope);
         Assert.Equal("Cache File Scan", queue.DisplayName);
         Assert.NotNull(queue.Start);
-        Assert.Equal(1, conflictChecker.CallCount);
-    }
-
-    private sealed class FixedConflictChecker(OperationConflictResponse response) : IOperationConflictChecker
-    {
-        public int CallCount { get; private set; }
-
-        public Task<OperationConflictResponse?> CheckAsync(
-            OperationType newType,
-            ConflictScope newScope,
-            CancellationToken ct)
-        {
-            CallCount++;
-            return Task.FromResult<OperationConflictResponse?>(response);
-        }
     }
 
     private sealed class RecordingOperationQueue(QueuedOperationResponse response) : IOperationQueue

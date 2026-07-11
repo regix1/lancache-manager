@@ -75,6 +75,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const {
     cacheSize,
     isLoading: cacheSizeLoading,
+    hasFetched: hasFetchedCacheSize,
     error: cacheSizeError,
     fetchCacheSize,
     clearCacheSize
@@ -127,27 +128,26 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     await refreshStats(true);
   }, [fetchCacheSize, refreshStats]);
 
-  // Fetch cache size on mount if not already loaded. The error guard is what stops
-  // a failed fetch (size null, loading false) from re-triggering this effect in an
-  // endless 500 loop - after a failure, only the explicit Refresh button retries.
+  // Read the persisted cache-size result once. A valid empty response marks the context as
+  // fetched so the empty state cannot turn into a request loop; only Refresh starts a scan.
   useEffect(() => {
-    if (!mockMode && !cacheReadOnly && !cacheSize && !cacheSizeLoading && !cacheSizeError) {
+    if (
+      !mockMode &&
+      !cacheReadOnly &&
+      !hasFetchedCacheSize &&
+      !cacheSizeLoading &&
+      !cacheSizeError
+    ) {
       fetchCacheSize();
     }
-  }, [mockMode, cacheReadOnly, cacheSize, cacheSizeLoading, cacheSizeError, fetchCacheSize]);
-
-  // Show notification when cache size fetch fails
-  useEffect(() => {
-    if (cacheSizeError) {
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: t('management.cache.cacheSizeError', 'Cache Size Error'),
-        detailMessage: cacheSizeError,
-        details: { notificationType: 'error' }
-      });
-    }
-  }, [cacheSizeError, addNotification, t]);
+  }, [
+    mockMode,
+    cacheReadOnly,
+    hasFetchedCacheSize,
+    cacheSizeLoading,
+    cacheSizeError,
+    fetchCacheSize
+  ]);
 
   // Get estimated time based on current delete mode
   const getEstimatedTime = useCallback(() => {
@@ -303,7 +303,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           <>
             <ActionMenuItem
               icon={<RefreshCw className="w-3.5 h-3.5" />}
-              disabled={cacheSizeLoading || isAnyRemovalRunning || isCacheSizeScanRunning}
+              disabled={cacheSizeLoading || isCacheSizeScanRunning}
               onClick={() => {
                 handleRefreshCacheSize();
                 close();
@@ -374,7 +374,14 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               <div className="space-y-3">
                 <p className="mgmt-subhead">{t('management.cache.cacheSize')}</p>
 
-                {cacheSizeLoading && !cacheSize ? (
+                {cacheSizeError ? (
+                  <Alert color="red">
+                    <p className="font-medium">
+                      {t('management.cache.cacheSizeError', 'Cache Size Error')}
+                    </p>
+                    <p className="text-sm mt-1">{cacheSizeError}</p>
+                  </Alert>
+                ) : cacheSizeLoading && !cacheSize ? (
                   <div className="flex items-center gap-2 text-xs text-themed-muted">
                     <LoadingSpinner inline size="xs" />
                     <span>{t('management.cache.calculatingSize')}</span>

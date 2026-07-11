@@ -48,6 +48,14 @@ export interface CacheSizeScanningInfo {
 }
 
 /**
+ * An ordinary cache-size read returns this when no scheduled or manual scan has produced a
+ * persisted result yet. The UI should show its empty state without reporting an error.
+ */
+export interface CacheSizeUnavailableInfo {
+  available: false;
+}
+
+/**
  * Accepted response for an explicit cache-size rescan. The operation either started immediately,
  * was parked in the wait queue, or was deduplicated against an existing scan.
  */

@@ -64,17 +64,8 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
         // Take an initial snapshot at startup
         await RecordSnapshotAsync();
 
-        // Pre-warm the cache size scan so it's ready when the user visits the page
-        // This loads from the JSON cache file if available, or runs a fresh scan
-        try
-        {
-            await _cacheService.GetCacheSizeAsync(force: false, datasource: null, cancellationToken: stoppingToken);
-            _logger.LogInformation("Cache size scan pre-warmed at startup");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to pre-warm cache size scan at startup - will scan on first request");
-        }
+        // GetCacheInfoAsync above loads any persisted cache-size scan into memory. It deliberately
+        // does not start a fresh full-disk walk; automatic scans belong to the dedicated schedule.
     }
 
     protected override async Task ExecuteWorkAsync(

@@ -7,7 +7,7 @@ namespace LancacheManager.Tests;
 /// <see cref="CacheSizeNullOutcome.Resolve"/> that <see cref="Controllers.CacheController"/>
 /// uses when <c>GetCacheSizeAsync</c> returns null - an active scan wins (report scanning so
 /// the frontend polls/waits), else a previously persisted stale result is served instead of an
-/// error, and only genuine failure (nothing running, nothing cached) falls through to a 500.
+/// error, and no scan/no cache maps to the expected unavailable state for ordinary reads.
 /// Kept dependency-free deliberately so this decision is unit-testable without constructing the
 /// controller's full DI graph (13 constructor dependencies) or CacheManagementService.
 /// </summary>
@@ -39,11 +39,11 @@ public class CacheSizeNullOutcomeTests
     }
 
     [Fact]
-    public void Resolve_NoActiveScan_NoStaleResult_ReturnsFailure()
+    public void Resolve_NoActiveScan_NoStaleResult_ReturnsUnavailable()
     {
         var outcome = CacheSizeNullOutcome.Resolve(null, null);
 
-        Assert.Equal(CacheSizeNullOutcomeKind.Failure, outcome.Kind);
+        Assert.Equal(CacheSizeNullOutcomeKind.Unavailable, outcome.Kind);
         Assert.Null(outcome.ScanOperationId);
         Assert.Null(outcome.StaleResult);
     }

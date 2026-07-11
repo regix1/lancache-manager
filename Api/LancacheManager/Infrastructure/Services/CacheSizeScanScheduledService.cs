@@ -88,9 +88,14 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
         {
             _logger.LogInformation("[CacheSizeScan] Starting cache file scan (trigger: {Trigger})", trigger);
             var result = await _cacheService.GetCacheSizeAsync(force: true, datasource: null, cancellationToken: stoppingToken);
-            if (result == null)
+            if (result == null || result.IsCached)
             {
-                _logger.LogWarning("[CacheSizeScan] Cache file scan returned no result (trigger: {Trigger})", trigger);
+                // GetCacheSizeAsync preserves the last good value when a forced scan fails. A
+                // cached fallback is therefore not a successful scheduled refresh and must not
+                // emit CacheScanComplete; the normal scheduling loop will try again next time.
+                _logger.LogWarning(
+                    "[CacheSizeScan] Cache file scan did not produce a fresh result (trigger: {Trigger}); will retry at the next scheduled time",
+                    trigger);
                 return;
             }
 

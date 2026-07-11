@@ -75,15 +75,24 @@ public class CacheSizeScanningResponse
 }
 
 /// <summary>
+/// Response for an ordinary cache-size read when no scheduled or manual scan has produced a
+/// persisted result yet. This is an expected empty state, not a calculation failure.
+/// </summary>
+public class CacheSizeUnavailableResponse
+{
+    public bool Available { get; set; } = false;
+}
+
+/// <summary>
 /// Outcomes for a null cache-size-scan result (<c>CacheManagementService.GetCacheSizeAsync</c>):
 /// an active scan wins (report scanning), else a previously persisted stale result if one
-/// exists, else a genuine failure with nothing to fall back on.
+/// exists, else the expected unavailable state until the next scheduled or manual scan.
 /// </summary>
 public enum CacheSizeNullOutcomeKind
 {
     Scanning,
     Stale,
-    Failure
+    Unavailable
 }
 
 /// <summary>
@@ -109,7 +118,7 @@ public class CacheSizeNullOutcome
             return new CacheSizeNullOutcome { Kind = CacheSizeNullOutcomeKind.Stale, StaleResult = staleResult };
         }
 
-        return new CacheSizeNullOutcome { Kind = CacheSizeNullOutcomeKind.Failure };
+        return new CacheSizeNullOutcome { Kind = CacheSizeNullOutcomeKind.Unavailable };
     }
 }
 

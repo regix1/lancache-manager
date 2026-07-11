@@ -4,6 +4,7 @@ import type { CacheSizeInfo } from '@/types';
 export interface CacheSizeContextType {
   cacheSize: CacheSizeInfo | null;
   isLoading: boolean;
+  hasFetched: boolean;
   error: string | null;
   fetchCacheSize: (force?: boolean) => Promise<void>;
   clearCacheSize: () => void;

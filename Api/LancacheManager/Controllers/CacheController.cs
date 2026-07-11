@@ -96,52 +96,24 @@ public class CacheController : ControllerBase
     {
         if (force && string.IsNullOrEmpty(datasource))
         {
-            // An explicit full rescan is a heavy operation. Always enter through the queue so
-            // a conflicting game detection / eviction / log operation produces a real purple
-            // waiting card and promotes automatically instead of turning a null scan into a 500.
-            // The singleton service owns the promoted worker; it must outlive this HTTP request.
+            // An explicit full rescan is a heavy operation. Always enter through the queue gate,
+            // even when no conflict is visible yet: the gate closes the check/start race, starts
+            // immediately when eligible, and parks/deduplicates otherwise. The singleton service
+            // owns the promoted worker, so it outlives this HTTP request.
             Task<Guid?> StartCacheSizeScanAsync() => _cacheService.StartCacheSizeScanInBackgroundAsync();
 
-            var scope = ConflictScope.Bulk();
-            var conflict = await _conflictChecker.CheckAsync(
+            return Accepted(await _operationQueue.EnqueueAsync(
                 OperationType.CacheSizeScan,
-                scope,
-                cancellationToken);
-            if (conflict != null)
-            {
-                return Accepted(await _operationQueue.EnqueueAsync(
-                    OperationType.CacheSizeScan,
-                    scope,
-                    "Cache File Scan",
-                    StartCacheSizeScanAsync,
-                    cancellationToken));
-            }
-
-            var operationId = await StartCacheSizeScanAsync();
-            if (!operationId.HasValue)
-            {
-                // A heavy operation won the race between the pre-check and registration.
-                // Re-enter through the queue so the request still becomes a waiting card.
-                return Accepted(await _operationQueue.EnqueueAsync(
-                    OperationType.CacheSizeScan,
-                    scope,
-                    "Cache File Scan",
-                    StartCacheSizeScanAsync,
-                    cancellationToken));
-            }
-
-            return Accepted(new QueuedOperationResponse
-            {
-                OperationId = operationId.Value,
-                Queued = false,
-                Status = "started"
-            });
+                ConflictScope.Bulk(),
+                "Cache File Scan",
+                StartCacheSizeScanAsync,
+                cancellationToken));
         }
 
         var result = await _cacheService.GetCacheSizeAsync(force, datasource, cancellationToken);
         if (result == null)
         {
-            // Graceful fallback only applies to the cached "all datasources" scan - a
+            // Graceful outcomes only apply to the cached "all datasources" scan - a
             // per-datasource scan has no cache/scan-tracker seam to fall back to (comment
             // on GetCacheSizeAsync: per-datasource scans are always live, never cached).
             if (string.IsNullOrEmpty(datasource))
@@ -159,6 +131,10 @@ public class CacheController : ControllerBase
                 {
                     return Ok(outcome.StaleResult);
                 }
+
+                // No persisted result is a normal initial/invalidated state. Ordinary reads
+                // never launch the heavy scan; the schedule or explicit Refresh will populate it.
+                return Ok(new CacheSizeUnavailableResponse());
             }
 
             return StatusCode(500, new ErrorResponse { Error = "Failed to calculate cache size" });
