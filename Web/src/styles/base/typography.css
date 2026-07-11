@@ -1,15 +1,15 @@
-/* Self-hosted Geist Sans (400/500/600/700), no external font requests.
+/* Self-hosted Outfit (400/500/600/700), no external font requests.
    Each weight file lists per-script @font-face rules; the browser only
    fetches the unicode-range subset actually needed by rendered text
    (e.g. Latin for en/fr/de, nothing extra for zh/ja locales, which fall
-   through to the system stack below since Geist has no CJK glyphs). */
-@import '@fontsource/geist-sans/400.css';
-@import '@fontsource/geist-sans/500.css';
-@import '@fontsource/geist-sans/600.css';
-@import '@fontsource/geist-sans/700.css';
+   through to the system stack below since Outfit has no CJK glyphs). */
+@import '@fontsource/outfit/400.css';
+@import '@fontsource/outfit/500.css';
+@import '@fontsource/outfit/600.css';
+@import '@fontsource/outfit/700.css';
 
 :root {
-  --font-sans: 'Geist Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+  --font-sans: 'Outfit', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;
 
   /* Core UI text scale. Collapses ~30 ad-hoc font-size values that had drifted
