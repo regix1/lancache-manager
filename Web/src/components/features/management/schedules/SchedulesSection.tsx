@@ -6,8 +6,8 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import HighlightGlow from '@components/ui/HighlightGlow';
-import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { Checkbox } from '@components/ui/Checkbox';
+import { HelpPopover, HelpNote } from '@components/ui/HelpPopover';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
@@ -180,7 +180,6 @@ const ScheduleCard = memo(function ScheduleCard({
   onEvictionScanNotificationsChange
 }: ScheduleCardProps) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
   const formattedNextRun = useFormattedDateTime(service.nextRunUtc);
 
   const isDepotMapping = service.key === 'depotMapping';
@@ -226,18 +225,12 @@ const ScheduleCard = memo(function ScheduleCard({
     [onEvictionScanNotificationsChange]
   );
 
-  const handleToggleExpand = useCallback(() => {
-    setExpanded((prev) => !prev);
-  }, []);
-
   // NOTE: do NOT include a "saving" flag here. Toggling isDisabled on and off for the
   // ~50ms an API save is in flight causes every control on the card to briefly flash to
   // disabled styling and back - that's the source of the flicker the user reported on the
   // interval dropdown and Run Now button. Optimistic updates already make the UI feel
   // instant; there's no UX benefit to disabling siblings mid-save.
   const isDisabled = !isAdmin || isRunningThis;
-
-  const hasExpandableContent = true;
 
   return (
     <HighlightGlow enabled={justCompleted} variant={completedVariant}>
@@ -256,36 +249,26 @@ const ScheduleCard = memo(function ScheduleCard({
                   }
                 />
                 {t(`management.schedules.services.${service.key}.displayName`)}
+                <HelpPopover position="left" width={320}>
+                  <HelpNote type="success">
+                    {t(`management.schedules.services.${service.key}.gain`)}
+                  </HelpNote>
+                  <HelpNote type="warning">
+                    {t(`management.schedules.services.${service.key}.loss`)}
+                  </HelpNote>
+                </HelpPopover>
               </h3>
               <p className="schedule-card-description">
                 {t(`management.schedules.services.${service.key}.description`)}
               </p>
             </div>
-            {/* Scheduled prefill renders its Run Now next to Configure on the summary
-            toolbar inside ScheduledPrefillScheduleDetail - both act on the service
-            list shown there, so they share one command strip instead of splitting. */}
-            {!isScheduledPrefill && (
-              <div className="schedule-card-header-actions">
-                <Button
-                  variant="filled"
-                  color="green"
-                  size="sm"
-                  onClick={handleRunNow}
-                  disabled={isDisabled || isDimmed}
-                  loading={isRunningThis}
-                  stableWidth
-                  className="schedule-control-button"
-                >
-                  {t('management.schedules.runNow')}
-                </Button>
-              </div>
-            )}
           </div>
 
           {/* Readout: last/next run and the interval picker as three labelled slots on
           one shared grid. Scheduled prefill replaces this single aggregate row (which
           only surfaced the MIN next-run / MAX last-run across services) with a
-          per-service table inside ScheduledPrefillScheduleDetail below. */}
+          per-service table inside ScheduledPrefillScheduleDetail below, where Run Now
+          sits in that card's own command strip next to Configure. */}
           {!isScheduledPrefill && (
             <div className="schedule-readout-row">
               <div className="schedule-timing-item">
@@ -396,43 +379,28 @@ const ScheduleCard = memo(function ScheduleCard({
               />
             </div>
           )}
-
-          {/* Expandable Gain/Loss */}
-          {hasExpandableContent && (
-            <div>
-              <button
-                className="schedule-expand-toggle"
-                onClick={handleToggleExpand}
-                aria-expanded={expanded}
-              >
-                <span className={`schedule-expand-chevron${expanded ? ' open' : ''}`}>▼</span>
-                {expanded
-                  ? t('management.schedules.hideDetails')
-                  : t('management.schedules.showDetails')}
-              </button>
-              <CollapsibleRegion open={expanded}>
-                <div className="schedule-expandable-inner">
-                  <div className="schedule-gain-loss-item">
-                    <span className="schedule-gain-loss-label gain">
-                      {t('management.schedules.gain')}
-                    </span>
-                    <p className="schedule-gain-loss-text">
-                      {t(`management.schedules.services.${service.key}.gain`)}
-                    </p>
-                  </div>
-                  <div className="schedule-gain-loss-item">
-                    <span className="schedule-gain-loss-label loss">
-                      {t('management.schedules.loss')}
-                    </span>
-                    <p className="schedule-gain-loss-text">
-                      {t(`management.schedules.services.${service.key}.loss`)}
-                    </p>
-                  </div>
-                </div>
-              </CollapsibleRegion>
-            </div>
-          )}
         </div>
+
+        {/* Run Now is a direct child of the card (not nested in either body wrapper)
+        with margin-top: auto, so it's forced to the card's true bottom-right corner
+        at a fixed position on every card - regardless of that card's own content
+        length or how tall its row got stretched to match a taller neighbor. */}
+        {!isScheduledPrefill && (
+          <div className="schedule-card-actions">
+            <Button
+              variant="filled"
+              color="green"
+              size="sm"
+              onClick={handleRunNow}
+              disabled={isDisabled || isDimmed}
+              loading={isRunningThis}
+              stableWidth
+              className="schedule-control-button"
+            >
+              {t('management.schedules.runNow')}
+            </Button>
+          </div>
+        )}
       </Card>
     </HighlightGlow>
   );

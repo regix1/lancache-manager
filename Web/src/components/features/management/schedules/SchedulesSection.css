@@ -167,14 +167,6 @@
   gap: 0.75rem;
 }
 
-/* Run Now sits at the card's top-right, opposite the title block. */
-.schedule-card-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-shrink: 0;
-}
-
 .schedule-card-title-group {
   display: flex;
   flex-direction: column;
@@ -1975,7 +1967,7 @@
   }
 }
 
-/* Run-on-startup row sits between the controls row and the expandable section */
+/* Run-on-startup row sits between the controls row and the bottom action row */
 .schedule-startup-row {
   display: flex;
   align-items: center;
@@ -1998,74 +1990,15 @@
   opacity: 0.6;
 }
 
-/* Expandable Section */
-.schedule-expand-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  background: none;
-  border: none;
-  border-radius: var(--theme-border-radius);
-  /* Horizontal padding widens the button beyond its label (visible when themes
-     paint button backgrounds/shadows); the negative margin keeps the label
-     flush-left with the expanded details below. */
-  padding: 0.25rem 0.625rem;
-  margin-left: -0.625rem;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  color: var(--theme-text-muted);
-  cursor: pointer;
-  transition: color 0.15s ease;
-}
-
-.schedule-expand-toggle:hover {
-  color: var(--theme-text-secondary);
-}
-
-.schedule-expand-chevron {
-  transition: transform 0.2s ease;
-  display: inline-block;
-  font-size: var(--font-size-2xs);
-  line-height: 1;
-}
-
-.schedule-expand-chevron.open {
-  transform: rotate(180deg);
-}
-
-.schedule-expandable-inner {
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--theme-border-secondary);
+/* Run Now sits at the card's true bottom-right corner, pinned there with
+   margin-top: auto regardless of how much content the card has above it or how
+   tall its row got stretched to match a taller neighbor - a fixed position on
+   every card, not one that drifts with content length. */
+.schedule-card-actions {
   display: flex;
-  flex-direction: column;
-  gap: 0.625rem;
-}
-
-.schedule-gain-loss-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-}
-
-.schedule-gain-loss-label {
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.schedule-gain-loss-label.gain {
-  color: var(--theme-success-text);
-}
-
-.schedule-gain-loss-label.loss {
-  color: var(--theme-error-text);
-}
-
-.schedule-gain-loss-text {
-  font-size: var(--font-size-base);
-  color: var(--theme-text-secondary);
-  line-height: 1.45;
+  justify-content: flex-end;
+  margin-top: auto;
+  padding-top: 0.25rem;
 }
 
 /* The just-completed flash is now provided by the shared HighlightGlow component
