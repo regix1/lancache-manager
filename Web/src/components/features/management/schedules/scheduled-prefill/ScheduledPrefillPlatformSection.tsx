@@ -128,7 +128,7 @@ export function ScheduledPrefillPlatformSection({
                 {
                   value: 'visible',
                   label: t(`${baseKey}.fields.visible`),
-                  activeColor: 'info'
+                  activeColor: 'waiting'
                 }
               ]}
               value={config.showNotification !== false ? 'visible' : 'silent'}

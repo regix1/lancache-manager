@@ -118,7 +118,8 @@ export function ScheduledPrefillPlatformsPanel({
                 </span>
                 <span className="scheduled-prefill-platforms__nav-badges">
                   {/* Operational state stays color-coded (green = active, red = inactive), while
-                      notification visibility uses a quieter informational/neutral pair. */}
+                      notification visibility uses one purple hue: a filled pill = visible, a
+                      dotted outline = silent, so it reads as its own on/off axis. */}
                   <Badge
                     variant={serviceConfig.enabled ? 'success' : 'error'}
                     className="scheduled-prefill-platforms__nav-badge"
@@ -143,7 +144,9 @@ export function ScheduledPrefillPlatformsPanel({
                         : t('prefill.persistent.states.stopped')}
                   </Badge>
                   <Badge
-                    variant={serviceConfig.showNotification !== false ? 'info' : 'neutral'}
+                    variant={
+                      serviceConfig.showNotification !== false ? 'waiting' : 'waiting-outline'
+                    }
                     className="scheduled-prefill-platforms__nav-badge"
                   >
                     {serviceConfig.showNotification !== false

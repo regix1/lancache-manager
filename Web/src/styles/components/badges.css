@@ -112,6 +112,22 @@
     border: 1px solid var(--theme-border-secondary);
   }
 
+  /* Notification-visibility pill — one purple hue, two treatments, so the pair
+   * reads as a single on/off axis distinct from the green/red operational badges.
+   * Filled solid = the run is VISIBLE (present in the notification bar); a dotted
+   * outline = SILENT (ghosted / it won't surface). Both are border-box so the
+   * dotted border never changes the pill's box vs its filled sibling in a row. */
+  .status-badge-waiting {
+    background-color: var(--theme-waiting-bg);
+    color: var(--theme-waiting-text);
+  }
+
+  .status-badge-waiting-outline {
+    background-color: transparent;
+    color: var(--theme-waiting-text);
+    border: 1px dotted var(--theme-waiting);
+  }
+
   /* Numeric count indicator — THE canonical look for every count/number badge
    * across the app (nav counts, section-header counts, selection counts, etc.).
    * Square box with lightly rounded corners (inherits themed-badge's 3px radius,

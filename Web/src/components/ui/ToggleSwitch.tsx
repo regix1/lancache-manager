@@ -6,7 +6,7 @@ interface ToggleOption {
   value: string;
   label: string;
   icon?: React.ReactNode;
-  activeColor?: 'success' | 'error' | 'warning' | 'info' | 'default';
+  activeColor?: 'success' | 'error' | 'warning' | 'info' | 'waiting' | 'default';
 }
 
 interface ToggleSwitchProps {
@@ -47,6 +47,10 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
       info: {
         backgroundColor: 'var(--theme-info-muted)',
         color: 'var(--theme-info-text)'
+      },
+      waiting: {
+        backgroundColor: 'var(--theme-waiting-muted)',
+        color: 'var(--theme-waiting-text)'
       },
       default: {
         backgroundColor: 'var(--theme-bg-surface-active)',

@@ -263,7 +263,7 @@ class ThemeService {
           name: 'Dark Default',
           description: 'Default dark theme with blue accents',
           author: 'System',
-          version: '1.0.2',
+          version: '1.0.3',
           isDark: true,
           sharpCorners: false,
           disableFocusOutlines: true,
@@ -281,7 +281,7 @@ class ThemeService {
           name: 'Light Default',
           description: 'Clean modern light theme with subtle depth',
           author: 'System',
-          version: '5.0.1',
+          version: '5.0.2',
           isDark: false,
           sharpCorners: false,
           disableFocusOutlines: true,
@@ -603,6 +603,7 @@ class ThemeService {
     const warning = colors.warning!;
     const error = colors.error!;
     const info = colors.info!;
+    const waiting = colors.waiting!;
     const steam = colors.steamColor!;
     const epic = colors.epicColor!;
     const blizzard = colors.blizzardColor!;
@@ -736,6 +737,9 @@ class ThemeService {
       /* Info */
       --theme-info-subtle: ${v('infoSubtle', rgba(info, 0.15))};
       --theme-info-muted: ${v('infoMuted', rgba(info, 0.2))};
+
+      /* Waiting (purple notification-visibility tone) */
+      --theme-waiting-muted: ${v('waitingMuted', rgba(waiting, 0.2))};
 
       /* Accent */
       --theme-accent-faint: ${v('accentFaint', rgba(accent, 0.06))};
