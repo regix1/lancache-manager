@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp, EyeOff, Search, Undo2 } from 'lucide-react';
 import { Pagination } from '@components/ui/Pagination';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
+import { AccordionSection } from '@components/ui/AccordionSection';
 import Badge from '@components/ui/Badge';
 import { usePaginatedList } from '@hooks/usePaginatedList';
 import { formatCount } from '@utils/formatters';
@@ -196,12 +197,12 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
               </span>
             )}
           </div>
-          <span className="mgmt-evidence__count">
-            {t('management.corruption.evidenceCount')}{' '}
-            <strong className="text-themed-error">{chunk.evidence_count}</strong>
-          </span>
-          {mode === 'review' && (
-            <div className="mgmt-evidence__actions">
+          <div className="mgmt-evidence__meta">
+            <span className="mgmt-evidence__count">
+              {t('management.corruption.evidenceCount')}{' '}
+              <strong className="text-themed-error">{chunk.evidence_count}</strong>
+            </span>
+            {mode === 'review' && (
               <button
                 type="button"
                 className="mgmt-evidence__action"
@@ -211,10 +212,8 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
               >
                 <EyeOff className="w-3.5 h-3.5" />
               </button>
-            </div>
-          )}
-          {mode === 'dismissed' && (
-            <div className="mgmt-evidence__actions">
+            )}
+            {mode === 'dismissed' && (
               <button
                 type="button"
                 className="mgmt-evidence__action"
@@ -224,8 +223,8 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
               >
                 <Undo2 className="w-3.5 h-3.5" />
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         <div className="mgmt-evidence__tags">
@@ -424,37 +423,27 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
           )}
 
           {dismissedReview.length > 0 && (
-            <section className="mgmt-evidence-group">
-              <div className="mgmt-evidence-grouphead-row">
-                <button
-                  type="button"
-                  className="mgmt-evidence-grouptoggle"
-                  onClick={() => setDismissedOpen((open) => !open)}
-                  aria-expanded={dismissedOpen}
-                >
-                  {dismissedOpen ? (
-                    <ChevronUp className="mgmt-evidence-grouptoggle__icon w-3.5 h-3.5" />
-                  ) : (
-                    <ChevronDown className="mgmt-evidence-grouptoggle__icon w-3.5 h-3.5" />
-                  )}
-                  <span>{t('management.corruption.dismissedSectionTitle')}</span>
-                  <span className="mgmt-evidence-grouphead__count">
-                    {formatCount(dismissedReview.length)}
-                  </span>
-                </button>
-                {dismissedReview.length > 1 && (
-                  <button
-                    type="button"
-                    className="mgmt-evidence__bulk"
-                    onClick={restoreAll}
-                    title={t('management.corruption.restoreAll')}
-                  >
-                    <Undo2 className="w-3.5 h-3.5" />
-                    <span>{t('management.corruption.restoreAll')}</span>
-                  </button>
-                )}
-              </div>
-              <CollapsibleRegion open={dismissedOpen}>
+            <div className="mgmt-evidence-dismissed">
+              <AccordionSection
+                title={t('management.corruption.dismissedSectionTitle')}
+                count={dismissedReview.length}
+                surface="well"
+                isExpanded={dismissedOpen}
+                onToggle={() => setDismissedOpen((open) => !open)}
+                badge={
+                  dismissedReview.length > 1 ? (
+                    <button
+                      type="button"
+                      className="mgmt-evidence__bulk"
+                      onClick={restoreAll}
+                      title={t('management.corruption.restoreAll')}
+                    >
+                      <Undo2 className="w-3.5 h-3.5" />
+                      <span>{t('management.corruption.restoreAll')}</span>
+                    </button>
+                  ) : undefined
+                }
+              >
                 <CustomScrollbar maxHeight="24rem" radius="none" paddingMode="compact">
                   <div className="mgmt-evidence-list">
                     {dismissedVisible.map((chunk) => renderChunk(chunk, 'dismissed'))}
@@ -472,8 +461,8 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
                     showCard={false}
                   />
                 )}
-              </CollapsibleRegion>
-            </section>
+              </AccordionSection>
+            </div>
           )}
         </>
       )}

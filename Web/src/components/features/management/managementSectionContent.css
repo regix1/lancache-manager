@@ -178,7 +178,9 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  padding: 0.625rem 0;
+  /* right padding keeps the trailing count/action clear of the scrollbar; the row divider
+     is drawn on the element box so it still spans the full width. */
+  padding: 0.625rem 0.5rem 0.625rem 0;
 }
 
 .mgmt-evidence:first-child {
@@ -234,12 +236,12 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Trailing per-finding controls (Dismiss / Restore) in the evidence head, mirroring the
-   row action cluster so review and dismissed findings get one tight, right-aligned slot. */
-.mgmt-evidence__actions {
+/* Right-hand cluster in the evidence head: keeps the evidence count and the Dismiss /
+   Restore icon button on ONE centered line (not stacked), clear of the scrollbar. */
+.mgmt-evidence__meta {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.5rem;
   flex-shrink: 0;
 }
 
@@ -362,6 +364,12 @@
    title span; this block only owns layout. */
 .mgmt-evidence-group + .mgmt-evidence-group {
   margin-top: 0.875rem;
+}
+
+/* The dismissed bucket is its OWN accordion, set clearly apart from the removable and
+   review lists above it. */
+.mgmt-evidence-dismissed {
+  margin-top: 1rem;
 }
 
 .mgmt-evidence-grouphead {
