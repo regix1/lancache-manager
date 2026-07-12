@@ -75,7 +75,10 @@ import {
   useScheduledRemovalRefresh
 } from '../game-detection/cacheRemovalHelpers';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
-import type { HistoricalEvidencePurgeCompleteEvent } from '@contexts/SignalRContext/types';
+import type {
+  HistoricalEvidencePurgeCompleteEvent,
+  OperationWaitingCompleteEvent
+} from '@contexts/SignalRContext/types';
 
 // Adapts the combined evicted selection set (prefixed keyspace) into the raw-keyed
 // SelectionAdapter each list expects, translating keys through the given prefix.
@@ -574,9 +577,16 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       onDataRefresh();
     };
 
+    const handleHistoricalEvidenceWaitingComplete = (event: OperationWaitingCompleteEvent) => {
+      if (event.operationType !== 'historicalEvidencePurge' || event.cancelled) return;
+      setSnapshotReloadToken((token) => token + 1);
+    };
+
     on('HistoricalEvidencePurgeComplete', handleHistoricalEvidenceComplete);
+    on('OperationWaitingComplete', handleHistoricalEvidenceWaitingComplete);
     return () => {
       off('HistoricalEvidencePurgeComplete', handleHistoricalEvidenceComplete);
+      off('OperationWaitingComplete', handleHistoricalEvidenceWaitingComplete);
     };
   }, [fetchEvictedItems, off, on, onDataRefresh]);
   // Wait-queue model: an eviction REMOVAL no longer disables the scan button (the scan
