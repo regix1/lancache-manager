@@ -4,5 +4,11 @@ set -e
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT/Web"
 
+# lint-staged runs eslint --fix + prettier --write over the staged files and re-stages
+# what it fixed, so formatting drift can never reach a commit (and never reach CI as a
+# lint warning nobody reads).
+echo "pre-commit: formatting staged files..."
+npx lint-staged
+
 echo "pre-commit: running knip..."
 npm run knip

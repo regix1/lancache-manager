@@ -11,7 +11,7 @@
     "dev": "vite",
     "build": "tsc && vite build && npm run validate:notifications -- --dist",
     "preview": "vite preview",
-    "lint": "eslint . && npm run validate:notifications && node scripts/validate-badges.mjs",
+    "lint": "eslint . --max-warnings 0 && npm run validate:notifications && node scripts/validate-badges.mjs",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "knip": "knip",
