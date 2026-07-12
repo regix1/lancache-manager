@@ -3,17 +3,14 @@ using System.Text.Json.Serialization;
 namespace LancacheManager.Models;
 
 /// <summary>Canonical typed report emitted by the Rust corruption detector.</summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class CorruptionReport
 {
-    public const int SupportedContractVersion = 2;
+    public const int SupportedContractVersion = 3;
 
     [JsonPropertyName("contract_version")]
     [JsonRequired]
     public int ContractVersion { get; set; }
-
-    [JsonPropertyName("mode")]
-    [JsonRequired]
-    public CorruptionDetectionMode Mode { get; set; }
 
     [JsonPropertyName("threshold")]
     [JsonRequired]
@@ -35,40 +32,17 @@ public sealed class CorruptionReport
     [JsonRequired]
     public long Total { get; set; }
 
-    [JsonPropertyName("removable_service_counts")]
-    [JsonRequired]
-    public Dictionary<string, long> RemovableServiceCounts { get; set; } =
-        new(StringComparer.OrdinalIgnoreCase);
-
-    [JsonPropertyName("review_only_service_counts")]
-    [JsonRequired]
-    public Dictionary<string, long> ReviewOnlyServiceCounts { get; set; } =
-        new(StringComparer.OrdinalIgnoreCase);
-
-    [JsonPropertyName("removable_total")]
-    [JsonRequired]
-    public long RemovableTotal { get; set; }
-
-    [JsonPropertyName("review_only_total")]
-    [JsonRequired]
-    public long ReviewOnlyTotal { get; set; }
-
     [JsonPropertyName("candidates")]
     [JsonRequired]
     public List<CorruptionCandidate> Candidates { get; set; } = [];
 }
 
 /// <summary>One immutable physical-slice corruption candidate.</summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class CorruptionCandidate
 {
     [JsonPropertyName("candidate_id")]
     public string CandidateId { get; set; } = string.Empty;
-
-    [JsonPropertyName("mode")]
-    public CorruptionDetectionMode Mode { get; set; }
-
-    [JsonPropertyName("threshold")]
-    public int Threshold { get; set; }
 
     /// <summary>Attached by C# because Rust scans one datasource at a time.</summary>
     [JsonPropertyName("datasource")]
@@ -101,24 +75,9 @@ public sealed class CorruptionCandidate
     [JsonPropertyName("last_seen")]
     public string LastSeen { get; set; } = string.Empty;
 
-    [JsonPropertyName("retry_client")]
-    public string? RetryClient { get; set; }
-
-    [JsonPropertyName("reason")]
-    public string Reason { get; set; } = string.Empty;
-
-    [JsonPropertyName("validation_state")]
-    public string ValidationState { get; set; } = string.Empty;
-
-    [JsonPropertyName("removal_allowed")]
-    public bool RemovalAllowed { get; set; }
-
     [JsonPropertyName("observations")]
     public List<CandidateObservation> Observations { get; set; } = [];
 
-    [JsonPropertyName("supporting_sibling")]
-    [JsonRequired]
-    public SupportingSiblingEvidence? SupportingSibling { get; set; }
 }
 
 /// <summary>Raw request range retained by the detector.</summary>
@@ -149,21 +108,6 @@ public sealed class CacheSliceIdentity
     [JsonPropertyName("end")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ulong? End { get; set; }
-}
-
-/// <summary>
-/// Safely validated present sibling supporting a review-only missing-slice finding.
-/// It never authorizes removal of the absent target.
-/// </summary>
-public sealed class SupportingSiblingEvidence
-{
-    [JsonPropertyName("cache_slice")]
-    [JsonRequired]
-    public CacheSliceIdentity CacheSlice { get; set; } = new();
-
-    [JsonPropertyName("exact_path")]
-    [JsonRequired]
-    public string ExactPath { get; set; } = string.Empty;
 }
 
 /// <summary>One qualifying access-log observation in a bounded evidence window.</summary>
@@ -211,9 +155,6 @@ public sealed class CorruptionRemovalEvidence
     [JsonPropertyName("scan_id")]
     public Guid ScanId { get; set; }
 
-    [JsonPropertyName("mode")]
-    public CorruptionDetectionMode Mode { get; set; }
-
     [JsonPropertyName("threshold")]
     public int Threshold { get; set; }
 
@@ -228,63 +169,11 @@ public sealed class CorruptionRemovalEvidence
 public sealed class CorruptionRemovalSelection
 {
     public Guid ScanId { get; init; }
-    public CorruptionDetectionMode Mode { get; init; }
     public int Threshold { get; init; }
     public int ContractVersion { get; init; }
     public string Service { get; init; } = string.Empty;
     public IReadOnlyDictionary<string, IReadOnlyList<CorruptionCandidate>> CandidatesByDatasource { get; init; } =
         new Dictionary<string, IReadOnlyList<CorruptionCandidate>>(StringComparer.OrdinalIgnoreCase);
-
-    [JsonIgnore]
-    public IReadOnlyList<string> CandidateIds => CandidatesByDatasource.Values
-        .SelectMany(candidates => candidates)
-        .Select(candidate => candidate.CandidateId)
-        .Distinct(StringComparer.Ordinal)
-        .ToList();
-}
-
-/// <summary>
-/// Exact stored review evidence sent to Rust for one datasource. This is deliberately
-/// separate from cache-removal evidence even though both use the same versioned JSON shape.
-/// The HTTP client never supplies this envelope or any candidate observation identity.
-/// </summary>
-public sealed class HistoricalEvidencePurgeEvidence
-{
-    [JsonPropertyName("contract_version")]
-    public int ContractVersion { get; set; }
-
-    [JsonPropertyName("scan_id")]
-    public Guid ScanId { get; set; }
-
-    [JsonPropertyName("mode")]
-    public CorruptionDetectionMode Mode { get; set; }
-
-    [JsonPropertyName("threshold")]
-    public int Threshold { get; set; }
-
-    [JsonPropertyName("datasource")]
-    public string Datasource { get; set; } = string.Empty;
-
-    [JsonPropertyName("candidates")]
-    public List<CorruptionCandidate> Candidates { get; set; } = [];
-}
-
-/// <summary>
-/// Current-scan, server-resolved review-only scope for historical evidence purge.
-/// A null <see cref="Service"/> represents all review findings in the current scan.
-/// </summary>
-public sealed class HistoricalEvidencePurgeSelection
-{
-    public Guid ScanId { get; init; }
-    public CorruptionDetectionMode Mode { get; init; }
-    public int Threshold { get; init; }
-    public int ContractVersion { get; init; }
-    public string? Service { get; init; }
-    public IReadOnlyDictionary<string, IReadOnlyList<CorruptionCandidate>> CandidatesByDatasource { get; init; } =
-        new Dictionary<string, IReadOnlyList<CorruptionCandidate>>(StringComparer.OrdinalIgnoreCase);
-
-    [JsonIgnore]
-    public string Scope => Service ?? "all";
 
     [JsonIgnore]
     public IReadOnlyList<string> CandidateIds => CandidatesByDatasource.Values

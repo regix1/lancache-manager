@@ -26,9 +26,6 @@ import type {
   SparklineDataResponse,
   CacheSnapshotResponse,
   CachedCorruptionDetectionResponse,
-  DismissCorruptionReviewResponse,
-  HistoricalEvidencePurgeStartResponse,
-  CorruptionDetectionMode,
   CorruptedChunkDetail,
   GameCacheInfo,
   ServiceCacheInfo,
@@ -1334,69 +1331,9 @@ class ApiService {
     }
   }
 
-  static async dismissCorruptionReviewFindings(
-    service: string,
-    scanId: string
-  ): Promise<DismissCorruptionReviewResponse> {
-    try {
-      const params = new URLSearchParams({ scanId });
-      const res = await fetch(
-        `${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption/review-findings?${params.toString()}`,
-        this.getFetchOptions({
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' }
-        })
-      );
-      return await this.handleResponse<DismissCorruptionReviewResponse>(res);
-    } catch (error: unknown) {
-      console.error('dismissCorruptionReviewFindings error:', error);
-      throw error;
-    }
-  }
-
-  static async dismissAllCorruptionReviewFindings(
-    scanId: string
-  ): Promise<DismissCorruptionReviewResponse> {
-    try {
-      const params = new URLSearchParams({ scanId });
-      const res = await fetch(
-        `${API_BASE}/cache/corruption/review-findings?${params.toString()}`,
-        this.getFetchOptions({
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' }
-        })
-      );
-      return await this.handleResponse<DismissCorruptionReviewResponse>(res);
-    } catch (error: unknown) {
-      console.error('dismissAllCorruptionReviewFindings error:', error);
-      throw error;
-    }
-  }
-
-  static async purgeHistoricalEvidence(
-    scanId: string,
-    service?: string
-  ): Promise<HistoricalEvidencePurgeStartResponse> {
-    try {
-      const params = new URLSearchParams({ scanId });
-      const scope = service
-        ? `/cache/evicted/services/${encodeURIComponent(service)}/historical-evidence`
-        : '/cache/evicted/historical-evidence';
-      const res = await fetch(
-        `${API_BASE}${scope}?${params.toString()}`,
-        this.getFetchOptions({ method: 'DELETE' })
-      );
-      return await this.handleResponse<HistoricalEvidencePurgeStartResponse>(res);
-    } catch (error: unknown) {
-      console.error('purgeHistoricalEvidence error:', error);
-      throw error;
-    }
-  }
-
   // Start background corruption detection scan
   static async startCorruptionDetection(
     threshold = 3,
-    detectionMode: CorruptionDetectionMode = 'cache_and_logs',
     lookbackDays = 30
   ): Promise<{
     operationId: string;
@@ -1408,7 +1345,6 @@ class ApiService {
     try {
       const params = new URLSearchParams();
       params.set('threshold', String(threshold));
-      params.set('detectionMode', detectionMode);
       params.set('lookbackDays', String(lookbackDays));
       const res = await fetch(
         `${API_BASE}/cache/corruption/detect?${params.toString()}`,

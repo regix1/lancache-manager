@@ -16,7 +16,6 @@ public enum OperationType
 {
     CacheClearing,
     CorruptionRemoval,
-    HistoricalEvidencePurge,
     CorruptionDetection,
     GameDetection,
     LogProcessing,
@@ -77,7 +76,6 @@ public static class OperationTypeExtensions
     {
         OperationType.CacheClearing => "cacheClearing",
         OperationType.CorruptionRemoval => "corruptionRemoval",
-        OperationType.HistoricalEvidencePurge => "historicalEvidencePurge",
         OperationType.CorruptionDetection => "corruptionDetection",
         OperationType.GameDetection => "gameDetection",
         OperationType.LogProcessing => "logProcessing",

@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { Search } from 'lucide-react';
 import { Pagination } from '@components/ui/Pagination';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
-import Badge from '@components/ui/Badge';
 import { usePaginatedList } from '@hooks/usePaginatedList';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import type { CorruptedChunkDetail } from '@/types';
@@ -11,9 +10,6 @@ import '../managementSectionContent.css';
 
 interface CorruptionChunkListProps {
   chunks: CorruptedChunkDetail[];
-  /** Which findings to render. Removable and review-only findings live in separate,
-   *  top-level lists, so each mount shows exactly one kind. */
-  variant: 'removable' | 'review';
 }
 
 // A single service can report thousands of corrupted chunks; cap what is mounted per
@@ -47,22 +43,19 @@ const EvidenceObservedAt: React.FC<EvidenceObservedAtProps> = ({ firstSeen, last
 };
 
 /**
- * Renders one service's corrupted-chunk details of a single kind (removable OR review-only,
- * chosen by the parent via `variant`) with a search box, pagination and the house
- * CustomScrollbar. Search filters by candidate identity, request URL, physical slice and
- * exact on-disk paths.
+ * Renders one service's actionable suspect-file details with search, pagination and the
+ * house CustomScrollbar. Search filters by candidate identity, request URL, physical slice
+ * and exact on-disk paths.
  */
-const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks, variant }) => {
+const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => {
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Every service fetch returns all of its chunks; show only the kind this list owns.
+  // Contract v3 returns actionable candidates only. Keep a final fail-closed display guard
+  // so malformed detail rows can never create an exact-path removal affordance.
   const items = useMemo(
-    () =>
-      chunks.filter((chunk) =>
-        variant === 'removable' ? chunk.removal_allowed : !chunk.removal_allowed
-      ),
-    [chunks, variant]
+    () => chunks.filter((chunk) => chunk.exact_paths.some((path) => path.trim().length > 0)),
+    [chunks]
   );
 
   // Search + pagination only earn their space once the list exceeds a page; smaller
@@ -78,10 +71,6 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks, varia
         chunk.datasource,
         chunk.raw_url,
         chunk.normalized_uri,
-        chunk.retry_client ?? '',
-        chunk.reason,
-        chunk.validation_state,
-        chunk.supporting_sibling?.exact_path ?? '',
         ...chunk.exact_paths
       ]
         .join(' ')
@@ -109,20 +98,6 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks, varia
         : t(`management.corruption.sliceKinds.${chunk.cache_slice.kind}`, {
             defaultValue: chunk.cache_slice.kind
           });
-    const supportingSiblingSlice = chunk.supporting_sibling
-      ? chunk.supporting_sibling.cache_slice.kind === 'ranged'
-        ? `bytes=${chunk.supporting_sibling.cache_slice.start}-${chunk.supporting_sibling.cache_slice.end}`
-        : t(`management.corruption.sliceKinds.${chunk.supporting_sibling.cache_slice.kind}`, {
-            defaultValue: chunk.supporting_sibling.cache_slice.kind
-          })
-      : null;
-    const reason = t(`management.corruption.reasons.${chunk.reason}`, {
-      defaultValue: chunk.reason
-    });
-    const validation = t(`management.corruption.validationStates.${chunk.validation_state}`, {
-      defaultValue: chunk.validation_state
-    });
-
     return (
       <div key={chunk.candidate_id} className="mgmt-evidence">
         <div className="mgmt-evidence__head">
@@ -132,22 +107,9 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks, varia
             </code>
           </div>
           <div className="mgmt-evidence__status">
-            <Badge variant={chunk.validation_state === 'exact_path_present' ? 'success' : 'info'}>
-              {validation}
-            </Badge>
             <span className="mgmt-evidence__count">
-              {chunk.reason === 'missing_cached_slice' ? (
-                <strong className="text-themed-secondary">
-                  {t('management.corruption.priorCacheProof', {
-                    count: chunk.evidence_count
-                  })}
-                </strong>
-              ) : (
-                <>
-                  {t('management.corruption.evidenceCount')}{' '}
-                  <strong className="text-themed-error">{chunk.evidence_count}</strong>
-                </>
-              )}
+              {t('management.corruption.evidenceCount')}{' '}
+              <strong className="text-themed-error">{chunk.evidence_count}</strong>
             </span>
           </div>
         </div>
@@ -158,24 +120,7 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks, varia
             <dd>{chunk.datasource}</dd>
           </div>
           <EvidenceObservedAt firstSeen={chunk.first_seen} lastSeen={chunk.last_seen} />
-          {chunk.retry_client && (
-            <div className="mgmt-evidence__fact">
-              <dt>{t('management.corruption.retryEvidenceLabel')}</dt>
-              <dd>
-                {t('management.corruption.retryEvidence', {
-                  client: chunk.retry_client,
-                  first: chunk.first_seen,
-                  last: chunk.last_seen
-                })}
-              </dd>
-            </div>
-          )}
         </dl>
-
-        <div className="mgmt-evidence__reason">
-          <span>{t('management.corruption.reason')}</span>
-          <strong>{reason}</strong>
-        </div>
 
         <details className="mgmt-evidence__technical">
           <summary>{t('management.corruption.cacheMappingDetails')}</summary>
@@ -201,36 +146,15 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks, varia
               </dd>
             </div>
             <div className="mgmt-evidence__mapping-item mgmt-evidence__mapping-item--wide">
-              <dt>
-                {t(
-                  chunk.reason === 'missing_cached_slice'
-                    ? 'management.corruption.expectedMissingPath'
-                    : 'management.corruption.cache'
-                )}
-              </dt>
+              <dt>{t('management.corruption.cache')}</dt>
               <dd>
-                {chunk.exact_paths.length > 0 ? (
-                  chunk.exact_paths.map((path) => (
-                    <code key={path} className="mgmt-evidence__exact-value">
-                      {path}
-                    </code>
-                  ))
-                ) : (
-                  <span className="block">{t('management.corruption.noExactPath')}</span>
-                )}
+                {chunk.exact_paths.map((path) => (
+                  <code key={path} className="mgmt-evidence__exact-value">
+                    {path}
+                  </code>
+                ))}
               </dd>
             </div>
-            {chunk.supporting_sibling && (
-              <div className="mgmt-evidence__mapping-item mgmt-evidence__mapping-item--wide">
-                <dt>{t('management.corruption.supportingSibling')}</dt>
-                <dd>
-                  {supportingSiblingSlice && <code>{supportingSiblingSlice}</code>}
-                  <code className="mgmt-evidence__exact-value">
-                    {chunk.supporting_sibling.exact_path}
-                  </code>
-                </dd>
-              </div>
-            )}
           </dl>
         </details>
       </div>

@@ -70,13 +70,9 @@ export const SIGNALR_EVENTS = [
   'CorruptionDetectionStarted',
   'CorruptionDetectionProgress',
   'CorruptionDetectionComplete',
-  'CorruptionDetailsProgress',
   'CorruptionRemovalStarted',
   'CorruptionRemovalProgress',
   'CorruptionRemovalComplete',
-  'HistoricalEvidencePurgeStarted',
-  'HistoricalEvidencePurgeProgress',
-  'HistoricalEvidencePurgeComplete',
   'EvictionRemovalComplete',
 
   // Games
@@ -266,7 +262,6 @@ export const SIGNALR_REFRESH_EVENTS = [
   'DepotMappingComplete',
   'LogRemovalComplete',
   'CorruptionRemovalComplete',
-  'HistoricalEvidencePurgeComplete',
   'ServiceRemovalComplete',
   'GameDetectionComplete',
   'GameRemovalComplete',
@@ -474,41 +469,6 @@ export interface CorruptionRemovalCompleteEvent {
   timestamp?: string;
 }
 
-export interface HistoricalEvidencePurgeStartedEvent {
-  operationId: string;
-  scope: string;
-  candidateCount: number;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
-}
-
-export interface HistoricalEvidencePurgeProgressEvent {
-  operationId: string;
-  scope: string;
-  percentComplete: number;
-  status?: OperationStatus;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
-  logLinesRemoved?: number;
-  logEntriesRemoved?: number;
-  downloadsDeleted?: number;
-}
-
-export interface HistoricalEvidencePurgeCompleteEvent {
-  operationId?: string | null;
-  success: boolean;
-  status: OperationStatus;
-  cancelled?: boolean;
-  scope: string;
-  candidateCount?: number;
-  stageKey?: string;
-  context?: Record<string, string | number | boolean>;
-  logLinesRemoved?: number;
-  logEntriesRemoved?: number;
-  downloadsDeleted?: number;
-  error?: string;
-}
-
 export interface CorruptionDetectionStartedEvent {
   operationId: string;
   stageKey?: string;
@@ -531,18 +491,7 @@ export interface CorruptionDetectionProgressEvent {
   datasourceName?: string;
 }
 
-// Progress for a single-service "view corrupted chunk details" fetch - distinct from
-// CorruptionDetectionProgressEvent (the bulk scan) so it never feeds the global
-// 'corruption_detection' notification card.
-export interface CorruptionDetailsProgressEvent {
-  operationId: string;
-  service: string;
-  percentComplete: number;
-  filesProcessed: number;
-  totalFiles: number;
-}
-
-// C# sends the aggregate all/removable/review count projections for the completed scan.
+// C# sends the actionable count projection for the completed scan.
 export interface CorruptionDetectionCompleteEvent {
   operationId: string;
   success: boolean;
@@ -555,10 +504,7 @@ export interface CorruptionDetectionCompleteEvent {
   status?: OperationStatus;
   totalServicesWithCorruption?: number;
   totalCorruptedChunks?: number;
-  removableServiceCounts?: Record<string, number>;
-  reviewOnlyServiceCounts?: Record<string, number>;
-  removableTotal?: number;
-  reviewOnlyTotal?: number;
+  corruptionCounts?: Record<string, number>;
 }
 
 export interface GameDetectionStartedEvent {

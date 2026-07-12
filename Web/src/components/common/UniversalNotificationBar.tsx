@@ -77,7 +77,6 @@ const NOTIFICATION_TITLE_KEYS: Record<NotificationType, string | null> = {
   service_removal: 'common.notifications.titles.serviceRemoval',
   game_removal: 'common.notifications.titles.gameRemoval',
   corruption_removal: 'common.notifications.titles.corruptionRemoval',
-  historical_evidence_purge: 'common.notifications.titles.historicalEvidencePurge',
   corruption_detection: 'common.notifications.titles.corruptionDetection',
   database_reset: 'common.notifications.titles.databaseReset',
   depot_mapping: 'common.notifications.titles.depotMapping',

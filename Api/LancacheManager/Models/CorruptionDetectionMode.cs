@@ -4,8 +4,7 @@ using System.Text.Json.Serialization;
 namespace LancacheManager.Models;
 
 /// <summary>
-/// Corruption detection mode used from scan input through persisted evidence and removal.
-/// Serialized as canonical snake_case strings on the wire.
+/// Internal corruption detection mode retained for the existing persistence column.
 /// </summary>
 [JsonConverter(typeof(CorruptionDetectionModeJsonConverter))]
 public enum CorruptionDetectionMode
@@ -13,14 +12,8 @@ public enum CorruptionDetectionMode
     /// <summary>Fallback for unrecognized wire values (never used as a valid input).</summary>
     Unknown,
 
-    /// <summary>Review bounded MISS evidence without requiring a cache file on disk.</summary>
-    LogsOnly,
-
     /// <summary>Require the exact MISS-evidence cache slice to exist on disk.</summary>
-    CacheAndLogs,
-
-    /// <summary>Detect corruption by flagging chunks that have been re-downloaded.</summary>
-    Redownload
+    CacheAndLogs
 }
 
 /// <summary>
@@ -57,9 +50,7 @@ public static class CorruptionDetectionModeExtensions
     /// </summary>
     public static string ToWireString(this CorruptionDetectionMode mode) => mode switch
     {
-        CorruptionDetectionMode.LogsOnly => "logs_only",
         CorruptionDetectionMode.CacheAndLogs => "cache_and_logs",
-        CorruptionDetectionMode.Redownload => "redownload",
         CorruptionDetectionMode.Unknown => "unknown",
         _ => "unknown"
     };
@@ -77,15 +68,8 @@ public static class CorruptionDetectionModeExtensions
 
         return value.Trim().ToLowerInvariant() switch
         {
-            "logs_only" => CorruptionDetectionMode.LogsOnly,
-            "logsonly" => CorruptionDetectionMode.LogsOnly,
             "cache_and_logs" => CorruptionDetectionMode.CacheAndLogs,
             "cacheandlogs" => CorruptionDetectionMode.CacheAndLogs,
-            // Backward-compatible scan-input alias. Persisted scans always use
-            // the canonical cache_and_logs value.
-            "miss_count" => CorruptionDetectionMode.CacheAndLogs,
-            "misscount" => CorruptionDetectionMode.CacheAndLogs,
-            "redownload" => CorruptionDetectionMode.Redownload,
             _ => CorruptionDetectionMode.Unknown
         };
     }

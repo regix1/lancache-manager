@@ -16,7 +16,6 @@ export type NotificationType =
   | 'service_removal'
   | 'game_removal'
   | 'corruption_removal'
-  | 'historical_evidence_purge'
   | 'corruption_detection'
   | 'database_reset'
   | 'depot_mapping'
@@ -88,10 +87,6 @@ export interface UnifiedNotification {
 
     // For service_removal
     service?: string;
-    scope?: string;
-    candidateCount?: number;
-    logLinesRemoved?: number;
-    downloadsRemoved?: number;
     linesProcessed?: number;
     linesRemoved?: number;
 

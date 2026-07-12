@@ -9,64 +9,7 @@ namespace LancacheManager.Tests;
 
 public class OperationConflictCheckerTests
 {
-    [Theory]
-    [InlineData(OperationType.LogProcessing)]
-    [InlineData(OperationType.LogRemoval)]
-    [InlineData(OperationType.GameRemoval)]
-    [InlineData(OperationType.ServiceRemoval)]
-    [InlineData(OperationType.CorruptionRemoval)]
-    [InlineData(OperationType.EvictionRemoval)]
-    [InlineData(OperationType.EvictionScan)]
-    [InlineData(OperationType.CacheClearing)]
-    [InlineData(OperationType.HistoricalEvidencePurge)]
-    public async Task HistoricalEvidencePurge_BlocksEveryPhysicalWriterAndEvictionOperationAsync(
-        OperationType activeType)
-    {
-        using var tracker = new TrackerHarness();
-        RegisterBulkOperation(tracker.Tracker, activeType, activeType.ToString());
 
-        var response = await tracker.Checker.CheckAsync(
-            OperationType.HistoricalEvidencePurge,
-            ConflictScope.Bulk(),
-            CancellationToken.None);
-
-        Assert.NotNull(response);
-        Assert.Equal(activeType.ToString(), response!.ActiveOperationType);
-        Assert.Equal(
-            activeType == OperationType.HistoricalEvidencePurge
-                ? "errors.conflict.duplicate"
-                : activeType == OperationType.CacheClearing
-                    ? "errors.conflict.globalOperationActive"
-                    : "errors.conflict.heavyOperationActive",
-            response!.StageKey);
-    }
-
-    [Theory]
-    [InlineData(OperationType.LogProcessing)]
-    [InlineData(OperationType.LogRemoval)]
-    [InlineData(OperationType.GameRemoval)]
-    [InlineData(OperationType.ServiceRemoval)]
-    [InlineData(OperationType.CorruptionRemoval)]
-    [InlineData(OperationType.EvictionRemoval)]
-    [InlineData(OperationType.EvictionScan)]
-    public async Task ActiveHistoricalEvidencePurge_SymmetricallyBlocksPhysicalWritersAsync(
-        OperationType newType)
-    {
-        using var tracker = new TrackerHarness();
-        RegisterBulkOperation(
-            tracker.Tracker,
-            OperationType.HistoricalEvidencePurge,
-            "Purge historical evidence");
-
-        var response = await tracker.Checker.CheckAsync(
-            newType,
-            ConflictScope.Bulk(),
-            CancellationToken.None);
-
-        Assert.NotNull(response);
-        Assert.Equal(nameof(OperationType.HistoricalEvidencePurge), response!.ActiveOperationType);
-        Assert.Equal("errors.conflict.heavyOperationActive", response.StageKey);
-    }
 
     [Fact]
     public async Task ExpectedConflict_IsLoggedAtDebug_NotInformationAsync()
@@ -247,21 +190,6 @@ public class OperationConflictCheckerTests
         Assert.Equal("errors.conflict.duplicate", response!.StageKey);
     }
 
-    [Fact]
-    public async Task Allows_CorruptionDetectionDetails_When_LogProcessing_IsActiveAsync()
-    {
-        // Per-service "view details" fetches are interactive reads, NOT heavy sweeps -
-        // they must stay usable while a long log processing run is active.
-        using var tracker = new TrackerHarness();
-        RegisterBulkOperation(tracker.Tracker, OperationType.LogProcessing, "Log Processing");
-
-        var response = await tracker.Checker.CheckAsync(
-            OperationType.CorruptionDetection,
-            ConflictScope.Service("steam"),
-            CancellationToken.None);
-
-        Assert.Null(response);
-    }
 
     [Fact]
     public async Task Blocks_ServiceRemoval_When_LogRemoval_IsActiveAsync()
@@ -377,61 +305,8 @@ public class OperationConflictCheckerTests
         Assert.Null(response);
     }
 
-    [Fact]
-    public async Task Allows_CorruptionDetectionDetails_When_DifferentServiceDetails_IsActiveAsync()
-    {
-        // Two per-service "view details" fetches are independent reads and must not conflict -
-        // this was the bug behind repeated 409s when browsing different services' corruption details.
-        using var tracker = new TrackerHarness();
-        RegisterCorruptionDetectionDetails(tracker.Tracker, serviceName: "steam");
 
-        var response = await tracker.Checker.CheckAsync(
-            OperationType.CorruptionDetection,
-            ConflictScope.Service("blizzard"),
-            CancellationToken.None);
 
-        Assert.Null(response);
-    }
-
-    [Fact]
-    public async Task Blocks_CorruptionDetectionDetails_When_SameServiceDetails_IsActiveAsync()
-    {
-        using var tracker = new TrackerHarness();
-        RegisterCorruptionDetectionDetails(tracker.Tracker, serviceName: "steam");
-
-        var response = await tracker.Checker.CheckAsync(
-            OperationType.CorruptionDetection,
-            ConflictScope.Service("steam"),
-            CancellationToken.None);
-
-        Assert.NotNull(response);
-        Assert.Equal("errors.conflict.duplicate", response!.StageKey);
-    }
-
-    [Fact]
-    public async Task Blocks_CorruptionDetectionDetails_When_BulkScan_IsActiveAsync()
-    {
-        // The bulk scan touches every service, so a per-service details fetch must wait for it.
-        using var tracker = new TrackerHarness();
-        RegisterBulkCorruptionDetection(tracker.Tracker);
-
-        var response = await tracker.Checker.CheckAsync(
-            OperationType.CorruptionDetection,
-            ConflictScope.Service("steam"),
-            CancellationToken.None);
-
-        Assert.NotNull(response);
-        Assert.Equal("errors.conflict.duplicate", response!.StageKey);
-    }
-
-    private static void RegisterCorruptionDetectionDetails(IUnifiedOperationTracker tracker, string serviceName)
-    {
-        tracker.RegisterOperation(
-            OperationType.CorruptionDetection,
-            $"Corruption Details ({serviceName})",
-            new CancellationTokenSource(),
-            new CorruptionDetectionMetrics { ServiceName = serviceName });
-    }
 
     private static void RegisterBulkOperation(IUnifiedOperationTracker tracker, OperationType type, string name)
     {

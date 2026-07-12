@@ -162,45 +162,6 @@ public static class SignalRNotifications
         bool IOperationComplete.Cancelled => false;
     }
 
-    /// <summary>Notification when an exact historical-evidence purge starts.</summary>
-    public record HistoricalEvidencePurgeStarted(
-        Guid OperationId,
-        string Scope,
-        int CandidateCount,
-        string StageKey,
-        DateTime Timestamp,
-        Dictionary<string, object?>? Context = null
-    );
-
-    /// <summary>Progress for an exact historical-evidence purge. Cache-file counters are absent by design.</summary>
-    public record HistoricalEvidencePurgeProgress(
-        Guid OperationId,
-        string Scope,
-        string Status,
-        string StageKey,
-        double PercentComplete = 0,
-        long LogLinesRemoved = 0,
-        long LogEntriesRemoved = 0,
-        long DownloadsDeleted = 0,
-        Dictionary<string, object?>? Context = null
-    );
-
-    /// <summary>Single terminal payload for successful, failed, or cancelled evidence purges.</summary>
-    public record HistoricalEvidencePurgeComplete(
-        Guid? OperationId,
-        bool Success,
-        Models.OperationStatus Status,
-        string Scope,
-        string StageKey,
-        bool Cancelled = false,
-        string? Error = null,
-        int CandidateCount = 0,
-        long LogLinesRemoved = 0,
-        long LogEntriesRemoved = 0,
-        long DownloadsDeleted = 0,
-        Dictionary<string, object?>? Context = null
-    ) : ICompletionNotification, IOperationComplete;
-
     #endregion
 
     #region Log Processing Notifications
@@ -311,27 +272,11 @@ public static class SignalRNotifications
     );
 
     /// <summary>
-    /// Progress for a single-service "view corrupted chunk details" fetch. Deliberately a
-    /// distinct event from <see cref="CorruptionDetectionProgress"/> - the details fetch is a
-    /// read-only per-row lookup, not the bulk scan, and must not feed the global
-    /// 'corruption_detection' notification card (that would make the Scan button and notification
-    /// bar think a full scan is running just because a service's details are expanded).
-    /// </summary>
-    public record CorruptionDetailsProgress(
-        Guid OperationId,
-        string Service,
-        double PercentComplete,
-        int FilesProcessed,
-        int TotalFiles
-    );
-
-    /// <summary>
     /// Notification when corruption detection completes (success, failure, or cancellation).
     /// One record for ALL terminal paths (replaces the prior anon success object + the separate
     /// force-kill <c>CorruptionDetectionCancelled</c> record). Property names mirror the frontend
     /// <c>CorruptionDetectionCompleteEvent</c> contract (status / cancelled / error /
-    /// totalServicesWithCorruption / totalCorruptedChunks) and add the v2 removable/review-only
-    /// maps and totals. Emitted from a single place via <c>OperationInfo.OnTerminalEmit</c>.
+    /// totalServicesWithCorruption / totalCorruptedChunks / corruptionCounts).
     /// </summary>
     public record CorruptionDetectionComplete(
         bool Success,
@@ -342,10 +287,7 @@ public static class SignalRNotifications
         string? Error = null,
         int TotalServicesWithCorruption = 0,
         int TotalCorruptedChunks = 0,
-        Dictionary<string, long>? RemovableServiceCounts = null,
-        Dictionary<string, long>? ReviewOnlyServiceCounts = null,
-        long RemovableTotal = 0,
-        long ReviewOnlyTotal = 0,
+        Dictionary<string, long>? CorruptionCounts = null,
         Dictionary<string, object?>? Context = null
     ) : ICompletionNotification, IOperationComplete
     {

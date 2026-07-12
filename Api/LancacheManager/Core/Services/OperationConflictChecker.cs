@@ -99,29 +99,6 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
                 });
         }
 
-        // Historical evidence purge atomically replaces shared access.log files even for a
-        // logical single-service scope. It therefore registers as Bulk and physically conflicts
-        // with every access-log writer, another history purge, and eviction scan/removal work.
-        // This rule is intentionally symmetric so either operation is queued regardless of which
-        // one reached the tracker first.
-        if ((newType == OperationType.HistoricalEvidencePurge
-                && ConflictsWithHistoricalEvidencePurge(activeOp.Type))
-            || (activeOp.Type == OperationType.HistoricalEvidencePurge
-                && ConflictsWithHistoricalEvidencePurge(newType)))
-        {
-            var duplicate = newType == OperationType.HistoricalEvidencePurge
-                && activeOp.Type == OperationType.HistoricalEvidencePurge;
-            return BuildResponse(activeOp, activeScope,
-                stageKey: duplicate ? "errors.conflict.duplicate" : "errors.conflict.heavyOperationActive",
-                englishError: duplicate
-                    ? "A historical evidence purge is already in progress."
-                    : $"Cannot start {newType}: an active {activeOp.Type} operation uses shared access-log evidence.",
-                context: new Dictionary<string, object?>
-                {
-                    ["activeType"] = activeOp.Type.ToString()
-                });
-        }
-
         // ---- 1a. Heavy data-pipeline ops run ONE at a time ----
         // The full-sweep data operations (log processing, log removal, game detection, the bulk
         // corruption scan, the cache file scan, and the eviction scan) each spawn a Rust worker
@@ -129,8 +106,6 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         // Running several simultaneously races shared files (access.log, cache dirs) and floods
         // slow clients with progress events, so any two heavy ops conflict - the second one parks
         // in the operation queue (purple waiting card) instead of running alongside the first.
-        // Per-service corruption "view details" fetches are deliberately NOT heavy: they stay
-        // interactive and keep their own rules in section 2 below.
         var newIsHeavy = IsHeavyDataOp(newType, newScope);
         var activeIsHeavy = IsHeavyDataOp(activeOp.Type, activeScope);
         if (newIsHeavy && activeIsHeavy)
@@ -165,8 +140,8 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         // entity's lines - the same file the log pipeline reads/rewrites. They used to run
         // "concurrently" here but in reality serialized on an internal lock, leaving the second
         // op stuck at 0% with a running card and no explanation. Conflicting them instead sends
-        // the second op through the wait queue (purple waiting card). Read-only ops (detections,
-        // per-service corruption details) still never conflict with the log pipeline.
+        // the second op through the wait queue (purple waiting card). Read-only detections still
+        // never conflict with the log pipeline.
         if (newType == OperationType.LogRemoval || newType == OperationType.LogProcessing)
         {
             if (RewritesAccessLog(activeOp.Type))
@@ -255,19 +230,10 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
 
         if (newType == OperationType.CorruptionDetection && activeOp.Type == OperationType.CorruptionDetection)
         {
-            // Per-service "view details" fetches only conflict with the bulk scan (which touches
-            // every service) or another fetch for the SAME service. Two detail fetches for
-            // DIFFERENT services are independent read-only lookups and must not block each other -
-            // CacheManagementService already serializes the actual Rust process via its own lock.
-            if (activeScope.Kind == "bulk" || newScope.Kind == "bulk" || newScope.Matches(activeScope))
-            {
-                return BuildResponse(activeOp, activeScope,
-                    stageKey: "errors.conflict.duplicate",
-                    englishError: "Corruption detection is already running.",
-                    context: new Dictionary<string, object?> { ["activeType"] = activeOp.Type.ToString() });
-            }
-
-            return null;
+            return BuildResponse(activeOp, activeScope,
+                stageKey: "errors.conflict.duplicate",
+                englishError: "Corruption detection is already running.",
+                context: new Dictionary<string, object?> { ["activeType"] = activeOp.Type.ToString() });
         }
 
         // GameDetection/CorruptionDetection alongside any removal → ALLOW (read-only tolerate).
@@ -490,16 +456,6 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
                 return new ConflictScope(e.Scope!, e.Key!);
             }
 
-            // Logical service scope is retained in this metadata for recovery display only.
-            // Physically every history purge replaces shared access-log files.
-            case HistoricalEvidencePurgeMetadata:
-                return ConflictScope.Bulk();
-
-            // Per-service "Corruption Details (service)" fetches carry ServiceName; the bulk
-            // scan's metadata leaves it null, so it correctly falls through to Bulk() below.
-            case CorruptionDetectionMetrics c when !string.IsNullOrEmpty(c.ServiceName):
-                return ConflictScope.Service(c.ServiceName!);
-
             default:
                 // No metadata (global scans / detections / cache-clear / db-reset) - treat as bulk.
                 return ConflictScope.Bulk();
@@ -559,16 +515,11 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         type is OperationType.GameRemoval
             or OperationType.ServiceRemoval
             or OperationType.CorruptionRemoval
-            or OperationType.EvictionRemoval
-            or OperationType.HistoricalEvidencePurge;
-
-    private static bool ConflictsWithHistoricalEvidencePurge(OperationType type) =>
-        RewritesAccessLog(type) || type == OperationType.EvictionScan;
+            or OperationType.EvictionRemoval;
 
     /// <summary>
     /// Full-sweep data operations that must run one at a time (section 1a). Each spawns a
-    /// Rust worker over the whole log file / cache tree. CorruptionDetection counts only as
-    /// its BULK scan; per-service detail fetches remain lightweight interactive reads.
+    /// Rust worker over the whole log file / cache tree. CorruptionDetection is always a bulk scan.
     /// DatabaseReset/CacheClearing are excluded only because section 1 blocks them earlier.
     /// </summary>
     private static bool IsHeavyDataOp(OperationType type, ConflictScope scope) => type switch

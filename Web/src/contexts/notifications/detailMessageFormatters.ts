@@ -381,14 +381,11 @@ export const formatCorruptionDetectionProgressMessage = (
 export const formatCorruptionDetectionCompleteMessage = (
   event: CorruptionDetectionCompleteEvent
 ): string => {
-  const removableTotal = event.removableTotal ?? 0;
-  const reviewOnlyTotal = event.reviewOnlyTotal ?? 0;
+  const count = event.totalCorruptedChunks ?? 0;
   const context = {
-    removable: removableTotal,
-    reviewOnly: reviewOnlyTotal,
-    removableTotal,
-    reviewOnlyTotal,
-    ...(event.context ?? {})
+    ...(event.context ?? {}),
+    count,
+    totalCorruptedChunks: count
   };
   return event.stageKey
     ? i18n.t(event.stageKey, context)

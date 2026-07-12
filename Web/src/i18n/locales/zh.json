@@ -163,9 +163,8 @@
         "logRemoval": "日志移除",
         "serviceRemoval": "服务缓存移除",
         "gameRemoval": "游戏缓存移除",
-        "corruptionRemoval": "已验证切片移除",
-        "historicalEvidencePurge": "历史证据清除",
-        "corruptionDetection": "缓存完整性扫描",
+        "corruptionRemoval": "可疑缓存文件移除",
+        "corruptionDetection": "损坏缓存文件扫描",
         "databaseReset": "数据库重置",
         "depotMapping": "仓库映射",
         "gameDetection": "游戏检测",
@@ -181,9 +180,8 @@
       "cacheFilesDeleted": "已删除 {{formattedCount}} 个缓存文件",
       "cacheFilesDeleted_other": "已删除 {{formattedCount}} 个缓存文件",
       "cancelCacheClearing": "取消缓存清理",
-      "cancelCorruptionRemoval": "取消已验证切片移除",
-      "cancelHistoricalEvidencePurge": "取消历史证据清除",
-      "cancelCorruptionDetection": "取消缓存完整性扫描",
+      "cancelCorruptionRemoval": "取消可疑缓存文件移除",
+      "cancelCorruptionDetection": "取消损坏缓存文件扫描",
       "cancelDepotMapping": "取消仓库映射",
       "cancelGameDetection": "取消游戏检测",
       "cancelGameRemoval": "取消游戏移除",
@@ -208,7 +206,7 @@
       "operationWaitingNamed": "{{name}}：正在等待其他进程完成...",
       "operationWaitingCancelled": "已在等待队列中取消",
       "willQueueBehindCurrent": "将在当前操作完成后开始",
-      "corruptedChunksRemoved": "损坏块已成功移除",
+      "corruptedChunksRemoved": "可疑缓存文件已成功移除",
       "filesDeleted": "已删除 {{formattedCount}} 个文件",
       "filesDeleted_other": "已删除 {{formattedCount}} 个文件",
       "freed": "已释放 {{value}}",
@@ -1875,34 +1873,7 @@
         "evictionScanError": "启动淘汰扫描失败",
         "evictionScanWaiting": "等待淘汰扫描完成...",
         "pruneOrphanedDownloads": "清理没有日志历史的下载记录",
-        "pruneOrphanedDownloadsDescription": "淘汰扫描期间，仅删除已无任何日志条目的下载记录。此选项无法删除仍有依据的历史观察，也无法清除“缓存完整性”审核发现。请先使用“清除历史证据”删除那些精确观察；之后的扫描才能清理因此不再有历史的下载记录。如需保留日志已清除服务的统计信息，请关闭此选项。",
-        "historicalEvidence": {
-          "title": "历史证据清理",
-          "description": "针对“缓存完整性”发现的精确缓存缺失观察的高级清理",
-          "note": "这些计数来自当前“缓存完整性与缺失数据”快照。清除前请先在那里审核证据。“忽略”只会清理已保存的审核结果；“清除”会永久删除其精确历史观察。",
-          "loading": "正在加载当前完整性快照…",
-          "purgeAllAction": "清除全部历史证据…",
-          "purgeServiceAction": "清除证据…",
-          "purgeServiceAria": "清除 {{service}} 的历史证据",
-          "serviceEvidenceCount": "{{count}} 项有依据的审核观察",
-          "emptyTitle": "没有可清除的历史证据",
-          "emptyBody": "请运行“缓存完整性与缺失数据”扫描，或在扫描后在此查看其当前已保存发现。",
-          "modal": {
-            "allTitle": "清除全部历史证据？",
-            "serviceTitle": "清除 {{service}} 的历史证据？",
-            "scope": "从当前已保存扫描中清除 {{scope}} 的 {{count}} 项匹配观察。",
-            "allServices": "所有服务",
-            "permanent": "此操作仅永久删除精确匹配的 nginx 访问日志和数据库观察。",
-            "noCacheFiles": "此操作绝不会删除缓存文件。",
-            "statistics": "历史统计和下载关联可能发生变化；删除后没有任何日志历史的下载记录也可能被移除。",
-            "noRediscovery": "已清除的观察无法通过重新处理日志恢复，也不会在以后的缓存完整性扫描中再次出现。",
-            "confirm": "清除历史证据"
-          },
-          "errors": {
-            "start": "无法启动历史证据清除。已保存的发现仍可供重试。",
-            "staleScan": "缓存完整性快照已更改。当前发现已重新加载；请审核后重试。"
-          }
-        },
+        "pruneOrphanedDownloadsDescription": "淘汰扫描期间，仅删除已无任何日志条目的下载记录。如需保留日志已清除服务的统计信息，请关闭此选项。",
         "resetEvictions": "重置淘汰",
         "resetEvictionsSuccess": "已将 {{count}} 个已淘汰下载重置为正常",
         "resetEvictionsError": "重置淘汰失败",
@@ -1973,10 +1944,10 @@
             "affectedPages": "缓存标签页 • 游戏检测卡片"
           },
           "cachedCorruptionDetections": {
-            "label": "缓存完整性扫描结果",
-            "description": "已保存的缓存切片重试和路径缺失证据",
-            "details": "预先计算的缓存完整性发现，用于审核已验证及历史切片证据",
-            "affectedPages": "缓存标签页 • 缓存完整性与缺失数据"
+            "label": "损坏缓存文件扫描结果",
+            "description": "已保存的重复 MISS 候选项及其精确缓存路径",
+            "details": "扫描验证为仍在磁盘上的预计算可疑缓存文件",
+            "affectedPages": "缓存标签页 • 损坏的缓存文件"
           },
           "clientGroups": {
             "label": "客户端组",
@@ -2445,132 +2416,57 @@
       "batchCancelledWithFailures": "已在移除 {{count}} 个服务日志后取消，其中有 {{failed}} 个失败"
     },
     "corruption": {
-      "title": "缓存完整性与缺失数据",
-      "summary": "检查物理缓存切片的重试和路径缺失证据，并且仅移除后端已验证且当前存在的路径。",
-      "subtitle": "审核限定窗口内的切片证据，不把每个缺失路径都视为损坏",
+      "title": "损坏的缓存文件",
+      "summary": "查找仍在磁盘上却反复未命中的缓存文件，并仅移除扫描验证过的精确路径，以便重新获取新副本。",
       "directoryMissing": "无法移除：未找到所需目录",
-      "loadPreviousResults": "从数据库加载之前的扫描结果",
-      "scanForCorrupted": "扫描缓存完整性和切片缺失证据",
-      "deleteCorrupted": "移除此扫描中已验证的精确缓存路径",
-      "scanningMessage": "正在扫描日志中限定时间的缓存切片重试和路径缺失证据…对于大型日志文件，可能需要几分钟。",
+      "scanningMessage": "正在扫描日志，查找仍在磁盘上却反复缓存未命中的文件…对于大型日志文件，可能需要几分钟。",
       "loadingCachedData": "正在加载已缓存的扫描数据…",
       "loadingDetails": "正在加载已存储的证据…",
-      "corruptedChunks": "{{count}} 个可疑切片",
-      "corruptedChunks_other": "{{count}} 个可疑切片",
-      "removeAll": "全部移除",
       "removeAllServices": "全部移除",
       "removing": "正在移除…",
-      "removalFailed": "已验证切片移除失败",
       "readOnly": "无法移除：存储为只读",
       "dockerSocketRequired": "无法移除：需要 Docker 套接字",
-      "missCount": "未命中证据：",
       "cache": "缓存：",
       "datasource": "数据源：",
       "normalizedUri": "规范化 URI：",
       "observedRange": "请求范围：",
       "physicalSlice": "物理切片：",
-      "expectedMissingPath": "预期缺失路径：",
-      "supportingSibling": "扫描时存在的同级切片：",
       "cacheMappingDetails": "技术缓存映射",
       "noRange": "无范围",
-      "noExactPath": "未验证精确缓存路径；此候选项仅供审核。",
-      "reason": "原因：",
-      "evidenceCount": "证据：",
-      "priorCacheProof": "先前缓存证明：{{count}} 次观察",
-      "priorCacheProof_other": "先前缓存证明：{{count}} 次观察",
+      "evidenceCount": "合格的未命中：",
       "observedAt": "观察时间：",
       "observedWindow": "{{first}}–{{last}}",
-      "retryEvidenceLabel": "重试客户端：",
-      "retryEvidence": "{{client}}",
-      "reviewOnlyTitle": "审核发现",
-      "reviewOnlyDescription": "这 {{count}} 项发现通常来自部分淘汰、正常清理或历史缓存缺失证据，并非已确认的损坏。没有已验证且当前存在的缓存路径可供移除；再次请求时，客户端会重新下载缺失内容。",
-      "reviewOnlyAction": "此已存储扫描选择中没有可移除的嫌疑项。",
-      "mixedReviewTitle": "部分发现需要审核",
-      "mixedReviewDescription": "其中 {{count}} 项发现没有已验证且当前存在的路径可供移除。它们通常来自部分淘汰、正常清理或历史缓存缺失证据，并非已确认的损坏。",
-      "removableSectionTitle": "可移除",
-      "reviewSectionTitle": "审核发现",
-      "reviewSectionNote": "这些是仅供审核的发现，并非已确认的损坏。同级切片仍然存在时，某个切片也可能显示为缺失，这通常来自部分淘汰或正常清理；客户端只会重新下载它，因此这里没有要移除的文件。“忽略”只会清理这份已保存扫描，不会触碰缓存文件、日志或下载记录，之后的扫描仍可能再次显示这些证据。",
-      "removableCount": "{{count}} 个可移除",
-      "reviewCount": "{{count}} 个待审核",
-      "dismiss": "忽略",
-      "dismissAll": "全部忽略",
-      "dismissing": "正在忽略…",
-      "dismissServiceAria": "忽略 {{service}} 的审核发现",
-      "dismissAllAria": "忽略这份已保存扫描中的所有审核发现",
-      "purgeHistoricalEvidence": "清除历史证据…",
-      "purgeEvidence": "清除证据…",
-      "purgeAllAria": "清除这份已保存扫描中的全部历史证据",
-      "purgeServiceAria": "清除 {{service}} 的历史证据",
+      "suspectCount": "{{formattedCount}} 个可疑文件",
+      "suspectCount_other": "{{formattedCount}} 个可疑文件",
+      "expandDetails": "显示 {{service}} 的可疑文件",
+      "collapseDetails": "隐藏 {{service}} 的可疑文件",
       "sliceKinds": {
         "no_range": "无范围缓存键",
         "noslice": "非切片缓存键",
         "ranged": "范围切片"
       },
-      "reasons": {
-        "repeated_miss_burst": "该分片反复缓存未命中",
-        "same_client_hit_retry_burst": "同一设备反复重新下载该分片",
-        "missing_cached_slice": "该分片缺失，但该文件的其他分片仍在"
-      },
-      "validationStates": {
-        "log_suspect": "仅有日志证据",
-        "exact_path_missing": "缓存文件已不在磁盘",
-        "exact_path_present": "缓存文件在磁盘上"
-      },
       "noDetailsAvailable": "无已存储证据",
-      "searchPlaceholder": "按 ID、URL、范围、客户端或路径搜索嫌疑项…",
-      "chunkLabel": "个可疑切片",
-      "noSearchMatch": "没有与搜索匹配的可疑切片",
-      "detectionModeTitle": "检测模式",
-      "detectionModeCacheLogs": "缓存 + 日志",
-      "detectionModeCacheLogsShort": "缓存 + 日志",
-      "detectionModeCacheLogsDesc": "当精确路径存在时，一个物理切片在 60 秒内出现 {{threshold}}+ 次字面 MISS 后会创建可移除嫌疑项。另一个独立规则会使用一次完整提供的单切片 HIT 和一个仍存在的同级切片创建仅供审核的缺失缓存发现；突发灵敏度不适用于该审核信号。",
-      "detectionModeLogsOnly": "仅日志",
-      "detectionModeLogsOnlyShort": "仅日志",
-      "detectionModeLogsOnlyDesc": "一个物理切片在 60 秒内出现 {{threshold}}+ 次字面 MISS 时标记。日志证据仅供审核；证据回溯不适用，也不会验证或移除缓存路径。",
-      "detectionModeRedownload": "重新下载检测",
-      "detectionModeRedownloadShort": "重新下载",
-      "detectionModeRedownloadDesc": "同一客户端在 60 秒内以 HIT 收到同一物理切片 {{threshold}}+ 次时标记。重复请求表示客户端可能在重新下载或重试，但不能证明客户端拒绝了这些字节，也不能证明缓存内容已损坏。",
-      "redownloadCount": "重试证据：",
-      "redownloadRemovalUnavailable": "仅当后端为已存储候选项验证了精确映射缓存路径时，才可移除。",
-      "sensitivityTitle": "突发检测灵敏度",
+      "searchPlaceholder": "按 ID、URL、范围或路径搜索嫌疑项…",
+      "chunkLabel": "个可疑文件",
+      "noSearchMatch": "没有与搜索匹配的可疑文件",
+      "sensitivityTitle": "未命中灵敏度",
       "sensitivityHigh": "高灵敏度",
       "sensitivityHighShort": "高",
-      "sensitivityHighDesc": "要求一个切片在 60 秒内有 3 次合格的 MISS/重试观察。缺失缓存审核使用一次精确的先前缓存证明。",
+      "sensitivityHighDesc": "要求一个物理切片在 60 秒内有 3 次合格的 MISS 观察。",
       "sensitivityMedium": "中灵敏度",
       "sensitivityMediumShort": "中",
-      "sensitivityMediumDesc": "要求一个切片在 60 秒内有 5 次合格的 MISS/重试观察。缺失缓存审核使用一次精确的先前缓存证明。",
+      "sensitivityMediumDesc": "要求一个物理切片在 60 秒内有 5 次合格的 MISS 观察。",
       "sensitivityLow": "低灵敏度",
       "sensitivityLowShort": "低",
-      "sensitivityLowDesc": "要求一个切片在 60 秒内有 10 次合格的 MISS/重试观察。缺失缓存审核使用一次精确的先前缓存证明。",
+      "sensitivityLowDesc": "要求一个物理切片在 60 秒内有 10 次合格的 MISS 观察。",
       "evidenceLookbackTitle": "证据回溯",
-      "evidenceLookbackDescription": "使用扫描开始前此窗口内的合格证据。较长的回溯会包含更多因正常淘汰或清理而移除的旧切片；使用 1 天或 7 天可聚焦近期缺失。",
+      "evidenceLookbackDescription": "使用扫描开始前 {{days}} 天内合格的 MISS 观察。",
       "evidenceWindow": "{{days}} 天证据回溯窗口",
       "lookback1Day": "1 天",
       "lookback7Days": "7 天",
       "lookback30Days": "30 天",
       "lookback90Days": "90 天",
       "lookback365Days": "365 天",
-      "help": {
-        "whatThisDoes": {
-          "title": "功能说明",
-          "description": "只有当关联缓存文件全部不再存在时，淘汰扫描才会把完整下载标记为已淘汰。本扫描检查单个物理切片，因此在同级切片仍存在时也可能保留切片缺失证据。审核发现通常来自部分淘汰、正常清理或历史证据，并非已确认的损坏。"
-        },
-        "whatRemovalDeletes": {
-          "title": "被移除的内容",
-          "cacheFilesLabel": "缓存文件",
-          "cacheFiles": "只删除已存储扫描批准的精确映射路径，以便重新获取内容",
-          "logEntriesLabel": "日志条目",
-          "logEntries": "只清理附加到已移除候选项的观察记录",
-          "databaseRecordsLabel": "数据库记录",
-          "databaseRecords": "只清理与已存储候选证据精确匹配的记录"
-        },
-        "warning": "需要对缓存和日志目录都具有写权限。",
-        "warningLogsOnly": "仅需要对日志目录具有写权限。",
-        "perGameRemoval": {
-          "title": "按游戏移除",
-          "description": "要仅移除特定游戏的损坏块，请使用游戏缓存检测标签页。它允许您扫描检测到的游戏并逐个游戏地移除缓存文件 - 包括未知或已下架的游戏。"
-        }
-      },
       "alerts": {
         "cacheMissing": "缓存目录不存在",
         "directoryNotFound": "未找到所需目录。请确保它们在 docker-compose 中正确挂载。",
@@ -2587,40 +2483,33 @@
       },
       "emptyStates": {
         "noCorrupted": {
-          "title": "这份已保存扫描中没有剩余发现",
-          "subtitle": "没有证据达到阈值，或者审核发现已被忽略。请运行新扫描再次检查。"
+          "title": "未发现可疑缓存文件",
+          "subtitle": "仍在磁盘上的文件均未达到所选的重复 MISS 阈值。"
         },
         "noCachedData": {
-          "title": "无可用缓存数据",
-          "subtitle": "点击“扫描”以查找限定时间内的物理切片重试模式"
+          "title": "没有已保存的扫描",
+          "subtitle": "运行扫描以查找仍在磁盘上却反复未命中的缓存文件。"
         }
       },
       "notifications": {
-        "loadedResults": "已加载之前的结果：{{removable}} 个可移除嫌疑项和 {{review}} 个审核发现，涉及 {{services}} 个服务",
-        "noCorruptedInPrevious": "上一次扫描中没有剩余发现",
-        "noPreviousResults": "未找到之前的缓存完整性扫描结果",
-        "dismissedReview": "已从这份已保存扫描中忽略 {{count}} 项审核发现。"
+        "loadedResults": "已加载 {{count}} 个可疑缓存文件，涉及 {{services}} 个服务",
+        "noCorruptedInPrevious": "上一次扫描未发现可疑缓存文件",
+        "noPreviousResults": "未找到之前的损坏缓存文件扫描"
       },
       "errors": {
-        "loadCachedData": "加载缓存数据失败",
-        "startScan": "启动缓存完整性扫描失败",
-        "removeCorrupted": "移除 {{service}} 的已验证可疑切片失败",
-        "loadDetails": "加载 {{service}} 的损坏详情失败",
-        "removeAllCorrupted": "移除所有已验证可疑切片失败",
-        "dismissReview": "无法忽略审核发现。请重新加载结果后重试。",
-        "dismissConflict": "已保存的扫描发生了变化。将重新加载当前结果；请重试。",
-        "applyDismissResult": "发现已被忽略，但无法应用更新后的已保存扫描。请重新加载结果。"
-      },
-      "dismissAllModal": {
-        "title": "忽略所有审核发现？",
-        "description": "要从这份已保存扫描中忽略 {{count}} 项审核发现吗？此操作只会更改已保存扫描，不会删除缓存文件、访问日志、日志条目或下载记录。未来扫描仍可能再次发现这些证据。"
+        "loadCachedData": "加载已保存的扫描结果失败",
+        "loadCachedRetry": "移除文件前，请重试加载当前可操作扫描。",
+        "startScan": "启动损坏缓存文件扫描失败",
+        "removeCorrupted": "移除 {{service}} 的可疑缓存文件失败",
+        "loadDetails": "加载 {{service}} 的可疑缓存文件失败",
+        "removeAllCorrupted": "移除所选可疑缓存文件失败"
       },
       "modal": {
-        "title": "移除已验证的可疑切片",
-        "confirmRemove": "移除 {{service}} 的后端批准精确缓存路径？",
+        "title": "移除可疑缓存文件",
+        "confirmRemove": "移除此扫描为 {{service}} 验证的精确缓存路径？",
         "willDelete": "这将删除：",
         "cacheFilesLabel": "缓存文件",
-        "cacheFilesDesc": "此扫描批准的精确映射路径",
+        "cacheFilesDesc": "此扫描验证为存在的精确路径，以便重新获取新副本",
         "logEntriesLabel": "日志条目",
         "logEntriesDesc": "只删除附加到这些候选项的观察记录",
         "databaseRecordsLabel": "数据库记录",
@@ -2628,14 +2517,13 @@
         "cannotBeUndone": "此操作无法撤销",
         "mayTakeSeveralMinutes": "对于大型缓存文件可能需要几分钟",
         "validFilesRemain": "其他 {{service}} 缓存路径保持不变",
-        "removesApproximately": "最多移除 {{count}} 个具有批准路径的已存储可疑切片",
+        "removesApproximately": "最多移除 {{count}} 个具有已验证路径的可疑缓存文件",
         "deleteCacheAndLogs": "删除缓存和日志",
-        "deleteLogsOnly": "仅删除日志",
-        "removeAllTitle": "移除所有已验证的可疑切片",
-        "confirmRemoveAll": "移除 {{services}} 个服务中的 {{candidates}} 个可移除嫌疑项？",
-        "confirmRemoveSelected": "移除 {{services}} 个所选服务中的 {{candidates}} 个可移除嫌疑项？",
+        "removeAllTitle": "移除所有可疑缓存文件",
+        "confirmRemoveAll": "移除 {{services}} 个服务中的 {{candidates}} 个可疑缓存文件？",
+        "confirmRemoveSelected": "移除 {{services}} 个所选服务中的 {{candidates}} 个可疑缓存文件？",
         "removeAllAcrossAllServices": "移除将按顺序在所有受影响的服务上运行",
-        "removeAllConfirm": "移除所有已验证项"
+        "removeAllConfirm": "移除所有嫌疑项"
       }
     },
     "gameDetection": {
@@ -4951,7 +4839,7 @@
         },
         "management": {
           "label": "管理",
-          "description": "认证（API 密钥）、Steam 集成、数据库重置/清除按钮、缓存管理、日志处理、缓存完整性扫描、游戏缓存检测器、主题定制（模态框、颜色选择器、复选框、滑块）、GC 设置、警告横幅和 Grafana 端点"
+          "description": "认证（API 密钥）、Steam 集成、数据库重置/清除按钮、缓存管理、日志处理、损坏缓存文件扫描、游戏缓存检测器、主题定制（模态框、颜色选择器、复选框、滑块）、GC 设置、警告横幅和 Grafana 端点"
         },
         "charts": {
           "label": "图表与图形",
@@ -6408,55 +6296,33 @@
       }
     },
     "corruptionDetect": {
-      "starting": "正在开始缓存完整性扫描…",
-      "scanningLogs": "正在扫描日志文件中的切片级完整性和路径缺失证据…",
-      "complete": "缓存完整性扫描完成：{{removable}} 个可移除嫌疑项，{{reviewOnly}} 个审核发现。",
-      "cancelled": "用户已取消缓存完整性扫描",
-      "failed": "缓存完整性扫描失败：{{errorDetail}}"
+      "starting": "正在开始损坏缓存文件扫描…",
+      "scanningLogs": "正在扫描日志文件，查找仍在磁盘上却反复未命中的缓存文件…",
+      "complete": "损坏缓存文件扫描完成：发现 {{count}} 个可疑文件。",
+      "cancelled": "用户已取消损坏缓存文件扫描",
+      "failed": "损坏缓存文件扫描失败：{{errorDetail}}"
     },
     "corruptionRemove": {
-      "starting": "开始移除 {{service}} 的已批准精确路径",
-      "startingService": "正在移除 {{service}} 的已批准精确路径（第 {{serviceIndex}}/{{serviceCount}} 个）",
-      "scanningRedownload": "正在扫描日志文件查找同一客户端重试模式…",
-      "noChunksFound": "未发现可移除的已验证可疑项，无需移除",
-      "noChunksFoundService": "未发现 {{service}} 的可移除已验证可疑项，无需移除",
+      "starting": "开始移除 {{service}} 的可疑缓存文件",
+      "startingService": "正在移除 {{service}} 的可疑缓存文件（第 {{serviceIndex}}/{{serviceCount}} 个）",
+      "noChunksFoundService": "未发现 {{service}} 的可疑缓存文件，无需移除",
       "filteringLogs": "正在过滤日志文件",
       "filteringFile": "正在过滤文件 {{fileIndex}}/{{totalFiles}}",
-      "removingCacheFiles": "正在移除 {{totalFiles}} 个已验证可疑项对应的缓存文件",
-      "removingCacheFile": "正在移除已批准的缓存文件 {{fileIndex}}/{{totalFiles}}",
-      "deletingDb": "正在删除已验证可疑项的数据库记录",
-      "scanningFiles": "正在扫描 {{totalFiles}} 个日志文件查找可疑切片…",
-      "scanningFile": "正在扫描文件 {{fileIndex}}/{{totalFiles}}…",
-      "complete": "已为 {{service}} 移除 {{count}} 个已验证可疑项（删除了 {{files}} 个缓存文件、{{logLines}} 行日志、{{downloads}} 条下载记录、{{logEntries}} 条日志条目）",
-      "success": "已成功移除 {{service}} 的已批准精确路径",
+      "removingCacheFiles": "正在移除 {{totalFiles}} 个可疑缓存文件",
+      "removingCacheFile": "正在移除已验证的缓存文件 {{fileIndex}}/{{totalFiles}}",
+      "deletingDb": "正在删除与已移除嫌疑项关联的数据库记录",
+      "scanningFiles": "正在扫描 {{totalFiles}} 个日志文件查找可疑缓存文件…",
+      "complete": "已为 {{service}} 移除 {{count}} 个可疑缓存文件（删除了 {{files}} 个缓存文件、{{logLines}} 行日志、{{downloads}} 条下载记录、{{logEntries}} 条日志条目）",
+      "success": "已成功移除 {{service}} 的已验证可疑缓存文件",
       "cancelled": "操作已被取消。",
-      "allComplete": "已完成 {{serviceCount}} 个服务的已批准路径移除：移除 {{count}} 个已验证可疑项（{{files}} 个缓存文件、{{logLines}} 行日志、{{logEntries}} 条数据库条目）",
-      "allCompleteWithFailures": "已批准路径移除已完成，{{serviceCount}} 个服务中有 {{failedCount}} 个失败。已移除 {{count}} 个已验证可疑项（{{files}} 个缓存文件、{{logLines}} 行日志）",
-      "allCancelled": "已批准路径移除已取消，已处理 {{completedCount}}/{{serviceCount}} 个服务",
-      "redownload": {
-        "complete": "已为 {{service}} 移除 {{count}} 个已验证的同一客户端重试可疑项（删除了 {{files}} 个缓存文件、{{logLines}} 行日志、{{downloads}} 条下载记录、{{logEntries}} 条日志条目）"
-      },
+      "allComplete": "已完成 {{serviceCount}} 个服务的可疑缓存文件移除：移除 {{count}} 个可疑文件（{{files}} 个缓存文件、{{logLines}} 行日志、{{logEntries}} 条数据库条目）",
+      "allCompleteWithFailures": "可疑缓存文件移除已完成，{{serviceCount}} 个服务中有 {{failedCount}} 个失败。已移除 {{count}} 个可疑文件（{{files}} 个缓存文件、{{logLines}} 行日志）",
+      "allCancelled": "可疑缓存文件移除已取消，已处理 {{completedCount}}/{{serviceCount}} 个服务",
       "error": {
-        "fatal": "已验证切片移除失败：{{errorDetail}}"
+        "fatal": "可疑缓存文件移除失败：{{errorDetail}}"
       },
       "failed": {
         "generic": "操作失败。请查看服务器日志了解详情。"
-      }
-    },
-    "historicalEvidencePurge": {
-      "starting": "正在为 {{count}} 项观察启动历史证据清除…",
-      "purging": "正在清除精确匹配的历史观察…",
-      "processing": "正在清除精确匹配的历史观察…",
-      "filteringLogs": "正在从 nginx 访问日志中移除精确匹配的观察…",
-      "filteringFile": "正在筛选访问日志 {{fileIndex}} / {{totalFiles}}…",
-      "deletingDb": "正在移除 {{count}} 项精确匹配的数据库观察…",
-      "finalizing": "正在刷新历史统计和已保存的完整性发现…",
-      "complete": "历史证据清除完成：已清除 {{count}} 项发现，移除 {{logLines}} 行日志、{{logEntries}} 项数据库观察和 {{downloads}} 条空下载记录。",
-      "cancelled": "历史证据清除已取消；已保存的发现仍可供重试。",
-      "failed": "历史证据清除失败；已保存的发现仍可供重试。",
-      "recovered": "历史证据清除已不再运行；当前发现已重新加载。",
-      "error": {
-        "fatal": "历史证据清除失败：{{errorDetail}}"
       }
     },
     "dbReset": {

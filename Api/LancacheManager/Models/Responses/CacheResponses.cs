@@ -220,29 +220,6 @@ public class EvictionRemovalInfo
     public DateTime? StartedAt { get; set; }
 }
 
-/// <summary>Accepted response for an all-services or per-service historical-evidence purge.</summary>
-public sealed class HistoricalEvidencePurgeAcceptedResponse
-{
-    public Guid OperationId { get; set; }
-    public string Scope { get; set; } = "all";
-    public int CandidateCount { get; set; }
-    public bool Queued { get; set; }
-    public bool AlreadyRunning { get; set; }
-    public string Status { get; set; } = "started";
-}
-
-/// <summary>Recovery projection for one active historical-evidence purge.</summary>
-public sealed class HistoricalEvidencePurgeInfo
-{
-    public Guid ScanId { get; set; }
-    public string Scope { get; set; } = "all";
-    public int CandidateCount { get; set; }
-    public Guid OperationId { get; set; }
-    public OperationStatus Status { get; set; }
-    public string? Message { get; set; }
-    public DateTime? StartedAt { get; set; }
-}
-
 /// <summary>
 /// Response for all active removals (games, services, corruption, eviction)
 /// </summary>
@@ -253,7 +230,6 @@ public class AllActiveRemovalsResponse
     public IEnumerable<ServiceRemovalInfo>? ServiceRemovals { get; set; }
     public IEnumerable<CorruptionRemovalInfo>? CorruptionRemovals { get; set; }
     public IEnumerable<EvictionRemovalInfo>? EvictionRemovals { get; set; }
-    public IEnumerable<HistoricalEvidencePurgeInfo>? HistoricalEvidencePurges { get; set; }
 }
 
 /// <summary>

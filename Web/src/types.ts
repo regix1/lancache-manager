@@ -331,15 +331,6 @@ export interface StatCardData {
   tooltip?: ReactNode;
 }
 
-export type CorruptionDetectionMode = 'logs_only' | 'cache_and_logs' | 'redownload';
-
-export type CorruptionValidationState = 'log_suspect' | 'exact_path_missing' | 'exact_path_present';
-
-export type CorruptionDetectionReason =
-  | 'repeated_miss_burst'
-  | 'same_client_hit_retry_burst'
-  | 'missing_cached_slice';
-
 type CorruptionSliceKind = 'no_range' | 'noslice' | 'ranged';
 
 export interface CorruptionObservedRange {
@@ -354,29 +345,12 @@ export interface CorruptionCacheSlice {
   end?: number | null;
 }
 
-export interface CorruptionCandidateObservation {
-  timestamp: string;
-  client_ip: string;
-  raw_url: string;
-  method: string;
-  http_status: number;
-  cache_status: string;
-  raw_range: string | null;
-  bytes_served: number;
-}
-
-export interface CorruptionSupportingSibling {
-  cache_slice: CorruptionCacheSlice;
-  exact_path: string;
-}
-
 /**
  * Immutable physical-slice evidence returned from a stored corruption scan.
  * Field names intentionally mirror the Rust snake_case wire contract.
  */
 export interface CorruptedChunkDetail {
   candidate_id: string;
-  mode: CorruptionDetectionMode;
   threshold: number;
   datasource: string;
   service: string;
@@ -388,45 +362,18 @@ export interface CorruptedChunkDetail {
   evidence_count: number;
   first_seen: string;
   last_seen: string;
-  retry_client?: string | null;
-  reason: CorruptionDetectionReason;
-  validation_state: CorruptionValidationState;
-  removal_allowed: boolean;
-  supporting_sibling: CorruptionSupportingSibling | null;
-  observations: CorruptionCandidateObservation[];
 }
 
 export interface CachedCorruptionDetectionResponse {
   hasCachedResults: boolean;
   scanId?: string;
-  detectionMode?: CorruptionDetectionMode;
   threshold?: number;
   contractVersion?: number;
   lookbackDays?: number;
   corruptionCounts?: Record<string, number>;
-  removableServiceCounts?: Record<string, number>;
-  reviewOnlyServiceCounts?: Record<string, number>;
   totalServicesWithCorruption?: number;
   totalCorruptedChunks?: number;
-  removableTotal?: number;
-  reviewOnlyTotal?: number;
   lastDetectionTime?: string;
-  removalAllowed?: boolean;
-  serviceRemovalAllowed?: Record<string, boolean>;
-}
-
-export interface DismissCorruptionReviewResponse {
-  dismissedCount: number;
-  result: CachedCorruptionDetectionResponse;
-}
-
-export interface HistoricalEvidencePurgeStartResponse {
-  operationId: string;
-  scope: string;
-  candidateCount: number;
-  status: string;
-  queued?: boolean;
-  alreadyRunning?: boolean;
 }
 
 export type CacheEntityVariant = 'active' | 'evicted';

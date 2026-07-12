@@ -113,12 +113,6 @@ pub(crate) struct LogRewriteOutcome {
     pub lines_removed: u64,
     pub permission_errors: usize,
     pub other_errors: usize,
-    pub cancelled: bool,
-}
-
-enum FileRewriteOutcome {
-    Removed(u64),
-    Cancelled,
 }
 
 /// Owns the concrete output encoder so compressed streams can be finalized before the
@@ -219,8 +213,7 @@ fn scan_file_for_matches<F>(
     prefilter: &RemovalPrefilter,
     parser: &LogParser,
     should_remove_entry: &F,
-    is_cancelled: &(dyn Fn() -> bool + Send + Sync),
-) -> Result<Option<(u64, u64)>>
+) -> Result<(u64, u64)>
 where
     F: Fn(&LogEntry) -> bool,
 {
@@ -230,9 +223,6 @@ where
     let mut lines_matched: u64 = 0;
 
     loop {
-        if is_cancelled() {
-            return Ok(None);
-        }
         line.clear();
         let bytes_read = reader.read_until_newline(&mut line)?;
         if bytes_read == 0 {
@@ -245,7 +235,7 @@ where
         }
     }
 
-    Ok(Some((lines_total, lines_matched)))
+    Ok((lines_total, lines_matched))
 }
 
 fn rewrite_matching_log_entries_outcome<F>(
@@ -254,7 +244,6 @@ fn rewrite_matching_log_entries_outcome<F>(
     prefilter: &RemovalPrefilter,
     should_remove_entry: F,
     on_file_processed: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
-    is_cancelled: &(dyn Fn() -> bool + Send + Sync),
 ) -> Result<LogRewriteOutcome>
 where
     F: Fn(&LogEntry) -> bool + Send + Sync,
@@ -271,7 +260,6 @@ where
     let total_lines_removed = AtomicU64::new(0);
     let permission_errors = AtomicUsize::new(0);
     let other_errors = AtomicUsize::new(0);
-    let cancellation_observed = std::sync::atomic::AtomicBool::new(false);
     let files_done = AtomicUsize::new(0);
 
     log_files
@@ -285,25 +273,18 @@ where
                 log_file.path.display()
             );
 
-            let file_result = (|| -> Result<FileRewriteOutcome> {
-                if is_cancelled() {
-                    return Ok(FileRewriteOutcome::Cancelled);
-                }
+            let file_result = (|| -> Result<u64> {
                 // Pass 1: read-only scan. Files with zero confirmed matches are left
                 // completely untouched (no temp file, no recompression).
-                let Some((lines_total, lines_matched)) = scan_file_for_matches(
+                let (lines_total, lines_matched) = scan_file_for_matches(
                     &log_file.path,
                     prefilter,
                     &parser,
                     &should_remove_entry,
-                    is_cancelled,
-                )?
-                else {
-                    return Ok(FileRewriteOutcome::Cancelled);
-                };
+                )?;
 
                 if lines_matched == 0 {
-                    return Ok(FileRewriteOutcome::Removed(0));
+                    return Ok(0);
                 }
 
                 if lines_matched == lines_total {
@@ -313,9 +294,6 @@ where
                         "  INFO: All {} lines from this file matched, deleting file entirely",
                         lines_total
                     );
-                    if is_cancelled() {
-                        return Ok(FileRewriteOutcome::Cancelled);
-                    }
                     match cache_utils::safe_path_under_root(log_dir, &log_file.path) {
                         Ok(_) => {
                             std::fs::remove_file(&log_file.path)?;
@@ -326,7 +304,7 @@ where
                             });
                         }
                     }
-                    return Ok(FileRewriteOutcome::Removed(lines_matched));
+                    return Ok(lines_matched);
                 }
 
                 // Pass 2: rewrite the file without the matching lines.
@@ -375,9 +353,6 @@ where
                     let mut line: Vec<u8> = Vec::with_capacity(1024);
 
                     loop {
-                        if is_cancelled() {
-                            return Ok(FileRewriteOutcome::Cancelled);
-                        }
                         line.clear();
                         let bytes_read = log_reader.read_until_newline(&mut line)?;
                         if bytes_read == 0 {
@@ -396,10 +371,6 @@ where
 
                 let temp_path = temp_file.into_temp_path();
 
-                if is_cancelled() {
-                    return Ok(FileRewriteOutcome::Cancelled);
-                }
-
                 if let Err(persist_err) = temp_path.persist(&log_file.path) {
                     eprintln!(
                         "    persist() failed ({}), using copy fallback...",
@@ -416,20 +387,13 @@ where
                     }
                 }
 
-                Ok(FileRewriteOutcome::Removed(lines_removed))
+                Ok(lines_removed)
             })();
 
             match file_result {
-                Ok(FileRewriteOutcome::Removed(lines_removed)) => {
+                Ok(lines_removed) => {
                     eprintln!("    Removed {} log lines from this file", lines_removed);
                     total_lines_removed.fetch_add(lines_removed, Ordering::Relaxed);
-                }
-                Ok(FileRewriteOutcome::Cancelled) => {
-                    cancellation_observed.store(true, Ordering::Relaxed);
-                    eprintln!(
-                        "  Cancellation observed before replacing {}",
-                        log_file.path.display()
-                    );
                 }
                 Err(e) => {
                     let error_str = e.to_string();
@@ -469,7 +433,6 @@ where
         lines_removed: final_removed,
         permission_errors: final_permission_errors,
         other_errors: final_other_errors,
-        cancelled: cancellation_observed.load(Ordering::Relaxed),
     })
 }
 
@@ -489,7 +452,6 @@ where
         prefilter,
         should_remove_entry,
         on_file_processed,
-        &|| false,
     )?;
     Ok((outcome.lines_removed, outcome.permission_errors))
 }
@@ -512,32 +474,6 @@ where
         prefilter,
         should_remove_entry,
         on_file_processed,
-        &|| false,
-    )
-}
-
-/// Strict exact-evidence rewrite with cooperative cancellation. Cancellation never persists the
-/// temporary rewrite for the in-flight file, reports `cancelled`, and leaves database cleanup to
-/// the caller so file-before-database ordering remains enforceable.
-pub(crate) fn rewrite_matching_log_entries_strict_cancellable<F, C>(
-    log_dir: &Path,
-    description: &str,
-    prefilter: &RemovalPrefilter,
-    should_remove_entry: F,
-    on_file_processed: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
-    is_cancelled: C,
-) -> Result<LogRewriteOutcome>
-where
-    F: Fn(&LogEntry) -> bool + Send + Sync,
-    C: Fn() -> bool + Send + Sync,
-{
-    rewrite_matching_log_entries_outcome(
-        log_dir,
-        description,
-        prefilter,
-        should_remove_entry,
-        on_file_processed,
-        &is_cancelled,
     )
 }
 
@@ -876,39 +812,6 @@ mod tests {
             format!("{neighbor}\n")
         );
     }
-
-    #[test]
-    fn cancellable_strict_rewrite_does_not_replace_in_flight_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let log_path = dir.path().join("access.log");
-        let target = exact_log_line(
-            "192.168.1.50",
-            "GET",
-            206,
-            "/same.bin",
-            "MISS",
-            "bytes=1048576-2097151",
-        );
-        let contents = format!("{target}\n");
-        fs::write(&log_path, &contents).unwrap();
-        let matcher = ExactLogMatcher::new([target_observation()]);
-        let prefilter = matcher.prefilter().unwrap();
-
-        let outcome = rewrite_matching_log_entries_strict_cancellable(
-            dir.path(),
-            "cancelled exact evidence",
-            &prefilter,
-            |entry| matcher.matches(entry),
-            None,
-            || true,
-        )
-        .unwrap();
-
-        assert!(outcome.cancelled);
-        assert_eq!(outcome.lines_removed, 0);
-        assert_eq!(fs::read_to_string(log_path).unwrap(), contents);
-    }
-
     #[test]
     fn strict_rewrite_reports_compressed_file_failure_after_other_exact_work() {
         let dir = tempfile::tempdir().unwrap();

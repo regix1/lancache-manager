@@ -359,7 +359,7 @@ public partial class RustProcessHelper
     /// (progress_events.rs's started/progress/complete NDJSON protocol) instead of polling a
     /// progress file. Only a binary that actually emits this protocol (every migrated binary now
     /// does: cache_clear, cache_game_detect, log_processor, cache_size, cache_eviction_scan,
-    /// corruption_manager, db_reset, log_manager, the purge and cache-removal binaries) should use
+    /// corruption_manager, db_reset, log_manager, and cache-removal binaries) should use
     /// this; a binary that only writes a progress file without emitting events must keep using
     /// <see cref="ExecuteTrackedProcessWithProgressAsync{TProgress}"/>.
     /// The Rust side keeps writing its progress file unchanged (crash-recovery checkpoint); this
@@ -859,33 +859,10 @@ public partial class RustProcessHelper
             operationId,
             onProgressEvent);
 
-    /// <summary>
-    /// Runs the closed <c>purge-history</c> command. Its signature deliberately has no cache path,
-    /// making cache-file removal unreachable from the historical-evidence orchestration.
-    /// </summary>
-    public Task<RustExecutionResult> RunHistoricalEvidencePurgeAsync(
-        string logsPath,
-        string scope,
-        string evidenceFile,
-        string progressFile,
-        CancellationToken cancellationToken = default,
-        Guid? operationId = null,
-        Func<RustProgressEvent, Task>? onProgressEvent = null) =>
-        RunCorruptionManagerCommandAsync(
-            "purge-history",
-            logsPath,
-            null,
-            scope,
-            evidenceFile,
-            progressFile,
-            cancellationToken,
-            operationId,
-            onProgressEvent);
-
     private async Task<RustExecutionResult> RunCorruptionManagerCommandAsync(
         string command,
         string logsPath,
-        string? cachePath,
+        string cachePath,
         string? service,
         string? evidenceFile,
         string? progressFile,
@@ -923,10 +900,6 @@ public partial class RustProcessHelper
                     && !string.IsNullOrEmpty(evidenceFile)
                     && !string.IsNullOrEmpty(progressArg) =>
                     $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressArg}\" --evidence-file \"{evidenceFile}\" --progress",
-                "purge-history" when !string.IsNullOrEmpty(service)
-                    && !string.IsNullOrEmpty(evidenceFile)
-                    && !string.IsNullOrEmpty(progressArg) =>
-                    $"purge-history \"{logsPath}\" \"{service}\" \"{progressArg}\" --evidence-file \"{evidenceFile}\" --progress",
                 _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
             };
 

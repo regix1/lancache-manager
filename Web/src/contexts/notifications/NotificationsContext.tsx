@@ -55,7 +55,6 @@ const REMOVAL_TYPES = [
   'game_removal',
   'service_removal',
   'corruption_removal',
-  'historical_evidence_purge',
   'cache_clearing'
 ] as const;
 
@@ -149,7 +148,6 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         game_removal: NOTIFICATION_IDS.GAME_REMOVAL,
         service_removal: NOTIFICATION_IDS.SERVICE_REMOVAL,
         corruption_removal: NOTIFICATION_IDS.CORRUPTION_REMOVAL,
-        historical_evidence_purge: NOTIFICATION_IDS.HISTORICAL_EVIDENCE_PURGE,
         game_detection: NOTIFICATION_IDS.GAME_DETECTION,
         corruption_detection: NOTIFICATION_IDS.CORRUPTION_DETECTION,
         data_import: NOTIFICATION_IDS.DATA_IMPORT,
