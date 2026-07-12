@@ -1,6 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ChevronDown, ChevronUp, RefreshCw, Search, Trash2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  CircleCheck,
+  RefreshCw,
+  Search,
+  Trash2
+} from 'lucide-react';
 import '../managementSectionContent.css';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
@@ -31,12 +39,23 @@ import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { ActionMenuDangerItem, ActionMenuDivider, ActionMenuItem } from '@components/ui/ActionMenu';
-import { LoadingState, ReadOnlyBadge } from '@components/ui/ManagerCard';
+import { EmptyState, LoadingState, ReadOnlyBadge } from '@components/ui/ManagerCard';
 import Badge from '@components/ui/Badge';
 import CorruptionChunkList from './CorruptionChunkList';
 import CorruptionRemovalWarning from './CorruptionRemovalWarning';
 import { projectCorruptionCounts } from './corruptionCountProjection';
-import type { CachedCorruptionDetectionResponse, CorruptedChunkDetail } from '@/types';
+import {
+  hasOnlyKeys,
+  isIsoDate,
+  isOptionalNonNegativeInteger,
+  isPlainRecord
+} from './corruptionContractValidation';
+import type {
+  CachedCorruptionDetectionResponse,
+  CorruptedChunkDetail,
+  CorruptionDetectionMethod,
+  CorruptionScanCoverage
+} from '@/types';
 
 interface CorruptionManagerProps {
   authMode: AuthMode;
@@ -48,9 +67,45 @@ const isCountMap = (value: unknown): value is Record<string, number> =>
   value !== null &&
   typeof value === 'object' &&
   !Array.isArray(value) &&
-  Object.values(value).every(
-    (count) => typeof count === 'number' && Number.isInteger(count) && count >= 0
+  Object.entries(value).every(
+    ([key, count]) =>
+      key.trim().length > 0 && typeof count === 'number' && Number.isInteger(count) && count >= 0
   );
+
+const isCoverage = (value: unknown): value is CorruptionScanCoverage => {
+  if (!isPlainRecord(value)) return false;
+  const allowedKeys = [
+    'filesSeen',
+    'filesChecked',
+    'consistent',
+    'bytesRead',
+    'sparseFiles',
+    'skippedByReason',
+    'ioErrors'
+  ] as const;
+  if (!hasOnlyKeys(value, allowedKeys) || !isCountMap(value.skippedByReason)) return false;
+  const counts = [
+    value.filesSeen,
+    value.filesChecked,
+    value.consistent,
+    value.bytesRead,
+    value.sparseFiles,
+    value.ioErrors
+  ];
+  return (
+    counts.every((count) => typeof count === 'number' && Number.isInteger(count) && count >= 0) &&
+    (value.filesChecked as number) <= (value.filesSeen as number) &&
+    (value.consistent as number) <= (value.filesChecked as number) &&
+    (value.sparseFiles as number) <= (value.filesSeen as number)
+  );
+};
+
+const isCorruptionDetectionMethod = (value: unknown): value is CorruptionDetectionMethod =>
+  value === 'repeated_miss' || value === 'structural';
+
+const isScanId = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMode, onError }) => {
   const { t } = useTranslation();
@@ -77,12 +132,25 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const [loadingDetailsServices, setLoadingDetailsServices] = useState<Set<string>>(new Set());
   const [expandedService, setExpandedService] = useState<string | null>(null);
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
+  const [scanCoverage, setScanCoverage] = useState<CorruptionScanCoverage | null>(null);
   const [hasCachedResults, setHasCachedResults] = useState(false);
   const [scanId, setScanId] = useState<string | null>(null);
+  const [detectionMethod, setDetectionMethod] =
+    useState<CorruptionDetectionMethod>('repeated_miss');
   const [missThreshold, setMissThreshold] = useState(3);
   const [lookbackDays, setLookbackDays] = useState(30);
   const [cachedLoadFailed, setCachedLoadFailed] = useState(false);
   const resultEpochRef = useRef(0);
+  const activeNotificationMethod = notifications.find(
+    (notification) =>
+      notification.type === 'corruption_detection' &&
+      (notification.status === 'running' || notification.status === 'waiting') &&
+      isCorruptionDetectionMethod(notification.details?.detectionMethod)
+  )?.details?.detectionMethod;
+  const displayedDetectionMethod =
+    isScanning && isCorruptionDetectionMethod(activeNotificationMethod)
+      ? activeNotificationMethod
+      : detectionMethod;
 
   const [sectionExpanded, setSectionExpanded] = useState(() => {
     const saved = localStorage.getItem('management-corruption-expanded');
@@ -124,6 +192,28 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
   const projection = useMemo(() => projectCorruptionCounts(corruptionCounts), [corruptionCounts]);
   const formattedLastDetection = useFormattedDateTime(lastDetectionTime);
+  const skippedCoverageTotal = useMemo(
+    () =>
+      scanCoverage
+        ? Object.values(scanCoverage.skippedByReason).reduce((total, count) => total + count, 0)
+        : 0,
+    [scanCoverage]
+  );
+
+  const methodOptions = [
+    {
+      value: 'repeated_miss',
+      label: t('management.corruption.methods.repeatedMiss.label'),
+      shortLabel: t('management.corruption.methods.repeatedMiss.shortLabel'),
+      description: t('management.corruption.methods.repeatedMiss.description')
+    },
+    {
+      value: 'structural',
+      label: t('management.corruption.methods.structural.label'),
+      shortLabel: t('management.corruption.methods.structural.shortLabel'),
+      description: t('management.corruption.methods.structural.description')
+    }
+  ];
 
   const thresholdOptions = [
     {
@@ -167,11 +257,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     setLoadingDetailsServices(new Set());
     setExpandedService(null);
     setLastDetectionTime(null);
+    setScanCoverage(null);
     setHasCachedResults(false);
     setScanId(null);
     setPendingServiceRemoval(null);
     setPendingRemoveAll(false);
     setPendingRemoveSelected(false);
+    setCachedLoadFailed(false);
     clearSelection();
   }, [clearSelection]);
 
@@ -182,20 +274,74 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         return false;
       }
 
+      const settings = cached.settings;
+      const cachedMethod = cached.detectionMethod;
+      const detectionMethodIsValid = isCorruptionDetectionMethod(cached.detectionMethod);
+      const settingsAreValid =
+        isPlainRecord(settings) &&
+        hasOnlyKeys(settings, [
+          'threshold',
+          'lookbackDays',
+          'minStableAgeSeconds',
+          'maxPrefixBytes'
+        ]) &&
+        isOptionalNonNegativeInteger(settings?.threshold) &&
+        isOptionalNonNegativeInteger(settings?.lookbackDays) &&
+        isOptionalNonNegativeInteger(settings?.minStableAgeSeconds) &&
+        isOptionalNonNegativeInteger(settings?.maxPrefixBytes);
+      const repeatedMissSettingsAreValid =
+        detectionMethodIsValid &&
+        cached.detectionMethod === 'repeated_miss' &&
+        settingsAreValid &&
+        typeof settings?.threshold === 'number' &&
+        [3, 5, 10].includes(settings.threshold) &&
+        typeof settings.lookbackDays === 'number' &&
+        Number.isInteger(settings.lookbackDays) &&
+        settings.lookbackDays >= 1 &&
+        settings.lookbackDays <= 365 &&
+        settings.minStableAgeSeconds == null &&
+        settings.maxPrefixBytes == null;
+      const structuralSettingsAreValid =
+        detectionMethodIsValid &&
+        cached.detectionMethod === 'structural' &&
+        settingsAreValid &&
+        settings?.threshold == null &&
+        settings.lookbackDays == null &&
+        typeof settings.minStableAgeSeconds === 'number' &&
+        settings.minStableAgeSeconds === 600 &&
+        typeof settings.maxPrefixBytes === 'number' &&
+        settings.maxPrefixBytes === 65_535;
+      const detectionMethodCount = isCorruptionDetectionMethod(cachedMethod)
+        ? cached.detectionCounts?.[cachedMethod]
+        : undefined;
+      const detectionCountsAreValid =
+        isCountMap(cached.detectionCounts) &&
+        detectionMethodIsValid &&
+        Object.keys(cached.detectionCounts).every(
+          (method) => isCorruptionDetectionMethod(method) && method === cached.detectionMethod
+        ) &&
+        cached.totalCorruptedChunks != null &&
+        detectionMethodCount === cached.totalCorruptedChunks;
+      const coverageIsValid =
+        detectionMethodIsValid &&
+        (cached.detectionMethod === 'structural'
+          ? isCoverage(cached.coverage)
+          : cached.coverage == null);
+
       if (
-        !cached.scanId ||
-        cached.contractVersion !== 3 ||
-        cached.threshold == null ||
-        ![3, 5, 10].includes(cached.threshold) ||
-        cached.lookbackDays == null ||
-        !Number.isInteger(cached.lookbackDays) ||
-        cached.lookbackDays < 1 ||
-        cached.lookbackDays > 365 ||
+        !isScanId(cached.scanId) ||
+        cached.contractVersion !== 4 ||
+        !detectionMethodIsValid ||
+        (!repeatedMissSettingsAreValid && !structuralSettingsAreValid) ||
+        !detectionCountsAreValid ||
+        !coverageIsValid ||
         !isCountMap(cached.corruptionCounts) ||
         cached.totalServicesWithCorruption == null ||
-        cached.totalCorruptedChunks == null
+        cached.totalCorruptedChunks == null ||
+        !isIsoDate(cached.lastDetectionTime)
       ) {
         clearLoadedResults();
+        setCachedLoadFailed(true);
         return false;
       }
 
@@ -206,6 +352,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         nextProjection.total !== cached.totalCorruptedChunks
       ) {
         clearLoadedResults();
+        setCachedLoadFailed(true);
         return false;
       }
 
@@ -214,8 +361,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       setLastDetectionTime(cached.lastDetectionTime ?? null);
       setHasCachedResults(true);
       setScanId(cached.scanId);
-      setMissThreshold(cached.threshold);
-      setLookbackDays(cached.lookbackDays);
+      setDetectionMethod(cachedMethod as CorruptionDetectionMethod);
+      setScanCoverage(cached.coverage ?? null);
+      if (cached.detectionMethod === 'repeated_miss') {
+        setMissThreshold(cached.settings!.threshold as number);
+        setLookbackDays(cached.settings!.lookbackDays as number);
+      }
       setCachedLoadFailed(false);
       return true;
     },
@@ -296,6 +447,15 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     [clearLoadedResults, missThreshold]
   );
 
+  const handleMethodChange = useCallback(
+    (value: string) => {
+      if (!isCorruptionDetectionMethod(value) || value === detectionMethod) return;
+      clearLoadedResults();
+      setDetectionMethod(value);
+    },
+    [clearLoadedResults, detectionMethod]
+  );
+
   const handleLookbackChange = useCallback(
     (value: string) => {
       const days = Number(value);
@@ -306,12 +466,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     [clearLoadedResults, lookbackDays]
   );
 
-  const directoryMissing = !logsExist || !cacheExist;
-  const isReadOnly = logsReadOnly || cacheReadOnly;
+  const requiresRepeatedMissResources = displayedDetectionMethod === 'repeated_miss';
+  const directoryMissing = !cacheExist || (requiresRepeatedMissResources && !logsExist);
+  const isReadOnly = cacheReadOnly || (requiresRepeatedMissResources && logsReadOnly);
   const hasRemovalPermissionIssue = directoryMissing || isReadOnly;
   const showReadOnlyPlaceholder = showPermissionBlock(
     checkingPermissions,
-    hasRemovalPermissionIssue || !isDockerAvailable
+    hasRemovalPermissionIssue || (requiresRepeatedMissResources && !isDockerAvailable)
   );
   const corruptionRemovalBusy =
     anyServiceRemovalPending ||
@@ -333,13 +494,22 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     clearLoadedResults();
     setCachedLoadFailed(false);
     try {
-      const result = await ApiService.startCorruptionDetection(missThreshold, lookbackDays);
+      const result = await ApiService.startCorruptionDetection(
+        detectionMethod,
+        missThreshold,
+        lookbackDays
+      );
       if (result.operationId && !result.queued && !result.alreadyRunning) {
         addNotification(
           buildSeededRunningNotification(
             'corruption_detection',
             result.operationId,
-            t('signalr.corruptionDetect.starting')
+            t(
+              detectionMethod === 'structural'
+                ? 'signalr.corruptionDetect.startingStructural'
+                : 'signalr.corruptionDetect.startingRepeatedMiss'
+            ),
+            { detectionMethod }
           )
         );
       }
@@ -352,6 +522,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   }, [
     addNotification,
     clearLoadedResults,
+    detectionMethod,
     lookbackDays,
     missThreshold,
     notifyError,
@@ -481,7 +652,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     authMode !== 'authenticated' ||
     checkingPermissions ||
     hasRemovalPermissionIssue ||
-    !isDockerAvailable;
+    (requiresRepeatedMissResources && !isDockerAvailable);
 
   const loadDetails = async (service: string) => {
     if (!scanId || loadingDetailsServices.has(service)) return;
@@ -495,6 +666,14 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     try {
       const details = await ApiService.getCorruptionDetails(service, scanId);
       if (requestEpoch !== resultEpochRef.current) return;
+      if (details.length === 0) {
+        setDetailErrors((current) => new Set(current).add(service));
+        notifyError(t('management.corruption.errors.unsafeDetails'), undefined, {
+          silent: true,
+          logLabel: '[CorruptionManager] Saved service detail response was empty'
+        });
+        return;
+      }
       setCorruptionDetails((current) => ({ ...current, [service]: details }));
     } catch (error: unknown) {
       if (requestEpoch !== resultEpochRef.current) return;
@@ -571,8 +750,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           buildSeededRunningNotification(
             'corruption_removal',
             result.operationId,
-            t('signalr.corruptionRemove.starting', { service: getServiceDisplayName(service) }),
-            { service }
+            t(
+              detectionMethod === 'structural'
+                ? 'signalr.corruptionRemove.startingStructural'
+                : 'signalr.corruptionRemove.starting',
+              { service: getServiceDisplayName(service) }
+            ),
+            { service, detectionMethod }
           )
         );
       }
@@ -582,7 +766,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           service: getServiceDisplayName(service)
         }),
         error,
-        { logLabel: '[CorruptionManager] Failed to remove service suspects' }
+        { logLabel: '[CorruptionManager] Failed to remove service findings' }
       );
       clearServiceRemovalPending(service);
     }
@@ -597,7 +781,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       if (!result.started) clearRemoveAllPending('removeAll');
     } catch (error: unknown) {
       notifyError(t('management.corruption.errors.removeAllCorrupted'), error, {
-        logLabel: '[CorruptionManager] Failed to remove all suspects'
+        logLabel: '[CorruptionManager] Failed to remove all findings'
       });
       clearRemoveAllPending('removeAll');
     }
@@ -612,7 +796,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       if (!result.started) clearRemoveSelectedPending('removeSelected');
     } catch (error: unknown) {
       notifyError(t('management.corruption.errors.removeAllCorrupted'), error, {
-        logLabel: '[CorruptionManager] Failed to remove selected suspects'
+        logLabel: '[CorruptionManager] Failed to remove selected findings'
       });
       clearRemoveSelectedPending('removeSelected');
     }
@@ -621,35 +805,72 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const controlSelectors = (
     <div className="mgmt-toolbar">
       <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
-        <div className="w-full sm:w-56">
+        <div className="w-full sm:w-60">
           <EnhancedDropdown
             variant="button"
-            options={thresholdOptions}
-            value={String(missThreshold)}
-            onChange={handleThresholdChange}
+            options={methodOptions}
+            value={displayedDetectionMethod}
+            onChange={handleMethodChange}
             disabled={isScanning || isAnyRemovalRunning || corruptionRemovalBusy}
-            dropdownTitle={t('management.corruption.sensitivityTitle')}
+            dropdownTitle={t('management.corruption.methodTitle')}
+            triggerAriaLabel={t('management.corruption.methodAriaLabel')}
             compactMode={true}
             size="lg"
           />
         </div>
-        <div className="w-full sm:w-56">
-          <EnhancedDropdown
-            variant="button"
-            options={lookbackOptions}
-            value={String(lookbackDays)}
-            onChange={handleLookbackChange}
-            disabled={isScanning || isAnyRemovalRunning || corruptionRemovalBusy}
-            dropdownTitle={t('management.corruption.evidenceLookbackTitle')}
-            compactMode={true}
-            size="lg"
-          />
-        </div>
+        {displayedDetectionMethod === 'repeated_miss' && (
+          <div className="w-full sm:w-56">
+            <EnhancedDropdown
+              variant="button"
+              options={thresholdOptions}
+              value={String(missThreshold)}
+              onChange={handleThresholdChange}
+              disabled={isScanning || isAnyRemovalRunning || corruptionRemovalBusy}
+              dropdownTitle={t('management.corruption.sensitivityTitle')}
+              triggerAriaLabel={t('management.corruption.sensitivityAriaLabel')}
+              compactMode={true}
+              size="lg"
+            />
+          </div>
+        )}
+        {displayedDetectionMethod === 'repeated_miss' && (
+          <div className="w-full sm:w-56">
+            <EnhancedDropdown
+              variant="button"
+              options={lookbackOptions}
+              value={String(lookbackDays)}
+              onChange={handleLookbackChange}
+              disabled={isScanning || isAnyRemovalRunning || corruptionRemovalBusy}
+              dropdownTitle={t('management.corruption.evidenceLookbackTitle')}
+              triggerAriaLabel={t('management.corruption.evidenceLookbackAriaLabel')}
+              compactMode={true}
+              size="lg"
+            />
+          </div>
+        )}
       </div>
       {hasCachedResults && lastDetectionTime && !isScanning && !isLoading && (
         <p className="mgmt-scanmeta">
           {t('common.resultsFromPreviousScan')} · {formattedLastDetection} ·{' '}
-          {t('management.corruption.evidenceWindow', { days: lookbackDays })}
+          {t(
+            detectionMethod === 'structural'
+              ? 'management.corruption.methods.structural.label'
+              : 'management.corruption.methods.repeatedMiss.label'
+          )}
+          {detectionMethod === 'repeated_miss' && (
+            <> · {t('management.corruption.evidenceWindow', { days: lookbackDays })}</>
+          )}
+          {detectionMethod === 'structural' && scanCoverage && (
+            <>
+              {' '}
+              ·{' '}
+              {t('management.corruption.coverageSummary', {
+                checked: formatCount(scanCoverage.filesChecked),
+                skipped: formatCount(skippedCoverageTotal),
+                errors: formatCount(scanCoverage.ioErrors)
+              })}
+            </>
+          )}
         </p>
       )}
     </div>
@@ -659,7 +880,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     <div className="mgmt-corruption-header-actions flex flex-wrap items-center gap-2 w-full justify-start sm:w-auto sm:justify-end">
       {projection.total > 0 && (
         <Badge variant="neutral" className="badge-count badge-count-warning">
-          {t('management.corruption.suspectCount', {
+          {t('management.corruption.flaggedCount', {
             count: projection.total,
             formattedCount: formatCount(projection.total)
           })}
@@ -702,7 +923,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                 close();
               }}
             >
-              {t('management.batchSelect.removeSelectedLabel', 'Remove Selected')}
+              {t(
+                detectionMethod === 'structural'
+                  ? 'management.corruption.removeSelectedInvalid'
+                  : 'management.corruption.removeSelectedSuspects'
+              )}
             </ActionMenuDangerItem>
             <ActionMenuDangerItem
               icon={<Trash2 className="w-3.5 h-3.5" />}
@@ -714,7 +939,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             >
               {startingRemoveAll
                 ? t('management.corruption.removing')
-                : t('management.corruption.removeAllServices')}
+                : t(
+                    detectionMethod === 'structural'
+                      ? 'management.corruption.removeAllInvalid'
+                      : 'management.corruption.removeAllSuspects'
+                  )}
             </ActionMenuDangerItem>
           </>
         )}
@@ -736,7 +965,15 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         <div className="space-y-3">
           {controlSelectors}
 
-          {isScanning && <LoadingState message={t('management.corruption.scanningMessage')} />}
+          {isScanning && (
+            <LoadingState
+              message={t(
+                displayedDetectionMethod === 'structural'
+                  ? 'management.corruption.scanningStructuralMessage'
+                  : 'management.corruption.scanningRepeatedMissMessage'
+              )}
+            />
+          )}
 
           {cachedLoadFailed && !isLoading && (
             <Alert color="red">
@@ -759,8 +996,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               <div>
                 <p className="font-medium">
                   {!logsExist && !cacheExist
-                    ? t('management.corruption.alerts.logsAndCacheMissing')
-                    : !logsExist
+                    ? requiresRepeatedMissResources
+                      ? t('management.corruption.alerts.logsAndCacheMissing')
+                      : t('management.corruption.alerts.cacheMissing')
+                    : requiresRepeatedMissResources && !logsExist
                       ? t('management.corruption.alerts.logsMissing')
                       : t('management.corruption.alerts.cacheMissing')}
                 </p>
@@ -775,14 +1014,18 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             <Alert color="orange">
               <div>
                 <p className="font-medium">
-                  {logsReadOnly && cacheReadOnly
+                  {requiresRepeatedMissResources && logsReadOnly && cacheReadOnly
                     ? t('management.corruption.alerts.logsAndCacheReadOnly')
-                    : logsReadOnly
+                    : requiresRepeatedMissResources && logsReadOnly
                       ? t('management.corruption.alerts.logsReadOnly')
                       : t('management.corruption.alerts.cacheReadOnly')}
                 </p>
                 <p className="text-sm mt-1">
-                  {t('management.corruption.alerts.requiresWriteAccess')}{' '}
+                  {t(
+                    requiresRepeatedMissResources
+                      ? 'management.corruption.alerts.requiresWriteAccess'
+                      : 'management.corruption.alerts.requiresCacheWriteAccess'
+                  )}{' '}
                   <code className="bg-themed-tertiary px-1 rounded">:ro</code>{' '}
                   {t('management.corruption.alerts.fromVolumeMounts')}
                 </p>
@@ -790,7 +1033,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             </Alert>
           )}
 
-          {!isDockerAvailable && !hasRemovalPermissionIssue && (
+          {requiresRepeatedMissResources && !isDockerAvailable && !hasRemovalPermissionIssue && (
             <Alert color="orange">
               <div className="min-w-0">
                 <p className="font-medium">
@@ -864,7 +1107,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                         </div>
                         <div className="mgmt-row__actions mgmt-corruption-actions flex-wrap justify-end">
                           <Badge variant="neutral" className="badge-count badge-count-warning">
-                            {t('management.corruption.suspectCount', {
+                            {t('management.corruption.flaggedCount', {
                               count,
                               formattedCount: formatCount(count)
                             })}
@@ -902,7 +1145,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                             size="sm"
                             stableWidth
                           >
-                            {isRemoving ? t('management.corruption.removing') : t('common.remove')}
+                            {isRemoving
+                              ? t('management.corruption.removing')
+                              : t(
+                                  detectionMethod === 'structural'
+                                    ? 'management.corruption.removeInvalid'
+                                    : 'management.corruption.removeSuspect'
+                                )}
                           </Button>
                         </div>
                       </div>
@@ -936,23 +1185,29 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               </div>
             </div>
           ) : hasCachedResults ? (
-            <div className="text-center py-6">
-              <p className="text-sm text-themed-muted">
-                {t('management.corruption.emptyStates.noCorrupted.title')}
-              </p>
-              <p className="text-xs text-themed-muted">
-                {t('management.corruption.emptyStates.noCorrupted.subtitle')}
-              </p>
-            </div>
+            <EmptyState
+              icon={CircleCheck}
+              title={t(
+                detectionMethod === 'structural'
+                  ? 'management.corruption.emptyStates.noCorrupted.structuralTitle'
+                  : 'management.corruption.emptyStates.noCorrupted.repeatedMissTitle'
+              )}
+              subtitle={t(
+                detectionMethod === 'structural'
+                  ? 'management.corruption.emptyStates.noCorrupted.structuralSubtitle'
+                  : 'management.corruption.emptyStates.noCorrupted.repeatedMissSubtitle'
+              )}
+            />
           ) : !isScanning && !cachedLoadFailed ? (
-            <div className="text-center py-6">
-              <p className="text-sm text-themed-muted">
-                {t('management.corruption.emptyStates.noCachedData.title')}
-              </p>
-              <p className="text-xs text-themed-muted">
-                {t('management.corruption.emptyStates.noCachedData.subtitle')}
-              </p>
-            </div>
+            <EmptyState
+              icon={Search}
+              title={t('management.corruption.emptyStates.noCachedData.title')}
+              subtitle={t(
+                detectionMethod === 'structural'
+                  ? 'management.corruption.emptyStates.noCachedData.structuralSubtitle'
+                  : 'management.corruption.emptyStates.noCachedData.repeatedMissSubtitle'
+              )}
+            />
           ) : null}
         </div>
       </AccordionSection>
@@ -963,18 +1218,30 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         title={
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>{t('management.corruption.modal.removeAllTitle')}</span>
+            <span>
+              {t(
+                detectionMethod === 'structural'
+                  ? 'management.corruption.modal.removeAllStructuralTitle'
+                  : 'management.corruption.modal.removeAllRepeatedMissTitle'
+              )}
+            </span>
           </div>
         }
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            {t('management.corruption.modal.confirmRemoveAll', {
-              services: projection.serviceTotal,
-              candidates: formatCount(projection.total)
-            })}
+            {t(
+              detectionMethod === 'structural'
+                ? 'management.corruption.modal.confirmRemoveAllStructural'
+                : 'management.corruption.modal.confirmRemoveAllRepeatedMiss',
+              {
+                services: projection.serviceTotal,
+                candidates: formatCount(projection.total)
+              }
+            )}
           </p>
           <CorruptionRemovalWarning
+            detectionMethod={detectionMethod}
             extraCautions={<li>{t('management.corruption.modal.removeAllAcrossAllServices')}</li>}
           />
           <div className="flex justify-end space-x-3 pt-2">
@@ -987,7 +1254,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               onClick={() => void confirmRemoveAll()}
               disabled={removalBlocked}
             >
-              {t('management.corruption.modal.removeAllConfirm')}
+              {t(
+                detectionMethod === 'structural'
+                  ? 'management.corruption.modal.removeAllStructuralConfirm'
+                  : 'management.corruption.modal.removeAllRepeatedMissConfirm'
+              )}
             </Button>
           </div>
         </div>
@@ -999,18 +1270,29 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         title={
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>{t('management.batchSelect.confirmTitle')}</span>
+            <span>
+              {t(
+                detectionMethod === 'structural'
+                  ? 'management.corruption.modal.removeSelectedStructuralTitle'
+                  : 'management.corruption.modal.removeSelectedRepeatedMissTitle'
+              )}
+            </span>
           </div>
         }
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            {t('management.corruption.modal.confirmRemoveSelected', {
-              services: selectedServices.length,
-              candidates: formatCount(selectedTotal)
-            })}
+            {t(
+              detectionMethod === 'structural'
+                ? 'management.corruption.modal.confirmRemoveSelectedStructural'
+                : 'management.corruption.modal.confirmRemoveSelectedRepeatedMiss',
+              {
+                services: selectedServices.length,
+                candidates: formatCount(selectedTotal)
+              }
+            )}
           </p>
-          <CorruptionRemovalWarning />
+          <CorruptionRemovalWarning detectionMethod={detectionMethod} />
           <div className="flex justify-end space-x-3 pt-2">
             <Button variant="default" onClick={() => setPendingRemoveSelected(false)}>
               {t('common.cancel')}
@@ -1021,7 +1303,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               onClick={() => void confirmRemoveSelected()}
               disabled={removalBlocked || selectedServices.length === 0}
             >
-              {t('management.batchSelect.removeSelected', { count: selectedServices.length })}
+              {t(
+                detectionMethod === 'structural'
+                  ? 'management.corruption.modal.removeSelectedStructuralConfirm'
+                  : 'management.corruption.modal.removeSelectedRepeatedMissConfirm',
+                { count: selectedServices.length }
+              )}
             </Button>
           </div>
         </div>
@@ -1033,19 +1320,31 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         title={
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>{t('management.corruption.modal.title')}</span>
+            <span>
+              {t(
+                detectionMethod === 'structural'
+                  ? 'management.corruption.modal.structuralTitle'
+                  : 'management.corruption.modal.repeatedMissTitle'
+              )}
+            </span>
           </div>
         }
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            {t('management.corruption.modal.confirmRemove', {
-              service: pendingServiceRemoval
-                ? getServiceDisplayName(pendingServiceRemoval)
-                : undefined
-            })}
+            {t(
+              detectionMethod === 'structural'
+                ? 'management.corruption.modal.confirmRemoveStructural'
+                : 'management.corruption.modal.confirmRemoveRepeatedMiss',
+              {
+                service: pendingServiceRemoval
+                  ? getServiceDisplayName(pendingServiceRemoval)
+                  : undefined
+              }
+            )}
           </p>
           <CorruptionRemovalWarning
+            detectionMethod={detectionMethod}
             extraCautions={
               <>
                 <li>
@@ -1073,7 +1372,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               onClick={() => void confirmServiceRemoval()}
               disabled={removalBlocked || !pendingServiceRemoval}
             >
-              {t('management.corruption.modal.deleteCacheAndLogs')}
+              {t(
+                detectionMethod === 'structural'
+                  ? 'management.corruption.modal.removeInvalidFiles'
+                  : 'management.corruption.modal.removeSuspects'
+              )}
             </Button>
           </div>
         </div>

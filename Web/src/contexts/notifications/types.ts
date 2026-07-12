@@ -4,6 +4,7 @@
  */
 
 import type { OperationStatus, NotificationVariant } from '../../types/operations';
+import type { CorruptionDetectionMethod, CorruptionScanCoverage } from '../../types';
 
 /**
  * All possible notification types in the system.
@@ -111,6 +112,11 @@ export interface UnifiedNotification {
     scanType?: 'full' | 'incremental';
     totalGamesDetected?: number;
     totalServicesDetected?: number;
+
+    // For corruption detection
+    detectionMethod?: CorruptionDetectionMethod;
+    detectionCounts?: Record<string, number>;
+    coverage?: CorruptionScanCoverage | null;
 
     // For epic_game_mapping
     totalEpicGames?: number;

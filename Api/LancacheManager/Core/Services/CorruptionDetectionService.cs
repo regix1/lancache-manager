@@ -21,15 +21,14 @@ public class CorruptionDetectionService
     internal const int DefaultLookbackDays = 30;
     internal const int MinimumLookbackDays = 1;
     internal const int MaximumLookbackDays = 365;
+    internal const ulong StructuralMinimumStableAgeSeconds = 600;
+    internal const ulong StructuralMaximumPrefixBytes = 65_535;
 
     private const string CanonicalUtcFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'";
-    private const CorruptionDetectionMode PersistedDetectionMode = CorruptionDetectionMode.CacheAndLogs;
-
+    private const string ProjectionServiceName = "__scan_projection__";
+    private const string ProjectionDatasourceName = "__aggregate__";
     private static readonly HashSet<int> _allowedThresholds = [3, 5, 10];
-    private static readonly JsonSerializerOptions _candidateJsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        PropertyNameCaseInsensitive = true
-    };
+    private static readonly JsonSerializerOptions _candidateJsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly ILogger<CorruptionDetectionService> _logger;
     private readonly IPathResolver _pathResolver;
@@ -67,9 +66,10 @@ public class CorruptionDetectionService
     public async Task<Guid> StartDetectionAsync(
         int threshold = 3,
         int lookbackDays = DefaultLookbackDays,
+        CorruptionDetectionMethod detectionMethod = CorruptionDetectionMethod.RepeatedMiss,
         CancellationToken cancellationToken = default)
     {
-        ValidateScanInput(threshold, lookbackDays);
+        ValidateScanInput(threshold, lookbackDays, detectionMethod);
 
         await _startLock.WaitAsync(cancellationToken);
         try
@@ -85,7 +85,8 @@ public class CorruptionDetectionService
             var metadata = new CorruptionDetectionMetrics
             {
                 Threshold = threshold,
-                LookbackDays = lookbackDays
+                LookbackDays = lookbackDays,
+                DetectionMethod = detectionMethod
             };
             Guid operationId = Guid.Empty;
             operationId = _operationTracker.RegisterOperation(
@@ -106,7 +107,12 @@ public class CorruptionDetectionService
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionStarted, new
             {
                 OperationId = operationId,
-                StageKey = "signalr.corruptionDetect.starting"
+                StageKey = "signalr.corruptionDetect.starting",
+                DetectionMethod = detectionMethod.ToWireString(),
+                Context = new Dictionary<string, object?>
+                {
+                    ["detectionMethod"] = detectionMethod.ToWireString()
+                }
             });
 
             var startedAtUtc = CaptureScanStartedUtc();
@@ -116,6 +122,7 @@ public class CorruptionDetectionService
                     operationId,
                     threshold,
                     lookbackDays,
+                    detectionMethod,
                     startedAtUtc,
                     token),
                 token);
@@ -136,6 +143,7 @@ public class CorruptionDetectionService
         var counts = metadata.CorruptionCounts;
         var totalServicesWithCorruption = counts?.Count ?? 0;
         var totalCorruptedChunks = counts != null ? (int)Math.Min(counts.Values.Sum(), int.MaxValue) : 0;
+        var detectionMethod = metadata.DetectionMethod.ToWireString();
 
         if (info.Cancelled)
         {
@@ -146,7 +154,11 @@ public class CorruptionDetectionService
                     OperationId: operationId,
                     StageKey: "signalr.corruptionDetect.cancelled",
                     Status: OperationStatus.Cancelled,
-                    Cancelled: true));
+                    Cancelled: true,
+                    DetectionMethod: detectionMethod,
+                    DetectionCounts: metadata.DetectionCounts,
+                    Coverage: CorruptionScanCoverageResponse.From(metadata.Coverage),
+                    Context: new Dictionary<string, object?> { ["detectionMethod"] = detectionMethod }));
         }
 
         if (info.Success)
@@ -162,10 +174,14 @@ public class CorruptionDetectionService
                     TotalServicesWithCorruption: totalServicesWithCorruption,
                     TotalCorruptedChunks: totalCorruptedChunks,
                     CorruptionCounts: counts,
+                    DetectionMethod: detectionMethod,
+                    DetectionCounts: metadata.DetectionCounts,
+                    Coverage: CorruptionScanCoverageResponse.From(metadata.Coverage),
                     Context: new Dictionary<string, object?>
                     {
                         ["count"] = totalServicesWithCorruption,
-                        ["scanId"] = metadata.ScanId
+                        ["scanId"] = metadata.ScanId,
+                        ["detectionMethod"] = detectionMethod
                     }));
         }
 
@@ -178,13 +194,21 @@ public class CorruptionDetectionService
                 Status: OperationStatus.Failed,
                 Cancelled: false,
                 Error: info.Error,
-                Context: new Dictionary<string, object?> { ["errorDetail"] = info.Error }));
+                DetectionMethod: detectionMethod,
+                DetectionCounts: metadata.DetectionCounts,
+                Coverage: CorruptionScanCoverageResponse.From(metadata.Coverage),
+                Context: new Dictionary<string, object?>
+                {
+                    ["errorDetail"] = info.Error,
+                    ["detectionMethod"] = detectionMethod
+                }));
     }
 
     private async Task RunDetectionAsync(
         Guid operationId,
         int threshold,
         int lookbackDays,
+        CorruptionDetectionMethod detectionMethod,
         DateTime startedAtUtc,
         CancellationToken cancellationToken)
     {
@@ -208,9 +232,10 @@ public class CorruptionDetectionService
                 datasources.Count);
 
             cancellationToken.ThrowIfCancellationRequested();
-            foreach (var datasource in datasources)
+            for (var datasourceIndex = 0; datasourceIndex < datasources.Count; datasourceIndex++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var datasource = datasources[datasourceIndex];
                 var report = await GetReportForDatasourceAsync(
                     datasource.LogPath,
                     datasource.CachePath,
@@ -220,7 +245,10 @@ public class CorruptionDetectionService
                     datasource.Name,
                     threshold,
                     lookbackDays,
+                    detectionMethod,
                     scanStartedUtc,
+                    datasourceIndex,
+                    datasources.Count,
                     cancellationToken);
                 datasourceReports.Add(new DatasourceCorruptionReport(datasource.Name, report));
             }
@@ -231,12 +259,17 @@ public class CorruptionDetectionService
                 scanId,
                 threshold,
                 lookbackDays,
+                detectionMethod,
                 startedAtUtc,
                 completedAtUtc,
                 datasourceReports,
                 cancellationToken);
 
             var counts = ProjectCounts(datasourceReports.SelectMany(report => report.Report.Candidates));
+            var detectionCounts = ProjectDetectionCounts(
+                datasourceReports.SelectMany(report => report.Report.Candidates),
+                detectionMethod);
+            var coverage = AggregateCoverage(datasourceReports.Select(report => report.Report.Coverage));
             _operationTracker.UpdateProgress(operationId, 100, "signalr.corruptionDetect.complete");
             _operationTracker.UpdateMetadata(operationId, metadata =>
             {
@@ -244,7 +277,10 @@ public class CorruptionDetectionService
                 metrics.ScanId = scanId;
                 metrics.Threshold = threshold;
                 metrics.LookbackDays = lookbackDays;
+                metrics.DetectionMethod = detectionMethod;
                 metrics.CorruptionCounts = counts;
+                metrics.DetectionCounts = detectionCounts;
+                metrics.Coverage = coverage;
                 metrics.LastDetectionTime = completedAtUtc;
             });
 
@@ -278,7 +314,10 @@ public class CorruptionDetectionService
         string datasourceName,
         int threshold,
         int lookbackDays,
+        CorruptionDetectionMethod detectionMethod,
         string scanStartedUtc,
+        int datasourceIndex,
+        int datasourceCount,
         CancellationToken cancellationToken)
     {
         var operationsDir = _pathResolver.GetOperationsDirectory();
@@ -287,12 +326,19 @@ public class CorruptionDetectionService
 
         try
         {
-            var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-                rustBinaryPath,
-                $"summary \"{logDir}\" \"{cacheDir}\" \"{progressFile}\" \"{timezone}\" {threshold} --lookback-days {lookbackDays} --scan-started-utc \"{scanStartedUtc}\"");
+            var arguments = detectionMethod switch
+            {
+                CorruptionDetectionMethod.RepeatedMiss =>
+                    $"summary \"{logDir}\" \"{cacheDir}\" \"{progressFile}\" \"{timezone}\" {threshold} --lookback-days {lookbackDays} --scan-started-utc \"{scanStartedUtc}\"",
+                CorruptionDetectionMethod.Structural =>
+                    $"structural-summary \"{cacheDir}\" \"{progressFile}\" --scan-started-utc \"{scanStartedUtc}\" --progress",
+                _ => throw new ValidationException("Unsupported corruption detection method")
+            };
+            var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, arguments);
 
             var lastMessage = string.Empty;
             var lastPercent = 0.0;
+            var lastOverallPercent = datasourceIndex * 100.0 / datasourceCount;
             const double percentThreshold = 5.0;
             var result = await _rustProcessHelper.ExecuteTrackedProcessWithProgressAsync<CorruptionDetectionProgressData>(
                 startInfo,
@@ -310,13 +356,28 @@ public class CorruptionDetectionService
 
                     lastMessage = progressData.StageKey ?? string.Empty;
                     lastPercent = progressData.PercentComplete;
+                    var overallPercent = Math.Max(
+                        lastOverallPercent,
+                        CalculateOverallProgress(
+                            datasourceIndex,
+                            datasourceCount,
+                            progressData.PercentComplete));
+                    lastOverallPercent = overallPercent;
+                    _operationTracker.UpdateProgress(
+                        operationId,
+                        overallPercent,
+                        progressData.StageKey ?? "signalr.corruptionDetect.scanning");
+                    var context = progressData.Context ?? new Dictionary<string, object?>();
+                    context["detectionMethod"] = detectionMethod.ToWireString();
+                    context["datasourceName"] = datasourceName;
                     await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionProgress, new
                     {
                         OperationId = operationId,
-                        PercentComplete = progressData.PercentComplete,
+                        PercentComplete = overallPercent,
                         Status = OperationStatus.Running,
                         StageKey = progressData.StageKey,
-                        Context = progressData.Context,
+                        DetectionMethod = detectionMethod.ToWireString(),
+                        Context = context,
                         filesProcessed = progressData.FilesProcessed,
                         totalFiles = progressData.TotalFiles,
                         currentFile = progressData.CurrentFile,
@@ -342,6 +403,7 @@ public class CorruptionDetectionService
                 datasourceName,
                 threshold,
                 lookbackDays,
+                detectionMethod,
                 scanStartedUtc);
             return report;
         }
@@ -356,6 +418,7 @@ public class CorruptionDetectionService
         string datasourceName,
         int expectedThreshold,
         int expectedLookbackDays,
+        CorruptionDetectionMethod expectedDetectionMethod,
         string expectedScanStartedUtc)
     {
         if (report.ContractVersion != CorruptionReport.SupportedContractVersion)
@@ -364,16 +427,39 @@ public class CorruptionDetectionService
                 $"Unsupported corruption report contract version {report.ContractVersion}");
         }
 
-        if (report.Threshold != expectedThreshold)
+        if (report.DetectionMethod != expectedDetectionMethod)
         {
-            throw new InvalidDataException("Corruption report threshold did not match the requested scan");
+            throw new InvalidDataException("Corruption report method did not match the requested scan");
         }
 
-        if (report.LookbackDays != expectedLookbackDays
-            || !string.Equals(report.ScanStartedUtc, expectedScanStartedUtc, StringComparison.Ordinal))
+        if (report.Candidates is null
+            || report.ServiceCounts is null
+            || report.DetectionCounts is null
+            || report.Settings is null)
+        {
+            throw new InvalidDataException("Corruption report omitted required v4 fields");
+        }
+
+        if (expectedDetectionMethod == CorruptionDetectionMethod.RepeatedMiss
+            && (report.Settings.Threshold != expectedThreshold
+                || report.Settings.LookbackDays != expectedLookbackDays))
+        {
+            throw new InvalidDataException("Corruption report settings did not match the requested repeated-MISS scan");
+        }
+
+        if (expectedDetectionMethod == CorruptionDetectionMethod.Structural
+            && (report.Settings.Threshold is not null
+                || report.Settings.LookbackDays is not null
+                || report.Settings.MinimumStableAgeSeconds != StructuralMinimumStableAgeSeconds
+                || report.Settings.MaximumPrefixBytes != StructuralMaximumPrefixBytes))
+        {
+            throw new InvalidDataException("Corruption report structural settings were malformed");
+        }
+
+        if (!string.Equals(report.ScanStartedUtc, expectedScanStartedUtc, StringComparison.Ordinal))
         {
             throw new InvalidDataException(
-                "Corruption report lookback or scan start did not match the requested scan");
+                "Corruption report scan start did not match the requested scan");
         }
 
         if (!TryParseCanonicalUtc(expectedScanStartedUtc, out var scanStartedUtc))
@@ -381,44 +467,47 @@ public class CorruptionDetectionService
             throw new InvalidDataException("Corruption scan start was not canonical UTC");
         }
 
-        if (report.Candidates is null
-            || report.ServiceCounts is null)
+        if (expectedDetectionMethod == CorruptionDetectionMethod.RepeatedMiss && report.Coverage is not null)
         {
-            throw new InvalidDataException("Corruption report omitted required v3 evidence fields");
+            throw new InvalidDataException("Repeated-MISS report unexpectedly contained structural coverage");
+        }
+
+        if (expectedDetectionMethod == CorruptionDetectionMethod.Structural)
+        {
+            ValidateCoverage(report.Coverage
+                ?? throw new InvalidDataException("Structural report omitted scan coverage"),
+                report.Candidates.Count);
         }
 
         var candidateIds = new HashSet<string>(StringComparer.Ordinal);
-        var physicalIdentities = new HashSet<(
-            string Service,
-            string NormalizedUri,
-            string CacheSliceKind,
-            ulong? CacheSliceStart,
-            ulong? CacheSliceEnd)>();
+        var physicalPaths = new HashSet<string>(StringComparer.Ordinal);
         foreach (var candidate in report.Candidates)
         {
             if (candidate is null
                 || string.IsNullOrWhiteSpace(candidate.CandidateId)
-                || string.IsNullOrWhiteSpace(candidate.Service))
+                || string.IsNullOrWhiteSpace(candidate.Service)
+                || candidate.Datasource is not null)
             {
-                throw new InvalidDataException("Corruption report contained a candidate without an identity or service");
+                throw new InvalidDataException(
+                    "Corruption report contained an invalid identity, service, or producer-owned datasource");
             }
 
             if (candidate.ExactPaths is null
-                || candidate.Observations is null
-                || candidate.ObservedRange is null
-                || candidate.CacheSlice is null
-                || candidate.Observations.Any(observation => observation is null)
+                || candidate.Evidence is null
+                || candidate.ExactPaths.Count != 1
                 || candidate.ExactPaths.Any(string.IsNullOrWhiteSpace)
                 || candidate.ExactPaths.Distinct(StringComparer.Ordinal).Count() != candidate.ExactPaths.Count)
             {
                 throw new InvalidDataException(
-                    "Corruption candidate contained malformed exact-path or observation evidence");
+                    "Corruption candidate must identify exactly one physical path and one evidence branch");
             }
 
-            candidate.ExactPaths = candidate.ExactPaths
-                .OrderBy(path => path, StringComparer.Ordinal)
-                .ToList();
-            ValidateCandidateShape(candidate, expectedThreshold, expectedLookbackDays, scanStartedUtc);
+            ValidateCandidateShape(
+                candidate,
+                expectedDetectionMethod,
+                expectedThreshold,
+                expectedLookbackDays,
+                scanStartedUtc);
 
             candidate.Datasource = datasourceName;
             candidate.CandidateId = $"{datasourceName}:{candidate.CandidateId}";
@@ -428,16 +517,10 @@ public class CorruptionDetectionService
                 throw new InvalidDataException($"Duplicate corruption candidate ID '{candidate.CandidateId}'");
             }
 
-            var physicalIdentity = (
-                candidate.Service,
-                candidate.NormalizedUri,
-                candidate.CacheSlice.Kind,
-                candidate.CacheSlice.Start,
-                candidate.CacheSlice.End);
-            if (!physicalIdentities.Add(physicalIdentity))
+            if (!physicalPaths.Add(candidate.ExactPaths[0]))
             {
                 throw new InvalidDataException(
-                    "Corruption report contained duplicate immutable physical candidate identity");
+                    "Corruption report contained a duplicate physical cache path");
             }
         }
 
@@ -446,7 +529,9 @@ public class CorruptionDetectionService
             .ThenBy(candidate => candidate.CandidateId, StringComparer.Ordinal)
             .ToList();
         var projection = ProjectCounts(report.Candidates);
+        var detectionProjection = ProjectDetectionCounts(report.Candidates, expectedDetectionMethod);
         if (!CountMapsEqual(report.ServiceCounts, projection)
+            || !CountMapsEqual(report.DetectionCounts, detectionProjection, allowZero: true)
             || report.Total != projection.Values.Sum())
         {
             throw new InvalidDataException(
@@ -454,6 +539,7 @@ public class CorruptionDetectionService
         }
 
         report.ServiceCounts = projection;
+        report.DetectionCounts = detectionProjection;
         report.Total = projection.Values.Sum();
     }
 
@@ -461,18 +547,21 @@ public class CorruptionDetectionService
         Guid scanId,
         int threshold,
         int lookbackDays,
+        CorruptionDetectionMethod detectionMethod,
         DateTime startedAtUtc,
         DateTime completedAtUtc,
         IReadOnlyList<DatasourceCorruptionReport> datasourceReports,
         CancellationToken cancellationToken = default)
     {
-        ValidateScanInput(threshold, lookbackDays);
+        ValidateScanInput(threshold, lookbackDays, detectionMethod);
         if (startedAtUtc.Kind != DateTimeKind.Utc
             || startedAtUtc.Ticks % TimeSpan.TicksPerSecond != 0)
         {
             throw new InvalidDataException(
                 "Corruption scan start must be a whole-second UTC timestamp");
         }
+
+        ValidateCrossDatasourceIdentity(datasourceReports);
 
         await using var strategyContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var strategy = strategyContext.Database.CreateExecutionStrategy();
@@ -490,8 +579,10 @@ public class CorruptionDetectionService
                 var expectedScanStartedUtc = FormatScanStartedUtc(startedAtUtc);
                 if (datasourceReports.Any(item =>
                         item.Report.ContractVersion != CorruptionReport.SupportedContractVersion
-                        || item.Report.Threshold != threshold
-                        || item.Report.LookbackDays != lookbackDays
+                        || item.Report.DetectionMethod != detectionMethod
+                        || (detectionMethod == CorruptionDetectionMethod.RepeatedMiss
+                            && (item.Report.Settings.Threshold != threshold
+                                || item.Report.Settings.LookbackDays != lookbackDays))
                         || !string.Equals(
                             item.Report.ScanStartedUtc,
                             expectedScanStartedUtc,
@@ -504,7 +595,7 @@ public class CorruptionDetectionService
                 dbContext.CachedCorruptionScans.Add(new CachedCorruptionScan
                 {
                     ScanId = scanId,
-                    DetectionMode = PersistedDetectionMode,
+                    DetectionMode = detectionMethod.ToPersistenceMode(),
                     Threshold = threshold,
                     LookbackDays = lookbackDays,
                     ContractVersion = CorruptionReport.SupportedContractVersion,
@@ -533,6 +624,35 @@ public class CorruptionDetectionService
                         });
                     }
                 }
+
+                var allCandidates = datasourceReports
+                    .SelectMany(report => report.Report.Candidates)
+                    .ToList();
+                var reportSettings = datasourceReports.Count > 0
+                    ? datasourceReports[0].Report.Settings
+                    : new CorruptionScanSettings
+                    {
+                        Threshold = detectionMethod == CorruptionDetectionMethod.RepeatedMiss ? threshold : null,
+                        LookbackDays = detectionMethod == CorruptionDetectionMethod.RepeatedMiss ? lookbackDays : null
+                    };
+                dbContext.CachedCorruptionDetections.Add(new CachedCorruptionDetection
+                {
+                    ScanId = scanId,
+                    ServiceName = ProjectionServiceName,
+                    DatasourceName = ProjectionDatasourceName,
+                    CorruptedChunkCount = 0,
+                    CandidatesJson = JsonSerializer.Serialize(
+                        new CachedCorruptionProjection
+                        {
+                            Settings = reportSettings,
+                            DetectionCounts = ProjectDetectionCounts(allCandidates, detectionMethod),
+                            Coverage = AggregateCoverage(datasourceReports.Select(report => report.Report.Coverage))
+                        },
+                        _candidateJsonOptions),
+                    RemovalAllowed = false,
+                    LastDetectedUtc = completedAtUtc,
+                    CreatedAtUtc = completedAtUtc
+                });
 
                 await dbContext.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
@@ -573,15 +693,37 @@ public class CorruptionDetectionService
             .AsNoTracking()
             .Where(row => row.ScanId == scan.ScanId)
             .ToListAsync(cancellationToken);
-        var candidates = rows.SelectMany(DeserializeCandidates).ToList();
-        return BuildCachedResult(scan, candidates);
+        var projectionRow = rows.SingleOrDefault(row => row.ServiceName == ProjectionServiceName);
+        if (projectionRow == null)
+        {
+            throw new InvalidDataException("Stored v4 corruption scan omitted its projection row");
+        }
+
+        var projection = JsonSerializer.Deserialize<CachedCorruptionProjection>(
+                projectionRow.CandidatesJson,
+                _candidateJsonOptions)
+            ?? throw new InvalidDataException("Stored v4 corruption scan projection was null");
+        var candidates = rows
+            .Where(row => row.ServiceName != ProjectionServiceName)
+            .SelectMany(DeserializeCandidates)
+            .ToList();
+        ValidateStoredCandidates(scan, candidates);
+        return BuildCachedResult(scan, candidates, projection);
     }
 
     private static CachedCorruptionResult BuildCachedResult(
         CachedCorruptionScan scan,
-        IReadOnlyCollection<CorruptionCandidate> candidates)
+        IReadOnlyCollection<CorruptionCandidate> candidates,
+        CachedCorruptionProjection projection)
     {
+        ValidateStoredProjection(scan, projection);
         var counts = ProjectCounts(candidates);
+        var detectionCounts = ProjectDetectionCounts(candidates, scan.DetectionMode.ToDetectionMethod());
+        if (!CountMapsEqual(projection.DetectionCounts, detectionCounts, allowZero: true))
+        {
+            throw new InvalidDataException("Stored corruption source counts did not match candidate evidence");
+        }
+
         return new CachedCorruptionResult
         {
             HasCachedResults = true,
@@ -589,7 +731,11 @@ public class CorruptionDetectionService
             Threshold = scan.Threshold,
             LookbackDays = scan.LookbackDays,
             ContractVersion = scan.ContractVersion,
+            DetectionMethod = scan.DetectionMode.ToDetectionMethod(),
+            Settings = projection.Settings,
             CorruptionCounts = counts,
+            DetectionCounts = detectionCounts,
+            Coverage = projection.Coverage,
             LastDetectionTime = scan.CompletedAtUtc,
             TotalServicesWithCorruption = counts.Count,
             TotalCorruptedChunks = counts.Values.Sum()
@@ -603,18 +749,20 @@ public class CorruptionDetectionService
         CancellationToken cancellationToken = default)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        await RequireCurrentScanAsync(dbContext, scanId, cancellationToken);
+        var scan = await RequireCurrentScanAsync(dbContext, scanId, cancellationToken);
         var rows = await dbContext.CachedCorruptionDetections
             .AsNoTracking()
             .Where(row => row.ScanId == scanId && row.ServiceName == service)
             .OrderBy(row => row.DatasourceName)
             .ToListAsync(cancellationToken);
         EnsureActionableRows(rows);
-        return rows
+        var candidates = rows
             .SelectMany(DeserializeCandidates)
             .OrderBy(candidate => candidate.Datasource, StringComparer.OrdinalIgnoreCase)
             .ThenBy(candidate => candidate.CandidateId, StringComparer.Ordinal)
             .ToList();
+        ValidateStoredCandidates(scan, candidates, service);
+        return candidates;
     }
 
     /// <summary>
@@ -635,6 +783,7 @@ public class CorruptionDetectionService
             .ToListAsync(cancellationToken);
         EnsureActionableRows(rows);
         var allCandidates = rows.SelectMany(DeserializeCandidates).ToList();
+        ValidateStoredCandidates(scan, allCandidates, service);
         if (allCandidates.Count == 0)
         {
             throw new NotFoundException("Corruption candidates");
@@ -666,7 +815,7 @@ public class CorruptionDetectionService
         }
 
         var candidatesByDatasource = selected
-            .GroupBy(candidate => candidate.Datasource, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(candidate => candidate.Datasource!, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
                 group => group.Key,
                 group => (IReadOnlyList<CorruptionCandidate>)group
@@ -678,9 +827,49 @@ public class CorruptionDetectionService
             ScanId = scan.ScanId,
             Threshold = scan.Threshold,
             ContractVersion = scan.ContractVersion,
+            DetectionMethod = scan.DetectionMode.ToDetectionMethod(),
             Service = service,
             CandidatesByDatasource = candidatesByDatasource
         };
+    }
+
+    private static void ValidateStoredProjection(
+        CachedCorruptionScan scan,
+        CachedCorruptionProjection projection)
+    {
+        if (projection.Settings is null || projection.DetectionCounts is null)
+        {
+            throw new InvalidDataException("Stored corruption scan projection omitted required fields");
+        }
+
+        var method = scan.DetectionMode.ToDetectionMethod();
+        var settingsValid = method switch
+        {
+            CorruptionDetectionMethod.RepeatedMiss =>
+                projection.Settings.Threshold == scan.Threshold
+                && projection.Settings.LookbackDays == scan.LookbackDays
+                && projection.Settings.MinimumStableAgeSeconds is null
+                && projection.Settings.MaximumPrefixBytes is null
+                && projection.Coverage is null,
+            CorruptionDetectionMethod.Structural =>
+                projection.Settings.Threshold is null
+                && projection.Settings.LookbackDays is null
+                && projection.Settings.MinimumStableAgeSeconds == StructuralMinimumStableAgeSeconds
+                && projection.Settings.MaximumPrefixBytes == StructuralMaximumPrefixBytes
+                && projection.Coverage is not null,
+            _ => false
+        };
+        if (!settingsValid)
+        {
+            throw new InvalidDataException("Stored corruption scan projection settings were malformed");
+        }
+
+        if (projection.Coverage != null)
+        {
+            // Coverage describes the original immutable scan, so its checked count still includes
+            // candidates that may since have been removed. Validate shape here, not current totals.
+            ValidateCoverage(projection.Coverage);
+        }
     }
 
     /// <summary>
@@ -719,11 +908,12 @@ public class CorruptionDetectionService
                 cancellationToken);
             try
             {
-                await RequireCurrentScanAsync(dbContext, scanId, cancellationToken);
+                var currentScan = await RequireCurrentScanAsync(dbContext, scanId, cancellationToken);
                 var rows = await dbContext.CachedCorruptionDetections
-                    .Where(row => row.ScanId == scanId)
+                    .Where(row => row.ScanId == scanId && row.ServiceName != ProjectionServiceName)
                     .ToListAsync(cancellationToken);
                 var matchedIds = new HashSet<string>(StringComparer.Ordinal);
+                var remainingCandidates = new List<CorruptionCandidate>();
                 foreach (var row in rows)
                 {
                     var remaining = new List<CorruptionCandidate>();
@@ -748,6 +938,7 @@ public class CorruptionDetectionService
                         row.CandidatesJson = SerializeCandidates(remaining);
                         row.CorruptedChunkCount = remaining.Count;
                         row.RemovalAllowed = true;
+                        remainingCandidates.AddRange(remaining);
                     }
                 }
 
@@ -755,6 +946,18 @@ public class CorruptionDetectionService
                 {
                     throw new ConflictException(changedMessage);
                 }
+
+                var projectionRow = await dbContext.CachedCorruptionDetections.SingleAsync(
+                    row => row.ScanId == scanId && row.ServiceName == ProjectionServiceName,
+                    cancellationToken);
+                var projection = JsonSerializer.Deserialize<CachedCorruptionProjection>(
+                        projectionRow.CandidatesJson,
+                        _candidateJsonOptions)
+                    ?? throw new InvalidDataException("Stored v4 corruption scan projection was null");
+                projection.DetectionCounts = ProjectDetectionCounts(
+                    remainingCandidates,
+                    currentScan.DetectionMode.ToDetectionMethod());
+                projectionRow.CandidatesJson = JsonSerializer.Serialize(projection, _candidateJsonOptions);
 
                 await dbContext.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
@@ -820,6 +1023,15 @@ public class CorruptionDetectionService
             ?? throw new InvalidDataException($"Stored corruption evidence row {row.Id} was null");
         foreach (var candidate in candidates)
         {
+            if (candidate.Datasource != null
+                && !string.Equals(
+                    candidate.Datasource,
+                    row.DatasourceName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    $"Stored corruption evidence row {row.Id} contained a forged datasource");
+            }
             candidate.Datasource = row.DatasourceName;
         }
 
@@ -835,6 +1047,46 @@ public class CorruptionDetectionService
         }
     }
 
+    private static void ValidateStoredCandidates(
+        CachedCorruptionScan scan,
+        IReadOnlyCollection<CorruptionCandidate> candidates,
+        string? expectedService = null)
+    {
+        var method = scan.DetectionMode.ToDetectionMethod();
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var paths = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var candidate in candidates)
+        {
+            var evidenceMatches = method switch
+            {
+                CorruptionDetectionMethod.RepeatedMiss => candidate.Evidence is RepeatedMissCorruptionEvidence,
+                CorruptionDetectionMethod.Structural => candidate.Evidence is StructuralCorruptionEvidence,
+                _ => false
+            };
+            if (!evidenceMatches
+                || string.IsNullOrWhiteSpace(candidate.CandidateId)
+                || string.IsNullOrWhiteSpace(candidate.Service)
+                || candidate.ExactPaths is not { Count: 1 }
+                || string.IsNullOrWhiteSpace(candidate.ExactPaths[0])
+                || string.IsNullOrWhiteSpace(candidate.Datasource)
+                || (expectedService != null
+                    && !string.Equals(candidate.Service, expectedService, StringComparison.OrdinalIgnoreCase))
+                || !ids.Add(candidate.CandidateId)
+                || !paths.Add(candidate.ExactPaths[0]))
+            {
+                throw new InvalidDataException("Stored v4 corruption evidence failed closed validation");
+            }
+
+
+            ValidateCandidateShape(
+                candidate,
+                method,
+                scan.Threshold,
+                scan.LookbackDays,
+                scan.StartedAtUtc.AsUtc());
+        }
+    }
+
     private static Dictionary<string, long> ProjectCounts(
         IEnumerable<CorruptionCandidate> candidates)
     {
@@ -847,8 +1099,58 @@ public class CorruptionDetectionService
         return SortCounts(counts);
     }
 
-    private static void IncrementCount(Dictionary<string, long> counts, string service) =>
-        counts[service] = counts.GetValueOrDefault(service) + 1;
+    private static Dictionary<string, long> ProjectDetectionCounts(
+        IEnumerable<CorruptionCandidate> candidates,
+        CorruptionDetectionMethod? detectionMethod = null)
+    {
+        var counts = new Dictionary<string, long>(StringComparer.Ordinal);
+        if (detectionMethod.HasValue)
+        {
+            counts[detectionMethod.Value.ToWireString()] = 0;
+        }
+        foreach (var candidate in candidates)
+        {
+            var method = candidate.Evidence switch
+            {
+                RepeatedMissCorruptionEvidence => CorruptionDetectionMethod.RepeatedMiss,
+                StructuralCorruptionEvidence => CorruptionDetectionMethod.Structural,
+                _ => throw new InvalidDataException("Corruption candidate has an unsupported evidence branch")
+            };
+            IncrementCount(counts, method.ToWireString());
+        }
+
+        return counts
+            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+    }
+
+    private static CorruptionScanCoverage? AggregateCoverage(
+        IEnumerable<CorruptionScanCoverage?> coverages)
+    {
+        CorruptionScanCoverage? aggregate = null;
+        foreach (var coverage in coverages)
+        {
+            if (coverage == null)
+            {
+                continue;
+            }
+
+            aggregate ??= new CorruptionScanCoverage();
+            aggregate.Add(coverage);
+        }
+
+        if (aggregate != null)
+        {
+            aggregate.SkippedByReason = aggregate.SkippedByReason
+                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        }
+
+        return aggregate;
+    }
+
+    private static void IncrementCount(Dictionary<string, long> counts, string key) =>
+        counts[key] = counts.GetValueOrDefault(key) + 1;
 
     private static Dictionary<string, long> SortCounts(Dictionary<string, long> counts) =>
         counts
@@ -860,7 +1162,8 @@ public class CorruptionDetectionService
 
     private static bool CountMapsEqual(
         Dictionary<string, long> actual,
-        Dictionary<string, long> expected)
+        Dictionary<string, long> expected,
+        bool allowZero = false)
     {
         if (actual.Count != expected.Count)
         {
@@ -871,7 +1174,8 @@ public class CorruptionDetectionService
         foreach (var (service, count) in actual)
         {
             if (string.IsNullOrWhiteSpace(service)
-                || count <= 0
+                || (!allowZero && count <= 0)
+                || (allowZero && count < 0)
                 || !normalized.TryAdd(service, count))
             {
                 return false;
@@ -884,20 +1188,50 @@ public class CorruptionDetectionService
 
     private static void ValidateCandidateShape(
         CorruptionCandidate candidate,
+        CorruptionDetectionMethod detectionMethod,
         int threshold,
         int lookbackDays,
         DateTime scanStartedUtc)
     {
-        if (candidate.ExactPaths.Count == 0
-            || candidate.EvidenceCount < threshold
-            || candidate.EvidenceCount != candidate.Observations.Count)
+        switch (candidate.Evidence)
+        {
+            case RepeatedMissCorruptionEvidence repeatedMiss
+                when detectionMethod == CorruptionDetectionMethod.RepeatedMiss:
+                ValidateRepeatedMissEvidence(repeatedMiss, threshold, lookbackDays, scanStartedUtc);
+                return;
+            case StructuralCorruptionEvidence structural
+                when detectionMethod == CorruptionDetectionMethod.Structural:
+                ValidateStructuralEvidence(structural, scanStartedUtc);
+                return;
+            default:
+                throw new InvalidDataException(
+                    "Corruption candidate evidence did not match the report detection method");
+        }
+    }
+
+    private static void ValidateRepeatedMissEvidence(
+        RepeatedMissCorruptionEvidence evidence,
+        int threshold,
+        int lookbackDays,
+        DateTime scanStartedUtc)
+    {
+        if (evidence.ObservedRange is null
+            || evidence.CacheSlice is null
+            || evidence.Observations is null
+            || evidence.Observations.Any(observation => observation is null)
+            || string.IsNullOrWhiteSpace(evidence.RawUrl)
+            || string.IsNullOrWhiteSpace(evidence.NormalizedUri)
+            || !IsValidObservedRange(evidence.ObservedRange)
+            || !IsValidCacheSlice(evidence.CacheSlice)
+            || evidence.EvidenceCount != threshold
+            || evidence.EvidenceCount != evidence.Observations.Count)
         {
             throw new InvalidDataException(
                 "Corruption candidate did not contain threshold-qualified exact-path evidence");
         }
 
-        if (!TryParseCanonicalUtc(candidate.FirstSeen, out var firstSeenUtc)
-            || !TryParseCanonicalUtc(candidate.LastSeen, out var lastSeenUtc)
+        if (!TryParseCanonicalUtc(evidence.FirstSeen, out var firstSeenUtc)
+            || !TryParseCanonicalUtc(evidence.LastSeen, out var lastSeenUtc)
             || firstSeenUtc > lastSeenUtc
             || lastSeenUtc - firstSeenUtc > TimeSpan.FromSeconds(60))
         {
@@ -912,12 +1246,15 @@ public class CorruptionDetectionService
                 "Corruption candidate evidence was outside the closed lookback window");
         }
 
-        foreach (var observation in candidate.Observations)
+        var observedTimes = new List<DateTime>(evidence.Observations.Count);
+        foreach (var observation in evidence.Observations)
         {
             if (!string.Equals(observation.Method, "GET", StringComparison.Ordinal)
                 || observation.HttpStatus is not (200 or 206)
                 || !string.Equals(observation.CacheStatus, "MISS", StringComparison.Ordinal)
                 || string.IsNullOrWhiteSpace(observation.RawUrl)
+                || string.IsNullOrWhiteSpace(observation.ClientIp)
+                || observation.RawRange == string.Empty
                 || observation.BytesServed < 0
                 || !TryParseCanonicalUtc(observation.Timestamp, out var observedAtUtc)
                 || observedAtUtc < firstSeenUtc
@@ -925,6 +1262,162 @@ public class CorruptionDetectionService
             {
                 throw new InvalidDataException(
                     "Corruption candidate contained an ineligible repeated-MISS observation");
+            }
+            observedTimes.Add(observedAtUtc);
+        }
+
+        if (observedTimes.Count == 0
+            || observedTimes[0] != firstSeenUtc
+            || observedTimes[^1] != lastSeenUtc
+            || observedTimes.Zip(observedTimes.Skip(1)).Any(pair => pair.First > pair.Second)
+            || !string.Equals(evidence.Observations[0].RawUrl, evidence.RawUrl, StringComparison.Ordinal)
+            || !RawRangeMatches(evidence.Observations[0].RawRange, evidence.ObservedRange))
+        {
+            throw new InvalidDataException(
+                "Corruption candidate observations did not match their ordered evidence identity");
+        }
+    }
+
+    private static bool RawRangeMatches(string? rawRange, ObservedByteRange observedRange)
+    {
+        var value = rawRange?.Trim() ?? string.Empty;
+        if (observedRange.Kind == "no_range")
+        {
+            return value is "" or "-";
+        }
+
+        if (observedRange.Kind != "inclusive"
+            || !observedRange.Start.HasValue
+            || !observedRange.End.HasValue
+            || !value.StartsWith("bytes=", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var parts = value[6..].Split('-', StringSplitOptions.None);
+        return parts.Length == 2
+            && ulong.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var start)
+            && ulong.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var end)
+            && start == observedRange.Start
+            && end == observedRange.End;
+    }
+
+    private static bool IsValidObservedRange(ObservedByteRange range) => range.Kind switch
+    {
+        "no_range" => range.Start is null && range.End is null,
+        "inclusive" => range.Start.HasValue && range.End.HasValue && range.Start <= range.End,
+        _ => false
+    };
+
+    private static bool IsValidCacheSlice(CacheSliceIdentity slice) => slice.Kind switch
+    {
+        "no_range" or "noslice" => slice.Start is null && slice.End is null,
+        "ranged" => slice.Start.HasValue && slice.End.HasValue && slice.Start <= slice.End,
+        _ => false
+    };
+
+    private static void ValidateStructuralEvidence(
+        StructuralCorruptionEvidence evidence,
+        DateTime scanStartedUtc)
+    {
+        if (evidence.Issues is null
+            || evidence.Issues.Count == 0
+            || evidence.Issues.Distinct().Count() != evidence.Issues.Count
+            || !evidence.Issues.SequenceEqual(evidence.Issues.OrderBy(issue => issue.ToString(), StringComparer.Ordinal))
+            || !string.Equals(evidence.CacheKeyEncoding, "hex", StringComparison.Ordinal)
+            || (evidence.CacheKey.Length == 0
+                && !evidence.Issues.Any(AllowsMissingStructuralCacheKey))
+            || evidence.CacheKey.Length % 2 != 0
+            || evidence.CacheKey.Any(character => !Uri.IsHexDigit(character) || char.IsUpper(character))
+            || string.IsNullOrWhiteSpace(evidence.CacheKeyMd5)
+            || evidence.CacheKeyMd5.Length != 32
+            || evidence.CacheKeyMd5.Any(character => !Uri.IsHexDigit(character) || char.IsUpper(character))
+            || evidence.CacheVersion != 5
+            || (evidence.HttpStatus.HasValue && evidence.HttpStatus is not (200 or 206))
+            || (evidence.ActualPayloadLength.HasValue
+                && evidence.ActualPayloadLength > evidence.FileLength)
+            || evidence.Fingerprint is null
+            || evidence.Fingerprint.Length != evidence.FileLength
+            || !TryParseUtc(evidence.DetectedAtUtc, out var detectedAtUtc)
+            || detectedAtUtc > scanStartedUtc)
+        {
+            throw new InvalidDataException("Structural corruption evidence was malformed");
+        }
+
+        if (evidence.BodyStart.HasValue
+            && evidence.BodyStart <= evidence.FileLength
+            && evidence.ActualPayloadLength.HasValue
+            && evidence.ActualPayloadLength != evidence.FileLength - evidence.BodyStart)
+        {
+            throw new InvalidDataException("Structural payload length did not match its file offsets");
+        }
+
+        if (evidence.BodyStart.HasValue
+            && (evidence.BodyStart > evidence.FileLength
+                || (evidence.HeaderStart.HasValue && evidence.HeaderStart > evidence.BodyStart)))
+        {
+            var offsetIssue = evidence.Issues.Contains(StructuralCorruptionIssue.InvalidPayloadOffset)
+                || evidence.Issues.Contains(StructuralCorruptionIssue.TruncatedBeforePayload);
+            if (!offsetIssue)
+            {
+                throw new InvalidDataException("Structural offsets were inconsistent without a matching issue");
+            }
+        }
+    }
+
+    private static bool AllowsMissingStructuralCacheKey(StructuralCorruptionIssue issue) => issue is
+        StructuralCorruptionIssue.EmptyCacheFile
+        or StructuralCorruptionIssue.TruncatedCacheHeader
+        or StructuralCorruptionIssue.MalformedCacheHeader
+        or StructuralCorruptionIssue.InvalidPayloadOffset
+        or StructuralCorruptionIssue.TruncatedBeforePayload;
+
+    private static void ValidateCoverage(CorruptionScanCoverage coverage, int? candidateCount = null)
+    {
+        if (coverage.FilesSeen < 0
+            || coverage.FilesChecked < 0
+            || coverage.FilesChecked > coverage.FilesSeen
+            || coverage.Consistent < 0
+            || coverage.BytesRead < 0
+            || coverage.SparseFiles < 0
+            || coverage.SparseFiles > coverage.FilesSeen
+            || coverage.IoErrors < 0
+            || coverage.SkippedByReason is null
+            || coverage.SkippedByReason.Any(pair =>
+                string.IsNullOrWhiteSpace(pair.Key) || pair.Value < 0))
+        {
+            throw new InvalidDataException("Structural scan coverage was malformed");
+        }
+
+
+        if (candidateCount.HasValue
+            && coverage.FilesChecked != checked(coverage.Consistent + candidateCount.Value))
+        {
+            throw new InvalidDataException(
+                "Structural scan coverage did not match its actionable candidate count");
+        }
+    }
+
+    private static void ValidateCrossDatasourceIdentity(
+        IReadOnlyList<DatasourceCorruptionReport> datasourceReports)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var paths = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var datasourceReport in datasourceReports)
+        {
+            foreach (var candidate in datasourceReport.Report.Candidates)
+            {
+                if (!ids.Add(candidate.CandidateId))
+                {
+                    throw new InvalidDataException(
+                        $"Duplicate corruption candidate ID '{candidate.CandidateId}' across datasource reports");
+                }
+
+                if (!paths.Add(candidate.ExactPaths.Single()))
+                {
+                    throw new InvalidDataException(
+                        "Duplicate physical cache path across datasource reports");
+                }
             }
         }
     }
@@ -948,9 +1441,38 @@ public class CorruptionDetectionService
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
             out timestampUtc);
 
+    private static bool TryParseUtc(string value, out DateTime timestampUtc)
+    {
+        var parsed = DateTimeOffset.TryParse(
+            value,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+            out var timestamp);
+        timestampUtc = timestamp.UtcDateTime;
+        return parsed && value.EndsWith('Z');
+    }
+
+    internal static double CalculateOverallProgress(
+        int datasourceIndex,
+        int datasourceCount,
+        double datasourcePercent)
+    {
+        if (datasourceCount <= 0
+            || datasourceIndex < 0
+            || datasourceIndex >= datasourceCount
+            || !double.IsFinite(datasourcePercent)
+            || datasourcePercent is < 0 or > 100)
+        {
+            throw new InvalidDataException("Corruption progress payload was outside its closed bounds");
+        }
+
+        return (datasourceIndex * 100.0 + datasourcePercent) / datasourceCount;
+    }
+
     internal static void ValidateScanInput(
         int threshold,
-        int lookbackDays = DefaultLookbackDays)
+        int lookbackDays = DefaultLookbackDays,
+        CorruptionDetectionMethod detectionMethod = CorruptionDetectionMethod.RepeatedMiss)
     {
         if (!_allowedThresholds.Contains(threshold))
         {
@@ -963,11 +1485,15 @@ public class CorruptionDetectionService
                 $"Evidence lookback must be between {MinimumLookbackDays} and {MaximumLookbackDays} days");
         }
 
+        if (!Enum.IsDefined(detectionMethod))
+        {
+            throw new ValidationException("Unsupported corruption detection method");
+        }
     }
 
     private static bool IsSupportedScan(CachedCorruptionScan scan) =>
         scan.ContractVersion == CorruptionReport.SupportedContractVersion
-        && scan.DetectionMode == PersistedDetectionMode;
+        && scan.DetectionMode is CorruptionDetectionMode.RepeatedMiss or CorruptionDetectionMode.Structural;
 
     private static async Task<CachedCorruptionScan> RequireCurrentScanAsync(
         AppDbContext dbContext,
@@ -1050,8 +1576,24 @@ public class CachedCorruptionResult
     public int Threshold { get; set; }
     public int LookbackDays { get; set; }
     public int ContractVersion { get; set; }
+    public CorruptionDetectionMethod DetectionMethod { get; set; }
+    public CorruptionScanSettings Settings { get; set; } = new();
     public Dictionary<string, long> CorruptionCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, long> DetectionCounts { get; set; } = new(StringComparer.Ordinal);
+    public CorruptionScanCoverage? Coverage { get; set; }
     public DateTime LastDetectionTime { get; set; }
     public int TotalServicesWithCorruption { get; set; }
     public long TotalCorruptedChunks { get; set; }
+}
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+internal sealed class CachedCorruptionProjection
+{
+    [JsonRequired]
+    public CorruptionScanSettings Settings { get; set; } = new();
+
+    [JsonRequired]
+    public Dictionary<string, long> DetectionCounts { get; set; } = new(StringComparer.Ordinal);
+
+    public CorruptionScanCoverage? Coverage { get; set; }
 }

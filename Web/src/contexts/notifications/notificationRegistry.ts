@@ -247,18 +247,18 @@ interface GameDetectionStatusResponse {
 /**
  * GET /api/cache/corruption/detect/status - CacheController.GetCorruptionDetectionStatus()
  * Returns anonymous `{ isRunning: false }` when idle, or the full object below when active.
- * NOTE: backend does NOT emit `percentComplete` - the field is absent from the anonymous
- * response object. The recovery handler uses `?? 0` as a gap-filler.
+ * Active responses carry method-aware stage/context/progress; idle responses contain only
+ * `isRunning: false`. The recovery handler keeps `?? 0` for that idle/legacy boundary.
  */
 interface CorruptionDetectionStatusResponse {
   isRunning: boolean;
   operationId?: string;
+  detectionMethod?: 'repeated_miss' | 'structural';
   status?: string;
   message?: string;
   startTime?: string;
   stageKey?: string;
   context?: StageContext;
-  /** Not emitted by backend - always undefined on the wire. `?? 0` fallback applies. */
   percentComplete?: number;
 }
 
@@ -618,7 +618,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         formatCorruptionRemovalStartedMessage(event),
       getDetails: (event: CorruptionRemovalStartedEvent) => ({
         operationId: event.operationId,
-        service: event.service
+        service: event.service,
+        detectionMethod: event.detectionMethod
       })
     },
     progress: {
@@ -636,13 +637,17 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         i18n.t(event.stageKey ?? 'signalr.corruptionRemove.failed.generic', event.context ?? {}),
       getDetails: (event: CorruptionRemovalProgressEvent) => ({
         operationId: event.operationId,
-        service: event.service
+        service: event.service,
+        detectionMethod: event.detectionMethod
       })
     },
     complete: {
       getSuccessMessage: (event: CorruptionRemovalCompleteEvent) =>
         formatCorruptionRemovalCompleteMessage(event),
-      getSuccessDetails: (event: CorruptionRemovalCompleteEvent) => ({ service: event.service }),
+      getSuccessDetails: (event: CorruptionRemovalCompleteEvent) => ({
+        service: event.service,
+        detectionMethod: event.detectionMethod
+      }),
       useAnimationDelay: true
     },
     onComplete: (removeNotification) => {
@@ -740,13 +745,15 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       createNotification: (data: CorruptionDetectionStatusResponse) => ({
         message: data.stageKey
           ? i18n.t(data.stageKey, data.context ?? {})
-          : i18n.t('signalr.corruptionDetect.scanningLogs'),
-        // `percentComplete` is not emitted by backend - always undefined on the wire.
-        // `?? 0` is a legitimate gap-filler until CacheController.GetCorruptionDetectionStatus
-        // is updated to include `percentComplete = activeOp.PercentComplete`.
+          : i18n.t(
+              data.detectionMethod === 'structural'
+                ? 'signalr.corruptionDetect.scanningHeaders'
+                : 'signalr.corruptionDetect.scanningLogs'
+            ),
         progress: data.percentComplete ?? 0,
         details: {
-          operationId: data.operationId
+          operationId: data.operationId,
+          detectionMethod: data.detectionMethod
         }
       }),
       staleMessage: 'Corruption detection completed'
@@ -761,7 +768,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getMessage: (event: CorruptionDetectionStartedEvent) =>
         formatCorruptionDetectionStartedMessage(event),
       getDetails: (event: CorruptionDetectionStartedEvent) => ({
-        operationId: event.operationId
+        operationId: event.operationId,
+        detectionMethod: event.detectionMethod
       })
     },
     progress: {
@@ -774,12 +782,18 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getErrorMessage: (event: CorruptionDetectionProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.corruptionDetect.failed', event.context ?? {}),
       getDetails: (event: CorruptionDetectionProgressEvent) => ({
-        operationId: event.operationId
+        operationId: event.operationId,
+        detectionMethod: event.detectionMethod
       })
     },
     complete: {
       getSuccessMessage: (event: CorruptionDetectionCompleteEvent) =>
         formatCorruptionDetectionCompleteMessage(event),
+      getSuccessDetails: (event: CorruptionDetectionCompleteEvent) => ({
+        detectionMethod: event.detectionMethod,
+        detectionCounts: event.detectionCounts,
+        coverage: event.coverage
+      }),
       getFailureMessage: (event: CorruptionDetectionCompleteEvent) =>
         formatCorruptionDetectionFailureMessage(event)
     }

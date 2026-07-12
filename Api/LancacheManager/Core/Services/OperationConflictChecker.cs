@@ -99,6 +99,26 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
                 });
         }
 
+        // A corruption scan may traverse the full cache tree and structurally inspect open files.
+        // Serialize it with every cache-mutating removal in both directions. This conservative
+        // rule also applies to repeated-MISS scans so queue behavior does not depend on metadata
+        // that is unavailable in the conflict scope.
+        if (newType == OperationType.CorruptionDetection && IsCacheMutatingRemoval(activeOp.Type))
+        {
+            return BuildResponse(activeOp, activeScope,
+                stageKey: "errors.conflict.overlappingEntity",
+                englishError: $"Cannot start corruption detection: an active {activeOp.Type} is modifying cache files.",
+                context: new Dictionary<string, object?> { ["activeType"] = activeOp.Type.ToString() });
+        }
+
+        if (activeOp.Type == OperationType.CorruptionDetection && IsCacheMutatingRemoval(newType))
+        {
+            return BuildResponse(activeOp, activeScope,
+                stageKey: "errors.conflict.overlappingEntity",
+                englishError: $"Cannot start {newType}: corruption detection is inspecting cache files.",
+                context: new Dictionary<string, object?> { ["activeType"] = activeOp.Type.ToString() });
+        }
+
         // ---- 1a. Heavy data-pipeline ops run ONE at a time ----
         // The full-sweep data operations (log processing, log removal, game detection, the bulk
         // corruption scan, the cache file scan, and the eviction scan) each spawn a Rust worker
@@ -218,7 +238,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         }
 
         // ---- 2. Scan × Scan / Scan × matching-removal rules ----
-        // GameDetection + CorruptionDetection are read-only → tolerate unrelated removals (fall through).
+        // Duplicate scans always block. CorruptionDetection × cache removal was handled above.
         // Duplicate scans always block.
         if (newType == OperationType.GameDetection && activeOp.Type == OperationType.GameDetection)
         {
@@ -236,7 +256,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
                 context: new Dictionary<string, object?> { ["activeType"] = activeOp.Type.ToString() });
         }
 
-        // GameDetection/CorruptionDetection alongside any removal → ALLOW (read-only tolerate).
+        // Other GameDetection/CorruptionDetection pairings remain compatible.
         if (newType == OperationType.GameDetection || newType == OperationType.CorruptionDetection)
         {
             return null;
@@ -544,6 +564,12 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
             or OperationType.CorruptionRemoval
             or OperationType.EvictionRemoval
             or OperationType.EvictionScan;
+
+    private static bool IsCacheMutatingRemoval(OperationType type) =>
+        type is OperationType.GameRemoval
+            or OperationType.ServiceRemoval
+            or OperationType.CorruptionRemoval
+            or OperationType.EvictionRemoval;
 
     private static string? GetGameName(OperationInfo op) => op.Metadata switch
     {

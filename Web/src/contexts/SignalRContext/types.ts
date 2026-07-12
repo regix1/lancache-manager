@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { OperationStatus, NotificationVariant } from '../../types/operations';
 import type { SessionType } from '../../services/auth.service';
+import type { CorruptionDetectionMethod, CorruptionScanCoverage } from '../../types';
 
 // Event handler type for SignalR events
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -435,6 +436,7 @@ export interface ServiceRemovalCompleteEvent {
 export interface CorruptionRemovalStartedEvent {
   operationId: string;
   service: string;
+  detectionMethod?: CorruptionDetectionMethod;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
@@ -447,6 +449,7 @@ export interface CorruptionRemovalProgressEvent {
   percentComplete: number;
   status: OperationStatus;
   service: string;
+  detectionMethod?: CorruptionDetectionMethod;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
@@ -465,12 +468,14 @@ export interface CorruptionRemovalCompleteEvent {
   message: string;
   cancelled?: boolean;
   service: string;
+  detectionMethod?: CorruptionDetectionMethod;
   error?: string;
   timestamp?: string;
 }
 
 export interface CorruptionDetectionStartedEvent {
   operationId: string;
+  detectionMethod: CorruptionDetectionMethod;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
@@ -479,6 +484,7 @@ export interface CorruptionDetectionStartedEvent {
 
 export interface CorruptionDetectionProgressEvent {
   operationId: string;
+  detectionMethod: CorruptionDetectionMethod;
   percentComplete: number;
   status: OperationStatus;
   stageKey?: string;
@@ -494,6 +500,7 @@ export interface CorruptionDetectionProgressEvent {
 // C# sends the actionable count projection for the completed scan.
 export interface CorruptionDetectionCompleteEvent {
   operationId: string;
+  detectionMethod: CorruptionDetectionMethod;
   success: boolean;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
@@ -505,6 +512,8 @@ export interface CorruptionDetectionCompleteEvent {
   totalServicesWithCorruption?: number;
   totalCorruptedChunks?: number;
   corruptionCounts?: Record<string, number>;
+  detectionCounts?: Record<string, number>;
+  coverage?: CorruptionScanCoverage | null;
 }
 
 export interface GameDetectionStartedEvent {

@@ -2417,13 +2417,23 @@
     },
     "corruption": {
       "title": "损坏检测与移除",
-      "summary": "查找仍在磁盘上却反复未命中的缓存文件，并仅移除扫描验证过的精确路径，以便重新获取新副本。",
+      "summary": "查找结构无效的缓存文件或重复 MISS 嫌疑项，并仅移除已保存扫描验证过的精确路径。",
       "directoryMissing": "无法移除：未找到所需目录",
       "scanningMessage": "正在扫描日志，查找仍在磁盘上却反复缓存未命中的文件…对于大型日志文件，可能需要几分钟。",
+      "scanningRepeatedMissMessage": "正在扫描日志，查找仍在磁盘上却反复缓存未命中的文件…对于大型日志文件，可能需要几分钟。",
+      "scanningStructuralMessage": "正在检查 nginx 缓存头、有效负载偏移和权威有效负载长度…仅标记已证实的结构故障。",
       "loadingCachedData": "正在加载已缓存的扫描数据…",
       "loadingDetails": "正在加载已存储的证据…",
       "removeAllServices": "全部移除",
+      "removeAllInvalid": "移除所有无效文件",
+      "removeAllSuspects": "移除所有嫌疑项",
+      "removeSelectedInvalid": "移除所选无效文件",
+      "removeSelectedSuspects": "移除所选嫌疑项",
+      "removeInvalid": "移除无效文件",
+      "removeSuspect": "移除嫌疑项",
       "removing": "正在移除…",
+      "runScan": "运行扫描",
+      "runAgain": "再次运行",
       "readOnly": "无法移除：存储为只读",
       "dockerSocketRequired": "无法移除：需要 Docker 套接字",
       "cache": "缓存：",
@@ -2434,22 +2444,43 @@
       "cacheMappingDetails": "技术缓存映射",
       "noRange": "无范围",
       "evidenceCount": "合格的未命中：",
+      "repeatedMissBadge": "重复 MISS",
       "observedAt": "观察时间：",
       "observedWindow": "{{first}}–{{last}}",
       "suspectCount": "{{formattedCount}} 个可疑文件",
       "suspectCount_other": "{{formattedCount}} 个可疑文件",
-      "expandDetails": "显示 {{service}} 的可疑文件",
-      "collapseDetails": "隐藏 {{service}} 的可疑文件",
+      "flaggedCount": "{{formattedCount}} 个已标记文件",
+      "flaggedCount_other": "{{formattedCount}} 个已标记文件",
+      "expandDetails": "显示 {{service}} 的已标记文件",
+      "collapseDetails": "隐藏 {{service}} 的已标记文件",
       "sliceKinds": {
         "no_range": "无范围缓存键",
         "noslice": "非切片缓存键",
         "ranged": "范围切片"
       },
       "noDetailsAvailable": "无已存储证据",
-      "searchPlaceholder": "按 ID、URL、范围或路径搜索嫌疑项…",
-      "chunkLabel": "个可疑文件",
-      "noSearchMatch": "没有与搜索匹配的可疑文件",
-      "sensitivityTitle": "未命中灵敏度",
+      "searchLabel": "搜索已标记文件",
+      "searchPlaceholder": "URL、路径、原因或候选项 ID…",
+      "clearSearch": "清除搜索",
+      "searchResultCount": "显示 {{count}}/{{total}} 个已标记文件",
+      "chunkLabel": "个已标记文件",
+      "noSearchMatch": "没有已标记文件与“{{query}}”匹配",
+      "methodTitle": "检测方法",
+      "methodAriaLabel": "选择损坏检测方法",
+      "methods": {
+        "repeatedMiss": {
+          "label": "重复 MISS",
+          "shortLabel": "重复 MISS",
+          "description": "使用重复出现的成功 MISS 响应，启发式识别仍在磁盘上的可疑文件。"
+        },
+        "structural": {
+          "label": "结构完整性",
+          "shortLabel": "结构",
+          "description": "仅查找已证实格式错误、截断或长度不一致的 nginx 缓存文件。"
+        }
+      },
+      "sensitivityTitle": "重复 MISS 灵敏度",
+      "sensitivityAriaLabel": "选择重复 MISS 灵敏度",
       "sensitivityHigh": "高灵敏度",
       "sensitivityHighShort": "高",
       "sensitivityHighDesc": "要求一个物理切片在 60 秒内有 3 次合格的 MISS 观察。",
@@ -2460,6 +2491,7 @@
       "sensitivityLowShort": "低",
       "sensitivityLowDesc": "要求一个物理切片在 60 秒内有 10 次合格的 MISS 观察。",
       "evidenceLookbackTitle": "证据回溯",
+      "evidenceLookbackAriaLabel": "选择重复 MISS 证据回溯范围",
       "evidenceLookbackDescription": "使用扫描开始前 {{days}} 天内合格的 MISS 观察。",
       "evidenceWindow": "{{days}} 天证据回溯窗口",
       "lookback1Day": "1 天",
@@ -2467,6 +2499,61 @@
       "lookback30Days": "30 天",
       "lookback90Days": "90 天",
       "lookback365Days": "365 天",
+      "coverageSummary": "已检查 {{checked}} 个文件 · 安全跳过 {{skipped}} 个 · {{errors}} 个 I/O 错误",
+      "structural": {
+        "detectedAt": "检查时间：",
+        "actualPayload": "实际有效负载：",
+        "expectedPayload": "预期有效负载：",
+        "technicalDetails": "结构技术证据",
+        "exactPath": "精确路径：",
+        "cacheKey": "缓存键：",
+        "fileLength": "文件总大小：",
+        "httpStatus": "响应状态：",
+        "headerStart": "HTTP 头偏移：",
+        "payloadOffset": "有效负载偏移：",
+        "contentLength": "Content-Length：",
+        "contentRange": "Content-Range：",
+        "cacheVersion": "nginx 缓存版本：",
+        "cacheKeyMd5": "缓存键 MD5："
+      },
+      "structuralIssues": {
+        "empty_cache_file": {
+          "label": "空缓存文件",
+          "description": "文件不包含 nginx 缓存头或有效负载框架。"
+        },
+        "truncated_cache_header": {
+          "label": "缓存头被截断",
+          "description": "已识别的 nginx v5 缓存头在必需字段或缓存键边界之前结束。"
+        },
+        "malformed_cache_header": {
+          "label": "缓存头格式错误",
+          "description": "已识别的 nginx 缓存头违反必需的标记、键、CRC、ETag 或 Vary 约束。"
+        },
+        "invalid_payload_offset": {
+          "label": "有效负载偏移无效",
+          "description": "存储的有效负载偏移早于缓存响应头可以结束的位置。"
+        },
+        "truncated_before_payload": {
+          "label": "在有效负载前被截断",
+          "description": "文件在存储的有效负载偏移之前结束。"
+        },
+        "cache_key_path_mismatch": {
+          "label": "缓存键与路径不匹配",
+          "description": "文件路径摘要既不匹配记录的缓存键，也不匹配其有效的 Vary 变体。"
+        },
+        "payload_length_mismatch": {
+          "label": "有效负载长度不匹配",
+          "description": "存储的有效负载字节数与权威 Content-Length 不同。"
+        },
+        "content_range_length_mismatch": {
+          "label": "Content-Range 长度不匹配",
+          "description": "存储的有效负载字节数与权威 Content-Range 跨度不同。"
+        },
+        "content_length_range_conflict": {
+          "label": "长度与范围冲突",
+          "description": "Content-Length 和 Content-Range 声明了相互冲突的权威有效负载大小。"
+        }
+      },
       "alerts": {
         "cacheMissing": "缓存目录不存在",
         "directoryNotFound": "未找到所需目录。请确保它们在 docker-compose 中正确挂载。",
@@ -2476,6 +2563,7 @@
         "logsReadOnly": "日志目录为只读",
         "cacheReadOnly": "缓存目录为只读",
         "requiresWriteAccess": "已验证路径移除需要对日志和缓存都具有写权限。请移除",
+        "requiresCacheWriteAccess": "结构移除需要对缓存具有写权限。请移除",
         "requiresLogsWriteAccess": "已验证路径移除需要对日志具有写权限。请移除",
         "fromVolumeMounts": "（位于 docker-compose 卷挂载中）。",
         "dockerSocketUnavailable": "Docker 套接字不可用",
@@ -2483,47 +2571,72 @@
       },
       "emptyStates": {
         "noCorrupted": {
-          "title": "未发现可疑缓存文件",
-          "subtitle": "仍在磁盘上的文件均未达到所选的重复 MISS 阈值。"
+          "structuralTitle": "未发现结构无效的缓存文件",
+          "structuralSubtitle": "有歧义、不受支持或正在变化的文件被跳过，而未被标记为损坏。",
+          "repeatedMissTitle": "未发现重复 MISS 嫌疑项",
+          "repeatedMissSubtitle": "仍在磁盘上的文件均未达到所选的重复 MISS 阈值。"
         },
         "noCachedData": {
           "title": "没有已保存的扫描",
-          "subtitle": "运行扫描以查找仍在磁盘上却反复未命中的缓存文件。"
+          "structuralSubtitle": "运行结构完整性扫描，以验证 nginx 缓存框架和权威有效负载长度。",
+          "repeatedMissSubtitle": "运行扫描以查找仍在磁盘上却反复未命中的缓存文件。"
         }
       },
       "notifications": {
-        "loadedResults": "已加载 {{count}} 个可疑缓存文件，涉及 {{services}} 个服务",
-        "noCorruptedInPrevious": "上一次扫描未发现可疑缓存文件",
+        "loadedResults": "已加载 {{count}} 个已标记缓存文件，涉及 {{services}} 个服务",
+        "noCorruptedInPrevious": "上一次扫描未发现已标记缓存文件",
         "noPreviousResults": "未找到之前的损坏缓存文件扫描"
       },
       "errors": {
         "loadCachedData": "加载已保存的扫描结果失败",
         "loadCachedRetry": "移除文件前，请重试加载当前可操作扫描。",
         "startScan": "启动损坏缓存文件扫描失败",
-        "removeCorrupted": "移除 {{service}} 的可疑缓存文件失败",
-        "loadDetails": "加载 {{service}} 的可疑缓存文件失败",
-        "removeAllCorrupted": "移除所选可疑缓存文件失败"
+        "removeCorrupted": "移除 {{service}} 的已标记缓存文件失败",
+        "loadDetails": "加载 {{service}} 的已标记缓存文件失败",
+        "removeAllCorrupted": "移除所选已标记缓存文件失败",
+        "unsafeDetails": "无法安全显示已保存的扫描证据。请运行新扫描。"
       },
       "modal": {
         "title": "移除可疑缓存文件",
         "confirmRemove": "移除此扫描为 {{service}} 验证的精确缓存路径？",
         "willDelete": "这将删除：",
         "cacheFilesLabel": "缓存文件",
-        "cacheFilesDesc": "此扫描验证为存在的精确路径，以便重新获取新副本",
+        "cacheFilesDesc": "仅限仍通过根目录、符号链接、身份、稳定性和证据重新验证的精确普通文件",
         "logEntriesLabel": "日志条目",
         "logEntriesDesc": "只删除附加到这些候选项的观察记录",
         "databaseRecordsLabel": "数据库记录",
         "databaseRecordsDesc": "仅限能与已存储证据精确匹配的记录",
+        "savedScanRecordsLabel": "已保存的扫描记录",
+        "savedScanRecordsDesc": "仅限与成功解决或移除的文件匹配的证据",
         "cannotBeUndone": "此操作无法撤销",
+        "revalidationSkip": "已更改、消失、恢复正常、变为链接或重新验证失败的文件将被跳过",
         "mayTakeSeveralMinutes": "对于大型缓存文件可能需要几分钟",
         "validFilesRemain": "其他 {{service}} 缓存路径保持不变",
-        "removesApproximately": "最多移除 {{count}} 个具有已验证路径的可疑缓存文件",
+        "removesApproximately": "最多移除 {{count}} 个具有已验证路径的已标记缓存文件",
         "deleteCacheAndLogs": "删除缓存和日志",
         "removeAllTitle": "移除所有可疑缓存文件",
         "confirmRemoveAll": "移除 {{services}} 个服务中的 {{candidates}} 个可疑缓存文件？",
         "confirmRemoveSelected": "移除 {{services}} 个所选服务中的 {{candidates}} 个可疑缓存文件？",
         "removeAllAcrossAllServices": "移除将按顺序在所有受影响的服务上运行",
-        "removeAllConfirm": "移除所有嫌疑项"
+        "removeAllConfirm": "移除所有嫌疑项",
+        "structuralTitle": "移除无效缓存文件",
+        "repeatedMissTitle": "移除重复 MISS 嫌疑项",
+        "confirmRemoveStructural": "移除已保存扫描中 {{service}} 的精确无效缓存文件？文件将在删除前立即重新验证。",
+        "confirmRemoveRepeatedMiss": "移除已保存扫描中 {{service}} 的精确重复 MISS 嫌疑项？文件将在删除前立即重新验证。",
+        "removeAllStructuralTitle": "移除所有无效缓存文件",
+        "removeAllRepeatedMissTitle": "移除所有重复 MISS 嫌疑项",
+        "removeSelectedStructuralTitle": "移除所选无效缓存文件",
+        "removeSelectedRepeatedMissTitle": "移除所选重复 MISS 嫌疑项",
+        "confirmRemoveAllStructural": "移除 {{services}} 个服务中的 {{candidates}} 个无效缓存文件？文件将在删除前立即重新验证。",
+        "confirmRemoveAllRepeatedMiss": "移除 {{services}} 个服务中的 {{candidates}} 个重复 MISS 嫌疑项？文件将在删除前立即重新验证。",
+        "confirmRemoveSelectedStructural": "移除 {{services}} 个所选服务中的 {{candidates}} 个无效缓存文件？文件将在删除前立即重新验证。",
+        "confirmRemoveSelectedRepeatedMiss": "移除 {{services}} 个所选服务中的 {{candidates}} 个重复 MISS 嫌疑项？文件将在删除前立即重新验证。",
+        "removeInvalidFiles": "移除无效文件",
+        "removeSuspects": "移除嫌疑项",
+        "removeAllStructuralConfirm": "移除所有无效文件",
+        "removeAllRepeatedMissConfirm": "移除所有嫌疑项",
+        "removeSelectedStructuralConfirm": "移除无效文件（{{count}} 个服务）",
+        "removeSelectedRepeatedMissConfirm": "移除嫌疑项（{{count}} 个服务）"
       }
     },
     "gameDetection": {
@@ -6297,14 +6410,22 @@
     },
     "corruptionDetect": {
       "starting": "正在开始损坏缓存文件扫描…",
+      "startingRepeatedMiss": "正在开始重复 MISS 扫描…",
+      "startingStructural": "正在开始结构完整性扫描…",
+      "scanning": "正在扫描缓存损坏证据…",
       "scanningLogs": "正在扫描日志文件，查找仍在磁盘上却反复未命中的缓存文件…",
+      "scanningHeaders": "正在检查 nginx 缓存头、有效负载偏移和有效负载长度…",
       "complete": "损坏缓存文件扫描完成：发现 {{count}} 个可疑文件。",
+      "completeRepeatedMiss": "重复 MISS 扫描完成：发现 {{count}} 个可疑文件。",
+      "completeStructural": "结构扫描完成：发现 {{count}} 个无效缓存文件。",
       "cancelled": "用户已取消损坏缓存文件扫描",
       "failed": "损坏缓存文件扫描失败：{{errorDetail}}"
     },
     "corruptionRemove": {
       "starting": "开始移除 {{service}} 的可疑缓存文件",
+      "startingStructural": "开始移除 {{service}} 的无效缓存文件",
       "startingService": "正在移除 {{service}} 的可疑缓存文件（第 {{serviceIndex}}/{{serviceCount}} 个）",
+      "startingStructuralService": "正在移除 {{service}} 的无效缓存文件（第 {{serviceIndex}}/{{serviceCount}} 个）",
       "noChunksFoundService": "未发现 {{service}} 的可疑缓存文件，无需移除",
       "filteringLogs": "正在过滤日志文件",
       "filteringFile": "正在过滤文件 {{fileIndex}}/{{totalFiles}}",
@@ -6313,11 +6434,16 @@
       "deletingDb": "正在删除与已移除嫌疑项关联的数据库记录",
       "scanningFiles": "正在扫描 {{totalFiles}} 个日志文件查找可疑缓存文件…",
       "complete": "已为 {{service}} 移除 {{count}} 个可疑缓存文件（删除了 {{files}} 个缓存文件、{{logLines}} 行日志、{{downloads}} 条下载记录、{{logEntries}} 条日志条目）",
+      "completeStructural": "已处理 {{service}} 的 {{count}} 个无效缓存文件（删除 {{files}} 个、{{alreadyMissing}} 个已不存在、{{healed}} 个现已有效）",
       "success": "已成功移除 {{service}} 的已验证可疑缓存文件",
+      "successStructural": "已成功移除 {{service}} 重新验证过的无效缓存文件",
       "cancelled": "操作已被取消。",
       "allComplete": "已完成 {{serviceCount}} 个服务的可疑缓存文件移除：移除 {{count}} 个可疑文件（{{files}} 个缓存文件、{{logLines}} 行日志、{{logEntries}} 条数据库条目）",
+      "allCompleteStructural": "已完成 {{serviceCount}} 个服务的无效缓存文件移除：删除 {{files}} 个文件、{{alreadyMissing}} 个已不存在、{{healed}} 个现已有效",
       "allCompleteWithFailures": "可疑缓存文件移除已完成，{{serviceCount}} 个服务中有 {{failedCount}} 个失败。已移除 {{count}} 个可疑文件（{{files}} 个缓存文件、{{logLines}} 行日志）",
+      "allCompleteWithFailuresStructural": "无效缓存文件移除已完成，{{serviceCount}} 个服务中有 {{failedCount}} 个失败。删除 {{files}} 个文件，{{alreadyMissing}} 个已不存在，{{healed}} 个现已有效",
       "allCancelled": "可疑缓存文件移除已取消，已处理 {{completedCount}}/{{serviceCount}} 个服务",
+      "allCancelledStructural": "无效缓存文件移除已取消，已处理 {{completedCount}}/{{serviceCount}} 个服务",
       "error": {
         "fatal": "可疑缓存文件移除失败：{{errorDetail}}"
       },

@@ -15,6 +15,7 @@ import {
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
 import { classifyRemovalKind, removalStageKey, withRemovalIdentity } from './removalKind';
 import i18n from '@/i18n';
+import type { CorruptionDetectionMethod } from '@/types';
 
 export type FetchWithAuth = (url: string) => Promise<Response>;
 
@@ -185,6 +186,7 @@ interface CacheRemovalOperation {
   filesDeleted?: number;
   bytesFreed?: number;
   status?: string;
+  detectionMethod?: CorruptionDetectionMethod;
 }
 
 // REST shape returned by /api/cache/removals/active for eviction_removal entries.
@@ -306,10 +308,16 @@ function createCacheRemovalsRecoveryFunction(
         'corruption_removal',
         () => NOTIFICATION_IDS.CORRUPTION_REMOVAL,
         (op) => ({
-          message: i18n.t('signalr.corruptionRemove.starting', { service: op.service ?? '' }),
+          message: i18n.t(
+            op.detectionMethod === 'structural'
+              ? 'signalr.corruptionRemove.startingStructural'
+              : 'signalr.corruptionRemove.starting',
+            { service: op.service ?? '' }
+          ),
           details: {
             operationId: op.operationId,
-            service: op.service
+            service: op.service,
+            detectionMethod: op.detectionMethod
           }
         }),
         () => NOTIFICATION_IDS.CORRUPTION_REMOVAL,

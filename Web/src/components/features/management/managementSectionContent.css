@@ -93,6 +93,17 @@
   font-size: var(--font-size-xs);
   color: var(--theme-text-muted);
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+@media (hover: hover) {
+  .mgmt-search-clear:hover {
+    color: var(--theme-text-primary);
+  }
+}
+
+.mgmt-search-clear:active {
+  opacity: 0.8;
 }
 
 /* Contained data list: ONE bordered tertiary surface with hairline dividers
@@ -119,6 +130,11 @@
 
 .mgmt-row--interactive {
   transition: background-color 0.15s ease;
+}
+
+.mgmt-row--interactive:focus-visible {
+  outline: 2px solid var(--theme-border-focus);
+  outline-offset: -2px;
 }
 
 .mgmt-row--interactive:hover {
@@ -303,6 +319,16 @@
 .mgmt-evidence__reason span,
 .mgmt-evidence__reason strong {
   display: block;
+}
+
+.mgmt-evidence__reason p {
+  margin: 0;
+}
+
+.mgmt-evidence__reason p + p {
+  margin-top: 0.625rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--theme-border-secondary);
 }
 
 .mgmt-evidence__reason span {

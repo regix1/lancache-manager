@@ -127,7 +127,8 @@ public static class SignalRNotifications
         Guid OperationId,
         string StageKey,
         DateTime Timestamp,
-        Dictionary<string, object?>? Context = null
+        Dictionary<string, object?>? Context = null,
+        string? DetectionMethod = null
     );
 
     /// <summary>
@@ -142,7 +143,8 @@ public static class SignalRNotifications
         int FilesProcessed = 0,
         int TotalFiles = 0,
         double PercentComplete = 0,
-        Dictionary<string, object?>? Context = null
+        Dictionary<string, object?>? Context = null,
+        string? DetectionMethod = null
     );
 
     /// <summary>
@@ -155,7 +157,8 @@ public static class SignalRNotifications
         Guid? OperationId = null,
         string? Error = null,
         DateTime? Timestamp = null,
-        Dictionary<string, object?>? Context = null
+        Dictionary<string, object?>? Context = null,
+        string? DetectionMethod = null
     ) : ICompletionNotification, IOperationComplete
     {
         OperationStatus IOperationComplete.Status => Success ? OperationStatus.Completed : OperationStatus.Failed;
@@ -288,6 +291,9 @@ public static class SignalRNotifications
         int TotalServicesWithCorruption = 0,
         int TotalCorruptedChunks = 0,
         Dictionary<string, long>? CorruptionCounts = null,
+        string? DetectionMethod = null,
+        Dictionary<string, long>? DetectionCounts = null,
+        CorruptionScanCoverageResponse? Coverage = null,
         Dictionary<string, object?>? Context = null
     ) : ICompletionNotification, IOperationComplete
     {

@@ -45,6 +45,7 @@ public class RemovalStatusResponse
     public string? GameName { get; set; }
     public string? ServiceName { get; set; }
     public string? Service { get; set; }
+    public string? DetectionMethod { get; set; }
 }
 
 /// <summary>
@@ -158,6 +159,7 @@ public class CorruptionRemovalInfo
     public OperationStatus Status { get; set; }
     public string? Message { get; set; }
     public DateTime? StartedAt { get; set; }
+    public string? DetectionMethod { get; set; }
 }
 
 /// <summary>

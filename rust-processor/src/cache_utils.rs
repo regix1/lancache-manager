@@ -336,6 +336,43 @@ pub fn parse_cache_file_digest(name: &str) -> Option<u128> {
     Some(value)
 }
 
+/// Validates the exact nginx `levels=2:2` relative path used by structural cache scans.
+/// Unlike [`parse_cache_file_digest`], this deliberately rejects uppercase hex and verifies
+/// both hash-directory suffixes. It is a lexical shape check; callers must separately enforce
+/// canonical-root containment and no-symlink filesystem policy before reading or deleting.
+pub fn strict_cache_file_digest(cache_root: &Path, candidate: &Path) -> Option<u128> {
+    let relative = candidate.strip_prefix(cache_root).ok()?;
+    let components = relative.components().collect::<Vec<_>>();
+    if components.len() != 3 {
+        return None;
+    }
+    let [std::path::Component::Normal(last_2), std::path::Component::Normal(previous_2), std::path::Component::Normal(file_name)] =
+        components.as_slice()
+    else {
+        return None;
+    };
+    let last_2 = last_2.to_str()?;
+    let previous_2 = previous_2.to_str()?;
+    let file_name = file_name.to_str()?;
+    let lowercase_hex = |value: &str| {
+        value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    };
+    if last_2.len() != 2
+        || previous_2.len() != 2
+        || file_name.len() != 32
+        || !lowercase_hex(last_2)
+        || !lowercase_hex(previous_2)
+        || !lowercase_hex(file_name)
+        || last_2 != &file_name[30..32]
+        || previous_2 != &file_name[28..30]
+    {
+        return None;
+    }
+    parse_cache_file_digest(file_name)
+}
+
 /// Canonical on-disk path for a cache-key digest under `cache_dir`, mirroring
 /// `calculate_cache_path`'s `{last_2}/{middle_2}/{full_hash}` lancache layout (nginx
 /// `levels=2:2`, the layout every fs-probing path in this module already assumes).
@@ -1352,6 +1389,33 @@ mod tests {
             parse_cache_file_digest("00000000000000000000000000000ABC"),
             Some(0xabc)
         );
+    }
+
+    #[test]
+    fn strict_cache_file_digest_requires_lowercase_exact_levels_2_2_shape() {
+        let root = Path::new("/cache");
+        let hash = "0123456789abcdef0123456789abcdef";
+        let exact = root.join("ef").join("cd").join(hash);
+        assert_eq!(
+            strict_cache_file_digest(root, &exact),
+            parse_cache_file_digest(hash)
+        );
+        for invalid in [
+            root.join("EF").join("cd").join(hash),
+            root.join("ef").join("CD").join(hash),
+            root.join("ef").join("cd").join(hash.to_uppercase()),
+            root.join("00").join("cd").join(hash),
+            root.join("ef").join("00").join(hash),
+            root.join("extra").join("ef").join("cd").join(hash),
+            root.join(hash),
+        ] {
+            assert_eq!(
+                strict_cache_file_digest(root, &invalid),
+                None,
+                "{}",
+                invalid.display()
+            );
+        }
     }
 
     /// cache_path_for_digest must reproduce calculate_cache_path's layout exactly for the

@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
-pub const CORRUPTION_CONTRACT_VERSION: u32 = 3;
+pub const CORRUPTION_CONTRACT_VERSION: u32 = 4;
 pub const DEFAULT_LOOKBACK_DAYS: u32 = 30;
 pub const MIN_LOOKBACK_DAYS: u32 = 1;
 pub const MAX_LOOKBACK_DAYS: u32 = 365;
@@ -62,26 +62,117 @@ pub struct CandidateObservation {
 pub struct CorruptionCandidate {
     pub candidate_id: String,
     pub service: String,
-    pub raw_url: String,
-    pub normalized_uri: String,
-    pub observed_range: ObservedByteRange,
-    pub cache_slice: CacheSliceKind,
     pub exact_paths: Vec<String>,
-    pub evidence_count: usize,
-    pub first_seen: String,
-    pub last_seen: String,
-    pub observations: Vec<CandidateObservation>,
+    pub evidence: CorruptionEvidence,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DetectionMethod {
+    RepeatedMiss,
+    Structural,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CorruptionSettings {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threshold: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lookback_days: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_stable_age_seconds: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_prefix_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StructuralIssue {
+    EmptyCacheFile,
+    TruncatedCacheHeader,
+    MalformedCacheHeader,
+    InvalidPayloadOffset,
+    TruncatedBeforePayload,
+    CacheKeyPathMismatch,
+    PayloadLengthMismatch,
+    ContentRangeLengthMismatch,
+    ContentLengthRangeConflict,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FileFingerprint {
+    pub dev: u64,
+    pub ino: u64,
+    pub len: u64,
+    pub mtime_ns: i64,
+    pub ctime_ns: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StructuralEvidence {
+    pub issues: Vec<StructuralIssue>,
+    pub cache_key_encoding: String,
+    pub cache_key: String,
+    pub cache_key_md5: String,
+    pub cache_version: u32,
+    pub http_status: Option<u16>,
+    pub header_start: Option<u16>,
+    pub body_start: Option<u16>,
+    pub file_length: u64,
+    pub actual_payload_length: Option<u64>,
+    pub expected_payload_length: Option<u64>,
+    pub content_length: Option<u64>,
+    pub content_range: Option<String>,
+    pub fingerprint: FileFingerprint,
+    pub detected_at_utc: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CorruptionEvidence {
+    RepeatedMiss {
+        raw_url: String,
+        normalized_uri: String,
+        observed_range: ObservedByteRange,
+        cache_slice: CacheSliceKind,
+        evidence_count: usize,
+        first_seen: String,
+        last_seen: String,
+        observations: Vec<CandidateObservation>,
+    },
+    Structural {
+        #[serde(flatten)]
+        structural: StructuralEvidence,
+    },
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StructuralCoverage {
+    pub files_seen: usize,
+    pub files_checked: usize,
+    pub consistent: usize,
+    pub bytes_read: u64,
+    pub sparse_files: usize,
+    pub skipped_by_reason: BTreeMap<String, usize>,
+    pub io_errors: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CorruptionReport {
     pub contract_version: u32,
-    pub threshold: usize,
-    pub lookback_days: u32,
+    pub detection_method: DetectionMethod,
     pub scan_started_utc: String,
+    pub settings: CorruptionSettings,
     pub service_counts: BTreeMap<String, usize>,
+    pub detection_counts: BTreeMap<String, usize>,
     pub total: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<StructuralCoverage>,
     pub candidates: Vec<CorruptionCandidate>,
 }
 
@@ -415,25 +506,36 @@ impl CorruptionDetector {
             let Some(winning) = accumulator.winning else {
                 continue;
             };
-            if let Some(candidate) =
-                self.build_candidate(&interner, key, winning, &mut path_is_safe_regular)?
-            {
-                candidates.push(candidate);
-            }
+            candidates.extend(self.build_candidates(
+                &interner,
+                key,
+                winning,
+                &mut path_is_safe_regular,
+            )?);
         }
         candidates.sort_by(|left, right| {
-            (
-                &left.service,
-                &left.normalized_uri,
-                &left.cache_slice,
-                &left.candidate_id,
-            )
-                .cmp(&(
-                    &right.service,
-                    &right.normalized_uri,
-                    &right.cache_slice,
-                    &right.candidate_id,
-                ))
+            let (left_uri, left_slice) = match &left.evidence {
+                CorruptionEvidence::RepeatedMiss {
+                    normalized_uri,
+                    cache_slice,
+                    ..
+                } => (normalized_uri, cache_slice),
+                CorruptionEvidence::Structural { .. } => unreachable!(),
+            };
+            let (right_uri, right_slice) = match &right.evidence {
+                CorruptionEvidence::RepeatedMiss {
+                    normalized_uri,
+                    cache_slice,
+                    ..
+                } => (normalized_uri, cache_slice),
+                CorruptionEvidence::Structural { .. } => unreachable!(),
+            };
+            (&left.service, left_uri, left_slice, &left.candidate_id).cmp(&(
+                &right.service,
+                right_uri,
+                right_slice,
+                &right.candidate_id,
+            ))
         });
 
         let report = self.build_report(candidates);
@@ -451,13 +553,13 @@ impl CorruptionDetector {
         Ok(report)
     }
 
-    fn build_candidate<F>(
+    fn build_candidates<F>(
         &self,
         interner: &StringInterner,
         key: EvidenceKey,
         winning: Vec<InternalObservation>,
         path_is_safe_regular: &mut F,
-    ) -> Result<Option<CorruptionCandidate>>
+    ) -> Result<Vec<CorruptionCandidate>>
     where
         F: FnMut(&Path) -> bool,
     {
@@ -479,17 +581,8 @@ impl CorruptionDetector {
             .filter(|(_, path)| path_is_safe_regular(path))
             .collect::<Vec<_>>();
         if present.is_empty() {
-            return Ok(None);
+            return Ok(Vec::new());
         }
-        let cache_slice = if present.len() == 1 {
-            present[0].0.clone()
-        } else {
-            key.cache_slice
-        };
-        let exact_paths = present
-            .into_iter()
-            .map(|(_, path)| path.display().to_string())
-            .collect::<Vec<_>>();
 
         let observations = winning
             .iter()
@@ -519,27 +612,30 @@ impl CorruptionDetector {
             .context("qualified corruption evidence had no last observation")?
             .timestamp
             .clone();
-        let candidate_id = stable_candidate_id(
-            self.miss_threshold,
-            &service,
-            &normalized_uri,
-            &cache_slice,
-            &observations,
-        );
-
-        Ok(Some(CorruptionCandidate {
-            candidate_id,
-            service,
-            raw_url,
-            normalized_uri,
-            observed_range,
-            cache_slice,
-            exact_paths,
-            evidence_count: observations.len(),
-            first_seen,
-            last_seen,
-            observations,
-        }))
+        Ok(present
+            .into_iter()
+            .map(|(cache_slice, path)| CorruptionCandidate {
+                candidate_id: stable_candidate_id(
+                    self.miss_threshold,
+                    &service,
+                    &normalized_uri,
+                    &cache_slice,
+                    &observations,
+                ),
+                service: service.clone(),
+                exact_paths: vec![path.display().to_string()],
+                evidence: CorruptionEvidence::RepeatedMiss {
+                    raw_url: raw_url.clone(),
+                    normalized_uri: normalized_uri.clone(),
+                    observed_range: observed_range.clone(),
+                    cache_slice,
+                    evidence_count: observations.len(),
+                    first_seen: first_seen.clone(),
+                    last_seen: last_seen.clone(),
+                    observations: observations.clone(),
+                },
+            })
+            .collect())
     }
 
     fn paths_for_slice(
@@ -591,13 +687,20 @@ impl CorruptionDetector {
         }
         CorruptionReport {
             contract_version: CORRUPTION_CONTRACT_VERSION,
-            threshold: self.miss_threshold,
-            lookback_days: self.lookback_days,
+            detection_method: DetectionMethod::RepeatedMiss,
             scan_started_utc: self
                 .scan_started_utc
                 .to_rfc3339_opts(SecondsFormat::AutoSi, true),
+            settings: CorruptionSettings {
+                threshold: Some(self.miss_threshold),
+                lookback_days: Some(self.lookback_days),
+                min_stable_age_seconds: None,
+                max_prefix_bytes: None,
+            },
             service_counts,
+            detection_counts: BTreeMap::from([("repeated_miss".to_string(), candidates.len())]),
             total: candidates.len(),
+            coverage: None,
             candidates,
         }
     }
@@ -786,6 +889,7 @@ fn stable_candidate_id(
 mod tests {
     use super::*;
     use chrono::Duration;
+    use std::collections::HashSet;
     use std::fs;
 
     const BASE: &str = "2024-01-31T00:00:00Z";
@@ -836,6 +940,38 @@ mod tests {
             .unwrap()
     }
 
+    fn repeated(
+        candidate: &CorruptionCandidate,
+    ) -> (
+        &str,
+        &str,
+        &ObservedByteRange,
+        &CacheSliceKind,
+        usize,
+        &[CandidateObservation],
+    ) {
+        let CorruptionEvidence::RepeatedMiss {
+            raw_url,
+            normalized_uri,
+            observed_range,
+            cache_slice,
+            evidence_count,
+            observations,
+            ..
+        } = &candidate.evidence
+        else {
+            panic!("expected repeated-MISS evidence");
+        };
+        (
+            raw_url,
+            normalized_uri,
+            observed_range,
+            cache_slice,
+            *evidence_count,
+            observations,
+        )
+    }
+
     #[test]
     fn same_slice_qualifies_at_each_threshold_and_retains_bounded_evidence() {
         for threshold in [3, 5, 10] {
@@ -859,8 +995,8 @@ mod tests {
             write_log(&log_dir, &lines);
             let result = report(&cache_dir, &log_dir, threshold, 1);
             assert_eq!(result.total, 1);
-            assert_eq!(result.candidates[0].evidence_count, threshold);
-            assert_eq!(result.candidates[0].observations.len(), threshold);
+            assert_eq!(repeated(&result.candidates[0]).4, threshold);
+            assert_eq!(repeated(&result.candidates[0]).5.len(), threshold);
         }
     }
 
@@ -915,7 +1051,7 @@ mod tests {
             result
                 .candidates
                 .iter()
-                .map(|candidate| candidate.raw_url.as_str())
+                .map(|candidate| repeated(candidate).0)
                 .collect::<Vec<_>>(),
             ["/cutoff.bin", "/start.bin"]
         );
@@ -958,10 +1094,10 @@ mod tests {
         );
         let result = report(&cache_dir, &log_dir, 3, 1);
         assert_eq!(result.total, 1);
-        assert_eq!(result.candidates[0].normalized_uri, "/depot/file.bin");
+        assert_eq!(repeated(&result.candidates[0]).1, "/depot/file.bin");
         assert_eq!(
-            result.candidates[0]
-                .observations
+            repeated(&result.candidates[0])
+                .5
                 .iter()
                 .map(|observation| observation.raw_url.as_str())
                 .collect::<Vec<_>>(),
@@ -994,14 +1130,55 @@ mod tests {
         );
         let result = report(&cache_dir, &log_dir, 3, 1);
         assert_eq!(result.total, 1);
-        assert_eq!(result.candidates[0].cache_slice, CacheSliceKind::Noslice);
+        assert_eq!(repeated(&result.candidates[0]).3, &CacheSliceKind::Noslice);
         assert_eq!(
             result.candidates[0].exact_paths,
             [noslice.display().to_string()]
         );
         assert_eq!(
-            result.candidates[0].observed_range,
-            ObservedByteRange::NoRange
+            repeated(&result.candidates[0]).2,
+            &ObservedByteRange::NoRange
+        );
+    }
+
+    #[test]
+    fn no_range_alternatives_are_emitted_as_singular_physical_candidates() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache_dir = temp.path().join("cache");
+        let log_dir = temp.path().join("logs");
+        let url = "/no-range.bin";
+        let no_range = cache_utils::calculate_cache_path_no_range(&cache_dir, "steam", url);
+        let noslice = cache_utils::calculate_cache_path_noslice(&cache_dir, "steam", url);
+        write_slice(&no_range);
+        write_slice(&noslice);
+        write_log(
+            &log_dir,
+            &(0..3)
+                .map(|second| {
+                    log_line(
+                        scan_start() - Duration::seconds(2 - second),
+                        "GET",
+                        200,
+                        "MISS",
+                        url,
+                        None,
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
+        let result = report(&cache_dir, &log_dir, 3, 1);
+        assert_eq!(result.total, 2);
+        assert!(result
+            .candidates
+            .iter()
+            .all(|candidate| candidate.exact_paths.len() == 1));
+        assert_eq!(
+            result
+                .candidates
+                .iter()
+                .map(|candidate| PathBuf::from(&candidate.exact_paths[0]))
+                .collect::<HashSet<_>>(),
+            HashSet::from([no_range, noslice])
         );
     }
 
@@ -1033,7 +1210,7 @@ mod tests {
         write_log(&log_dir, &lines);
         let result = report(&cache_dir, &log_dir, 3, 1);
         assert_eq!(result.total, 1);
-        assert_eq!(result.candidates[0].raw_url, "/inclusive.bin");
+        assert_eq!(repeated(&result.candidates[0]).0, "/inclusive.bin");
     }
 
     #[test]
@@ -1175,7 +1352,7 @@ mod tests {
     }
 
     #[test]
-    fn report_ids_order_and_wire_shape_are_deterministic_v3() {
+    fn report_ids_order_and_wire_shape_are_deterministic_v4() {
         let temp = tempfile::tempdir().unwrap();
         let cache_dir = temp.path().join("cache");
         let log_dir = temp.path().join("logs");
@@ -1199,8 +1376,8 @@ mod tests {
         let first = report(&cache_dir, &log_dir, 3, 1);
         let second = report(&cache_dir, &log_dir, 3, 1);
         assert_eq!(first, second);
-        assert_eq!(first.contract_version, 3);
-        assert_eq!(first.candidates[0].raw_url, "/a.bin");
+        assert_eq!(first.contract_version, 4);
+        assert_eq!(repeated(&first.candidates[0]).0, "/a.bin");
         let value = serde_json::to_value(first).unwrap();
         assert_eq!(
             value
@@ -1212,10 +1389,11 @@ mod tests {
             [
                 "candidates",
                 "contract_version",
-                "lookback_days",
+                "detection_counts",
+                "detection_method",
                 "scan_started_utc",
                 "service_counts",
-                "threshold",
+                "settings",
                 "total"
             ]
         );

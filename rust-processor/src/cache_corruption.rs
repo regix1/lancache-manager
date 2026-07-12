@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 mod cache_corruption_detector;
+mod cache_structural_scanner;
 mod cache_utils;
 mod cancel;
 mod db;
@@ -25,7 +26,8 @@ mod service_utils;
 mod tact_products;
 
 use cache_corruption_detector::{
-    CorruptionCandidate, CorruptionDetector, CORRUPTION_CONTRACT_VERSION, DEFAULT_LOOKBACK_DAYS,
+    CorruptionCandidate, CorruptionDetector, CorruptionEvidence, DetectionMethod,
+    CORRUPTION_CONTRACT_VERSION, DEFAULT_LOOKBACK_DAYS,
 };
 use cache_utils::{CacheSliceKind, ObservedByteRange};
 use log_purge::{ExactLogMatcher, ExactLogObservation};
@@ -101,11 +103,31 @@ enum Commands {
         #[arg(short, long)]
         progress: bool,
     },
+    /// Scan exact nginx cache files for proven structural framing/length corruption.
+    StructuralSummary {
+        cache_dir: String,
+        #[arg(default_value = "none")]
+        progress_json: String,
+        /// Shared UTC scan anchor. Standalone callers may omit it to capture UTC now once.
+        #[arg(long)]
+        scan_started_utc: Option<String>,
+        #[arg(short, long)]
+        progress: bool,
+    },
     /// Remove only exact paths and observations supplied by the persisted evidence file.
     Remove {
         log_dir: String,
         cache_dir: String,
         service: String,
+        progress_json: String,
+        #[arg(long)]
+        evidence_file: String,
+        #[arg(short, long)]
+        progress: bool,
+    },
+    /// Remove only persisted structural candidates after complete preflight and revalidation.
+    RemoveStructural {
+        cache_dir: String,
         progress_json: String,
         #[arg(long)]
         evidence_file: String,
@@ -134,7 +156,9 @@ struct ProgressData {
 struct RemovalEvidenceEnvelope {
     contract_version: u32,
     scan_id: String,
-    threshold: usize,
+    detection_method: DetectionMethod,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    threshold: Option<usize>,
     datasource: String,
     candidates: Vec<RemovalCandidate>,
 }
@@ -157,6 +181,21 @@ struct ValidatedRemovalEvidence {
     candidates: Vec<CorruptionCandidate>,
     exact_paths: Vec<PathBuf>,
     observations: Vec<ExactLogObservation>,
+}
+
+#[derive(Debug)]
+struct ValidatedStructuralEvidence {
+    scan_id: Uuid,
+    datasource: String,
+    candidates: Vec<CorruptionCandidate>,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct StructuralRemovalOutcome {
+    deleted_files: usize,
+    already_missing: usize,
+    healed: usize,
+    bytes_freed: u64,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -261,22 +300,32 @@ fn expected_paths_for_candidate(
     cache_dir: &Path,
     candidate: &CorruptionCandidate,
 ) -> Result<HashSet<PathBuf>> {
+    let CorruptionEvidence::RepeatedMiss {
+        raw_url,
+        normalized_uri,
+        observed_range,
+        cache_slice,
+        ..
+    } = &candidate.evidence
+    else {
+        bail!("repeated-MISS removal received non-repeated evidence");
+    };
     let mapping = cache_utils::physical_slices_for_request(
         cache_dir,
         &candidate.service,
-        &candidate.raw_url,
-        &observed_range_header(&candidate.observed_range),
+        raw_url,
+        &observed_range_header(observed_range),
     )
     .context("candidate observed range cannot be mapped to physical cache slices")?;
 
-    if mapping.normalized_uri != candidate.normalized_uri {
+    if mapping.normalized_uri != *normalized_uri {
         bail!("candidate normalized URI does not match its raw URL");
     }
 
     let paths: HashSet<PathBuf> = mapping
         .slices
         .into_iter()
-        .filter(|slice| slice_is_mapped(&candidate.cache_slice, &slice.kind))
+        .filter(|slice| slice_is_mapped(cache_slice, &slice.kind))
         .map(|slice| slice.exact_path)
         .collect();
     if paths.is_empty() {
@@ -290,6 +339,14 @@ fn validate_observation(
     candidate: &CorruptionCandidate,
     observation: &cache_corruption_detector::CandidateObservation,
 ) -> Result<ExactLogObservation> {
+    let CorruptionEvidence::RepeatedMiss {
+        normalized_uri,
+        cache_slice,
+        ..
+    } = &candidate.evidence
+    else {
+        bail!("repeated-MISS removal received non-repeated evidence");
+    };
     if observation.raw_url.trim().is_empty() {
         bail!("candidate observation raw_url is missing; legacy evidence cannot be removed safely");
     }
@@ -329,11 +386,11 @@ fn validate_observation(
         raw_range,
     )
     .context("candidate observation contains an unsupported range")?;
-    if mapping.normalized_uri != candidate.normalized_uri
+    if mapping.normalized_uri != *normalized_uri
         || !mapping
             .slices
             .iter()
-            .any(|slice| slice_is_mapped(&candidate.cache_slice, &slice.kind))
+            .any(|slice| slice_is_mapped(cache_slice, &slice.kind))
     {
         bail!("candidate observation does not map to the stored physical slice");
     }
@@ -361,7 +418,13 @@ fn load_and_validate_removal_evidence(
     if scan_id.is_nil() {
         bail!("evidence scan_id must not be nil");
     }
-    if !matches!(envelope.threshold, 3 | 5 | 10) {
+    if envelope.detection_method != DetectionMethod::RepeatedMiss {
+        bail!("repeated-MISS removal evidence has the wrong detection method");
+    }
+    let threshold = envelope
+        .threshold
+        .context("repeated-MISS evidence threshold is required")?;
+    if !matches!(threshold, 3 | 5 | 10) {
         bail!("evidence threshold must be 3, 5, or 10");
     }
     if envelope.datasource.trim().is_empty() {
@@ -396,14 +459,28 @@ fn load_and_validate_removal_evidence(
         if candidate.exact_paths.is_empty() {
             bail!("removable candidate has no exact paths");
         }
-        if candidate.evidence_count != candidate.observations.len()
-            || candidate.evidence_count != envelope.threshold
-        {
+        if candidate.exact_paths.len() != 1 {
+            bail!("repeated-MISS candidates must contain exactly one exact path");
+        }
+        let CorruptionEvidence::RepeatedMiss {
+            raw_url: _,
+            normalized_uri: _,
+            observed_range,
+            cache_slice: _,
+            evidence_count,
+            first_seen,
+            last_seen,
+            observations: candidate_observations_wire,
+        } = &candidate.evidence
+        else {
+            bail!("repeated-MISS envelope contains structural evidence");
+        };
+        if *evidence_count != candidate_observations_wire.len() || *evidence_count != threshold {
             bail!("candidate evidence count does not match its threshold/observations");
         }
 
-        let first_seen = parse_evidence_timestamp(&candidate.first_seen)?;
-        let last_seen = parse_evidence_timestamp(&candidate.last_seen)?;
+        let first_seen = parse_evidence_timestamp(first_seen)?;
+        let last_seen = parse_evidence_timestamp(last_seen)?;
         if last_seen < first_seen || (last_seen - first_seen).num_seconds() > 60 {
             bail!("candidate evidence window must be ordered and no longer than 60 seconds");
         }
@@ -442,8 +519,8 @@ fn load_and_validate_removal_evidence(
             }
         }
 
-        let mut candidate_observations = Vec::with_capacity(candidate.observations.len());
-        for observation in &candidate.observations {
+        let mut candidate_observations = Vec::with_capacity(candidate_observations_wire.len());
+        for observation in candidate_observations_wire {
             candidate_observations.push(validate_observation(cache_dir, &candidate, observation)?);
         }
         if candidate_observations
@@ -463,10 +540,9 @@ fn load_and_validate_removal_evidence(
         {
             bail!("candidate first/last timestamps do not match its observations");
         }
-        if candidate.observed_range
+        if *observed_range
             != cache_utils::parse_http_byte_range(
-                candidate
-                    .observations
+                candidate_observations_wire
                     .first()
                     .and_then(|observation| observation.raw_range.as_deref())
                     .unwrap_or(""),
@@ -499,7 +575,7 @@ fn load_and_validate_removal_evidence(
 
     Ok(ValidatedRemovalEvidence {
         scan_id,
-        threshold: envelope.threshold,
+        threshold,
         datasource: envelope.datasource,
         candidates,
         exact_paths: paths.into_iter().collect(),
@@ -685,12 +761,16 @@ async fn delete_database_observations(
     Ok((downloads_deleted, log_entries_deleted))
 }
 
-fn seed_scan_progress(progress_path: Option<&Path>) {
+fn seed_scan_progress(
+    progress_path: Option<&Path>,
+    stage_key: &str,
+    detection_method: DetectionMethod,
+) {
     if let Some(path) = progress_path {
         let starting = ProgressData {
             status: "starting".to_string(),
-            stage_key: "signalr.corruptionRemove.scanningFiles".to_string(),
-            context: json!({}),
+            stage_key: stage_key.to_string(),
+            context: json!({ "detectionMethod": detection_method }),
             percent_complete: 0.0,
             files_processed: 0,
             total_files: 0,
@@ -714,6 +794,243 @@ fn generate_report(
     CorruptionDetector::new(cache_dir, threshold, lookback_days, scan_started_utc)
         .generate_report(log_dir, "access.log", timezone, progress_path)
         .context("failed to generate corruption report")
+}
+
+fn load_and_validate_structural_evidence(
+    evidence_path: &Path,
+    cache_dir: &Path,
+) -> Result<ValidatedStructuralEvidence> {
+    let file = File::open(evidence_path)
+        .with_context(|| format!("failed to open evidence file {}", evidence_path.display()))?;
+    let envelope: RemovalEvidenceEnvelope = serde_json::from_reader(file)
+        .context("failed to deserialize structural removal evidence")?;
+    if envelope.contract_version != CORRUPTION_CONTRACT_VERSION {
+        bail!(
+            "unsupported corruption evidence contract version {}",
+            envelope.contract_version
+        );
+    }
+    if envelope.detection_method != DetectionMethod::Structural {
+        bail!("remove-structural requires structural detection evidence");
+    }
+    if envelope.threshold.is_some() {
+        bail!("structural removal evidence must not contain a threshold");
+    }
+    let scan_id = Uuid::parse_str(&envelope.scan_id).context("invalid evidence scan_id")?;
+    if scan_id.is_nil() {
+        bail!("evidence scan_id must not be nil");
+    }
+    if envelope.datasource.trim().is_empty() {
+        bail!("evidence datasource is required");
+    }
+    if envelope.candidates.is_empty() {
+        bail!("evidence file contains no removal candidates");
+    }
+    std::fs::canonicalize(cache_dir)
+        .with_context(|| format!("cache root is not accessible: {}", cache_dir.display()))?;
+
+    let mut ids = HashSet::new();
+    let mut paths = HashSet::new();
+    let mut candidates = Vec::with_capacity(envelope.candidates.len());
+    for wrapped in envelope.candidates {
+        if !wrapped
+            .datasource
+            .eq_ignore_ascii_case(&envelope.datasource)
+        {
+            bail!("candidate datasource does not match evidence envelope");
+        }
+        let candidate = wrapped.candidate;
+        if candidate.candidate_id.trim().is_empty() || !ids.insert(candidate.candidate_id.clone()) {
+            bail!("candidate IDs must be non-empty and unique");
+        }
+        if candidate.service.trim().is_empty() || candidate.exact_paths.len() != 1 {
+            bail!("structural candidates require a service and exactly one exact path");
+        }
+        let CorruptionEvidence::Structural { structural } = &candidate.evidence else {
+            bail!("structural envelope contains repeated-MISS evidence");
+        };
+        if structural.issues.is_empty()
+            || structural.cache_key_encoding != "hex"
+            || structural.cache_version != 5
+            || structural.fingerprint.len != structural.file_length
+        {
+            bail!("structural candidate evidence is incomplete or inconsistent");
+        }
+        let exact_path = PathBuf::from(&candidate.exact_paths[0]);
+        if cache_utils::strict_cache_file_digest(cache_dir, &exact_path).is_none() {
+            bail!("structural candidate path is not an exact nginx cache path");
+        }
+        if !paths.insert(exact_path) {
+            bail!("duplicate exact path appears in structural removal evidence");
+        }
+        candidates.push(candidate);
+    }
+    Ok(ValidatedStructuralEvidence {
+        scan_id,
+        datasource: envelope.datasource,
+        candidates,
+    })
+}
+
+fn run_structural_remove(
+    cache_dir: &Path,
+    progress_path: &Path,
+    evidence_path: &Path,
+    reporter: &ProgressReporter,
+) -> Result<()> {
+    write_progress(
+        progress_path,
+        reporter,
+        "starting",
+        "signalr.corruptionRemove.startingStructural",
+        json!({ "detectionMethod": "structural" }),
+        0.0,
+        0,
+        0,
+    )?;
+    let evidence = load_and_validate_structural_evidence(evidence_path, cache_dir)?;
+    eprintln!(
+        "Validated structural scan {}: {} candidates for datasource '{}'",
+        evidence.scan_id,
+        evidence.candidates.len(),
+        evidence.datasource
+    );
+
+    // No mutation is allowed until every selected candidate has passed this preflight.
+    let now = std::time::SystemTime::now();
+    let mut preflight = Vec::with_capacity(evidence.candidates.len());
+    let mut outcome = StructuralRemovalOutcome::default();
+    for candidate in &evidence.candidates {
+        if cancel::is_cancelled() {
+            reporter.emit_cancelled(
+                "signalr.corruptionRemove.complete",
+                json!({
+                    "detectionMethod": "structural",
+                    "files": 0,
+                    "alreadyMissing": outcome.already_missing,
+                    "healed": outcome.healed,
+                    "bytesFreed": 0,
+                }),
+            );
+            return Ok(());
+        }
+        match cache_structural_scanner::revalidate_for_removal(cache_dir, candidate, now)? {
+            cache_structural_scanner::RemovalDisposition::Missing => {
+                outcome.already_missing += 1;
+            }
+            cache_structural_scanner::RemovalDisposition::Healed => outcome.healed += 1,
+            cache_structural_scanner::RemovalDisposition::Cancelled => {
+                reporter.emit_cancelled(
+                    "signalr.corruptionRemove.complete",
+                    json!({
+                        "detectionMethod": "structural",
+                        "files": 0,
+                        "alreadyMissing": outcome.already_missing,
+                        "healed": outcome.healed,
+                        "bytesFreed": 0,
+                    }),
+                );
+                return Ok(());
+            }
+            ready @ cache_structural_scanner::RemovalDisposition::Ready { .. } => {
+                preflight.push((candidate, ready));
+            }
+        }
+    }
+
+    let mut parent_dirs = HashSet::new();
+    for (index, (candidate, _)) in preflight.iter().enumerate() {
+        if cancel::is_cancelled() {
+            reporter.emit_cancelled(
+                "signalr.corruptionRemove.complete",
+                json!({
+                    "detectionMethod": "structural",
+                    "files": outcome.deleted_files,
+                    "alreadyMissing": outcome.already_missing,
+                    "healed": outcome.healed,
+                    "bytesFreed": outcome.bytes_freed,
+                }),
+            );
+            return Ok(());
+        }
+        write_progress(
+            progress_path,
+            reporter,
+            "removing_cache",
+            "signalr.corruptionRemove.removingCacheFile",
+            json!({
+                "detectionMethod": "structural",
+                "fileIndex": index + 1,
+                "totalFiles": preflight.len()
+            }),
+            10.0 + (index as f64 / preflight.len().max(1) as f64) * 85.0,
+            index,
+            preflight.len(),
+        )?;
+        match cache_structural_scanner::revalidate_for_removal(
+            cache_dir,
+            candidate,
+            std::time::SystemTime::now(),
+        )? {
+            cache_structural_scanner::RemovalDisposition::Missing => {
+                outcome.already_missing += 1;
+            }
+            cache_structural_scanner::RemovalDisposition::Healed => outcome.healed += 1,
+            cache_structural_scanner::RemovalDisposition::Cancelled => {
+                reporter.emit_cancelled(
+                    "signalr.corruptionRemove.complete",
+                    json!({
+                        "detectionMethod": "structural",
+                        "files": outcome.deleted_files,
+                        "alreadyMissing": outcome.already_missing,
+                        "healed": outcome.healed,
+                        "bytesFreed": outcome.bytes_freed,
+                    }),
+                );
+                return Ok(());
+            }
+            cache_structural_scanner::RemovalDisposition::Ready { path, evidence } => {
+                cache_utils::safe_path_under_root(cache_dir, &path)
+                    .with_context(|| format!("unsafe structural exact path {}", path.display()))?;
+                if !cache_structural_scanner::path_fingerprint_matches(
+                    &path,
+                    &evidence.fingerprint,
+                )? {
+                    bail!(
+                        "structural candidate changed immediately before unlink: {}",
+                        path.display()
+                    );
+                }
+                std::fs::remove_file(&path).with_context(|| {
+                    format!("failed to delete structural cache path {}", path.display())
+                })?;
+                outcome.deleted_files += 1;
+                outcome.bytes_freed = outcome.bytes_freed.saturating_add(evidence.file_length);
+                if let Some(parent) = path.parent() {
+                    parent_dirs.insert(parent.to_path_buf());
+                }
+            }
+        }
+    }
+    cache_utils::cleanup_empty_directories(cache_dir, parent_dirs);
+    write_progress(
+        progress_path,
+        reporter,
+        "completed",
+        "signalr.corruptionRemove.complete",
+        json!({
+            "detectionMethod": "structural",
+            "count": evidence.candidates.len(),
+            "files": outcome.deleted_files,
+            "alreadyMissing": outcome.already_missing,
+            "healed": outcome.healed,
+            "bytesFreed": outcome.bytes_freed
+        }),
+        100.0,
+        evidence.candidates.len(),
+        evidence.candidates.len(),
+    )?;
+    Ok(())
 }
 
 async fn run_remove(
@@ -862,8 +1179,15 @@ async fn main() -> Result<()> {
                 let timezone = parse_timezone(&timezone)?;
                 let scan_started_utc = parse_scan_started_utc(scan_started_utc.as_deref())?;
                 let progress_path = progress_json.as_deref().map(Path::new);
-                seed_scan_progress(progress_path);
-                reporter.emit_started("signalr.corruptionRemove.scanningFiles", json!({}));
+                seed_scan_progress(
+                    progress_path,
+                    "signalr.corruptionDetect.scanningLogs",
+                    DetectionMethod::RepeatedMiss,
+                );
+                reporter.emit_started(
+                    "signalr.corruptionDetect.scanningLogs",
+                    json!({ "detectionMethod": "repeated_miss" }),
+                );
                 let report = generate_report(
                     Path::new(&log_dir),
                     Path::new(&cache_dir),
@@ -905,8 +1229,15 @@ async fn main() -> Result<()> {
                 let scan_started_utc = parse_scan_started_utc(scan_started_utc.as_deref())?;
                 let progress_path = (progress_json != "none" && !progress_json.is_empty())
                     .then(|| Path::new(&progress_json));
-                seed_scan_progress(progress_path);
-                reporter.emit_started("signalr.corruptionRemove.scanningFiles", json!({}));
+                seed_scan_progress(
+                    progress_path,
+                    "signalr.corruptionDetect.scanningLogs",
+                    DetectionMethod::RepeatedMiss,
+                );
+                reporter.emit_started(
+                    "signalr.corruptionDetect.scanningLogs",
+                    json!({ "detectionMethod": "repeated_miss" }),
+                );
                 let report = generate_report(
                     Path::new(&log_dir),
                     Path::new(&cache_dir),
@@ -924,6 +1255,61 @@ async fn main() -> Result<()> {
                     }),
                 );
                 println!("{}", serde_json::to_string(&report)?);
+                Ok(())
+            })();
+            progress_events::finish_or_exit(
+                &reporter,
+                "signalr.corruptionRemove.error.fatal",
+                result,
+            );
+        }
+        Commands::StructuralSummary {
+            cache_dir,
+            progress_json,
+            scan_started_utc,
+            progress,
+        } => {
+            let reporter = ProgressReporter::new(progress);
+            let result: Result<()> = (|| {
+                let scan_started_utc = parse_scan_started_utc(scan_started_utc.as_deref())?;
+                let progress_path = (progress_json != "none" && !progress_json.is_empty())
+                    .then(|| Path::new(&progress_json));
+                seed_scan_progress(
+                    progress_path,
+                    "signalr.corruptionDetect.scanningHeaders",
+                    DetectionMethod::Structural,
+                );
+                reporter.emit_started(
+                    "signalr.corruptionDetect.scanningHeaders",
+                    json!({ "detectionMethod": "structural" }),
+                );
+                let result = cache_structural_scanner::scan(
+                    Path::new(&cache_dir),
+                    scan_started_utc,
+                    progress_path,
+                )?;
+                if result.cancelled {
+                    reporter.emit_cancelled(
+                        "signalr.corruptionRemove.complete",
+                        json!({
+                            "detectionMethod": "structural",
+                            "totalCorrupted": result.report.total,
+                            "serviceCounts": result.report.service_counts,
+                            "coverage": result.report.coverage,
+                        }),
+                    );
+                } else {
+                    reporter.emit_complete(
+                        "signalr.corruptionRemove.complete",
+                        json!({
+                            "detectionMethod": "structural",
+                            "totalCorrupted": result.report.total,
+                            "serviceCounts": result.report.service_counts,
+                            "coverage": result.report.coverage,
+                        }),
+                    );
+                }
+                println!("{}", serde_json::to_string(&result.report)?);
                 Ok(())
             })();
             progress_events::finish_or_exit(
@@ -950,6 +1336,25 @@ async fn main() -> Result<()> {
                 &reporter,
             )
             .await;
+            progress_events::finish_or_exit(
+                &reporter,
+                "signalr.corruptionRemove.error.fatal",
+                result,
+            );
+        }
+        Commands::RemoveStructural {
+            cache_dir,
+            progress_json,
+            evidence_file,
+            progress,
+        } => {
+            let reporter = ProgressReporter::new(progress);
+            let result = run_structural_remove(
+                Path::new(&cache_dir),
+                Path::new(&progress_json),
+                Path::new(&evidence_file),
+                &reporter,
+            );
             progress_events::finish_or_exit(
                 &reporter,
                 "signalr.corruptionRemove.error.fatal",
@@ -987,15 +1392,17 @@ mod tests {
             candidate: CorruptionCandidate {
                 candidate_id: "candidate-1".to_string(),
                 service: "steam".to_string(),
-                raw_url,
-                normalized_uri: "/depot/file.bin".to_string(),
-                observed_range: ObservedByteRange::Inclusive { start: 0, end },
-                cache_slice: CacheSliceKind::Ranged { start: 0, end },
                 exact_paths: vec![exact_path.display().to_string()],
-                evidence_count: threshold,
-                first_seen: observations.first().unwrap().timestamp.clone(),
-                last_seen: observations.last().unwrap().timestamp.clone(),
-                observations,
+                evidence: CorruptionEvidence::RepeatedMiss {
+                    raw_url,
+                    normalized_uri: "/depot/file.bin".to_string(),
+                    observed_range: ObservedByteRange::Inclusive { start: 0, end },
+                    cache_slice: CacheSliceKind::Ranged { start: 0, end },
+                    evidence_count: threshold,
+                    first_seen: observations.first().unwrap().timestamp.clone(),
+                    last_seen: observations.last().unwrap().timestamp.clone(),
+                    observations,
+                },
             },
         }
     }
@@ -1017,12 +1424,132 @@ mod tests {
         let envelope = RemovalEvidenceEnvelope {
             contract_version: CORRUPTION_CONTRACT_VERSION,
             scan_id: Uuid::new_v4().to_string(),
-            threshold,
+            detection_method: DetectionMethod::RepeatedMiss,
+            threshold: Some(threshold),
             datasource: datasource.to_string(),
             candidates,
         };
         std::fs::write(&path, serde_json::to_vec_pretty(&envelope).unwrap()).unwrap();
         path
+    }
+
+    fn make_structural_candidate(cache_dir: &Path, datasource: &str) -> RemovalCandidate {
+        let hash = cache_utils::calculate_md5("steam/file");
+        let digest = cache_utils::parse_cache_file_digest(&hash).unwrap();
+        let exact_path = cache_utils::cache_path_for_digest(cache_dir, digest);
+        RemovalCandidate {
+            datasource: datasource.to_string(),
+            candidate: CorruptionCandidate {
+                candidate_id: "structural-1".to_string(),
+                service: "steam".to_string(),
+                exact_paths: vec![exact_path.display().to_string()],
+                evidence: CorruptionEvidence::Structural {
+                    structural: cache_corruption_detector::StructuralEvidence {
+                        issues: vec![cache_corruption_detector::StructuralIssue::EmptyCacheFile],
+                        cache_key_encoding: "hex".to_string(),
+                        cache_key: String::new(),
+                        cache_key_md5: "d41d8cd98f00b204e9800998ecf8427e".to_string(),
+                        cache_version: 5,
+                        http_status: None,
+                        header_start: None,
+                        body_start: None,
+                        file_length: 0,
+                        actual_payload_length: None,
+                        expected_payload_length: None,
+                        content_length: None,
+                        content_range: None,
+                        fingerprint: cache_corruption_detector::FileFingerprint {
+                            dev: 1,
+                            ino: 2,
+                            len: 0,
+                            mtime_ns: 3,
+                            ctime_ns: 4,
+                        },
+                        detected_at_utc: "2024-01-01T00:00:00Z".to_string(),
+                    },
+                },
+            },
+        }
+    }
+
+    fn write_structural_evidence(
+        root: &Path,
+        datasource: &str,
+        candidates: Vec<RemovalCandidate>,
+    ) -> PathBuf {
+        let path = root.join("structural-evidence.json");
+        let envelope = RemovalEvidenceEnvelope {
+            contract_version: CORRUPTION_CONTRACT_VERSION,
+            scan_id: Uuid::new_v4().to_string(),
+            detection_method: DetectionMethod::Structural,
+            threshold: None,
+            datasource: datasource.to_string(),
+            candidates,
+        };
+        std::fs::write(&path, serde_json::to_vec_pretty(&envelope).unwrap()).unwrap();
+        path
+    }
+
+    #[cfg(all(unix, target_pointer_width = "64"))]
+    fn age_file(path: &Path) {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+        let path = CString::new(path.as_os_str().as_bytes()).unwrap();
+        let seconds = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as libc::time_t
+            - (cache_structural_scanner::MIN_STABLE_AGE_SECONDS as libc::time_t + 5);
+        let times = [
+            libc::timespec {
+                tv_sec: seconds,
+                tv_nsec: 0,
+            },
+            libc::timespec {
+                tv_sec: seconds,
+                tv_nsec: 0,
+            },
+        ];
+        assert_eq!(
+            unsafe { libc::utimensat(libc::AT_FDCWD, path.as_ptr(), times.as_ptr(), 0) },
+            0
+        );
+    }
+
+    #[cfg(all(unix, target_pointer_width = "64"))]
+    fn scanned_structural_candidate(
+        cache_dir: &Path,
+        key: &[u8],
+        payload: &[u8],
+        id: &str,
+    ) -> RemovalCandidate {
+        let path = cache_structural_scanner::write_linux_v5_test_fixture(
+            cache_dir,
+            key,
+            b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n",
+            payload,
+        );
+        age_file(&path);
+        let inspection = cache_structural_scanner::inspect_path(
+            cache_dir,
+            &path,
+            std::time::SystemTime::now(),
+            Utc::now(),
+        )
+        .unwrap();
+        let cache_structural_scanner::InspectionOutcome::Proven(structural) = inspection.outcome
+        else {
+            panic!("fixture must be proven structurally invalid");
+        };
+        RemovalCandidate {
+            datasource: "default".into(),
+            candidate: CorruptionCandidate {
+                candidate_id: id.into(),
+                service: "steam".into(),
+                exact_paths: vec![path.display().to_string()],
+                evidence: CorruptionEvidence::Structural { structural },
+            },
+        }
     }
 
     fn fixed_cli_prefix(command: &str) -> Vec<&str> {
@@ -1095,6 +1622,25 @@ mod tests {
             "/server/evidence.json",
         ])
         .is_ok());
+        assert!(Args::try_parse_from([
+            "cache_corruption",
+            "structural-summary",
+            "/cache",
+            "none",
+            "--scan-started-utc",
+            "2024-01-01T00:00:00Z",
+            "--progress",
+        ])
+        .is_ok());
+        assert!(Args::try_parse_from([
+            "cache_corruption",
+            "remove-structural",
+            "/cache",
+            "/tmp/progress.json",
+            "--evidence-file",
+            "/server/evidence.json",
+        ])
+        .is_ok());
     }
 
     #[test]
@@ -1125,7 +1671,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_actionable_evidence_validates() {
+    fn v4_repeated_miss_actionable_evidence_validates() {
         let fixture = tempfile::tempdir().unwrap();
         let cache_dir = fixture.path().join("cache");
         std::fs::create_dir_all(&cache_dir).unwrap();
@@ -1145,7 +1691,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_and_old_mode_evidence_fail_closed_without_mutation() {
+    fn v3_and_old_mode_evidence_fail_closed_without_mutation() {
         for old_mode in ["logs_only", "redownload"] {
             let fixture = tempfile::tempdir().unwrap();
             let cache_dir = fixture.path().join("cache");
@@ -1156,12 +1702,12 @@ mod tests {
 
             let mut value: serde_json::Value =
                 serde_json::from_slice(&std::fs::read(&evidence_path).unwrap()).unwrap();
-            value["contract_version"] = json!(2);
+            value["contract_version"] = json!(3);
             value["mode"] = json!(old_mode);
             std::fs::write(&evidence_path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
 
             let error = load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam")
-                .expect_err("v2 evidence must be rejected");
+                .expect_err("v3 evidence must be rejected");
             assert!(
                 error.to_string().contains("deserialize")
                     || error.to_string().contains("contract version")
@@ -1171,7 +1717,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_unknown_or_review_fields_fail_closed_without_mutation() {
+    fn v4_unknown_or_review_fields_fail_closed_without_mutation() {
         for (field, field_value) in [
             ("mode", json!("cache_and_logs")),
             ("reason", json!("repeated_miss_burst")),
@@ -1209,12 +1755,21 @@ mod tests {
         for mutation in 0..5 {
             let mut candidate = make_candidate(&cache_dir, "default", 3);
             materialize_candidate_path(&candidate);
+            let CorruptionEvidence::RepeatedMiss {
+                evidence_count,
+                last_seen,
+                observations,
+                ..
+            } = &mut candidate.candidate.evidence
+            else {
+                unreachable!();
+            };
             match mutation {
-                0 => candidate.candidate.observations[0].cache_status = "HIT".to_string(),
-                1 => candidate.candidate.observations[0].method = "POST".to_string(),
-                2 => candidate.candidate.evidence_count = 2,
+                0 => observations[0].cache_status = "HIT".to_string(),
+                1 => observations[0].method = "POST".to_string(),
+                2 => *evidence_count = 2,
                 3 => candidate.candidate.exact_paths.clear(),
-                4 => candidate.candidate.last_seen = "2024-01-01T00:02:00Z".to_string(),
+                4 => *last_seen = "2024-01-01T00:02:00Z".to_string(),
                 _ => unreachable!(),
             }
             let evidence_path = write_evidence(fixture.path(), "default", 3, vec![candidate]);
@@ -1225,13 +1780,101 @@ mod tests {
     }
 
     #[test]
+    fn structural_evidence_is_strict_singular_and_method_tagged() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_dir = fixture.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let candidate = make_structural_candidate(&cache_dir, "default");
+        let path = write_structural_evidence(fixture.path(), "default", vec![candidate.clone()]);
+        let evidence = load_and_validate_structural_evidence(&path, &cache_dir).unwrap();
+        assert_eq!(evidence.candidates.len(), 1);
+
+        let mut duplicate_path = candidate.clone();
+        duplicate_path.candidate.candidate_id = "structural-2".into();
+        let path = write_structural_evidence(
+            fixture.path(),
+            "default",
+            vec![candidate.clone(), duplicate_path],
+        );
+        assert!(load_and_validate_structural_evidence(&path, &cache_dir).is_err());
+
+        let mut multiple = candidate.clone();
+        multiple
+            .candidate
+            .exact_paths
+            .push(multiple.candidate.exact_paths[0].clone());
+        let path = write_structural_evidence(fixture.path(), "default", vec![multiple]);
+        assert!(load_and_validate_structural_evidence(&path, &cache_dir).is_err());
+
+        let path = write_structural_evidence(fixture.path(), "default", vec![candidate]);
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        value["candidates"][0]["evidence"]["observations"] = json!([]);
+        std::fs::write(&path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+        assert!(load_and_validate_structural_evidence(&path, &cache_dir).is_err());
+    }
+
+    #[cfg(all(unix, target_pointer_width = "64"))]
+    #[test]
+    fn structural_removal_unlinks_only_revalidated_exact_file_without_logs_or_database() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_dir = fixture.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let candidate = scanned_structural_candidate(&cache_dir, b"steam/file", b"1234", "one");
+        let exact = PathBuf::from(&candidate.candidate.exact_paths[0]);
+        let sibling = fixture.path().join("access.log");
+        std::fs::write(&sibling, b"must remain untouched").unwrap();
+        let evidence = write_structural_evidence(fixture.path(), "default", vec![candidate]);
+        run_structural_remove(
+            &cache_dir,
+            &fixture.path().join("progress.json"),
+            &evidence,
+            &ProgressReporter::new(false),
+        )
+        .unwrap();
+        assert!(!exact.exists());
+        assert_eq!(std::fs::read(sibling).unwrap(), b"must remain untouched");
+    }
+
+    #[cfg(all(unix, target_pointer_width = "64"))]
+    #[test]
+    fn structural_removal_preflights_every_candidate_before_first_unlink() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_dir = fixture.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let first = scanned_structural_candidate(&cache_dir, b"steam/first", b"1234", "one");
+        let second = scanned_structural_candidate(&cache_dir, b"steam/second", b"1234", "two");
+        let first_path = PathBuf::from(&first.candidate.exact_paths[0]);
+        let second_path = PathBuf::from(&second.candidate.exact_paths[0]);
+        std::fs::write(&second_path, b"changed corrupt replacement").unwrap();
+        age_file(&second_path);
+        let evidence = write_structural_evidence(fixture.path(), "default", vec![first, second]);
+        assert!(run_structural_remove(
+            &cache_dir,
+            &fixture.path().join("progress.json"),
+            &evidence,
+            &ProgressReporter::new(false),
+        )
+        .is_err());
+        assert!(
+            first_path.exists(),
+            "preflight failure must precede every unlink"
+        );
+    }
+
+    #[test]
     fn per_observation_raw_urls_scope_exact_log_and_database_cleanup() {
         let fixture = tempfile::tempdir().unwrap();
         let cache_dir = fixture.path().join("cache");
         std::fs::create_dir_all(&cache_dir).unwrap();
         let mut candidate = make_candidate(&cache_dir, "default", 3);
         materialize_candidate_path(&candidate);
-        candidate.candidate.observations[1].raw_url = "//depot//file.bin".to_string();
+        let CorruptionEvidence::RepeatedMiss { observations, .. } =
+            &mut candidate.candidate.evidence
+        else {
+            unreachable!();
+        };
+        observations[1].raw_url = "//depot//file.bin".to_string();
         let evidence_path = write_evidence(fixture.path(), "default", 3, vec![candidate]);
         let evidence =
             load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam").unwrap();
@@ -1333,8 +1976,16 @@ mod tests {
         let first = make_candidate(&cache_dir, "default", 3);
         let first_path = materialize_candidate_path(&first);
         let mut second = make_candidate(&cache_dir, "default", 3);
-        second.candidate.raw_url = "/depot/second.bin".to_string();
-        second.candidate.normalized_uri = "/depot/second.bin".to_string();
+        let CorruptionEvidence::RepeatedMiss {
+            raw_url,
+            normalized_uri,
+            ..
+        } = &mut second.candidate.evidence
+        else {
+            unreachable!();
+        };
+        *raw_url = "/depot/second.bin".to_string();
+        *normalized_uri = "/depot/second.bin".to_string();
         let end = cache_utils::DEFAULT_SLICE_SIZE - 1;
         let second_path =
             cache_utils::calculate_cache_path(&cache_dir, "steam", "/depot/second.bin", 0, end);
@@ -1399,7 +2050,8 @@ mod tests {
         let envelope = RemovalEvidenceEnvelope {
             contract_version: CORRUPTION_CONTRACT_VERSION,
             scan_id: Uuid::new_v4().to_string(),
-            threshold: 3,
+            detection_method: DetectionMethod::RepeatedMiss,
+            threshold: Some(3),
             datasource: "default".to_string(),
             candidates: vec![candidate],
         };

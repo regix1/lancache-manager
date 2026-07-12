@@ -48,4 +48,7 @@ public class RemovalMetrics
     /// Total files to process (used by corruption removal).
     /// </summary>
     public int TotalFiles { get; set; }
+
+    /// <summary>Corruption method for method-aware removal restore; null for other removal types.</summary>
+    public CorruptionDetectionMethod? DetectionMethod { get; set; }
 }

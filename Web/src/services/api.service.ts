@@ -26,6 +26,7 @@ import type {
   SparklineDataResponse,
   CacheSnapshotResponse,
   CachedCorruptionDetectionResponse,
+  CorruptionDetectionMethod,
   CorruptedChunkDetail,
   GameCacheInfo,
   ServiceCacheInfo,
@@ -1333,6 +1334,7 @@ class ApiService {
 
   // Start background corruption detection scan
   static async startCorruptionDetection(
+    detectionMethod: CorruptionDetectionMethod = 'repeated_miss',
     threshold = 3,
     lookbackDays = 30
   ): Promise<{
@@ -1344,8 +1346,11 @@ class ApiService {
   }> {
     try {
       const params = new URLSearchParams();
-      params.set('threshold', String(threshold));
-      params.set('lookbackDays', String(lookbackDays));
+      params.set('detectionMethod', detectionMethod);
+      if (detectionMethod === 'repeated_miss') {
+        params.set('threshold', String(threshold));
+        params.set('lookbackDays', String(lookbackDays));
+      }
       const res = await fetch(
         `${API_BASE}/cache/corruption/detect?${params.toString()}`,
         this.getFetchOptions({

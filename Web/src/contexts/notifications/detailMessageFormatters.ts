@@ -258,9 +258,14 @@ export const formatServiceRemovalProgressMessage = (event: ServiceRemovalProgres
 export const formatCorruptionRemovalStartedMessage = (
   event: CorruptionRemovalStartedEvent
 ): string => {
-  return event.stageKey
+  return event.stageKey && event.stageKey !== 'signalr.corruptionRemove.starting'
     ? i18n.t(event.stageKey, event.context ?? {})
-    : i18n.t('signalr.corruptionRemove.starting', { service: event.service });
+    : i18n.t(
+        event.detectionMethod === 'structural'
+          ? 'signalr.corruptionRemove.startingStructural'
+          : 'signalr.corruptionRemove.starting',
+        { service: event.service }
+      );
 };
 
 /**
@@ -271,9 +276,14 @@ export const formatCorruptionRemovalStartedMessage = (
 export const formatCorruptionRemovalCompleteMessage = (
   event: CorruptionRemovalCompleteEvent
 ): string => {
-  return event.stageKey
+  return event.stageKey && event.stageKey !== 'signalr.corruptionRemove.success'
     ? i18n.t(event.stageKey, event.context ?? {})
-    : i18n.t('signalr.corruptionRemove.success', { service: event.service });
+    : i18n.t(
+        event.detectionMethod === 'structural'
+          ? 'signalr.corruptionRemove.successStructural'
+          : 'signalr.corruptionRemove.success',
+        { service: event.service }
+      );
 };
 
 // ============================================================================
@@ -354,9 +364,13 @@ export const formatGameDetectionFailureMessage = (event: GameDetectionCompleteEv
 export const formatCorruptionDetectionStartedMessage = (
   event: CorruptionDetectionStartedEvent
 ): string => {
-  return event.stageKey
+  return event.stageKey && event.stageKey !== 'signalr.corruptionDetect.starting'
     ? i18n.t(event.stageKey, event.context ?? {})
-    : i18n.t('signalr.corruptionDetect.starting');
+    : i18n.t(
+        event.detectionMethod === 'structural'
+          ? 'signalr.corruptionDetect.startingStructural'
+          : 'signalr.corruptionDetect.startingRepeatedMiss'
+      );
 };
 
 /**
@@ -367,10 +381,14 @@ export const formatCorruptionDetectionStartedMessage = (
 export const formatCorruptionDetectionProgressMessage = (
   event: CorruptionDetectionProgressEvent
 ): string => {
-  if (event.stageKey) {
+  if (event.stageKey && event.stageKey !== 'signalr.corruptionDetect.scanning') {
     return i18n.t(event.stageKey, event.context ?? {});
   }
-  return i18n.t('signalr.corruptionDetect.scanningLogs');
+  return i18n.t(
+    event.detectionMethod === 'structural'
+      ? 'signalr.corruptionDetect.scanningHeaders'
+      : 'signalr.corruptionDetect.scanningLogs'
+  );
 };
 
 /**
@@ -385,11 +403,18 @@ export const formatCorruptionDetectionCompleteMessage = (
   const context = {
     ...(event.context ?? {}),
     count,
-    totalCorruptedChunks: count
+    totalCorruptedChunks: count,
+    repeatedMissCount: event.detectionCounts?.repeated_miss ?? 0,
+    structuralCount: event.detectionCounts?.structural ?? 0
   };
-  return event.stageKey
+  return event.stageKey && event.stageKey !== 'signalr.corruptionDetect.complete'
     ? i18n.t(event.stageKey, context)
-    : i18n.t('signalr.corruptionDetect.complete', context);
+    : i18n.t(
+        event.detectionMethod === 'structural'
+          ? 'signalr.corruptionDetect.completeStructural'
+          : 'signalr.corruptionDetect.completeRepeatedMiss',
+        context
+      );
 };
 
 /**

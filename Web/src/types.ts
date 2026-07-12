@@ -333,6 +333,8 @@ export interface StatCardData {
 
 type CorruptionSliceKind = 'no_range' | 'noslice' | 'ranged';
 
+export type CorruptionDetectionMethod = 'repeated_miss' | 'structural';
+
 export interface CorruptionObservedRange {
   kind: 'no_range' | 'inclusive';
   start?: number | null;
@@ -345,32 +347,104 @@ export interface CorruptionCacheSlice {
   end?: number | null;
 }
 
-/**
- * Immutable physical-slice evidence returned from a stored corruption scan.
- * Field names intentionally mirror the Rust snake_case wire contract.
- */
+interface CorruptionCandidateObservation {
+  rawUrl: string;
+  timestamp: string;
+  clientIp: string;
+  method: string;
+  httpStatus: number;
+  cacheStatus: string;
+  rawRange?: string | null;
+  bytesServed: number;
+}
+
+export interface RepeatedMissCorruptionEvidence {
+  kind: 'repeated_miss';
+  rawUrl: string;
+  normalizedUri: string;
+  observedRange: CorruptionObservedRange;
+  cacheSlice: CorruptionCacheSlice;
+  evidenceCount: number;
+  firstSeen: string;
+  lastSeen: string;
+  observations: CorruptionCandidateObservation[];
+}
+
+export type StructuralCorruptionIssue =
+  | 'empty_cache_file'
+  | 'truncated_cache_header'
+  | 'malformed_cache_header'
+  | 'invalid_payload_offset'
+  | 'truncated_before_payload'
+  | 'cache_key_path_mismatch'
+  | 'payload_length_mismatch'
+  | 'content_range_length_mismatch'
+  | 'content_length_range_conflict';
+
+interface StructuralFileFingerprint {
+  dev: number;
+  ino: number;
+  len: number;
+  mtimeNs: number;
+  ctimeNs: number;
+}
+
+export interface StructuralCorruptionEvidence {
+  kind: 'structural';
+  issues: StructuralCorruptionIssue[];
+  cacheKeyEncoding: string;
+  cacheKey: string;
+  cacheKeyMd5: string;
+  cacheVersion: number;
+  httpStatus?: number | null;
+  headerStart?: number | null;
+  bodyStart?: number | null;
+  fileLength: number;
+  actualPayloadLength?: number | null;
+  expectedPayloadLength?: number | null;
+  contentLength?: number | null;
+  contentRange?: string | null;
+  fingerprint: StructuralFileFingerprint;
+  detectedAtUtc: string;
+}
+
+/** One actionable physical-file candidate from a strict contract-v4 saved scan. */
 export interface CorruptedChunkDetail {
-  candidate_id: string;
-  threshold: number;
+  candidateId: string;
   datasource: string;
   service: string;
-  raw_url: string;
-  normalized_uri: string;
-  observed_range: CorruptionObservedRange;
-  cache_slice: CorruptionCacheSlice;
-  exact_paths: string[];
-  evidence_count: number;
-  first_seen: string;
-  last_seen: string;
+  exactPaths: [string];
+  evidence: RepeatedMissCorruptionEvidence | StructuralCorruptionEvidence;
+}
+
+export interface CorruptionScanCoverage {
+  filesSeen: number;
+  filesChecked: number;
+  consistent: number;
+  skippedByReason: Record<string, number>;
+  ioErrors: number;
+  bytesRead: number;
+  sparseFiles: number;
+}
+
+export interface CorruptionDetectionSettings {
+  threshold?: number | null;
+  lookbackDays?: number | null;
+  minStableAgeSeconds?: number | null;
+  maxPrefixBytes?: number | null;
 }
 
 export interface CachedCorruptionDetectionResponse {
   hasCachedResults: boolean;
   scanId?: string;
-  threshold?: number;
+  detectionMethod?: CorruptionDetectionMethod;
+  settings?: CorruptionDetectionSettings;
+  threshold?: number | null;
   contractVersion?: number;
-  lookbackDays?: number;
+  lookbackDays?: number | null;
   corruptionCounts?: Record<string, number>;
+  detectionCounts?: Record<string, number>;
+  coverage?: CorruptionScanCoverage;
   totalServicesWithCorruption?: number;
   totalCorruptedChunks?: number;
   lastDetectionTime?: string;

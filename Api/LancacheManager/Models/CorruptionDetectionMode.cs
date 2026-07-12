@@ -12,13 +12,19 @@ public enum CorruptionDetectionMode
     /// <summary>Fallback for unrecognized wire values (never used as a valid input).</summary>
     Unknown,
 
-    /// <summary>Require the exact MISS-evidence cache slice to exist on disk.</summary>
-    CacheAndLogs
+    /// <summary>Legacy v3 cache-and-logs mode. It is never interpreted as v4 evidence.</summary>
+    CacheAndLogs,
+
+    /// <summary>Repeated-MISS v4 evidence.</summary>
+    RepeatedMiss,
+
+    /// <summary>Structural nginx cache-file v4 evidence.</summary>
+    Structural
 }
 
 /// <summary>
 /// Serializes <see cref="CorruptionDetectionMode"/> as canonical snake_case strings
-/// and accepts any casing on deserialization. Unrecognized values deserialize to
+/// and accepts only canonical persistence values on deserialization. Unrecognized values deserialize to
 /// <see cref="CorruptionDetectionMode.Unknown"/>.
 /// </summary>
 internal sealed class CorruptionDetectionModeJsonConverter : JsonConverter<CorruptionDetectionMode>
@@ -51,6 +57,8 @@ public static class CorruptionDetectionModeExtensions
     public static string ToWireString(this CorruptionDetectionMode mode) => mode switch
     {
         CorruptionDetectionMode.CacheAndLogs => "cache_and_logs",
+        CorruptionDetectionMode.RepeatedMiss => "repeated_miss",
+        CorruptionDetectionMode.Structural => "structural",
         CorruptionDetectionMode.Unknown => "unknown",
         _ => "unknown"
     };
@@ -69,8 +77,23 @@ public static class CorruptionDetectionModeExtensions
         return value.Trim().ToLowerInvariant() switch
         {
             "cache_and_logs" => CorruptionDetectionMode.CacheAndLogs,
-            "cacheandlogs" => CorruptionDetectionMode.CacheAndLogs,
+            "repeated_miss" => CorruptionDetectionMode.RepeatedMiss,
+            "structural" => CorruptionDetectionMode.Structural,
             _ => CorruptionDetectionMode.Unknown
         };
     }
+
+    public static CorruptionDetectionMode ToPersistenceMode(this CorruptionDetectionMethod method) => method switch
+    {
+        CorruptionDetectionMethod.RepeatedMiss => CorruptionDetectionMode.RepeatedMiss,
+        CorruptionDetectionMethod.Structural => CorruptionDetectionMode.Structural,
+        _ => throw new ArgumentOutOfRangeException(nameof(method), method, "Unsupported corruption detection method")
+    };
+
+    public static CorruptionDetectionMethod ToDetectionMethod(this CorruptionDetectionMode mode) => mode switch
+    {
+        CorruptionDetectionMode.RepeatedMiss => CorruptionDetectionMethod.RepeatedMiss,
+        CorruptionDetectionMode.Structural => CorruptionDetectionMethod.Structural,
+        _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Persistence mode is not a supported v4 method")
+    };
 }

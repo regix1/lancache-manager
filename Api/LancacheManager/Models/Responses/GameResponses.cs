@@ -86,10 +86,196 @@ public class CachedCorruptionResponse
     public int? Threshold { get; set; }
     public int? LookbackDays { get; set; }
     public int? ContractVersion { get; set; }
+    public string? DetectionMethod { get; set; }
+    public CorruptionScanSettingsResponse? Settings { get; set; }
     public Dictionary<string, long>? CorruptionCounts { get; set; }
+    public Dictionary<string, long>? DetectionCounts { get; set; }
+    public CorruptionScanCoverageResponse? Coverage { get; set; }
     public int TotalServicesWithCorruption { get; set; }
     public long TotalCorruptedChunks { get; set; }
     public string? LastDetectionTime { get; set; }
+}
+
+public sealed class CorruptionScanSettingsResponse
+{
+    public int? Threshold { get; set; }
+    public int? LookbackDays { get; set; }
+    public ulong? MinStableAgeSeconds { get; set; }
+    public ulong? MaxPrefixBytes { get; set; }
+}
+
+public sealed class CorruptionScanCoverageResponse
+{
+    public long FilesSeen { get; set; }
+    public long FilesChecked { get; set; }
+    public long Consistent { get; set; }
+    public long BytesRead { get; set; }
+    public long SparseFiles { get; set; }
+    public Dictionary<string, long> SkippedByReason { get; set; } = new(StringComparer.Ordinal);
+    public long IoErrors { get; set; }
+
+    public static CorruptionScanCoverageResponse? From(CorruptionScanCoverage? coverage) => coverage == null
+        ? null
+        : new CorruptionScanCoverageResponse
+        {
+            FilesSeen = coverage.FilesSeen,
+            FilesChecked = coverage.FilesChecked,
+            Consistent = coverage.Consistent,
+            BytesRead = coverage.BytesRead,
+            SparseFiles = coverage.SparseFiles,
+            SkippedByReason = new Dictionary<string, long>(coverage.SkippedByReason, StringComparer.Ordinal),
+            IoErrors = coverage.IoErrors
+        };
+}
+
+public sealed class CorruptionCandidateResponse
+{
+    public string CandidateId { get; set; } = string.Empty;
+    public string Datasource { get; set; } = string.Empty;
+    public string Service { get; set; } = string.Empty;
+    public IReadOnlyList<string> ExactPaths { get; set; } = [];
+    public object Evidence { get; set; } = null!;
+
+    public static CorruptionCandidateResponse From(CorruptionCandidate candidate) => new()
+    {
+        CandidateId = candidate.CandidateId,
+        Datasource = candidate.Datasource ?? string.Empty,
+        Service = candidate.Service,
+        ExactPaths = candidate.ExactPaths,
+        Evidence = candidate.Evidence switch
+        {
+            RepeatedMissCorruptionEvidence repeatedMiss => RepeatedMissCorruptionEvidenceResponse.From(repeatedMiss),
+            StructuralCorruptionEvidence structural => StructuralCorruptionEvidenceResponse.From(structural),
+            _ => throw new InvalidDataException("Stored corruption candidate has an unsupported evidence branch")
+        }
+    };
+}
+
+public sealed class RepeatedMissCorruptionEvidenceResponse
+{
+    public string Kind { get; set; } = "repeated_miss";
+    public string RawUrl { get; set; } = string.Empty;
+    public string NormalizedUri { get; set; } = string.Empty;
+    public ByteRangeResponse ObservedRange { get; set; } = new();
+    public ByteRangeResponse CacheSlice { get; set; } = new();
+    public long EvidenceCount { get; set; }
+    public string FirstSeen { get; set; } = string.Empty;
+    public string LastSeen { get; set; } = string.Empty;
+    public IReadOnlyList<CandidateObservationResponse> Observations { get; set; } = [];
+
+    public static RepeatedMissCorruptionEvidenceResponse From(RepeatedMissCorruptionEvidence evidence) => new()
+    {
+        RawUrl = evidence.RawUrl,
+        NormalizedUri = evidence.NormalizedUri,
+        ObservedRange = ByteRangeResponse.From(evidence.ObservedRange),
+        CacheSlice = ByteRangeResponse.From(evidence.CacheSlice),
+        EvidenceCount = evidence.EvidenceCount,
+        FirstSeen = evidence.FirstSeen,
+        LastSeen = evidence.LastSeen,
+        Observations = evidence.Observations.Select(CandidateObservationResponse.From).ToList()
+    };
+}
+
+public sealed class StructuralCorruptionEvidenceResponse
+{
+    public string Kind { get; set; } = "structural";
+    public IReadOnlyList<StructuralCorruptionIssue> Issues { get; set; } = [];
+    public string CacheKeyEncoding { get; set; } = string.Empty;
+    public string CacheKey { get; set; } = string.Empty;
+    public string CacheKeyMd5 { get; set; } = string.Empty;
+    public ulong CacheVersion { get; set; }
+    public int? HttpStatus { get; set; }
+    public ulong? HeaderStart { get; set; }
+    public ulong? BodyStart { get; set; }
+    public ulong FileLength { get; set; }
+    public ulong? ActualPayloadLength { get; set; }
+    public ulong? ExpectedPayloadLength { get; set; }
+    public ulong? ContentLength { get; set; }
+    public string? ContentRange { get; set; }
+    public StructuralFileFingerprintResponse Fingerprint { get; set; } = new();
+    public string DetectedAtUtc { get; set; } = string.Empty;
+
+    public static StructuralCorruptionEvidenceResponse From(StructuralCorruptionEvidence evidence) => new()
+    {
+        Issues = evidence.Issues,
+        CacheKeyEncoding = evidence.CacheKeyEncoding,
+        CacheKey = evidence.CacheKey,
+        CacheKeyMd5 = evidence.CacheKeyMd5,
+        CacheVersion = evidence.CacheVersion,
+        HttpStatus = evidence.HttpStatus,
+        HeaderStart = evidence.HeaderStart,
+        BodyStart = evidence.BodyStart,
+        FileLength = evidence.FileLength,
+        ActualPayloadLength = evidence.ActualPayloadLength,
+        ExpectedPayloadLength = evidence.ExpectedPayloadLength,
+        ContentLength = evidence.ContentLength,
+        ContentRange = evidence.ContentRange,
+        Fingerprint = StructuralFileFingerprintResponse.From(evidence.Fingerprint),
+        DetectedAtUtc = evidence.DetectedAtUtc
+    };
+}
+
+public sealed class StructuralFileFingerprintResponse
+{
+    public ulong Dev { get; set; }
+    public ulong Ino { get; set; }
+    public ulong Len { get; set; }
+    public long MtimeNs { get; set; }
+    public long CtimeNs { get; set; }
+
+    public static StructuralFileFingerprintResponse From(StructuralFileFingerprint fingerprint) => new()
+    {
+        Dev = fingerprint.Device,
+        Ino = fingerprint.Inode,
+        Len = fingerprint.Length,
+        MtimeNs = fingerprint.ModifiedNanoseconds,
+        CtimeNs = fingerprint.ChangedNanoseconds
+    };
+}
+
+public sealed class ByteRangeResponse
+{
+    public string Kind { get; set; } = "no_range";
+    public ulong? Start { get; set; }
+    public ulong? End { get; set; }
+
+    public static ByteRangeResponse From(ObservedByteRange range) => new()
+    {
+        Kind = range.Kind,
+        Start = range.Start,
+        End = range.End
+    };
+
+    public static ByteRangeResponse From(CacheSliceIdentity range) => new()
+    {
+        Kind = range.Kind,
+        Start = range.Start,
+        End = range.End
+    };
+}
+
+public sealed class CandidateObservationResponse
+{
+    public string RawUrl { get; set; } = string.Empty;
+    public string Timestamp { get; set; } = string.Empty;
+    public string ClientIp { get; set; } = string.Empty;
+    public string Method { get; set; } = string.Empty;
+    public int HttpStatus { get; set; }
+    public string CacheStatus { get; set; } = string.Empty;
+    public string? RawRange { get; set; }
+    public long BytesServed { get; set; }
+
+    public static CandidateObservationResponse From(CandidateObservation observation) => new()
+    {
+        RawUrl = observation.RawUrl,
+        Timestamp = observation.Timestamp,
+        ClientIp = observation.ClientIp,
+        Method = observation.Method,
+        HttpStatus = observation.HttpStatus,
+        CacheStatus = observation.CacheStatus,
+        RawRange = observation.RawRange,
+        BytesServed = observation.BytesServed
+    };
 }
 
 /// <summary>

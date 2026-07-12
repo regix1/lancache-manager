@@ -2417,13 +2417,23 @@
     },
     "corruption": {
       "title": "Corruption Detection and Removal",
-      "summary": "Find cache files that repeatedly miss while still present on disk, then remove only the exact paths verified by the scan so they can be fetched again.",
+      "summary": "Find structurally invalid cache files or repeated-MISS suspects, then remove only exact paths verified by the saved scan.",
       "directoryMissing": "Removal unavailable: required directories not found",
       "scanningMessage": "Scanning logs for repeated cache misses on files still present on disk… This may take several minutes for large log files.",
+      "scanningRepeatedMissMessage": "Scanning logs for repeated cache misses on files still present on disk… This may take several minutes for large log files.",
+      "scanningStructuralMessage": "Checking nginx cache headers, payload offsets, and authoritative payload lengths… Only proven structural failures are flagged.",
       "loadingCachedData": "Loading cached scan data…",
       "loadingDetails": "Loading stored evidence…",
       "removeAllServices": "Remove All",
+      "removeAllInvalid": "Remove All Invalid Files",
+      "removeAllSuspects": "Remove All Suspects",
+      "removeSelectedInvalid": "Remove Selected Invalid Files",
+      "removeSelectedSuspects": "Remove Selected Suspects",
+      "removeInvalid": "Remove invalid file",
+      "removeSuspect": "Remove suspect",
       "removing": "Removing…",
+      "runScan": "Run scan",
+      "runAgain": "Run again",
       "readOnly": "Removal unavailable: storage is read-only",
       "dockerSocketRequired": "Removal unavailable: Docker socket required",
       "cache": "Cache:",
@@ -2434,22 +2444,43 @@
       "cacheMappingDetails": "Technical cache mapping",
       "noRange": "no range",
       "evidenceCount": "Qualifying misses:",
+      "repeatedMissBadge": "Repeated MISS",
       "observedAt": "Observed:",
       "observedWindow": "{{first}}–{{last}}",
       "suspectCount": "{{formattedCount}} suspect file",
       "suspectCount_other": "{{formattedCount}} suspect files",
-      "expandDetails": "Show suspect files for {{service}}",
-      "collapseDetails": "Hide suspect files for {{service}}",
+      "flaggedCount": "{{formattedCount}} flagged file",
+      "flaggedCount_other": "{{formattedCount}} flagged files",
+      "expandDetails": "Show flagged files for {{service}}",
+      "collapseDetails": "Hide flagged files for {{service}}",
       "sliceKinds": {
         "no_range": "no-range cache key",
         "noslice": "noslice cache key",
         "ranged": "ranged slice"
       },
       "noDetailsAvailable": "No stored evidence is available",
-      "searchPlaceholder": "Search suspects by ID, URL, range, or path…",
-      "chunkLabel": "suspect files",
-      "noSearchMatch": "No suspect files match your search",
-      "sensitivityTitle": "Miss Sensitivity",
+      "searchLabel": "Search flagged files",
+      "searchPlaceholder": "URL, path, reason, or candidate ID…",
+      "clearSearch": "Clear search",
+      "searchResultCount": "Showing {{count}} of {{total}} flagged files",
+      "chunkLabel": "flagged files",
+      "noSearchMatch": "No flagged files match “{{query}}”",
+      "methodTitle": "Detection method",
+      "methodAriaLabel": "Choose corruption detection method",
+      "methods": {
+        "repeatedMiss": {
+          "label": "Repeated MISS",
+          "shortLabel": "Repeated MISS",
+          "description": "Uses repeated successful MISS responses as a heuristic for suspect files still on disk."
+        },
+        "structural": {
+          "label": "Structural integrity",
+          "shortLabel": "Structural",
+          "description": "Finds only proven malformed, truncated, or length-inconsistent nginx cache files."
+        }
+      },
+      "sensitivityTitle": "Repeated MISS sensitivity",
+      "sensitivityAriaLabel": "Choose repeated MISS sensitivity",
       "sensitivityHigh": "High Sensitivity",
       "sensitivityHighShort": "High",
       "sensitivityHighDesc": "Requires 3 qualifying MISS observations on one physical slice within 60 seconds.",
@@ -2460,6 +2491,7 @@
       "sensitivityLowShort": "Low",
       "sensitivityLowDesc": "Requires 10 qualifying MISS observations on one physical slice within 60 seconds.",
       "evidenceLookbackTitle": "Evidence Lookback",
+      "evidenceLookbackAriaLabel": "Choose repeated MISS evidence lookback",
       "evidenceLookbackDescription": "Uses qualifying MISS observations from the {{days}} days before the scan starts.",
       "evidenceWindow": "{{days}}-day evidence window",
       "lookback1Day": "1 day",
@@ -2467,6 +2499,61 @@
       "lookback30Days": "30 days",
       "lookback90Days": "90 days",
       "lookback365Days": "365 days",
+      "coverageSummary": "{{checked}} files checked · {{skipped}} safely skipped · {{errors}} I/O errors",
+      "structural": {
+        "detectedAt": "Inspected:",
+        "actualPayload": "Actual payload:",
+        "expectedPayload": "Expected payload:",
+        "technicalDetails": "Technical structural evidence",
+        "exactPath": "Exact path:",
+        "cacheKey": "Cache key:",
+        "fileLength": "Total file size:",
+        "httpStatus": "Response status:",
+        "headerStart": "HTTP header offset:",
+        "payloadOffset": "Payload offset:",
+        "contentLength": "Content-Length:",
+        "contentRange": "Content-Range:",
+        "cacheVersion": "nginx cache version:",
+        "cacheKeyMd5": "Cache-key MD5:"
+      },
+      "structuralIssues": {
+        "empty_cache_file": {
+          "label": "Empty cache file",
+          "description": "The file contains no nginx cache header or payload framing."
+        },
+        "truncated_cache_header": {
+          "label": "Truncated cache header",
+          "description": "The recognized nginx v5 cache header ends before its required fields or cache-key boundary."
+        },
+        "malformed_cache_header": {
+          "label": "Malformed cache header",
+          "description": "The recognized nginx cache header violates a required marker, key, CRC, ETag, or Vary invariant."
+        },
+        "invalid_payload_offset": {
+          "label": "Invalid payload offset",
+          "description": "The stored payload offset begins before the cached response headers can end."
+        },
+        "truncated_before_payload": {
+          "label": "Truncated before payload",
+          "description": "The file ends before its stored payload offset."
+        },
+        "cache_key_path_mismatch": {
+          "label": "Cache key/path mismatch",
+          "description": "The file path digest matches neither the recorded cache key nor its valid Vary variant."
+        },
+        "payload_length_mismatch": {
+          "label": "Payload length mismatch",
+          "description": "The stored payload byte count differs from the authoritative Content-Length."
+        },
+        "content_range_length_mismatch": {
+          "label": "Content-Range length mismatch",
+          "description": "The stored payload byte count differs from the authoritative Content-Range span."
+        },
+        "content_length_range_conflict": {
+          "label": "Length/range conflict",
+          "description": "Content-Length and Content-Range declare conflicting authoritative payload sizes."
+        }
+      },
       "alerts": {
         "cacheMissing": "Cache directory does not exist",
         "directoryNotFound": "The required directories were not found. Ensure they are mounted correctly in docker-compose.",
@@ -2476,6 +2563,7 @@
         "logsReadOnly": "Logs directory is read-only",
         "cacheReadOnly": "Cache directory is read-only",
         "requiresWriteAccess": "Validated-path removal requires write access to both logs and cache. Remove",
+        "requiresCacheWriteAccess": "Structural removal requires write access to the cache. Remove",
         "requiresLogsWriteAccess": "Validated-path removal requires write access to logs. Remove",
         "fromVolumeMounts": "from your docker-compose volume mounts.",
         "dockerSocketUnavailable": "Docker socket not available",
@@ -2483,47 +2571,72 @@
       },
       "emptyStates": {
         "noCorrupted": {
-          "title": "No suspect cache files found",
-          "subtitle": "No file still present on disk met the selected repeated-MISS threshold."
+          "structuralTitle": "No structurally invalid cache files found",
+          "structuralSubtitle": "Ambiguous, unsupported, or changing files were skipped, not marked corrupt.",
+          "repeatedMissTitle": "No repeated-MISS suspects found",
+          "repeatedMissSubtitle": "No file still present on disk met the selected repeated-MISS threshold."
         },
         "noCachedData": {
           "title": "No saved scan available",
-          "subtitle": "Run a scan to find cache files that repeatedly miss while still present on disk."
+          "structuralSubtitle": "Run a structural integrity scan to validate nginx cache framing and authoritative payload lengths.",
+          "repeatedMissSubtitle": "Run a scan to find cache files that repeatedly miss while still present on disk."
         }
       },
       "notifications": {
-        "loadedResults": "Loaded {{count}} suspect cache files across {{services}} services",
-        "noCorruptedInPrevious": "No suspect cache files were found in the previous scan",
+        "loadedResults": "Loaded {{count}} flagged cache files across {{services}} services",
+        "noCorruptedInPrevious": "No flagged cache files were found in the previous scan",
         "noPreviousResults": "No previous corrupt cache file scan was found"
       },
       "errors": {
         "loadCachedData": "Failed to load saved scan results",
         "loadCachedRetry": "Retry loading the current actionable scan before removing files.",
         "startScan": "Failed to start the corrupt cache file scan",
-        "removeCorrupted": "Failed to remove suspect cache files for {{service}}",
-        "loadDetails": "Failed to load suspect cache files for {{service}}",
-        "removeAllCorrupted": "Failed to remove the selected suspect cache files"
+        "removeCorrupted": "Failed to remove flagged cache files for {{service}}",
+        "loadDetails": "Failed to load flagged cache files for {{service}}",
+        "removeAllCorrupted": "Failed to remove the selected flagged cache files",
+        "unsafeDetails": "Saved scan evidence could not be displayed safely. Run a new scan."
       },
       "modal": {
         "title": "Remove Suspect Cache Files",
         "confirmRemove": "Remove the exact cache paths verified by this scan for {{service}}?",
         "willDelete": "This will DELETE:",
         "cacheFilesLabel": "Cache files",
-        "cacheFilesDesc": "exact paths verified present by this scan so they can be fetched again",
+        "cacheFilesDesc": "only exact regular files that still pass root, symlink, identity, stability, and evidence revalidation",
         "logEntriesLabel": "Log entries",
         "logEntriesDesc": "only the observations attached to these candidates",
         "databaseRecordsLabel": "Database records",
         "databaseRecordsDesc": "only where stored evidence can be matched exactly",
+        "savedScanRecordsLabel": "Saved scan records",
+        "savedScanRecordsDesc": "only evidence matched to files successfully resolved or removed",
         "cannotBeUndone": "This action cannot be undone",
+        "revalidationSkip": "Files that changed, disappeared, healed, became linked, or failed revalidation are skipped",
         "mayTakeSeveralMinutes": "May take several minutes for large cache files",
         "validFilesRemain": "Other {{service}} cache paths remain untouched",
-        "removesApproximately": "Removes up to {{count}} suspect cache files with verified paths",
+        "removesApproximately": "Removes up to {{count}} flagged cache files with verified paths",
         "deleteCacheAndLogs": "Delete Cache & Logs",
         "removeAllTitle": "Remove All Suspect Cache Files",
         "confirmRemoveAll": "Remove {{candidates}} suspect cache files across {{services}} services?",
         "confirmRemoveSelected": "Remove {{candidates}} suspect cache files across {{services}} selected services?",
         "removeAllAcrossAllServices": "Removal will run across all affected services in sequence",
-        "removeAllConfirm": "Remove All Suspects"
+        "removeAllConfirm": "Remove All Suspects",
+        "structuralTitle": "Remove Invalid Cache Files",
+        "repeatedMissTitle": "Remove Repeated-MISS Suspects",
+        "confirmRemoveStructural": "Remove the exact invalid cache files from the saved scan for {{service}}? Files are revalidated immediately before deletion.",
+        "confirmRemoveRepeatedMiss": "Remove the exact repeated-MISS suspects from the saved scan for {{service}}? Files are revalidated immediately before deletion.",
+        "removeAllStructuralTitle": "Remove All Invalid Cache Files",
+        "removeAllRepeatedMissTitle": "Remove All Repeated-MISS Suspects",
+        "removeSelectedStructuralTitle": "Remove Selected Invalid Cache Files",
+        "removeSelectedRepeatedMissTitle": "Remove Selected Repeated-MISS Suspects",
+        "confirmRemoveAllStructural": "Remove {{candidates}} invalid cache files across {{services}} services? Files are revalidated immediately before deletion.",
+        "confirmRemoveAllRepeatedMiss": "Remove {{candidates}} repeated-MISS suspects across {{services}} services? Files are revalidated immediately before deletion.",
+        "confirmRemoveSelectedStructural": "Remove {{candidates}} invalid cache files across {{services}} selected services? Files are revalidated immediately before deletion.",
+        "confirmRemoveSelectedRepeatedMiss": "Remove {{candidates}} repeated-MISS suspects across {{services}} selected services? Files are revalidated immediately before deletion.",
+        "removeInvalidFiles": "Remove Invalid Files",
+        "removeSuspects": "Remove Suspects",
+        "removeAllStructuralConfirm": "Remove All Invalid Files",
+        "removeAllRepeatedMissConfirm": "Remove All Suspects",
+        "removeSelectedStructuralConfirm": "Remove invalid files ({{count}} services)",
+        "removeSelectedRepeatedMissConfirm": "Remove suspects ({{count}} services)"
       }
     },
     "gameDetection": {
@@ -6327,14 +6440,22 @@
     },
     "corruptionDetect": {
       "starting": "Starting corrupt cache file scan…",
+      "startingRepeatedMiss": "Starting repeated-MISS scan…",
+      "startingStructural": "Starting structural integrity scan…",
+      "scanning": "Scanning cache corruption evidence…",
       "scanningLogs": "Scanning log files for repeated misses on cache files still present on disk…",
+      "scanningHeaders": "Checking nginx cache headers, payload offsets, and payload lengths…",
       "complete": "Corrupt cache file scan complete: {{count}} suspect files found.",
+      "completeRepeatedMiss": "Repeated-MISS scan complete: {{count}} suspect files found.",
+      "completeStructural": "Structural scan complete: {{count}} invalid cache files found.",
       "cancelled": "Corrupt cache file scan cancelled by user",
       "failed": "Corrupt cache file scan failed: {{errorDetail}}"
     },
     "corruptionRemove": {
       "starting": "Starting suspect cache file removal for {{service}}",
+      "startingStructural": "Starting invalid cache-file removal for {{service}}",
       "startingService": "Removing suspect cache files for {{service}} ({{serviceIndex}} of {{serviceCount}})",
+      "startingStructuralService": "Removing invalid cache files for {{service}} ({{serviceIndex}} of {{serviceCount}})",
       "noChunksFoundService": "No suspect cache files were found for {{service}}; nothing to remove",
       "filteringLogs": "Filtering log files",
       "filteringFile": "Filtering file {{fileIndex}}/{{totalFiles}}",
@@ -6343,11 +6464,16 @@
       "deletingDb": "Deleting database records attached to removed suspects",
       "scanningFiles": "Scanning {{totalFiles}} log files for suspect cache files…",
       "complete": "Removed {{count}} suspect cache files for {{service}} ({{files}} cache files deleted, {{logLines}} log lines removed, {{downloads}} downloads deleted, {{logEntries}} log entries deleted)",
+      "completeStructural": "Processed {{count}} invalid cache files for {{service}} ({{files}} deleted, {{alreadyMissing}} already missing, {{healed}} now valid)",
       "success": "Successfully removed verified suspect cache files for {{service}}",
+      "successStructural": "Successfully removed revalidated invalid cache files for {{service}}",
       "cancelled": "Operation was cancelled.",
       "allComplete": "Suspect cache file removal completed across {{serviceCount}} services: {{count}} suspect files removed ({{files}} cache files, {{logLines}} log lines, {{logEntries}} database entries)",
+      "allCompleteStructural": "Invalid cache-file removal completed across {{serviceCount}} services: {{files}} files deleted, {{alreadyMissing}} already missing, {{healed}} now valid",
       "allCompleteWithFailures": "Suspect cache file removal completed with {{failedCount}} of {{serviceCount}} services failing. Removed {{count}} suspect files ({{files}} cache files, {{logLines}} log lines)",
+      "allCompleteWithFailuresStructural": "Invalid cache-file removal completed with {{failedCount}} of {{serviceCount}} services failing. Deleted {{files}} files; {{alreadyMissing}} were already missing and {{healed}} are now valid",
       "allCancelled": "Suspect cache file removal cancelled after {{completedCount}} of {{serviceCount}} services",
+      "allCancelledStructural": "Invalid cache-file removal cancelled after {{completedCount}} of {{serviceCount}} services",
       "error": {
         "fatal": "Suspect cache file removal failed: {{errorDetail}}"
       },

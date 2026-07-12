@@ -335,7 +335,7 @@ public sealed class CorruptionScanInvalidationTests
         context.CachedCorruptionScans.Add(new CachedCorruptionScan
         {
             ScanId = scanId,
-            DetectionMode = CorruptionDetectionMode.CacheAndLogs,
+            DetectionMode = CorruptionDetectionMode.RepeatedMiss,
             Threshold = 3,
             LookbackDays = 30,
             ContractVersion = CorruptionReport.SupportedContractVersion,

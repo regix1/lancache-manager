@@ -392,7 +392,17 @@ public class CacheController : ControllerBase
             Threshold = cachedResults.Threshold,
             LookbackDays = cachedResults.LookbackDays,
             ContractVersion = cachedResults.ContractVersion,
+            DetectionMethod = cachedResults.DetectionMethod.ToWireString(),
+            Settings = new CorruptionScanSettingsResponse
+            {
+                Threshold = cachedResults.Settings.Threshold,
+                LookbackDays = cachedResults.Settings.LookbackDays,
+                MinStableAgeSeconds = cachedResults.Settings.MinimumStableAgeSeconds,
+                MaxPrefixBytes = cachedResults.Settings.MaximumPrefixBytes
+            },
             CorruptionCounts = cachedResults.CorruptionCounts,
+            DetectionCounts = cachedResults.DetectionCounts,
+            Coverage = CorruptionScanCoverageResponse.From(cachedResults.Coverage),
             TotalServicesWithCorruption = cachedResults.TotalServicesWithCorruption,
             TotalCorruptedChunks = cachedResults.TotalCorruptedChunks,
             LastDetectionTime = lastDetectionTimeUtc.ToString("o")
@@ -408,9 +418,16 @@ public class CacheController : ControllerBase
     public async Task<IActionResult> StartCorruptionDetectionAsync(
         [FromQuery] int threshold = 3,
         [FromQuery] int lookbackDays = CorruptionDetectionService.DefaultLookbackDays,
+        [FromQuery] string? detectionMethod = null,
         CancellationToken cancellationToken = default)
     {
-        CorruptionDetectionService.ValidateScanInput(threshold, lookbackDays);
+        var method = detectionMethod == null
+            ? CorruptionDetectionMethod.RepeatedMiss
+            : CorruptionDetectionMethodExtensions.TryParseWire(detectionMethod, out var parsed)
+                ? parsed
+                : throw new ValidationException(
+                    "Detection method must be 'repeated_miss' or 'structural'");
+        CorruptionDetectionService.ValidateScanInput(threshold, lookbackDays, method);
 
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
         // The bulk corruption scan is a heavy data op (OperationConflictChecker section 1a), so
@@ -420,7 +437,8 @@ public class CacheController : ControllerBase
         async Task<Guid?> StartDetectionAsync() =>
             await _corruptionDetectionService.StartDetectionAsync(
                 threshold,
-                lookbackDays);
+                lookbackDays,
+                method);
 
         var conflict = await _conflictChecker.CheckAsync(
             OperationType.CorruptionDetection,
@@ -434,7 +452,13 @@ public class CacheController : ControllerBase
         }
 
         var operationId = await StartDetectionAsync();
-        return Accepted(new { operationId, message = "Corruption detection started", status = OperationStatus.Running });
+        return Accepted(new
+        {
+            operationId,
+            message = "Corruption detection started",
+            status = OperationStatus.Running,
+            detectionMethod = method.ToWireString()
+        });
     }
 
     /// <summary>
@@ -450,13 +474,28 @@ public class CacheController : ControllerBase
             return Ok(new { isRunning = false });
         }
 
+        var detectionMethod = (activeOp.Metadata as CorruptionDetectionMetrics)?
+            .DetectionMethod.ToWireString();
+        var stageKey = activeOp.Message.StartsWith("signalr.", StringComparison.Ordinal)
+            ? activeOp.Message
+            : detectionMethod == "structural"
+                ? "signalr.corruptionDetect.startingStructural"
+                : "signalr.corruptionDetect.startingRepeatedMiss";
+
         return Ok(new
         {
             isRunning = activeOp.Status == OperationStatus.Running,
             operationId = activeOp.Id,
             status = activeOp.Status,
             message = activeOp.Message,
-            startTime = activeOp.StartedAt.ToString("o")
+            stageKey,
+            context = new Dictionary<string, object?>
+            {
+                ["detectionMethod"] = detectionMethod
+            },
+            percentComplete = activeOp.PercentComplete,
+            startTime = activeOp.StartedAt.ToString("o"),
+            detectionMethod
         });
     }
 
@@ -482,7 +521,7 @@ public class CacheController : ControllerBase
         }
 
         var details = await _corruptionDetectionService.GetDetailsAsync(scanId, service, cancellationToken);
-        return Ok(details);
+        return Ok(details.Select(CorruptionCandidateResponse.From).ToList());
     }
 
 
@@ -520,7 +559,7 @@ public class CacheController : ControllerBase
 
         // CRITICAL: Check write permissions BEFORE starting (or queueing) the operation
         // This prevents the DB/filesystem state mismatch when PUID/PGID is wrong
-        var permissionError = CheckDatasourcesWritable(datasources, service);
+        var permissionError = CheckDatasourcesWritable(datasources, [previewSelection], service);
         if (permissionError != null)
         {
             throw new ValidationException(permissionError);
@@ -539,7 +578,7 @@ public class CacheController : ControllerBase
             var currentDatasources = ResolveDatasourcesForSelection(
                 selection,
                 _datasourceService.GetDatasources());
-            var currentPermissionError = CheckDatasourcesWritable(currentDatasources, service);
+            var currentPermissionError = CheckDatasourcesWritable(currentDatasources, [selection], service);
             if (currentPermissionError != null)
             {
                 throw new ValidationException(currentPermissionError);
@@ -549,10 +588,15 @@ public class CacheController : ControllerBase
             var operationIdReady = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
             _ = Task.Run(async () =>
             {
+                var pauseLogs = RequiresLogMutation([selection]);
                 try
                 {
-                    await LiveLogMonitorService.PauseAsync();
-                    _logger.LogInformation("Paused LiveLogMonitorService for corruption removal");
+                    if (pauseLogs)
+                    {
+                        await LiveLogMonitorService.PauseAsync();
+                        _logger.LogInformation("Paused LiveLogMonitorService for repeated-MISS corruption removal");
+                    }
+
                     try
                     {
                         await RunCorruptionRemovalCoreAsync(
@@ -567,8 +611,12 @@ public class CacheController : ControllerBase
                 }
                 finally
                 {
-                    await LiveLogMonitorService.ResumeAsync();
-                    _logger.LogInformation("Resumed LiveLogMonitorService after corruption removal");
+                    if (pauseLogs)
+                    {
+                        await LiveLogMonitorService.ResumeAsync();
+                        _logger.LogInformation("Resumed LiveLogMonitorService after repeated-MISS corruption removal");
+                    }
+
                     operationIdReady.TrySetResult(Guid.Empty);
                 }
             });
@@ -681,7 +729,7 @@ public class CacheController : ControllerBase
             _datasourceService.GetDatasources());
 
         // CRITICAL: Check write permissions BEFORE starting (or queueing) the operation
-        var permissionError = CheckDatasourcesWritable(datasources, service: null);
+        var permissionError = CheckDatasourcesWritable(datasources, previewSelections, service: null);
         if (permissionError != null)
         {
             throw new ValidationException(permissionError);
@@ -701,7 +749,7 @@ public class CacheController : ControllerBase
             var currentDatasources = ResolveDatasourcesForSelections(
                 selections,
                 _datasourceService.GetDatasources());
-            var currentPermissionError = CheckDatasourcesWritable(currentDatasources, service: null);
+            var currentPermissionError = CheckDatasourcesWritable(currentDatasources, selections, service: null);
             if (currentPermissionError != null)
             {
                 throw new ValidationException(currentPermissionError);
@@ -715,10 +763,14 @@ public class CacheController : ControllerBase
 
             _ = Task.Run(async () =>
             {
+                var pauseLogs = RequiresLogMutation(selections);
                 try
                 {
-                    await LiveLogMonitorService.PauseAsync();
-                    _logger.LogInformation("Paused LiveLogMonitorService for all-services corruption removal");
+                    if (pauseLogs)
+                    {
+                        await LiveLogMonitorService.PauseAsync();
+                        _logger.LogInformation("Paused LiveLogMonitorService for all-services repeated-MISS corruption removal");
+                    }
                     var bulkState = new BulkCorruptionRemovalState { ServiceCount = selections.Count };
                     var cancelled = false;
 
@@ -743,8 +795,11 @@ public class CacheController : ControllerBase
                     {
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                             new CorruptionRemovalComplete(false, "all",
-                                StageKey: "signalr.corruptionRemove.allCancelled",
+                                StageKey: cachedDetection.DetectionMethod == CorruptionDetectionMethod.Structural
+                                    ? "signalr.corruptionRemove.allCancelledStructural"
+                                    : "signalr.corruptionRemove.allCancelled",
                                 OperationId: bulkState.LastOperationId,
+                                DetectionMethod: cachedDetection.DetectionMethod.ToWireString(),
                                 Context: new Dictionary<string, object?>
                                 {
                                     ["completedCount"] = processedCount,
@@ -758,9 +813,12 @@ public class CacheController : ControllerBase
                         context["serviceCount"] = bulkState.ServiceCount;
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                             new CorruptionRemovalComplete(false, "all",
-                                StageKey: "signalr.corruptionRemove.allCompleteWithFailures",
+                                StageKey: cachedDetection.DetectionMethod == CorruptionDetectionMethod.Structural
+                                    ? "signalr.corruptionRemove.allCompleteWithFailuresStructural"
+                                    : "signalr.corruptionRemove.allCompleteWithFailures",
                                 OperationId: bulkState.LastOperationId,
-                                Context: context));
+                                Context: context,
+                                DetectionMethod: cachedDetection.DetectionMethod.ToWireString()));
                     }
                     else
                     {
@@ -768,9 +826,12 @@ public class CacheController : ControllerBase
                         context["serviceCount"] = bulkState.ServiceCount;
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                             new CorruptionRemovalComplete(true, "all",
-                                StageKey: "signalr.corruptionRemove.allComplete",
+                                StageKey: cachedDetection.DetectionMethod == CorruptionDetectionMethod.Structural
+                                    ? "signalr.corruptionRemove.allCompleteStructural"
+                                    : "signalr.corruptionRemove.allComplete",
                                 OperationId: bulkState.LastOperationId,
-                                Context: context));
+                                Context: context,
+                                DetectionMethod: cachedDetection.DetectionMethod.ToWireString()));
                     }
                 }
                 catch (Exception ex)
@@ -779,8 +840,11 @@ public class CacheController : ControllerBase
                 }
                 finally
                 {
-                    await LiveLogMonitorService.ResumeAsync();
-                    _logger.LogInformation("Resumed LiveLogMonitorService after all-services corruption removal");
+                    if (pauseLogs)
+                    {
+                        await LiveLogMonitorService.ResumeAsync();
+                        _logger.LogInformation("Resumed LiveLogMonitorService after all-services repeated-MISS corruption removal");
+                    }
                 }
             });
 
@@ -866,14 +930,18 @@ public class CacheController : ControllerBase
     /// null when all datasources are writable. <paramref name="service"/> is included in the
     /// log line for the single-service path; pass null for the all-services path.
     /// </summary>
-    private string? CheckDatasourcesWritable(IReadOnlyList<ResolvedDatasource> datasources, string? service)
+    private string? CheckDatasourcesWritable(
+        IReadOnlyList<ResolvedDatasource> datasources,
+        IReadOnlyCollection<CorruptionRemovalSelection> selections,
+        string? service)
     {
         foreach (ResolvedDatasource datasource in datasources)
         {
             var cacheWritable = datasource.CacheWritable;
-            var logsWritable = datasource.LogsWritable;
+            var logsRequired = RequiresLogMutation(selections, datasource.Name);
+            var logsWritable = !logsRequired || datasource.LogsWritable;
 
-            if (!cacheWritable || !logsWritable)
+            if (!HasRequiredWritePermissions(datasource, selections))
             {
                 var errors = new List<string>();
                 if (!cacheWritable) errors.Add($"cache directory is read-only ({datasource.CachePath})");
@@ -901,6 +969,19 @@ public class CacheController : ControllerBase
         return null;
     }
 
+    internal static bool RequiresLogMutation(
+        IEnumerable<CorruptionRemovalSelection> selections,
+        string? datasourceName = null) =>
+        selections.Any(selection => selection.CandidatesByDatasource.Any(pair =>
+            (datasourceName == null || string.Equals(pair.Key, datasourceName, StringComparison.OrdinalIgnoreCase))
+            && pair.Value.Any(candidate => candidate.Evidence is RepeatedMissCorruptionEvidence)));
+
+    internal static bool HasRequiredWritePermissions(
+        ResolvedDatasource datasource,
+        IReadOnlyCollection<CorruptionRemovalSelection> selections) =>
+        datasource.CacheWritable
+        && (!RequiresLogMutation(selections, datasource.Name) || datasource.LogsWritable);
+
     /// <summary>Aggregate totals emitted for one actionable corruption removal.</summary>
     private sealed class CorruptionRemovalTotals
     {
@@ -909,10 +990,14 @@ public class CacheController : ControllerBase
         public long LogLinesRemoved;
         public long DownloadsDeleted;
         public long LogEntriesDeleted;
+        public long AlreadyMissing;
+        public long Healed;
+        public long BytesFreed;
 
         public bool AnythingRemoved =>
             UrlsRemoved > 0 || FilesDeleted > 0 || LogLinesRemoved > 0
-            || DownloadsDeleted > 0 || LogEntriesDeleted > 0;
+            || DownloadsDeleted > 0 || LogEntriesDeleted > 0
+            || AlreadyMissing > 0 || Healed > 0;
 
         public void Add(CorruptionRemovalTotals other)
         {
@@ -921,6 +1006,9 @@ public class CacheController : ControllerBase
             LogLinesRemoved += other.LogLinesRemoved;
             DownloadsDeleted += other.DownloadsDeleted;
             LogEntriesDeleted += other.LogEntriesDeleted;
+            AlreadyMissing += other.AlreadyMissing;
+            Healed += other.Healed;
+            BytesFreed += other.BytesFreed;
         }
 
         public Dictionary<string, object?> ToContext(string service) => new()
@@ -930,7 +1018,10 @@ public class CacheController : ControllerBase
             ["files"] = FilesDeleted,
             ["logLines"] = LogLinesRemoved,
             ["downloads"] = DownloadsDeleted,
-            ["logEntries"] = LogEntriesDeleted
+            ["logEntries"] = LogEntriesDeleted,
+            ["alreadyMissing"] = AlreadyMissing,
+            ["healed"] = Healed,
+            ["bytesFreed"] = BytesFreed
         };
     }
 
@@ -973,6 +1064,84 @@ public class CacheController : ControllerBase
         };
     }
 
+    internal static StructuralRemovalCompletion ValidateStructuralRemovalCompletion(
+        Dictionary<string, object?> context,
+        int expectedCandidateCount)
+    {
+        string[] expectedKeys =
+        [
+            "detectionMethod", "count", "files", "alreadyMissing", "healed", "bytesFreed"
+        ];
+        if (context.Count != expectedKeys.Length
+            || expectedKeys.Any(key => !context.ContainsKey(key))
+            || !TryReadContextString(context["detectionMethod"], out var method)
+            || !string.Equals(method, "structural", StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("Structural removal returned an invalid completion shape");
+        }
+
+        var count = ReadRequiredNonNegativeCount(context, "count");
+        var files = ReadRequiredNonNegativeCount(context, "files");
+        var alreadyMissing = ReadRequiredNonNegativeCount(context, "alreadyMissing");
+        var healed = ReadRequiredNonNegativeCount(context, "healed");
+        var bytesFreed = ReadRequiredNonNegativeCount(context, "bytesFreed");
+        long resolvedCount;
+        try
+        {
+            resolvedCount = checked(files + alreadyMissing + healed);
+        }
+        catch (OverflowException ex)
+        {
+            throw new InvalidDataException("Structural removal totals overflowed", ex);
+        }
+        if (count != expectedCandidateCount || resolvedCount != count)
+        {
+            throw new InvalidDataException("Structural removal totals did not match the server-owned selection");
+        }
+
+        return new StructuralRemovalCompletion(count, files, alreadyMissing, healed, bytesFreed);
+    }
+
+    private static long ReadRequiredNonNegativeCount(
+        Dictionary<string, object?> context,
+        string key)
+    {
+        if (!context.TryGetValue(key, out var value))
+        {
+            throw new InvalidDataException($"Structural removal field '{key}' was missing");
+        }
+
+        var count = value switch
+        {
+            JsonElement element when element.ValueKind == JsonValueKind.Number
+                && element.TryGetInt64(out var parsed) => parsed,
+            long longValue => longValue,
+            int intValue => intValue,
+            _ => throw new InvalidDataException($"Structural removal field '{key}' was not an integer")
+        };
+        return count >= 0
+            ? count
+            : throw new InvalidDataException($"Structural removal field '{key}' was negative");
+    }
+
+    private static bool TryReadContextString(object? value, out string? text)
+    {
+        text = value switch
+        {
+            JsonElement element when element.ValueKind == JsonValueKind.String => element.GetString(),
+            string stringValue => stringValue,
+            _ => null
+        };
+        return text != null;
+    }
+
+    internal sealed record StructuralRemovalCompletion(
+        long Count,
+        long Files,
+        long AlreadyMissing,
+        long Healed,
+        long BytesFreed);
+
     /// <summary>
     /// Shared per-service corruption-removal core: registers a tracked operation, emits the
     /// start notification, runs the corruption-remove Rust binary across every datasource with
@@ -999,7 +1168,12 @@ public class CacheController : ControllerBase
         var service = selection.Service;
         // Create CancellationTokenSource and register with unified operation tracker for cancel support
         var cts = new CancellationTokenSource();
-        var metadata = new RemovalMetrics { EntityKey = service.ToLowerInvariant(), EntityName = service };
+        var metadata = new RemovalMetrics
+        {
+            EntityKey = service.ToLowerInvariant(),
+            EntityName = service,
+            DetectionMethod = selection.DetectionMethod
+        };
         var serviceName = service;
         var totals = new CorruptionRemovalTotals();
         Guid operationId = Guid.Empty;
@@ -1021,9 +1195,10 @@ public class CacheController : ControllerBase
                 if (info.Cancelled)
                 {
                     return _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                        new CorruptionRemovalComplete(false, serviceName,
-                            StageKey: "signalr.corruptionRemove.cancelled",
-                            OperationId: operationId));
+                            new CorruptionRemovalComplete(false, serviceName,
+                                StageKey: "signalr.corruptionRemove.cancelled",
+                                OperationId: operationId,
+                                DetectionMethod: selection.DetectionMethod.ToWireString()));
                 }
 
                 if (!info.Success)
@@ -1032,7 +1207,8 @@ public class CacheController : ControllerBase
                         new CorruptionRemovalComplete(false, serviceName,
                             StageKey: "signalr.corruptionRemove.failed.generic",
                             OperationId: operationId,
-                            Error: info.Error));
+                            Error: info.Error,
+                            DetectionMethod: selection.DetectionMethod.ToWireString()));
                 }
 
                 // Success carries the Rust binary's real numbers (harvested from its final
@@ -1040,27 +1216,39 @@ public class CacheController : ControllerBase
                 return totals.AnythingRemoved
                     ? _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                         new CorruptionRemovalComplete(true, serviceName,
-                            StageKey: "signalr.corruptionRemove.complete",
+                            StageKey: selection.DetectionMethod == CorruptionDetectionMethod.Structural
+                                ? "signalr.corruptionRemove.completeStructural"
+                                : "signalr.corruptionRemove.complete",
                             OperationId: operationId,
-                            Context: totals.ToContext(serviceName)))
+                            Context: totals.ToContext(serviceName),
+                            DetectionMethod: selection.DetectionMethod.ToWireString()))
                     : _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                         new CorruptionRemovalComplete(true, serviceName,
                             StageKey: "signalr.corruptionRemove.noChunksFoundService",
                             OperationId: operationId,
-                            Context: new Dictionary<string, object?> { ["service"] = serviceName }));
+                            Context: new Dictionary<string, object?> { ["service"] = serviceName },
+                            DetectionMethod: selection.DetectionMethod.ToWireString()));
             });
 
         onRegistered?.Invoke(operationId);
 
         // Send start notification via SignalR
-        var startContext = new Dictionary<string, object?> { ["service"] = service };
-        var startStageKey = "signalr.corruptionRemove.starting";
+        var startContext = new Dictionary<string, object?>
+        {
+            ["service"] = service,
+            ["detectionMethod"] = selection.DetectionMethod.ToWireString()
+        };
+        var startStageKey = selection.DetectionMethod == CorruptionDetectionMethod.Structural
+            ? "signalr.corruptionRemove.startingStructural"
+            : "signalr.corruptionRemove.starting";
         if (bulk != null)
         {
             bulk.LastOperationId = operationId;
             startContext["serviceIndex"] = bulk.ServiceIndex;
             startContext["serviceCount"] = bulk.ServiceCount;
-            startStageKey = "signalr.corruptionRemove.startingService";
+            startStageKey = selection.DetectionMethod == CorruptionDetectionMethod.Structural
+                ? "signalr.corruptionRemove.startingStructuralService"
+                : "signalr.corruptionRemove.startingService";
         }
 
         _notifications.NotifyAllFireAndForget(SignalREvents.CorruptionRemovalStarted,
@@ -1069,7 +1257,8 @@ public class CacheController : ControllerBase
                 operationId,
                 startStageKey,
                 DateTime.UtcNow,
-                startContext));
+                startContext,
+                selection.DetectionMethod.ToWireString()));
 
         try
         {
@@ -1115,10 +1304,22 @@ public class CacheController : ControllerBase
                     var evidence = new CorruptionRemovalEvidence
                     {
                         ContractVersion = selection.ContractVersion,
+                        DetectionMethod = selection.DetectionMethod,
                         ScanId = selection.ScanId,
-                        Threshold = selection.Threshold,
+                        Threshold = selection.DetectionMethod == CorruptionDetectionMethod.RepeatedMiss
+                            ? selection.Threshold
+                            : null,
                         Datasource = datasource.Name,
-                        Candidates = selection.CandidatesByDatasource[datasource.Name].ToList()
+                        Candidates = selection.CandidatesByDatasource[datasource.Name]
+                            .Select(candidate => new CorruptionCandidate
+                            {
+                                CandidateId = candidate.CandidateId,
+                                Datasource = candidate.Datasource,
+                                Service = candidate.Service,
+                                ExactPaths = candidate.ExactPaths.ToList(),
+                                Evidence = candidate.Evidence
+                            })
+                            .ToList()
                     };
                     Directory.CreateDirectory(_pathResolver.GetOperationsDirectory());
                     await System.IO.File.WriteAllTextAsync(
@@ -1131,7 +1332,9 @@ public class CacheController : ControllerBase
                     // read of the (Rust-side-unchanged) progress file, replacing the previous
                     // standalone Task.Run poll-every-500ms loop.
                     var result = await _rustProcessHelper.RunCorruptionManagerAsync(
-                        "remove",
+                        selection.DetectionMethod == CorruptionDetectionMethod.Structural
+                            ? "remove-structural"
+                            : "remove",
                         logsPath,
                         cachePath,
                         service: service,
@@ -1175,6 +1378,7 @@ public class CacheController : ControllerBase
                             // don't), plus the run position during an all-services removal.
                             var context = progress.Context ?? new Dictionary<string, object?>();
                             context["service"] = service;
+                            context["detectionMethod"] = selection.DetectionMethod.ToWireString();
                             if (bulk != null)
                             {
                                 context["serviceIndex"] = bulk.ServiceIndex;
@@ -1192,7 +1396,8 @@ public class CacheController : ControllerBase
                                     progress.FilesProcessed,
                                     progress.TotalFiles,
                                     overallPercent,
-                                    context));
+                                    context,
+                                    selection.DetectionMethod.ToWireString()));
                         });
 
                     // Harvest this datasource's outcome numbers from the final checkpoint
@@ -1201,7 +1406,24 @@ public class CacheController : ControllerBase
                     if (result.Success)
                     {
                         var finalProgress = await _rustProcessHelper.ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
-                        if (finalProgress is { Status: "completed", Context: not null })
+                        if (finalProgress is not { Status: "completed", Context: not null })
+                        {
+                            throw new InvalidDataException(
+                                "Corruption removal exited without a completed outcome checkpoint");
+                        }
+
+                        if (selection.DetectionMethod == CorruptionDetectionMethod.Structural)
+                        {
+                            var outcome = ValidateStructuralRemovalCompletion(
+                                finalProgress.Context,
+                                selection.CandidatesByDatasource[datasource.Name].Count);
+                            totals.UrlsRemoved += outcome.Count;
+                            totals.FilesDeleted += outcome.Files;
+                            totals.AlreadyMissing += outcome.AlreadyMissing;
+                            totals.Healed += outcome.Healed;
+                            totals.BytesFreed += outcome.BytesFreed;
+                        }
+                        else
                         {
                             totals.UrlsRemoved += ReadContextCount(finalProgress.Context, "count");
                             totals.FilesDeleted += ReadContextCount(finalProgress.Context, "files");
@@ -1235,11 +1457,12 @@ public class CacheController : ControllerBase
             {
                 _logger.LogInformation("Corruption removal completed for service: {Service} across all datasources", service);
 
-                // Signal nginx to reopen log files (prevents monolithic container from losing log access)
-                await _nginxLogRotationService.ReopenNginxLogsAsync();
-
-                // Invalidate service count cache since corruption removal affects counts
-                await _cacheService.InvalidateServiceCountsAsync();
+                if (selection.HasRepeatedMissEvidence)
+                {
+                    // Repeated-MISS removal rewrites access.log and its database projections.
+                    await _nginxLogRotationService.ReopenNginxLogsAsync();
+                    await _cacheService.InvalidateServiceCountsAsync();
+                }
 
                 // Only a fully successful service run can prune persisted evidence.
                 // Any partial/permission/process failure leaves the authoritative scope intact.
@@ -1314,7 +1537,8 @@ public class CacheController : ControllerBase
             Message = operation.Message,
             OperationId = operation.Id,
             StartedAt = operation.StartedAt,
-            Error = operation.Status == OperationStatus.Failed ? operation.Message : null
+            Error = operation.Status == OperationStatus.Failed ? operation.Message : null,
+            DetectionMethod = metrics?.DetectionMethod?.ToWireString()
         });
     }
 
@@ -1338,7 +1562,8 @@ public class CacheController : ControllerBase
                     OperationId = op.Id,
                     Status = op.Status,
                     Message = op.Message,
-                    StartedAt = op.StartedAt
+                    StartedAt = op.StartedAt,
+                    DetectionMethod = metrics?.DetectionMethod?.ToWireString()
                 };
             })
         });

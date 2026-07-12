@@ -893,15 +893,13 @@ public partial class RustProcessHelper
 
             // Removal consumes the server-persisted evidence file. Mode, threshold,
             // URLs, and paths are never reconstructed from caller-selected flags.
-            var arguments = command switch
-            {
-                "remove" when !string.IsNullOrEmpty(service)
-                    && !string.IsNullOrEmpty(cachePath)
-                    && !string.IsNullOrEmpty(evidenceFile)
-                    && !string.IsNullOrEmpty(progressArg) =>
-                    $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressArg}\" --evidence-file \"{evidenceFile}\" --progress",
-                _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
-            };
+            var arguments = BuildCorruptionManagerArguments(
+                command,
+                logsPath,
+                cachePath,
+                service,
+                evidenceFile,
+                progressArg);
 
             _logger.LogInformation("[corruption_manager] Executing: {Binary} {Args}", rustBinaryPath, arguments);
 
@@ -981,6 +979,26 @@ public partial class RustProcessHelper
             await DeleteTempFileAsync(outputFile);
         }
     }
+
+    internal static string BuildCorruptionManagerArguments(
+        string command,
+        string logsPath,
+        string cachePath,
+        string? service,
+        string? evidenceFile,
+        string? progressFile) => command switch
+        {
+            "remove" when !string.IsNullOrEmpty(service)
+                && !string.IsNullOrEmpty(cachePath)
+                && !string.IsNullOrEmpty(evidenceFile)
+                && !string.IsNullOrEmpty(progressFile) =>
+                $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress",
+            "remove-structural" when !string.IsNullOrEmpty(cachePath)
+                && !string.IsNullOrEmpty(evidenceFile)
+                && !string.IsNullOrEmpty(progressFile) =>
+                $"remove-structural \"{cachePath}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress",
+            _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
+        };
 
     /// <summary>
     /// Runs the cache_eviction_scan Rust executable

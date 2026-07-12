@@ -126,6 +126,35 @@ public class OperationConflictCheckerTests
         Assert.Equal(nameof(OperationType.CorruptionDetection), response.ActiveOperationType);
     }
 
+    [Theory]
+    [InlineData(OperationType.GameRemoval)]
+    [InlineData(OperationType.ServiceRemoval)]
+    [InlineData(OperationType.CorruptionRemoval)]
+    [InlineData(OperationType.EvictionRemoval)]
+    public async Task CorruptionDetection_BlocksCacheMutatingRemovalInBothDirectionsAsync(
+        OperationType removalType)
+    {
+        using (var activeRemoval = new TrackerHarness())
+        {
+            RegisterCacheMutatingRemoval(activeRemoval.Tracker, removalType);
+            var scanResponse = await activeRemoval.Checker.CheckAsync(
+                OperationType.CorruptionDetection,
+                ConflictScope.Bulk(),
+                CancellationToken.None);
+            Assert.NotNull(scanResponse);
+            Assert.Equal("errors.conflict.overlappingEntity", scanResponse!.StageKey);
+        }
+
+        using var activeScan = new TrackerHarness();
+        RegisterBulkCorruptionDetection(activeScan.Tracker);
+        var removalResponse = await activeScan.Checker.CheckAsync(
+            removalType,
+            ConflictScope.Service("steam"),
+            CancellationToken.None);
+        Assert.NotNull(removalResponse);
+        Assert.Equal("errors.conflict.overlappingEntity", removalResponse!.StageKey);
+    }
+
     [Fact]
     public async Task Blocks_GameDetection_When_LogProcessing_IsActiveAsync()
     {
@@ -406,6 +435,24 @@ public class OperationConflictCheckerTests
                 Tracker.CompleteOperation(operation.Id, success: false, error: "Disposed test harness");
             }
         }
+    }
+
+    private static void RegisterCacheMutatingRemoval(
+        IUnifiedOperationTracker tracker,
+        OperationType type)
+    {
+        tracker.RegisterOperation(
+            type,
+            $"{type}: steam",
+            new CancellationTokenSource(),
+            type == OperationType.EvictionRemoval
+                ? new EvictionRemovalMetadata { Scope = "service", Key = "steam" }
+                : new RemovalMetrics
+                {
+                    EntityKind = "service",
+                    EntityKey = "steam",
+                    EntityName = "steam"
+                });
     }
 
     private sealed class CapturingLogger<T> : ILogger<T>
