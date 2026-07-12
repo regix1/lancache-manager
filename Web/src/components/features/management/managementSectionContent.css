@@ -142,6 +142,13 @@
   color: var(--theme-text-primary);
 }
 
+/* Service/provider names read as proper nouns: capitalized and semibold, matching the
+   Game Cache Detection service cards. Compound selector so it beats the base weight. */
+.mgmt-row__title.mgmt-row__title--service {
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
 .mgmt-row__meta {
   margin: 0;
   font-size: var(--font-size-xs);

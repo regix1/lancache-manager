@@ -1134,7 +1134,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                   className="flex-shrink-0"
                                 />
                                 <div className="mgmt-row__body">
-                                  <p className="mgmt-row__title truncate">
+                                  <p className="mgmt-row__title mgmt-row__title--service truncate">
                                     {getServiceDisplayName(service)}
                                   </p>
                                 </div>
@@ -1246,7 +1246,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                             <div key={`corruption-review-${service}`}>
                               <div className="mgmt-row mgmt-row--interactive flex-wrap">
                                 <div className="mgmt-row__body">
-                                  <p className="mgmt-row__title truncate">
+                                  <p className="mgmt-row__title mgmt-row__title--service truncate">
                                     {getServiceDisplayName(service)}
                                   </p>
                                 </div>
