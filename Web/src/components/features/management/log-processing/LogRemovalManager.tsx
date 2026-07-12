@@ -11,6 +11,7 @@ import { type AuthMode } from '@services/auth.service';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { getErrorMessage } from '@utils/error';
 import { useNotifications } from '@contexts/notifications';
+import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import { buildSeededRunningNotification } from '@contexts/notifications/seedOperationNotification';
 import { waitForSignalRCompletion } from '@contexts/notifications/waitForSignalRCompletion';
 import { useDockerSocket } from '@contexts/useDockerSocket';
@@ -213,8 +214,10 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   // Listen for log removal completion via notifications to trigger reload
   // Use ref to prevent duplicate processing of the same completion notification
   useEffect(() => {
+    // A cancelled removal is terminal too, and it has usually already deleted some entries,
+    // so it must reload the list exactly like a completed or failed one.
     const completedLogRemoval = notifications.find(
-      (n) => n.type === 'log_removal' && (n.status === 'completed' || n.status === 'failed')
+      (n) => n.type === 'log_removal' && isTerminalNotificationStatus(n.status)
     );
 
     if (completedLogRemoval && hasInitiallyLoaded) {

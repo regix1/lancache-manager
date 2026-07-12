@@ -27,6 +27,7 @@ import themeService from '@services/theme.service';
 import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { NOTIFICATION_REGISTRY } from '@contexts/notifications/notificationRegistry';
+import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
 import type { CancelKind } from '@contexts/notifications/types';
 import { NOTIFICATION_TITLE_KEYS } from '@contexts/notifications/notificationTitleKeys';
 
@@ -190,6 +191,7 @@ const getNotificationColor = (notification: UnifiedNotification): string => {
     case 'completed':
       return 'var(--theme-success)';
     case 'failed':
+    case 'cancelled':
       return 'var(--theme-error)';
     case 'waiting':
       return 'var(--theme-waiting)';
@@ -236,7 +238,9 @@ const getNotificationIcon = (notification: UnifiedNotification): React.ReactNode
     return <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color }} />;
   }
 
-  if (notification.status === 'failed') {
+  // 'cancelled' is its own terminal status (the standard completion handler sets it when the
+  // server reports cancelled:true) - without this branch the card renders with no icon at all.
+  if (notification.status === 'failed' || notification.status === 'cancelled') {
     return <XCircle className="w-4 h-4 flex-shrink-0" style={{ color }} />;
   }
 
@@ -402,29 +406,31 @@ const renderProgressBar = ({ notification, t }: ContentRendererProps) => {
       ? `${notification.message} ${notification.detailMessage}`
       : notification.message);
 
+  // The fill colour follows the card's status colour, so the bar reads the same as the
+  // border and icon. It is passed as a custom property rather than a Tailwind class
+  // because the value is a theme variable resolved at runtime.
+  const trackStyle = {
+    '--notification-progress-color': getNotificationColor(notification)
+  } as React.CSSProperties;
+
   return (
     <div className="mt-2 tabular-nums">
-      {isIndeterminate ? (
-        <div
-          className="relative w-full overflow-hidden rounded-full h-2 bg-[var(--theme-bg-tertiary)]"
-          role="progressbar"
-          aria-label={notification.message}
-          aria-valuetext={ariaValueText}
-        >
-          <div className="notification-progress-indeterminate absolute inset-y-0 left-0 rounded-full bg-[var(--theme-info)]" />
-        </div>
-      ) : (
-        <progress
-          className="notification-progress-determinate block h-2 w-full overflow-hidden rounded-full"
-          max={100}
-          value={clampedProgress}
-          aria-label={notification.message}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={clampedProgress}
-          aria-valuetext={ariaValueText}
-        />
-      )}
+      <div
+        className="notification-progress-track"
+        style={trackStyle}
+        role="progressbar"
+        aria-label={notification.message}
+        aria-valuetext={ariaValueText}
+        {...(isIndeterminate
+          ? {}
+          : { 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': clampedProgress })}
+      >
+        {isIndeterminate ? (
+          <div className="notification-progress-indeterminate" />
+        ) : (
+          <div className="notification-progress-fill" style={{ width: `${clampedProgress}%` }} />
+        )}
+      </div>
       {!isIndeterminate && (
         <div className="flex flex-wrap justify-between items-center gap-x-3 mt-1">
           <span className="text-xs text-themed-muted tabular-nums">
@@ -445,10 +451,6 @@ const renderProgressBar = ({ notification, t }: ContentRendererProps) => {
 
 const ANNOUNCEMENT_MIN_INTERVAL_MS = 5000;
 
-function isTerminalStatus(status: NotificationStatus): boolean {
-  return status === 'completed' || status === 'failed' || status === 'cancelled';
-}
-
 /** Rate-limit screen-reader updates while keeping stage/terminal changes immediate. */
 function useNotificationAnnouncement(notification: UnifiedNotification): string {
   const accessibleText =
@@ -459,13 +461,13 @@ function useNotificationAnnouncement(notification: UnifiedNotification): string 
     at: Date.now(),
     message: notification.message,
     wholePercent: Math.floor(notification.progress ?? 0),
-    terminal: isTerminalStatus(notification.status)
+    terminal: isTerminalNotificationStatus(notification.status)
   });
 
   useEffect(() => {
     const now = Date.now();
     const wholePercent = Math.floor(notification.progress ?? 0);
-    const terminal = isTerminalStatus(notification.status);
+    const terminal = isTerminalNotificationStatus(notification.status);
     const previous = lastAnnouncementRef.current;
     const shouldAnnounce =
       notification.message !== previous.message ||
@@ -611,7 +613,7 @@ const UnifiedNotificationItem = ({
               </button>
             </Tooltip>
           )}
-        {(notification.status === 'completed' || notification.status === 'failed') && (
+        {isTerminalNotificationStatus(notification.status) && (
           <button
             onClick={onDismiss}
             className="flex h-11 w-11 min-h-11 min-w-11 items-center justify-center rounded transition-colors hover:bg-themed-hover motion-reduce:transition-none"

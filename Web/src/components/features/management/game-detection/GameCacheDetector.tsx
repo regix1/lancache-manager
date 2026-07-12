@@ -357,12 +357,16 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         loadResults();
       }
 
-      // Handle game detection failure - ONLY if we were starting detection
-      const gameDetectionFailedNotifs = notifications.filter(
-        (n) => n.type === 'game_detection' && n.status === 'failed'
+      // Handle game detection failure or cancellation - ONLY if we were starting detection.
+      // A cancelled scan is terminal exactly like a failed one: without it the card would
+      // stay in its loading state and detectionInFlightRef would block the next scan.
+      const gameDetectionEndedNotifs = notifications.filter(
+        (n) => n.type === 'game_detection' && (n.status === 'failed' || n.status === 'cancelled')
       );
-      if (gameDetectionFailedNotifs.length > 0) {
-        console.error('[GameCacheDetector] Game detection failed');
+      if (gameDetectionEndedNotifs.length > 0) {
+        if (gameDetectionEndedNotifs.some((n) => n.status === 'failed')) {
+          console.error('[GameCacheDetector] Game detection failed');
+        }
         setIsStartingDetection(false);
         setScanType(null);
         // Reset ref to allow future detection calls

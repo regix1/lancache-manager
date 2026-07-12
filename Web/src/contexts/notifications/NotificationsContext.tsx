@@ -13,6 +13,7 @@ import {
   NOTIFICATION_IDS,
   SCHEDULED_PREFILL_LEGACY_GENERIC_NOTIFICATION_ID
 } from './constants';
+import { isTerminalNotificationStatus } from './notificationStatus';
 import { createRecoveryRunner, type FetchWithAuth } from './recoveryFactory';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
 import { useNotificationHandlers } from './useNotificationHandlers';
@@ -258,10 +259,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           setNotifications((prev: UnifiedNotification[]) => {
             const notification = prev.find((n) => n.id === notificationId);
             // Only dismiss if notification exists and is in a terminal state
-            if (
-              notification &&
-              (notification.status === 'completed' || notification.status === 'failed')
-            ) {
+            if (notification && isTerminalNotificationStatus(notification.status)) {
               autoDismissTimersRef.current.delete(notificationId);
               // Defer to avoid setState-during-render (CustomEvent triggers UniversalNotificationBar setState)
               queueMicrotask(() => removeNotificationAnimated(notificationId));
@@ -286,9 +284,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
   const clearCompletedNotifications = useCallback(() => {
     setNotifications((prev: UnifiedNotification[]) => {
-      const completed = prev.filter((n) => n.status === 'completed' || n.status === 'failed');
-      completed.forEach((n) => cancelAutoDismissTimer(n.id));
-      return prev.filter((n) => n.status === 'running');
+      const terminal = prev.filter((n) => isTerminalNotificationStatus(n.status));
+      terminal.forEach((n) => cancelAutoDismissTimer(n.id));
+      return prev.filter((n) => !isTerminalNotificationStatus(n.status));
     });
   }, [cancelAutoDismissTimer]);
 
