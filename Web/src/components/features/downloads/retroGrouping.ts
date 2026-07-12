@@ -4,7 +4,7 @@ import type { Download as DownloadType, DownloadGroup } from '../../../types';
 
 export type RetroSortOrder =
   | 'recent'
-  | 'latest'
+  | 'latest' // accepted as alias of recent (API / legacy)
   | 'oldest'
   | 'largest'
   | 'smallest'
@@ -112,7 +112,7 @@ const buildGroupKey = (download: DownloadType, groupByGame: boolean): string => 
 // See buildGroupKey for the two supported grouping modes.
 export const groupByDepot = (
   items: (DownloadType | DownloadGroup)[],
-  sortOrder: RetroSortOrder = 'latest',
+  sortOrder: RetroSortOrder = 'recent',
   groupByGame = false
 ): DepotGroupedData[] => {
   const depotGroups: Record<

@@ -134,7 +134,6 @@ type HitMissFilter = 'all' | 'hit' | 'miss';
 // Sort order type
 type SortOrder =
   | 'recent'
-  | 'latest'
   | 'oldest'
   | 'largest'
   | 'smallest'
@@ -544,7 +543,12 @@ const DownloadsTab: React.FC = () => {
       searchQuery: storage.getItem(STORAGE_KEYS.SEARCH_QUERY) || '',
       itemsPerPage: getItemsPerPage(savedViewMode),
       viewMode: savedViewMode,
-      sortOrder: (storage.getItem(STORAGE_KEYS.SORT_ORDER) || 'recent') as SortOrder,
+      // Migrate removed "latest" (old Frequent First / buggy Newest) → chronological Newest
+      sortOrder: (() => {
+        const stored = storage.getItem(STORAGE_KEYS.SORT_ORDER);
+        if (!stored || stored === 'latest') return 'recent' as SortOrder;
+        return stored as SortOrder;
+      })(),
       aestheticMode: storage.getItem(STORAGE_KEYS.AESTHETIC_MODE) === 'true',
       fullHeightBanners: storage.getItem(STORAGE_KEYS.FULL_HEIGHT_BANNERS) === 'true',
       groupByFrequency: storage.getItem('lancache_downloads_group_by_frequency') !== 'false',
@@ -1155,9 +1159,7 @@ const DownloadsTab: React.FC = () => {
           return aName.localeCompare(bName);
         }
         case 'recent':
-        case 'latest':
         default: {
-          // Same time comparator; frequency bucketing is decided below (recent always skips it)
           const aLatestDefault =
             'downloads' in a
               ? Math.max(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
@@ -1179,17 +1181,17 @@ const DownloadsTab: React.FC = () => {
     ) {
       const mixedItems = [...items] as (Download | DownloadGroup)[];
 
-      // Pure chronological (recent) and non-time sorts skip multi/single/individual bucketing.
-      // Time/size sorts only bucket when "Group by frequency" is on (Frequent first / oldest / size).
+      // Service/alphabetical/efficiency/sessions sorts don't bucket by frequency,
+      // and bucketing is a no-op when the "Group by frequency" toggle is off.
       const skipFrequencyGrouping =
-        ['recent', 'service', 'alphabetical', 'efficiency', 'efficiency-low', 'sessions'].includes(
+        ['service', 'alphabetical', 'efficiency', 'efficiency-low', 'sessions'].includes(
           settings.sortOrder
         ) || !settings.groupByFrequency;
       if (skipFrequencyGrouping) {
         mixedItems.sort(sortFn);
         items = mixedItems;
       } else {
-        // Frequent-first style: Multiple vs Single categorization, then sort within buckets
+        // Preserve Multiple vs Single vs Individual categorization, sorted within each bucket
         const multipleDownloads = mixedItems.filter(
           (item) => 'downloads' in item && item.downloads.length > 1
         );
@@ -1198,12 +1200,10 @@ const DownloadsTab: React.FC = () => {
         );
         const individuals = mixedItems.filter((item) => !('downloads' in item));
 
-        // Sort each category
         multipleDownloads.sort(sortFn);
         singleDownloads.sort(sortFn);
         individuals.sort(sortFn);
 
-        // Combine categories in the correct order
         items = [...multipleDownloads, ...singleDownloads, ...individuals];
       }
     }
@@ -1608,7 +1608,6 @@ const DownloadsTab: React.FC = () => {
                   <EnhancedDropdown
                     options={[
                       { value: 'recent', label: t('downloads.tab.sort.recent') },
-                      { value: 'latest', label: t('downloads.tab.sort.latest') },
                       { value: 'oldest', label: t('downloads.tab.sort.oldest') },
                       { value: 'largest', label: t('downloads.tab.sort.largest') },
                       { value: 'smallest', label: t('downloads.tab.sort.smallest') },
@@ -1713,7 +1712,6 @@ const DownloadsTab: React.FC = () => {
                   <EnhancedDropdown
                     options={[
                       { value: 'recent', label: t('downloads.tab.sort.recent') },
-                      { value: 'latest', label: t('downloads.tab.sort.latest') },
                       { value: 'oldest', label: t('downloads.tab.sort.oldest') },
                       { value: 'largest', label: t('downloads.tab.sort.largest') },
                       { value: 'smallest', label: t('downloads.tab.sort.smallest') },
@@ -1728,7 +1726,7 @@ const DownloadsTab: React.FC = () => {
                       setSettings({ ...settings, sortOrder: value as SortOrder })
                     }
                     prefix={t('downloads.tab.sort.prefix')}
-                    className="w-32 md:w-40 lg:w-44"
+                    className="w-28 md:w-32 lg:w-36"
                   />
                 </div>
 
