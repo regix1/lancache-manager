@@ -1,5 +1,5 @@
 /* Shared presentational primitives for the expanded content of Logs & Cache
-   management sections (Disk Cache, Corrupt Cache Files, Game Detection, Log Processing,
+   management sections (Disk Cache, Corruption Detection and Removal, Game Detection, Log Processing,
    Log Removal, Eviction). Matches the Schedules design language: bordered
    tertiary fills, uppercase tracked labels, tabular figures. Import this file in
    any management section component that uses these classes so the styles ship

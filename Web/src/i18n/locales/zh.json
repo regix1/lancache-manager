@@ -1947,7 +1947,7 @@
             "label": "损坏缓存文件扫描结果",
             "description": "已保存的重复 MISS 候选项及其精确缓存路径",
             "details": "扫描验证为仍在磁盘上的预计算可疑缓存文件",
-            "affectedPages": "缓存标签页 • 损坏的缓存文件"
+            "affectedPages": "缓存标签页 • 损坏检测与移除"
           },
           "clientGroups": {
             "label": "客户端组",
@@ -2416,7 +2416,7 @@
       "batchCancelledWithFailures": "已在移除 {{count}} 个服务日志后取消，其中有 {{failed}} 个失败"
     },
     "corruption": {
-      "title": "损坏的缓存文件",
+      "title": "损坏检测与移除",
       "summary": "查找仍在磁盘上却反复未命中的缓存文件，并仅移除扫描验证过的精确路径，以便重新获取新副本。",
       "directoryMissing": "无法移除：未找到所需目录",
       "scanningMessage": "正在扫描日志，查找仍在磁盘上却反复缓存未命中的文件…对于大型日志文件，可能需要几分钟。",

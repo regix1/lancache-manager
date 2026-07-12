@@ -1947,7 +1947,7 @@
             "label": "Corrupt Cache File Scan Results",
             "description": "Saved repeated-MISS candidates with exact cache paths",
             "details": "Pre-computed suspect cache files verified present by the scan",
-            "affectedPages": "Cache tab • Corrupt Cache Files"
+            "affectedPages": "Cache tab • Corruption Detection and Removal"
           },
           "clientGroups": {
             "label": "Client Groups",
@@ -2416,7 +2416,7 @@
       "batchCancelledWithFailures": "Log removal cancelled after {{count}} service logs, with {{failed}} failures"
     },
     "corruption": {
-      "title": "Corrupt Cache Files",
+      "title": "Corruption Detection and Removal",
       "summary": "Find cache files that repeatedly miss while still present on disk, then remove only the exact paths verified by the scan so they can be fetched again.",
       "directoryMissing": "Removal unavailable: required directories not found",
       "scanningMessage": "Scanning logs for repeated cache misses on files still present on disk… This may take several minutes for large log files.",
