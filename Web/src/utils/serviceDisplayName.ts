@@ -14,3 +14,12 @@ export function getServiceDisplayName(serviceName: string): string {
   const alias = SERVICE_DISPLAY_NAME_ALIASES[serviceName.toLowerCase()];
   return alias ?? serviceName;
 }
+
+/**
+ * Key to group/filter raw service names by their folded display name (e.g.
+ * "xbox" and "xboxlive" both key to "xbox") so service filter dropdowns show
+ * one entry per displayed name instead of one per raw alias.
+ */
+export function getServiceFilterKey(serviceName: string): string {
+  return getServiceDisplayName(serviceName).toLowerCase();
+}

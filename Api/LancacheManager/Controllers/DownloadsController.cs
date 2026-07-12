@@ -682,7 +682,18 @@ public class DownloadsController : ControllerBase
         // Filter: service
         if (!string.IsNullOrEmpty(query.Service) && query.Service != "all")
         {
-            baseQuery = baseQuery.Where(d => d.Service == query.Service);
+            // The frontend filters by the folded display name ("xbox" covers the raw
+            // "xbox"/"xboxlive"/"microsoft" aliases), so expand it back to every raw
+            // LogEntries.Service value it represents instead of an exact match.
+            if (ServiceBreakdownMerger.NormalizeXboxService(query.Service) == "xbox")
+            {
+                var xboxServiceNames = ServiceBreakdownMerger.XboxRawServiceNames;
+                baseQuery = baseQuery.Where(d => xboxServiceNames.Contains(d.Service));
+            }
+            else
+            {
+                baseQuery = baseQuery.Where(d => d.Service == query.Service);
+            }
         }
 
         // Filter: client IP

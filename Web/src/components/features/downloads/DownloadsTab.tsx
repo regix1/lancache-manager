@@ -52,7 +52,7 @@ import DownloadsHeader from './DownloadsHeader';
 import ActiveDownloadsView from './ActiveDownloadsView';
 
 import type { Download, DownloadGroup } from '../../../types';
-import { getServiceDisplayName } from '@utils/serviceDisplayName';
+import { getServiceDisplayName, getServiceFilterKey } from '@utils/serviceDisplayName';
 
 // Storage keys for persistence
 const STORAGE_KEYS = {
@@ -759,25 +759,34 @@ const DownloadsTab: React.FC = () => {
       const displayService = getServiceDisplayName(service);
       return displayService.charAt(0).toUpperCase() + displayService.slice(1);
     };
+
+    // Group raw service names by their folded display name (e.g. "xbox" and
+    // "xboxlive" both fold to "Xbox") so the dropdown shows one entry per
+    // displayed name instead of one per raw alias.
+    const groups = new Map<string, { service: string; visible: boolean }>();
+    availableServices.forEach((service) => {
+      const key = getServiceFilterKey(service);
+      const isVisible = filteredAvailableServices.includes(service);
+      const existing = groups.get(key);
+      if (!existing) {
+        groups.set(key, { service, visible: isVisible });
+      } else if (isVisible) {
+        existing.visible = true;
+      }
+    });
+
+    const visibleEntries = Array.from(groups.entries()).filter(([, g]) => g.visible);
+    const hiddenEntries = Array.from(groups.entries()).filter(([, g]) => !g.visible);
+
     const baseOptions = [
       { value: 'all', label: t('downloads.tab.filters.allServices') },
-      ...filteredAvailableServices.map((service) => ({
-        value: service,
-        label: serviceLabel(service)
-      }))
+      ...visibleEntries.map(([key, g]) => ({ value: key, label: serviceLabel(g.service) }))
     ];
 
-    // Add hidden services option if there are any filtered out
-    const hiddenServices = availableServices.filter(
-      (service) => !filteredAvailableServices.includes(service)
-    );
-    if (hiddenServices.length > 0) {
+    if (hiddenEntries.length > 0) {
       baseOptions.push(
         { value: 'divider', label: t('downloads.tab.filters.smallFilesOnly') },
-        ...hiddenServices.map((service) => ({
-          value: service,
-          label: serviceLabel(service)
-        }))
+        ...hiddenEntries.map(([key, g]) => ({ value: key, label: serviceLabel(g.service) }))
       );
     }
 
@@ -882,7 +891,9 @@ const DownloadsTab: React.FC = () => {
     }
 
     if (settings.selectedService !== 'all') {
-      filtered = filtered.filter((d) => d.service.toLowerCase() === settings.selectedService);
+      filtered = filtered.filter(
+        (d) => getServiceFilterKey(d.service) === settings.selectedService
+      );
     }
 
     if (settings.selectedClient !== 'all') {

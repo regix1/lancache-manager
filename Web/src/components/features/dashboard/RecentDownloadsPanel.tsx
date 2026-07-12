@@ -21,7 +21,7 @@ import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import EventBadge from '../downloads/EventBadge';
 import { storage } from '@utils/storage';
 import { STORAGE_KEYS } from '@utils/constants';
-import { getServiceDisplayName } from '@utils/serviceDisplayName';
+import { getServiceDisplayName, getServiceFilterKey } from '@utils/serviceDisplayName';
 import type {
   Download,
   DownloadGroup,
@@ -419,9 +419,20 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     return t(key);
   }, [timeRange, t]);
 
-  const availableServices = useMemo(() => {
-    const services = new Set<string>(latestDownloads.map((d: Download) => d.service));
-    return ['all', ...Array.from(services).sort()];
+  // Group raw service names by their folded display name (e.g. "xbox" and
+  // "xboxlive" both fold to "Xbox") so the filter dropdown shows one entry
+  // per displayed name instead of one per raw alias.
+  const serviceFilterOptions = useMemo(() => {
+    const representatives = new Map<string, string>();
+    latestDownloads.forEach((d: Download) => {
+      const key = getServiceFilterKey(d.service);
+      if (!representatives.has(key)) {
+        representatives.set(key, d.service);
+      }
+    });
+    return Array.from(representatives.entries())
+      .map(([key, service]) => ({ key, service }))
+      .sort((a, b) => a.key.localeCompare(b.key));
   }, [latestDownloads]);
 
   const { clientGroups } = useClientGroups();
@@ -478,7 +489,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
   const filteredDownloads = useMemo(() => {
     return latestDownloads.filter((download) => {
-      if (selectedService !== 'all' && download.service !== selectedService) return false;
+      if (selectedService !== 'all' && getServiceFilterKey(download.service) !== selectedService)
+        return false;
       if (selectedClient !== 'all') {
         // Check if it's a group selection (e.g., "group-123")
         if (selectedClient.startsWith('group-')) {
@@ -636,16 +648,16 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       {viewMode === 'recent' && latestDownloads.length > 0 && (
         <div className="rdl-filters">
           <EnhancedDropdown
-            options={availableServices.map((service) => {
-              if (service === 'all') {
-                return { value: service, label: t('dashboard.downloadsPanel.allServices') };
-              }
-              const displayService = getServiceDisplayName(service);
-              return {
-                value: service,
-                label: displayService.charAt(0).toUpperCase() + displayService.slice(1)
-              };
-            })}
+            options={[
+              { value: 'all', label: t('dashboard.downloadsPanel.allServices') },
+              ...serviceFilterOptions.map(({ key, service }) => {
+                const displayService = getServiceDisplayName(service);
+                return {
+                  value: key,
+                  label: displayService.charAt(0).toUpperCase() + displayService.slice(1)
+                };
+              })
+            ]}
             value={selectedService}
             onChange={setSelectedService}
           />

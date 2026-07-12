@@ -15,6 +15,14 @@ internal static class ServiceBreakdownMerger
     private const string XboxCanonical = "xbox";
 
     /// <summary>
+    /// Every raw <c>LogEntries.Service</c> value that folds to the canonical "xbox" display
+    /// name. Used to expand a folded "xbox" filter into a raw-value IN-list for EF queries,
+    /// since LINQ can't translate <see cref="NormalizeXboxService"/> itself into SQL.
+    /// </summary>
+    public static readonly IReadOnlyList<string> XboxRawServiceNames =
+        new[] { XboxCanonical }.Concat(_xboxAliases).ToList();
+
+    /// <summary>
     /// Folds xboxlive/microsoft to the canonical "xbox" display name; any other service name
     /// passes through unchanged. Display-only - never write the result back to LogEntries.Service.
     /// </summary>
