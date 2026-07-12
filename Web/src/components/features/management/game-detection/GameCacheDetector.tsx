@@ -400,16 +400,18 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     };
   }, [on, off, scheduleCachedDetectionSync]);
 
-  // Listen for EvictionScanComplete - reloads detection results so evicted games surface immediately
-  // without requiring a full Game Cache Detection scan or service restart.
+  // Reload after an eviction scan or successful cache clear so newly evicted games surface
+  // immediately without requiring a full Game Cache Detection scan or service restart.
   useEffect(() => {
-    const handleEvictionScanComplete = () => {
-      scheduleCachedDetectionSync('Failed to reload after eviction scan');
+    const handleEvictionStateChanged = () => {
+      scheduleCachedDetectionSync('Failed to reload after cache eviction state changed');
     };
 
-    on('EvictionScanComplete', handleEvictionScanComplete);
+    on('CacheClearingComplete', handleEvictionStateChanged);
+    on('EvictionScanComplete', handleEvictionStateChanged);
     return () => {
-      off('EvictionScanComplete', handleEvictionScanComplete);
+      off('CacheClearingComplete', handleEvictionStateChanged);
+      off('EvictionScanComplete', handleEvictionStateChanged);
     };
   }, [on, off, scheduleCachedDetectionSync]);
 

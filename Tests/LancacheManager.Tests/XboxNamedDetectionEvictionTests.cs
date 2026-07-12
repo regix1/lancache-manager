@@ -294,6 +294,50 @@ public class XboxNamedDetectionEvictionTests
         Assert.False(await assert.CachedGameDetections.AnyAsync(g => g.Service == "wsus"));
     }
 
+    [Fact]
+    public async Task RecoverEvictedGames_DoesNotPromotePartiallyEvictedNamedGame()
+    {
+        var options = NewInMemoryOptions();
+        await using (var seed = new AppDbContext(options))
+        {
+            var evicted = EvictedNamedDownload("xbox", "Halo Infinite");
+            var stillCached = EvictedNamedDownload("xbox", "Halo Infinite");
+            stillCached.ClientIp = "10.0.0.2";
+            stillCached.IsEvicted = false;
+            seed.Downloads.AddRange(evicted, stillCached);
+            await seed.SaveChangesAsync();
+        }
+
+        var recovered = await NewDataService(options).RecoverEvictedGamesAsync();
+
+        await using var assert = new AppDbContext(options);
+        Assert.Equal(0, recovered);
+        Assert.False(await assert.CachedGameDetections.AnyAsync());
+    }
+
+    [Fact]
+    public async Task RecoverEvictedServices_DoesNotPromotePartiallyEvictedService()
+    {
+        var options = NewInMemoryOptions();
+        await using (var seed = new AppDbContext(options))
+        {
+            var evicted = EvictedNamedDownload("wsus", "unused");
+            evicted.GameName = null;
+            var stillCached = EvictedNamedDownload("wsus", "unused");
+            stillCached.ClientIp = "10.0.0.2";
+            stillCached.GameName = null;
+            stillCached.IsEvicted = false;
+            seed.Downloads.AddRange(evicted, stillCached);
+            await seed.SaveChangesAsync();
+        }
+
+        var recovered = await NewDataService(options).RecoverEvictedServicesAsync();
+
+        await using var assert = new AppDbContext(options);
+        Assert.Equal(0, recovered);
+        Assert.False(await assert.CachedServiceDetections.AnyAsync());
+    }
+
     // -----------------------------------------------------------------------------------------
     // Active named-game REMOVAL detection-row cleanup. Regression guard for the bug where removing
     // an Xbox named game (e.g. "Minecraft for Windows") succeeded on disk/DB but the detection row

@@ -20,6 +20,7 @@ public class CacheClearingService : ScheduledBackgroundService
     private readonly DatasourceService _datasourceService;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
+    private readonly GameCacheDetectionService _gameCacheDetectionService;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private string _cachePath = null!;
     private CacheDeleteMode _deleteMode;
@@ -51,7 +52,8 @@ public class CacheClearingService : ScheduledBackgroundService
         RustProcessHelper rustProcessHelper,
         DatasourceService datasourceService,
         IUnifiedOperationTracker operationTracker,
-        IDbContextFactory<AppDbContext> dbContextFactory)
+        IDbContextFactory<AppDbContext> dbContextFactory,
+        GameCacheDetectionService gameCacheDetectionService)
         : base(logger, configuration)
     {
         _notifications = notifications;
@@ -61,6 +63,7 @@ public class CacheClearingService : ScheduledBackgroundService
         _datasourceService = datasourceService;
         _operationTracker = operationTracker;
         _dbContextFactory = dbContextFactory;
+        _gameCacheDetectionService = gameCacheDetectionService;
 
         _deleteMode = CacheDeleteMode.Preserve;
 
@@ -533,19 +536,55 @@ public class CacheClearingService : ScheduledBackgroundService
             _completionDatasourcesCleared = validCachePaths.Count;
             _completionDuration = duration;
 
-            // Clearing cache files invalidates every stored detection projection. Keep the
-            // corruption candidate rows and their scan header in the same transaction so a
-            // completed zero-result header cannot survive as the current scan.
-            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-            var invalidated = await InvalidateCachedDetectionResultsAsync(
+            // Every Rust deletion process has now returned success. Disk deletion is irreversible,
+            // so a cancellation arriving after this boundary must not strand the database in its
+            // pre-clear state. Finish the short reconciliation consistently, then publish success.
+            var finalizationToken = CancellationToken.None;
+
+            // The clear operation is authoritative positive evidence that every byte-backed,
+            // inactive Download in these datasource roots has lost its cache files. Reconcile
+            // those rows directly instead of asking Eviction Scan to infer intent from an empty
+            // root (which it deliberately refuses to do because an unmounted cache looks the
+            // same). Keep the eviction flags and all stale detection projections in one
+            // transaction so the UI never observes the old disk snapshot with the new flags.
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(finalizationToken);
+            var reconciliation = await ReconcileSuccessfulCacheClearAsync(
                 dbContext,
-                cancellationToken);
+                validCachePaths.Select(path => path.Name).ToArray(),
+                finalizationToken);
             _logger.LogInformation(
-                "[CacheClearing] Cleared cached detection results: {Games} games, {Services} services, {CorruptionCandidates} corruption candidates, {CorruptionScans} corruption scan headers",
-                invalidated.Games,
-                invalidated.Services,
-                invalidated.CorruptionCandidates,
-                invalidated.CorruptionScans);
+                "[CacheClearing] Reconciled successful clear: {DownloadsEvicted} downloads marked evicted; cleared {Games} game, {Services} service, {CorruptionCandidates} corruption candidate, and {CorruptionScans} corruption scan projections",
+                reconciliation.DownloadsEvicted,
+                reconciliation.Games,
+                reconciliation.Services,
+                reconciliation.CorruptionCandidates,
+                reconciliation.CorruptionScans);
+
+            // Recreate zero-byte detection projections for the newly evicted entities so the
+            // existing Evicted Items UI can display them immediately. Recovery is best-effort:
+            // the authoritative Downloads.IsEvicted flags are already committed and startup/full
+            // detection reconciliation can rebuild projections if this derived step fails.
+            try
+            {
+                var gamesRecovered = await _gameCacheDetectionService
+                    .RecoverEvictedGamesAsync(finalizationToken);
+                var servicesRecovered = await _gameCacheDetectionService
+                    .RecoverEvictedServicesAsync(finalizationToken);
+                _logger.LogInformation(
+                    "[CacheClearing] Recovered {Games} evicted game and {Services} evicted service projections after cache clear",
+                    gamesRecovered,
+                    servicesRecovered);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogError(
+                    ex,
+                    "[CacheClearing] Evicted-item projection recovery failed; Downloads remain marked evicted and recovery will retry during game detection reconciliation");
+            }
+            finally
+            {
+                _gameCacheDetectionService.InvalidateDetectionCache();
+            }
 
             // Mark operation as complete in unified tracker (emits CacheClearingComplete via onTerminalEmit)
             _operationTracker.CompleteOperation(operationId, success: true);
@@ -627,20 +666,12 @@ public class CacheClearingService : ScheduledBackgroundService
                 cancellationToken);
             try
             {
-                // Direct DbContext deletes are deliberate: cache clear wipes whole detection
-                // tables, not the load/upsert flow GameCacheDetectionDataService owns.
-                var games = await context.CachedGameDetections.ExecuteDeleteAsync(cancellationToken);
-                var services = await context.CachedServiceDetections.ExecuteDeleteAsync(cancellationToken);
-                var (corruptionCandidates, corruptionScans) =
-                    await DatabaseService.DeleteCachedCorruptionEvidenceAsync(
-                        context,
-                        cancellationToken);
-                await context.CachedDetectionSummaries
-                    .Where(summary => summary.Id == CachedDetectionSummary.SingletonId)
-                    .ExecuteDeleteAsync(cancellationToken);
+                var invalidated = await InvalidateCachedDetectionResultsCoreAsync(
+                    context,
+                    cancellationToken);
 
                 await transaction.CommitAsync(cancellationToken);
-                return (games, services, corruptionCandidates, corruptionScans);
+                return invalidated;
             }
             catch
             {
@@ -648,6 +679,94 @@ public class CacheClearingService : ScheduledBackgroundService
                 throw;
             }
         });
+    }
+
+    /// <summary>
+    /// Reconciles a cache clear that the application itself completed successfully. Unlike the
+    /// generic eviction scan, this path can trust an empty cache root because the application
+    /// performed the deletion. Active and zero-byte Downloads remain untouched: they either may
+    /// be writing new cache data now or never proved that cache content existed.
+    /// </summary>
+    internal static async Task<(
+        int DownloadsEvicted,
+        int Games,
+        int Services,
+        int CorruptionCandidates,
+        int CorruptionScans)> ReconcileSuccessfulCacheClearAsync(
+        AppDbContext context,
+        IReadOnlyCollection<string> clearedDatasourceNames,
+        CancellationToken cancellationToken)
+    {
+        var datasourceNames = clearedDatasourceNames
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (datasourceNames.Length == 0)
+        {
+            throw new ArgumentException(
+                "At least one cleared datasource is required for cache-clear reconciliation.",
+                nameof(clearedDatasourceNames));
+        }
+
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync(
+                System.Data.IsolationLevel.ReadCommitted,
+                cancellationToken);
+            try
+            {
+                var downloadsEvicted = await context.Downloads
+                    .Where(download =>
+                        !download.IsActive
+                        && !download.IsEvicted
+                        && (download.CacheHitBytes > 0 || download.CacheMissBytes > 0)
+                        && datasourceNames.Contains(download.Datasource))
+                    .ExecuteUpdateAsync(
+                        setters => setters.SetProperty(download => download.IsEvicted, true),
+                        cancellationToken);
+
+                var invalidated = await InvalidateCachedDetectionResultsCoreAsync(
+                    context,
+                    cancellationToken);
+
+                await transaction.CommitAsync(cancellationToken);
+                return (
+                    downloadsEvicted,
+                    invalidated.Games,
+                    invalidated.Services,
+                    invalidated.CorruptionCandidates,
+                    invalidated.CorruptionScans);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                throw;
+            }
+        });
+    }
+
+    private static async Task<(
+        int Games,
+        int Services,
+        int CorruptionCandidates,
+        int CorruptionScans)> InvalidateCachedDetectionResultsCoreAsync(
+        AppDbContext context,
+        CancellationToken cancellationToken)
+    {
+        // Direct DbContext deletes are deliberate: cache clear wipes whole detection tables,
+        // not the load/upsert flow GameCacheDetectionDataService owns.
+        var games = await context.CachedGameDetections.ExecuteDeleteAsync(cancellationToken);
+        var services = await context.CachedServiceDetections.ExecuteDeleteAsync(cancellationToken);
+        var (corruptionCandidates, corruptionScans) =
+            await DatabaseService.DeleteCachedCorruptionEvidenceAsync(
+                context,
+                cancellationToken);
+        await context.CachedDetectionSummaries
+            .Where(summary => summary.Id == CachedDetectionSummary.SingletonId)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        return (games, services, corruptionCandidates, corruptionScans);
     }
 
     /// <summary>

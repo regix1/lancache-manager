@@ -797,6 +797,10 @@ public sealed partial class GameCacheDetectionDataService
                      && d.GameAppId > 0
                      && d.EpicAppId == null
                      && d.IsEvicted
+                     && !dbContext.Downloads.Any(other =>
+                         other.GameAppId == d.GameAppId
+                         && other.EpicAppId == null
+                         && !other.IsEvicted)
                      && !dbContext.CachedGameDetections.Any(g => g.GameAppId == d.GameAppId!.Value))
             .GroupBy(d => d.GameAppId!.Value)
             .Select(g => new
@@ -837,6 +841,9 @@ public sealed partial class GameCacheDetectionDataService
         var evictedEpicGames = await dbContext.Downloads
             .Where(d => d.EpicAppId != null
                      && d.IsEvicted
+                     && !dbContext.Downloads.Any(other =>
+                         other.EpicAppId == d.EpicAppId
+                         && !other.IsEvicted)
                      && !dbContext.CachedGameDetections.Any(g => g.EpicAppId == d.EpicAppId))
             .GroupBy(d => d.EpicAppId!)
             .Select(g => new
@@ -880,6 +887,12 @@ public sealed partial class GameCacheDetectionDataService
                      && d.EpicAppId == null
                      && d.Service != null
                      && d.GameName != null
+                     && !dbContext.Downloads.Any(other =>
+                         other.GameAppId == null
+                         && other.EpicAppId == null
+                         && other.Service == d.Service
+                         && other.GameName == d.GameName
+                         && !other.IsEvicted)
                      && !dbContext.CachedGameDetections.Any(
                          g => g.GameAppId == 0 && g.Service == d.Service && g.GameName == d.GameName))
             .GroupBy(d => new { d.Service, d.GameName })
@@ -925,6 +938,12 @@ public sealed partial class GameCacheDetectionDataService
                      && d.EpicAppId == null
                      && d.Service != null
                      && d.GameName == null            // FIX (Q2): named games recover as (Service,GameName), not a service row
+                     && !dbContext.Downloads.Any(other =>
+                         other.GameAppId == null
+                         && other.EpicAppId == null
+                         && other.Service == d.Service
+                         && other.GameName == null
+                         && !other.IsEvicted)
                      && !dbContext.CachedServiceDetections.Any(
                          s => s.ServiceName == d.Service!))
             .GroupBy(d => d.Service!)

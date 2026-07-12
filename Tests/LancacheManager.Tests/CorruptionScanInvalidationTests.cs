@@ -125,6 +125,137 @@ public sealed class CorruptionScanInvalidationTests
         await AssertScanCountsAsync(database.Options, scans: 1, candidates: 1);
     }
 
+    [Fact]
+    public async Task CacheClearing_SuccessMarksOnlyEligibleDownloadsInClearedDatasourceAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedScanAsync(database.Options, candidateCount: 1);
+
+        await using (var setup = new AppDbContext(database.Options))
+        {
+            setup.Downloads.AddRange(
+                CreateDownload("eligible", "Default", cacheHitBytes: 1024),
+                CreateDownload("active", "Default", cacheHitBytes: 1024, isActive: true),
+                CreateDownload("zero-byte", "Default"),
+                CreateDownload("other-datasource", "Secondary", cacheMissBytes: 2048),
+                CreateDownload("already-evicted", "Default", cacheHitBytes: 1024, isEvicted: true));
+            setup.CachedGameDetections.Add(new CachedGameDetection
+            {
+                GameAppId = 10,
+                GameName = "Cached Game",
+                Service = "steam",
+                CacheFilesFound = 1,
+                TotalSizeBytes = 1024,
+                LastDetectedUtc = DateTime.UtcNow,
+                CreatedAtUtc = DateTime.UtcNow
+            });
+            setup.CachedServiceDetections.Add(new CachedServiceDetection
+            {
+                ServiceName = "wsus",
+                CacheFilesFound = 1,
+                TotalSizeBytes = 1024,
+                LastDetectedUtc = DateTime.UtcNow,
+                CreatedAtUtc = DateTime.UtcNow
+            });
+            await setup.SaveChangesAsync();
+        }
+
+        await using (var context = new AppDbContext(database.Options))
+        {
+            var result = await CacheClearingService.ReconcileSuccessfulCacheClearAsync(
+                context,
+                ["Default"],
+                CancellationToken.None);
+
+            Assert.Equal(1, result.DownloadsEvicted);
+            Assert.Equal(1, result.Games);
+            Assert.Equal(1, result.Services);
+            Assert.Equal(1, result.CorruptionCandidates);
+            Assert.Equal(1, result.CorruptionScans);
+        }
+
+        await using (var assertContext = new AppDbContext(database.Options))
+        {
+            var states = await assertContext.Downloads
+                .OrderBy(download => download.ClientIp)
+                .ToDictionaryAsync(download => download.ClientIp, download => download.IsEvicted);
+            Assert.True(states["eligible"]);
+            Assert.False(states["active"]);
+            Assert.False(states["zero-byte"]);
+            Assert.False(states["other-datasource"]);
+            Assert.True(states["already-evicted"]);
+            Assert.Empty(await assertContext.CachedGameDetections.ToListAsync());
+            Assert.Empty(await assertContext.CachedServiceDetections.ToListAsync());
+        }
+
+        await AssertScanCountsAsync(database.Options, scans: 0, candidates: 0);
+    }
+
+    [Fact]
+    public async Task CacheClearing_ReconciliationRollsBackEvictionFlagsWhenInvalidationFailsAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedScanAsync(database.Options, candidateCount: 1);
+
+        await using (var setup = new AppDbContext(database.Options))
+        {
+            setup.Downloads.Add(CreateDownload("rollback", "Default", cacheHitBytes: 1024));
+            await setup.SaveChangesAsync();
+            await setup.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TRIGGER "PreventReconciledCorruptionScanDelete"
+                BEFORE DELETE ON "CachedCorruptionScans"
+                BEGIN
+                    SELECT RAISE(ABORT, 'blocked reconciled scan-header deletion');
+                END;
+                """);
+        }
+
+        await using (var context = new AppDbContext(database.Options))
+        {
+            await Assert.ThrowsAsync<SqliteException>(() =>
+                CacheClearingService.ReconcileSuccessfulCacheClearAsync(
+                    context,
+                    ["Default"],
+                    CancellationToken.None));
+        }
+
+        await using (var assertContext = new AppDbContext(database.Options))
+        {
+            Assert.False((await assertContext.Downloads.SingleAsync()).IsEvicted);
+        }
+        await AssertScanCountsAsync(database.Options, scans: 1, candidates: 1);
+    }
+
+    [Fact]
+    public async Task CacheClearing_CancelledReconciliationDoesNotChangeDownloadsOrEvidenceAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedScanAsync(database.Options, candidateCount: 1);
+        await using (var setup = new AppDbContext(database.Options))
+        {
+            setup.Downloads.Add(CreateDownload("cancelled", "Default", cacheHitBytes: 1024));
+            await setup.SaveChangesAsync();
+        }
+
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+        await using (var context = new AppDbContext(database.Options))
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                CacheClearingService.ReconcileSuccessfulCacheClearAsync(
+                    context,
+                    ["Default"],
+                    cancellation.Token));
+        }
+
+        await using (var assertContext = new AppDbContext(database.Options))
+        {
+            Assert.False((await assertContext.Downloads.SingleAsync()).IsEvicted);
+        }
+        await AssertScanCountsAsync(database.Options, scans: 1, candidates: 1);
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(2)]
@@ -229,6 +360,28 @@ public sealed class CorruptionScanInvalidationTests
 
         await context.SaveChangesAsync();
     }
+
+    private static Download CreateDownload(
+        string identity,
+        string datasource,
+        long cacheHitBytes = 0,
+        long cacheMissBytes = 0,
+        bool isActive = false,
+        bool isEvicted = false) =>
+        new()
+        {
+            Service = "steam",
+            ClientIp = identity,
+            Datasource = datasource,
+            StartTimeUtc = DateTime.UtcNow.AddMinutes(-1),
+            EndTimeUtc = DateTime.UtcNow,
+            StartTimeLocal = DateTime.UtcNow.AddMinutes(-1),
+            EndTimeLocal = DateTime.UtcNow,
+            CacheHitBytes = cacheHitBytes,
+            CacheMissBytes = cacheMissBytes,
+            IsActive = isActive,
+            IsEvicted = isEvicted
+        };
 
     private static async Task AssertScanCountsAsync(
         DbContextOptions<AppDbContext> options,

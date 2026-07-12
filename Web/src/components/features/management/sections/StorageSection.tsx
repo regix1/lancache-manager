@@ -210,7 +210,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // Downloads.IsEvicted would update the DB (and evicted_downloads_count on
   // the detection response), but the Evicted Items card would keep showing
   // whatever it loaded at mount - hence "14 newly evicted" in the logs with
-  // no visible UI change. Refetch on scan / detection completion.
+  // no visible UI change. A successful cache clear now performs trusted eviction
+  // reconciliation too, so refetch on clear / scan / detection completion.
   const { on, off } = useSignalR();
   useEffect(() => {
     const handleScanDone = () => {
@@ -219,9 +220,11 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       // invalidation before we refetch. The hook owns cleanup on unmount.
       scheduleEvictedItemsRefresh(() => void fetchEvictedItems());
     };
+    on('CacheClearingComplete', handleScanDone);
     on('EvictionScanComplete', handleScanDone);
     on('GameDetectionComplete', handleScanDone);
     return () => {
+      off('CacheClearingComplete', handleScanDone);
       off('EvictionScanComplete', handleScanDone);
       off('GameDetectionComplete', handleScanDone);
     };
