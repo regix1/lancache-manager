@@ -802,7 +802,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   // Cancel is handled by UniversalNotificationBar via CANCEL_CONFIGS
   const controlSelectors = (
     <div className="mgmt-toolbar">
-      <div className="grid grid-cols-1 gap-2 w-full sm:w-auto sm:flex sm:flex-wrap sm:items-center">
+      <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
         <div className="w-full sm:w-auto">
           <EnhancedDropdown
             variant="button"

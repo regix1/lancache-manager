@@ -243,6 +243,60 @@
   flex-shrink: 0;
 }
 
+/* Quiet per-finding icon button (Dismiss / Restore). Icon-only so it reads as a light
+   affordance on a dense row, not a filled pill: transparent at rest, muted, with a hover
+   wash and a real focus ring. */
+.mgmt-evidence__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--theme-border-radius);
+  background: transparent;
+  color: var(--theme-text-muted);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.mgmt-evidence__action:hover {
+  background: var(--theme-bg-secondary-on-tertiary);
+  color: var(--theme-text-primary);
+}
+
+.mgmt-evidence__action:focus-visible {
+  outline: 2px solid var(--theme-border-focus);
+  outline-offset: 2px;
+}
+
+/* Quiet labelled bulk action (Dismiss all / Restore all) that sits beside a group toggle. */
+.mgmt-evidence__bulk {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+  padding: 0.2rem 0.45rem;
+  border: none;
+  border-radius: var(--theme-border-radius);
+  background: transparent;
+  color: var(--theme-text-muted);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.mgmt-evidence__bulk:hover {
+  background: var(--theme-bg-secondary-on-tertiary);
+  color: var(--theme-text-secondary);
+}
+
+.mgmt-evidence__bulk:focus-visible {
+  outline: 2px solid var(--theme-border-focus);
+  outline-offset: 2px;
+}
+
 .mgmt-evidence__tags {
   display: flex;
   flex-wrap: wrap;

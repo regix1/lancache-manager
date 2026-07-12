@@ -4,7 +4,6 @@ import { ChevronDown, ChevronUp, EyeOff, Search, Undo2 } from 'lucide-react';
 import { Pagination } from '@components/ui/Pagination';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
-import { Button } from '@components/ui/Button';
 import Badge from '@components/ui/Badge';
 import { usePaginatedList } from '@hooks/usePaginatedList';
 import { formatCount } from '@utils/formatters';
@@ -203,28 +202,28 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
           </span>
           {mode === 'review' && (
             <div className="mgmt-evidence__actions">
-              <Button
-                variant="subtle"
-                size="xs"
+              <button
+                type="button"
+                className="mgmt-evidence__action"
                 onClick={() => dismissChunk(chunk.candidate_id)}
-                leftSection={<EyeOff className="w-3.5 h-3.5" />}
                 title={t('management.corruption.dismiss')}
+                aria-label={t('management.corruption.dismiss')}
               >
-                {t('management.corruption.dismiss')}
-              </Button>
+                <EyeOff className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
           {mode === 'dismissed' && (
             <div className="mgmt-evidence__actions">
-              <Button
-                variant="subtle"
-                size="xs"
+              <button
+                type="button"
+                className="mgmt-evidence__action"
                 onClick={() => restoreChunk(chunk.candidate_id)}
-                leftSection={<Undo2 className="w-3.5 h-3.5" />}
                 title={t('management.corruption.restore')}
+                aria-label={t('management.corruption.restore')}
               >
-                {t('management.corruption.restore')}
-              </Button>
+                <Undo2 className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
         </div>
@@ -388,15 +387,15 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
                   </span>
                 </button>
                 {activeReview.length > 1 && (
-                  <Button
-                    variant="subtle"
-                    size="xs"
+                  <button
+                    type="button"
+                    className="mgmt-evidence__bulk"
                     onClick={dismissAll}
-                    leftSection={<EyeOff className="w-3.5 h-3.5" />}
                     title={t('management.corruption.dismissAll')}
                   >
-                    {t('management.corruption.dismissAll')}
-                  </Button>
+                    <EyeOff className="w-3.5 h-3.5" />
+                    <span>{t('management.corruption.dismissAll')}</span>
+                  </button>
                 )}
               </div>
               <CollapsibleRegion open={reviewOpen}>
@@ -444,15 +443,15 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks }) => 
                   </span>
                 </button>
                 {dismissedReview.length > 1 && (
-                  <Button
-                    variant="subtle"
-                    size="xs"
+                  <button
+                    type="button"
+                    className="mgmt-evidence__bulk"
                     onClick={restoreAll}
-                    leftSection={<Undo2 className="w-3.5 h-3.5" />}
                     title={t('management.corruption.restoreAll')}
                   >
-                    {t('management.corruption.restoreAll')}
-                  </Button>
+                    <Undo2 className="w-3.5 h-3.5" />
+                    <span>{t('management.corruption.restoreAll')}</span>
+                  </button>
                 )}
               </div>
               <CollapsibleRegion open={dismissedOpen}>
