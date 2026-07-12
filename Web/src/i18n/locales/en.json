@@ -164,7 +164,7 @@
         "serviceRemoval": "Service Cache Removal",
         "gameRemoval": "Game Cache Removal",
         "corruptionRemoval": "Suspect Cache File Removal",
-        "corruptionDetection": "Corrupt Cache File Scan",
+        "corruptionDetection": "Corruption Scan",
         "databaseReset": "Database Reset",
         "depotMapping": "Depot Mapping",
         "gameDetection": "Game Detection",
@@ -181,7 +181,7 @@
       "cacheFilesDeleted_other": "{{formattedCount}} cache files deleted",
       "cancelCacheClearing": "Cancel cache clearing",
       "cancelCorruptionRemoval": "Cancel suspect cache file removal",
-      "cancelCorruptionDetection": "Cancel corrupt cache file scan",
+      "cancelCorruptionDetection": "Cancel corruption scan",
       "cancelDepotMapping": "Cancel depot mapping",
       "cancelGameDetection": "Cancel game detection",
       "cancelGameRemoval": "Cancel game removal",
@@ -1944,7 +1944,7 @@
             "affectedPages": "Cache tab • Game detection cards"
           },
           "cachedCorruptionDetections": {
-            "label": "Corrupt Cache File Scan Results",
+            "label": "Corruption Scan Results",
             "description": "Saved repeated-MISS candidates with exact cache paths",
             "details": "Pre-computed suspect cache files verified present by the scan",
             "affectedPages": "Cache tab • Corruption Detection and Removal"
@@ -2585,12 +2585,12 @@
       "notifications": {
         "loadedResults": "Loaded {{count}} flagged cache files across {{services}} services",
         "noCorruptedInPrevious": "No flagged cache files were found in the previous scan",
-        "noPreviousResults": "No previous corrupt cache file scan was found"
+        "noPreviousResults": "No previous corruption scan was found"
       },
       "errors": {
         "loadCachedData": "Failed to load saved scan results",
         "loadCachedRetry": "Retry loading the current actionable scan before removing files.",
-        "startScan": "Failed to start the corrupt cache file scan",
+        "startScan": "Failed to start the corruption scan",
         "removeCorrupted": "Failed to remove flagged cache files for {{service}}",
         "loadDetails": "Failed to load flagged cache files for {{service}}",
         "removeAllCorrupted": "Failed to remove the selected flagged cache files",
@@ -6439,17 +6439,18 @@
       }
     },
     "corruptionDetect": {
-      "starting": "Starting corrupt cache file scan…",
+      "starting": "Starting corruption scan…",
       "startingRepeatedMiss": "Starting repeated-MISS scan…",
       "startingStructural": "Starting structural integrity scan…",
       "scanning": "Scanning cache corruption evidence…",
       "scanningLogs": "Scanning log files for repeated misses on cache files still present on disk…",
       "scanningHeaders": "Checking nginx cache headers, payload offsets, and payload lengths…",
-      "complete": "Corrupt cache file scan complete: {{count}} suspect files found.",
+      "enumerating": "Enumerating cache files… {{count}} found",
+      "complete": "Corruption scan complete: {{count}} suspect files found.",
       "completeRepeatedMiss": "Repeated-MISS scan complete: {{count}} suspect files found.",
       "completeStructural": "Structural scan complete: {{count}} invalid cache files found.",
-      "cancelled": "Corrupt cache file scan cancelled by user",
-      "failed": "Corrupt cache file scan failed: {{errorDetail}}"
+      "cancelled": "Corruption scan cancelled by user",
+      "failed": "Corruption scan failed: {{errorDetail}}"
     },
     "corruptionRemove": {
       "starting": "Starting suspect cache file removal for {{service}}",

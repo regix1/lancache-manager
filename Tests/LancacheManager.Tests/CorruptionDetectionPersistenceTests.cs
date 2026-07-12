@@ -158,6 +158,36 @@ public sealed class CorruptionDetectionPersistenceTests
             ScanStartedWire);
     }
 
+    [Theory]
+    [InlineData(StructuralCorruptionIssue.TruncatedCacheHeader)]
+    [InlineData(StructuralCorruptionIssue.MalformedCacheHeader)]
+    public void StructuralHeaderFindings_AcceptOffsetsBeyondFileLength(
+        StructuralCorruptionIssue issue)
+    {
+        var candidate = StructuralCandidate(issue.ToString());
+        var evidence = Assert.IsType<StructuralCorruptionEvidence>(candidate.Evidence);
+        // The scanner proves the header offset before it can prove the file holds it, so a
+        // truncated/malformed header carries body_start (and header_start) beyond the file
+        // length while tagged only with its own issue. Validation must accept that instead of
+        // failing the entire structural scan.
+        evidence.Issues = [issue];
+        evidence.CacheKey = string.Empty;
+        evidence.FileLength = 40;
+        evidence.HeaderStart = 54;
+        evidence.BodyStart = 56;
+        evidence.Fingerprint.Length = 40;
+        Assert.True(evidence.BodyStart > evidence.FileLength);
+        var report = StructuralReport("default", candidate);
+
+        CorruptionDetectionService.ValidateAndAttachDatasource(
+            report.Report,
+            "default",
+            3,
+            LookbackDays,
+            CorruptionDetectionMethod.Structural,
+            ScanStartedWire);
+    }
+
     [Fact]
     public void ReportValidation_RejectsMethodEvidenceCountsAndPhysicalIdentityMismatches()
     {

@@ -1356,9 +1356,7 @@ public class CorruptionDetectionService
             && (evidence.BodyStart > evidence.FileLength
                 || (evidence.HeaderStart.HasValue && evidence.HeaderStart > evidence.BodyStart)))
         {
-            var offsetIssue = evidence.Issues.Contains(StructuralCorruptionIssue.InvalidPayloadOffset)
-                || evidence.Issues.Contains(StructuralCorruptionIssue.TruncatedBeforePayload);
-            if (!offsetIssue)
+            if (!evidence.Issues.Any(AllowsOutOfRangeStructuralOffsets))
             {
                 throw new InvalidDataException("Structural offsets were inconsistent without a matching issue");
             }
@@ -1368,6 +1366,17 @@ public class CorruptionDetectionService
     private static bool AllowsMissingStructuralCacheKey(StructuralCorruptionIssue issue) => issue is
         StructuralCorruptionIssue.EmptyCacheFile
         or StructuralCorruptionIssue.TruncatedCacheHeader
+        or StructuralCorruptionIssue.MalformedCacheHeader
+        or StructuralCorruptionIssue.InvalidPayloadOffset
+        or StructuralCorruptionIssue.TruncatedBeforePayload;
+
+    // The scanner proves a header offset before it can prove the file is long enough to hold
+    // it, so a truncated or malformed header legitimately reports header/body offsets that fall
+    // beyond the file length (or a header that starts after the body). Every other finding kind
+    // is only emitted once the offsets have been validated against the file, so it must never
+    // carry an out-of-range offset.
+    private static bool AllowsOutOfRangeStructuralOffsets(StructuralCorruptionIssue issue) => issue is
+        StructuralCorruptionIssue.TruncatedCacheHeader
         or StructuralCorruptionIssue.MalformedCacheHeader
         or StructuralCorruptionIssue.InvalidPayloadOffset
         or StructuralCorruptionIssue.TruncatedBeforePayload;

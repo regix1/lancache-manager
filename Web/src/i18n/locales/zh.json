@@ -164,7 +164,7 @@
         "serviceRemoval": "服务缓存移除",
         "gameRemoval": "游戏缓存移除",
         "corruptionRemoval": "可疑缓存文件移除",
-        "corruptionDetection": "损坏缓存文件扫描",
+        "corruptionDetection": "损坏扫描",
         "databaseReset": "数据库重置",
         "depotMapping": "仓库映射",
         "gameDetection": "游戏检测",
@@ -181,7 +181,7 @@
       "cacheFilesDeleted_other": "已删除 {{formattedCount}} 个缓存文件",
       "cancelCacheClearing": "取消缓存清理",
       "cancelCorruptionRemoval": "取消可疑缓存文件移除",
-      "cancelCorruptionDetection": "取消损坏缓存文件扫描",
+      "cancelCorruptionDetection": "取消损坏扫描",
       "cancelDepotMapping": "取消仓库映射",
       "cancelGameDetection": "取消游戏检测",
       "cancelGameRemoval": "取消游戏移除",
@@ -1944,7 +1944,7 @@
             "affectedPages": "缓存标签页 • 游戏检测卡片"
           },
           "cachedCorruptionDetections": {
-            "label": "损坏缓存文件扫描结果",
+            "label": "损坏扫描结果",
             "description": "已保存的重复 MISS 候选项及其精确缓存路径",
             "details": "扫描验证为仍在磁盘上的预计算可疑缓存文件",
             "affectedPages": "缓存标签页 • 损坏检测与移除"
@@ -2585,12 +2585,12 @@
       "notifications": {
         "loadedResults": "已加载 {{count}} 个已标记缓存文件，涉及 {{services}} 个服务",
         "noCorruptedInPrevious": "上一次扫描未发现已标记缓存文件",
-        "noPreviousResults": "未找到之前的损坏缓存文件扫描"
+        "noPreviousResults": "未找到之前的损坏扫描"
       },
       "errors": {
         "loadCachedData": "加载已保存的扫描结果失败",
         "loadCachedRetry": "移除文件前，请重试加载当前可操作扫描。",
-        "startScan": "启动损坏缓存文件扫描失败",
+        "startScan": "启动损坏扫描失败",
         "removeCorrupted": "移除 {{service}} 的已标记缓存文件失败",
         "loadDetails": "加载 {{service}} 的已标记缓存文件失败",
         "removeAllCorrupted": "移除所选已标记缓存文件失败",
@@ -6409,17 +6409,18 @@
       }
     },
     "corruptionDetect": {
-      "starting": "正在开始损坏缓存文件扫描…",
+      "starting": "正在开始损坏扫描…",
       "startingRepeatedMiss": "正在开始重复 MISS 扫描…",
       "startingStructural": "正在开始结构完整性扫描…",
       "scanning": "正在扫描缓存损坏证据…",
       "scanningLogs": "正在扫描日志文件，查找仍在磁盘上却反复未命中的缓存文件…",
       "scanningHeaders": "正在检查 nginx 缓存头、有效负载偏移和有效负载长度…",
-      "complete": "损坏缓存文件扫描完成：发现 {{count}} 个可疑文件。",
+      "enumerating": "正在枚举缓存文件…已发现 {{count}} 个",
+      "complete": "损坏扫描完成：发现 {{count}} 个可疑文件。",
       "completeRepeatedMiss": "重复 MISS 扫描完成：发现 {{count}} 个可疑文件。",
       "completeStructural": "结构扫描完成：发现 {{count}} 个无效缓存文件。",
-      "cancelled": "用户已取消损坏缓存文件扫描",
-      "failed": "损坏缓存文件扫描失败：{{errorDetail}}"
+      "cancelled": "用户已取消损坏扫描",
+      "failed": "损坏扫描失败：{{errorDetail}}"
     },
     "corruptionRemove": {
       "starting": "开始移除 {{service}} 的可疑缓存文件",

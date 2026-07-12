@@ -381,6 +381,12 @@ export const formatCorruptionDetectionStartedMessage = (
 export const formatCorruptionDetectionProgressMessage = (
   event: CorruptionDetectionProgressEvent
 ): string => {
+  // The enumerating/counting phase reports a rising `count` of cache files
+  // discovered; surface the live count instead of freezing on the scanning
+  // header message at 0%. Default count to 0 so the placeholder always resolves.
+  if (event.stageKey === 'signalr.corruptionDetect.enumerating') {
+    return i18n.t(event.stageKey, { count: 0, ...(event.context ?? {}) });
+  }
   if (event.stageKey && event.stageKey !== 'signalr.corruptionDetect.scanning') {
     return i18n.t(event.stageKey, event.context ?? {});
   }

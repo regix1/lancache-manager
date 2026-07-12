@@ -693,13 +693,16 @@ fn read_prefix(file: &mut File, file_len: u64, layout: Layout) -> Result<(Vec<u8
     Ok((prefix, bytes_read))
 }
 
+// Retained for the structural-scanner test harness (see cache_corruption.rs); the scan hot
+// path now calls inspect_path_with_layout directly with a pre-computed digest.
+#[allow(dead_code)]
 pub fn inspect_path(
     root: &Path,
     path: &Path,
     now: SystemTime,
     detected_at: DateTime<Utc>,
 ) -> Result<Inspection> {
-    let Some(_) = cache_utils::strict_cache_file_digest(root, path) else {
+    let Some(path_digest) = cache_utils::strict_cache_file_digest(root, path) else {
         return Ok(Inspection {
             outcome: InspectionOutcome::Skip(SkipReason::ForeignPath.as_str()),
             bytes_read: 0,
@@ -713,34 +716,29 @@ pub fn inspect_path(
             sparse: false,
         });
     };
-    inspect_path_with_layout(root, path, now, detected_at, layout)
+    inspect_path_with_layout(root, path, path_digest, now, detected_at, layout)
 }
 
 fn inspect_path_with_layout(
     root: &Path,
     path: &Path,
+    path_digest: u128,
     now: SystemTime,
     detected_at: DateTime<Utc>,
     layout: Layout,
 ) -> Result<Inspection> {
-    inspect_path_with_layout_and_hook(root, path, now, detected_at, layout, || {})
+    inspect_path_with_layout_and_hook(root, path, path_digest, now, detected_at, layout, || {})
 }
 
 fn inspect_path_with_layout_and_hook<F: FnOnce()>(
     root: &Path,
     path: &Path,
+    path_digest: u128,
     now: SystemTime,
     detected_at: DateTime<Utc>,
     layout: Layout,
     after_read: F,
 ) -> Result<Inspection> {
-    let Some(path_digest) = cache_utils::strict_cache_file_digest(root, path) else {
-        return Ok(Inspection {
-            outcome: InspectionOutcome::Skip(SkipReason::ForeignPath.as_str()),
-            bytes_read: 0,
-            sparse: false,
-        });
-    };
     if has_symlink_component(root, path)? {
         return Ok(Inspection {
             outcome: InspectionOutcome::Skip(SkipReason::Symlink.as_str()),
@@ -912,26 +910,40 @@ fn update_progress(
     let Some(path) = progress_path else {
         return Ok(());
     };
-    let percent = if pass == "counting" {
+    let counting = pass == "counting";
+    // The counting pass does not yet know the total, so a percentage would be a misleading
+    // frozen 0%. Emit a distinct, count-driven stage instead and leave the percent
+    // indeterminate (zeroed) so the frontend can render the running eligible-file count.
+    let stage_key = if counting {
+        "signalr.corruptionDetect.enumerating"
+    } else {
+        "signalr.corruptionDetect.scanningHeaders"
+    };
+    let percent = if counting {
         0.0
     } else if total == 0 {
         100.0
     } else {
         (processed as f64 / total as f64 * 100.0).min(99.9)
     };
+    let mut context = serde_json::json!({
+        "detectionMethod": "structural",
+        "pass": pass,
+        "filesProcessed": processed,
+        "totalFiles": total,
+        "totalCorrupted": candidates,
+        "coverage": coverage,
+    });
+    if counting {
+        // `processed` carries the running eligible-file count during the counting pass.
+        context["count"] = serde_json::json!(processed);
+    }
     progress_utils::write_progress_json(
         path,
         &ScanProgress {
             status: status.to_string(),
-            stage_key: "signalr.corruptionDetect.scanningHeaders".to_string(),
-            context: serde_json::json!({
-                "detectionMethod": "structural",
-                "pass": pass,
-                "filesProcessed": processed,
-                "totalFiles": total,
-                "totalCorrupted": candidates,
-                "coverage": coverage,
-            }),
+            stage_key: stage_key.to_string(),
+            context,
             percent_complete: percent,
             files_processed: processed,
             total_files: total,
@@ -980,9 +992,19 @@ fn scan_with_cancellation<F: FnMut() -> bool>(
         bail!("structural cache root changed during setup");
     }
 
+    let scan_started_at = std::time::Instant::now();
+    eprintln!(
+        "[structural] scan starting under {}",
+        canonical_root.display()
+    );
+
     let mut total = 0usize;
     let mut cancelled = false;
     let mut coverage = StructuralCoverage::default();
+    // Emit the enumerating stage immediately so the UI leaves any prior scanningHeaders/0%
+    // state instead of sitting on a frozen 0% for the whole (potentially multi-minute) count.
+    update_progress(progress_path, "scanning", "counting", 0, 0, 0, &coverage)?;
+    eprintln!("[structural] enumerating cache files (this pass computes the total)...");
     for entry in walk(root) {
         if cancellation_requested() {
             cancelled = true;
@@ -1004,7 +1026,7 @@ fn scan_with_cancellation<F: FnMut() -> bool>(
         };
         if cache_utils::strict_cache_file_digest(root, &entry.path()).is_some() {
             total = total.saturating_add(1);
-            if total.is_multiple_of(10_000) {
+            if total.is_multiple_of(2_000) {
                 update_progress(
                     progress_path,
                     "scanning",
@@ -1015,21 +1037,32 @@ fn scan_with_cancellation<F: FnMut() -> bool>(
                     &coverage,
                 )?;
             }
+            if total.is_multiple_of(50_000) {
+                eprintln!("[structural] enumerated {total} eligible cache files so far...");
+            }
         }
     }
+    eprintln!(
+        "[structural] enumeration complete: {total} eligible cache files in {:.1}s (cancelled={cancelled})",
+        scan_started_at.elapsed().as_secs_f64()
+    );
 
     let mut candidates = Vec::new();
+    // Final counting emit: report the full eligible-file count now that enumeration finished.
     update_progress(
         progress_path,
         "scanning",
         "counting",
-        0,
+        total,
         total,
         0,
         &coverage,
     )?;
     if !cancelled {
         let now = SystemTime::from(scan_started_utc);
+        // Resolve the native cache-header layout once; it is compile-time constant.
+        let layout = Layout::native();
+        eprintln!("[structural] inspecting {total} cache files...");
         for entry in walk(root) {
             if cancellation_requested() {
                 cancelled = true;
@@ -1050,11 +1083,23 @@ fn scan_with_cancellation<F: FnMut() -> bool>(
                 }
             };
             let path = entry.path();
-            if cache_utils::strict_cache_file_digest(root, &path).is_none() {
+            // Compute the strict cache digest ONCE here and thread it into the inspector so it
+            // is not recomputed inside inspect_path_with_layout_and_hook.
+            let Some(path_digest) = cache_utils::strict_cache_file_digest(root, &path) else {
                 continue;
-            }
+            };
             coverage.files_seen += 1;
-            match inspect_path(root, &path, now, scan_started_utc) {
+            let inspection = match layout {
+                Some(layout) => {
+                    inspect_path_with_layout(root, &path, path_digest, now, scan_started_utc, layout)
+                }
+                None => Ok(Inspection {
+                    outcome: InspectionOutcome::Skip(SkipReason::UnsupportedPlatform.as_str()),
+                    bytes_read: 0,
+                    sparse: false,
+                }),
+            };
+            match inspection {
                 Ok(inspection) => {
                     coverage.bytes_read = coverage.bytes_read.saturating_add(inspection.bytes_read);
                     coverage.sparse_files += usize::from(inspection.sparse);
@@ -1088,7 +1133,7 @@ fn scan_with_cancellation<F: FnMut() -> bool>(
                 }
             }
             let processed = coverage.files_seen;
-            if processed.is_multiple_of(10_000) {
+            if processed.is_multiple_of(2_000) {
                 update_progress(
                     progress_path,
                     "scanning",
@@ -1099,8 +1144,26 @@ fn scan_with_cancellation<F: FnMut() -> bool>(
                     &coverage,
                 )?;
             }
+            if processed.is_multiple_of(50_000) {
+                eprintln!(
+                    "[structural] inspected {processed}/{total} files, {} suspects so far...",
+                    candidates.len()
+                );
+            }
         }
     }
+    eprintln!(
+        "[structural] scan finished in {:.1}s: files_seen={} files_checked={} consistent={} suspects={} sparse={} io_errors={} bytes_read={} skipped_by_reason={:?} (cancelled={cancelled})",
+        scan_started_at.elapsed().as_secs_f64(),
+        coverage.files_seen,
+        coverage.files_checked,
+        coverage.consistent,
+        candidates.len(),
+        coverage.sparse_files,
+        coverage.io_errors,
+        coverage.bytes_read,
+        coverage.skipped_by_reason
+    );
     candidates.sort_by(|left, right| left.exact_paths.cmp(&right.exact_paths));
     let mut service_counts = BTreeMap::new();
     for candidate in &candidates {
@@ -1162,9 +1225,9 @@ fn revalidate_for_removal_with_layout(
         bail!("structural candidate has no issues");
     }
     let path = PathBuf::from(&candidate.exact_paths[0]);
-    if cache_utils::strict_cache_file_digest(root, &path).is_none() {
+    let Some(path_digest) = cache_utils::strict_cache_file_digest(root, &path) else {
         bail!("structural candidate path has an invalid cache layout");
-    }
+    };
     match std::fs::symlink_metadata(&path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Ok(RemovalDisposition::Missing)
@@ -1174,7 +1237,7 @@ fn revalidate_for_removal_with_layout(
         }
         Ok(_) => {}
     }
-    let inspection = inspect_path_with_layout(root, &path, now, Utc::now(), layout)?;
+    let inspection = inspect_path_with_layout(root, &path, path_digest, now, Utc::now(), layout)?;
     match inspection.outcome {
         InspectionOutcome::Consistent => Ok(RemovalDisposition::Healed),
         InspectionOutcome::Skip("cancelled") => Ok(RemovalDisposition::Cancelled),
@@ -1541,6 +1604,7 @@ mod tests {
         let inspection = inspect_path_with_layout(
             temp.path(),
             &path,
+            cache_utils::strict_cache_file_digest(temp.path(), &path).unwrap(),
             old_now(),
             Utc::now(),
             Layout::linux_x86_64(),
@@ -1612,6 +1676,7 @@ mod tests {
         let recent = inspect_path_with_layout(
             temp.path(),
             &path,
+            cache_utils::strict_cache_file_digest(temp.path(), &path).unwrap(),
             SystemTime::now(),
             Utc::now(),
             Layout::linux_x86_64(),
@@ -1623,6 +1688,7 @@ mod tests {
         let changed = inspect_path_with_layout_and_hook(
             temp.path(),
             &path,
+            cache_utils::strict_cache_file_digest(temp.path(), &path).unwrap(),
             old_now(),
             Utc::now(),
             Layout::linux_x86_64(),
@@ -1647,6 +1713,7 @@ mod tests {
         let inspection = inspect_path_with_layout(
             temp.path(),
             &path,
+            cache_utils::strict_cache_file_digest(temp.path(), &path).unwrap(),
             old_now(),
             Utc::now(),
             Layout::linux_x86_64(),
@@ -1755,6 +1822,7 @@ mod tests {
         let inspection = inspect_path_with_layout(
             temp.path(),
             &path,
+            cache_utils::strict_cache_file_digest(temp.path(), &path).unwrap(),
             old_now(),
             Utc::now(),
             Layout::linux_x86_64(),
@@ -1787,6 +1855,7 @@ mod tests {
         let inspection = inspect_path_with_layout(
             temp.path(),
             &path,
+            cache_utils::strict_cache_file_digest(temp.path(), &path).unwrap(),
             old_now(),
             Utc::now(),
             Layout::linux_x86_64(),
@@ -1805,6 +1874,7 @@ mod tests {
         let inspection = inspect_path_with_layout(
             &fifo_root,
             &fifo,
+            cache_utils::strict_cache_file_digest(&fifo_root, &fifo).unwrap(),
             old_now(),
             Utc::now(),
             Layout::linux_x86_64(),
@@ -1828,6 +1898,7 @@ mod tests {
         let inspection = inspect_path_with_layout(
             temp.path(),
             &path,
+            cache_utils::strict_cache_file_digest(temp.path(), &path).unwrap(),
             old_now(),
             Utc::now(),
             Layout::linux_x86_64(),
