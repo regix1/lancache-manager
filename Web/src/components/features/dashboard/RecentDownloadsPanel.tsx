@@ -21,6 +21,7 @@ import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import EventBadge from '../downloads/EventBadge';
 import { storage } from '@utils/storage';
 import { STORAGE_KEYS } from '@utils/constants';
+import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import type {
   Download,
   DownloadGroup,
@@ -364,12 +365,13 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           // Group by service for all platforms (including unmapped Steam)
           const svcLower = (download.service ?? '').toLowerCase();
           groupKey = `service-${svcLower}`;
+          const displayService = getServiceDisplayName(download.service ?? '');
           groupName =
             svcLower === 'epicgames'
               ? 'Epic Games'
               : svcLower === 'steam'
                 ? 'Steam Downloads'
-                : `${(download.service ?? '').charAt(0).toUpperCase() + (download.service ?? '').slice(1)} Downloads`;
+                : `${displayService.charAt(0).toUpperCase() + displayService.slice(1)} Downloads`;
           groupType = download.totalBytes === 0 ? 'metadata' : 'content';
         }
 
@@ -634,13 +636,16 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       {viewMode === 'recent' && latestDownloads.length > 0 && (
         <div className="rdl-filters">
           <EnhancedDropdown
-            options={availableServices.map((service) => ({
-              value: service,
-              label:
-                service === 'all'
-                  ? t('dashboard.downloadsPanel.allServices')
-                  : service.charAt(0).toUpperCase() + service.slice(1)
-            }))}
+            options={availableServices.map((service) => {
+              if (service === 'all') {
+                return { value: service, label: t('dashboard.downloadsPanel.allServices') };
+              }
+              const displayService = getServiceDisplayName(service);
+              return {
+                value: service,
+                label: displayService.charAt(0).toUpperCase() + displayService.slice(1)
+              };
+            })}
             value={selectedService}
             onChange={setSelectedService}
           />

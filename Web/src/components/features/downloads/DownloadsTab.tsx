@@ -52,6 +52,7 @@ import DownloadsHeader from './DownloadsHeader';
 import ActiveDownloadsView from './ActiveDownloadsView';
 
 import type { Download, DownloadGroup } from '../../../types';
+import { getServiceDisplayName } from '@utils/serviceDisplayName';
 
 // Storage keys for persistence
 const STORAGE_KEYS = {
@@ -754,11 +755,15 @@ const DownloadsTab: React.FC = () => {
   }, [availableServices, latestDownloads]);
 
   const serviceOptions = useMemo(() => {
+    const serviceLabel = (service: string) => {
+      const displayService = getServiceDisplayName(service);
+      return displayService.charAt(0).toUpperCase() + displayService.slice(1);
+    };
     const baseOptions = [
       { value: 'all', label: t('downloads.tab.filters.allServices') },
       ...filteredAvailableServices.map((service) => ({
         value: service,
-        label: service.charAt(0).toUpperCase() + service.slice(1)
+        label: serviceLabel(service)
       }))
     ];
 
@@ -771,7 +776,7 @@ const DownloadsTab: React.FC = () => {
         { value: 'divider', label: t('downloads.tab.filters.smallFilesOnly') },
         ...hiddenServices.map((service) => ({
           value: service,
-          label: `${service.charAt(0).toUpperCase() + service.slice(1)}`
+          label: serviceLabel(service)
         }))
       );
     }
@@ -967,10 +972,11 @@ const DownloadsTab: React.FC = () => {
       } else if ((download.service ?? '').toLowerCase() !== 'steam') {
         const svcLower = (download.service ?? '').toLowerCase();
         groupKey = `service-${svcLower}`;
+        const displayService = getServiceDisplayName(download.service ?? '');
         groupName =
           svcLower === 'epicgames'
             ? 'Epic Games'
-            : `${(download.service ?? '').charAt(0).toUpperCase() + (download.service ?? '').slice(1)} Downloads`;
+            : `${displayService.charAt(0).toUpperCase() + displayService.slice(1)} Downloads`;
         groupType = download.totalBytes === 0 ? 'metadata' : 'content';
       } else {
         // Unmapped Steam downloads - group at service level like other services
