@@ -5,6 +5,7 @@ import { Pagination } from '@components/ui/Pagination';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import Badge from '@components/ui/Badge';
 import { usePaginatedList } from '@hooks/usePaginatedList';
+import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import type { CorruptedChunkDetail } from '@/types';
 import '../managementSectionContent.css';
 
@@ -19,6 +20,31 @@ interface CorruptionChunkListProps {
 // page so the expanded row never renders a giant list, and give the search box/pagination
 // something to do only once the list is large enough to warrant them.
 const CHUNKS_PER_PAGE = 25;
+
+interface EvidenceObservedAtProps {
+  firstSeen: string;
+  lastSeen: string;
+}
+
+const EvidenceObservedAt: React.FC<EvidenceObservedAtProps> = ({ firstSeen, lastSeen }) => {
+  const { t } = useTranslation();
+  const formattedFirst = useFormattedDateTime(firstSeen, true);
+  const formattedLast = useFormattedDateTime(lastSeen, true);
+
+  return (
+    <div className="mgmt-kv__cell mgmt-kv__cell--wide">
+      <dt>{t('management.corruption.observedAt')}</dt>
+      <dd className="tabular-nums">
+        {firstSeen === lastSeen
+          ? formattedFirst
+          : t('management.corruption.observedWindow', {
+              first: formattedFirst,
+              last: formattedLast
+            })}
+      </dd>
+    </div>
+  );
+};
 
 /**
  * Renders one service's corrupted-chunk details of a single kind (removable OR review-only,
@@ -110,8 +136,18 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks, varia
             )}
           </div>
           <span className="mgmt-evidence__count">
-            {t('management.corruption.evidenceCount')}{' '}
-            <strong className="text-themed-error">{chunk.evidence_count}</strong>
+            {chunk.reason === 'missing_cached_slice' ? (
+              <strong className="text-themed-secondary">
+                {t('management.corruption.priorCacheProof', {
+                  count: chunk.evidence_count
+                })}
+              </strong>
+            ) : (
+              <>
+                {t('management.corruption.evidenceCount')}{' '}
+                <strong className="text-themed-error">{chunk.evidence_count}</strong>
+              </>
+            )}
           </span>
         </div>
 
@@ -142,6 +178,7 @@ const CorruptionChunkList: React.FC<CorruptionChunkListProps> = ({ chunks, varia
             <dt>{t('management.corruption.reason')}</dt>
             <dd>{reason}</dd>
           </div>
+          <EvidenceObservedAt firstSeen={chunk.first_seen} lastSeen={chunk.last_seen} />
           <div className="mgmt-kv__cell mgmt-kv__cell--wide">
             <dt>
               {t(
