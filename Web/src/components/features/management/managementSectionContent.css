@@ -185,9 +185,9 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  /* right padding keeps the trailing count/action clear of the scrollbar; the row divider
-     is drawn on the element box so it still spans the full width. */
-  padding: 0.625rem 0.5rem 0.625rem 0;
+  /* comfortable padding on all sides so a finding is not crushed against the container edges
+     or the scrollbar; the row divider is drawn on the element box so it still spans full width. */
+  padding: 0.75rem;
 }
 
 .mgmt-evidence:first-child {
@@ -219,7 +219,7 @@
   display: block;
   min-width: 0;
   max-width: 100%;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   white-space: normal;
   overflow-wrap: anywhere;
   user-select: text;
@@ -230,7 +230,7 @@
   flex-direction: column;
   gap: 0.0625rem;
   min-width: 0;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   color: var(--theme-text-muted);
 }
 
@@ -238,7 +238,7 @@
   flex-shrink: 0;
   text-align: right;
   white-space: nowrap;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   color: var(--theme-text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -268,7 +268,7 @@
 
 .mgmt-kv__cell {
   min-width: 0;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   overflow-wrap: anywhere;
 }
 
@@ -299,6 +299,6 @@
 }
 
 .mgmt-kv__cell code {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
 }
 

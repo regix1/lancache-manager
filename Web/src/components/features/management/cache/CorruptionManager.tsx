@@ -913,6 +913,29 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     if (!loaded) setExpandedReviewService((prev) => (prev === service ? null : prev));
   };
 
+  // A whole service row toggles its own details when its header area is clicked, matching the
+  // AccordionSection header. Clicks on the checkbox or the action buttons keep their own behavior.
+  const rowToggleHandlers = (toggle: () => void) => {
+    const fromControl = (target: EventTarget | null) =>
+      target instanceof HTMLElement &&
+      target.closest(
+        'button, input, a, label, [role="button"], [role="checkbox"], [role="listbox"], [role="combobox"]'
+      ) !== null;
+    return {
+      role: 'button' as const,
+      tabIndex: 0,
+      onClick: (event: React.MouseEvent) => {
+        if (!fromControl(event.target)) toggle();
+      },
+      onKeyDown: (event: React.KeyboardEvent) => {
+        if ((event.key === 'Enter' || event.key === ' ') && !fromControl(event.target)) {
+          event.preventDefault();
+          toggle();
+        }
+      }
+    };
+  };
+
   const corruptionList = corruptionProjection.rows;
   // The main list only shows services you can act on; everything review-only is pulled into a
   // single top-level "Review only" accordion below. A service with both appears in both.
@@ -1250,7 +1273,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                           const serviceCanRemove = isServiceRemovable(service);
                           return (
                             <div key={`corruption-${service}`}>
-                              <div className="mgmt-row mgmt-row--interactive flex-wrap">
+                              <div
+                                className="mgmt-row mgmt-row--interactive flex-wrap cursor-pointer"
+                                {...rowToggleHandlers(() => toggleCorruptionDetails(service))}
+                              >
                                 <Checkbox
                                   checked={selection.isSelected(service)}
                                   onChange={() => selection.toggle(service)}
@@ -1399,7 +1425,10 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                           const isRowExpanded = expandedReviewService === service;
                           return (
                             <div key={`corruption-review-${service}`}>
-                              <div className="mgmt-row mgmt-row--interactive flex-wrap">
+                              <div
+                                className="mgmt-row mgmt-row--interactive flex-wrap cursor-pointer"
+                                {...rowToggleHandlers(() => toggleReviewDetails(service))}
+                              >
                                 <div className="mgmt-row__body">
                                   <p className="mgmt-row__title mgmt-row__title--service truncate">
                                     {getServiceDisplayName(service)}
