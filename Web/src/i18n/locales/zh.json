@@ -2458,6 +2458,11 @@
       "reviewSectionNote": "仅供查看，此处无需移除，缓存文件已不存在或属于正常的缓存清理，并非损坏。",
       "removableCount": "{{count}} 个可移除",
       "reviewCount": "{{count}} 个待审核",
+      "dismiss": "忽略",
+      "restore": "恢复",
+      "dismissAll": "全部忽略",
+      "restoreAll": "全部恢复",
+      "dismissedSectionTitle": "已忽略",
       "sliceKinds": {
         "no_range": "无范围缓存键",
         "noslice": "非切片缓存键",

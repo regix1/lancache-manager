@@ -234,6 +234,15 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Trailing per-finding controls (Dismiss / Restore) in the evidence head, mirroring the
+   row action cluster so review and dismissed findings get one tight, right-aligned slot. */
+.mgmt-evidence__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
 .mgmt-evidence__tags {
   display: flex;
   flex-wrap: wrap;
@@ -354,13 +363,26 @@
   flex-shrink: 0;
 }
 
-/* The review-only block is a distinct info-tinted panel so it never reads as part of the
-   removable list above it. The blue tint is a different hue from the neutral detail well,
-   so it stays visible even where a lighter/darker nested surface would not. */
+/* Header row for a collapsible evidence group: the quiet toggle grows to fill and a
+   bulk action (Dismiss all / Restore all) sits at the end on the same baseline. The
+   toggle drops its own full-width/margin here so the row owns layout and spacing. */
+.mgmt-evidence-grouphead-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.25rem;
+}
+
+.mgmt-evidence-grouphead-row .mgmt-evidence-grouptoggle {
+  flex: 1 1 auto;
+  width: auto;
+  margin: 0;
+}
+
+/* Review-only findings sit on the same neutral recessed well as the removable list. They
+   are set apart by their heading label and count, not by a colored panel, so the
+   highlighted values inside each finding stay readable. No fill and no border, so it
+   matches --removable exactly. */
 .mgmt-evidence-group--review {
-  padding: 0.5rem 0.75rem;
-  background: var(--theme-info-bg);
-  border: 1px solid var(--theme-info-subtle);
-  border-radius: var(--theme-border-radius);
-  background-clip: padding-box;
+  /* intentionally empty: neutral surface, no background or border */
 }

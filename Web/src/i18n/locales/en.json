@@ -2458,6 +2458,11 @@
       "reviewSectionNote": "Shown for inspection. Nothing to remove here, the cached file is already gone or this is normal cache cleanup, not corruption.",
       "removableCount": "{{count}} removable",
       "reviewCount": "{{count}} review",
+      "dismiss": "Dismiss",
+      "restore": "Restore",
+      "dismissAll": "Dismiss all",
+      "restoreAll": "Restore all",
+      "dismissedSectionTitle": "Dismissed",
       "sliceKinds": {
         "no_range": "no-range cache key",
         "noslice": "noslice cache key",
